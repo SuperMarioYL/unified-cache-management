@@ -23,6 +23,18 @@ ALLOWED_NON_RELEASE_WORKFLOWS = {
     "pull-request.yml",
     "push-check.yml",
 }
+WORKFLOW_SUFFIXES = {".yml", ".yaml"}
+SAFE_FORK_ACTIONS = {
+    "actions/cache",
+    "actions/checkout",
+    "actions/download-artifact",
+    "actions/setup-python",
+    "actions/upload-artifact",
+    "azure/setup-helm",
+    "docker/setup-buildx-action",
+    "docker/setup-qemu-action",
+    "sigstore/cosign-installer",
+}
 FORBIDDEN_STAGED_PATHS = {
     "ucm/store/compress/cc/compress_lib/tunstall_bf16.cc",
     "ucm/store/compress/cc/compress_lib/tunstall_bf16.h",
@@ -45,7 +57,7 @@ def _strings(value: object) -> list[str]:
 
 
 def _workflow_set_violations(workflow_dir: Path) -> list[str]:
-    actual = {path.name for path in workflow_dir.glob("*.yml")}
+    actual = {path.name for path in _workflow_paths(workflow_dir)}
     expected = EXPECTED_RELEASE_WORKFLOWS | ALLOWED_NON_RELEASE_WORKFLOWS
     if actual == expected:
         return []
@@ -53,6 +65,26 @@ def _workflow_set_violations(workflow_dir: Path) -> list[str]:
         "workflow file set must be exactly "
         f"{sorted(expected)}, found {sorted(actual)}"
     ]
+
+
+def _workflow_paths(workflow_dir: Path) -> list[Path]:
+    return sorted(
+        path
+        for path in workflow_dir.iterdir()
+        if path.is_file() and path.suffix in WORKFLOW_SUFFIXES
+    )
+
+
+def _release_workflow_documents(workflow_dir: Path) -> dict[str, object]:
+    """Audit expected release files and any unallowlisted workflow extension."""
+    documents: dict[str, object] = {}
+    for path in _workflow_paths(workflow_dir):
+        if (
+            path.name in EXPECTED_RELEASE_WORKFLOWS
+            or path.name not in ALLOWED_NON_RELEASE_WORKFLOWS
+        ):
+            documents[path.name] = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return documents
 
 
 def _has_upstream_guard(job: dict[object, object]) -> bool:
@@ -69,16 +101,56 @@ def _truthy(value: object) -> bool:
     return value is True or str(value).lower() == "true"
 
 
-def _dangerous_job_operations(job: dict[object, object]) -> list[str]:
+def _effective_permissions(
+    workflow_permissions: object, job: dict[object, object]
+) -> tuple[object, bool]:
+    """GitHub job permissions replace workflow permissions when explicitly set."""
+    if "permissions" in job:
+        return job["permissions"], False
+    return workflow_permissions, True
+
+
+def _permissions_grant_write(permissions: object) -> bool:
+    if isinstance(permissions, dict):
+        return any(str(value).lower() == "write" for value in permissions.values())
+    if isinstance(permissions, str):
+        normalized = permissions.lower().replace(" ", "")
+        return normalized == "write-all" or bool(
+            re.search(r"(?:^|,)\w+:write(?:,|$)", normalized)
+        )
+    return False
+
+
+def _action_operation(uses: object, inputs: object) -> str | None:
+    if not isinstance(uses, str) or not uses:
+        return None
+    action = uses.split("@", 1)[0].lower()
+    if action in SAFE_FORK_ACTIONS:
+        return None
+    if action == "docker/build-push-action":
+        if isinstance(inputs, dict) and _truthy(inputs.get("push")):
+            return "container publishing action"
+        return None
+    if action == "docker/login-action":
+        return "registry credential action"
+    if action.startswith("./.github/workflows/"):
+        workflow_name = Path(action).name
+        if workflow_name in EXPECTED_RELEASE_WORKFLOWS:
+            return None
+    return f"unapproved action {action}"
+
+
+def _dangerous_job_operations(
+    workflow_permissions: object, job: dict[object, object]
+) -> list[str]:
     """Return publication-capable operations that must be upstream-gated."""
     operations: list[str] = []
     if job.get("secrets") == "inherit":
         operations.append("secrets: inherit")
-    permissions = job.get("permissions")
-    if isinstance(permissions, dict) and any(
-        str(value) == "write" for value in permissions.values()
-    ):
-        operations.append("write permission")
+    permissions, inherited = _effective_permissions(workflow_permissions, job)
+    if _permissions_grant_write(permissions):
+        label = "workflow-inherited write permission" if inherited else "write permission"
+        operations.append(label)
     if "environment" in job:
         operations.append("protected environment")
 
@@ -96,26 +168,15 @@ def _dangerous_job_operations(job: dict[object, object]) -> list[str]:
         if re.search(pattern, job_text):
             operations.append(label)
 
+    job_action = _action_operation(job.get("uses"), job.get("with"))
+    if job_action:
+        operations.append(job_action)
     for step in job.get("steps", []) if isinstance(job.get("steps"), list) else []:
         if not isinstance(step, dict):
             continue
-        action = str(step.get("uses", "")).lower()
-        inputs = step.get("with", {})
-        if "docker/login-action" in action:
-            operations.append("registry login action")
-        if "docker/build-push-action" in action and isinstance(inputs, dict) and _truthy(
-            inputs.get("push")
-        ):
-            operations.append("container publishing action")
-        if any(
-            marker in action
-            for marker in (
-                "softprops/action-gh-release",
-                "ncipollo/release-action",
-                "peter-evans/repository-dispatch",
-            )
-        ):
-            operations.append("publishing or dispatch action")
+        action_operation = _action_operation(step.get("uses"), step.get("with"))
+        if action_operation:
+            operations.append(action_operation)
     return sorted(set(operations))
 
 
@@ -128,10 +189,11 @@ def _fork_isolation_violations(documents: dict[str, object]) -> list[str]:
         jobs = document.get("jobs", {})
         if not isinstance(jobs, dict):
             continue
+        workflow_permissions = document.get("permissions")
         for job_name, job in jobs.items():
             if not isinstance(job, dict):
                 continue
-            operations = _dangerous_job_operations(job)
+            operations = _dangerous_job_operations(workflow_permissions, job)
             if operations and not _has_upstream_guard(job):
                 violations.append(
                     f"{filename}:{job_name} exposes fork candidates to "
@@ -170,11 +232,7 @@ def test_release_workflows_are_compact_and_fork_candidate_is_read_only() -> None
         if re.search(r"\bgh\s+api\b.*\bdispatch", candidate_text):
             violations.append("fork-candidate must not dispatch workflows")
 
-    documents = {
-        path.name: yaml.safe_load(path.read_text(encoding="utf-8"))
-        for path in WORKFLOW_DIR.glob("*.yml")
-        if path.name in EXPECTED_RELEASE_WORKFLOWS
-    }
+    documents = _release_workflow_documents(WORKFLOW_DIR)
     violations.extend(_fork_isolation_violations(documents))
 
     assert not violations, "release workflow safety contract failed:\n- " + "\n- ".join(
@@ -192,15 +250,15 @@ def test_existing_cpp_changes_are_explicitly_forbidden_from_the_stage() -> None:
 
 
 def test_workflow_set_rejects_an_arbitrary_publish_workflow(tmp_path: Path) -> None:
-    """An unrecognised workflow file cannot evade the four-workflow budget."""
+    """An unrecognised YAML workflow cannot evade the four-workflow budget."""
     for filename in EXPECTED_RELEASE_WORKFLOWS | ALLOWED_NON_RELEASE_WORKFLOWS:
         (tmp_path / filename).write_text("name: allowed\n")
-    (tmp_path / "publish.yml").write_text("name: bypass\n")
+    (tmp_path / "publish.yaml").write_text("name: bypass\n")
 
     violations = _workflow_set_violations(tmp_path)
 
     assert len(violations) == 1
-    assert "publish.yml" in violations[0]
+    assert "publish.yaml" in violations[0]
 
 
 def test_fork_isolation_rejects_reusable_workflow_publish_mutations() -> None:
@@ -249,9 +307,9 @@ def test_fork_isolation_rejects_reusable_workflow_publish_mutations() -> None:
     for operation in (
         "secrets: inherit",
         "self-hosted runner",
-        "registry login action",
+        "registry credential action",
         "container publishing action",
-        "publishing or dispatch action",
+        "unapproved action softprops/action-gh-release",
         "Buildx publication",
         "registry login or publication",
         "workflow dispatch",
@@ -280,3 +338,57 @@ def test_fork_isolation_allows_a_read_only_reusable_build() -> None:
     }
 
     assert _fork_isolation_violations(documents) == []
+
+
+def test_yaml_workflow_inherits_write_permissions_and_rejects_unknown_actions(
+    tmp_path: Path,
+) -> None:
+    """Both permission inheritance and unknown action capability apply to .yaml."""
+    (tmp_path / "publish.yaml").write_text(
+        """
+permissions: write-all
+jobs:
+  inherited-permission:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/create-release@v1
+  job-permission:
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo publish
+""".lstrip(),
+        encoding="utf-8",
+    )
+    (tmp_path / "copy.yaml").write_text(
+        """
+permissions:
+  contents: write
+jobs:
+  inherited-map-permission:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo publish
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    violations = _fork_isolation_violations(_release_workflow_documents(tmp_path))
+
+    assert len(violations) == 3
+    assert any(
+        "publish.yaml:inherited-permission" in violation
+        and "workflow-inherited write permission" in violation
+        and "unapproved action actions/create-release" in violation
+        for violation in violations
+    )
+    assert any(
+        "publish.yaml:job-permission" in violation and "write permission" in violation
+        for violation in violations
+    )
+    assert any(
+        "copy.yaml:inherited-map-permission" in violation
+        and "workflow-inherited write permission" in violation
+        for violation in violations
+    )
