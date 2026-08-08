@@ -9,7 +9,13 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .core import sha256_value
+from .core import (
+    DEFAULT_SCHEMA_DIR,
+    canonical_bytes,
+    load_json,
+    sha256_value,
+    validate_schema,
+)
 
 
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
@@ -36,7 +42,13 @@ PLATFORM_KEYS = {
     "manifest_digest",
     "config_digest",
 }
-INVENTORY_KEYS = {"schema_version", "kind", "entries"}
+INVENTORY_KEYS = {
+    "schema_version",
+    "kind",
+    "repositories",
+    "entries",
+    "inventory_sha256",
+}
 ENTRY_KEYS = {
     "repository",
     "tag",
@@ -61,15 +73,75 @@ BUILD_INPUT_KEYS = {
     "wheel",
     "upstream",
     "compatibility_rule_id",
+    "compatibility_rule",
+    "compatibility_rule_sha256",
     "implementation_digest",
 }
-WHEEL_INPUT_KEYS = {"spec_id", "sha256", "declaration_sha256"}
+WHEEL_INPUT_KEYS = {
+    "spec_id",
+    "sha256",
+    "declaration_sha256",
+    "version",
+    "accelerator",
+    "accelerator_runtime",
+    "npu_arch_or_na",
+    "os",
+    "cpu_arch",
+    "python_abi",
+    "binary_profile_id",
+}
 UPSTREAM_INPUT_KEYS = {
     "repository",
     "exact_upstream_tag",
     "index_digest",
     "platforms",
 }
+WHEEL_RECORD_KEYS = {
+    "schema_version",
+    "kind",
+    "source_kind",
+    "spec_id",
+    "filename",
+    "sha256",
+    "size",
+    "distribution",
+    "version",
+    "tags",
+    "requires_dist",
+    "python_abi",
+    "cpu_arch",
+    "declaration_sha256",
+    "status",
+    "trust_level",
+    "published",
+    "publication_eligible",
+}
+COMPATIBILITY_RULE_KEYS = {
+    "id",
+    "accelerator",
+    "accelerator_runtimes",
+    "npu_architectures",
+    "operating_systems",
+    "cpu_architectures",
+    "python_abis",
+    "upstream_channels",
+}
+OCI_INDEX_MEDIA_TYPES = {
+    "application/vnd.oci.image.index.v1+json",
+    "application/vnd.docker.distribution.manifest.list.v2+json",
+}
+OCI_MANIFEST_MEDIA_TYPES = {
+    "application/vnd.oci.image.manifest.v1+json",
+    "application/vnd.docker.distribution.manifest.v2+json",
+}
+
+
+class RegistryBlocker(ValueError):
+    """A known fail-closed loop blocker with a stable evidence code."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 def _exact_keys(value: dict[str, Any], expected: set[str], label: str) -> None:
@@ -112,13 +184,13 @@ def parse_upstream_tag(product: str, tag: str) -> dict[str, str]:
         if match is None:
             raise ValueError(f"unsupported vllm-openai upstream tag: {tag}")
         npu_arch = "na"
-        operating_system = "linux"
+        operating_system = "ubuntu-22.04"
     else:
         match = re.fullmatch(f"({VERSION})(-a3)?(-openeuler)?", tag)
         if match is None:
             raise ValueError(f"unsupported vllm-ascend upstream tag: {tag}")
         npu_arch = "a3" if match.group(2) else "a2"
-        operating_system = "openEuler" if match.group(3) else "linux"
+        operating_system = "openEuler-24.03" if match.group(3) else "ubuntu-22.04"
     version = match.group(1)
     return {
         "product": product,
@@ -180,6 +252,11 @@ def validate_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     if seen != required:
         missing = sorted(required - seen)
         extra = sorted(seen - required)
+        if missing == [("linux", "arm64")] and not extra:
+            raise RegistryBlocker(
+                "missing-linux-arm64",
+                "snapshot is missing required linux/arm64 platform",
+            )
         raise ValueError(
             f"snapshot requires exact linux platforms; missing={missing}, extra={extra}"
         )
@@ -258,6 +335,7 @@ def scan_registry(
     """Read and validate an upstream multi-platform snapshot without registry writes."""
     repository = _repository(repository)
     parse_upstream_tag(_product_for_repository(repository), upstream_tag)
+    tagged_reference = f"{repository}:{upstream_tag}"
     if fixture is not None:
         snapshot = validate_snapshot(fixture)
         if (
@@ -267,14 +345,42 @@ def scan_registry(
             raise ValueError(
                 "fixture snapshot repository/tag does not match the exact request"
             )
-        return snapshot
-    tagged_reference = f"{repository}:{upstream_tag}"
+        return {
+            "schema_version": 1,
+            "kind": "registry-scan-result",
+            "fixture_only": True,
+            "snapshot": snapshot,
+            "operations": [
+                {
+                    "type": "fixture-read",
+                    "capability": "read",
+                    "reference": tagged_reference,
+                }
+            ],
+        }
+    operations = [
+        {
+            "type": "crane-digest",
+            "capability": "read",
+            "reference": tagged_reference,
+        }
+    ]
     index_digest = _digest(
         _crane(crane_binary, "digest", tagged_reference), "crane index"
     )
-    index = _unique_json(
-        _crane(crane_binary, "manifest", tagged_reference), "crane index"
+    index_reference = f"{repository}@{index_digest}"
+    operations.append(
+        {
+            "type": "crane-manifest",
+            "capability": "read",
+            "reference": index_reference,
+        }
     )
+    index = _unique_json(
+        _crane(crane_binary, "manifest", index_reference), "crane index"
+    )
+    if index.get("mediaType") not in OCI_INDEX_MEDIA_TYPES:
+        raise ValueError("resolved index digest did not return an OCI/Docker index")
     descriptors = index.get("manifests")
     if not isinstance(descriptors, list):
         raise ValueError("crane index must contain a manifests array")
@@ -285,11 +391,25 @@ def scan_registry(
         ):
             raise ValueError("crane index descriptors require a platform object")
         platform = descriptor["platform"]
+        if descriptor.get("mediaType") not in OCI_MANIFEST_MEDIA_TYPES:
+            raise ValueError("index platform descriptor is not an OCI/Docker manifest")
         manifest_digest = _digest(descriptor.get("digest"), "platform manifest")
+        child_reference = f"{repository}@{manifest_digest}"
+        operations.append(
+            {
+                "type": "crane-manifest",
+                "capability": "read",
+                "reference": child_reference,
+            }
+        )
         child = _unique_json(
-            _crane(crane_binary, "manifest", f"{repository}@{manifest_digest}"),
+            _crane(crane_binary, "manifest", child_reference),
             f"platform manifest {manifest_digest}",
         )
+        if child.get("mediaType") != descriptor.get("mediaType"):
+            raise ValueError(
+                "platform manifest media type does not match index descriptor"
+            )
         config = child.get("config")
         if not isinstance(config, dict):
             raise ValueError("platform manifest requires a config descriptor")
@@ -301,7 +421,7 @@ def scan_registry(
                 "config_digest": _digest(config.get("digest"), "platform config"),
             }
         )
-    return validate_snapshot(
+    snapshot = validate_snapshot(
         {
             "schema_version": 1,
             "kind": "upstream-registry-snapshot",
@@ -311,6 +431,13 @@ def scan_registry(
             "platforms": platforms,
         }
     )
+    return {
+        "schema_version": 1,
+        "kind": "registry-scan-result",
+        "fixture_only": False,
+        "snapshot": snapshot,
+        "operations": operations,
+    }
 
 
 def validate_public_tag(tag: object) -> str:
@@ -324,6 +451,50 @@ def validate_public_tag(tag: object) -> str:
     return tag
 
 
+def _validate_release_manifest(release_manifest: dict[str, Any]) -> None:
+    try:
+        validate_schema(
+            release_manifest,
+            load_json(DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"),
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(
+            f"release manifest failed Task 2 schema validation: {error}"
+        ) from error
+    specs = release_manifest["wheel_specs"]
+    eligible = [spec for spec in specs if spec["build_eligible"]]
+    blockers = sorted({reason for spec in specs for reason in spec["blocked_reasons"]})
+    if (
+        release_manifest["declared_wheel_count"] != len(specs)
+        or release_manifest["eligible_wheel_count"] != len(eligible)
+        or release_manifest["blockers"] != blockers
+        or release_manifest["status"]
+        != ("candidate" if len(eligible) == len(specs) else "blocked")
+    ):
+        raise ValueError(
+            "release manifest operational counts/blockers/status are inconsistent"
+        )
+    expected_wheel_assets = {
+        spec["spec_id"]: "candidate" if spec["build_eligible"] else "blocked"
+        for spec in specs
+    }
+    wheel_assets = [
+        asset
+        for asset in release_manifest["publication"]["assets"]
+        if asset["type"] == "wheel"
+    ]
+    actual_wheel_assets: dict[str, str] = {}
+    for asset in wheel_assets:
+        spec_id = asset["id"].removeprefix("wheel:")
+        if spec_id in actual_wheel_assets or asset["required"] is not True:
+            raise ValueError(
+                "release manifest contains duplicate/non-required wheel asset"
+            )
+        actual_wheel_assets[spec_id] = asset["status"]
+    if actual_wheel_assets != expected_wheel_assets:
+        raise ValueError("release manifest wheel assets do not match operational specs")
+
+
 def _select_wheel(
     release_manifest: dict[str, Any],
     wheel_records: list[dict[str, Any]],
@@ -331,11 +502,11 @@ def _select_wheel(
     fixture_mode: bool,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if not fixture_mode:
-        raise ValueError(
-            "production wheel is unpublished; Task 2 emits no production publication"
+        raise RegistryBlocker(
+            "production-wheel-unpublished",
+            "production wheel is unpublished; Task 2 emits no production publication",
         )
-    if release_manifest.get("kind") != "ucm-core-release-manifest":
-        raise ValueError("release manifest kind is invalid")
+    _validate_release_manifest(release_manifest)
     specs = [
         item
         for item in release_manifest.get("wheel_specs", [])
@@ -352,18 +523,41 @@ def _select_wheel(
             "wheel selection must be exact and unique in manifest, assets, and records"
         )
     spec, asset, record = specs[0], assets[0], records[0]
-    if not spec.get("build_eligible") or spec.get("blocked_reasons"):
-        raise ValueError("selected manifest wheel spec is blocked")
-    if (
-        asset.get("type") != "wheel"
-        or asset.get("status") != "candidate"
-        or asset.get("required") is not True
-    ):
-        raise ValueError("selected manifest wheel asset is not a required candidate")
+    expected_status = "candidate" if spec["build_eligible"] else "blocked"
+    if asset != {
+        "id": f"wheel:{spec_id}",
+        "type": "wheel",
+        "required": True,
+        "status": expected_status,
+    }:
+        raise ValueError(
+            "selected manifest wheel asset does not match its Task 2 spec status"
+        )
+    if not isinstance(record, dict) or set(record) != WHEEL_RECORD_KEYS:
+        raise ValueError(
+            "wheel inspection record is not a complete Task 2 fixture result"
+        )
+    if record["schema_version"] != 1 or record["kind"] != "ucm-wheel-inspection":
+        raise ValueError("wheel inspection identity is invalid")
     _digest(record.get("sha256"), "selected wheel")
     _digest(record.get("declaration_sha256"), "selected wheel declaration")
     if record["declaration_sha256"] != spec.get("declaration_sha256"):
         raise ValueError("selected wheel declaration does not match its manifest spec")
+    if (
+        record["version"] != release_manifest["ucm_version"]
+        or record["python_abi"] != spec["python_abi"]
+        or record["cpu_arch"] != spec["cpu_arch"]
+        or record["distribution"] != "uc-manager"
+        or not isinstance(record["size"], int)
+        or isinstance(record["size"], bool)
+        or record["size"] < 1
+        or not isinstance(record["tags"], list)
+        or not record["tags"]
+        or record["requires_dist"] != ["wrapt==1.17.2"]
+    ):
+        raise ValueError(
+            "wheel inspection metadata does not match the selected Task 2 spec"
+        )
     fixture_semantics = (
         record.get("source_kind") == "fixture"
         and record.get("status") == "fixture-only"
@@ -378,11 +572,75 @@ def _select_wheel(
     return spec, record
 
 
+def _resolve_compatibility_rule(
+    compatibility: dict[str, Any],
+    compatibility_rule_id: str,
+    release_manifest: dict[str, Any],
+    spec: dict[str, Any],
+    parsed_tag: dict[str, str],
+) -> dict[str, Any]:
+    try:
+        validate_schema(
+            compatibility,
+            load_json(DEFAULT_SCHEMA_DIR / "config.schema.json"),
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(
+            f"compatibility config failed Task 2 schema validation: {error}"
+        ) from error
+    if (
+        compatibility.get("kind") != "compatibility-config"
+        or compatibility.get("schema_version") != 1
+        or compatibility.get("ucm_version") != release_manifest["ucm_version"]
+    ):
+        raise ValueError(
+            "compatibility config identity/version does not match release manifest"
+        )
+    compatibility_sha256 = sha256_value(compatibility)
+    if compatibility_sha256 != release_manifest["compatibility_sha256"]:
+        raise ValueError("compatibility config digest does not match release manifest")
+    rules = compatibility.get("rules")
+    if not isinstance(rules, list):
+        raise ValueError("compatibility rules must be an array")
+    matches = [
+        rule
+        for rule in rules
+        if isinstance(rule, dict) and rule.get("id") == compatibility_rule_id
+    ]
+    if len(matches) != 1:
+        raise ValueError("compatibility rule id must resolve exactly once")
+    rule = matches[0]
+    expected_accelerator = (
+        "ascend" if parsed_tag["product"] == "vllm-ascend" else "cuda"
+    )
+    checks = {
+        "accelerator": rule.get("accelerator")
+        == expected_accelerator
+        == spec["accelerator"],
+        "accelerator runtime": spec["accelerator_runtime"]
+        in rule.get("accelerator_runtimes", []),
+        "NPU architecture": spec["npu_arch_or_na"] == parsed_tag["npu_arch"]
+        and spec["npu_arch_or_na"] in rule.get("npu_architectures", []),
+        "operating system": spec["os"] == parsed_tag["operating_system"]
+        and spec["os"] in rule.get("operating_systems", []),
+        "CPU architecture": spec["cpu_arch"] in rule.get("cpu_architectures", []),
+        "Python ABI": spec["python_abi"] in rule.get("python_abis", []),
+        "upstream channel": parsed_tag["channel"] in rule.get("upstream_channels", []),
+    }
+    failed = [label for label, passed in checks.items() if not passed]
+    if failed:
+        raise ValueError(
+            f"compatibility rule does not match selected upstream/wheel semantics: {failed}"
+        )
+    return copy.deepcopy(rule)
+
+
 def build_candidate(
     release_manifest: dict[str, Any],
     wheel_records: list[dict[str, Any]],
     spec_id: str,
     upstream_snapshot: dict[str, Any],
+    compatibility: dict[str, Any],
     compatibility_rule_id: str,
     implementation_digest: str,
     *,
@@ -391,13 +649,20 @@ def build_candidate(
     """Bind all immutable inputs into one build key and one target tag family."""
     if not isinstance(release_manifest, dict) or not isinstance(wheel_records, list):
         raise ValueError("release manifest and wheel records have invalid types")
-    _, wheel = _select_wheel(release_manifest, wheel_records, spec_id, fixture_mode)
+    spec, wheel = _select_wheel(release_manifest, wheel_records, spec_id, fixture_mode)
     snapshot = validate_snapshot(upstream_snapshot)
     if not isinstance(compatibility_rule_id, str) or not compatibility_rule_id:
         raise ValueError("compatibility rule id must be non-empty")
     implementation_digest = _digest(implementation_digest, "implementation")
     parsed = parse_upstream_tag(
         _product_for_repository(snapshot["repository"]), snapshot["upstream_tag"]
+    )
+    rule = _resolve_compatibility_rule(
+        compatibility,
+        compatibility_rule_id,
+        release_manifest,
+        spec,
+        parsed,
     )
     ucm_version = release_manifest.get("ucm_version")
     if (
@@ -423,9 +688,19 @@ def build_candidate(
             "spec_id": spec_id,
             "sha256": wheel["sha256"],
             "declaration_sha256": wheel["declaration_sha256"],
+            "version": wheel["version"],
+            "accelerator": spec["accelerator"],
+            "accelerator_runtime": spec["accelerator_runtime"],
+            "npu_arch_or_na": spec["npu_arch_or_na"],
+            "os": spec["os"],
+            "cpu_arch": wheel["cpu_arch"],
+            "python_abi": wheel["python_abi"],
+            "binary_profile_id": spec["binary_profile_id"],
         },
         "upstream": upstream_identity,
         "compatibility_rule_id": compatibility_rule_id,
+        "compatibility_rule": rule,
+        "compatibility_rule_sha256": sha256_value(rule),
         "implementation_digest": implementation_digest,
     }
     family = {"repository": parsed["target_repository"], "tag_base": tag_base}
@@ -481,8 +756,18 @@ def _validate_candidate(candidate: dict[str, Any]) -> None:
         ("wheel", wheel["sha256"]),
         ("wheel declaration", wheel["declaration_sha256"]),
         ("implementation", inputs["implementation_digest"]),
+        ("compatibility rule", inputs["compatibility_rule_sha256"]),
     ):
         _digest(digest, label)
+    rule = inputs["compatibility_rule"]
+    if not isinstance(rule, dict):
+        raise ValueError("candidate compatibility rule must be an object")
+    _exact_keys(rule, COMPATIBILITY_RULE_KEYS, "candidate compatibility rule")
+    if (
+        rule["id"] != inputs["compatibility_rule_id"]
+        or sha256_value(rule) != inputs["compatibility_rule_sha256"]
+    ):
+        raise ValueError("candidate compatibility rule digest/id does not match")
     upstream = inputs["upstream"]
     if not isinstance(upstream, dict):
         raise ValueError("candidate upstream input must be an object")
@@ -499,6 +784,25 @@ def _validate_candidate(candidate: dict[str, Any]) -> None:
     parsed = parse_upstream_tag(
         _product_for_repository(snapshot["repository"]), snapshot["upstream_tag"]
     )
+    expected_accelerator = "ascend" if parsed["product"] == "vllm-ascend" else "cuda"
+    semantic_checks = (
+        wheel["version"] == candidate["ucm_version"],
+        wheel["accelerator"] == expected_accelerator == rule["accelerator"],
+        wheel["accelerator_runtime"] in rule["accelerator_runtimes"],
+        wheel["npu_arch_or_na"] == parsed["npu_arch"]
+        and wheel["npu_arch_or_na"] in rule["npu_architectures"],
+        wheel["os"] == parsed["operating_system"]
+        and wheel["os"] in rule["operating_systems"],
+        wheel["cpu_arch"] in rule["cpu_architectures"],
+        wheel["python_abi"] in rule["python_abis"],
+        parsed["channel"] in rule["upstream_channels"],
+        isinstance(wheel["binary_profile_id"], str)
+        and bool(wheel["binary_profile_id"]),
+    )
+    if not all(semantic_checks):
+        raise ValueError(
+            "candidate compatibility rule/wheel/upstream semantics do not match"
+        )
     expected_base = f"{snapshot['upstream_tag']}-ucm-{candidate['ucm_version']}"
     if (
         candidate["target_repository"] != parsed["target_repository"]
@@ -529,12 +833,40 @@ def with_revision(candidate: dict[str, Any], revision: int) -> dict[str, Any]:
     return result
 
 
+def inventory_digest(inventory: dict[str, Any]) -> str:
+    """Hash the canonical Registry read set, excluding its asserted digest field."""
+    if not isinstance(inventory, dict):
+        raise ValueError("registry inventory must be an object")
+    base_keys = {"schema_version", "kind", "repositories", "entries"}
+    if frozenset(inventory) not in {frozenset(base_keys), frozenset(INVENTORY_KEYS)}:
+        raise ValueError("registry inventory fields are not canonical")
+    if not isinstance(inventory["entries"], list):
+        raise ValueError("registry inventory entries must be an array")
+    canonical_inventory = {
+        "schema_version": inventory["schema_version"],
+        "kind": inventory["kind"],
+        "repositories": inventory["repositories"],
+        "entries": sorted(copy.deepcopy(inventory["entries"]), key=canonical_bytes),
+    }
+    return sha256_value(canonical_inventory)
+
+
 def _validate_inventory(inventory: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(inventory, dict):
         raise ValueError("registry inventory must be an object")
     _exact_keys(inventory, INVENTORY_KEYS, "registry inventory")
     if inventory["schema_version"] != 1 or inventory["kind"] != "registry-inventory":
         raise ValueError("registry inventory identity is invalid")
+    if inventory["repositories"] != sorted(TARGET_REPOSITORIES.values()):
+        raise ValueError(
+            "registry inventory must cover exactly the two target repositories"
+        )
+    actual_inventory_sha256 = inventory_digest(inventory)
+    if inventory["inventory_sha256"] != actual_inventory_sha256:
+        raise ValueError(
+            "inventory digest mismatch: "
+            f"asserted {inventory['inventory_sha256']}, actual {actual_inventory_sha256}"
+        )
     entries = inventory["entries"]
     if not isinstance(entries, list):
         raise ValueError("registry inventory entries must be an array")
@@ -551,8 +883,9 @@ def _validate_inventory(inventory: dict[str, Any]) -> list[dict[str, Any]]:
         identity = (entry["repository"], entry["tag"])
         if identity in by_tag:
             label = "conflicting" if by_tag[identity] != entry else "duplicate"
-            raise ValueError(
-                f"{label} registry inventory entries for {identity[0]}:{identity[1]}"
+            raise RegistryBlocker(
+                "duplicate-conflicting-inventory",
+                f"{label} registry inventory entries for {identity[0]}:{identity[1]}",
             )
         by_tag[identity] = entry
     return entries
@@ -562,6 +895,7 @@ def reconcile(candidate: dict[str, Any], inventory: dict[str, Any]) -> dict[str,
     """Return a build task or a no-op from a passed, immutable Registry view."""
     _validate_candidate(candidate)
     entries = _validate_inventory(inventory)
+    inventory_sha256 = inventory["inventory_sha256"]
     family_prefix = candidate["tag_base"] + "-r"
     family_entries = [
         entry
@@ -586,8 +920,15 @@ def reconcile(candidate: dict[str, Any], inventory: dict[str, Any]) -> dict[str,
         "kind": "registry-reconcile-result",
         "candidate_build_key_sha256": candidate["build_key_sha256"],
         "inventory": copy.deepcopy(inventory),
+        "inventory_sha256": inventory_sha256,
         "publication_attempted": False,
-        "registry_write_commands": [],
+        "operations": [
+            {
+                "type": "registry-inventory-read",
+                "capability": "read",
+                "reference": inventory_sha256,
+            }
+        ],
     }
     if stable:
         return {**common, "decision": "already-present", "task_count": 0, "tasks": []}
@@ -607,6 +948,27 @@ def reconcile(candidate: dict[str, Any], inventory: dict[str, Any]) -> dict[str,
         "reason": reason,
         "build_key_sha256": candidate["build_key_sha256"],
         "tag_family_sha256": candidate["tag_family_sha256"],
+        "concurrency_key": candidate["tag_family_sha256"],
+        "precondition": {
+            "type": "tag-absent",
+            "repository": candidate["target_repository"],
+            "tag": revisioned["public_tag"],
+            "inventory_sha256": inventory_sha256,
+        },
         "publication_attempted": False,
     }
-    return {**common, "decision": "schedule", "task_count": 1, "tasks": [task]}
+    operations = [
+        *common["operations"],
+        {
+            "type": "build-plan",
+            "capability": "plan",
+            "reference": f"{candidate['target_repository']}:{revisioned['public_tag']}",
+        },
+    ]
+    return {
+        **common,
+        "operations": operations,
+        "decision": "schedule",
+        "task_count": 1,
+        "tasks": [task],
+    }

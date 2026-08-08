@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -64,66 +65,87 @@ def _snapshot() -> dict[str, object]:
     }
 
 
-def _manifest() -> dict[str, object]:
+def _fixture_wheel(tmp_path: Path, spec: dict[str, object], version: str) -> Path:
+    platform = {"amd64": "x86_64", "arm64": "aarch64"}[spec["cpu_arch"]]
+    tag = f"{spec['python_abi']}-{spec['python_abi']}-linux_{platform}"
+    path = tmp_path / f"uc_manager-{version}-{tag}.whl"
+    dist_info = f"uc_manager-{version}.dist-info"
+    with zipfile.ZipFile(path, "w") as archive:
+        members = {
+            f"{dist_info}/METADATA": "\n".join(
+                [
+                    "Metadata-Version: 2.1",
+                    "Name: uc-manager",
+                    f"Version: {version}",
+                    "Requires-Dist: wrapt==1.17.2",
+                    "",
+                ]
+            ),
+            f"{dist_info}/WHEEL": "\n".join(
+                [
+                    "Wheel-Version: 1.0",
+                    "Generator: task3-fixture",
+                    "Root-Is-Purelib: false",
+                    f"Tag: {tag}",
+                    "",
+                ]
+            ),
+        }
+        for name, content in members.items():
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, content)
+    return path
+
+
+def _case(tmp_path: Path) -> dict[str, object]:
+    sys.path.insert(0, str(RELEASE_ROOT))
+    core = importlib.import_module("ucm_release.core")
+    wheel = importlib.import_module("ucm_release.wheel")
+    manifest = core.build_release_manifest()
+    spec = next(
+        item
+        for item in manifest["wheel_specs"]
+        if item["accelerator"] == "ascend"
+        and item["accelerator_runtime"] == "cann-9.0.0"
+        and item["npu_arch_or_na"] == "a3"
+        and item["os"] == "openEuler-24.03"
+        and item["cpu_arch"] == "arm64"
+        and item["python_abi"] == "cp312"
+    )
+    wheel_path = _fixture_wheel(tmp_path, spec, manifest["ucm_version"])
+    wheel_sha256 = "sha256:" + hashlib.sha256(wheel_path.read_bytes()).hexdigest()
+    wheel_record = wheel.inspect_wheel(
+        wheel_path,
+        spec["spec_id"],
+        wheel_sha256,
+        "fixture",
+    )
+    _, compatibility = core.validate_config()
     return {
-        "schema_version": 1,
-        "kind": "ucm-core-release-manifest",
-        "ucm_version": "0.5.0rc1",
-        "wheel_specs": [
-            {
-                "spec_id": "ascend-a3-openeuler-arm64-cp312",
-                "declaration_sha256": "sha256:" + "9" * 64,
-                "build_eligible": True,
-                "blocked_reasons": [],
-            }
-        ],
-        "publication": {
-            "target": "github-release",
-            "assets": [
-                {
-                    "id": "wheel:ascend-a3-openeuler-arm64-cp312",
-                    "type": "wheel",
-                    "required": True,
-                    "status": "candidate",
-                }
-            ],
-        },
-        "status": "candidate",
-    }
-
-
-def _wheel() -> dict[str, object]:
-    return {
-        "schema_version": 1,
-        "kind": "ucm-wheel-inspection",
-        "spec_id": "ascend-a3-openeuler-arm64-cp312",
-        "sha256": DIGESTS["wheel"],
-        "declaration_sha256": "sha256:" + "9" * 64,
-        "source_kind": "fixture",
-        "status": "fixture-only",
-        "trust_level": "fixture-only",
-        "published": False,
-        "publication_eligible": False,
-    }
-
-
-def _case() -> dict[str, object]:
-    return {
-        "release_manifest": _manifest(),
-        "wheel_records": [_wheel()],
-        "spec_id": "ascend-a3-openeuler-arm64-cp312",
+        "release_manifest": manifest,
+        "wheel_records": [wheel_record],
+        "spec_id": spec["spec_id"],
         "upstream_snapshot": _snapshot(),
+        "compatibility": compatibility,
         "compatibility_rule_id": "ascend-supported",
         "implementation_digest": DIGESTS["implementation"],
     }
 
 
 def _inventory(entries: list[dict[str, object]] | None = None) -> dict[str, object]:
-    return {
+    registry, _ = _modules()
+    inventory = {
         "schema_version": 1,
         "kind": "registry-inventory",
+        "repositories": [
+            "ghcr.io/modelengine-group/vllm-ascend",
+            "ghcr.io/modelengine-group/vllm-openai",
+        ],
         "entries": entries or [],
     }
+    inventory["inventory_sha256"] = registry.inventory_digest(inventory)
+    return inventory
 
 
 def _entry(candidate: dict[str, object], *, drift: bool = False) -> dict[str, object]:
@@ -152,12 +174,14 @@ def _cli(*arguments: str, expect: int = 0) -> subprocess.CompletedProcess[str]:
     return result
 
 
-def test_loop_verify_aggregates_the_six_required_fixture_scenarios() -> None:
+def test_loop_verify_aggregates_the_six_required_fixture_scenarios(
+    tmp_path: Path,
+) -> None:
     """Removing any reconcile transition or blocker must make the loop non-green."""
     _, verify = _modules()
 
     envelope = verify.verify_loop(
-        _case(),
+        _case(tmp_path),
         run={"id": "fixture-run-a", "attempt": 3, "started_at": "later"},
     )
     payload = envelope["payload"]
@@ -179,25 +203,45 @@ def test_loop_verify_aggregates_the_six_required_fixture_scenarios() -> None:
     assert payload["scenarios"][2]["task_tags"] == [
         "v0.10.2-a3-openeuler-ucm-0.5.0rc1-r2"
     ]
-    assert payload["expected_blockers"] == [
+    assert payload["expected_blockers"]["scenario_codes"] == [
         "duplicate-conflicting-inventory",
         "missing-linux-arm64",
         "production-wheel-unpublished",
     ]
+    assert (
+        payload["expected_blockers"]["production"]
+        == _case(tmp_path)["release_manifest"]["blockers"]
+    )
     assert payload["fixture_only"] is True
     assert payload["unpublished"] is True
     assert payload["publication_attempted"] is False
     assert payload["zero_write_audit"] == {
-        "publication_actions": [],
-        "registry_write_commands": [],
+        "operation_count": 9,
+        "operation_types": [
+            "build-plan",
+            "fixture-read",
+            "registry-inventory-read",
+        ],
+        "write_capable_operations": [],
         "write_count": 0,
     }
+    with pytest.raises(ValueError, match="unrelated verifier failure"):
+        verify.expect_blocker(
+            "missing-linux-arm64",
+            lambda: (_ for _ in ()).throw(ValueError("unrelated verifier failure")),
+        )
+    with pytest.raises(ValueError, match="write-capable"):
+        verify.audit_operations(
+            [{"type": "registry-push", "capability": "write", "reference": "x"}]
+        )
 
 
-def test_reconcile_schedules_r1_skips_identity_and_preserves_drifted_r1() -> None:
+def test_reconcile_schedules_r1_skips_identity_and_preserves_drifted_r1(
+    tmp_path: Path,
+) -> None:
     """A reconciler that overwrites or rebuilds an identical input breaks idempotency."""
     registry, _ = _modules()
-    candidate = registry.build_candidate(**_case(), fixture_mode=True)
+    candidate = registry.build_candidate(**_case(tmp_path), fixture_mode=True)
 
     first = registry.reconcile(candidate, _inventory())
     same = registry.reconcile(candidate, _inventory([_entry(candidate)]))
@@ -213,17 +257,42 @@ def test_reconcile_schedules_r1_skips_identity_and_preserves_drifted_r1() -> Non
     assert drifted["tasks"][0]["reason"] == "tag-digest-drift"
     assert drifted["inventory"] == _inventory([drift_entry])
     assert drifted["publication_attempted"] is False
+    assert first["tasks"][0]["precondition"] == {
+        "type": "tag-absent",
+        "repository": candidate["target_repository"],
+        "tag": candidate["tag_base"] + "-r1",
+        "inventory_sha256": _inventory()["inventory_sha256"],
+    }
+    assert first["tasks"][0]["concurrency_key"] == candidate["tag_family_sha256"]
+
+    stale_again = registry.reconcile(candidate, _inventory())
+    changed_entry = _entry(candidate)
+    changed_entry["tag"] = candidate["tag_base"] + "-r99"
+    changed_entry["build_key_sha256"] = "sha256:" + "a" * 64
+    changed = registry.reconcile(candidate, _inventory([changed_entry]))
+    assert stale_again["tasks"][0]["precondition"] == first["tasks"][0]["precondition"]
+    assert changed["tasks"][0]["precondition"] != first["tasks"][0]["precondition"]
+    bad_inventory = _inventory()
+    bad_inventory["inventory_sha256"] = "sha256:" + "0" * 64
+    with pytest.raises(ValueError, match="inventory digest mismatch"):
+        registry.reconcile(candidate, bad_inventory)
+    second_entry = copy.deepcopy(changed_entry)
+    second_entry["tag"] = candidate["tag_base"] + "-r98"
+    second_entry["build_key_sha256"] = "sha256:" + "b" * 64
+    assert (
+        _inventory([changed_entry, second_entry])["inventory_sha256"]
+        == _inventory([second_entry, changed_entry])["inventory_sha256"]
+    )
 
 
 @pytest.mark.parametrize(
     ("product", "tag", "arch", "operating_system"),
     [
-        ("vllm-openai", "v0.10.2", "na", "linux"),
-        ("vllm-openai", "v1.2.3rc1", "na", "linux"),
-        ("vllm-ascend", "v0.10.2", "a2", "linux"),
-        ("vllm-ascend", "v0.10.2-a3", "a3", "linux"),
-        ("vllm-ascend", "v0.10.2-openeuler", "a2", "openEuler"),
-        ("vllm-ascend", "v0.10.2rc2-a3-openeuler", "a3", "openEuler"),
+        ("vllm-openai", "v0.10.2", "na", "ubuntu-22.04"),
+        ("vllm-ascend", "v0.10.2", "a2", "ubuntu-22.04"),
+        ("vllm-ascend", "v0.10.2-a3", "a3", "ubuntu-22.04"),
+        ("vllm-ascend", "v0.10.2-openeuler", "a2", "openEuler-24.03"),
+        ("vllm-ascend", "v0.10.2rc2-a3-openeuler", "a3", "openEuler-24.03"),
     ],
 )
 def test_upstream_parser_retains_only_canonical_device_and_os_tags(
@@ -271,10 +340,10 @@ def test_upstream_parser_rejects_noncanonical_and_excluded_tags(
         registry.parse_upstream_tag(product, tag)
 
 
-def test_snapshot_and_build_identity_bind_every_immutable_input() -> None:
+def test_snapshot_and_build_identity_bind_every_immutable_input(tmp_path: Path) -> None:
     """Dropping any platform/config/wheel/rule/implementation input changes identity."""
     registry, _ = _modules()
-    case = _case()
+    case = _case(tmp_path)
     baseline = registry.build_candidate(**case, fixture_mode=True)
 
     assert baseline["target_repository"] == ("ghcr.io/modelengine-group/vllm-ascend")
@@ -285,7 +354,7 @@ def test_snapshot_and_build_identity_bind_every_immutable_input() -> None:
 
     mutations = []
     changed_manifest = copy.deepcopy(case)
-    changed_manifest["release_manifest"]["note"] = "different manifest bytes"
+    changed_manifest["release_manifest"]["config_sha256"] = "sha256:" + "d" * 64
     mutations.append(changed_manifest)
     changed_wheel = copy.deepcopy(case)
     changed_wheel["wheel_records"][0]["sha256"] = "sha256:" + "a" * 64
@@ -296,7 +365,16 @@ def test_snapshot_and_build_identity_bind_every_immutable_input() -> None:
     )
     mutations.append(changed_platform)
     changed_rule = copy.deepcopy(case)
+    ascend_rule = next(
+        item
+        for item in changed_rule["compatibility"]["rules"]
+        if item["id"] == "ascend-supported"
+    )
+    ascend_rule["id"] = "ascend-supported-v2"
     changed_rule["compatibility_rule_id"] = "ascend-supported-v2"
+    changed_rule["release_manifest"]["compatibility_sha256"] = registry.sha256_value(
+        changed_rule["compatibility"]
+    )
     mutations.append(changed_rule)
     changed_implementation = copy.deepcopy(case)
     changed_implementation["implementation_digest"] = "sha256:" + "c" * 64
@@ -311,10 +389,28 @@ def test_snapshot_and_build_identity_bind_every_immutable_input() -> None:
         registry.with_revision(baseline, 9)["build_key_sha256"]
         == baseline["build_key_sha256"]
     )
+    assert baseline["build_inputs"]["compatibility_rule"]["id"] == ("ascend-supported")
+    assert baseline["build_inputs"]["compatibility_rule_sha256"].startswith("sha256:")
+
+    cross_pair = copy.deepcopy(case)
+    cross_pair["compatibility_rule_id"] = "cuda-supported"
+    with pytest.raises(ValueError, match="compatibility"):
+        registry.build_candidate(**cross_pair, fixture_mode=True)
+    semantic_mutation = copy.deepcopy(case)
+    mutated_rule = next(
+        item
+        for item in semantic_mutation["compatibility"]["rules"]
+        if item["id"] == "ascend-supported"
+    )
+    mutated_rule["accelerator_runtimes"].remove("cann-9.0.0")
+    semantic_mutation["release_manifest"]["compatibility_sha256"] = (
+        registry.sha256_value(semantic_mutation["compatibility"])
+    )
+    with pytest.raises(ValueError, match="compatibility"):
+        registry.build_candidate(**semantic_mutation, fixture_mode=True)
 
     for mutation in (
         lambda value: value["platforms"].pop(),
-        lambda value: value["platforms"].append(copy.deepcopy(value["platforms"][0])),
         lambda value: value.update(index_digest="latest"),
     ):
         bad = _snapshot()
@@ -323,10 +419,11 @@ def test_snapshot_and_build_identity_bind_every_immutable_input() -> None:
             registry.validate_snapshot(bad)
 
 
-def test_inventory_tag_and_wheel_boundaries_fail_closed() -> None:
+def test_inventory_tag_and_wheel_boundaries_fail_closed(tmp_path: Path) -> None:
     """Conflicting inventory, ambiguous wheels, and unpublished production never plan."""
     registry, _ = _modules()
-    candidate = registry.build_candidate(**_case(), fixture_mode=True)
+    case = _case(tmp_path)
+    candidate = registry.build_candidate(**case, fixture_mode=True)
     conflict = _entry(candidate)
     duplicate = copy.deepcopy(conflict)
     duplicate["observed_digest"] = DIGESTS["observed_drift"]
@@ -339,12 +436,12 @@ def test_inventory_tag_and_wheel_boundaries_fail_closed() -> None:
         registry.validate_public_tag(candidate["tag_base"] + "-r01")
     with pytest.raises(ValueError):
         registry.build_candidate(
-            **{**_case(), "wheel_records": [_wheel(), _wheel()]},
+            **{**case, "wheel_records": case["wheel_records"] * 2},
             fixture_mode=True,
         )
     with pytest.raises(ValueError, match="unpublished"):
-        registry.build_candidate(**_case(), fixture_mode=False)
-    forged = _wheel()
+        registry.build_candidate(**case, fixture_mode=False)
+    forged = copy.deepcopy(case["wheel_records"][0])
     forged.update(
         source_kind="builder-candidate",
         status="published",
@@ -354,13 +451,37 @@ def test_inventory_tag_and_wheel_boundaries_fail_closed() -> None:
     )
     with pytest.raises(ValueError, match="Task 2"):
         registry.build_candidate(
-            **{**_case(), "wheel_records": [forged]},
+            **{**case, "wheel_records": [forged]},
             fixture_mode=False,
         )
     forged_candidate = copy.deepcopy(candidate)
     forged_candidate["fixture_only"] = False
     with pytest.raises(ValueError, match="fixture-only"):
         registry.reconcile(forged_candidate, _inventory())
+    mini_manifest = {
+        "kind": "ucm-core-release-manifest",
+        "ucm_version": "0.5.0rc1",
+        "wheel_specs": [],
+    }
+    with pytest.raises(ValueError, match="release manifest"):
+        registry.build_candidate(
+            **{**case, "release_manifest": mini_manifest}, fixture_mode=True
+        )
+    mini_wheel = {
+        "kind": "ucm-wheel-inspection",
+        "spec_id": case["spec_id"],
+        "sha256": case["wheel_records"][0]["sha256"],
+        "declaration_sha256": case["wheel_records"][0]["declaration_sha256"],
+        "source_kind": "fixture",
+        "status": "fixture-only",
+        "trust_level": "fixture-only",
+        "published": False,
+        "publication_eligible": False,
+    }
+    with pytest.raises(ValueError, match="wheel inspection"):
+        registry.build_candidate(
+            **{**case, "wheel_records": [mini_wheel]}, fixture_mode=True
+        )
 
 
 def test_crane_live_scan_cli_and_evidence_envelope_are_read_only_and_deterministic(
@@ -380,16 +501,19 @@ if sys.argv[1] != "manifest":
     raise SystemExit(91)
 ref = sys.argv[2]
 if ref.endswith(":v0.10.2"):
+    raise SystemExit(93)
+elif ref.endswith("@sha256:" + "1" * 64):
     print(json.dumps({
+        "mediaType": "application/vnd.oci.image.index.v1+json",
         "manifests": [
-            {"digest": "sha256:" + "2" * 64, "platform": {"os": "linux", "architecture": "amd64"}},
-            {"digest": "sha256:" + "4" * 64, "platform": {"os": "linux", "architecture": "arm64"}},
+            {"mediaType": "application/vnd.oci.image.manifest.v1+json", "digest": "sha256:" + "2" * 64, "platform": {"os": "linux", "architecture": "amd64"}},
+            {"mediaType": "application/vnd.oci.image.manifest.v1+json", "digest": "sha256:" + "4" * 64, "platform": {"os": "linux", "architecture": "arm64"}},
         ]
     }))
 elif ref.endswith("2" * 64):
-    print(json.dumps({"config": {"digest": "sha256:" + "3" * 64}}))
+    print(json.dumps({"mediaType": "application/vnd.oci.image.manifest.v1+json", "config": {"digest": "sha256:" + "3" * 64}}))
 elif ref.endswith("4" * 64):
-    print(json.dumps({"config": {"digest": "sha256:" + "5" * 64}}))
+    print(json.dumps({"mediaType": "application/vnd.oci.image.manifest.v1+json", "config": {"digest": "sha256:" + "5" * 64}}))
 else:
     raise SystemExit(92)
 """,
@@ -397,12 +521,17 @@ else:
     )
     crane.chmod(0o755)
 
-    snapshot = registry.scan_registry(
+    live_scan = registry.scan_registry(
         "docker.io/vllm/vllm-openai",
         "v0.10.2",
         crane_binary=str(crane),
     )
+    snapshot = live_scan["snapshot"]
     assert snapshot["platforms"] == _snapshot()["platforms"]
+    assert live_scan["operations"][1]["reference"] == (
+        "docker.io/vllm/vllm-openai@" + DIGESTS["index"]
+    )
+    assert all(item["capability"] == "read" for item in live_scan["operations"])
 
     fixture_path = tmp_path / "snapshot.json"
     fixture_path.write_text(json.dumps(snapshot), encoding="utf-8")
@@ -418,9 +547,17 @@ else:
             str(fixture_path),
         ).stdout
     )
-    assert scanned == snapshot
+    assert scanned["snapshot"] == snapshot
+    assert scanned["operations"] == [
+        {
+            "type": "fixture-read",
+            "capability": "read",
+            "reference": "docker.io/vllm/vllm-openai:v0.10.2",
+        }
+    ]
 
-    candidate = registry.build_candidate(**_case(), fixture_mode=True)
+    case = _case(tmp_path)
+    candidate = registry.build_candidate(**case, fixture_mode=True)
     reconcile_path = tmp_path / "reconcile.json"
     reconcile_path.write_text(
         json.dumps({"candidate": candidate, "inventory": _inventory()}),
@@ -430,7 +567,7 @@ else:
     assert reconciled["task_count"] == 1
 
     case_path = tmp_path / "case.json"
-    case_path.write_text(json.dumps(_case()), encoding="utf-8")
+    case_path.write_text(json.dumps(case), encoding="utf-8")
     cli_envelope = json.loads(
         _cli(
             "loop",
@@ -443,9 +580,9 @@ else:
             "7",
         ).stdout
     )
-    first = verify.verify_loop(_case(), run={"id": "a", "attempt": 1})
+    first = verify.verify_loop(case, run={"id": "a", "attempt": 1})
     second = verify.verify_loop(
-        _case(), run={"id": "b", "attempt": 99, "finished_at": "tomorrow"}
+        case, run={"id": "b", "attempt": 99, "finished_at": "tomorrow"}
     )
     assert first["payload"] == second["payload"] == cli_envelope["payload"]
     assert (

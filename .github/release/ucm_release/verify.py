@@ -6,7 +6,14 @@ import copy
 from typing import Any, Callable
 
 from .core import sha256_value
-from .registry import build_candidate, reconcile, validate_snapshot
+from .registry import (
+    RegistryBlocker,
+    build_candidate,
+    inventory_digest,
+    reconcile,
+    scan_registry,
+    validate_snapshot,
+)
 
 
 EXPECTED_BLOCKERS = [
@@ -14,19 +21,20 @@ EXPECTED_BLOCKERS = [
     "missing-linux-arm64",
     "production-wheel-unpublished",
 ]
-ZERO_WRITE_AUDIT = {
-    "publication_actions": [],
-    "registry_write_commands": [],
-    "write_count": 0,
-}
 
 
 def _inventory(entries: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    return {
+    inventory = {
         "schema_version": 1,
         "kind": "registry-inventory",
+        "repositories": [
+            "ghcr.io/modelengine-group/vllm-ascend",
+            "ghcr.io/modelengine-group/vllm-openai",
+        ],
         "entries": entries or [],
     }
+    inventory["inventory_sha256"] = inventory_digest(inventory)
+    return inventory
 
 
 def _entry(
@@ -45,12 +53,43 @@ def _entry(
     }
 
 
-def _blocked(label: str, operation: Callable[[], object]) -> str | None:
+def expect_blocker(code: str, operation: Callable[[], object]) -> str:
+    """Accept only the exact typed blocker expected by a verification scenario."""
     try:
         operation()
-    except (KeyError, TypeError, ValueError):
-        return label
-    return None
+    except RegistryBlocker as error:
+        if error.code != code:
+            raise ValueError(f"expected blocker {code}, got {error.code}") from error
+        return error.code
+    raise ValueError(f"expected blocker {code} was not raised")
+
+
+def audit_operations(operations: list[dict[str, Any]]) -> dict[str, Any]:
+    """Derive zero-write evidence from emitted operation ledgers."""
+    if not isinstance(operations, list):
+        raise ValueError("operation ledger must be an array")
+    write_capable = []
+    operation_types: set[str] = set()
+    for operation in operations:
+        if not isinstance(operation, dict) or set(operation) != {
+            "type",
+            "capability",
+            "reference",
+        }:
+            raise ValueError("operation ledger entry is malformed")
+        if operation["capability"] not in {"read", "plan", "write"}:
+            raise ValueError("operation ledger capability is invalid")
+        operation_types.add(operation["type"])
+        if operation["capability"] == "write":
+            write_capable.append(copy.deepcopy(operation))
+    if write_capable:
+        raise ValueError(f"write-capable operations are forbidden: {write_capable}")
+    return {
+        "operation_count": len(operations),
+        "operation_types": sorted(operation_types),
+        "write_capable_operations": [],
+        "write_count": 0,
+    }
 
 
 def _required_blockers(case: dict[str, Any], candidate: dict[str, Any]) -> list[str]:
@@ -63,17 +102,17 @@ def _required_blockers(case: dict[str, Any], candidate: dict[str, Any]) -> list[
     conflicting["observed_digest"] = "sha256:" + "f" * 64
     production_case = copy.deepcopy(case)
     results = [
-        _blocked(
+        expect_blocker(
             "duplicate-conflicting-inventory",
             lambda: reconcile(candidate, _inventory([stable, conflicting])),
         ),
-        _blocked("missing-linux-arm64", lambda: validate_snapshot(snapshot)),
-        _blocked(
+        expect_blocker("missing-linux-arm64", lambda: validate_snapshot(snapshot)),
+        expect_blocker(
             "production-wheel-unpublished",
             lambda: build_candidate(**production_case, fixture_mode=False),
         ),
     ]
-    return sorted(item for item in results if item is not None)
+    return sorted(results)
 
 
 def _artifact_digests(
@@ -87,6 +126,9 @@ def _artifact_digests(
             "platforms": copy.deepcopy(snapshot["platforms"]),
         },
         "implementation_digest": candidate["build_inputs"]["implementation_digest"],
+        "compatibility_rule_sha256": candidate["build_inputs"][
+            "compatibility_rule_sha256"
+        ],
         "build_key_sha256": candidate["build_key_sha256"],
         "tag_family_sha256": candidate["tag_family_sha256"],
     }
@@ -103,6 +145,7 @@ def verify_loop(
         "wheel_records",
         "spec_id",
         "upstream_snapshot",
+        "compatibility",
         "compatibility_rule_id",
         "implementation_digest",
     }
@@ -111,8 +154,15 @@ def verify_loop(
             "loop verification fields mismatch: "
             f"missing={sorted(required - set(case))}, extra={sorted(set(case) - required)}"
         )
-    candidate = build_candidate(**case, fixture_mode=True)
-    snapshot = validate_snapshot(case["upstream_snapshot"])
+    requested_snapshot = validate_snapshot(case["upstream_snapshot"])
+    scan_result = scan_registry(
+        requested_snapshot["repository"],
+        requested_snapshot["upstream_tag"],
+        fixture=requested_snapshot,
+    )
+    fixture_case = {**case, "upstream_snapshot": scan_result["snapshot"]}
+    candidate = build_candidate(**fixture_case, fixture_mode=True)
+    snapshot = scan_result["snapshot"]
     digest = snapshot["index_digest"]
 
     new_result = reconcile(candidate, _inventory())
@@ -128,11 +178,24 @@ def verify_loop(
         ]
     )
     drift_result = reconcile(candidate, drift_inventory)
-    blockers = _required_blockers(case, candidate)
+    blockers = _required_blockers(fixture_case, candidate)
 
     first_fixture_result = reconcile(candidate, _inventory())
     completed_entry = _entry(candidate, digest)
     final_fixture_result = reconcile(candidate, _inventory([completed_entry]))
+    operations = [*scan_result["operations"]]
+    operations.extend(
+        operation
+        for result in (
+            new_result,
+            same_result,
+            drift_result,
+            first_fixture_result,
+            final_fixture_result,
+        )
+        for operation in result["operations"]
+    )
+    zero_write_audit = audit_operations(operations)
     digest_chain = _artifact_digests(candidate, snapshot)
     platforms = digest_chain["upstream"]["platforms"]
     complete_chain = (
@@ -188,11 +251,14 @@ def verify_loop(
         "scenarios": scenarios,
         "artifact_digests": digest_chain,
         "compatibility_rule_id": case["compatibility_rule_id"],
-        "expected_blockers": copy.deepcopy(EXPECTED_BLOCKERS),
+        "expected_blockers": {
+            "scenario_codes": copy.deepcopy(EXPECTED_BLOCKERS),
+            "production": copy.deepcopy(case["release_manifest"]["blockers"]),
+        },
         "fixture_only": True,
         "unpublished": True,
-        "publication_attempted": False,
-        "zero_write_audit": copy.deepcopy(ZERO_WRITE_AUDIT),
+        "publication_attempted": zero_write_audit["write_count"] != 0,
+        "zero_write_audit": zero_write_audit,
     }
     return {
         "schema_version": 1,
