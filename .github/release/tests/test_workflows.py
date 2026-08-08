@@ -1607,6 +1607,150 @@ def test_reusable_image_router_uses_inputs_not_inherited_event_name() -> None:
     )
 
 
+def test_callable_image_chain_overrides_skipped_standalone_ancestor() -> None:
+    """A skipped direct-entry wheel must not transitively skip a valid call."""
+    document = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
+    jobs = _jobs(document)
+    dependencies = {
+        "standalone-wheel": [],
+        "select-input": ["standalone-wheel"],
+        "reconcile-fixture": ["select-input"],
+        "build-image": ["select-input", "reconcile-fixture"],
+        "final-reconcile": ["select-input", "reconcile-fixture", "build-image"],
+    }
+
+    def ancestors(job_name: str) -> set[str]:
+        result = set(dependencies[job_name])
+        for dependency in dependencies[job_name]:
+            result.update(ancestors(dependency))
+        return result
+
+    results = {"standalone-wheel": "skipped"}
+    for job_name in (
+        "select-input",
+        "reconcile-fixture",
+        "build-image",
+        "final-reconcile",
+    ):
+        condition = str(jobs[job_name]["if"])
+        skipped_ancestor = any(
+            results.get(dependency) == "skipped" for dependency in ancestors(job_name)
+        )
+        has_status_override = "always()" in condition or "!cancelled()" in condition
+        if skipped_ancestor and not has_status_override:
+            results[job_name] = "skipped"
+        elif job_name == "select-input":
+            # The exact workflow_call inputs make the callable side of its OR true.
+            results[job_name] = "success"
+        elif all(
+            results.get(dependency) == "success"
+            for dependency in dependencies[job_name]
+        ):
+            results[job_name] = "success"
+        else:
+            results[job_name] = "skipped"
+
+    assert results == {
+        "standalone-wheel": "skipped",
+        "select-input": "success",
+        "reconcile-fixture": "success",
+        "build-image": "success",
+        "final-reconcile": "success",
+    }
+    for job_name in (
+        "select-input",
+        "reconcile-fixture",
+        "build-image",
+        "final-reconcile",
+    ):
+        condition = str(jobs[job_name]["if"])
+        assert "!cancelled()" in condition, job_name
+        if job_name != "select-input":
+            for dependency in dependencies[job_name]:
+                assert f"needs.{dependency}.result == 'success'" in condition
+
+
+def test_callable_image_chain_fails_closed_for_direct_needs_and_cancellation() -> None:
+    """The status override must never admit cancelled or failed direct needs."""
+    document = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
+    jobs = _jobs(document)
+    select_condition = str(jobs["select-input"]["if"])
+    assert "!cancelled()" in select_condition
+    assert "needs.standalone-wheel.result == 'success'" in select_condition
+
+    def select_eligible(
+        callable_contract_is_exact: bool,
+        standalone_result: str,
+        run_cancelled: bool = False,
+    ) -> bool:
+        return not run_cancelled and (
+            callable_contract_is_exact or standalone_result == "success"
+        )
+
+    assert select_eligible(True, "skipped")
+    assert not select_eligible(True, "skipped", run_cancelled=True)
+    assert select_eligible(False, "success")
+    for bad_result in ("failure", "cancelled", "skipped"):
+        assert not select_eligible(False, bad_result)
+
+    direct_needs = {
+        "reconcile-fixture": ("select-input",),
+        "build-image": ("select-input", "reconcile-fixture"),
+        "final-reconcile": ("select-input", "reconcile-fixture", "build-image"),
+    }
+
+    for job_name, dependencies in direct_needs.items():
+        condition = str(jobs[job_name]["if"])
+        assert "!cancelled()" in condition, job_name
+        for dependency in dependencies:
+            assert f"needs.{dependency}.result == 'success'" in condition
+
+        def eligible(results: dict[str, str], run_cancelled: bool = False) -> bool:
+            return not run_cancelled and all(
+                results[dependency] == "success" for dependency in dependencies
+            )
+
+        success = {dependency: "success" for dependency in dependencies}
+        assert eligible(success)
+        assert not eligible(success, run_cancelled=True)
+        for dependency in dependencies:
+            for bad_result in ("failure", "cancelled", "skipped"):
+                results = dict(success)
+                results[dependency] = bad_result
+                assert not eligible(results), (job_name, dependency, bad_result)
+
+
+def test_multi_output_steps_use_one_grouped_github_output_append() -> None:
+    """ShellCheck SC2129: write each multi-value output file only once."""
+    targets = {
+        ("_build-wheel.yml", "build", "record"): 3,
+        ("_build-image.yml", "build", "result"): 3,
+        ("release-ucm.yml", "package-chart", "record"): 3,
+        ("release-vllm-images.yml", "reconcile-fixture", "plan"): 3,
+        ("release-vllm-images.yml", "final-reconcile", "close"): 4,
+    }
+    for (filename, job_name, step_id), output_count in targets.items():
+        document = _load_workflow(WORKFLOW_DIR / filename)
+        step = next(
+            item
+            for item in _steps(_jobs(document)[job_name])
+            if item.get("id") == step_id
+        )
+        command = str(step.get("run", ""))
+        assert command.count('>>"${GITHUB_OUTPUT}"') == 1, (
+            filename,
+            job_name,
+            step_id,
+        )
+        assert re.search(r"(?m)^\s*\{\s*$", command), (filename, step_id)
+        assert re.search(r'(?m)^\s*\}\s*>>"\$\{GITHUB_OUTPUT\}"\s*$', command), (
+            filename,
+            step_id,
+        )
+        grouped = command[command.index("{") : command.rindex("}")]
+        assert grouped.count("echo ") == output_count, (filename, step_id)
+
+
 def test_reusable_release_entry_uses_input_lane_not_inherited_event_name() -> None:
     """The core reusable entry must recognize a call even when the event is push."""
     document = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")

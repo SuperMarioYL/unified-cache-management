@@ -90,7 +90,7 @@ jobs:
     needs: standalone-wheel
     if: >-
       ${{
-        always() &&
+        !cancelled() &&
         ((inputs.call_contract == 'ucm-vllm-candidate-v1' && inputs.source_sha != '' && inputs.wheel_artifact != '' && inputs.validation_lane == 'fork-candidate') || needs.standalone-wheel.result == 'success')
       }}
     runs-on: ubuntu-24.04
@@ -113,7 +113,7 @@ jobs:
 
   reconcile-fixture:
     needs: select-input
-    if: ${{ needs.select-input.result == 'success' }}
+    if: ${{ !cancelled() && needs.select-input.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -150,9 +150,11 @@ jobs:
             --output-dir out \
             --run-id "${GITHUB_RUN_ID}" \
             --attempt "${GITHUB_RUN_ATTEMPT}" >loop-prepare-result.json
-          echo "image_input_artifact=ucm-image-input-${SOURCE_SHA}" >>"${GITHUB_OUTPUT}"
-          echo "first_reconcile_sha256=$(cat out/first-reconcile.sha256)" >>"${GITHUB_OUTPUT}"
-          echo "upstream_index_digest=$(python -c 'import json; print(json.load(open("loop-prepare-result.json"))["upstream_index_digest"])')" >>"${GITHUB_OUTPUT}"
+          {
+            echo "image_input_artifact=ucm-image-input-${SOURCE_SHA}"
+            echo "first_reconcile_sha256=$(cat out/first-reconcile.sha256)"
+            echo "upstream_index_digest=$(python -c 'import json; print(json.load(open("loop-prepare-result.json"))["upstream_index_digest"])')"
+          } >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ steps.plan.outputs.image_input_artifact }}
@@ -168,7 +170,7 @@ jobs:
 
   build-image:
     needs: [select-input, reconcile-fixture]
-    if: ${{ needs.reconcile-fixture.result == 'success' }}
+    if: ${{ !cancelled() && needs.select-input.result == 'success' && needs.reconcile-fixture.result == 'success' }}
     permissions:
       contents: read
     uses: ./.github/workflows/_build-image.yml
@@ -180,7 +182,7 @@ jobs:
 
   final-reconcile:
     needs: [select-input, reconcile-fixture, build-image]
-    if: ${{ needs.reconcile-fixture.result == 'success' && needs.build-image.result == 'success' }}
+    if: ${{ !cancelled() && needs.select-input.result == 'success' && needs.reconcile-fixture.result == 'success' && needs.build-image.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -222,10 +224,12 @@ jobs:
             --output-dir out \
             --run-id "${GITHUB_RUN_ID}" \
             --attempt "${GITHUB_RUN_ATTEMPT}" >loop-complete-result.json
-          echo "loop_artifact=ucm-vllm-loop-${SOURCE_SHA}" >>"${GITHUB_OUTPUT}"
-          echo "loop_payload_sha256=$(python -c 'import json; print(json.load(open("loop-complete-result.json"))["loop_payload_sha256"])')" >>"${GITHUB_OUTPUT}"
-          echo "image_result_sha256=$(python -c 'import json; print(json.load(open("loop-complete-result.json"))["image_result_sha256"])')" >>"${GITHUB_OUTPUT}"
-          echo "oci_digest=$(python -c 'import json; print(json.load(open("loop-complete-result.json"))["oci_digest"])')" >>"${GITHUB_OUTPUT}"
+          {
+            echo "loop_artifact=ucm-vllm-loop-${SOURCE_SHA}"
+            echo "loop_payload_sha256=$(python -c 'import json; print(json.load(open("loop-complete-result.json"))["loop_payload_sha256"])')"
+            echo "image_result_sha256=$(python -c 'import json; print(json.load(open("loop-complete-result.json"))["image_result_sha256"])')"
+            echo "oci_digest=$(python -c 'import json; print(json.load(open("loop-complete-result.json"))["oci_digest"])')"
+          } >>"${GITHUB_OUTPUT}"
           cp input/image/image-result.json out/image-result.json
           cp input/image/image-recipe.json out/image-recipe.json
           cp input/image/image-metadata.json out/image-metadata.json

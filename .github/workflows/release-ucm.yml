@@ -107,9 +107,11 @@ jobs:
         env:
           SOURCE_SHA: ${{ github.sha }}
         run: |
-          echo "chart_artifact=ucm-chart-${SOURCE_SHA}" >>"${GITHUB_OUTPUT}"
-          echo "chart_sha256=$(python -c 'import json; print(json.load(open("out/chart-result.json"))["sha256"])')" >>"${GITHUB_OUTPUT}"
-          echo "chart_tree_sha256=$(python -c 'import json; print(json.load(open("out/chart-result.json"))["release_tree_sha256"])')" >>"${GITHUB_OUTPUT}"
+          {
+            echo "chart_artifact=ucm-chart-${SOURCE_SHA}"
+            echo "chart_sha256=$(python -c 'import json; print(json.load(open("out/chart-result.json"))["sha256"])')"
+            echo "chart_tree_sha256=$(python -c 'import json; print(json.load(open("out/chart-result.json"))["release_tree_sha256"])')"
+          } >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ steps.record.outputs.chart_artifact }}

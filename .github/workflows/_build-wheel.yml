@@ -82,9 +82,11 @@ jobs:
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
-          echo "wheel_artifact=ucm-fixture-wheel-${SOURCE_SHA}" >>"${GITHUB_OUTPUT}"
-          echo "wheel_sha256=$(cat out/wheel.sha256)" >>"${GITHUB_OUTPUT}"
-          echo "inspection_sha256=$(python -c 'import json; print(json.load(open("out/fixture-build.json"))["inspection_sha256"])')" >>"${GITHUB_OUTPUT}"
+          {
+            echo "wheel_artifact=ucm-fixture-wheel-${SOURCE_SHA}"
+            echo "wheel_sha256=$(cat out/wheel.sha256)"
+            echo "inspection_sha256=$(python -c 'import json; print(json.load(open("out/fixture-build.json"))["inspection_sha256"])')"
+          } >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ steps.record.outputs.wheel_artifact }}

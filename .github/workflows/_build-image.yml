@@ -182,9 +182,11 @@ jobs:
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
-          echo "image_artifact=ucm-image-result-${SOURCE_SHA}" >>"${GITHUB_OUTPUT}"
-          echo "image_result_sha256=$(python -c 'import json; print(json.load(open("out/image-result.json"))["result_sha256"])')" >>"${GITHUB_OUTPUT}"
-          echo "oci_digest=$(python -c 'import json; print(json.load(open("out/image-result.json"))["oci"]["digest"])')" >>"${GITHUB_OUTPUT}"
+          {
+            echo "image_artifact=ucm-image-result-${SOURCE_SHA}"
+            echo "image_result_sha256=$(python -c 'import json; print(json.load(open("out/image-result.json"))["result_sha256"])')"
+            echo "oci_digest=$(python -c 'import json; print(json.load(open("out/image-result.json"))["oci"]["digest"])')"
+          } >>"${GITHUB_OUTPUT}"
           cp context/image-recipe.json out/image-recipe.json
           cp context/image-metadata.json out/image-metadata.json
           rm -f out/image.oci.tar
