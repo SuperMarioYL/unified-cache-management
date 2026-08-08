@@ -120,7 +120,10 @@ jobs:
         echo "${RUNNER_TEMP}/helm-bin" >>"${GITHUB_PATH}"
 
     - name: Install compact release test dependencies
-      run: python -m pip install --disable-pip-version-check pytest==8.3.5 PyYAML==6.0.2 packaging==24.2
+      run: >-
+        python -m pip install --disable-pip-version-check --no-cache-dir
+        --only-binary=:all: pytest==8.3.5 PyYAML==6.0.2 packaging==24.2
+        setuptools==83.0.0
 
     - name: Run compact release tests
       run: pytest -q .github/release/tests

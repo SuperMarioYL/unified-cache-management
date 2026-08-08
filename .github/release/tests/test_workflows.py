@@ -1148,6 +1148,29 @@ def test_lint_workflow_explicitly_runs_compact_release_tests() -> None:
     assert "pytest -q .github/release/tests" in text
 
 
+def test_release_test_job_installs_locked_setup_runtime_in_clean_python() -> None:
+    """Python 3.12 setup-python does not provide setuptools for setup.py tests."""
+    lint = _load_workflow(WORKFLOW_DIR / "lint-and-test.yml")
+    steps = _steps(_jobs(lint)["release-tests"])
+    install = next(
+        step
+        for step in steps
+        if step.get("name") == "Install compact release test dependencies"
+    )
+    command = str(install.get("run", ""))
+    for required in (
+        "python -m pip install",
+        "--disable-pip-version-check",
+        "--no-cache-dir",
+        "--only-binary=:all:",
+        "pytest==8.3.5",
+        "PyYAML==6.0.2",
+        "packaging==24.2",
+        "setuptools==83.0.0",
+    ):
+        assert required in command
+
+
 def test_pin_audit_rejects_a_nested_unpinned_action() -> None:
     """An unpinned action in a reusable workflow must not pass the SHA audit."""
     mutated = {
