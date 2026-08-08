@@ -1,0 +1,167 @@
+name: Reusable build fixture integration image
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        type: string
+        required: true
+      wheel_artifact:
+        type: string
+        required: true
+      image_input_artifact:
+        type: string
+        required: true
+      validation_lane:
+        type: string
+        required: true
+    outputs:
+      image_artifact:
+        description: Compact verified image metadata artifact
+        value: ${{ jobs.build.outputs.image_artifact }}
+      image_result_sha256:
+        description: Canonical image-result identity
+        value: ${{ jobs.build.outputs.image_result_sha256 }}
+      oci_digest:
+        description: Verified local OCI manifest digest
+        value: ${{ jobs.build.outputs.oci_digest }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      image_artifact: ${{ steps.result.outputs.image_artifact }}
+      image_result_sha256: ${{ steps.result.outputs.image_result_sha256 }}
+      oci_digest: ${{ steps.result.outputs.oci_digest }}
+    env:
+      BASE_CONFIG_DIGEST: sha256:688a685f6a1fa9250d7c6cee916889cbca364e4b027520110e0fce80c64a13e0
+      BASE_INDEX_DIGEST: sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7
+      BASE_MANIFEST_DIGEST: sha256:c00fc7b44d844b6da22861ec24af43968a5200eac4ec607b4725d585165d6b49
+      BASE_REPOSITORY: docker.io/library/python
+      CRANE_ARCHIVE_SHA256: 36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059
+      CRANE_VERSION: v0.20.3
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - name: Install compact release runtime dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+        with:
+          version: v0.19.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ inputs.wheel_artifact }}
+          path: input/wheel
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ inputs.image_input_artifact }}
+          path: input/image
+      - name: Reject unresolved production image capabilities
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VALIDATION_LANE: ${{ inputs.validation_lane }}
+        run: |
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          if [[ "${VALIDATION_LANE}" != fork-candidate ]]; then
+            echo "production image runners, devices, and publication authority are unresolved" >&2
+            exit 2
+          fi
+      - name: Install checksum-pinned read-only crane
+        run: |
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 \
+            -o "${RUNNER_TEMP}/crane.tar.gz" \
+            "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
+          echo "${CRANE_ARCHIVE_SHA256}  ${RUNNER_TEMP}/crane.tar.gz" | sha256sum --check
+          tar -xzf "${RUNNER_TEMP}/crane.tar.gz" -C "${RUNNER_TEMP}/crane" crane
+          test "$("${RUNNER_TEMP}/crane/crane" version)" = "${CRANE_VERSION#v}"
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - name: Read fixed base blobs and run anonymous best-effort probes
+        run: |
+          mkdir -p base context out
+          crane manifest "${BASE_REPOSITORY}@${BASE_INDEX_DIGEST}" >base/index.json
+          crane manifest "${BASE_REPOSITORY}@${BASE_MANIFEST_DIGEST}" >base/manifest.json
+          crane blob "${BASE_REPOSITORY}@${BASE_CONFIG_DIGEST}" >base/config.json
+          set +e
+          docker_hub_digest="$(timeout 30 crane digest docker.io/vllm/vllm-openai:v0.10.2 2>/dev/null)"
+          docker_hub_status=$?
+          quay_digest="$(timeout 30 crane digest quay.io/ascend/vllm-ascend:v0.9.1 2>/dev/null)"
+          quay_status=$?
+          set -e
+          printf '{"docker_hub":{"digest":"%s","exit_code":%d,"tag":"v0.10.2"},"identity_input":false,"quay":{"digest":"%s","exit_code":%d,"tag":"v0.9.1"}}\n' \
+            "${docker_hub_digest}" "${docker_hub_status}" "${quay_digest}" "${quay_status}" \
+            >out/live-probes.json
+      - name: Prepare the seven-file install-only context
+        run: |
+          PYTHONPATH=.github/release python -m ucm_release image prepare \
+            --input input/image/image-input.json \
+            --wheel-dir input/wheel \
+            --base-repository "${BASE_REPOSITORY}" \
+            --base-index base/index.json \
+            --base-manifest base/manifest.json \
+            --base-config base/config.json \
+            --base-index-digest "${BASE_INDEX_DIGEST}" \
+            --base-manifest-digest "${BASE_MANIFEST_DIGEST}" \
+            --base-config-digest "${BASE_CONFIG_DIGEST}" \
+            --output-dir context >out/image-prepare-result.json
+          test "$(find context -maxdepth 1 -type f | wc -l | tr -d ' ')" = 7
+          test ! -e context/ucm
+          test ! -e context/setup.py
+      - name: Build local OCI and run required install gates
+        run: |
+          base_subject="$(python -c 'import json; print(json.load(open("context/image-recipe.json"))["payload"]["base"]["subject"])')"
+          wheel_filename="$(python -c 'import json; print(json.load(open("context/image-recipe.json"))["payload"]["wheel"]["filename"])')"
+          [[ "${base_subject}" =~ @sha256:[0-9a-f]{64}$ ]]
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=false \
+            --sbom=false \
+            --build-arg "BASE_IMAGE=${base_subject}" \
+            --build-arg "SOURCE_DATE_EPOCH=0" \
+            --build-arg "UCM_WHEEL=${wheel_filename}" \
+            --metadata-file out/buildkit-metadata.json \
+            --output type=oci,dest=out/image.oci.tar,rewrite-timestamp=true \
+            --progress plain \
+            context 2>&1 | tee out/build.log
+          sha256sum out/image.oci.tar >out/image-archive.sha256
+          PYTHONPATH=.github/release python -m ucm_release image verify \
+            --context context \
+            --oci out/image.oci.tar >out/image-result.json
+      - id: result
+        name: Expose compact verified image identity
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          echo "image_artifact=ucm-image-result-${SOURCE_SHA}" >>"${GITHUB_OUTPUT}"
+          echo "image_result_sha256=$(python -c 'import json; print(json.load(open("out/image-result.json"))["result_sha256"])')" >>"${GITHUB_OUTPUT}"
+          echo "oci_digest=$(python -c 'import json; print(json.load(open("out/image-result.json"))["oci"]["digest"])')" >>"${GITHUB_OUTPUT}"
+          cp context/image-recipe.json out/image-recipe.json
+          cp context/image-metadata.json out/image-metadata.json
+          rm -f out/image.oci.tar
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.result.outputs.image_artifact }}
+          path: |
+            out/image-result.json
+            out/image-recipe.json
+            out/image-metadata.json
+            out/image-prepare-result.json
+            out/image-archive.sha256
+            out/buildkit-metadata.json
+            out/build.log
+            out/live-probes.json
+          if-no-files-found: error
+          retention-days: 3

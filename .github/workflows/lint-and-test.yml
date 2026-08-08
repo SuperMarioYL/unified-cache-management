@@ -3,19 +3,22 @@ name: 'Lint and Unit Tests'
 on:
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
   cpp-linter:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
           fetch-depth: 2
-      - uses: cpp-linter/cpp-linter-action@main
+      - uses: cpp-linter/cpp-linter-action@b6edc0625e3941baa1797f4b4326adeab6890c97
         id: linter
         continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           style: file
           tidy-checks: '-*'
@@ -27,16 +30,9 @@ jobs:
 
       - name: Show formatting diff
         if: steps.linter.outputs.checks-failed != 0
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "::group::clang-format diff details"
-          # Only check files changed in this PR/push, matching cpp-linter's behavior
-          if [ -n "${{ github.event.pull_request.number }}" ]; then
-            FILES=$(gh pr diff ${{ github.event.pull_request.number }} --name-only | grep -E '\.(c|cc|cpp|h|hpp)$' || true)
-          else
-            FILES=$(git diff --name-only HEAD~1 -- '*.c' '*.cc' '*.cpp' '*.h' '*.hpp' 2>/dev/null || true)
-          fi
+          FILES=$(git diff --name-only HEAD~1 -- '*.c' '*.cc' '*.cpp' '*.h' '*.hpp' 2>/dev/null || true)
 
           if [ -z "$FILES" ]; then
             echo "No changed C/C++ files found."
@@ -62,12 +58,16 @@ jobs:
 
   py-linter:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        persist-credentials: false
 
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
       with:
         python-version: "3.12"
 
@@ -77,18 +77,48 @@ jobs:
         echo "::add-matcher::.github/workflows/matchers/mypy.json"
 
     - name: Run pre-commit checks on all files
-      uses: pre-commit/action@v3.0.1
+      uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd
       env:
         SHELLCHECK_OPTS: "--exclude=SC2046,SC2006,SC2086"
       with:
         extra_args: --all-files --hook-stage manual
 
+  release-tests:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        persist-credentials: false
+
+    - name: Set up Python
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      with:
+        python-version: "3.12"
+
+    - name: Set up Helm
+      uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4
+      with:
+        version: v3.15.3
+
+    - name: Install compact release test dependencies
+      run: python -m pip install --disable-pip-version-check pytest==8.3.5 PyYAML==6.0.2 packaging==24.2
+
+    - name: Run compact release tests
+      run: pytest -q .github/release/tests
+
   cpp_gtest:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     env:
       BUILD_TYPE: Debug
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        persist-credentials: false
 
     - name: Configure CMake
       run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DBUILD_UCM_SPARSE=OFF -DBUILD_UNIT_TESTS=ON -DRUNTIME_ENVIRONMENT=simu

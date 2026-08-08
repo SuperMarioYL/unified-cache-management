@@ -1,0 +1,165 @@
+name: Release UCM core artifacts
+
+on:
+  workflow_call:
+    inputs:
+      validation_lane:
+        type: string
+        required: false
+        default: fork-candidate
+  push:
+    branches: ["feature/**"]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  unsupported-validation-lane:
+    if: ${{ inputs.validation_lane != '' && inputs.validation_lane != 'fork-candidate' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - run: |
+          echo "production callable lanes remain external-required" >&2
+          exit 2
+
+  fork-candidate:
+    if: >-
+      ${{
+        inputs.validation_lane == 'fork-candidate' ||
+        (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feature/')) ||
+        (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository != 'ModelEngine-Group/unified-cache-management')
+      }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_build-wheel.yml
+    with:
+      source_sha: ${{ github.sha }}
+      profile_id: cuda-cu129-ubuntu2204-amd64-cp312-release-default-sm75-sm80-sm86-sm89-sm90
+      validation_lane: fork-candidate
+
+  package-chart:
+    needs: fork-candidate
+    if: ${{ needs.fork-candidate.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      chart_artifact: ${{ steps.record.outputs.chart_artifact }}
+      chart_sha256: ${{ steps.record.outputs.chart_sha256 }}
+      chart_tree_sha256: ${{ steps.record.outputs.chart_tree_sha256 }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - name: Install compact release runtime dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4
+        with:
+          version: v3.15.3
+      - name: Lint, template, and deterministically package CUDA, A2, and A3
+        run: |
+          mkdir -p out/chart
+          PYTHONPATH=.github/release python -m ucm_release chart package \
+            --output-dir out/chart >out/chart-result.json
+      - id: record
+        name: Expose Chart package and source-tree identities
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          echo "chart_artifact=ucm-chart-${SOURCE_SHA}" >>"${GITHUB_OUTPUT}"
+          echo "chart_sha256=$(python -c 'import json; print(json.load(open("out/chart-result.json"))["sha256"])')" >>"${GITHUB_OUTPUT}"
+          echo "chart_tree_sha256=$(python -c 'import json; print(json.load(open("out/chart-result.json"))["release_tree_sha256"])')" >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.record.outputs.chart_artifact }}
+          path: |
+            out/chart/*.tgz
+            out/chart-result.json
+          if-no-files-found: error
+          retention-days: 3
+
+  reconcile-images:
+    needs: fork-candidate
+    if: ${{ needs.fork-candidate.result == 'success' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-vllm-images.yml
+    with:
+      source_sha: ${{ github.sha }}
+      wheel_artifact: ${{ needs.fork-candidate.outputs.wheel_artifact }}
+      validation_lane: fork-candidate
+
+  aggregate-evidence:
+    needs: [fork-candidate, package-chart, reconcile-images]
+    if: ${{ needs.fork-candidate.result == 'success' && needs.package-chart.result == 'success' && needs.reconcile-images.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - name: Install compact release runtime dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.fork-candidate.outputs.wheel_artifact }}
+          path: input/wheel
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.package-chart.outputs.chart_artifact }}
+          path: input/chart
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.reconcile-images.outputs.loop_artifact }}
+          path: input/images
+      - name: Aggregate deterministic release-loop-evidence.json
+        run: |
+          PYTHONPATH=.github/release python -m ucm_release loop aggregate \
+            --build-record input/wheel/fixture-build.json \
+            --wheel-inspection input/wheel/wheel-inspection.json \
+            --chart-result input/chart/chart-result.json \
+            --image-loop input/images/vllm-loop-evidence.json \
+            --repository "${GITHUB_REPOSITORY}" \
+            --ref "${GITHUB_REF}" \
+            --source-sha "${GITHUB_SHA}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --attempt "${GITHUB_RUN_ATTEMPT}" \
+            --output release-loop-evidence.json >aggregate-result.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-loop-evidence-${{ github.sha }}
+          path: release-loop-evidence.json
+          if-no-files-found: error
+          retention-days: 3
+
+  production-external-required:
+    if: ${{ github.repository == 'ModelEngine-Group/unified-cache-management' && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: ucm-production-release
+    permissions:
+      contents: read
+    steps:
+      - name: Fail closed until protected production capabilities exist
+        run: |
+          echo "production wheel builders, accelerator runners, publication authority, and Registry readback are external-required" >&2
+          exit 2

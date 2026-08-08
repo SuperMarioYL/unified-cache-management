@@ -22,7 +22,6 @@ from .core import (
     validate_schema,
 )
 
-
 DOCKER_ROOT = Path(__file__).resolve().parents[1] / "docker"
 DOCKER_FILES = (
     "Dockerfile",
@@ -34,8 +33,7 @@ CONTEXT_METADATA = "image-metadata.json"
 CONTEXT_RECIPE = "image-recipe.json"
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 REPOSITORY_RE = re.compile(
-    r"[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]+)?"
-    r"(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+"
+    r"[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]+)?" r"(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+"
 )
 COMPILE_COMMAND_RE = re.compile(
     r"(?im)^\s*(?:RUN\s+)?[^#\n]*(?:\bcmake\b|\bninja\b|\bmake\b|\bgcc\b|g\+\+|\bclang\b|\bpip\s+wheel\b|python[^\n]*\s-m\s+build\b)"
@@ -445,6 +443,94 @@ def prepare_context(
     return recipe
 
 
+def prepare_context_bundle(
+    image_input: dict[str, Any],
+    *,
+    wheel_dir: Path,
+    base_repository: str,
+    base_index_path: Path,
+    base_manifest_path: Path,
+    base_config_path: Path,
+    expected_index_digest: str,
+    expected_manifest_digest: str,
+    expected_config_digest: str,
+    output_dir: Path,
+) -> dict[str, Any]:
+    """Reopen fixed Registry blobs and prepare the exact Task 4 context."""
+    required = {
+        "source_case",
+        "candidate",
+        "task",
+        "inventory",
+        "target_platform",
+    }
+    _exact(image_input, required, "image workflow input")
+    paths = {
+        "index": Path(base_index_path),
+        "manifest": Path(base_manifest_path),
+        "config": Path(base_config_path),
+    }
+    expected = {
+        "index": _digest(expected_index_digest, "base index digest"),
+        "manifest": _digest(expected_manifest_digest, "base manifest digest"),
+        "config": _digest(expected_config_digest, "base config digest"),
+    }
+    raw: dict[str, bytes] = {}
+    parsed: dict[str, dict[str, Any]] = {}
+    for label, path in paths.items():
+        content = path.read_bytes()
+        digest = "sha256:" + hashlib.sha256(content).hexdigest()
+        if digest != expected[label]:
+            raise ValueError(f"base {label} digest does not match fetched bytes")
+        raw[label] = content
+        parsed[label] = _json_bytes(content, f"base {label}")
+    manifest = parsed["manifest"]
+    config_descriptor = manifest.get("config")
+    if not isinstance(config_descriptor, dict):
+        raise ValueError("base manifest is missing its config descriptor")
+    index_media_type = parsed["index"].get("mediaType")
+    manifest_media_type = manifest.get("mediaType")
+    config_media_type = config_descriptor.get("mediaType")
+    if not all(
+        isinstance(value, str)
+        for value in (index_media_type, manifest_media_type, config_media_type)
+    ):
+        raise ValueError("base descriptor media types are missing")
+    base_record = {
+        "schema_version": 1,
+        "kind": "fixture-base-image-record",
+        "fixture_only": True,
+        "repository": base_repository,
+        "index": {
+            "media_type": index_media_type,
+            "digest": expected["index"],
+            "size": len(raw["index"]),
+            "raw": raw["index"].decode("utf-8"),
+        },
+        "manifest": {
+            "media_type": manifest_media_type,
+            "digest": expected["manifest"],
+            "size": len(raw["manifest"]),
+            "raw": raw["manifest"].decode("utf-8"),
+        },
+        "config": {
+            "media_type": config_media_type,
+            "digest": expected["config"],
+            "size": len(raw["config"]),
+            "raw": raw["config"].decode("utf-8"),
+        },
+    }
+    wheels = sorted(Path(wheel_dir).glob("*.whl"))
+    if len(wheels) != 1:
+        raise ValueError("image workflow input requires one exact wheel")
+    return prepare_context(
+        **image_input,
+        base_record=base_record,
+        wheel_path=wheels[0],
+        output_dir=Path(output_dir),
+    )
+
+
 def _load_context(context_dir: Path) -> tuple[dict[str, Any], dict[str, Any], Path]:
     metadata = load_json(context_dir / CONTEXT_METADATA)
     recipe = load_json(context_dir / CONTEXT_RECIPE)
@@ -570,9 +656,17 @@ def _verify_evidence(
     command = install["pip_command"]
     if (
         not isinstance(command, list)
-        or len(command) != 6
-        or command[1:5] != ["-m", "pip", "install", "--only-binary=:all:"]
-        or Path(command[5]).name != wheel["filename"]
+        or len(command) != 8
+        or command[1:7]
+        != [
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--no-cache-dir",
+            "--only-binary=:all:",
+        ]
+        or Path(command[7]).name != wheel["filename"]
         or "--no-deps" in command
     ):
         raise ValueError(

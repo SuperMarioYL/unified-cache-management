@@ -24,6 +24,17 @@ def _paths(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--schema-dir", type=Path, default=core.DEFAULT_SCHEMA_DIR)
 
 
+def _empty_output_dir(path: Path) -> Path:
+    if path.exists() and any(path.iterdir()):
+        raise ValueError(f"output directory must be absent or empty: {path}")
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _write(path: Path, value: object) -> None:
+    path.write_bytes(core.canonical_bytes(value) + b"\n")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m ucm_release")
     groups = parser.add_subparsers(dest="group", required=True)
@@ -50,6 +61,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--source-kind", choices=("fixture", "builder-candidate"), required=True
     )
     _paths(inspect)
+    fixture_build = wheel_actions.add_parser("fixture-build")
+    fixture_build.add_argument("--output-dir", type=Path, required=True)
+    fixture_build.add_argument("--source-sha", required=True)
+    fixture_build.add_argument("--profile-id", required=True)
+    _paths(fixture_build)
 
     chart_parser = groups.add_parser("chart")
     chart_actions = chart_parser.add_subparsers(dest="action", required=True)
@@ -75,6 +91,31 @@ def build_parser() -> argparse.ArgumentParser:
     loop_verify.add_argument("--input", type=Path, required=True)
     loop_verify.add_argument("--run-id", required=True)
     loop_verify.add_argument("--attempt", type=int, required=True)
+    loop_prepare = loop_actions.add_parser("prepare")
+    loop_prepare.add_argument("--build-record", type=Path, required=True)
+    loop_prepare.add_argument("--wheel-inspection", type=Path, required=True)
+    loop_prepare.add_argument("--source-sha", required=True)
+    loop_prepare.add_argument("--output-dir", type=Path, required=True)
+    loop_prepare.add_argument("--run-id", required=True)
+    loop_prepare.add_argument("--attempt", type=int, required=True)
+    loop_complete = loop_actions.add_parser("complete")
+    loop_complete.add_argument("--prepared", type=Path, required=True)
+    loop_complete.add_argument("--image-result", type=Path, required=True)
+    loop_complete.add_argument("--source-sha", required=True)
+    loop_complete.add_argument("--output-dir", type=Path, required=True)
+    loop_complete.add_argument("--run-id", required=True)
+    loop_complete.add_argument("--attempt", type=int, required=True)
+    loop_aggregate = loop_actions.add_parser("aggregate")
+    loop_aggregate.add_argument("--build-record", type=Path, required=True)
+    loop_aggregate.add_argument("--wheel-inspection", type=Path, required=True)
+    loop_aggregate.add_argument("--chart-result", type=Path, required=True)
+    loop_aggregate.add_argument("--image-loop", type=Path, required=True)
+    loop_aggregate.add_argument("--repository", required=True)
+    loop_aggregate.add_argument("--ref", required=True)
+    loop_aggregate.add_argument("--source-sha", required=True)
+    loop_aggregate.add_argument("--output", type=Path, required=True)
+    loop_aggregate.add_argument("--run-id", required=True)
+    loop_aggregate.add_argument("--attempt", type=int, required=True)
 
     image_parser = groups.add_parser("image")
     image_actions = image_parser.add_subparsers(dest="action", required=True)
@@ -84,6 +125,17 @@ def build_parser() -> argparse.ArgumentParser:
     image_verify.add_argument(
         "--schema-dir", type=Path, default=core.DEFAULT_SCHEMA_DIR
     )
+    image_prepare = image_actions.add_parser("prepare")
+    image_prepare.add_argument("--input", type=Path, required=True)
+    image_prepare.add_argument("--wheel-dir", type=Path, required=True)
+    image_prepare.add_argument("--base-repository", required=True)
+    image_prepare.add_argument("--base-index", type=Path, required=True)
+    image_prepare.add_argument("--base-manifest", type=Path, required=True)
+    image_prepare.add_argument("--base-config", type=Path, required=True)
+    image_prepare.add_argument("--base-index-digest", required=True)
+    image_prepare.add_argument("--base-manifest-digest", required=True)
+    image_prepare.add_argument("--base-config-digest", required=True)
+    image_prepare.add_argument("--output-dir", type=Path, required=True)
     return parser
 
 
@@ -124,6 +176,15 @@ def main(argv: list[str] | None = None) -> int:
                 compatibility_path=args.compatibility,
                 schema_dir=args.schema_dir,
             )
+        elif (args.group, args.action) == ("wheel", "fixture-build"):
+            result = wheel.build_fixture_wheel(
+                args.output_dir,
+                args.source_sha,
+                args.profile_id,
+                release_path=args.release,
+                compatibility_path=args.compatibility,
+                schema_dir=args.schema_dir,
+            )
         elif (args.group, args.action) == ("chart", "package"):
             result = chart.package_chart(
                 args.output_dir,
@@ -151,11 +212,90 @@ def main(argv: list[str] | None = None) -> int:
                 core.load_json(args.input),
                 run={"id": args.run_id, "attempt": args.attempt},
             )
+        elif (args.group, args.action) == ("loop", "prepare"):
+            prepared = verify.prepare_candidate_loop(
+                core.load_json(args.build_record),
+                core.load_json(args.wheel_inspection),
+                source_sha=args.source_sha,
+                run={"id": args.run_id, "attempt": args.attempt},
+            )
+            output_dir = _empty_output_dir(args.output_dir)
+            documents = {
+                "prepared-loop.json": prepared,
+                "image-input.json": prepared["image_input"],
+                "candidate.json": prepared["candidate"],
+                "first-reconcile.json": prepared["first_reconcile"],
+                "loop-verification.json": prepared["loop_verification"],
+            }
+            for filename, value in documents.items():
+                _write(output_dir / filename, value)
+            first_sha256 = core.sha256_value(prepared["first_reconcile"])
+            (output_dir / "first-reconcile.sha256").write_text(
+                first_sha256 + "\n", encoding="utf-8"
+            )
+            result = {
+                "image_input": str(output_dir / "image-input.json"),
+                "candidate_build_key_sha256": prepared["candidate"]["build_key_sha256"],
+                "first_reconcile_sha256": first_sha256,
+                "upstream_index_digest": prepared["candidate"]["build_inputs"][
+                    "upstream"
+                ]["index_digest"],
+                "loop_payload_sha256": prepared["loop_verification"]["payload_sha256"],
+            }
+        elif (args.group, args.action) == ("loop", "complete"):
+            completed = verify.complete_candidate_loop(
+                core.load_json(args.prepared),
+                core.load_json(args.image_result),
+                source_sha=args.source_sha,
+                run={"id": args.run_id, "attempt": args.attempt},
+            )
+            output_dir = _empty_output_dir(args.output_dir)
+            _write(output_dir / "completed-loop.json", completed)
+            _write(output_dir / "second-reconcile.json", completed["second_reconcile"])
+            _write(output_dir / "vllm-loop-evidence.json", completed["evidence"])
+            result = {
+                "loop_payload_sha256": completed["evidence"]["payload_sha256"],
+                "image_result_sha256": completed["evidence"]["payload"][
+                    "image_result_sha256"
+                ],
+                "oci_digest": completed["evidence"]["payload"]["oci_digest"],
+                "second_task_count": completed["second_reconcile"]["task_count"],
+            }
+        elif (args.group, args.action) == ("loop", "aggregate"):
+            evidence = verify.aggregate_release_evidence(
+                core.load_json(args.build_record),
+                core.load_json(args.wheel_inspection),
+                core.load_json(args.chart_result),
+                core.load_json(args.image_loop),
+                repository=args.repository,
+                ref=args.ref,
+                source_sha=args.source_sha,
+                run={"run_id": args.run_id, "run_attempt": args.attempt},
+            )
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            _write(args.output, evidence)
+            result = {
+                "output": str(args.output),
+                "payload_sha256": evidence["payload_sha256"],
+            }
         elif (args.group, args.action) == ("image", "verify"):
             result = image.verify_oci(
                 args.context,
                 args.oci,
                 schema_dir=args.schema_dir,
+            )
+        elif (args.group, args.action) == ("image", "prepare"):
+            result = image.prepare_context_bundle(
+                core.load_json(args.input),
+                wheel_dir=args.wheel_dir,
+                base_repository=args.base_repository,
+                base_index_path=args.base_index,
+                base_manifest_path=args.base_manifest,
+                base_config_path=args.base_config,
+                expected_index_digest=args.base_index_digest,
+                expected_manifest_digest=args.base_manifest_digest,
+                expected_config_digest=args.base_config_digest,
+                output_dir=args.output_dir,
             )
         else:  # pragma: no cover - argparse owns this branch.
             parser.error("unsupported command")

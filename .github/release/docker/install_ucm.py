@@ -93,6 +93,8 @@ def install(recipe_path: Path, metadata_path: Path, wheel_path: Path) -> dict[st
         "-m",
         "pip",
         "install",
+        "--disable-pip-version-check",
+        "--no-cache-dir",
         "--only-binary=:all:",
         str(wheel_path),
     ]

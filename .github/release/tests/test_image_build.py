@@ -18,7 +18,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RELEASE_ROOT = REPO_ROOT / ".github" / "release"
 DOCKER_ROOT = RELEASE_ROOT / "docker"
@@ -307,6 +306,8 @@ def _evidence(recipe: dict[str, object]) -> dict[str, object]:
                 "-m",
                 "pip",
                 "install",
+                "--disable-pip-version-check",
+                "--no-cache-dir",
                 "--only-binary=:all:",
                 f"/tmp/{wheel['filename']}",
             ],

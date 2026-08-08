@@ -6,15 +6,17 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   pre-check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - id: fetch_base_and_pr_branches
         env:
@@ -75,21 +77,26 @@ jobs:
 
   lint-and-unit-tests:
     needs: pre-check
+    permissions:
+      contents: read
     uses: ./.github/workflows/lint-and-test.yml
 
   test-build-vllm-ascend:
     timeout-minutes: 25
     runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
 
       - name: Build Image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25
         with:
           context: .
           file: ./docker/Dockerfile.ucm-vllm-ascend.a2-v0.20.2rc1
@@ -104,16 +111,19 @@ jobs:
   test-build-vllm-cuda-v0-20-2:
     timeout-minutes: 25
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
 
       - name: Build Image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25
         with:
           context: .
           file: ./docker/Dockerfile.ucm-vllm-cuda-v0.20.2
@@ -128,16 +138,19 @@ jobs:
   test-build-sglang:
     timeout-minutes: 25
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
 
       - name: Build Image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25
         with:
           context: .
           file: ./docker/Dockerfile.ucm-sglang-cuda-v0.5.5
@@ -152,16 +165,19 @@ jobs:
   test-build-mindie:
     timeout-minutes: 25
     runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
 
       - name: Build Image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25
         with:
           context: .
           file: ./docker/Dockerfile.ucm-mindie-ascend.a2-v2
@@ -178,8 +194,7 @@ jobs:
     runs-on: [self-hosted, npu, a2]
     needs: lint-and-unit-tests
     permissions:
-      checks: write
-      pull-requests: write
+      contents: read
     steps:
       - name: Clean repo
         run: |
@@ -189,10 +204,11 @@ jobs:
             rm -rf .[!.]*
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 1
           show-progress: false
+          persist-credentials: false
 
       - name: Install Docker CLI
         run: |
