@@ -1,3 +1,4 @@
+kind: release-config
 schema_version: 1
 ucm_version: 0.5.0rc1
 version_file: version.ini
@@ -12,10 +13,19 @@ chart:
   validation_cases:
     - name: cuda
       values: charts/ucm/models/cuda/values-qwen3-0p6b-1e1.yaml
+      image_repository: registry.invalid/ucm/fixture-cuda
+      image_digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expected_resource: nvidia.com/gpu
     - name: a2
       values: charts/ucm/models/ascend/values-qwen3-0p6b-1e1.yaml
+      image_repository: registry.invalid/ucm/fixture-ascend-a2
+      image_digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+      expected_resource: huawei.com/Ascend910
     - name: a3
       values: charts/ucm/models/ascend/values-qwen3-0p6b-1e1.yaml
+      image_repository: registry.invalid/ucm/fixture-ascend-a3
+      image_digest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      expected_resource: huawei.com/Ascend910
 wheel_profiles:
   - id: cuda-cu129-ubuntu2204-cp312
     accelerator: cuda

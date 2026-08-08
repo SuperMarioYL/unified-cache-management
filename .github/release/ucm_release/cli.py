@@ -44,6 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     inspect.add_argument("wheel", type=Path)
     inspect.add_argument("--spec-id", required=True)
     inspect.add_argument("--expected-sha256", required=True)
+    inspect.add_argument("--source-kind", choices=("fixture", "production"), required=True)
     _paths(inspect)
 
     chart_parser = groups.add_parser("chart")
@@ -83,6 +84,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.wheel,
                 args.spec_id,
                 args.expected_sha256,
+                args.source_kind,
                 release_path=args.release,
                 compatibility_path=args.compatibility,
                 schema_dir=args.schema_dir,

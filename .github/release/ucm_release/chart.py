@@ -9,7 +9,7 @@ import json
 import subprocess
 import tarfile
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .core import DEFAULT_COMPATIBILITY, DEFAULT_RELEASE, DEFAULT_SCHEMA_DIR, REPO_ROOT, canonical_bytes, validate_config
@@ -76,12 +76,28 @@ def verify_provenance(chart_dir: Path) -> dict[str, Any]:
 
 def _deterministic_repack(source: Path, destination: Path) -> None:
     records: list[tuple[tarfile.TarInfo, bytes | None]] = []
+    seen: set[str] = set()
     with tarfile.open(source, "r:gz") as archive:
         for member in archive.getmembers():
             if not (member.isfile() or member.isdir()):
                 raise ValueError(f"Chart package contains unsupported member: {member.name}")
+            raw_name = member.name[:-1] if member.isdir() and member.name.endswith("/") else member.name
+            parsed = PurePosixPath(raw_name)
+            if (
+                not raw_name
+                or parsed.is_absolute()
+                or "\\" in raw_name
+                or any(part in {"", ".", ".."} for part in raw_name.split("/"))
+                or parsed.as_posix() != raw_name
+            ):
+                raise ValueError(f"unsafe or noncanonical Chart member: {member.name}")
+            if raw_name in seen:
+                raise ValueError(f"duplicate Chart member: {raw_name}")
+            seen.add(raw_name)
             data = archive.extractfile(member).read() if member.isfile() else None
-            records.append((member, data))
+            normalized_source = tarfile.TarInfo(raw_name)
+            normalized_source.type = member.type
+            records.append((normalized_source, data))
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("wb") as raw:
         with gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0) as compressed:
@@ -89,7 +105,7 @@ def _deterministic_repack(source: Path, destination: Path) -> None:
                 for original, data in sorted(records, key=lambda item: item[0].name):
                     normalized = tarfile.TarInfo(original.name)
                     normalized.type = original.type
-                    normalized.mode = original.mode
+                    normalized.mode = 0o755 if original.isdir() else 0o644
                     normalized.size = len(data) if data is not None else 0
                     normalized.uid = 0
                     normalized.gid = 0
@@ -111,17 +127,36 @@ def package_chart(
     chart_dir = REPO_ROOT / chart_config["source"]
     provenance = verify_provenance(chart_dir)
     rendered_cases: list[str] = []
+    rendered_evidence: dict[str, dict[str, str]] = {}
     _run(["helm", "lint", str(chart_dir)])
     for case in chart_config["validation_cases"]:
         values = REPO_ROOT / case["values"]
-        args = ["--values", str(values)]
+        args = [
+            "--values",
+            str(values),
+            "--set-string",
+            f"images.engine.repository={case['image_repository']}",
+            "--set-string",
+            f"images.engine.digest={case['image_digest']}",
+        ]
         _run(["helm", "lint", str(chart_dir), *args])
         rendered = _run(
             ["helm", "template", f"ucm-{case['name']}", str(chart_dir), *args]
         )
         if "kind: ModelServing" not in rendered:
             raise ValueError(f"Chart case {case['name']} did not render ModelServing")
+        image = f"{case['image_repository']}@{case['image_digest']}"
+        if image not in rendered:
+            raise ValueError(f"Chart case {case['name']} did not render exact image {image}")
+        if case["expected_resource"] not in rendered:
+            raise ValueError(
+                f"Chart case {case['name']} did not render resource {case['expected_resource']}"
+            )
         rendered_cases.append(case["name"])
+        rendered_evidence[case["name"]] = {
+            "image": image,
+            "resource": case["expected_resource"],
+        }
     output_dir.mkdir(parents=True, exist_ok=True)
     filename = f"{chart_config['name']}-{chart_config['version']}.tgz"
     destination = output_dir / filename
@@ -156,6 +191,7 @@ def package_chart(
         "source_tree_sha256": provenance["source"]["tree_sha256"],
         "release_tree_sha256": provenance["release_tree_sha256"],
         "rendered_cases": rendered_cases,
+        "rendered_evidence": rendered_evidence,
         "checks": {
             "helm_lint": "passed",
             "helm_package": "passed",

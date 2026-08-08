@@ -1,6 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://modelengine-group.example/ucm/config.schema.json",
+  "oneOf": [
+    {"$ref": "#/$defs/release"},
+    {"$ref": "#/$defs/compatibility"}
+  ],
   "$defs": {
     "lock": {
       "type": "object",
@@ -9,7 +13,8 @@
       "properties": {
         "subject": {"enum": ["builder", "toolchain", "atb", "torch-npu"]},
         "selector": {"type": "string", "minLength": 1},
-        "status": {"enum": ["unresolved", "resolved"]}
+        "status": {"enum": ["unresolved", "resolved"]},
+        "identity": {"type": "string", "pattern": "^(oci|toolchain|package)://[^@ ]+@sha256:[0-9a-f]{64}$"}
       }
     },
     "runner": {
@@ -18,7 +23,8 @@
       "required": ["selector", "status"],
       "properties": {
         "selector": {"type": "string", "minLength": 1},
-        "status": {"enum": ["unresolved", "resolved"]}
+        "status": {"enum": ["unresolved", "resolved"]},
+        "identity": {"type": "string", "pattern": "^runner://[^@ ]+@sha256:[0-9a-f]{64}$"}
       }
     },
     "wheelProfile": {
@@ -62,10 +68,13 @@
     "chartCase": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "values"],
+      "required": ["name", "values", "image_repository", "image_digest", "expected_resource"],
       "properties": {
         "name": {"enum": ["cuda", "a2", "a3"]},
-        "values": {"type": "string", "minLength": 1}
+        "values": {"type": "string", "minLength": 1},
+        "image_repository": {"type": "string", "pattern": "^registry\\.invalid/ucm/fixture-(cuda|ascend-a2|ascend-a3)$"},
+        "image_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "expected_resource": {"enum": ["nvidia.com/gpu", "huawei.com/Ascend910"]}
       }
     },
     "chart": {
@@ -87,9 +96,10 @@
     "release": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema_version", "ucm_version", "version_file", "python_runtime_dependencies", "chart", "wheel_profiles"],
+      "required": ["kind", "schema_version", "ucm_version", "version_file", "python_runtime_dependencies", "chart", "wheel_profiles"],
       "properties": {
-        "schema_version": {"const": 1},
+        "kind": {"const": "release-config"},
+        "schema_version": {"type": "integer", "const": 1},
         "ucm_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+rc[0-9]+$"},
         "version_file": {"const": "version.ini"},
         "python_runtime_dependencies": {
@@ -121,9 +131,10 @@
     "compatibility": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema_version", "ucm_version", "rules", "excluded_upstream_patterns"],
+      "required": ["kind", "schema_version", "ucm_version", "rules", "excluded_upstream_patterns"],
       "properties": {
-        "schema_version": {"const": 1},
+        "kind": {"const": "compatibility-config"},
+        "schema_version": {"type": "integer", "const": 1},
         "ucm_version": {"type": "string"},
         "rules": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/compatibilityRule"}},
         "excluded_upstream_patterns": {
