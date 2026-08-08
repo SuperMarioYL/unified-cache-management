@@ -43,6 +43,27 @@ jobs:
       CRANE_ARCHIVE_SHA256: 36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059
       CRANE_VERSION: v0.20.3
     steps:
+      - name: Validate reusable build contract
+        env:
+          IMAGE_INPUT_ARTIFACT: ${{ inputs.image_input_artifact }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VALIDATION_LANE: ${{ inputs.validation_lane }}
+          WHEEL_ARTIFACT: ${{ inputs.wheel_artifact }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "source_sha must be a full lowercase commit SHA" >&2
+            exit 2
+          fi
+          if [[ "${VALIDATION_LANE}" != fork-candidate ]]; then
+            echo "production image runners, devices, and publication authority are unresolved" >&2
+            exit 2
+          fi
+          if [[ -z "${WHEEL_ARTIFACT}" || -z "${IMAGE_INPUT_ARTIFACT}" ]]; then
+            echo "wheel_artifact and image_input_artifact must be non-empty" >&2
+            exit 2
+          fi
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ inputs.source_sha }}
@@ -88,16 +109,6 @@ jobs:
         with:
           name: ${{ inputs.image_input_artifact }}
           path: input/image
-      - name: Reject unresolved production image capabilities
-        env:
-          SOURCE_SHA: ${{ inputs.source_sha }}
-          VALIDATION_LANE: ${{ inputs.validation_lane }}
-        run: |
-          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
-          if [[ "${VALIDATION_LANE}" != fork-candidate ]]; then
-            echo "production image runners, devices, and publication authority are unresolved" >&2
-            exit 2
-          fi
       - name: Install checksum-pinned read-only crane
         run: |
           mkdir -p "${RUNNER_TEMP}/crane"

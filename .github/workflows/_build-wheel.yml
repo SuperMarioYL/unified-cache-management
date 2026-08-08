@@ -37,6 +37,26 @@ jobs:
       wheel_sha256: ${{ steps.record.outputs.wheel_sha256 }}
       inspection_sha256: ${{ steps.record.outputs.inspection_sha256 }}
     steps:
+      - name: Validate reusable build contract
+        env:
+          PROFILE_ID: ${{ inputs.profile_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VALIDATION_LANE: ${{ inputs.validation_lane }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "source_sha must be a full lowercase commit SHA" >&2
+            exit 2
+          fi
+          if [[ "${VALIDATION_LANE}" != fork-candidate ]]; then
+            echo "production wheel builder/toolchain/runner locks are unresolved" >&2
+            exit 2
+          fi
+          if [[ "${PROFILE_ID}" != cuda-cu129-ubuntu2204-amd64-cp312-release-default-sm75-sm80-sm86-sm89-sm90 ]]; then
+            echo "profile_id is not the authorized fixture profile" >&2
+            exit 2
+          fi
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ inputs.source_sha }}
@@ -48,20 +68,6 @@ jobs:
         run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
-      - name: Reject unresolved production builders
-        env:
-          PROFILE_ID: ${{ inputs.profile_id }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
-          VALIDATION_LANE: ${{ inputs.validation_lane }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
-          if [[ "${VALIDATION_LANE}" != fork-candidate ]]; then
-            echo "production wheel builder/toolchain/runner locks are unresolved" >&2
-            exit 2
-          fi
-          test "${PROFILE_ID}" = cuda-cu129-ubuntu2204-amd64-cp312-release-default-sm75-sm80-sm86-sm89-sm90
       - name: Build and inspect fixture-only wheel with ordinary Requires-Dist wrapt==1.17.2
         env:
           PROFILE_ID: ${{ inputs.profile_id }}

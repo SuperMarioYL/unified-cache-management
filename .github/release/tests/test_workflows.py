@@ -1070,6 +1070,104 @@ def test_reusable_workflow_inputs_outputs_and_artifacts_are_exact() -> None:
             assert inputs.get("retention-days") == 3
 
 
+@pytest.mark.parametrize(
+    ("filename", "valid_environment", "invalid_environment"),
+    [
+        (
+            "_build-wheel.yml",
+            {
+                "SOURCE_SHA": "a" * 40,
+                "PROFILE_ID": FIXTURE_PROFILE,
+                "VALIDATION_LANE": "fork-candidate",
+            },
+            [
+                {"SOURCE_SHA": "refs/heads/feature/cicd"},
+                {"VALIDATION_LANE": "production"},
+                {"PROFILE_ID": ""},
+            ],
+        ),
+        (
+            "_build-image.yml",
+            {
+                "SOURCE_SHA": "b" * 40,
+                "WHEEL_ARTIFACT": "ucm-fixture-wheel-b",
+                "IMAGE_INPUT_ARTIFACT": "ucm-image-input-b",
+                "VALIDATION_LANE": "fork-candidate",
+            },
+            [
+                {"SOURCE_SHA": "refs/heads/feature/cicd"},
+                {"VALIDATION_LANE": "production"},
+                {"WHEEL_ARTIFACT": ""},
+                {"IMAGE_INPUT_ARTIFACT": ""},
+            ],
+        ),
+    ],
+)
+def test_reusable_build_contract_gate_runs_before_checkout_or_untrusted_code(
+    tmp_path: Path,
+    filename: str,
+    valid_environment: dict[str, str],
+    invalid_environment: list[dict[str, str]],
+) -> None:
+    """Malformed calls must fail before checkout, Actions, Python, or network."""
+    workflow = _load_workflow(WORKFLOW_DIR / filename)
+    steps = _steps(_jobs(workflow)["build"])
+    gate = steps[0]
+    assert gate.get("name") == "Validate reusable build contract"
+    assert gate.get("shell") == "bash"
+    assert "uses" not in gate
+    command = str(gate.get("run", ""))
+    assert "set -euo pipefail" in command
+    assert "python" not in command.lower()
+    assert "curl" not in command
+
+    checkout_index = next(
+        index
+        for index, step in enumerate(steps)
+        if str(step.get("uses", "")).startswith("actions/checkout@")
+    )
+    setup_index = next(
+        index
+        for index, step in enumerate(steps)
+        if str(step.get("uses", "")).startswith("actions/setup-python@")
+    )
+    first_repo_or_network_index = next(
+        index
+        for index, step in enumerate(steps)
+        if index > setup_index
+        and any(
+            marker in "\n".join(_strings(step))
+            for marker in ("python", "ucm_release", "curl", "download-artifact")
+        )
+    )
+    assert 0 < checkout_index < setup_index < first_repo_or_network_index
+
+    base_environment = {**__import__("os").environ, **valid_environment}
+    marker = tmp_path / "later-step-ran"
+    wrapped = command + '\nprintf later >"${MARKER}"\n'
+    valid = subprocess.run(
+        ["bash", "-c", wrapped],
+        env={**base_environment, "MARKER": str(marker)},
+        check=False,
+    )
+    assert valid.returncode == 0
+    assert marker.read_text(encoding="utf-8") == "later"
+
+    for index, mutation in enumerate(invalid_environment):
+        marker = tmp_path / f"invalid-{index}"
+        rejected = subprocess.run(
+            ["bash", "-c", wrapped],
+            env={
+                **base_environment,
+                **mutation,
+                "MARKER": str(marker),
+            },
+            check=False,
+        )
+        assert rejected.returncode == 2
+        assert not marker.exists()
+
+
 def test_reusable_entry_contracts_reject_empty_partial_and_illegal_calls() -> None:
     """A malformed workflow_call must run an explicit exit-2 job, never go green."""
     entry = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
