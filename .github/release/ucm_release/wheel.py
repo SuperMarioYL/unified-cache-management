@@ -82,7 +82,7 @@ def _unique_json(data: bytes, label: str) -> dict[str, Any]:
     return value
 
 
-def _verify_production_evidence(
+def _verify_builder_candidate_evidence(
     archive: zipfile.ZipFile,
     wheel_metadata: email.message.Message,
     spec: dict[str, Any],
@@ -90,7 +90,7 @@ def _verify_production_evidence(
     names = [item.filename for item in archive.infolist() if not item.is_dir()]
     record_names = [name for name in names if name.endswith(".dist-info/RECORD")]
     if len(record_names) != 1:
-        raise ValueError("production wheel requires exactly one RECORD")
+        raise ValueError("builder candidate requires exactly one RECORD")
     _verify_record(archive, record_names[0])
     native_names = [
         name
@@ -100,10 +100,10 @@ def _verify_production_evidence(
         and archive.read(name).startswith(b"\x7fELF")
     ]
     if wheel_metadata.get("Root-Is-Purelib", "").lower() != "false" or not native_names:
-        raise ValueError("production wheel requires a native custom-op shared object with ELF evidence")
+        raise ValueError("builder candidate requires a native custom-op shared object with ELF evidence")
     build_names = [name for name in names if name.endswith(".dist-info/ucm-build.json")]
     if len(build_names) != 1:
-        raise ValueError("production wheel requires exactly one embedded ucm-build.json")
+        raise ValueError("builder candidate requires exactly one embedded ucm-build.json")
     binding = _unique_json(archive.read(build_names[0]), build_names[0])
     required = {
         "schema_version", "spec_id", "source_commit", "build_context_digest",
@@ -149,8 +149,8 @@ def inspect_wheel(
     compatibility_path: Path = DEFAULT_COMPATIBILITY,
     schema_dir: Path = DEFAULT_SCHEMA_DIR,
 ) -> dict[str, Any]:
-    if source_kind not in {"fixture", "production"}:
-        raise ValueError("source_kind must be fixture or production")
+    if source_kind not in {"fixture", "builder-candidate"}:
+        raise ValueError("source_kind must be fixture or builder-candidate")
     if DIGEST_RE.fullmatch(expected_sha256) is None:
         raise ValueError("expected SHA256 must be sha256:<64 lowercase hex>")
     release, _ = validate_config(release_path, compatibility_path, schema_dir)
@@ -158,6 +158,8 @@ def inspect_wheel(
     if spec_id not in specs:
         raise ValueError(f"unknown wheel spec: {spec_id}")
     spec = specs[spec_id]
+    if source_kind == "builder-candidate" and not spec["build_eligible"]:
+        raise ValueError("builder candidate planned spec has unresolved locks or runner")
     actual_sha256 = _sha256(path)
     if actual_sha256 != expected_sha256:
         raise ValueError(
@@ -167,7 +169,7 @@ def inspect_wheel(
         filename_name, filename_version, _, filename_tags = parse_wheel_filename(path.name)
     except Exception as error:
         raise ValueError(f"invalid wheel filename: {error}") from error
-    production_evidence: dict[str, Any] | None = None
+    builder_evidence: dict[str, Any] | None = None
     with zipfile.ZipFile(path) as archive:
         metadata_names = [name for name in archive.namelist() if name.endswith(".dist-info/METADATA")]
         wheel_names = [name for name in archive.namelist() if name.endswith(".dist-info/WHEEL")]
@@ -176,8 +178,10 @@ def inspect_wheel(
         parser = email.parser.Parser()
         metadata = parser.parsestr(archive.read(metadata_names[0]).decode("utf-8"))
         wheel_metadata = parser.parsestr(archive.read(wheel_names[0]).decode("utf-8"))
-        if source_kind == "production":
-            production_evidence = _verify_production_evidence(archive, wheel_metadata, spec)
+        if source_kind == "builder-candidate":
+            builder_evidence = _verify_builder_candidate_evidence(
+                archive, wheel_metadata, spec
+            )
     distribution = metadata.get("Name", "")
     version = metadata.get("Version", "")
     if canonicalize_name(distribution) != "uc-manager":
@@ -219,8 +223,14 @@ def inspect_wheel(
         "cpu_arch": spec["cpu_arch"],
         "declaration_sha256": spec["declaration_sha256"],
         "status": "fixture-only" if source_kind == "fixture" else "candidate-inspected",
+        "trust_level": (
+            "fixture-only"
+            if source_kind == "fixture"
+            else "unpublished-builder-candidate"
+        ),
+        "published": False,
         "publication_eligible": False,
     }
-    if production_evidence is not None:
-        result["production_evidence"] = production_evidence
+    if builder_evidence is not None:
+        result["builder_evidence"] = builder_evidence
     return result

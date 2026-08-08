@@ -63,7 +63,7 @@ def _fixture_wheel(directory: Path, *, version: str = "0.5.0rc1") -> Path:
     return wheel
 
 
-def _production_shaped_wheel(
+def _builder_candidate_wheel(
     directory: Path,
     *,
     include_native: bool,
@@ -135,6 +135,26 @@ def _write_configs(
         encoding="utf-8",
     )
     return release_path, compatibility_path
+
+
+def _resolved_cuda_release() -> dict:
+    release = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
+    schemes = {"builder": "oci", "toolchain": "toolchain"}
+    for lock in release["wheel_profiles"][0]["locks"]:
+        lock.update(
+            {
+                "status": "resolved",
+                "identity": f"{schemes[lock['subject']]}://review-fixture/{lock['subject']}@sha256:"
+                + "d" * 64,
+            }
+        )
+    release["wheel_profiles"][0]["runner"].update(
+        {
+            "status": "resolved",
+            "identity": "runner://review-fixture/cuda@sha256:" + "e" * 64,
+        }
+    )
+    return release
 
 
 def _write_tar(path: Path, members: list[tuple[tarfile.TarInfo, bytes | None]]) -> None:
@@ -288,22 +308,7 @@ def test_lock_subjects_and_immutable_resolution_are_fail_closed(tmp_path: Path) 
     assert wrong_subject.returncode == 2
     assert "resolved builder lock requires immutable oci identity" in wrong_subject.stderr
 
-    release = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
-    schemes = {"builder": "oci", "toolchain": "toolchain"}
-    for lock in release["wheel_profiles"][0]["locks"]:
-        lock.update(
-            {
-                "status": "resolved",
-                "identity": f"{schemes[lock['subject']]}://review-fixture/{lock['subject']}@sha256:"
-                + "d" * 64,
-            }
-        )
-    release["wheel_profiles"][0]["runner"].update(
-        {
-            "status": "resolved",
-            "identity": "runner://review-fixture/cuda@sha256:" + "e" * 64,
-        }
-    )
+    release = _resolved_cuda_release()
     release_path, compatibility_path = _write_configs(tmp_path, release)
     resolved = _run(
         "core", "plan", "--release", str(release_path),
@@ -433,36 +438,83 @@ def test_wheel_inspection_binds_sha_metadata_version_and_spec(tmp_path: Path) ->
     assert "wheel SHA256 mismatch" in wrong.stderr
 
 
-def test_synthetic_wheel_cannot_cross_the_production_boundary(tmp_path: Path) -> None:
+def test_synthetic_wheel_is_only_an_unpublished_builder_candidate(tmp_path: Path) -> None:
     spec_id = "cuda-cu129-ubuntu2204-amd64-cp312-release-default-sm75-sm80-sm86-sm89-sm90"
+    synthetic = _fixture_wheel(tmp_path)
+    digest = "sha256:" + hashlib.sha256(synthetic.read_bytes()).hexdigest()
+    production_lane = _run(
+        "wheel", "inspect", str(synthetic), "--spec-id", spec_id,
+        "--expected-sha256", digest, "--source-kind", "production", check=False,
+    )
+    assert production_lane.returncode == 2
+    assert "invalid choice: 'production'" in production_lane.stderr
+
+    shaped = _builder_candidate_wheel(tmp_path, include_native=True)
+    shaped_digest = "sha256:" + hashlib.sha256(shaped.read_bytes()).hexdigest()
+    unresolved = _run(
+        "wheel", "inspect", str(shaped), "--spec-id", spec_id,
+        "--expected-sha256", shaped_digest, "--source-kind", "builder-candidate",
+        check=False,
+    )
+    assert unresolved.returncode == 2
+    assert "planned spec has unresolved locks or runner" in unresolved.stderr
+
+    config_dir = tmp_path / "resolved"
+    config_dir.mkdir()
+    release_path, compatibility_path = _write_configs(
+        config_dir, _resolved_cuda_release()
+    )
+    config_args = (
+        "--release", str(release_path), "--compatibility", str(compatibility_path)
+    )
+
     synthetic = _fixture_wheel(tmp_path)
     digest = "sha256:" + hashlib.sha256(synthetic.read_bytes()).hexdigest()
     missing_record = _run(
         "wheel", "inspect", str(synthetic), "--spec-id", spec_id,
-        "--expected-sha256", digest, "--source-kind", "production", check=False,
+        "--expected-sha256", digest, "--source-kind", "builder-candidate",
+        *config_args, check=False,
     )
     assert missing_record.returncode == 2
     assert "RECORD" in missing_record.stderr
 
-    no_native = _production_shaped_wheel(tmp_path, include_native=False)
+    no_native = _builder_candidate_wheel(tmp_path, include_native=False)
     digest = "sha256:" + hashlib.sha256(no_native.read_bytes()).hexdigest()
     missing_native = _run(
         "wheel", "inspect", str(no_native), "--spec-id", spec_id,
-        "--expected-sha256", digest, "--source-kind", "production", check=False,
+        "--expected-sha256", digest, "--source-kind", "builder-candidate",
+        *config_args, check=False,
     )
     assert missing_native.returncode == 2
     assert "native custom-op shared object" in missing_native.stderr
 
-    wrong_binding = _production_shaped_wheel(
+    wrong_binding = _builder_candidate_wheel(
         tmp_path, include_native=True, runtime="cuda-13.0"
     )
     digest = "sha256:" + hashlib.sha256(wrong_binding.read_bytes()).hexdigest()
     mismatched = _run(
         "wheel", "inspect", str(wrong_binding), "--spec-id", spec_id,
-        "--expected-sha256", digest, "--source-kind", "production", check=False,
+        "--expected-sha256", digest, "--source-kind", "builder-candidate",
+        *config_args, check=False,
     )
     assert mismatched.returncode == 2
     assert "embedded build binding accelerator_runtime" in mismatched.stderr
+
+    candidate = _builder_candidate_wheel(tmp_path, include_native=True)
+    digest = "sha256:" + hashlib.sha256(candidate.read_bytes()).hexdigest()
+    inspected = json.loads(
+        _run(
+            "wheel", "inspect", str(candidate), "--spec-id", spec_id,
+            "--expected-sha256", digest, "--source-kind", "builder-candidate",
+            *config_args,
+        ).stdout
+    )
+    assert inspected["source_kind"] == "builder-candidate"
+    assert inspected["status"] == "candidate-inspected"
+    assert inspected["trust_level"] == "unpublished-builder-candidate"
+    assert inspected["published"] is False
+    assert inspected["publication_eligible"] is False
+    assert "production" not in json.dumps(inspected).lower()
 
 
 @pytest.mark.skipif(shutil.which("helm") is None, reason="Helm 3 is required")

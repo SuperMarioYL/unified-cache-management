@@ -44,7 +44,9 @@ def build_parser() -> argparse.ArgumentParser:
     inspect.add_argument("wheel", type=Path)
     inspect.add_argument("--spec-id", required=True)
     inspect.add_argument("--expected-sha256", required=True)
-    inspect.add_argument("--source-kind", choices=("fixture", "production"), required=True)
+    inspect.add_argument(
+        "--source-kind", choices=("fixture", "builder-candidate"), required=True
+    )
     _paths(inspect)
 
     chart_parser = groups.add_parser("chart")
