@@ -66,6 +66,19 @@ FIXTURE_BASE_AUTHORITY = {
     "manifest_digest": "sha256:c00fc7b44d844b6da22861ec24af43968a5200eac4ec607b4725d585165d6b49",
     "config_digest": "sha256:688a685f6a1fa9250d7c6cee916889cbca364e4b027520110e0fce80c64a13e0",
 }
+FIXTURE_IMAGE_TOOLCHAIN_AUTHORITY = {
+    "schema_version": 1,
+    "kind": "ucm-fixture-image-toolchain-authority",
+    "buildx_version": "v0.19.2",
+    "buildx_linux_sha256": {
+        "amd64": "sha256:a5ff61c0b6d2c8ee20964a9d6dac7a7a6383c4a4a0ee8d354e983917578306ea",
+        "arm64": "sha256:bd54f0e28c29789da1679bad2dd94c1923786ccd2cd80dd3a0a1d560a6baf10c",
+    },
+    "buildkit_image": (
+        "moby/buildkit:v0.18.2@"
+        "sha256:86c0ad9d1137c186e9d455912167df20e530bdf7f7c19de802e892bb8ca16552"
+    ),
+}
 
 
 def _exact(value: object, keys: set[str], label: str) -> dict[str, Any]:
@@ -92,6 +105,55 @@ def _write_json(path: Path, value: object) -> None:
 def fixture_base_authority() -> dict[str, Any]:
     """Return the single fixed base identity used by the fork candidate lane."""
     return copy.deepcopy(FIXTURE_BASE_AUTHORITY)
+
+
+def validate_image_toolchain_authority(value: object) -> dict[str, Any]:
+    """Validate the canonical Buildx binary and BuildKit image policy shape."""
+    authority = _exact(
+        value,
+        {
+            "schema_version",
+            "kind",
+            "buildx_version",
+            "buildx_linux_sha256",
+            "buildkit_image",
+        },
+        "fixture image toolchain authority",
+    )
+    if (
+        authority["schema_version"] != 1
+        or authority["kind"] != "ucm-fixture-image-toolchain-authority"
+        or not isinstance(authority["buildx_version"], str)
+        or re.fullmatch(
+            r"v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)",
+            authority["buildx_version"],
+        )
+        is None
+    ):
+        raise ValueError("fixture image Buildx version is invalid")
+    binary_sha256 = _exact(
+        authority["buildx_linux_sha256"],
+        {"amd64", "arm64"},
+        "fixture image Buildx binary digests",
+    )
+    for architecture, digest in binary_sha256.items():
+        _digest(digest, f"fixture image Buildx {architecture} digest")
+    buildkit_image = authority["buildkit_image"]
+    if (
+        not isinstance(buildkit_image, str)
+        or re.fullmatch(
+            r"moby/buildkit:v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)@sha256:[0-9a-f]{64}",
+            buildkit_image,
+        )
+        is None
+    ):
+        raise ValueError("fixture image BuildKit image is not digest-pinned")
+    return copy.deepcopy(authority)
+
+
+def fixture_image_toolchain_authority() -> dict[str, Any]:
+    """Return the one image-toolchain identity consumed by planning and CI."""
+    return validate_image_toolchain_authority(FIXTURE_IMAGE_TOOLCHAIN_AUTHORITY)
 
 
 def _validate_base_authority(value: object) -> dict[str, Any]:
@@ -162,6 +224,9 @@ def implementation_digests(docker_root: Path = DOCKER_ROOT) -> dict[str, Any]:
     identity = {
         "files": files,
         "base_authority_sha256": sha256_value(FIXTURE_BASE_AUTHORITY),
+        "image_toolchain_authority_sha256": sha256_value(
+            fixture_image_toolchain_authority()
+        ),
     }
     return {**identity, "aggregate_sha256": sha256_value(identity)}
 

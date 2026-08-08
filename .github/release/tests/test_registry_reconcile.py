@@ -462,6 +462,40 @@ def test_fixture_base_policy_drift_creates_a_new_build_task(
     assert reconciled["tasks"][0]["revision"] == 2
 
 
+@pytest.mark.parametrize("mutation", ["version", "binary-sha", "buildkit"])
+def test_fixture_image_toolchain_policy_drift_creates_a_new_build_task(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    """Every authorized image toolchain byte identity participates in build_key."""
+    registry, _ = _modules()
+    image = importlib.import_module("ucm_release.image")
+    case = _case(tmp_path)
+    original_implementation = image.implementation_digests()
+    case["implementation_digest"] = original_implementation["aggregate_sha256"]
+    baseline = registry.build_candidate(**case, fixture_mode=True)
+
+    changed_authority = copy.deepcopy(image.FIXTURE_IMAGE_TOOLCHAIN_AUTHORITY)
+    if mutation == "version":
+        changed_authority["buildx_version"] = "v0.19.3"
+    elif mutation == "binary-sha":
+        changed_authority["buildx_linux_sha256"]["amd64"] = "sha256:" + "c" * 64
+    else:
+        changed_authority["buildkit_image"] = "moby/buildkit:v0.18.3@sha256:" + "d" * 64
+    monkeypatch.setattr(image, "FIXTURE_IMAGE_TOOLCHAIN_AUTHORITY", changed_authority)
+    changed_implementation = image.implementation_digests()
+    changed_case = copy.deepcopy(case)
+    changed_case["implementation_digest"] = changed_implementation["aggregate_sha256"]
+    changed = registry.build_candidate(**changed_case, fixture_mode=True)
+    reconciled = registry.reconcile(changed, _inventory([_entry(baseline)]))
+
+    assert (
+        changed_implementation["image_toolchain_authority_sha256"]
+        != original_implementation["image_toolchain_authority_sha256"]
+    )
+    assert changed["build_key_sha256"] != baseline["build_key_sha256"]
+    assert reconciled["tasks"][0]["revision"] == 2
+
+
 def test_inventory_tag_and_wheel_boundaries_fail_closed(tmp_path: Path) -> None:
     """Conflicting inventory, ambiguous wheels, and unpublished production never plan."""
     registry, _ = _modules()

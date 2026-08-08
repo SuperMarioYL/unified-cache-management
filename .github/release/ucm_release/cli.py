@@ -131,6 +131,7 @@ def build_parser() -> argparse.ArgumentParser:
     image_parser = groups.add_parser("image")
     image_actions = image_parser.add_subparsers(dest="action", required=True)
     image_actions.add_parser("base-authority")
+    image_actions.add_parser("toolchain-authority")
     image_verify = image_actions.add_parser("verify", allow_abbrev=False)
     image_verify.add_argument("--context", type=Path, required=True)
     image_verify.add_argument("--oci", type=Path, required=True)
@@ -302,6 +303,8 @@ def main(argv: list[str] | None = None) -> int:
             }
         elif (args.group, args.action) == ("image", "base-authority"):
             result = image.fixture_base_authority()
+        elif (args.group, args.action) == ("image", "toolchain-authority"):
+            result = image.fixture_image_toolchain_authority()
         elif (args.group, args.action) == ("image", "verify"):
             result = image.verify_oci(
                 args.context,

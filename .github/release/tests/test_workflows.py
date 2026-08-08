@@ -57,6 +57,11 @@ BUILDKIT_IMAGE = (
     "moby/buildkit:v0.18.2@"
     "sha256:86c0ad9d1137c186e9d455912167df20e530bdf7f7c19de802e892bb8ca16552"
 )
+BUILDX_VERSION = "v0.19.2"
+BUILDX_LINUX_SHA256 = {
+    "amd64": "a5ff61c0b6d2c8ee20964a9d6dac7a7a6383c4a4a0ee8d354e983917578306ea",
+    "arm64": "bd54f0e28c29789da1679bad2dd94c1923786ccd2cd80dd3a0a1d560a6baf10c",
+}
 DOCKERFILE_FRONTEND = (
     "# syntax=docker/dockerfile:1.12.1@"
     "sha256:93bfd3b68c109427185cd78b4779fc82b484b0b7618e36d0f104d4d801e66d25"
@@ -523,21 +528,61 @@ def _toolchain_pin_violations(
         for job_name, job in _jobs(document).items():
             for step in _steps(job):
                 uses = str(step.get("uses", ""))
-                if uses.startswith("docker/setup-buildx-action@"):
-                    inputs = step.get("with")
-                    if (
-                        not isinstance(inputs, dict)
-                        or inputs.get("version") != "v0.19.2"
-                    ):
-                        violations.append(f"{filename}:{job_name}: mutable Buildx")
-                    if not isinstance(inputs, dict) or inputs.get("driver-opts") != (
-                        f"image={BUILDKIT_IMAGE}"
-                    ):
-                        violations.append(f"{filename}:{job_name}: mutable BuildKit")
+                if filename == "_build-image.yml" and uses.startswith(
+                    "docker/setup-buildx-action@"
+                ):
+                    violations.append(
+                        f"{filename}:{job_name}: Buildx setup action downloads an unchecked binary"
+                    )
                 if uses.startswith("azure/setup-helm@"):
                     violations.append(
                         f"{filename}:{job_name}: setup-helm has no checksum"
                     )
+    image_steps = _steps(_jobs(workflows["_build-image.yml"])["build"])
+    buildx_steps = [
+        step
+        for step in image_steps
+        if step.get("name") == "Install checksum-pinned Buildx"
+    ]
+    if len(buildx_steps) != 1:
+        violations.append(
+            "_build-image.yml: checksum-pinned Buildx installer is missing"
+        )
+    else:
+        buildx_step = buildx_steps[0]
+        environment = buildx_step.get("env")
+        command = str(buildx_step.get("run", ""))
+        step_text = json.dumps(environment, sort_keys=True) + command
+        for literal in (
+            BUILDX_VERSION,
+            *BUILDX_LINUX_SHA256.values(),
+            BUILDKIT_IMAGE,
+        ):
+            if literal in step_text:
+                violations.append(
+                    "_build-image.yml: image toolchain authority is duplicated in YAML"
+                )
+        required_buildx_fragments = (
+            "image toolchain-authority",
+            '["buildx_version"]',
+            '["buildx_linux_sha256"]',
+            '["buildkit_image"]',
+            "https://github.com/docker/buildx/releases/download/${buildx_version}/buildx-${buildx_version}.linux-${buildx_arch}",
+            "sha256sum --check",
+            '"${HOME}/.docker/cli-plugins/docker-buildx"',
+            'test "$(docker buildx version | awk \'{print $2}\')" = "${buildx_version}"',
+            "docker buildx create --name ucm-release-builder",
+            "--driver docker-container",
+            "--use",
+            "docker buildx inspect ucm-release-builder --bootstrap",
+        )
+        for fragment in required_buildx_fragments:
+            if fragment not in command:
+                violations.append(
+                    f"_build-image.yml: Buildx installer missing {fragment}"
+                )
+        if '--driver-opt "image=${buildkit_image}"' not in command:
+            violations.append("_build-image.yml: mutable BuildKit")
     if dockerfile.splitlines()[0] != DOCKERFILE_FRONTEND:
         violations.append("release Dockerfile frontend is mutable")
     for filename in ("release-ucm.yml", "lint-and-test.yml"):
@@ -1281,7 +1326,11 @@ def test_workflows_only_orchestrate_tested_cli_and_standalone_runs_full_closure(
     assert "live-probes.json" in image_text
     assert 'identity_input":false' in image_text
     assert "CRANE_VERSION: v0.20.3" in image_text
-    assert "version: v0.19.2" in image_text
+    assert "image toolchain-authority" in image_text
+    assert BUILDX_VERSION not in image_text
+    assert BUILDX_LINUX_SHA256["amd64"] not in image_text
+    assert BUILDX_LINUX_SHA256["arm64"] not in image_text
+    assert BUILDKIT_IMAGE not in image_text
     assert re.search(r"CRANE_ARCHIVE_SHA256: [0-9a-f]{64}", image_text)
     assert "crane digest docker.io/vllm/vllm-openai:v0.10.2" in image_text
     assert "crane digest quay.io/ascend/vllm-ascend:v0.9.1" in image_text
@@ -1302,7 +1351,7 @@ def test_release_toolchains_are_immutable_and_checksum_verified() -> None:
 @pytest.mark.parametrize(
     ("mutation", "expected"),
     [
-        ("buildx", "mutable Buildx"),
+        ("buildx-authority", "toolchain-authority"),
         ("buildkit", "mutable BuildKit"),
         ("frontend", "frontend is mutable"),
         ("helm-version", "Helm version is not fixed"),
@@ -1319,14 +1368,22 @@ def test_toolchain_pin_audit_rejects_each_mutable_or_unverified_input(
     dockerfile = (REPO_ROOT / ".github/release/docker/Dockerfile").read_text(
         encoding="utf-8"
     )
-    if mutation in {"buildx", "buildkit"}:
+    if mutation in {"buildx-authority", "buildkit"}:
         step = next(
             step
             for job in _jobs(workflows["_build-image.yml"]).values()
             for step in _steps(job)
-            if str(step.get("uses", "")).startswith("docker/setup-buildx-action@")
+            if step.get("name") == "Install checksum-pinned Buildx"
         )
-        step["with"]["version" if mutation == "buildx" else "driver-opts"] = "latest"
+        if mutation == "buildx-authority":
+            step["run"] = str(step["run"]).replace(
+                "image toolchain-authority", "image base-authority"
+            )
+        else:
+            step["run"] = str(step["run"]).replace(
+                '--driver-opt "image=${buildkit_image}"',
+                '--driver-opt "image=moby/buildkit:latest"',
+            )
     elif mutation == "frontend":
         dockerfile = dockerfile.replace(
             DOCKERFILE_FRONTEND, "# syntax=docker/dockerfile:1"
@@ -2209,6 +2266,47 @@ def test_base_authority_is_owned_by_python_and_consumed_once_by_workflow() -> No
     assert "BASE_INDEX_DIGEST" not in workflow
     assert "BASE_MANIFEST_DIGEST" not in workflow
     assert "BASE_CONFIG_DIGEST" not in workflow
+
+
+def test_image_toolchain_authority_is_python_owned_and_strict() -> None:
+    """Buildx bytes and BuildKit image must share one candidate identity source."""
+    image_module = importlib.import_module("ucm_release.image")
+    authority = image_module.fixture_image_toolchain_authority()
+    environment = {
+        **__import__("os").environ,
+        "PYTHONPATH": str(REPO_ROOT / ".github" / "release"),
+    }
+    command = subprocess.run(
+        [sys.executable, "-m", "ucm_release", "image", "toolchain-authority"],
+        cwd=REPO_ROOT,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(command.stdout) == authority
+    assert authority == {
+        "schema_version": 1,
+        "kind": "ucm-fixture-image-toolchain-authority",
+        "buildx_version": BUILDX_VERSION,
+        "buildx_linux_sha256": {
+            architecture: "sha256:" + digest
+            for architecture, digest in BUILDX_LINUX_SHA256.items()
+        },
+        "buildkit_image": BUILDKIT_IMAGE,
+    }
+
+    workflow = (WORKFLOW_DIR / "_build-image.yml").read_text(encoding="utf-8")
+    for literal in (
+        BUILDX_VERSION,
+        *BUILDX_LINUX_SHA256.values(),
+        BUILDKIT_IMAGE,
+    ):
+        assert literal not in workflow
+    malformed = copy.deepcopy(authority)
+    malformed["buildx_linux_sha256"]["amd64"] = "not-a-digest"
+    with pytest.raises(ValueError, match="Buildx.*digest"):
+        image_module.validate_image_toolchain_authority(malformed)
 
 
 def test_compact_cli_owns_fixture_build_and_loop_preparation(tmp_path: Path) -> None:
