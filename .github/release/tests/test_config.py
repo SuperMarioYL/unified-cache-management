@@ -125,9 +125,10 @@ def test_release_tree_obeys_the_slim_structural_budget() -> None:
             f"{sorted(standalone_wrapt_paths)}"
         )
 
-    assert (
-        not violations
-    ), "release slimming structural contract failed:\n- " + "\n- ".join(violations)
+    failure_message = "release slimming structural contract failed:\n- " + "\n- ".join(
+        violations
+    )
+    assert not violations, failure_message
 
 
 def test_forbidden_content_scan_covers_the_new_release_tree(tmp_path: Path) -> None:

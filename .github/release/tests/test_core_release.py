@@ -269,9 +269,8 @@ def test_schema_refs_enforce_required_enum_pattern_and_unique_items(
     mutations.append((wrong_enum, "expected one of"))
 
     wrong_pattern = json.loads(json.dumps(original))
-    wrong_pattern["chart"]["validation_cases"][0][
-        "image_digest"
-    ] = "sha256:not-a-digest"
+    first_chart_case = wrong_pattern["chart"]["validation_cases"][0]
+    first_chart_case["image_digest"] = "sha256:not-a-digest"
     mutations.append((wrong_pattern, "does not match pattern"))
 
     duplicate_array = json.loads(json.dumps(original))
