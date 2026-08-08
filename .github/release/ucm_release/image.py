@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import gzip
 import hashlib
 import io
 import json
@@ -33,11 +34,24 @@ CONTEXT_METADATA = "image-metadata.json"
 CONTEXT_RECIPE = "image-recipe.json"
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 REPOSITORY_RE = re.compile(
-    r"[a-z0-9]+(?:[._:-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+"
+    r"[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]+)?"
+    r"(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+"
 )
 COMPILE_COMMAND_RE = re.compile(
     r"(?im)^\s*(?:RUN\s+)?[^#\n]*(?:\bcmake\b|\bninja\b|\bmake\b|\bgcc\b|g\+\+|\bclang\b|\bpip\s+wheel\b|python[^\n]*\s-m\s+build\b)"
 )
+OCI_INDEX_MEDIA_TYPES = {
+    "application/vnd.oci.image.index.v1+json",
+    "application/vnd.docker.distribution.manifest.list.v2+json",
+}
+OCI_MANIFEST_MEDIA_TYPES = {
+    "application/vnd.oci.image.manifest.v1+json",
+    "application/vnd.docker.distribution.manifest.v2+json",
+}
+OCI_CONFIG_MEDIA_TYPES = {
+    "application/vnd.oci.image.config.v1+json",
+    "application/vnd.docker.container.image.v1+json",
+}
 
 
 def _exact(value: object, keys: set[str], label: str) -> dict[str, Any]:
@@ -108,6 +122,30 @@ def implementation_digests(docker_root: Path = DOCKER_ROOT) -> dict[str, Any]:
     return {"files": files, "aggregate_sha256": sha256_value(files)}
 
 
+def _base_blob(
+    value: object, label: str, media_types: set[str]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    blob = _exact(value, {"media_type", "digest", "size", "raw"}, label)
+    if blob["media_type"] not in media_types:
+        raise ValueError(f"{label} has unsupported base media type")
+    digest = _digest(blob["digest"], f"{label} digest")
+    size = blob["size"]
+    raw = blob["raw"]
+    if (
+        not isinstance(size, int)
+        or isinstance(size, bool)
+        or size < 1
+        or not isinstance(raw, str)
+    ):
+        raise ValueError(f"{label} raw bytes/size are invalid")
+    raw_bytes = raw.encode("utf-8")
+    if len(raw_bytes) != size:
+        raise ValueError(f"{label} base size does not match its raw bytes")
+    if "sha256:" + hashlib.sha256(raw_bytes).hexdigest() != digest:
+        raise ValueError(f"{label} base digest does not match its raw bytes")
+    return blob, _json_bytes(raw_bytes, label)
+
+
 def _validate_base(base_record: object, target_platform: str) -> dict[str, Any]:
     base = _exact(
         base_record,
@@ -116,8 +154,9 @@ def _validate_base(base_record: object, target_platform: str) -> dict[str, Any]:
             "kind",
             "fixture_only",
             "repository",
-            "index_digest",
-            "platform",
+            "index",
+            "manifest",
+            "config",
         },
         "base record",
     )
@@ -130,23 +169,82 @@ def _validate_base(base_record: object, target_platform: str) -> dict[str, Any]:
     repository = base["repository"]
     if not isinstance(repository, str) or REPOSITORY_RE.fullmatch(repository) is None:
         raise ValueError("base repository must be canonical and contain no mutable tag")
-    _digest(base["index_digest"], "base index digest")
-    platform = _exact(
-        base["platform"],
-        {"os", "architecture", "manifest_digest", "config_digest"},
-        "base platform",
+    try:
+        target_os, target_architecture = target_platform.split("/", 1)
+    except ValueError as error:
+        raise ValueError("base target platform must be os/architecture") from error
+    if target_os != "linux" or target_architecture not in {"amd64", "arm64"}:
+        raise ValueError("base target platform must be linux/amd64 or linux/arm64")
+
+    index_blob, index = _base_blob(base["index"], "base index", OCI_INDEX_MEDIA_TYPES)
+    manifest_blob, manifest = _base_blob(
+        base["manifest"], "base manifest", OCI_MANIFEST_MEDIA_TYPES
     )
-    if platform["os"] != "linux" or platform["architecture"] not in {
-        "amd64",
-        "arm64",
-    }:
-        raise ValueError("base platform must be linux/amd64 or linux/arm64")
-    _digest(platform["manifest_digest"], "base platform manifest digest")
-    _digest(platform["config_digest"], "base platform config digest")
-    if target_platform != f"{platform['os']}/{platform['architecture']}":
-        raise ValueError("base platform does not match requested target platform")
+    config_blob, config = _base_blob(
+        base["config"], "base config", OCI_CONFIG_MEDIA_TYPES
+    )
+    if (
+        index.get("schemaVersion") != 2
+        or index.get("mediaType") != index_blob["media_type"]
+        or not isinstance(index.get("manifests"), list)
+    ):
+        raise ValueError("base index structure/media type is invalid")
+    platform_descriptors = []
+    for descriptor in index["manifests"]:
+        if not isinstance(descriptor, dict):
+            raise ValueError("base index manifest descriptor must be an object")
+        platform = descriptor.get("platform")
+        if isinstance(platform, dict) and (
+            platform.get("os"),
+            platform.get("architecture"),
+        ) == (target_os, target_architecture):
+            platform_descriptors.append(descriptor)
+    if len(platform_descriptors) != 1:
+        raise ValueError("base index must contain one exact target platform manifest")
+    platform_descriptor = platform_descriptors[0]
+    if (
+        platform_descriptor.get("mediaType") != manifest_blob["media_type"]
+        or platform_descriptor.get("digest") != manifest_blob["digest"]
+        or platform_descriptor.get("size") != manifest_blob["size"]
+    ):
+        raise ValueError("base index descriptor does not bind the platform manifest")
+    if (
+        manifest.get("schemaVersion") != 2
+        or manifest.get("mediaType") != manifest_blob["media_type"]
+        or not isinstance(manifest.get("config"), dict)
+        or not isinstance(manifest.get("layers"), list)
+    ):
+        raise ValueError("base platform manifest structure/media type is invalid")
+    config_descriptor = manifest["config"]
+    if (
+        config_descriptor.get("mediaType") != config_blob["media_type"]
+        or config_descriptor.get("digest") != config_blob["digest"]
+        or config_descriptor.get("size") != config_blob["size"]
+    ):
+        raise ValueError("base manifest descriptor does not bind the platform config")
+    if (config.get("os"), config.get("architecture")) != (
+        target_os,
+        target_architecture,
+    ):
+        raise ValueError(
+            "base config platform does not match requested target platform"
+        )
+    descriptor_platform = platform_descriptor["platform"]
+    if descriptor_platform.get("variant") != config.get("variant"):
+        raise ValueError("base index/config platform variants do not match")
     result = copy.deepcopy(base)
-    result["subject"] = f"{repository}@{platform['manifest_digest']}"
+    result["platform"] = {
+        "os": target_os,
+        "architecture": target_architecture,
+        "variant": config.get("variant"),
+        "manifest_media_type": manifest_blob["media_type"],
+        "manifest_digest": manifest_blob["digest"],
+        "manifest_size": manifest_blob["size"],
+        "config_media_type": config_blob["media_type"],
+        "config_digest": config_blob["digest"],
+        "config_size": config_blob["size"],
+    }
+    result["subject"] = f"{repository}@{manifest_blob['digest']}"
     return result
 
 
@@ -774,6 +872,16 @@ def evidence_from_oci(context_dir: Path, oci_path: Path) -> dict[str, Any]:
             target_architecture,
         ):
             raise ValueError("OCI config platform does not match recipe")
+        rootfs = config.get("rootfs")
+        if not isinstance(rootfs, dict) or rootfs.get("type") != "layers":
+            raise ValueError("OCI config rootfs.type must be layers")
+        diff_ids = rootfs.get("diff_ids")
+        if not isinstance(diff_ids, list) or len(diff_ids) != len(manifest["layers"]):
+            raise ValueError(
+                "OCI config rootfs diff_ids must match the layer count exactly"
+            )
+        for diff_index, diff_id in enumerate(diff_ids):
+            _digest(diff_id, f"OCI rootfs diff_id {diff_index}")
 
         expected_paths = {
             "usr/local/share/ucm-release/image-recipe.json": "recipe",
@@ -798,9 +906,26 @@ def evidence_from_oci(context_dir: Path, oci_path: Path) -> dict[str, Any]:
             layer_bytes = _descriptor_blob(
                 archive, layer_descriptor, f"layer {layer_index}"
             )
+            media_type = layer_descriptor["mediaType"]
+            if media_type == "application/vnd.oci.image.layer.v1.tar":
+                uncompressed_layer = layer_bytes
+            else:
+                try:
+                    uncompressed_layer = gzip.decompress(layer_bytes)
+                except (gzip.BadGzipFile, EOFError, OSError) as error:
+                    raise ValueError(
+                        f"OCI gzip layer {layer_index} cannot be decompressed: {error}"
+                    ) from error
+            observed_diff_id = (
+                "sha256:" + hashlib.sha256(uncompressed_layer).hexdigest()
+            )
+            if observed_diff_id != diff_ids[layer_index]:
+                raise ValueError(
+                    f"OCI layer {layer_index} does not match rootfs diff_id order"
+                )
             try:
                 layer_archive = tarfile.open(
-                    fileobj=io.BytesIO(layer_bytes), mode="r:*"
+                    fileobj=io.BytesIO(uncompressed_layer), mode="r:"
                 )
             except tarfile.TarError as error:
                 raise ValueError(

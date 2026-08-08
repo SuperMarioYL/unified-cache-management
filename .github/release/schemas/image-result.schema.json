@@ -3,7 +3,27 @@
   "$id": "https://modelengine-group.example/ucm/image-result.schema.json",
   "$defs": {
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-    "passed": {"type": "string", "const": "passed"}
+    "passed": {"type": "string", "const": "passed"},
+    "base_blob": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["media_type", "digest", "size", "raw"],
+      "properties": {
+        "media_type": {
+          "enum": [
+            "application/vnd.oci.image.index.v1+json",
+            "application/vnd.docker.distribution.manifest.list.v2+json",
+            "application/vnd.oci.image.manifest.v1+json",
+            "application/vnd.docker.distribution.manifest.v2+json",
+            "application/vnd.oci.image.config.v1+json",
+            "application/vnd.docker.container.image.v1+json"
+          ]
+        },
+        "digest": {"$ref": "#/$defs/digest"},
+        "size": {"type": "integer", "minimum": 1},
+        "raw": {"type": "string", "minLength": 1}
+      }
+    }
   },
   "type": "object",
   "additionalProperties": false,
@@ -51,24 +71,45 @@
       "additionalProperties": false,
       "required": [
         "schema_version", "kind", "fixture_only", "repository",
-        "index_digest", "platform", "subject"
+        "index", "manifest", "config", "platform", "subject"
       ],
       "properties": {
         "schema_version": {"const": 1},
         "kind": {"const": "fixture-base-image-record"},
         "fixture_only": {"const": true},
         "repository": {"type": "string", "minLength": 1},
-        "index_digest": {"$ref": "#/$defs/digest"},
+        "index": {"$ref": "#/$defs/base_blob"},
+        "manifest": {"$ref": "#/$defs/base_blob"},
+        "config": {"$ref": "#/$defs/base_blob"},
         "subject": {"type": "string", "pattern": "@sha256:[0-9a-f]{64}$"},
         "platform": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["os", "architecture", "manifest_digest", "config_digest"],
+          "required": [
+            "os", "architecture", "variant", "manifest_media_type",
+            "manifest_digest", "manifest_size", "config_media_type",
+            "config_digest", "config_size"
+          ],
           "properties": {
             "os": {"const": "linux"},
             "architecture": {"enum": ["amd64", "arm64"]},
+            "variant": {"oneOf": [{"type": "string"}, {"type": "null"}]},
+            "manifest_media_type": {
+              "enum": [
+                "application/vnd.oci.image.manifest.v1+json",
+                "application/vnd.docker.distribution.manifest.v2+json"
+              ]
+            },
             "manifest_digest": {"$ref": "#/$defs/digest"},
-            "config_digest": {"$ref": "#/$defs/digest"}
+            "manifest_size": {"type": "integer", "minimum": 1},
+            "config_media_type": {
+              "enum": [
+                "application/vnd.oci.image.config.v1+json",
+                "application/vnd.docker.container.image.v1+json"
+              ]
+            },
+            "config_digest": {"$ref": "#/$defs/digest"},
+            "config_size": {"type": "integer", "minimum": 1}
           }
         }
       }

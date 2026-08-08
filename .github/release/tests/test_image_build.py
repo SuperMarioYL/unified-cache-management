@@ -135,19 +135,99 @@ def _inventory(registry) -> dict[str, object]:
 
 
 def _base_record() -> dict[str, object]:
+    return _base_chain_record()
+
+
+def _base_chain_record() -> dict[str, object]:
+    """Return exact, reopenable bytes for a synthetic OCI base descriptor chain."""
+
+    def blob(value: dict[str, object], media_type: str) -> dict[str, object]:
+        raw = json.dumps(value, sort_keys=True, separators=(",", ":"))
+        raw_bytes = raw.encode()
+        return {
+            "media_type": media_type,
+            "digest": "sha256:" + hashlib.sha256(raw_bytes).hexdigest(),
+            "size": len(raw_bytes),
+            "raw": raw,
+        }
+
+    config = blob(
+        {"architecture": "arm64", "os": "linux", "variant": "v8"},
+        "application/vnd.oci.image.config.v1+json",
+    )
+    manifest = blob(
+        {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "config": {
+                "mediaType": config["media_type"],
+                "digest": config["digest"],
+                "size": config["size"],
+            },
+            "layers": [],
+        },
+        "application/vnd.oci.image.manifest.v1+json",
+    )
+    index = blob(
+        {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "manifests": [
+                {
+                    "mediaType": manifest["media_type"],
+                    "digest": manifest["digest"],
+                    "size": manifest["size"],
+                    "platform": {
+                        "architecture": "arm64",
+                        "os": "linux",
+                        "variant": "v8",
+                    },
+                }
+            ],
+        },
+        "application/vnd.oci.image.index.v1+json",
+    )
     return {
         "schema_version": 1,
         "kind": "fixture-base-image-record",
         "fixture_only": True,
         "repository": "docker.io/library/python",
-        "index_digest": DIGESTS["base_index"],
-        "platform": {
-            "os": "linux",
-            "architecture": "arm64",
-            "manifest_digest": DIGESTS["base_manifest"],
-            "config_digest": DIGESTS["base_config"],
-        },
+        "index": index,
+        "manifest": manifest,
+        "config": config,
     }
+
+
+def _refresh_base_blob(blob: dict[str, object], value: dict[str, object]) -> None:
+    raw = json.dumps(value, sort_keys=True, separators=(",", ":"))
+    raw_bytes = raw.encode()
+    blob["raw"] = raw
+    blob["digest"] = "sha256:" + hashlib.sha256(raw_bytes).hexdigest()
+    blob["size"] = len(raw_bytes)
+
+
+def _rebind_base_config(record: dict[str, object], mutate: object) -> dict[str, object]:
+    """Apply a valid config edit and refresh both upstream descriptors."""
+    config = json.loads(record["config"]["raw"])
+    mutate(config)
+    _refresh_base_blob(record["config"], config)
+    manifest = json.loads(record["manifest"]["raw"])
+    manifest["config"] = {
+        "mediaType": record["config"]["media_type"],
+        "digest": record["config"]["digest"],
+        "size": record["config"]["size"],
+    }
+    _refresh_base_blob(record["manifest"], manifest)
+    index = json.loads(record["index"]["raw"])
+    index["manifests"][0].update(
+        {
+            "mediaType": record["manifest"]["media_type"],
+            "digest": record["manifest"]["digest"],
+            "size": record["manifest"]["size"],
+        }
+    )
+    _refresh_base_blob(record["index"], index)
+    return record
 
 
 def _actual_inputs(tmp_path: Path) -> dict[str, object]:
@@ -282,9 +362,13 @@ def _write_oci(
     context: Path,
     recipe: dict[str, object],
     evidence: dict[str, object],
+    *,
+    layer_media_types: tuple[str, ...] = (
+        "application/vnd.oci.image.layer.v1.tar+gzip",
+    ),
+    rootfs_mutation: str | None = None,
 ) -> None:
     """Write a minimal standard OCI layout containing the observable image files."""
-    layer_buffer = io.BytesIO()
     members = {
         "usr/local/share/ucm-release/image-recipe.json": (
             context / "image-recipe.json"
@@ -308,21 +392,54 @@ def _write_oci(
             context / recipe["payload"]["wheel"]["filename"]
         ).read_bytes(),
     }
-    with tarfile.open(fileobj=layer_buffer, mode="w") as layer:
-        for name, content in sorted(members.items()):
-            info = tarfile.TarInfo(name)
-            info.size = len(content)
-            info.mode = 0o644
-            info.mtime = 0
-            layer.addfile(info, io.BytesIO(content))
-    compressed_buffer = io.BytesIO()
-    with gzip.GzipFile(
-        fileobj=compressed_buffer, mode="wb", filename="", mtime=0
-    ) as stream:
-        stream.write(layer_buffer.getvalue())
-    layer_bytes = compressed_buffer.getvalue()
+    layer_blobs: list[bytes] = []
+    diff_ids: list[str] = []
+    for layer_index, media_type in enumerate(layer_media_types):
+        layer_buffer = io.BytesIO()
+        layer_members = (
+            members
+            if layer_index == 0
+            else {
+                f"usr/local/share/ucm-release/layer-{layer_index}.txt": str(
+                    layer_index
+                ).encode()
+            }
+        )
+        with tarfile.open(fileobj=layer_buffer, mode="w") as layer:
+            for name, content in sorted(layer_members.items()):
+                info = tarfile.TarInfo(name)
+                info.size = len(content)
+                info.mode = 0o644
+                info.mtime = 0
+                layer.addfile(info, io.BytesIO(content))
+        uncompressed = layer_buffer.getvalue()
+        diff_ids.append("sha256:" + hashlib.sha256(uncompressed).hexdigest())
+        if media_type == "application/vnd.oci.image.layer.v1.tar":
+            layer_blobs.append(uncompressed)
+            continue
+        compressed_buffer = io.BytesIO()
+        with gzip.GzipFile(
+            fileobj=compressed_buffer, mode="wb", filename="", mtime=0
+        ) as stream:
+            stream.write(uncompressed)
+        layer_blobs.append(compressed_buffer.getvalue())
+
+    rootfs = {"type": "layers", "diff_ids": diff_ids}
+    if rootfs_mutation == "wrong-type":
+        rootfs["type"] = "not-layers"
+    elif rootfs_mutation == "wrong-diff-id":
+        rootfs["diff_ids"][0] = "sha256:" + "a" * 64
+    elif rootfs_mutation == "extra-diff-id":
+        rootfs["diff_ids"].append("sha256:" + "b" * 64)
+    elif rootfs_mutation == "missing-diff-id":
+        rootfs["diff_ids"] = rootfs["diff_ids"][:-1]
+    elif rootfs_mutation == "reversed-diff-ids":
+        rootfs["diff_ids"] = list(reversed(rootfs["diff_ids"]))
+    config_value = {"architecture": "arm64", "os": "linux", "rootfs": rootfs}
+    if rootfs_mutation == "missing-rootfs":
+        del config_value["rootfs"]
     config = json.dumps(
-        {"architecture": "arm64", "os": "linux"},
+        config_value,
         sort_keys=True,
         separators=(",", ":"),
     ).encode()
@@ -335,15 +452,16 @@ def _write_oci(
         }
 
     config_descriptor = descriptor(config, "application/vnd.oci.image.config.v1+json")
-    layer_descriptor = descriptor(
-        layer_bytes, "application/vnd.oci.image.layer.v1.tar+gzip"
-    )
+    layer_descriptors = [
+        descriptor(blob, media_type)
+        for blob, media_type in zip(layer_blobs, layer_media_types, strict=True)
+    ]
     manifest = json.dumps(
         {
             "schemaVersion": 2,
             "mediaType": "application/vnd.oci.image.manifest.v1+json",
             "config": config_descriptor,
-            "layers": [layer_descriptor],
+            "layers": layer_descriptors,
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -364,9 +482,14 @@ def _write_oci(
     layout = b'{"imageLayoutVersion":"1.0.0"}'
     blobs = {
         config_descriptor["digest"]: config,
-        layer_descriptor["digest"]: layer_bytes,
         manifest_descriptor["digest"]: manifest,
     }
+    blobs.update(
+        {
+            descriptor["digest"]: blob
+            for descriptor, blob in zip(layer_descriptors, layer_blobs, strict=True)
+        }
+    )
     with tarfile.open(path, "w") as archive:
         files = {"index.json": index, "oci-layout": layout}
         files.update(
@@ -471,19 +594,130 @@ def test_recipe_identity_binds_base_source_wheel_and_implementation(
     assert (
         payload["source"]["upstream_platform_config_digest"] == DIGESTS["arm64_config"]
     )
-    assert payload["base"] == {
-        **_base_record(),
-        "subject": f"docker.io/library/python@{DIGESTS['base_manifest']}",
+    assert payload["base"]["index"] == values["base_record"]["index"]
+    assert payload["base"]["manifest"] == values["base_record"]["manifest"]
+    assert payload["base"]["config"] == values["base_record"]["config"]
+    assert payload["base"]["subject"] == (
+        "docker.io/library/python@" + values["base_record"]["manifest"]["digest"]
+    )
+    assert payload["base"]["platform"] == {
+        "os": "linux",
+        "architecture": "arm64",
+        "variant": "v8",
+        "manifest_media_type": values["base_record"]["manifest"]["media_type"],
+        "manifest_digest": values["base_record"]["manifest"]["digest"],
+        "manifest_size": values["base_record"]["manifest"]["size"],
+        "config_media_type": values["base_record"]["config"]["media_type"],
+        "config_digest": values["base_record"]["config"]["digest"],
+        "config_size": values["base_record"]["config"]["size"],
     }
     assert payload["wheel"]["spec_id"] == values["source_case"]["spec_id"]
     assert payload["wheel"]["declaration_sha256"].startswith("sha256:")
     assert payload["implementation"] == image.implementation_digests()
     changed = copy.deepcopy(values)
-    changed["base_record"]["platform"]["config_digest"] = "sha256:" + "a" * 64
+    _rebind_base_config(
+        changed["base_record"],
+        lambda config: config.update({"fixture_revision": 2}),
+    )
     changed_recipe = image.prepare_context(
         **changed, output_dir=tmp_path / "changed-context"
     )
     assert changed_recipe["payload_sha256"] != recipe["payload_sha256"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "index-bytes",
+        "index-digest",
+        "index-size",
+        "manifest-bytes",
+        "manifest-digest",
+        "manifest-size",
+        "config-bytes",
+        "config-digest",
+        "config-size",
+        "index-platform",
+        "index-variant",
+        "index-manifest-digest",
+        "index-manifest-size",
+        "index-manifest-media-type",
+        "manifest-config-digest",
+        "manifest-config-size",
+        "manifest-config-media-type",
+        "config-media-type",
+        "config-platform",
+    ],
+)
+def test_base_descriptor_chain_is_reopened_and_every_link_is_verified(
+    tmp_path: Path, mutation: str
+) -> None:
+    """Index, manifest, and config bytes must prove the authorized FROM subject."""
+    *_, image = _modules()
+    values = _actual_inputs(tmp_path)
+    values["base_record"] = _base_chain_record()
+    good = image.prepare_context(**values, output_dir=tmp_path / "base-chain-good")
+    assert good["payload"]["base"]["subject"] == (
+        "docker.io/library/python@" + values["base_record"]["manifest"]["digest"]
+    )
+
+    changed = copy.deepcopy(values)
+    record = changed["base_record"]
+    part, operation = mutation.split("-", 1)
+    if operation == "bytes":
+        record[part]["raw"] += " "
+    elif operation == "digest":
+        record[part]["digest"] = "sha256:" + "c" * 64
+    elif operation == "size":
+        record[part]["size"] += 1
+    elif mutation == "index-platform":
+        index = json.loads(record["index"]["raw"])
+        index["manifests"][0]["platform"]["architecture"] = "amd64"
+        _refresh_base_blob(record["index"], index)
+    elif mutation == "index-variant":
+        index = json.loads(record["index"]["raw"])
+        index["manifests"][0]["platform"]["variant"] = "v9"
+        _refresh_base_blob(record["index"], index)
+    elif mutation in {"index-manifest-digest", "index-manifest-size"}:
+        index = json.loads(record["index"]["raw"])
+        field = mutation.removeprefix("index-manifest-")
+        index["manifests"][0][field] = "sha256:" + "d" * 64 if field == "digest" else 1
+        _refresh_base_blob(record["index"], index)
+    elif mutation == "index-manifest-media-type":
+        index = json.loads(record["index"]["raw"])
+        index["manifests"][0]["mediaType"] = "application/octet-stream"
+        _refresh_base_blob(record["index"], index)
+    elif mutation in {
+        "manifest-config-digest",
+        "manifest-config-size",
+        "manifest-config-media-type",
+    }:
+        manifest = json.loads(record["manifest"]["raw"])
+        field = mutation.removeprefix("manifest-config-")
+        field = "mediaType" if field == "media-type" else field
+        manifest["config"][field] = {
+            "digest": "sha256:" + "e" * 64,
+            "size": 1,
+            "mediaType": "application/octet-stream",
+        }[field]
+        _refresh_base_blob(record["manifest"], manifest)
+        index = json.loads(record["index"]["raw"])
+        index["manifests"][0].update(
+            {
+                "digest": record["manifest"]["digest"],
+                "size": record["manifest"]["size"],
+            }
+        )
+        _refresh_base_blob(record["index"], index)
+    elif mutation == "config-media-type":
+        record["config"]["media_type"] = "application/octet-stream"
+    else:
+        _rebind_base_config(
+            record, lambda config: config.update({"architecture": "amd64"})
+        )
+
+    with pytest.raises(ValueError, match="base"):
+        image.prepare_context(**changed, output_dir=tmp_path / f"base-chain-{mutation}")
 
 
 def test_docker_recipe_rejects_compile_mutation_even_when_rehashed(
@@ -545,6 +779,41 @@ def test_base_helper_rejects_mutable_and_mismatched_subjects(tmp_path: Path) -> 
             check=False,
         )
         assert result.returncode != 0
+
+
+@pytest.mark.parametrize("part", ["index", "manifest", "config"])
+def test_base_helper_reopens_descriptor_chain_in_recipe(
+    tmp_path: Path, part: str
+) -> None:
+    """Refreshing the recipe envelope cannot bless changed base descriptor bytes."""
+    _, _, context, recipe = _prepare(tmp_path)
+    changed = copy.deepcopy(recipe)
+    changed["payload"]["base"][part]["raw"] += " "
+    payload_bytes = json.dumps(
+        changed["payload"], sort_keys=True, separators=(",", ":")
+    ).encode()
+    changed["payload_sha256"] = "sha256:" + hashlib.sha256(payload_bytes).hexdigest()
+    changed_path = tmp_path / "changed-recipe.json"
+    changed_path.write_text(json.dumps(changed), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            PYTHON,
+            context / "verify_base_image.py",
+            "--recipe",
+            changed_path,
+            "--base-image",
+            recipe["payload"]["base"]["subject"],
+            "--target-platform",
+            recipe["payload"]["target_platform"],
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert result.returncode != 0
 
 
 def test_install_helper_rejects_wrong_wheel_before_pip(tmp_path: Path) -> None:
@@ -653,6 +922,64 @@ def test_image_verify_cli_validates_schema_and_source_closure(tmp_path: Path) ->
         expect=2,
     )
     assert "metadata" in failed.stderr.lower()
+
+
+@pytest.mark.parametrize(
+    ("rootfs_mutation", "layer_media_types"),
+    [
+        ("missing-rootfs", ("application/vnd.oci.image.layer.v1.tar+gzip",)),
+        ("wrong-type", ("application/vnd.oci.image.layer.v1.tar+gzip",)),
+        ("wrong-diff-id", ("application/vnd.oci.image.layer.v1.tar+gzip",)),
+        ("extra-diff-id", ("application/vnd.oci.image.layer.v1.tar+gzip",)),
+        ("missing-diff-id", ("application/vnd.oci.image.layer.v1.tar+gzip",)),
+        (
+            "reversed-diff-ids",
+            (
+                "application/vnd.oci.image.layer.v1.tar+gzip",
+                "application/vnd.oci.image.layer.v1.tar",
+            ),
+        ),
+        ("unknown-media-type", ("application/vnd.example.layer+gzip",)),
+    ],
+)
+def test_verify_oci_rejects_invalid_rootfs_layer_chain(
+    tmp_path: Path,
+    rootfs_mutation: str,
+    layer_media_types: tuple[str, ...],
+) -> None:
+    """Runnable config diff_ids must match every decompressed layer in order."""
+    image, _, context, recipe = _prepare(tmp_path)
+    oci_path = tmp_path / f"{rootfs_mutation}.oci.tar"
+    mutation = None if rootfs_mutation == "unknown-media-type" else rootfs_mutation
+    _write_oci(
+        oci_path,
+        context,
+        recipe,
+        _evidence(recipe),
+        layer_media_types=layer_media_types,
+        rootfs_mutation=mutation,
+    )
+
+    with pytest.raises(ValueError, match="(rootfs|layer|diff|media)"):
+        image.verify_oci(context, oci_path)
+
+
+def test_verify_oci_accepts_uncompressed_layer_with_matching_diff_id(
+    tmp_path: Path,
+) -> None:
+    """OCI's standard uncompressed tar layer media type remains supported."""
+    image, _, context, recipe = _prepare(tmp_path)
+    oci_path = tmp_path / "uncompressed.oci.tar"
+    _write_oci(
+        oci_path,
+        context,
+        recipe,
+        _evidence(recipe),
+        layer_media_types=("application/vnd.oci.image.layer.v1.tar",),
+    )
+
+    result = image.verify_oci(context, oci_path)
+    assert result["status"] == "fixture-verified-unpublished"
 
 
 def test_image_verify_cli_does_not_accept_caller_authored_evidence(
