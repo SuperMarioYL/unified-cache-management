@@ -6,11 +6,14 @@ The repository now has one compact, fail-closed release candidate loop. Four
 release workflows orchestrate eight Python modules under `.github/release`,
 three JSON Schemas, four install-image files, and the product Chart at
 `charts/ucm`. The feature/fork path is fixture-only, read-only, and unpublished.
-The production path is intentionally blocked until external infrastructure and
-real artifacts exist.
+It has now run successfully on GitHub Actions at source commit
+`0ee113433b75868142d86c66ee0cda2af533cc89`. The production path remains
+intentionally blocked until external infrastructure and real artifacts exist.
+This hosted result is attempt 1 only; the final same-SHA attempt-2 comparison
+is still pending.
 
-This review accepts the local candidate architecture. It does not approve a
-production release or Registry publication.
+This review accepts the local and hosted fork-candidate architecture. It does
+not approve a production release or Registry publication.
 
 ## Reviewed architecture
 
@@ -90,8 +93,8 @@ local-evidence limitation.
 
 | Check | Result |
 | --- | --- |
-| Complete compact release suite | `187 passed in 57.62s` |
-| Workflow policy suite | `81 passed in 45.61s` |
+| Complete compact release suite | `190 passed in 55.84s` |
+| Workflow policy suite | `84 passed` |
 | Focused CLI, fixture wheel, OCI, six-scenario, and tag-boundary checks | `24 passed in 1.11s` |
 | Ruff lint/format and Black | Passed over all 16 compact Python/test/helper files |
 | Both YAML configurations and all three JSON Schemas | CLI and independent `jsonschema` validation passed |
@@ -110,12 +113,13 @@ at SHA256
 `e25ce47385f701261f598453c0153e4813f912bf36a428db9d8f0a1c4044809e`
 using authority-pinned BuildKit v0.18.2, but it has a pre-round-5 implementation
 identity. The exact combination of current final code, checksum-installed Linux
-Buildx, and authority-pinned BuildKit v0.18.2 has not run end to end. That
-combination is `external-required` pending the Task 7 hosted GitHub run.
+Buildx, the authority-created builder, and authority-pinned BuildKit v0.18.2
+then ran in the first hosted Task 7 candidate baseline described below. That
+hosted run is stronger evidence than the two local history items, but still
+produced only a local unpublished OCI archive.
 
-The final Task 5 local sequence separately recorded a clean Python 3.12 suite at
-185 tests, a 9-case round-6 contract-order batch, and a clean full suite at 187
-tests, with pre-commit and actionlint green. Neither OCI history item is
+The final local sequence now records 190 compact tests and 84 workflow-policy
+tests, with pre-commit and actionlint green. Neither local OCI history item is
 evidence of a Registry write or accelerator runtime.
 
 Repository-wide Unit collection is not reported as passing. This host stops at
@@ -170,12 +174,62 @@ The no-GHCR-write conclusion is instead supported by the static absence of
 zero-operation ledgers. Failures require `gh run view --log-failed`, run/job
 JSON, and artifacts under the bounded plan. Production remains blocked.
 
+### First hosted candidate baseline
+
+The first complete hosted candidate baseline ran on 2026-08-08 at source SHA
+`0ee113433b75868142d86c66ee0cda2af533cc89`:
+
+- [Push Commit Checks run 31260552571](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31260552571)
+  completed successfully with Python/release tests, C++ tests, and both linters
+  green.
+- [Release UCM core artifacts run 31260552670](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31260552670)
+  completed successfully. The fixture wheel, Chart package, first reconcile,
+  install-only image build, final reconcile, and aggregate jobs ran; invalid,
+  standalone, and production-only routes were skipped by policy.
+
+The downloaded attempt-1 evidence file has SHA256
+`33a82f806d8ec43dbe55da887371b8651454baf8d1442324de0ab5a731ef7ec6`.
+Its deterministic payload SHA256 is
+`02b5b2e174e6144f889a811f1571017897928546aaa3aec447e377687f04fe9f`.
+The evidence binds the exact source, fork repository, feature ref, and all four
+release workflow names. Its key artifact identities are:
+
+| Artifact or closure | SHA256 |
+| --- | --- |
+| Fixture wheel | `08c4aa98ebb0cc5e0816619bda78d310fc5342da7fbec3611a70b2d5be76f19b` |
+| Deterministic Chart package | `4805117c69725d1ce093096ba6d5fcf46c4b2a7ff716544e993f5b87bedfefc6` |
+| Chart release tree | `6e0ea559cc946593ef162d8ea40497c05091466a543c8b997a2ecb0da22edb6f` |
+| Local OCI manifest | `7dfefdca3e4fb2f3e9fc8ca1efa55c3bbdf7ddd22a4584ec5b5a0af2afcd9a24` |
+| OCI stable closure | `db3e37c1967ceb17c63af196f93d19f28a4dd5f85d0d57872604142dcf779c48` |
+| Image result | `c7c00959d6bacd6bcdba2e284c3a2da16d2dc5bb10a4406149b2b61da53e556e` |
+| Second reconcile | `29b1b9a6b6b3b62edc56f162d56cbfad0b9663ae20eb35aa5bb3bfcd05df5bdf` |
+
+The four required checks—fixture wheel, CUDA/A2/A3 Helm validation,
+install-only image, and second-reconcile zero—passed, as did all six
+deterministic scenarios. The second reconcile returned
+`decision=already-present`, `task_count=0`, and an empty task list. All eight
+install/ABI/import gates passed; runtime and device validation remained
+`external-required`. The image was a local unpublished `linux/amd64` OCI
+result, while the two-platform count in the scenario record is fixture
+contract evidence rather than a multi-platform image build.
+
+The operation ledger contained ten read/plan operations, no write-capable
+operation, `write_count=0`, and publication `{status: blocked, attempted:
+false}`. A fresh after-snapshot was byte-identical to the before-snapshot for
+fork PRs, tags, Releases, and upstream `HEAD`; package endpoints remained HTTP
+403 and both target GHCR anonymous reads remained `DENIED`, so those four
+surfaces stay explicitly `UNAVAILABLE` rather than being treated as empty.
+
+This baseline does not yet satisfy the final same-SHA rerun acceptance step;
+that comparison is intentionally performed only after this evidence is
+recorded in the documents and the resulting documentation commit is pushed.
+
 ## External blockers
 
-No GitHub release workflow has run for this candidate. The following remain
-unverified and `external-required`:
+Hosted fork-candidate execution and artifact download have now run. The
+following production capabilities remain unverified and `external-required`:
 
-- protected GitHub execution and artifact download/readback;
+- protected production environment and publication authorization;
 - resolved builders, toolchains, package locks, and production runners for all
   36 wheel specifications;
 - native ELF/custom-op wheel inspection from those builders;
@@ -184,5 +238,6 @@ unverified and `external-required`:
 - cluster installation and workload acceptance;
 - formal publication.
 
-Until those checks run on their real systems, the only accurate status is
-`fixture-verified-unpublished` locally and production blocked.
+The accurate current status is a hosted fork-candidate attempt 1 with a local,
+unpublished, fixture-only OCI result; final same-SHA rerun acceptance is still
+pending, and production remains blocked.

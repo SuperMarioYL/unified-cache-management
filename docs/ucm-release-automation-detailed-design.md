@@ -253,12 +253,14 @@ the resulting archive.
 
 ## 8. Current verification matrix
 
-Fresh Task 6 local evidence on 2026-08-08:
+Fresh current-tree local evidence on 2026-08-08 is listed below. Hosted
+fork-candidate attempt 1 also passed, but the final same-SHA attempt-2
+comparison is still pending.
 
 | Surface | Evidence | Status |
 | --- | --- | --- |
-| Complete compact tests | `187 passed in 57.62s` | Passed locally |
-| Workflow policy | `81 passed in 45.61s` | Passed locally |
+| Complete compact tests | `190 passed in 55.84s` | Passed locally |
+| Workflow policy | `84 passed` | Passed locally |
 | Focused CLI/fixture/OCI/loop/tag checks | `24 passed in 1.11s` | Passed locally |
 | Ruff lint/format and Black | 16 compact Python/test/helper files | Passed locally |
 | Configuration and schemas | Both YAML files and all 3 schemas via CLI and independent `jsonschema` | Passed locally |
@@ -278,18 +280,18 @@ with SHA256
 `e25ce47385f701261f598453c0153e4813f912bf36a428db9d8f0a1c4044809e`
 using authority-pinned BuildKit v0.18.2, but it has a pre-round-5 implementation
 identity. The exact combined path of current final code, checksum-installed
-Linux Buildx, and authority-pinned BuildKit v0.18.2 remains
-`external-required` pending an end-to-end Task 7 hosted GitHub run.
+Linux Buildx, the authority-created builder, and authority-pinned BuildKit
+v0.18.2 then ran in the first hosted Task 7 candidate baseline in Section 9.4.
+That run still produced only a local unpublished OCI archive.
 
-The final Task 5 local sequence separately recorded a clean Python 3.12 suite at
-185 tests, a 9-case round-6 contract-order batch, and a clean full suite at 187
-tests, with pre-commit and actionlint green. Neither OCI run proves a Registry
-write, native production wheel, or accelerator runtime.
+The final local sequence now records 190 compact tests and 84 workflow-policy
+tests, with pre-commit and actionlint green. Neither local OCI run proves a
+Registry write, native production wheel, or accelerator runtime.
 
-No GitHub release workflow has run for this candidate. Protected GitHub
-execution, all 36 native wheel builds, Registry write/readback, cluster install,
-and CUDA/A2/A3 runtime and device acceptance remain unverified and
-`external-required`. Production status remains blocked.
+Hosted fork-candidate execution and artifact download have now run. A protected
+production environment, all 36 native wheel builds, Registry write/readback,
+cluster install, and CUDA/A2/A3 runtime and device acceptance remain unverified
+and `external-required`. Production status remains blocked.
 
 ## 9. Task 7 hosted GitHub loop
 
@@ -359,3 +361,47 @@ are collected with `gh run view --log-failed`, job JSON, and artifacts within
 the tracked plan limits. Hosted fixture success still leaves owner package
 enumeration, GHCR readback, native wheels, Registry publication, cluster, and
 accelerator evidence `external-required`; production remains blocked.
+
+### 9.4 First hosted candidate baseline
+
+The first full hosted candidate baseline ran on 2026-08-08 at source commit
+`0ee113433b75868142d86c66ee0cda2af533cc89`.
+
+| Evidence | Observed result |
+| --- | --- |
+| Push workflow | [Push Commit Checks run 31260552571](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31260552571), attempt 1, success |
+| Release workflow | [Release UCM core artifacts run 31260552670](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31260552670), attempt 1, success |
+| Evidence file SHA256 | `33a82f806d8ec43dbe55da887371b8651454baf8d1442324de0ab5a731ef7ec6` |
+| Deterministic payload SHA256 | `02b5b2e174e6144f889a811f1571017897928546aaa3aec447e377687f04fe9f` |
+| Wheel SHA256 | `08c4aa98ebb0cc5e0816619bda78d310fc5342da7fbec3611a70b2d5be76f19b` |
+| Chart package SHA256 | `4805117c69725d1ce093096ba6d5fcf46c4b2a7ff716544e993f5b87bedfefc6` |
+| Chart release-tree SHA256 | `6e0ea559cc946593ef162d8ea40497c05091466a543c8b997a2ecb0da22edb6f` |
+| Local OCI manifest SHA256 | `7dfefdca3e4fb2f3e9fc8ca1efa55c3bbdf7ddd22a4584ec5b5a0af2afcd9a24` |
+| OCI stable-closure SHA256 | `db3e37c1967ceb17c63af196f93d19f28a4dd5f85d0d57872604142dcf779c48` |
+| Image-result SHA256 | `c7c00959d6bacd6bcdba2e284c3a2da16d2dc5bb10a4406149b2b61da53e556e` |
+| Second-reconcile SHA256 | `29b1b9a6b6b3b62edc56f162d56cbfad0b9663ae20eb35aa5bb3bfcd05df5bdf` |
+
+The Release run executed the fixture wheel, deterministic Chart, select-input,
+first reconcile, install-only image build, final reconcile, and aggregate jobs.
+Invalid, standalone, and production-only routes were skipped. The current
+checksum-verified Buildx/toolchain authority created the builder used by this
+run. The OCI result was local, unpublished, and `linux/amd64`; its eight
+base/wheel/install/pip/direct-URL/import/ABI gates passed. Runtime and device
+gates remained `external-required`.
+
+All six Loop Engineer scenarios passed. The fixture descriptor scenario bound
+two upstream platforms; that count must not be described as a multi-platform
+OCI build. The final reconcile returned `already-present`, zero tasks, and an
+empty task list. The ten-operation ledger contained only read and plan entries,
+derived `write_count=0`, and kept publication blocked and unattempted.
+
+The first hosted before/after audit was byte-identical for eight normalized
+snapshot files. Fork PRs, tags, and Releases remained empty, and upstream
+`HEAD` remained `e2b4c254801b77d4c05535a65bbc6c467b8c052b`. The two owner
+package endpoints remained HTTP 403 and both target GHCR anonymous reads
+remained `DENIED`; these are stable `UNAVAILABLE` states, not Registry
+readback evidence.
+
+This is an observed attempt-1 baseline. The final same-SHA rerun comparison is
+deliberately deferred until the documentation commit containing this baseline
+is pushed, so it is not claimed here as already complete.
