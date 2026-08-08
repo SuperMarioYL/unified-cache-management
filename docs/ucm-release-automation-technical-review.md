@@ -124,83 +124,51 @@ Repository-wide Unit collection is not reported as passing. This host stops at
 ## Task 7 hosted GitHub loop
 
 The executable continuation is governed by the tracked [Task 7 GitHub Loop
-plan](superpowers/plans/2026-08-08-ucm-release-slimming-loop.md). Use the
-`snapshot_zero_write` function and evidence-comparison block in the [release
-operator README](../.github/release/README.md#task-7-hosted-github-loop). They
-capture PRs, tags, GitHub Releases, every GHCR tag/digest, and the exact
-upstream Git refs plus Docker Hub/Quay upstream-image digests before and after
-the run.
+plan](superpowers/plans/2026-08-08-ucm-release-slimming-loop.md). Execute the
+single fail-closed [canonical operator
+script](../.github/release/README.md#task-7-hosted-github-loop); this review does
+not copy it because a second command body would create drift.
 
-```bash
-export REPOSITORY=SuperMarioYL/unified-cache-management
-export UPSTREAM_REPOSITORY=https://github.com/ModelEngine-Group/unified-cache-management.git
-export SOURCE_SHA="$(git rev-parse HEAD)"
-export TASK7_ROOT="$(mktemp -d /tmp/ucm-task7.XXXXXX)"
-test "$(git branch --show-current)" = feature/cicd
-test "$(git rev-parse feature/cicd)" = "$SOURCE_SHA"
-test "$(crane version)" = 0.20.3
-snapshot_zero_write "$TASK7_ROOT/before"
+The current token's owner package-list probes returned HTTP 403 without
+`read:packages`, and anonymous reads of both known target GHCR repositories
+returned `DENIED`. Each before/after phase reprobes these surfaces. Successful
+package reads are normalized; only explicit HTTP 403/`read:packages` failures
+become `UNAVAILABLE`, while any other API failure stops the script. The
+procedure does not request broader authentication, and an explicitly
+unavailable package or target Registry read does not block the authorized
+branch push.
 
-git push origin HEAD:refs/heads/feature/cicd
+The exact execution and acceptance steps are:
 
-push_run_id="$(gh run list --repo "$REPOSITORY" --commit "$SOURCE_SHA" \
-  --workflow "Push Commit Checks" --limit 20 --json databaseId \
-  --jq '.[0].databaseId')"
-release_run_id="$(gh run list --repo "$REPOSITORY" --commit "$SOURCE_SHA" \
-  --workflow "Release UCM core artifacts" --limit 20 --json databaseId \
-  --jq '.[0].databaseId')"
-test -n "$push_run_id"
-test -n "$release_run_id"
-gh run watch "$push_run_id" --repo "$REPOSITORY" --exit-status
-gh run watch "$release_run_id" --repo "$REPOSITORY" --exit-status
-gh run download "$release_run_id" --repo "$REPOSITORY" \
-  --dir "$TASK7_ROOT/attempt-1"
+1. Run the canonical script with `TASK7_DRY_RUN=1`. It must validate the exact
+   branch/HEAD, `SuperMarioYL` login, allowlisted origin push URL, exact upstream
+   URL and `HEAD`, download crane v0.20.3 with the platform's hard-coded SHA256,
+   prove every release job has only `contents: read`, and stop immediately
+   before the push.
+2. Run the same script without dry-run. Its only push is
+   `git push origin HEAD:refs/heads/feature/cicd`.
+3. Discover runs with `gh run list --repo "$REPOSITORY" --commit "$SOURCE_SHA"
+   --event push --json
+   databaseId,workflowName,status,conclusion,headSha,url`. Local `jq` selection
+   must find exactly one `Push Commit Checks` and one
+   `Release UCM core artifacts` entry, both with the exact `headSha`; it never
+   depends on the workflow being registered on the fork's default branch.
+4. Require both initial attempt-1 runs to succeed, download the release
+   evidence, invoke same-ID `gh run rerun`, require attempt 2, and download the
+   second evidence tree.
+5. For both evidence files, assert `payload.source_sha`, `payload.repository`,
+   `payload.ref`, and `payload.workflow_refs`, then compare payload, wheel,
+   Chart, local OCI, and second-zero-reconcile identities. Both operation
+   ledgers must have `write_count=0` and publication blocked.
+6. Diff only the surfaces actually read: fork PRs, tags, GitHub Releases, both
+   owner package endpoints' normalized list/state, upstream `HEAD`, and
+   known-target GHCR tags/digests when readable. An `UNAVAILABLE` package or
+   Registry state is an external gap, not readback evidence.
 
-gh run rerun "$push_run_id" --repo "$REPOSITORY"
-gh run rerun "$release_run_id" --repo "$REPOSITORY"
-gh run watch "$push_run_id" --repo "$REPOSITORY" --exit-status
-gh run watch "$release_run_id" --repo "$REPOSITORY" --exit-status
-gh run download "$release_run_id" --repo "$REPOSITORY" \
-  --dir "$TASK7_ROOT/attempt-2"
-
-python - "$TASK7_ROOT" <<'PY'
-import json
-import pathlib
-import sys
-
-root = pathlib.Path(sys.argv[1])
-
-def load(attempt):
-    paths = list((root / attempt).rglob("release-loop-evidence.json"))
-    assert len(paths) == 1, paths
-    return json.loads(paths[0].read_text(encoding="utf-8"))
-
-first = load("attempt-1")
-second = load("attempt-2")
-assert first["payload_sha256"] == second["payload_sha256"]
-keys = ("wheel_sha256", "chart_sha256", "oci_digest", "second_reconcile_sha256")
-assert all(
-    first["payload"]["artifact_digests"][key]
-    == second["payload"]["artifact_digests"][key]
-    for key in keys
-)
-assert first["payload"]["must_green"]["second_reconcile_zero"] is True
-assert second["payload"]["must_green"]["second_reconcile_zero"] is True
-assert first["payload"]["write_audit"]["write_count"] == 0
-assert second["payload"]["write_audit"]["write_count"] == 0
-assert second["payload"]["publication"] == {"status": "blocked", "attempted": False}
-PY
-
-snapshot_zero_write "$TASK7_ROOT/after"
-diff -ru "$TASK7_ROOT/before" "$TASK7_ROOT/after"
-```
-
-The command shown is the only permitted push. A failed run is handled with
-`gh run view --log-failed`, job JSON, and downloaded artifacts under the plan's
-bounded repair loop. A final green push attempt and same-SHA `gh run rerun` are
-still fixture evidence: the second reconcile must be zero, the before/after
-audit must show no PR, tag, GitHub Release, GHCR, or upstream change, and
-production remains blocked.
+The no-GHCR-write conclusion is instead supported by the static absence of
+`packages: write`, login, and Registry push commands plus the runtime
+zero-operation ledgers. Failures require `gh run view --log-failed`, run/job
+JSON, and artifacts under the bounded plan. Production remains blocked.
 
 ## External blockers
 

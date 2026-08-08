@@ -295,87 +295,67 @@ and CUDA/A2/A3 runtime and device acceptance remain unverified and
 
 The tracked [Task 7 GitHub Loop
 plan](superpowers/plans/2026-08-08-ucm-release-slimming-loop.md) owns the hosted
-execution limits and failure classifications. The operator must use the
-checksum-verified crane v0.20.3 binary declared by `_build-image.yml` and the
-`snapshot_zero_write` function in the [release operator
-README](../.github/release/README.md#task-7-hosted-github-loop).
+execution limits and failure classifications. The [release operator
+README](../.github/release/README.md#task-7-hosted-github-loop) is the only
+canonical executable body; it begins with `set -euo pipefail` and accepts
+`TASK7_DRY_RUN=1` to exercise all pre-push gates before deliberately refusing
+the push.
 
-The executable sequence is:
+### 9.1 Preconditions and tool authority
 
-```bash
-export REPOSITORY=SuperMarioYL/unified-cache-management
-export UPSTREAM_REPOSITORY=https://github.com/ModelEngine-Group/unified-cache-management.git
-export SOURCE_SHA="$(git rev-parse HEAD)"
-export TASK7_ROOT="$(mktemp -d /tmp/ucm-task7.XXXXXX)"
-test "$(git branch --show-current)" = feature/cicd
-test "$(git rev-parse feature/cicd)" = "$SOURCE_SHA"
-test "$(crane version)" = 0.20.3
-snapshot_zero_write "$TASK7_ROOT/before"
+The script binds `feature/cicd` and its exact full `HEAD`, verifies that
+`gh api user` returns `SuperMarioYL`, and accepts only the SSH or HTTPS URLs for
+the `SuperMarioYL` origin and `ModelEngine-Group` upstream repositories. It
+records the upstream `HEAD` before and after. The only push command is
+`git push origin HEAD:refs/heads/feature/cicd`.
 
-git push origin HEAD:refs/heads/feature/cicd
+Crane is not a host prerequisite. The script downloads go-containerregistry
+v0.20.3 into its task-specific directory and selects one hard-coded official
+archive SHA256 for Darwin arm64, Darwin x86_64, Linux amd64, or Linux arm64. It
+requires `sha256sum` or `shasum -a 256`, uses the resulting absolute crane path,
+and verifies the exact `0.20.3` version before any anonymous Registry read.
 
-push_run_id="$(gh run list --repo "$REPOSITORY" --commit "$SOURCE_SHA" \
-  --workflow "Push Commit Checks" --limit 20 --json databaseId \
-  --jq '.[0].databaseId')"
-release_run_id="$(gh run list --repo "$REPOSITORY" --commit "$SOURCE_SHA" \
-  --workflow "Release UCM core artifacts" --limit 20 --json databaseId \
-  --jq '.[0].databaseId')"
-test -n "$push_run_id"
-test -n "$release_run_id"
-gh run watch "$push_run_id" --repo "$REPOSITORY" --exit-status
-gh run watch "$release_run_id" --repo "$REPOSITORY" --exit-status
-gh run download "$release_run_id" --repo "$REPOSITORY" \
-  --dir "$TASK7_ROOT/attempt-1"
+### 9.2 Capability and readback boundary
 
-gh run rerun "$push_run_id" --repo "$REPOSITORY"
-gh run rerun "$release_run_id" --repo "$REPOSITORY"
-gh run watch "$push_run_id" --repo "$REPOSITORY" --exit-status
-gh run watch "$release_run_id" --repo "$REPOSITORY" --exit-status
-gh run download "$release_run_id" --repo "$REPOSITORY" \
-  --dir "$TASK7_ROOT/attempt-2"
-```
+Current probes of both owner package-list endpoints returned HTTP 403 because
+the token lacks `read:packages`; anonymous crane reads of both known target GHCR
+repositories returned `DENIED`. Each snapshot phase probes both package
+endpoints again. Success is normalized by package ID; only explicit HTTP
+403/`read:packages` errors become `UNAVAILABLE`, and other errors fail closed.
+The loop does not expand token scope, does not turn unavailable package or
+Registry reads into empty success, and does not block the authorized push solely
+because those reads are explicitly unavailable.
 
-Compare only deterministic fields. Attempt metadata is intentionally outside
-the payload identity:
+The zero-write capability proof instead parses all four workflows and every
+job permission as exactly `contents: read`, rejects `packages: write`, login,
+Registry push, and dispatch-API commands, and later requires the runtime
+operation ledger to report `write_count=0`. The before/after comparison covers
+only fork PRs, tags, GitHub Releases, both owner package endpoint results,
+upstream `HEAD`, and known-target GHCR tags/digests when those targets are
+readable. A successful not-found response is canonical `ABSENT`;
+authentication denial is canonical `UNAVAILABLE`.
 
-```bash
-python - "$TASK7_ROOT" <<'PY'
-import json
-import pathlib
-import sys
+### 9.3 Run discovery, rerun, and identity assertions
 
-root = pathlib.Path(sys.argv[1])
+After the exact push, the script uses `gh run list --repo "$REPOSITORY"
+--commit "$SOURCE_SHA" --event push --json
+databaseId,workflowName,status,conclusion,headSha,url`. It applies local `jq`
+selection to require exactly one `Push Commit Checks` and one
+`Release UCM core artifacts` entry with the exact `headSha`. This avoids the
+invalid assumption that a newly introduced feature-branch workflow is already
+registered on the fork's default branch.
 
-def load(attempt):
-    paths = list((root / attempt).rglob("release-loop-evidence.json"))
-    assert len(paths) == 1, paths
-    return json.loads(paths[0].read_text(encoding="utf-8"))
+Both initial attempt-1 runs must be green before the first artifact download.
+The same database IDs then receive `gh run rerun`; both must advance to attempt
+2, finish green, and supply the second artifact tree. For each downloaded
+envelope the script asserts `payload.source_sha`, `payload.repository`,
+`payload.ref`, and `payload.workflow_refs`. It compares deterministic payload,
+wheel, Chart, local OCI, and second-reconcile identities, requires the second
+reconcile to be zero, and requires publication blocked plus `write_count=0`.
+The local `oci_digest` is not Registry readback.
 
-first = load("attempt-1")
-second = load("attempt-2")
-assert first["payload_sha256"] == second["payload_sha256"]
-keys = ("wheel_sha256", "chart_sha256", "oci_digest", "second_reconcile_sha256")
-assert all(
-    first["payload"]["artifact_digests"][key]
-    == second["payload"]["artifact_digests"][key]
-    for key in keys
-)
-assert first["payload"]["must_green"]["second_reconcile_zero"] is True
-assert second["payload"]["must_green"]["second_reconcile_zero"] is True
-assert first["payload"]["write_audit"]["write_count"] == 0
-assert second["payload"]["write_audit"]["write_count"] == 0
-assert second["payload"]["publication"] == {"status": "blocked", "attempted": False}
-PY
-
-snapshot_zero_write "$TASK7_ROOT/after"
-diff -ru "$TASK7_ROOT/before" "$TASK7_ROOT/after"
-```
-
-`Push Commit Checks` and `Release UCM core artifacts` must both be green for
-the pushed SHA and the same-SHA `gh run rerun`. Downloaded nested artifacts
-must prove matching payload, wheel, Chart, and OCI identities plus a second
-zero-task reconcile. The snapshot diff must prove zero writes to fork PRs,
-tags, GitHub Releases, GHCR packages, upstream Git refs, and the two pinned
-upstream-image references. Production remains blocked: hosted fixture evidence
-does not resolve native wheel, Registry publication/readback, cluster, or
-accelerator requirements.
+Finally, the readable-surface snapshots must compare byte-for-byte. Failures
+are collected with `gh run view --log-failed`, job JSON, and artifacts within
+the tracked plan limits. Hosted fixture success still leaves owner package
+enumeration, GHCR readback, native wheels, Registry publication, cluster, and
+accelerator evidence `external-required`; production remains blocked.
