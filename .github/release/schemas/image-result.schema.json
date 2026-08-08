@@ -1,17 +1,153 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://modelengine-group.example/ucm/image-result.schema.json",
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "passed": {"type": "string", "const": "passed"}
+  },
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "kind", "task_key", "ucm_version", "wheel_sha256", "base_image_digest", "oci_digest", "status"],
+  "required": [
+    "schema_version", "kind", "fixture_only", "unpublished",
+    "publication_attempted", "recipe_sha256", "result_sha256",
+    "build_key_sha256", "task_key", "ucm_version", "source", "base",
+    "target_platform", "wheel", "implementation", "oci", "gates",
+    "runtime_validation", "device_validation", "status"
+  ],
   "properties": {
     "schema_version": {"const": 1},
     "kind": {"const": "ucm-image-result"},
-    "task_key": {"type": "string", "minLength": 1},
-    "ucm_version": {"type": "string", "minLength": 1},
-    "wheel_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-    "base_image_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-    "oci_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-    "status": {"enum": ["fixture-verified", "candidate-verified", "verified", "failed"]}
+    "fixture_only": {"const": true},
+    "unpublished": {"const": true},
+    "publication_attempted": {"const": false},
+    "recipe_sha256": {"$ref": "#/$defs/digest"},
+    "result_sha256": {"$ref": "#/$defs/digest"},
+    "build_key_sha256": {"$ref": "#/$defs/digest"},
+    "task_key": {"$ref": "#/$defs/digest"},
+    "ucm_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:rc[1-9][0-9]*)?$"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "release_manifest_sha256", "config_sha256", "compatibility_sha256",
+        "compatibility_rule_id", "compatibility_rule_sha256",
+        "upstream_repository", "upstream_index_digest",
+        "upstream_platform_manifest_digest", "upstream_platform_config_digest"
+      ],
+      "properties": {
+        "release_manifest_sha256": {"$ref": "#/$defs/digest"},
+        "config_sha256": {"$ref": "#/$defs/digest"},
+        "compatibility_sha256": {"$ref": "#/$defs/digest"},
+        "compatibility_rule_id": {"type": "string", "minLength": 1},
+        "compatibility_rule_sha256": {"$ref": "#/$defs/digest"},
+        "upstream_repository": {"type": "string", "minLength": 1},
+        "upstream_index_digest": {"$ref": "#/$defs/digest"},
+        "upstream_platform_manifest_digest": {"$ref": "#/$defs/digest"},
+        "upstream_platform_config_digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "kind", "fixture_only", "repository",
+        "index_digest", "platform", "subject"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "kind": {"const": "fixture-base-image-record"},
+        "fixture_only": {"const": true},
+        "repository": {"type": "string", "minLength": 1},
+        "index_digest": {"$ref": "#/$defs/digest"},
+        "subject": {"type": "string", "pattern": "@sha256:[0-9a-f]{64}$"},
+        "platform": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["os", "architecture", "manifest_digest", "config_digest"],
+          "properties": {
+            "os": {"const": "linux"},
+            "architecture": {"enum": ["amd64", "arm64"]},
+            "manifest_digest": {"$ref": "#/$defs/digest"},
+            "config_digest": {"$ref": "#/$defs/digest"}
+          }
+        }
+      }
+    },
+    "target_platform": {"enum": ["linux/amd64", "linux/arm64"]},
+    "wheel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "filename", "sha256", "size", "spec_id", "declaration_sha256",
+        "version", "python_abi", "cpu_arch", "accelerator",
+        "accelerator_runtime", "npu_arch_or_na", "os", "binary_profile_id",
+        "requires_dist"
+      ],
+      "properties": {
+        "filename": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+\\.whl$"},
+        "sha256": {"$ref": "#/$defs/digest"},
+        "size": {"type": "integer", "minimum": 1},
+        "spec_id": {"type": "string", "minLength": 1},
+        "declaration_sha256": {"$ref": "#/$defs/digest"},
+        "version": {"type": "string", "minLength": 1},
+        "python_abi": {"enum": ["cp311", "cp312"]},
+        "cpu_arch": {"enum": ["amd64", "arm64"]},
+        "accelerator": {"enum": ["cuda", "ascend"]},
+        "accelerator_runtime": {"type": "string", "minLength": 1},
+        "npu_arch_or_na": {"enum": ["na", "a2", "a3"]},
+        "os": {"enum": ["ubuntu-22.04", "openEuler-24.03"]},
+        "binary_profile_id": {"type": "string", "minLength": 1},
+        "requires_dist": {"const": ["wrapt==1.17.2"]}
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files", "aggregate_sha256"],
+      "properties": {
+        "files": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["Dockerfile", "install_ucm.py", "inspect_runtime.py", "verify_base_image.py"],
+          "properties": {
+            "Dockerfile": {"$ref": "#/$defs/digest"},
+            "install_ucm.py": {"$ref": "#/$defs/digest"},
+            "inspect_runtime.py": {"$ref": "#/$defs/digest"},
+            "verify_base_image.py": {"$ref": "#/$defs/digest"}
+          }
+        },
+        "aggregate_sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "oci": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["output", "media_type", "digest", "platform", "published"],
+      "properties": {
+        "output": {"const": "local-oci"},
+        "media_type": {"enum": ["application/vnd.oci.image.manifest.v1+json", "application/vnd.oci.image.index.v1+json"]},
+        "digest": {"$ref": "#/$defs/digest"},
+        "platform": {"enum": ["linux/amd64", "linux/arm64"]},
+        "published": {"const": false}
+      }
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base_verified", "wheel_verified", "install", "pip_check", "direct_url", "ucm_import", "wrapt_import", "abi"],
+      "properties": {
+        "base_verified": {"$ref": "#/$defs/passed"},
+        "wheel_verified": {"$ref": "#/$defs/passed"},
+        "install": {"$ref": "#/$defs/passed"},
+        "pip_check": {"$ref": "#/$defs/passed"},
+        "direct_url": {"$ref": "#/$defs/passed"},
+        "ucm_import": {"$ref": "#/$defs/passed"},
+        "wrapt_import": {"$ref": "#/$defs/passed"},
+        "abi": {"$ref": "#/$defs/passed"}
+      }
+    },
+    "runtime_validation": {"const": "external-required"},
+    "device_validation": {"const": "external-required"},
+    "status": {"const": "fixture-verified-unpublished"}
   }
 }

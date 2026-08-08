@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from . import chart, core, registry, verify, wheel
+from . import chart, core, image, registry, verify, wheel
 
 
 def _json(value: object) -> str:
@@ -75,6 +75,15 @@ def build_parser() -> argparse.ArgumentParser:
     loop_verify.add_argument("--input", type=Path, required=True)
     loop_verify.add_argument("--run-id", required=True)
     loop_verify.add_argument("--attempt", type=int, required=True)
+
+    image_parser = groups.add_parser("image")
+    image_actions = image_parser.add_subparsers(dest="action", required=True)
+    image_verify = image_actions.add_parser("verify")
+    image_verify.add_argument("--context", type=Path, required=True)
+    image_verify.add_argument("--oci", type=Path, required=True)
+    image_verify.add_argument(
+        "--schema-dir", type=Path, default=core.DEFAULT_SCHEMA_DIR
+    )
     return parser
 
 
@@ -141,6 +150,12 @@ def main(argv: list[str] | None = None) -> int:
             result = verify.verify_loop(
                 core.load_json(args.input),
                 run={"id": args.run_id, "attempt": args.attempt},
+            )
+        elif (args.group, args.action) == ("image", "verify"):
+            result = image.verify_oci(
+                args.context,
+                args.oci,
+                schema_dir=args.schema_dir,
             )
         else:  # pragma: no cover - argparse owns this branch.
             parser.error("unsupported command")
