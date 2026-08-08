@@ -532,6 +532,12 @@ else:
         "docker.io/vllm/vllm-openai@" + DIGESTS["index"]
     )
     assert all(item["capability"] == "read" for item in live_scan["operations"])
+    assert verify.audit_operations(live_scan["operations"]) == {
+        "operation_count": 4,
+        "operation_types": ["crane-digest", "crane-manifest"],
+        "write_capable_operations": [],
+        "write_count": 0,
+    }
 
     fixture_path = tmp_path / "snapshot.json"
     fixture_path.write_text(json.dumps(snapshot), encoding="utf-8")
@@ -597,3 +603,104 @@ else:
             ).hexdigest()
         )
     )
+
+
+@pytest.mark.parametrize(
+    ("operations", "message"),
+    [
+        (
+            [{"type": "registry-push", "capability": "read", "reference": "x"}],
+            "write-capable operation type",
+        ),
+        (
+            [{"type": "unknown-read", "capability": "read", "reference": "x"}],
+            "unknown operation type",
+        ),
+        (
+            [
+                {
+                    "type": "fixture-read",
+                    "capability": "write",
+                    "reference": "docker.io/vllm/vllm-openai:v0.10.2",
+                }
+            ],
+            "capability mismatch",
+        ),
+        (
+            [
+                {
+                    "type": "fixture-read",
+                    "capability": "read",
+                    "reference": "not-an-oci-reference",
+                }
+            ],
+            "malformed reference",
+        ),
+        (
+            [
+                {
+                    "type": "registry-inventory-read",
+                    "capability": "read",
+                    "reference": DIGESTS["index"],
+                },
+                {
+                    "type": "registry-inventory-read",
+                    "capability": "read",
+                    "reference": DIGESTS["index"],
+                },
+            ],
+            "duplicate operation identity",
+        ),
+        (
+            [{"type": "fixture-read", "capability": "read"}],
+            "malformed ledger entry",
+        ),
+        (
+            [
+                {
+                    "type": "fixture-read",
+                    "capability": "read",
+                    "reference": "docker.io/vllm/vllm-openai:v0.10.2",
+                    "note": "extra",
+                }
+            ],
+            "malformed ledger entry",
+        ),
+    ],
+)
+def test_operation_ledger_rejects_type_capability_and_identity_mutations(
+    operations: list[dict[str, str]], message: str
+) -> None:
+    """Caller labels cannot turn a write or unknown operation into read evidence."""
+    _, verify = _modules()
+
+    with pytest.raises(ValueError, match=message):
+        verify.audit_operations(operations)
+
+
+def test_operation_ledger_accepts_only_exact_producer_operations(
+    tmp_path: Path,
+) -> None:
+    """The verifier accepts emitted scan/reconcile batches without a permissive fallback."""
+    registry, verify = _modules()
+    case = _case(tmp_path)
+    scan = registry.scan_registry(
+        case["upstream_snapshot"]["repository"],
+        case["upstream_snapshot"]["upstream_tag"],
+        fixture=case["upstream_snapshot"],
+    )
+    candidate = registry.build_candidate(**case, fixture_mode=True)
+    planned = registry.reconcile(candidate, _inventory())
+
+    audit = verify.audit_operation_batches([scan["operations"], planned["operations"]])
+
+    assert audit == {
+        "operation_count": 3,
+        "operation_types": [
+            "build-plan",
+            "fixture-read",
+            "registry-inventory-read",
+        ],
+        "write_capable_operations": [],
+        "write_count": 0,
+    }
