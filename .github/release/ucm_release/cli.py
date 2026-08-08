@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from . import chart, core, wheel
+from . import chart, core, registry, verify, wheel
 
 
 def _json(value: object) -> str:
@@ -18,7 +18,9 @@ def _json(value: object) -> str:
 
 def _paths(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--release", type=Path, default=core.DEFAULT_RELEASE)
-    parser.add_argument("--compatibility", type=Path, default=core.DEFAULT_COMPATIBILITY)
+    parser.add_argument(
+        "--compatibility", type=Path, default=core.DEFAULT_COMPATIBILITY
+    )
     parser.add_argument("--schema-dir", type=Path, default=core.DEFAULT_SCHEMA_DIR)
 
 
@@ -54,6 +56,25 @@ def build_parser() -> argparse.ArgumentParser:
     package = chart_actions.add_parser("package")
     package.add_argument("--output-dir", type=Path, required=True)
     _paths(package)
+
+    registry_parser = groups.add_parser("registry")
+    registry_actions = registry_parser.add_subparsers(dest="action", required=True)
+    scan = registry_actions.add_parser("scan")
+    scan.add_argument("--repository", required=True)
+    scan.add_argument("--tag", required=True)
+    scan.add_argument("--fixture", type=Path)
+    scan.add_argument("--crane", default="crane")
+
+    reconcile_parser = groups.add_parser("reconcile")
+    reconcile_parser.set_defaults(action=None)
+    reconcile_parser.add_argument("--input", type=Path, required=True)
+
+    loop_parser = groups.add_parser("loop")
+    loop_actions = loop_parser.add_subparsers(dest="action", required=True)
+    loop_verify = loop_actions.add_parser("verify")
+    loop_verify.add_argument("--input", type=Path, required=True)
+    loop_verify.add_argument("--run-id", required=True)
+    loop_verify.add_argument("--attempt", type=int, required=True)
     return parser
 
 
@@ -77,7 +98,10 @@ def main(argv: list[str] | None = None) -> int:
             if args.output:
                 args.output.parent.mkdir(parents=True, exist_ok=True)
                 args.output.write_text(_json(result) + "\n", encoding="utf-8")
-            if args.require_publishable and result["eligible_wheel_count"] != result["declared_wheel_count"]:
+            if (
+                args.require_publishable
+                and result["eligible_wheel_count"] != result["declared_wheel_count"]
+            ):
                 parser.error(
                     f"{result['eligible_wheel_count']} of {result['declared_wheel_count']} wheel specs are eligible"
                 )
@@ -97,6 +121,26 @@ def main(argv: list[str] | None = None) -> int:
                 release_path=args.release,
                 compatibility_path=args.compatibility,
                 schema_dir=args.schema_dir,
+            )
+        elif (args.group, args.action) == ("registry", "scan"):
+            fixture = core.load_json(args.fixture) if args.fixture else None
+            result = registry.scan_registry(
+                args.repository,
+                args.tag,
+                fixture=fixture,
+                crane_binary=args.crane,
+            )
+        elif args.group == "reconcile":
+            request = core.load_json(args.input)
+            if set(request) != {"candidate", "inventory"}:
+                raise ValueError(
+                    "reconcile input requires exactly candidate and inventory"
+                )
+            result = registry.reconcile(request["candidate"], request["inventory"])
+        elif (args.group, args.action) == ("loop", "verify"):
+            result = verify.verify_loop(
+                core.load_json(args.input),
+                run={"id": args.run_id, "attempt": args.attempt},
             )
         else:  # pragma: no cover - argparse owns this branch.
             parser.error("unsupported command")
