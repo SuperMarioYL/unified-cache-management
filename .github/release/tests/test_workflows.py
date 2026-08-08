@@ -18,13 +18,10 @@ EXPECTED_RELEASE_WORKFLOWS = {
     "release-ucm.yml",
     "release-vllm-images.yml",
 }
-OBSOLETE_RELEASE_WORKFLOWS = {
-    "_package-chart.yml",
-    "_promote-image-index.yml",
-    "_verify-image.yml",
-    "_verify-wheel.yml",
-    "discover-upstream.yml",
-    "pr-build-artifacts.yml",
+ALLOWED_NON_RELEASE_WORKFLOWS = {
+    "lint-and-test.yml",
+    "pull-request.yml",
+    "push-check.yml",
 }
 FORBIDDEN_STAGED_PATHS = {
     "ucm/store/compress/cc/compress_lib/tunstall_bf16.cc",
@@ -47,19 +44,105 @@ def _strings(value: object) -> list[str]:
     return [str(value)]
 
 
-def test_release_workflows_are_compact_and_fork_candidate_is_read_only() -> None:
-    """Demand only four workflows and an explicitly isolated fork-candidate job."""
-    actual = {
-        path.name
-        for path in WORKFLOW_DIR.glob("*.yml")
-        if path.name in EXPECTED_RELEASE_WORKFLOWS | OBSOLETE_RELEASE_WORKFLOWS
-    }
-    violations: list[str] = []
-    if actual != EXPECTED_RELEASE_WORKFLOWS:
-        violations.append(
-            "release workflow set must be exactly "
-            f"{sorted(EXPECTED_RELEASE_WORKFLOWS)}, found {sorted(actual)}"
+def _workflow_set_violations(workflow_dir: Path) -> list[str]:
+    actual = {path.name for path in workflow_dir.glob("*.yml")}
+    expected = EXPECTED_RELEASE_WORKFLOWS | ALLOWED_NON_RELEASE_WORKFLOWS
+    if actual == expected:
+        return []
+    return [
+        "workflow file set must be exactly "
+        f"{sorted(expected)}, found {sorted(actual)}"
+    ]
+
+
+def _has_upstream_guard(job: dict[object, object]) -> bool:
+    condition = str(job.get("if", ""))
+    return bool(
+        re.search(
+            r"github\.repository\s*==\s*['\"]ModelEngine-Group/unified-cache-management['\"]",
+            condition,
         )
+    )
+
+
+def _truthy(value: object) -> bool:
+    return value is True or str(value).lower() == "true"
+
+
+def _dangerous_job_operations(job: dict[object, object]) -> list[str]:
+    """Return publication-capable operations that must be upstream-gated."""
+    operations: list[str] = []
+    if job.get("secrets") == "inherit":
+        operations.append("secrets: inherit")
+    permissions = job.get("permissions")
+    if isinstance(permissions, dict) and any(
+        str(value) == "write" for value in permissions.values()
+    ):
+        operations.append("write permission")
+    if "environment" in job:
+        operations.append("protected environment")
+
+    job_text = "\n".join(_strings(job)).lower()
+    if "self-hosted" in job_text:
+        operations.append("self-hosted runner")
+    command_patterns = {
+        r"\b(?:docker|crane)\s+(?:login|push|copy)\b": "registry login or publication",
+        r"\bbuildx\s+build\b[^\n]*--push\b": "Buildx publication",
+        r"\bgh\s+workflow\s+run\b": "workflow dispatch",
+        r"\bgh\s+api\b[^\n]*(?:/dispatches\b|workflow_dispatch\b)": "GitHub dispatch API",
+        r"\b(?:curl|wget)\b[^\n]*(?:/dispatches\b|workflow_dispatch\b)": "HTTP dispatch",
+    }
+    for pattern, label in command_patterns.items():
+        if re.search(pattern, job_text):
+            operations.append(label)
+
+    for step in job.get("steps", []) if isinstance(job.get("steps"), list) else []:
+        if not isinstance(step, dict):
+            continue
+        action = str(step.get("uses", "")).lower()
+        inputs = step.get("with", {})
+        if "docker/login-action" in action:
+            operations.append("registry login action")
+        if "docker/build-push-action" in action and isinstance(inputs, dict) and _truthy(
+            inputs.get("push")
+        ):
+            operations.append("container publishing action")
+        if any(
+            marker in action
+            for marker in (
+                "softprops/action-gh-release",
+                "ncipollo/release-action",
+                "peter-evans/repository-dispatch",
+            )
+        ):
+            operations.append("publishing or dispatch action")
+    return sorted(set(operations))
+
+
+def _fork_isolation_violations(documents: dict[str, object]) -> list[str]:
+    """Audit entry and locally reusable release workflows for a fork path escape."""
+    violations: list[str] = []
+    for filename, document in documents.items():
+        if not isinstance(document, dict):
+            continue
+        jobs = document.get("jobs", {})
+        if not isinstance(jobs, dict):
+            continue
+        for job_name, job in jobs.items():
+            if not isinstance(job, dict):
+                continue
+            operations = _dangerous_job_operations(job)
+            if operations and not _has_upstream_guard(job):
+                violations.append(
+                    f"{filename}:{job_name} exposes fork candidates to "
+                    f"{', '.join(operations)} without an upstream repository guard"
+                )
+    return violations
+
+
+def test_release_workflows_are_compact_and_fork_candidate_is_read_only() -> None:
+    """Demand a closed workflow set and no fork-to-publish escape path."""
+    violations = _workflow_set_violations(WORKFLOW_DIR)
 
     entrypoint = WORKFLOW_DIR / "release-ucm.yml"
     document = yaml.safe_load(entrypoint.read_text(encoding="utf-8")) if entrypoint.exists() else {}
@@ -87,6 +170,13 @@ def test_release_workflows_are_compact_and_fork_candidate_is_read_only() -> None
         if re.search(r"\bgh\s+api\b.*\bdispatch", candidate_text):
             violations.append("fork-candidate must not dispatch workflows")
 
+    documents = {
+        path.name: yaml.safe_load(path.read_text(encoding="utf-8"))
+        for path in WORKFLOW_DIR.glob("*.yml")
+        if path.name in EXPECTED_RELEASE_WORKFLOWS
+    }
+    violations.extend(_fork_isolation_violations(documents))
+
     assert not violations, "release workflow safety contract failed:\n- " + "\n- ".join(
         violations
     )
@@ -99,3 +189,94 @@ def test_existing_cpp_changes_are_explicitly_forbidden_from_the_stage() -> None:
     assert not staged & FORBIDDEN_STAGED_PATHS, json.dumps(
         {"forbidden_staged_paths": sorted(staged & FORBIDDEN_STAGED_PATHS)}, indent=2
     )
+
+
+def test_workflow_set_rejects_an_arbitrary_publish_workflow(tmp_path: Path) -> None:
+    """An unrecognised workflow file cannot evade the four-workflow budget."""
+    for filename in EXPECTED_RELEASE_WORKFLOWS | ALLOWED_NON_RELEASE_WORKFLOWS:
+        (tmp_path / filename).write_text("name: allowed\n")
+    (tmp_path / "publish.yml").write_text("name: bypass\n")
+
+    violations = _workflow_set_violations(tmp_path)
+
+    assert len(violations) == 1
+    assert "publish.yml" in violations[0]
+
+
+def test_fork_isolation_rejects_reusable_workflow_publish_mutations() -> None:
+    """Reusable workflow mutations must be rejected even when entry job is clean."""
+    documents = {
+        "release-ucm.yml": {
+            "jobs": {
+                "fork-candidate": {
+                    "permissions": {"contents": "read"},
+                    "runs-on": "ubuntu-24.04",
+                    "steps": [{"run": "python -m ucm_release core plan"}],
+                }
+            }
+        },
+        "_build-image.yml": {
+            "jobs": {
+                "mutated-reusable": {
+                    "secrets": "inherit",
+                    "runs-on": "self-hosted",
+                    "steps": [
+                        {"uses": "docker/login-action@v3"},
+                        {
+                            "uses": "docker/build-push-action@v6",
+                            "with": {"push": True},
+                        },
+                        {"uses": "softprops/action-gh-release@v2"},
+                        {
+                            "run": (
+                                "docker buildx build --push .\n"
+                                "crane copy source target\n"
+                                "gh workflow run child.yml\n"
+                                "gh api --method POST repos/x/dispatches\n"
+                                "curl -X POST https://api.github.com/repos/x/dispatches"
+                            )
+                        },
+                    ],
+                }
+            }
+        },
+    }
+
+    violations = _fork_isolation_violations(documents)
+
+    assert len(violations) == 1
+    violation = violations[0]
+    for operation in (
+        "secrets: inherit",
+        "self-hosted runner",
+        "registry login action",
+        "container publishing action",
+        "publishing or dispatch action",
+        "Buildx publication",
+        "registry login or publication",
+        "workflow dispatch",
+        "GitHub dispatch API",
+        "HTTP dispatch",
+    ):
+        assert operation in violation
+
+
+def test_fork_isolation_allows_a_read_only_reusable_build() -> None:
+    """A normal hosted build and artifact upload remain valid fork operations."""
+    documents = {
+        "_build-wheel.yml": {
+            "jobs": {
+                "build": {
+                    "permissions": {"contents": "read"},
+                    "runs-on": "ubuntu-24.04",
+                    "steps": [
+                        {"uses": "actions/checkout@full-sha"},
+                        {"run": "docker buildx build --output type=oci,dest=out.tar ."},
+                        {"uses": "actions/upload-artifact@full-sha"},
+                    ],
+                }
+            }
+        }
+    }
+
+    assert _fork_isolation_violations(documents) == []
