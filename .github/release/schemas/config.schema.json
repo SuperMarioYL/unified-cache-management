@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://modelengine-group.example/ucm/config.schema.json",
+  "$defs": {
+    "lock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "selector", "status"],
+      "properties": {
+        "subject": {"enum": ["builder", "toolchain", "atb", "torch-npu"]},
+        "selector": {"type": "string", "minLength": 1},
+        "status": {"enum": ["unresolved", "resolved"]}
+      }
+    },
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selector", "status"],
+      "properties": {
+        "selector": {"type": "string", "minLength": 1},
+        "status": {"enum": ["unresolved", "resolved"]}
+      }
+    },
+    "wheelProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "accelerator", "accelerator_runtime", "npu_arch", "os",
+        "cpu_arch", "python_version", "python_abi", "binary_profile_id",
+        "validation_targets", "locks", "runner"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "accelerator": {"enum": ["cuda", "ascend"]},
+        "accelerator_runtime": {"type": "string", "pattern": "^(cuda|cann)-"},
+        "npu_arch": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"enum": ["na", "a2", "a3"]}
+        },
+        "os": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"enum": ["ubuntu-22.04", "openEuler-24.03"]}
+        },
+        "cpu_arch": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"enum": ["amd64", "arm64"]}
+        },
+        "python_version": {"enum": ["3.11", "3.12"]},
+        "python_abi": {"enum": ["cp311", "cp312"]},
+        "binary_profile_id": {"type": "string", "minLength": 1},
+        "validation_targets": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "locks": {
+          "type": "array", "minItems": 2, "uniqueItems": true,
+          "items": {"$ref": "#/$defs/lock"}
+        },
+        "runner": {"$ref": "#/$defs/runner"}
+      }
+    },
+    "chartCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "values"],
+      "properties": {
+        "name": {"enum": ["cuda", "a2", "a3"]},
+        "values": {"type": "string", "minLength": 1}
+      }
+    },
+    "chart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "name", "version", "app_version", "publication_target", "validation_cases"],
+      "properties": {
+        "source": {"const": "charts/ucm"},
+        "name": {"const": "unified-cache-pd"},
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+-rc\\.[0-9]+$"},
+        "app_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+rc[0-9]+$"},
+        "publication_target": {"const": "github-release"},
+        "validation_cases": {
+          "type": "array", "minItems": 3, "maxItems": 3,
+          "items": {"$ref": "#/$defs/chartCase"}
+        }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "ucm_version", "version_file", "python_runtime_dependencies", "chart", "wheel_profiles"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "ucm_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+rc[0-9]+$"},
+        "version_file": {"const": "version.ini"},
+        "python_runtime_dependencies": {
+          "type": "array", "minItems": 1, "maxItems": 1,
+          "prefixItems": [{"const": "wrapt==1.17.2"}], "items": false
+        },
+        "chart": {"$ref": "#/$defs/chart"},
+        "wheel_profiles": {
+          "type": "array", "minItems": 6, "maxItems": 6,
+          "items": {"$ref": "#/$defs/wheelProfile"}
+        }
+      }
+    },
+    "compatibilityRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "accelerator", "accelerator_runtimes", "npu_architectures", "operating_systems", "cpu_architectures", "python_abis", "upstream_channels"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "accelerator": {"enum": ["cuda", "ascend"]},
+        "accelerator_runtimes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "npu_architectures": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["na", "a2", "a3"]}},
+        "operating_systems": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["ubuntu-22.04", "openEuler-24.03"]}},
+        "cpu_architectures": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["amd64", "arm64"]}},
+        "python_abis": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["cp311", "cp312"]}},
+        "upstream_channels": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["stable", "rc"]}}
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "ucm_version", "rules", "excluded_upstream_patterns"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "ucm_version": {"type": "string"},
+        "rules": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/compatibilityRule"}},
+        "excluded_upstream_patterns": {
+          "type": "array", "minItems": 6, "uniqueItems": true,
+          "items": {"enum": ["nightly", "dev", "custom", "310p", "a5", "explicit-a2-suffix"]}
+        }
+      }
+    }
+  }
+}

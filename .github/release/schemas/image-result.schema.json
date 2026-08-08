@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://modelengine-group.example/ucm/image-result.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "task_key", "ucm_version", "wheel_sha256", "base_image_digest", "oci_digest", "status"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "kind": {"const": "ucm-image-result"},
+    "task_key": {"type": "string", "minLength": 1},
+    "ucm_version": {"type": "string", "minLength": 1},
+    "wheel_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "base_image_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "oci_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "status": {"enum": ["fixture-verified", "candidate-verified", "verified", "failed"]}
+  }
+}

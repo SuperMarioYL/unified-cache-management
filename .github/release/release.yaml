@@ -1,0 +1,111 @@
+schema_version: 1
+ucm_version: 0.5.0rc1
+version_file: version.ini
+python_runtime_dependencies:
+  - wrapt==1.17.2
+chart:
+  source: charts/ucm
+  name: unified-cache-pd
+  version: 0.5.0-rc.1
+  app_version: 0.5.0rc1
+  publication_target: github-release
+  validation_cases:
+    - name: cuda
+      values: charts/ucm/models/cuda/values-qwen3-0p6b-1e1.yaml
+    - name: a2
+      values: charts/ucm/models/ascend/values-qwen3-0p6b-1e1.yaml
+    - name: a3
+      values: charts/ucm/models/ascend/values-qwen3-0p6b-1e1.yaml
+wheel_profiles:
+  - id: cuda-cu129-ubuntu2204-cp312
+    accelerator: cuda
+    accelerator_runtime: cuda-12.9
+    npu_arch: [na]
+    os: [ubuntu-22.04]
+    cpu_arch: [amd64, arm64]
+    python_version: "3.12"
+    python_abi: cp312
+    binary_profile_id: release-default-sm75-sm80-sm86-sm89-sm90
+    validation_targets: [sm75, sm80, sm86, sm89, sm90]
+    locks:
+      - {subject: builder, selector: "registry-selector://cuda/cu129/ubuntu2204/{cpu_arch}", status: unresolved}
+      - {subject: toolchain, selector: "toolchain-selector://cuda/12.9/{cpu_arch}", status: unresolved}
+    runner: {selector: "runner-selector://cuda-build/{cpu_arch}", status: unresolved}
+  - id: cuda-cu130-ubuntu2204-cp312
+    accelerator: cuda
+    accelerator_runtime: cuda-13.0
+    npu_arch: [na]
+    os: [ubuntu-22.04]
+    cpu_arch: [amd64, arm64]
+    python_version: "3.12"
+    python_abi: cp312
+    binary_profile_id: release-default-sm75-sm80-sm86-sm89-sm90
+    validation_targets: [sm75, sm80, sm86, sm89, sm90]
+    locks:
+      - {subject: builder, selector: "registry-selector://cuda/cu130/ubuntu2204/{cpu_arch}", status: unresolved}
+      - {subject: toolchain, selector: "toolchain-selector://cuda/13.0/{cpu_arch}", status: unresolved}
+    runner: {selector: "runner-selector://cuda-build/{cpu_arch}", status: unresolved}
+  - id: ascend-cann851-cp311
+    accelerator: ascend
+    accelerator_runtime: cann-8.5.1
+    npu_arch: [a2, a3]
+    os: [ubuntu-22.04, openEuler-24.03]
+    cpu_arch: [amd64, arm64]
+    python_version: "3.11"
+    python_abi: cp311
+    binary_profile_id: release-default
+    validation_targets: [npu-architecture]
+    locks:
+      - {subject: builder, selector: "registry-selector://ascend/cann851/{npu_arch}/{os}/{cpu_arch}/cp311", status: unresolved}
+      - {subject: toolchain, selector: "toolchain-selector://ascend/cann851/{cpu_arch}", status: unresolved}
+      - {subject: atb, selector: "package-selector://ascend/cann851/atb", status: unresolved}
+      - {subject: torch-npu, selector: "package-selector://ascend/cann851/torch-npu/cp311", status: unresolved}
+    runner: {selector: "runner-selector://ascend-build/{npu_arch}/{cpu_arch}", status: unresolved}
+  - id: ascend-cann900-cp311
+    accelerator: ascend
+    accelerator_runtime: cann-9.0.0
+    npu_arch: [a2, a3]
+    os: [ubuntu-22.04, openEuler-24.03]
+    cpu_arch: [amd64, arm64]
+    python_version: "3.11"
+    python_abi: cp311
+    binary_profile_id: release-default
+    validation_targets: [npu-architecture]
+    locks:
+      - {subject: builder, selector: "registry-selector://ascend/cann900/{npu_arch}/{os}/{cpu_arch}/cp311", status: unresolved}
+      - {subject: toolchain, selector: "toolchain-selector://ascend/cann900/{cpu_arch}", status: unresolved}
+      - {subject: atb, selector: "package-selector://ascend/cann900/atb", status: unresolved}
+      - {subject: torch-npu, selector: "package-selector://ascend/cann900/torch-npu/cp311", status: unresolved}
+    runner: {selector: "runner-selector://ascend-build/{npu_arch}/{cpu_arch}", status: unresolved}
+  - id: ascend-cann900-cp312
+    accelerator: ascend
+    accelerator_runtime: cann-9.0.0
+    npu_arch: [a2, a3]
+    os: [ubuntu-22.04, openEuler-24.03]
+    cpu_arch: [amd64, arm64]
+    python_version: "3.12"
+    python_abi: cp312
+    binary_profile_id: release-default
+    validation_targets: [npu-architecture]
+    locks:
+      - {subject: builder, selector: "registry-selector://ascend/cann900/{npu_arch}/{os}/{cpu_arch}/cp312", status: unresolved}
+      - {subject: toolchain, selector: "toolchain-selector://ascend/cann900/{cpu_arch}", status: unresolved}
+      - {subject: atb, selector: "package-selector://ascend/cann900/atb", status: unresolved}
+      - {subject: torch-npu, selector: "package-selector://ascend/cann900/torch-npu/cp312", status: unresolved}
+    runner: {selector: "runner-selector://ascend-build/{npu_arch}/{cpu_arch}", status: unresolved}
+  - id: ascend-cann901-cp312
+    accelerator: ascend
+    accelerator_runtime: cann-9.0.1
+    npu_arch: [a2, a3]
+    os: [ubuntu-22.04, openEuler-24.03]
+    cpu_arch: [amd64, arm64]
+    python_version: "3.12"
+    python_abi: cp312
+    binary_profile_id: release-default
+    validation_targets: [npu-architecture]
+    locks:
+      - {subject: builder, selector: "registry-selector://ascend/cann901/{npu_arch}/{os}/{cpu_arch}/cp312", status: unresolved}
+      - {subject: toolchain, selector: "toolchain-selector://ascend/cann901/{cpu_arch}", status: unresolved}
+      - {subject: atb, selector: "package-selector://ascend/cann901/atb", status: unresolved}
+      - {subject: torch-npu, selector: "package-selector://ascend/cann901/torch-npu/cp312", status: unresolved}
+    runner: {selector: "runner-selector://ascend-build/{npu_arch}/{cpu_arch}", status: unresolved}

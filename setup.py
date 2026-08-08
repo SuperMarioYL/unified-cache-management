@@ -38,6 +38,16 @@ ENABLE_GDR = os.getenv("ENABLE_GDR", "0") not in ("", "0", "false", "False")
 ASCEND_ROOT = os.getenv("ASCEND_ROOT")
 
 
+def get_release_version() -> str:
+    version_path = os.path.join(ROOT_DIR, "version.ini")
+    with open(version_path, encoding="utf-8") as version_file:
+        for line in version_file:
+            key, separator, value = line.strip().partition("=")
+            if separator and key == "VLLM_UC_VERSION" and value:
+                return value
+    raise RuntimeError(f"VLLM_UC_VERSION is missing from {version_path}")
+
+
 def get_abi_flag_from_env() -> str:
     v = os.environ.get("UCM_CXX11_ABI")
     if v is None:
@@ -243,7 +253,7 @@ def inject_pth():
 
 setup(
     name="uc-manager",
-    version="0.6.0",
+    version=get_release_version(),
     description="Unified Cache Management",
     author="Unified Cache Team",
     packages=[
