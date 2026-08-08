@@ -32,7 +32,10 @@ production lane remains fail-closed while its external requirements are absent.
 
 All jobs explicitly use `contents: read`. Candidate routes do not inherit
 secrets and do not use a protected environment, self-hosted runner, Registry
-login/write, repository dispatch, or GitHub mutation.
+login/write, or GitHub mutation. `release-vllm-images.yml` can be awakened by a
+`repository_dispatch` event, but the candidate never calls or initiates the
+repository-dispatch API and has neither permission nor a write operation that
+can send one.
 
 ### 2.2 Eight modules
 
@@ -266,16 +269,113 @@ Fresh Task 6 local evidence on 2026-08-08:
 | Chart release tree | SHA256 `6e0ea559cc946593ef162d8ea40497c05091466a543c8b997a2ecb0da22edb6f` | Passed locally |
 | Repository Unit collection | `pynvml` missing at `test/conftest.py:14` | External dependency blocked |
 
-Task 5 generated two byte-identical current-input, no-cache OCI archives with
-SHA256 `199b53854f9bee4a7d81a32d2a046d7de220356c35d900297d400fa65059731a`.
-Its final local sequence recorded a clean Python 3.12 suite at 185 tests, a
-9-case round-6 contract-order batch, and a clean full suite at 187 tests, with
-pre-commit and actionlint green.
-Task 6 changed no Docker, base, toolchain, or wheel input, so this remains the
-latest local real-Buildx determinism evidence. It does not prove a Registry
+Task 5 Round 5 produced two byte-identical current-code OCI archives with
+SHA256 `199b53854f9bee4a7d81a32d2a046d7de220356c35d900297d400fa65059731a`, but
+both builds used an already-running local builder. This proves repeatability
+for those inputs, not execution through checksum-installed Linux Buildx plus
+the authority-selected builder. Round 4 produced two byte-identical archives
+with SHA256
+`e25ce47385f701261f598453c0153e4813f912bf36a428db9d8f0a1c4044809e`
+using authority-pinned BuildKit v0.18.2, but it has a pre-round-5 implementation
+identity. The exact combined path of current final code, checksum-installed
+Linux Buildx, and authority-pinned BuildKit v0.18.2 remains
+`external-required` pending an end-to-end Task 7 hosted GitHub run.
+
+The final Task 5 local sequence separately recorded a clean Python 3.12 suite at
+185 tests, a 9-case round-6 contract-order batch, and a clean full suite at 187
+tests, with pre-commit and actionlint green. Neither OCI run proves a Registry
 write, native production wheel, or accelerator runtime.
 
 No GitHub release workflow has run for this candidate. Protected GitHub
 execution, all 36 native wheel builds, Registry write/readback, cluster install,
 and CUDA/A2/A3 runtime and device acceptance remain unverified and
 `external-required`. Production status remains blocked.
+
+## 9. Task 7 hosted GitHub loop
+
+The tracked [Task 7 GitHub Loop
+plan](superpowers/plans/2026-08-08-ucm-release-slimming-loop.md) owns the hosted
+execution limits and failure classifications. The operator must use the
+checksum-verified crane v0.20.3 binary declared by `_build-image.yml` and the
+`snapshot_zero_write` function in the [release operator
+README](../.github/release/README.md#task-7-hosted-github-loop).
+
+The executable sequence is:
+
+```bash
+export REPOSITORY=SuperMarioYL/unified-cache-management
+export UPSTREAM_REPOSITORY=https://github.com/ModelEngine-Group/unified-cache-management.git
+export SOURCE_SHA="$(git rev-parse HEAD)"
+export TASK7_ROOT="$(mktemp -d /tmp/ucm-task7.XXXXXX)"
+test "$(git branch --show-current)" = feature/cicd
+test "$(git rev-parse feature/cicd)" = "$SOURCE_SHA"
+test "$(crane version)" = 0.20.3
+snapshot_zero_write "$TASK7_ROOT/before"
+
+git push origin HEAD:refs/heads/feature/cicd
+
+push_run_id="$(gh run list --repo "$REPOSITORY" --commit "$SOURCE_SHA" \
+  --workflow "Push Commit Checks" --limit 20 --json databaseId \
+  --jq '.[0].databaseId')"
+release_run_id="$(gh run list --repo "$REPOSITORY" --commit "$SOURCE_SHA" \
+  --workflow "Release UCM core artifacts" --limit 20 --json databaseId \
+  --jq '.[0].databaseId')"
+test -n "$push_run_id"
+test -n "$release_run_id"
+gh run watch "$push_run_id" --repo "$REPOSITORY" --exit-status
+gh run watch "$release_run_id" --repo "$REPOSITORY" --exit-status
+gh run download "$release_run_id" --repo "$REPOSITORY" \
+  --dir "$TASK7_ROOT/attempt-1"
+
+gh run rerun "$push_run_id" --repo "$REPOSITORY"
+gh run rerun "$release_run_id" --repo "$REPOSITORY"
+gh run watch "$push_run_id" --repo "$REPOSITORY" --exit-status
+gh run watch "$release_run_id" --repo "$REPOSITORY" --exit-status
+gh run download "$release_run_id" --repo "$REPOSITORY" \
+  --dir "$TASK7_ROOT/attempt-2"
+```
+
+Compare only deterministic fields. Attempt metadata is intentionally outside
+the payload identity:
+
+```bash
+python - "$TASK7_ROOT" <<'PY'
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+
+def load(attempt):
+    paths = list((root / attempt).rglob("release-loop-evidence.json"))
+    assert len(paths) == 1, paths
+    return json.loads(paths[0].read_text(encoding="utf-8"))
+
+first = load("attempt-1")
+second = load("attempt-2")
+assert first["payload_sha256"] == second["payload_sha256"]
+keys = ("wheel_sha256", "chart_sha256", "oci_digest", "second_reconcile_sha256")
+assert all(
+    first["payload"]["artifact_digests"][key]
+    == second["payload"]["artifact_digests"][key]
+    for key in keys
+)
+assert first["payload"]["must_green"]["second_reconcile_zero"] is True
+assert second["payload"]["must_green"]["second_reconcile_zero"] is True
+assert first["payload"]["write_audit"]["write_count"] == 0
+assert second["payload"]["write_audit"]["write_count"] == 0
+assert second["payload"]["publication"] == {"status": "blocked", "attempted": False}
+PY
+
+snapshot_zero_write "$TASK7_ROOT/after"
+diff -ru "$TASK7_ROOT/before" "$TASK7_ROOT/after"
+```
+
+`Push Commit Checks` and `Release UCM core artifacts` must both be green for
+the pushed SHA and the same-SHA `gh run rerun`. Downloaded nested artifacts
+must prove matching payload, wheel, Chart, and OCI identities plus a second
+zero-task reconcile. The snapshot diff must prove zero writes to fork PRs,
+tags, GitHub Releases, GHCR packages, upstream Git refs, and the two pinned
+upstream-image references. Production remains blocked: hosted fixture evidence
+does not resolve native wheel, Registry publication/readback, cluster, or
+accelerator requirements.
