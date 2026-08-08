@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import importlib
 import json
@@ -10,6 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -47,6 +49,19 @@ FORBIDDEN_STAGED_PATHS = {
 FIXTURE_PROFILE = (
     "cuda-cu129-ubuntu2204-amd64-cp312-release-default-sm75-sm80-sm86-sm89-sm90"
 )
+BUILDKIT_IMAGE = (
+    "moby/buildkit:v0.18.2@"
+    "sha256:86c0ad9d1137c186e9d455912167df20e530bdf7f7c19de802e892bb8ca16552"
+)
+DOCKERFILE_FRONTEND = (
+    "# syntax=docker/dockerfile:1.12.1@"
+    "sha256:93bfd3b68c109427185cd78b4779fc82b484b0b7618e36d0f104d4d801e66d25"
+)
+HELM_VERSION = "v3.15.3"
+HELM_LINUX_SHA256 = {
+    "amd64": "ad871aecb0c9fd96aa6702f6b79e87556c8998c2e714a4959bf71ee31282ac9c",
+    "arm64": "bd57697305ba46fef3299b50168a34faa777dd2cf5b43b50df92cca7ed118cce",
+}
 
 
 def _git(*args: str) -> str:
@@ -63,6 +78,279 @@ def _release_modules() -> tuple[object, object, object]:
         importlib.import_module("ucm_release.wheel"),
         importlib.import_module("ucm_release.verify"),
     )
+
+
+def _write_canonical(path: Path, value: object) -> None:
+    path.write_text(
+        json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _valid_image_result(
+    core: object,
+    image_module: object,
+    prepared: dict[str, object],
+    wheel_record: dict[str, object],
+) -> dict[str, object]:
+    """Create a schema-valid result whose fields are derived from the real task."""
+
+    def blob(value: dict[str, object], media_type: str) -> dict[str, object]:
+        raw = json.dumps(value, sort_keys=True, separators=(",", ":"))
+        raw_bytes = raw.encode()
+        return {
+            "media_type": media_type,
+            "digest": "sha256:" + hashlib.sha256(raw_bytes).hexdigest(),
+            "size": len(raw_bytes),
+            "raw": raw,
+        }
+
+    config = blob(
+        {"architecture": "amd64", "os": "linux"},
+        "application/vnd.oci.image.config.v1+json",
+    )
+    manifest = blob(
+        {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "config": {
+                "mediaType": config["media_type"],
+                "digest": config["digest"],
+                "size": config["size"],
+            },
+            "layers": [],
+        },
+        "application/vnd.oci.image.manifest.v1+json",
+    )
+    index = blob(
+        {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "manifests": [
+                {
+                    "mediaType": manifest["media_type"],
+                    "digest": manifest["digest"],
+                    "size": manifest["size"],
+                    "platform": {"architecture": "amd64", "os": "linux"},
+                }
+            ],
+        },
+        "application/vnd.oci.image.index.v1+json",
+    )
+    base = image_module._validate_base(  # noqa: SLF001 - contract fixture
+        {
+            "schema_version": 1,
+            "kind": "fixture-base-image-record",
+            "fixture_only": True,
+            "repository": "docker.io/library/python",
+            "index": index,
+            "manifest": manifest,
+            "config": config,
+        },
+        "linux/amd64",
+    )
+    candidate = prepared["candidate"]
+    build_inputs = candidate["build_inputs"]
+    wheel_input = build_inputs["wheel"]
+    manifest_record = prepared["source_case"]["release_manifest"]
+    upstream = build_inputs["upstream"]
+    upstream_platform = next(
+        item for item in upstream["platforms"] if item["architecture"] == "amd64"
+    )
+    result_payload = {
+        "schema_version": 1,
+        "kind": "ucm-image-result",
+        "fixture_only": True,
+        "unpublished": True,
+        "publication_attempted": False,
+        "recipe_sha256": "sha256:" + "a" * 64,
+        "build_key_sha256": candidate["build_key_sha256"],
+        "task_key": core.sha256_value(prepared["image_input"]["task"]),
+        "ucm_version": candidate["ucm_version"],
+        "source": {
+            "release_manifest_sha256": build_inputs["release_manifest_sha256"],
+            "config_sha256": manifest_record["config_sha256"],
+            "compatibility_sha256": manifest_record["compatibility_sha256"],
+            "compatibility_rule_id": build_inputs["compatibility_rule_id"],
+            "compatibility_rule_sha256": build_inputs["compatibility_rule_sha256"],
+            "upstream_repository": upstream["repository"],
+            "upstream_index_digest": upstream["index_digest"],
+            "upstream_platform_manifest_digest": upstream_platform["manifest_digest"],
+            "upstream_platform_config_digest": upstream_platform["config_digest"],
+        },
+        "base": base,
+        "target_platform": "linux/amd64",
+        "wheel": {
+            "filename": wheel_record["filename"],
+            "sha256": wheel_record["sha256"],
+            "size": wheel_record["size"],
+            "spec_id": wheel_input["spec_id"],
+            "declaration_sha256": wheel_input["declaration_sha256"],
+            "version": wheel_input["version"],
+            "python_abi": wheel_input["python_abi"],
+            "cpu_arch": wheel_input["cpu_arch"],
+            "accelerator": wheel_input["accelerator"],
+            "accelerator_runtime": wheel_input["accelerator_runtime"],
+            "npu_arch_or_na": wheel_input["npu_arch_or_na"],
+            "os": wheel_input["os"],
+            "binary_profile_id": wheel_input["binary_profile_id"],
+            "requires_dist": ["wrapt==1.17.2"],
+        },
+        "implementation": image_module.implementation_digests(),
+        "oci": {
+            "output": "local-oci",
+            "media_type": "application/vnd.oci.image.manifest.v1+json",
+            "digest": "sha256:" + "9" * 64,
+            "platform": "linux/amd64",
+            "published": False,
+        },
+        "gates": {
+            "base_verified": "passed",
+            "wheel_verified": "passed",
+            "install": "passed",
+            "pip_check": "passed",
+            "direct_url": "passed",
+            "ucm_import": "passed",
+            "wrapt_import": "passed",
+            "abi": "passed",
+        },
+        "runtime_validation": "external-required",
+        "device_validation": "external-required",
+        "status": "fixture-verified-unpublished",
+    }
+    return {**result_payload, "result_sha256": core.sha256_value(result_payload)}
+
+
+def _release_closure(tmp_path: Path) -> dict[str, object]:
+    core, wheel_module, verify_module = _release_modules()
+    image_module = importlib.import_module("ucm_release.image")
+    chart_module = importlib.import_module("ucm_release.chart")
+    source_sha = "b" * 40
+    wheel_dir = tmp_path / "wheel"
+    fixture = wheel_module.build_fixture_wheel(wheel_dir, source_sha, FIXTURE_PROFILE)
+    prepared = verify_module.prepare_candidate_loop(
+        fixture["build_record"],
+        fixture["inspection"],
+        source_sha=source_sha,
+        run={"id": "17", "attempt": 1},
+    )
+    image_result = _valid_image_result(
+        core, image_module, prepared, fixture["inspection"]
+    )
+    completed = verify_module.complete_candidate_loop(
+        prepared,
+        image_result,
+        source_sha=source_sha,
+        run={"id": "17", "attempt": 1},
+    )
+    chart_dir = tmp_path / "chart"
+    chart_result = chart_module.package_chart(chart_dir)
+    paths = {
+        "build_record": wheel_dir / "fixture-build.json",
+        "wheel_inspection": wheel_dir / "wheel-inspection.json",
+        "wheel": Path(fixture["wheel_path"]),
+        "chart_result": tmp_path / "chart-result.json",
+        "chart_package": chart_dir / chart_result["filename"],
+        "image_result": tmp_path / "image-result.json",
+        "completed_loop": tmp_path / "completed-loop.json",
+        "second_reconcile": tmp_path / "second-reconcile.json",
+        "image_loop": tmp_path / "vllm-loop-evidence.json",
+    }
+    _write_canonical(paths["chart_result"], chart_result)
+    _write_canonical(paths["image_result"], image_result)
+    _write_canonical(paths["completed_loop"], completed)
+    _write_canonical(paths["second_reconcile"], completed["second_reconcile"])
+    _write_canonical(paths["image_loop"], completed["evidence"])
+    return {
+        "core": core,
+        "verify": verify_module,
+        "source_sha": source_sha,
+        "fixture": fixture,
+        "prepared": prepared,
+        "image_result_value": image_result,
+        "completed_value": completed,
+        "paths": paths,
+    }
+
+
+def _aggregate(closure: dict[str, object], *, attempt: int = 1) -> dict[str, object]:
+    paths = closure["paths"]
+    return closure["verify"].aggregate_release_evidence(
+        build_record_path=paths["build_record"],
+        wheel_record_path=paths["wheel_inspection"],
+        wheel_path=paths["wheel"],
+        chart_result_path=paths["chart_result"],
+        chart_package_path=paths["chart_package"],
+        image_result_path=paths["image_result"],
+        completed_loop_path=paths["completed_loop"],
+        second_reconcile_path=paths["second_reconcile"],
+        image_loop_path=paths["image_loop"],
+        repository="SuperMarioYL/unified-cache-management",
+        ref="refs/heads/feature/cicd",
+        source_sha=closure["source_sha"],
+        run={"id": "17", "attempt": attempt},
+    )
+
+
+def _toolchain_pin_violations(
+    workflows: dict[str, dict[str, object]], dockerfile: str
+) -> list[str]:
+    violations: list[str] = []
+    for filename, document in workflows.items():
+        for job_name, job in _jobs(document).items():
+            for step in _steps(job):
+                uses = str(step.get("uses", ""))
+                if uses.startswith("docker/setup-buildx-action@"):
+                    inputs = step.get("with")
+                    if (
+                        not isinstance(inputs, dict)
+                        or inputs.get("version") != "v0.19.2"
+                    ):
+                        violations.append(f"{filename}:{job_name}: mutable Buildx")
+                    if not isinstance(inputs, dict) or inputs.get("driver-opts") != (
+                        f"image={BUILDKIT_IMAGE}"
+                    ):
+                        violations.append(f"{filename}:{job_name}: mutable BuildKit")
+                if uses.startswith("azure/setup-helm@"):
+                    violations.append(
+                        f"{filename}:{job_name}: setup-helm has no checksum"
+                    )
+    if dockerfile.splitlines()[0] != DOCKERFILE_FRONTEND:
+        violations.append("release Dockerfile frontend is mutable")
+    for filename in ("release-ucm.yml", "lint-and-test.yml"):
+        install_steps = [
+            step
+            for job in _jobs(workflows[filename]).values()
+            for step in _steps(job)
+            if step.get("name") == "Install Helm"
+        ]
+        if not install_steps:
+            violations.append(f"{filename}: Helm installer is missing")
+        for step in install_steps:
+            environment = step.get("env")
+            command = str(step.get("run", ""))
+            if (
+                not isinstance(environment, dict)
+                or environment.get("HELM_VERSION") != HELM_VERSION
+            ):
+                violations.append(f"{filename}: Helm version is not fixed")
+            if (
+                "https://get.helm.sh/helm-${HELM_VERSION}-linux-${helm_arch}.tar.gz"
+                not in command
+            ):
+                violations.append(f"{filename}: Helm archive URL is not fixed")
+            for architecture, digest in HELM_LINUX_SHA256.items():
+                variable = f"HELM_LINUX_{architecture.upper()}_SHA256"
+                if (
+                    not isinstance(environment, dict)
+                    or environment.get(variable) != digest
+                ):
+                    violations.append(
+                        f"{filename}: Helm {architecture} checksum missing"
+                    )
+            if "sha256sum --check" not in command or "version --short" not in command:
+                violations.append(f"{filename}: Helm archive/version is not verified")
+    return violations
 
 
 def _strings(value: object) -> list[str]:
@@ -514,6 +802,51 @@ def test_reusable_workflow_inputs_outputs_and_artifacts_are_exact() -> None:
             assert inputs.get("retention-days") == 3
 
 
+def test_reusable_entry_contracts_reject_empty_partial_and_illegal_calls() -> None:
+    """A malformed workflow_call must run an explicit exit-2 job, never go green."""
+    entry = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
+    entry_inputs = _trigger(entry)["workflow_call"]["inputs"]
+    assert entry_inputs["validation_lane"]["required"] is True
+    assert entry_inputs["call_contract"]["default"] == "ucm-core-candidate-v1"
+    entry_invalid = _jobs(entry)["invalid-call"]
+    entry_condition = str(entry_invalid["if"])
+    assert "inputs.call_contract != 'ucm-core-candidate-v1'" in entry_condition
+    assert "inputs.validation_lane != 'fork-candidate'" in entry_condition
+    assert "exit 2" in "\n".join(_strings(entry_invalid))
+
+    images = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
+    image_inputs = _trigger(images)["workflow_call"]["inputs"]
+    assert image_inputs["call_contract"]["default"] == "ucm-vllm-candidate-v1"
+    assert all(
+        image_inputs[name]["required"] is True
+        for name in ("source_sha", "wheel_artifact", "validation_lane")
+    )
+    invalid = _jobs(images)["invalid-call"]
+    condition = str(invalid["if"])
+    for value in (
+        "inputs.call_contract",
+        "inputs.source_sha",
+        "inputs.wheel_artifact",
+        "inputs.validation_lane",
+    ):
+        assert value in condition
+    assert "inputs.call_contract != 'ucm-vllm-candidate-v1'" in condition
+    assert "inputs.source_sha == ''" in condition
+    assert "inputs.wheel_artifact == ''" in condition
+    assert "inputs.validation_lane != 'fork-candidate'" in condition
+    assert "exit 2" in "\n".join(_strings(invalid))
+    standalone = str(_jobs(images)["standalone-wheel"]["if"])
+    assert all(
+        f"inputs.{name} == ''" in standalone
+        for name in (
+            "call_contract",
+            "source_sha",
+            "wheel_artifact",
+            "validation_lane",
+        )
+    )
+
+
 def test_candidate_evidence_binds_the_real_two_reconcile_closure() -> None:
     """The final artifact must bind actual build output and all required scenarios."""
     entry_text = (WORKFLOW_DIR / "release-ucm.yml").read_text(encoding="utf-8")
@@ -554,6 +887,15 @@ def test_candidate_evidence_binds_the_real_two_reconcile_closure() -> None:
         assert rejected in combined
     assert "loop complete" in image_text
     assert "loop aggregate" in entry_text
+    for argument in (
+        "--wheel ",
+        "--chart-package ",
+        "--image-result ",
+        "--completed-loop ",
+        "--second-reconcile ",
+    ):
+        assert argument in entry_text
+    assert "out/image-result.json" in image_text
     assert '"status": "blocked"' in policy_text
     assert '"attempted": False' in policy_text
 
@@ -587,6 +929,66 @@ def test_workflows_only_orchestrate_tested_cli_and_standalone_runs_full_closure(
     assert re.search(r"CRANE_ARCHIVE_SHA256: [0-9a-f]{64}", image_text)
     assert "crane digest docker.io/vllm/vllm-openai:v0.10.2" in image_text
     assert "crane digest quay.io/ascend/vllm-ascend:v0.9.1" in image_text
+
+
+def test_release_toolchains_are_immutable_and_checksum_verified() -> None:
+    """Buildx, BuildKit, Dockerfile frontend, and Helm are all byte identities."""
+    workflows = {
+        path.name: _load_workflow(path) for path in _workflow_paths(WORKFLOW_DIR)
+    }
+    dockerfile = (REPO_ROOT / ".github/release/docker/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+
+    assert _toolchain_pin_violations(workflows, dockerfile) == []
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected"),
+    [
+        ("buildx", "mutable Buildx"),
+        ("buildkit", "mutable BuildKit"),
+        ("frontend", "frontend is mutable"),
+        ("helm-version", "Helm version is not fixed"),
+        ("helm-checksum", "Helm amd64 checksum missing"),
+    ],
+)
+def test_toolchain_pin_audit_rejects_each_mutable_or_unverified_input(
+    mutation: str, expected: str
+) -> None:
+    """Refreshing a version, image, frontend, or archive cannot pass the audit."""
+    workflows = {
+        path.name: _load_workflow(path) for path in _workflow_paths(WORKFLOW_DIR)
+    }
+    dockerfile = (REPO_ROOT / ".github/release/docker/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    if mutation in {"buildx", "buildkit"}:
+        step = next(
+            step
+            for job in _jobs(workflows["_build-image.yml"]).values()
+            for step in _steps(job)
+            if str(step.get("uses", "")).startswith("docker/setup-buildx-action@")
+        )
+        step["with"]["version" if mutation == "buildx" else "driver-opts"] = "latest"
+    elif mutation == "frontend":
+        dockerfile = dockerfile.replace(
+            DOCKERFILE_FRONTEND, "# syntax=docker/dockerfile:1"
+        )
+    elif mutation == "helm-version":
+        steps = _jobs(workflows["release-ucm.yml"])["package-chart"]["steps"]
+        install = next(step for step in steps if step.get("name") == "Install Helm")
+        install["env"]["HELM_VERSION"] = "latest"
+    else:
+        text = json.dumps(workflows["release-ucm.yml"])
+        workflows["release-ucm.yml"] = json.loads(
+            text.replace(HELM_LINUX_SHA256["amd64"], "0" * 64)
+        )
+
+    assert any(
+        expected in violation
+        for violation in _toolchain_pin_violations(workflows, dockerfile)
+    )
 
 
 def test_clean_image_build_rewrites_timestamps_without_disabling_dependencies() -> None:
@@ -695,7 +1097,7 @@ def test_production_and_unsupported_callable_lanes_fail_closed() -> None:
 
     for filename in ("release-ucm.yml", "release-vllm-images.yml"):
         document = _load_workflow(WORKFLOW_DIR / filename)
-        rejected = _jobs(document)["unsupported-validation-lane"]
+        rejected = _jobs(document)["invalid-call"]
         condition = str(rejected["if"])
         assert "inputs.validation_lane != 'fork-candidate'" in condition
         assert rejected["permissions"] == {"contents": "read"}
@@ -795,51 +1197,9 @@ def test_fixture_wheel_builder_is_deterministic_unpublished_and_source_bound(
 def test_loop_orchestration_prepares_completes_and_aggregates_canonical_evidence(
     tmp_path: Path,
 ) -> None:
-    """The CLI-owned workflow rules must close the same two-reconcile loop."""
-    core, wheel_module, verify_module = _release_modules()
-    source_sha = "b" * 40
-    fixture = wheel_module.build_fixture_wheel(
-        tmp_path / "wheel", source_sha, FIXTURE_PROFILE
-    )
-    prepared = verify_module.prepare_candidate_loop(
-        fixture["build_record"],
-        fixture["inspection"],
-        source_sha=source_sha,
-        run={"id": "17", "attempt": 1},
-    )
-
-    candidate = prepared["candidate"]
-    image_payload = {
-        "fixture_only": True,
-        "unpublished": True,
-        "publication_attempted": False,
-        "status": "fixture-verified-unpublished",
-        "build_key_sha256": candidate["build_key_sha256"],
-        "wheel": {"sha256": fixture["wheel_sha256"]},
-        "oci": {"digest": "sha256:" + "9" * 64},
-        "gates": {
-            "base_verified": "passed",
-            "wheel_verified": "passed",
-            "install": "passed",
-            "pip_check": "passed",
-            "direct_url": "passed",
-            "ucm_import": "passed",
-            "wrapt_import": "passed",
-            "abi": "passed",
-        },
-        "runtime_validation": "external-required",
-        "device_validation": "external-required",
-    }
-    image_result = {
-        **image_payload,
-        "result_sha256": core.sha256_value(image_payload),
-    }
-    completed = verify_module.complete_candidate_loop(
-        prepared,
-        image_result,
-        source_sha=source_sha,
-        run={"id": "17", "attempt": 1},
-    )
+    """Aggregate must reopen every artifact and recompute the whole closure."""
+    closure = _release_closure(tmp_path)
+    completed = closure["completed_value"]
     assert completed["second_reconcile"]["task_count"] == 0
     assert completed["evidence"]["payload"]["compatibility"] == {
         "accepted": ["a2", "a3"],
@@ -849,24 +1209,8 @@ def test_loop_orchestration_prepares_completes_and_aggregates_canonical_evidence
         "status": "blocked",
         "attempted": False,
     }
-
-    chart = {
-        "sha256": "sha256:" + "7" * 64,
-        "release_tree_sha256": "sha256:" + "8" * 64,
-        "rendered_cases": ["cuda", "a2", "a3"],
-        "status": "candidate-verified",
-    }
-    aggregate = verify_module.aggregate_release_evidence(
-        fixture["build_record"],
-        fixture["inspection"],
-        chart,
-        completed["evidence"],
-        repository="SuperMarioYL/unified-cache-management",
-        ref="refs/heads/feature/cicd",
-        source_sha=source_sha,
-        run={"id": "17", "attempt": 1},
-    )
-    assert aggregate["payload"]["source_sha"] == source_sha
+    aggregate = _aggregate(closure)
+    assert aggregate["payload"]["source_sha"] == closure["source_sha"]
     assert aggregate["payload"]["must_green"] == {
         "fixture_wheel": True,
         "helm_cuda_a2_a3": True,
@@ -875,26 +1219,230 @@ def test_loop_orchestration_prepares_completes_and_aggregates_canonical_evidence
     }
     assert (
         aggregate["payload"]["artifact_digests"]["wheel_sha256"]
-        == fixture["wheel_sha256"]
+        == closure["fixture"]["wheel_sha256"]
     )
-    assert aggregate["payload"]["write_audit"] == {
-        "pull_request": False,
-        "tag": False,
-        "release": False,
-        "package": False,
-        "upstream": False,
-    }
-    rerun = verify_module.aggregate_release_evidence(
-        fixture["build_record"],
-        fixture["inspection"],
-        chart,
-        completed["evidence"],
-        repository="SuperMarioYL/unified-cache-management",
-        ref="refs/heads/feature/cicd",
-        source_sha=source_sha,
-        run={"id": "17", "attempt": 2},
-    )
+    assert aggregate["payload"]["write_audit"]["write_count"] == 0
+    assert aggregate["payload"]["write_audit"]["ledger_sha256"].startswith("sha256:")
+    rerun = _aggregate(closure, attempt=2)
     assert aggregate["payload_sha256"] == rerun["payload_sha256"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "build-record-extra",
+        "build-record-missing",
+        "wheel-inspection-extra",
+        "wheel-inspection-missing",
+        "wheel-bytes",
+        "chart-result-extra",
+        "chart-result-missing",
+        "chart-bytes",
+        "image-result-extra",
+        "image-result-missing",
+        "image-result-whitespace",
+        "image-oci-digest-rehashed",
+        "image-base-bytes-rehashed",
+        "image-implementation-rehashed",
+        "image-wheel-sha-rehashed",
+        "scenario-rehashed",
+        "gate-rehashed",
+        "publication-rehashed",
+        "write-ledger-rehashed",
+        "second-reconcile-nonzero",
+        "completed-extra",
+        "completed-missing",
+        "second-extra",
+        "second-missing",
+        "image-loop-extra",
+        "image-loop-missing",
+    ],
+)
+def test_aggregate_rejects_mutated_artifacts_even_after_envelope_rehash(
+    tmp_path: Path, mutation: str
+) -> None:
+    """Changing bytes or rehashing a forged summary never authorizes publication."""
+    closure = _release_closure(tmp_path)
+    core = closure["core"]
+    paths = closure["paths"]
+    completed = copy.deepcopy(closure["completed_value"])
+
+    def rewrite_evidence() -> None:
+        completed["evidence"]["payload_sha256"] = core.sha256_value(
+            completed["evidence"]["payload"]
+        )
+        _write_canonical(paths["completed_loop"], completed)
+        _write_canonical(paths["image_loop"], completed["evidence"])
+
+    if mutation in {"build-record-extra", "build-record-missing"}:
+        value = json.loads(paths["build_record"].read_text(encoding="utf-8"))
+        if mutation.endswith("extra"):
+            value["extra"] = True
+        else:
+            del value["profile_id"]
+        _write_canonical(paths["build_record"], value)
+    elif mutation in {"wheel-inspection-extra", "wheel-inspection-missing"}:
+        value = json.loads(paths["wheel_inspection"].read_text(encoding="utf-8"))
+        if mutation.endswith("extra"):
+            value["extra"] = True
+        else:
+            del value["status"]
+        _write_canonical(paths["wheel_inspection"], value)
+    elif mutation == "wheel-bytes":
+        paths["wheel"].write_bytes(paths["wheel"].read_bytes() + b"changed")
+    elif mutation in {"chart-result-extra", "chart-result-missing"}:
+        value = json.loads(paths["chart_result"].read_text(encoding="utf-8"))
+        if mutation.endswith("extra"):
+            value["extra"] = True
+        else:
+            del value["status"]
+        _write_canonical(paths["chart_result"], value)
+    elif mutation == "chart-bytes":
+        paths["chart_package"].write_bytes(
+            paths["chart_package"].read_bytes() + b"changed"
+        )
+    elif mutation in {
+        "image-result-extra",
+        "image-result-missing",
+        "image-oci-digest-rehashed",
+        "image-base-bytes-rehashed",
+        "image-implementation-rehashed",
+        "image-wheel-sha-rehashed",
+    }:
+        value = copy.deepcopy(closure["image_result_value"])
+        if mutation == "image-result-extra":
+            value["extra"] = True
+        elif mutation == "image-result-missing":
+            del value["status"]
+        elif mutation == "image-oci-digest-rehashed":
+            value["oci"]["digest"] = "sha256:" + "8" * 64
+        elif mutation == "image-base-bytes-rehashed":
+            value["base"]["config"]["raw"] += " "
+        elif mutation == "image-implementation-rehashed":
+            value["implementation"]["aggregate_sha256"] = "sha256:" + "8" * 64
+        else:
+            value["wheel"]["sha256"] = "sha256:" + "8" * 64
+        payload = {key: item for key, item in value.items() if key != "result_sha256"}
+        value["result_sha256"] = core.sha256_value(payload)
+        _write_canonical(paths["image_result"], value)
+    elif mutation == "image-result-whitespace":
+        paths["image_result"].write_text(
+            json.dumps(closure["image_result_value"], indent=2) + "\n",
+            encoding="utf-8",
+        )
+    elif mutation in {
+        "scenario-rehashed",
+        "gate-rehashed",
+        "publication-rehashed",
+        "write-ledger-rehashed",
+    }:
+        payload = completed["evidence"]["payload"]
+        if mutation == "scenario-rehashed":
+            payload["scenarios"][0]["passed"] = False
+        elif mutation == "gate-rehashed":
+            payload["required_gates"]["abi"] = "failed"
+        elif mutation == "publication-rehashed":
+            payload["publication"] = {"status": "published", "attempted": True}
+        else:
+            payload["operation_batches"][0][0]["capability"] = "write"
+            payload["write_audit"]["write_count"] = 0
+        rewrite_evidence()
+    elif mutation == "second-reconcile-nonzero":
+        completed["second_reconcile"]["task_count"] = 1
+        completed["evidence"]["payload"]["second_task_count"] = 1
+        completed["evidence"]["payload"]["second_reconcile_sha256"] = core.sha256_value(
+            completed["second_reconcile"]
+        )
+        _write_canonical(paths["second_reconcile"], completed["second_reconcile"])
+        rewrite_evidence()
+    elif mutation in {"completed-extra", "completed-missing"}:
+        if mutation.endswith("extra"):
+            completed["extra"] = True
+        else:
+            del completed["evidence"]
+        _write_canonical(paths["completed_loop"], completed)
+    elif mutation in {"second-extra", "second-missing"}:
+        value = copy.deepcopy(completed["second_reconcile"])
+        if mutation.endswith("extra"):
+            value["extra"] = True
+        else:
+            del value["decision"]
+        _write_canonical(paths["second_reconcile"], value)
+    else:
+        value = copy.deepcopy(completed["evidence"])
+        if mutation.endswith("extra"):
+            value["extra"] = True
+        else:
+            del value["github"]
+        _write_canonical(paths["image_loop"], value)
+
+    with pytest.raises(ValueError):
+        _aggregate(closure)
+
+
+def test_aggregate_cli_reopens_files_and_exits_two_for_mutation(
+    tmp_path: Path,
+) -> None:
+    """The public command exposes the same fail-closed file contract."""
+    closure = _release_closure(tmp_path)
+    paths = closure["paths"]
+    environment = {**__import__("os").environ, "PYTHONPATH": ".github/release"}
+
+    def invoke(output: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "ucm_release",
+                "loop",
+                "aggregate",
+                "--build-record",
+                str(paths["build_record"]),
+                "--wheel-inspection",
+                str(paths["wheel_inspection"]),
+                "--wheel",
+                str(paths["wheel"]),
+                "--chart-result",
+                str(paths["chart_result"]),
+                "--chart-package",
+                str(paths["chart_package"]),
+                "--image-result",
+                str(paths["image_result"]),
+                "--completed-loop",
+                str(paths["completed_loop"]),
+                "--second-reconcile",
+                str(paths["second_reconcile"]),
+                "--image-loop",
+                str(paths["image_loop"]),
+                "--repository",
+                "SuperMarioYL/unified-cache-management",
+                "--ref",
+                "refs/heads/feature/cicd",
+                "--source-sha",
+                str(closure["source_sha"]),
+                "--run-id",
+                "17",
+                "--attempt",
+                "1",
+                "--output",
+                str(output),
+            ],
+            cwd=REPO_ROOT,
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    passed = invoke(tmp_path / "evidence.json")
+    assert passed.returncode == 0, passed.stderr
+    paths["image_result"].write_text(
+        json.dumps(closure["image_result_value"], indent=2) + "\n",
+        encoding="utf-8",
+    )
+    rejected = invoke(tmp_path / "mutated-evidence.json")
+    assert rejected.returncode == 2
+    assert "canonical JSON bytes" in rejected.stderr
 
 
 def test_loop_orchestration_rejects_wrong_source_or_published_image(

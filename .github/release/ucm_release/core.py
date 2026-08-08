@@ -11,7 +11,6 @@ from typing import Any
 
 import yaml
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RELEASE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RELEASE = RELEASE_ROOT / "release.yaml"
@@ -23,7 +22,9 @@ class _UniqueKeyLoader(yaml.SafeLoader):
     pass
 
 
-def _construct_mapping(loader: yaml.SafeLoader, node: yaml.MappingNode, deep: bool = False) -> dict[str, Any]:
+def _construct_mapping(
+    loader: yaml.SafeLoader, node: yaml.MappingNode, deep: bool = False
+) -> dict[str, Any]:
     mapping: dict[str, Any] = {}
     for key_node, value_node in node.value:
         key = loader.construct_object(key_node, deep=deep)
@@ -112,9 +113,11 @@ def validate_schema(
             "object": lambda value: isinstance(value, dict),
             "array": lambda value: isinstance(value, list),
             "string": lambda value: isinstance(value, str),
-            "integer": lambda value: isinstance(value, int) and not isinstance(value, bool),
+            "integer": lambda value: isinstance(value, int)
+            and not isinstance(value, bool),
             "boolean": lambda value: isinstance(value, bool),
-            "number": lambda value: isinstance(value, (int, float)) and not isinstance(value, bool),
+            "number": lambda value: isinstance(value, (int, float))
+            and not isinstance(value, bool),
             "null": lambda value: value is None,
         }
         if expected_type not in type_checks or not type_checks[expected_type](instance):
@@ -127,7 +130,9 @@ def validate_schema(
         if len(instance) < schema.get("minLength", 0):
             raise ValueError(f"{path}: string is shorter than minLength")
         if "pattern" in schema and re.search(schema["pattern"], instance) is None:
-            raise ValueError(f"{path}: value does not match pattern {schema['pattern']!r}")
+            raise ValueError(
+                f"{path}: value does not match pattern {schema['pattern']!r}"
+            )
     if isinstance(instance, (int, float)) and not isinstance(instance, bool):
         if "minimum" in schema and instance < schema["minimum"]:
             raise ValueError(f"{path}: value is below minimum {schema['minimum']}")
@@ -163,19 +168,27 @@ def validate_schema(
         for index, item_schema in enumerate(prefix_items):
             if index < len(instance):
                 validate_schema(
-                    instance[index], item_schema, root=root_schema, path=f"{path}[{index}]"
+                    instance[index],
+                    item_schema,
+                    root=root_schema,
+                    path=f"{path}[{index}]",
                 )
         item_schema = schema.get("items")
         if item_schema is not None:
             start = len(prefix_items) if prefix_items else 0
             for index in range(start, len(instance)):
                 validate_schema(
-                    instance[index], item_schema, root=root_schema, path=f"{path}[{index}]"
+                    instance[index],
+                    item_schema,
+                    root=root_schema,
+                    path=f"{path}[{index}]",
                 )
 
 
 def canonical_bytes(value: Any) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
 
 
 def sha256_value(value: Any) -> str:
@@ -210,8 +223,13 @@ def _validate_release_shape(release: dict[str, Any]) -> None:
     _strict_keys(
         release,
         {
-            "kind", "schema_version", "ucm_version", "version_file",
-            "python_runtime_dependencies", "chart", "wheel_profiles",
+            "kind",
+            "schema_version",
+            "ucm_version",
+            "version_file",
+            "python_runtime_dependencies",
+            "chart",
+            "wheel_profiles",
         },
         "release.yaml",
     )
@@ -222,13 +240,22 @@ def _validate_release_shape(release: dict[str, Any]) -> None:
     if release.get("version_file") != "version.ini":
         raise ValueError("release.yaml version_file must be version.ini")
     if release.get("python_runtime_dependencies") != ["wrapt==1.17.2"]:
-        raise ValueError("release.yaml must keep wrapt==1.17.2 as an ordinary dependency")
+        raise ValueError(
+            "release.yaml must keep wrapt==1.17.2 as an ordinary dependency"
+        )
     chart = release.get("chart")
     if not isinstance(chart, dict):
         raise ValueError("release.yaml chart must be a mapping")
     _strict_keys(
         chart,
-        {"source", "name", "version", "app_version", "publication_target", "validation_cases"},
+        {
+            "source",
+            "name",
+            "version",
+            "app_version",
+            "publication_target",
+            "validation_cases",
+        },
         "release.yaml.chart",
     )
     if chart.get("source") != "charts/ucm" or chart.get("name") != "unified-cache-pd":
@@ -268,9 +295,18 @@ def _validate_release_shape(release: dict[str, Any]) -> None:
     if not isinstance(profiles, list) or len(profiles) != 6:
         raise ValueError("release.yaml must define exactly six wheel profiles")
     profile_keys = {
-        "id", "accelerator", "accelerator_runtime", "npu_arch", "os",
-        "cpu_arch", "python_version", "python_abi", "binary_profile_id",
-        "validation_targets", "locks", "runner",
+        "id",
+        "accelerator",
+        "accelerator_runtime",
+        "npu_arch",
+        "os",
+        "cpu_arch",
+        "python_version",
+        "python_abi",
+        "binary_profile_id",
+        "validation_targets",
+        "locks",
+        "runner",
     }
     for index, profile in enumerate(profiles):
         if not isinstance(profile, dict):
@@ -278,17 +314,27 @@ def _validate_release_shape(release: dict[str, Any]) -> None:
         _strict_keys(profile, profile_keys, f"release.yaml.wheel_profiles[{index}]")
         locks = profile.get("locks")
         if not isinstance(locks, list) or len(locks) < 2:
-            raise ValueError("each wheel profile needs at least builder and toolchain locks")
+            raise ValueError(
+                "each wheel profile needs at least builder and toolchain locks"
+            )
         for lock_index, lock in enumerate(locks):
             if not isinstance(lock, dict):
                 raise ValueError("wheel locks must be mappings")
-            _strict_keys(lock, {"subject", "selector", "status", "identity"}, f"release.yaml.wheel_profiles[{index}].locks[{lock_index}]")
+            _strict_keys(
+                lock,
+                {"subject", "selector", "status", "identity"},
+                f"release.yaml.wheel_profiles[{index}].locks[{lock_index}]",
+            )
             if lock.get("status") not in {"unresolved", "resolved"}:
                 raise ValueError("wheel lock status must be unresolved or resolved")
         runner = profile.get("runner")
         if not isinstance(runner, dict):
             raise ValueError("wheel runner must be a mapping")
-        _strict_keys(runner, {"selector", "status", "identity"}, f"release.yaml.wheel_profiles[{index}].runner")
+        _strict_keys(
+            runner,
+            {"selector", "status", "identity"},
+            f"release.yaml.wheel_profiles[{index}].runner",
+        )
         if runner.get("status") not in {"unresolved", "resolved"}:
             raise ValueError("runner status must be unresolved or resolved")
 
@@ -296,7 +342,13 @@ def _validate_release_shape(release: dict[str, Any]) -> None:
 def _validate_compatibility_shape(compatibility: dict[str, Any]) -> None:
     _strict_keys(
         compatibility,
-        {"kind", "schema_version", "ucm_version", "rules", "excluded_upstream_patterns"},
+        {
+            "kind",
+            "schema_version",
+            "ucm_version",
+            "rules",
+            "excluded_upstream_patterns",
+        },
         "compatibility.yaml",
     )
     if compatibility.get("kind") != "compatibility-config":
@@ -307,17 +359,30 @@ def _validate_compatibility_shape(compatibility: dict[str, Any]) -> None:
     if not isinstance(rules, list) or len(rules) != 2:
         raise ValueError("compatibility.yaml must define exactly two accelerator rules")
     rule_keys = {
-        "id", "accelerator", "accelerator_runtimes", "npu_architectures",
-        "operating_systems", "cpu_architectures", "python_abis", "upstream_channels",
+        "id",
+        "accelerator",
+        "accelerator_runtimes",
+        "npu_architectures",
+        "operating_systems",
+        "cpu_architectures",
+        "python_abis",
+        "upstream_channels",
     }
     for index, rule in enumerate(rules):
         if not isinstance(rule, dict):
             raise ValueError("compatibility rules must be mappings")
         _strict_keys(rule, rule_keys, f"compatibility.yaml.rules[{index}]")
     if compatibility.get("excluded_upstream_patterns") != [
-        "nightly", "dev", "custom", "310p", "a5", "explicit-a2-suffix"
+        "nightly",
+        "dev",
+        "custom",
+        "310p",
+        "a5",
+        "explicit-a2-suffix",
     ]:
-        raise ValueError("compatibility exclusions must retain the reviewed fail-closed set")
+        raise ValueError(
+            "compatibility exclusions must retain the reviewed fail-closed set"
+        )
 
 
 def validate_config(
@@ -390,7 +455,9 @@ def _validate_profile_semantics(profiles: list[dict[str, Any]]) -> None:
             else {"builder", "toolchain", "atb", "torch-npu"}
         )
         lock_subjects = [lock["subject"] for lock in profile["locks"]]
-        if set(lock_subjects) != required_subjects or len(lock_subjects) != len(required_subjects):
+        if set(lock_subjects) != required_subjects or len(lock_subjects) != len(
+            required_subjects
+        ):
             raise ValueError(
                 f"{profile['id']} requires exact lock subjects {sorted(required_subjects)}"
             )
@@ -411,12 +478,15 @@ def _validate_profile_semantics(profiles: list[dict[str, Any]]) -> None:
                     f"resolved {lock['subject']} lock requires immutable {scheme} identity"
                 )
             if lock["status"] == "unresolved" and identity is not None:
-                raise ValueError(f"unresolved {lock['subject']} lock must not claim an identity")
+                raise ValueError(
+                    f"unresolved {lock['subject']} lock must not claim an identity"
+                )
         runner = profile["runner"]
         runner_identity = runner.get("identity")
         if runner["status"] == "resolved" and (
             not isinstance(runner_identity, str)
-            or re.fullmatch(r"^runner://[^@ ]+@sha256:[0-9a-f]{64}$", runner_identity) is None
+            or re.fullmatch(r"^runner://[^@ ]+@sha256:[0-9a-f]{64}$", runner_identity)
+            is None
         ):
             raise ValueError("resolved runner requires immutable runner identity")
         if runner["status"] == "unresolved" and runner_identity is not None:
@@ -427,8 +497,12 @@ def _validate_compatibility_semantics(
     profiles: list[dict[str, Any]], rules: list[dict[str, Any]]
 ) -> None:
     rule_by_accelerator = {rule["accelerator"]: rule for rule in rules}
-    if set(rule_by_accelerator) != {"cuda", "ascend"} or len(rule_by_accelerator) != len(rules):
-        raise ValueError("compatibility rules must contain one CUDA and one Ascend rule")
+    if set(rule_by_accelerator) != {"cuda", "ascend"} or len(
+        rule_by_accelerator
+    ) != len(rules):
+        raise ValueError(
+            "compatibility rules must contain one CUDA and one Ascend rule"
+        )
     field_mapping = {
         "accelerator_runtimes": "accelerator_runtime",
         "npu_architectures": "npu_arch",
@@ -437,7 +511,9 @@ def _validate_compatibility_semantics(
         "python_abis": "python_abi",
     }
     for accelerator, rule in rule_by_accelerator.items():
-        matching = [profile for profile in profiles if profile["accelerator"] == accelerator]
+        matching = [
+            profile for profile in profiles if profile["accelerator"] == accelerator
+        ]
         for rule_field, profile_field in field_mapping.items():
             expected: set[str] = set()
             for profile in matching:
@@ -455,8 +531,14 @@ def _runtime_slug(runtime: str) -> str:
     return ("cu" if family == "cuda" else "cann") + version.replace(".", "")
 
 
-def _format_selector(value: str, *, npu_arch: str, operating_system: str, cpu_arch: str) -> str:
-    return value.format(npu_arch=npu_arch, os=operating_system.replace("-", "").lower(), cpu_arch=cpu_arch)
+def _format_selector(
+    value: str, *, npu_arch: str, operating_system: str, cpu_arch: str
+) -> str:
+    return value.format(
+        npu_arch=npu_arch,
+        os=operating_system.replace("-", "").lower(),
+        cpu_arch=cpu_arch,
+    )
 
 
 def expand_wheel_specs(release: dict[str, Any]) -> list[dict[str, Any]]:
@@ -466,7 +548,10 @@ def expand_wheel_specs(release: dict[str, Any]) -> list[dict[str, Any]]:
         for npu_arch, operating_system, cpu_arch in itertools.product(
             profile["npu_arch"], profile["os"], profile["cpu_arch"]
         ):
-            parts = [profile["accelerator"], _runtime_slug(profile["accelerator_runtime"])]
+            parts = [
+                profile["accelerator"],
+                _runtime_slug(profile["accelerator_runtime"]),
+            ]
             if profile["accelerator"] == "ascend":
                 parts.append(npu_arch)
             parts.extend(
@@ -538,7 +623,9 @@ def expand_wheel_specs(release: dict[str, Any]) -> list[dict[str, Any]]:
             specs.append(spec)
     specs.sort(key=lambda item: item["spec_id"])
     if len(specs) != 36:
-        raise ValueError(f"initial release must declare exactly 36 wheel specs, found {len(specs)}")
+        raise ValueError(
+            f"initial release must declare exactly 36 wheel specs, found {len(specs)}"
+        )
     return specs
 
 
@@ -547,7 +634,9 @@ def build_release_manifest(
     compatibility_path: Path = DEFAULT_COMPATIBILITY,
     schema_dir: Path = DEFAULT_SCHEMA_DIR,
 ) -> dict[str, Any]:
-    release, compatibility = validate_config(release_path, compatibility_path, schema_dir)
+    release, compatibility = validate_config(
+        release_path, compatibility_path, schema_dir
+    )
     specs = expand_wheel_specs(release)
     eligible = [item for item in specs if item["build_eligible"]]
     assets = [
@@ -567,9 +656,7 @@ def build_release_manifest(
             "status": "candidate",
         }
     )
-    blockers = sorted(
-        {reason for item in specs for reason in item["blocked_reasons"]}
-    )
+    blockers = sorted({reason for item in specs for reason in item["blocked_reasons"]})
     manifest = {
         "schema_version": 1,
         "kind": "ucm-core-release-manifest",

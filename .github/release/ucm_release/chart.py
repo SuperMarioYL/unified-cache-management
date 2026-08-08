@@ -12,7 +12,14 @@ import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .core import DEFAULT_COMPATIBILITY, DEFAULT_RELEASE, DEFAULT_SCHEMA_DIR, REPO_ROOT, canonical_bytes, validate_config
+from .core import (
+    DEFAULT_COMPATIBILITY,
+    DEFAULT_RELEASE,
+    DEFAULT_SCHEMA_DIR,
+    REPO_ROOT,
+    canonical_bytes,
+    validate_config,
+)
 
 
 def _run(command: list[str]) -> str:
@@ -43,9 +50,13 @@ def verify_provenance(chart_dir: Path) -> dict[str, Any]:
         "tree_sha256": "sha256:5a0aa3113c14931e30c88c7f8508b3c742f985e5ede4a8ec48cac77c195c5a2e",
     }
     if provenance.get("source") != expected_source:
-        raise ValueError("Chart provenance does not retain the immutable source identity")
+        raise ValueError(
+            "Chart provenance does not retain the immutable source identity"
+        )
     if provenance.get("source_tree_sha256") != expected_source["tree_sha256"]:
-        raise ValueError("Chart source tree digest disagrees with immutable source identity")
+        raise ValueError(
+            "Chart source tree digest disagrees with immutable source identity"
+        )
     source_files = provenance.get("source_files", [])
     additions = provenance.get("release_additions", [])
     entries = source_files + additions
@@ -62,7 +73,10 @@ def verify_provenance(chart_dir: Path) -> dict[str, Any]:
             f"unexpected={sorted(actual_paths - expected_paths)}"
         )
     for item in entries:
-        digest = "sha256:" + hashlib.sha256((chart_dir / item["path"]).read_bytes()).hexdigest()
+        digest = (
+            "sha256:"
+            + hashlib.sha256((chart_dir / item["path"]).read_bytes()).hexdigest()
+        )
         if digest != item["imported_sha256"]:
             raise ValueError(f"Chart provenance digest mismatch: {item['path']}")
     if _tree_sha(source_files, "source_sha256") != provenance["source_tree_sha256"]:
@@ -80,8 +94,14 @@ def _deterministic_repack(source: Path, destination: Path) -> None:
     with tarfile.open(source, "r:gz") as archive:
         for member in archive.getmembers():
             if not (member.isfile() or member.isdir()):
-                raise ValueError(f"Chart package contains unsupported member: {member.name}")
-            raw_name = member.name[:-1] if member.isdir() and member.name.endswith("/") else member.name
+                raise ValueError(
+                    f"Chart package contains unsupported member: {member.name}"
+                )
+            raw_name = (
+                member.name[:-1]
+                if member.isdir() and member.name.endswith("/")
+                else member.name
+            )
             parsed = PurePosixPath(raw_name)
             if (
                 not raw_name
@@ -101,7 +121,9 @@ def _deterministic_repack(source: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("wb") as raw:
         with gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0) as compressed:
-            with tarfile.open(fileobj=compressed, mode="w", format=tarfile.GNU_FORMAT) as output:
+            with tarfile.open(
+                fileobj=compressed, mode="w", format=tarfile.GNU_FORMAT
+            ) as output:
                 for original, data in sorted(records, key=lambda item: item[0].name):
                     normalized = tarfile.TarInfo(original.name)
                     normalized.type = original.type
@@ -112,7 +134,9 @@ def _deterministic_repack(source: Path, destination: Path) -> None:
                     normalized.uname = "root"
                     normalized.gname = "root"
                     normalized.mtime = 0
-                    output.addfile(normalized, io.BytesIO(data) if data is not None else None)
+                    output.addfile(
+                        normalized, io.BytesIO(data) if data is not None else None
+                    )
 
 
 def package_chart(
@@ -147,7 +171,9 @@ def package_chart(
             raise ValueError(f"Chart case {case['name']} did not render ModelServing")
         image = f"{case['image_repository']}@{case['image_digest']}"
         if image not in rendered:
-            raise ValueError(f"Chart case {case['name']} did not render exact image {image}")
+            raise ValueError(
+                f"Chart case {case['name']} did not render exact image {image}"
+            )
         if case["expected_resource"] not in rendered:
             raise ValueError(
                 f"Chart case {case['name']} did not render resource {case['expected_resource']}"

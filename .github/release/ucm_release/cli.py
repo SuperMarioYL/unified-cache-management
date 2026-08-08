@@ -108,7 +108,12 @@ def build_parser() -> argparse.ArgumentParser:
     loop_aggregate = loop_actions.add_parser("aggregate")
     loop_aggregate.add_argument("--build-record", type=Path, required=True)
     loop_aggregate.add_argument("--wheel-inspection", type=Path, required=True)
+    loop_aggregate.add_argument("--wheel", type=Path, required=True)
     loop_aggregate.add_argument("--chart-result", type=Path, required=True)
+    loop_aggregate.add_argument("--chart-package", type=Path, required=True)
+    loop_aggregate.add_argument("--image-result", type=Path, required=True)
+    loop_aggregate.add_argument("--completed-loop", type=Path, required=True)
+    loop_aggregate.add_argument("--second-reconcile", type=Path, required=True)
     loop_aggregate.add_argument("--image-loop", type=Path, required=True)
     loop_aggregate.add_argument("--repository", required=True)
     loop_aggregate.add_argument("--ref", required=True)
@@ -263,10 +268,15 @@ def main(argv: list[str] | None = None) -> int:
             }
         elif (args.group, args.action) == ("loop", "aggregate"):
             evidence = verify.aggregate_release_evidence(
-                core.load_json(args.build_record),
-                core.load_json(args.wheel_inspection),
-                core.load_json(args.chart_result),
-                core.load_json(args.image_loop),
+                build_record_path=args.build_record,
+                wheel_record_path=args.wheel_inspection,
+                wheel_path=args.wheel,
+                chart_result_path=args.chart_result,
+                chart_package_path=args.chart_package,
+                image_result_path=args.image_result,
+                completed_loop_path=args.completed_loop,
+                second_reconcile_path=args.second_reconcile,
+                image_loop_path=args.image_loop,
                 repository=args.repository,
                 ref=args.ref,
                 source_sha=args.source_sha,

@@ -17,7 +17,6 @@ from .core import (
     validate_schema,
 )
 
-
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 VERSION = r"v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:rc[1-9][0-9]*)?"
 OCI_TAG_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}")

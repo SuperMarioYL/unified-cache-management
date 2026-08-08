@@ -847,6 +847,47 @@ def verify_image(
     return result
 
 
+def validate_image_result(
+    result: object, *, schema_dir: Path = DEFAULT_SCHEMA_DIR
+) -> dict[str, Any]:
+    """Reopen a canonical image result and revalidate its embedded byte chains."""
+    if not isinstance(result, dict):
+        raise ValueError("image result must be an object")
+    schema = load_json(Path(schema_dir) / "image-result.schema.json")
+    validate_schema(result, schema)
+    payload = {
+        key: copy.deepcopy(value)
+        for key, value in result.items()
+        if key != "result_sha256"
+    }
+    if result["result_sha256"] != sha256_value(payload):
+        raise ValueError("image result digest does not match its payload")
+    target_platform = result["target_platform"]
+    base_record = {
+        key: copy.deepcopy(result["base"][key])
+        for key in (
+            "schema_version",
+            "kind",
+            "fixture_only",
+            "repository",
+            "index",
+            "manifest",
+            "config",
+        )
+    }
+    if _validate_base(base_record, target_platform) != result["base"]:
+        raise ValueError("image result base descriptor closure is noncanonical")
+    if result["implementation"] != implementation_digests():
+        raise ValueError("image result implementation digest is not current")
+    if result["wheel"]["version"] != result["ucm_version"]:
+        raise ValueError("image result wheel and UCM versions disagree")
+    if result["wheel"]["cpu_arch"] != target_platform.split("/", 1)[1]:
+        raise ValueError("image result wheel architecture does not match platform")
+    if result["oci"]["platform"] != target_platform:
+        raise ValueError("image result OCI platform does not match target platform")
+    return copy.deepcopy(result)
+
+
 def _canonical_tar_name(name: str, label: str) -> str:
     path = Path(name)
     if (

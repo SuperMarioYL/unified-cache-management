@@ -10,7 +10,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-
 DIGEST = r"sha256:[0-9a-f]{64}"
 SUBJECT_RE = re.compile(
     rf"[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]+)?"

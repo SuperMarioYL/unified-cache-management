@@ -3,10 +3,13 @@ name: Release UCM core artifacts
 on:
   workflow_call:
     inputs:
-      validation_lane:
+      call_contract:
         type: string
         required: false
-        default: fork-candidate
+        default: ucm-core-candidate-v1
+      validation_lane:
+        type: string
+        required: true
   push:
     branches: ["feature/**"]
     tags: ["v*"]
@@ -15,21 +18,25 @@ permissions:
   contents: read
 
 jobs:
-  unsupported-validation-lane:
-    if: ${{ inputs.validation_lane != '' && inputs.validation_lane != 'fork-candidate' }}
+  invalid-call:
+    if: >-
+      ${{
+        (inputs.call_contract != '' || inputs.validation_lane != '') &&
+        (inputs.call_contract != 'ucm-core-candidate-v1' || inputs.validation_lane != 'fork-candidate')
+      }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
     steps:
       - run: |
-          echo "production callable lanes remain external-required" >&2
+          echo "release-ucm workflow_call inputs are empty, partial, or unsupported" >&2
           exit 2
 
   fork-candidate:
     if: >-
       ${{
-        inputs.validation_lane == 'fork-candidate' ||
+        (inputs.call_contract == 'ucm-core-candidate-v1' && inputs.validation_lane == 'fork-candidate') ||
         (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feature/')) ||
         (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository != 'ModelEngine-Group/unified-cache-management')
       }}
@@ -64,9 +71,26 @@ jobs:
         run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
-      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4
-        with:
-          version: v3.15.3
+      - name: Install Helm
+        env:
+          HELM_VERSION: v3.15.3
+          HELM_LINUX_AMD64_SHA256: ad871aecb0c9fd96aa6702f6b79e87556c8998c2e714a4959bf71ee31282ac9c
+          HELM_LINUX_ARM64_SHA256: bd57697305ba46fef3299b50168a34faa777dd2cf5b43b50df92cca7ed118cce
+        run: |
+          case "$(uname -m)" in
+            x86_64) helm_arch=amd64; helm_sha="${HELM_LINUX_AMD64_SHA256}" ;;
+            aarch64|arm64) helm_arch=arm64; helm_sha="${HELM_LINUX_ARM64_SHA256}" ;;
+            *) echo "unsupported Helm architecture: $(uname -m)" >&2; exit 2 ;;
+          esac
+          helm_archive="${RUNNER_TEMP}/helm.tar.gz"
+          curl -fsSL --retry 3 -o "${helm_archive}" \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-${helm_arch}.tar.gz"
+          echo "${helm_sha}  ${helm_archive}" | sha256sum --check
+          tar -xzf "${helm_archive}" -C "${RUNNER_TEMP}"
+          mkdir -p "${RUNNER_TEMP}/helm-bin"
+          mv "${RUNNER_TEMP}/linux-${helm_arch}/helm" "${RUNNER_TEMP}/helm-bin/helm"
+          test "$("${RUNNER_TEMP}/helm-bin/helm" version --short)" = "v3.15.3+g3bb50bb"
+          echo "${RUNNER_TEMP}/helm-bin" >>"${GITHUB_PATH}"
       - name: Lint, template, and deterministically package CUDA, A2, and A3
         run: |
           mkdir -p out/chart
@@ -96,6 +120,7 @@ jobs:
       contents: read
     uses: ./.github/workflows/release-vllm-images.yml
     with:
+      call_contract: ucm-vllm-candidate-v1
       source_sha: ${{ github.sha }}
       wheel_artifact: ${{ needs.fork-candidate.outputs.wheel_artifact }}
       validation_lane: fork-candidate
@@ -119,6 +144,26 @@ jobs:
         run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - name: Install Helm
+        env:
+          HELM_VERSION: v3.15.3
+          HELM_LINUX_AMD64_SHA256: ad871aecb0c9fd96aa6702f6b79e87556c8998c2e714a4959bf71ee31282ac9c
+          HELM_LINUX_ARM64_SHA256: bd57697305ba46fef3299b50168a34faa777dd2cf5b43b50df92cca7ed118cce
+        run: |
+          case "$(uname -m)" in
+            x86_64) helm_arch=amd64; helm_sha="${HELM_LINUX_AMD64_SHA256}" ;;
+            aarch64|arm64) helm_arch=arm64; helm_sha="${HELM_LINUX_ARM64_SHA256}" ;;
+            *) echo "unsupported Helm architecture: $(uname -m)" >&2; exit 2 ;;
+          esac
+          helm_archive="${RUNNER_TEMP}/helm.tar.gz"
+          curl -fsSL --retry 3 -o "${helm_archive}" \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-${helm_arch}.tar.gz"
+          echo "${helm_sha}  ${helm_archive}" | sha256sum --check
+          tar -xzf "${helm_archive}" -C "${RUNNER_TEMP}"
+          mkdir -p "${RUNNER_TEMP}/helm-bin"
+          mv "${RUNNER_TEMP}/linux-${helm_arch}/helm" "${RUNNER_TEMP}/helm-bin/helm"
+          test "$("${RUNNER_TEMP}/helm-bin/helm" version --short)" = "v3.15.3+g3bb50bb"
+          echo "${RUNNER_TEMP}/helm-bin" >>"${GITHUB_PATH}"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: ${{ needs.fork-candidate.outputs.wheel_artifact }}
@@ -133,10 +178,19 @@ jobs:
           path: input/images
       - name: Aggregate deterministic release-loop-evidence.json
         run: |
+          wheel_path="$(find input/wheel -maxdepth 1 -type f -name '*.whl' -print)"
+          chart_package="$(find input/chart -maxdepth 1 -type f -name '*.tgz' -print)"
+          test "$(printf '%s\n' "${wheel_path}" | grep -c .)" = 1
+          test "$(printf '%s\n' "${chart_package}" | grep -c .)" = 1
           PYTHONPATH=.github/release python -m ucm_release loop aggregate \
             --build-record input/wheel/fixture-build.json \
             --wheel-inspection input/wheel/wheel-inspection.json \
+            --wheel "${wheel_path}" \
             --chart-result input/chart/chart-result.json \
+            --chart-package "${chart_package}" \
+            --image-result input/images/image-result.json \
+            --completed-loop input/images/completed-loop.json \
+            --second-reconcile input/images/second-reconcile.json \
             --image-loop input/images/vllm-loop-evidence.json \
             --repository "${GITHUB_REPOSITORY}" \
             --ref "${GITHUB_REF}" \

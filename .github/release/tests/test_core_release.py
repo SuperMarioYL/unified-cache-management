@@ -17,7 +17,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-
 ROOT = Path(__file__).resolve().parents[3]
 RELEASE_ROOT = ROOT / ".github" / "release"
 PYTHONPATH = str(RELEASE_ROOT)
@@ -104,7 +103,11 @@ def _builder_candidate_wheel(
         entries["ucm/ucm_custom_ops.cpython-312-linux.so"] = b"\x7fELFsynthetic"
     rows: list[list[str]] = []
     for name, data in entries.items():
-        digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
+        digest = (
+            base64.urlsafe_b64encode(hashlib.sha256(data).digest())
+            .rstrip(b"=")
+            .decode()
+        )
         rows.append([name, f"sha256={digest}", str(len(data))])
     rows.append([f"{dist_info}/RECORD", "", ""])
     record = io.StringIO()
@@ -191,7 +194,9 @@ def test_config_is_strict_and_rejects_duplicate_json_keys(tmp_path: Path) -> Non
     shutil.copytree(RELEASE_ROOT / "schemas", schemas)
     schema = schemas / "config.schema.json"
     text = schema.read_text(encoding="utf-8")
-    schema.write_text(text.replace('"$schema":', '"$schema": "duplicate",\n  "$schema":', 1))
+    schema.write_text(
+        text.replace('"$schema":', '"$schema": "duplicate",\n  "$schema":', 1)
+    )
     duplicate = _run(
         "config",
         "validate",
@@ -203,7 +208,9 @@ def test_config_is_strict_and_rejects_duplicate_json_keys(tmp_path: Path) -> Non
     assert "duplicate JSON key" in duplicate.stderr
 
 
-def test_schema_validation_is_operational_for_configs_and_manifest(tmp_path: Path) -> None:
+def test_schema_validation_is_operational_for_configs_and_manifest(
+    tmp_path: Path,
+) -> None:
     release = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
     assert release["kind"] == "release-config"
     compatibility = yaml.safe_load((RELEASE_ROOT / "compatibility.yaml").read_text())
@@ -217,8 +224,13 @@ def test_schema_validation_is_operational_for_configs_and_manifest(tmp_path: Pat
     release["schema_version"] = "1"
     release_path, compatibility_path = _write_configs(tmp_path, release, compatibility)
     wrong_type = _run(
-        "config", "validate", "--release", str(release_path),
-        "--compatibility", str(compatibility_path), check=False,
+        "config",
+        "validate",
+        "--release",
+        str(release_path),
+        "--compatibility",
+        str(compatibility_path),
+        check=False,
     )
     assert wrong_type.returncode == 2
     assert "expected integer" in wrong_type.stderr
@@ -230,14 +242,14 @@ def test_schema_validation_is_operational_for_configs_and_manifest(tmp_path: Pat
     (schemas / "release-manifest.schema.json").write_text(
         json.dumps(manifest_schema), encoding="utf-8"
     )
-    rejected_manifest = _run(
-        "core", "plan", "--schema-dir", str(schemas), check=False
-    )
+    rejected_manifest = _run("core", "plan", "--schema-dir", str(schemas), check=False)
     assert rejected_manifest.returncode == 2
     assert "schema-was-not-applied" in rejected_manifest.stderr
 
 
-def test_schema_refs_enforce_required_enum_pattern_and_unique_items(tmp_path: Path) -> None:
+def test_schema_refs_enforce_required_enum_pattern_and_unique_items(
+    tmp_path: Path,
+) -> None:
     original = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
     mutations: list[tuple[dict, str]] = []
 
@@ -250,7 +262,9 @@ def test_schema_refs_enforce_required_enum_pattern_and_unique_items(tmp_path: Pa
     mutations.append((wrong_enum, "expected one of"))
 
     wrong_pattern = json.loads(json.dumps(original))
-    wrong_pattern["chart"]["validation_cases"][0]["image_digest"] = "sha256:not-a-digest"
+    wrong_pattern["chart"]["validation_cases"][0][
+        "image_digest"
+    ] = "sha256:not-a-digest"
     mutations.append((wrong_pattern, "does not match pattern"))
 
     duplicate_array = json.loads(json.dumps(original))
@@ -262,8 +276,13 @@ def test_schema_refs_enforce_required_enum_pattern_and_unique_items(tmp_path: Pa
         case_dir.mkdir()
         release_path, compatibility_path = _write_configs(case_dir, release)
         rejected = _run(
-            "config", "validate", "--release", str(release_path),
-            "--compatibility", str(compatibility_path), check=False,
+            "config",
+            "validate",
+            "--release",
+            str(release_path),
+            "--compatibility",
+            str(compatibility_path),
+            check=False,
         )
         assert rejected.returncode == 2
         assert message in rejected.stderr
@@ -275,8 +294,13 @@ def test_compatibility_and_profile_references_cannot_drift(tmp_path: Path) -> No
     compatibility["rules"][0]["accelerator_runtimes"] = ["cuda-12.9"]
     release_path, compatibility_path = _write_configs(tmp_path, release, compatibility)
     drift = _run(
-        "config", "validate", "--release", str(release_path),
-        "--compatibility", str(compatibility_path), check=False,
+        "config",
+        "validate",
+        "--release",
+        str(release_path),
+        "--compatibility",
+        str(compatibility_path),
+        check=False,
     )
     assert drift.returncode == 2
     assert "compatibility/profile drift" in drift.stderr
@@ -287,8 +311,13 @@ def test_lock_subjects_and_immutable_resolution_are_fail_closed(tmp_path: Path) 
     release["wheel_profiles"][0]["locks"][0]["status"] = "resolved"
     release_path, compatibility_path = _write_configs(tmp_path, release)
     relabeled = _run(
-        "core", "plan", "--release", str(release_path),
-        "--compatibility", str(compatibility_path), check=False,
+        "core",
+        "plan",
+        "--release",
+        str(release_path),
+        "--compatibility",
+        str(compatibility_path),
+        check=False,
     )
     assert relabeled.returncode == 2
     assert "resolved builder lock requires immutable oci identity" in relabeled.stderr
@@ -302,28 +331,46 @@ def test_lock_subjects_and_immutable_resolution_are_fail_closed(tmp_path: Path) 
     )
     release_path, compatibility_path = _write_configs(tmp_path, release)
     wrong_subject = _run(
-        "config", "validate", "--release", str(release_path),
-        "--compatibility", str(compatibility_path), check=False,
+        "config",
+        "validate",
+        "--release",
+        str(release_path),
+        "--compatibility",
+        str(compatibility_path),
+        check=False,
     )
     assert wrong_subject.returncode == 2
-    assert "resolved builder lock requires immutable oci identity" in wrong_subject.stderr
+    assert (
+        "resolved builder lock requires immutable oci identity" in wrong_subject.stderr
+    )
 
     release = _resolved_cuda_release()
     release_path, compatibility_path = _write_configs(tmp_path, release)
     resolved = _run(
-        "core", "plan", "--release", str(release_path),
-        "--compatibility", str(compatibility_path),
+        "core",
+        "plan",
+        "--release",
+        str(release_path),
+        "--compatibility",
+        str(compatibility_path),
     )
     assert json.loads(resolved.stdout)["eligible_wheel_count"] == 2
 
     release = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
     release["wheel_profiles"][2]["locks"] = [
-        lock for lock in release["wheel_profiles"][2]["locks"] if lock["subject"] != "atb"
+        lock
+        for lock in release["wheel_profiles"][2]["locks"]
+        if lock["subject"] != "atb"
     ]
     release_path, compatibility_path = _write_configs(tmp_path, release)
     missing = _run(
-        "config", "validate", "--release", str(release_path),
-        "--compatibility", str(compatibility_path), check=False,
+        "config",
+        "validate",
+        "--release",
+        str(release_path),
+        "--compatibility",
+        str(compatibility_path),
+        check=False,
     )
     assert missing.returncode == 2
     assert "exact lock subjects" in missing.stderr
@@ -363,7 +410,9 @@ def test_core_plan_keeps_all_specs_but_fails_publishable_closed(tmp_path: Path) 
 
 
 def test_setup_chart_and_configuration_share_version_authority() -> None:
-    version = (ROOT / "version.ini").read_text(encoding="utf-8").strip().split("=", 1)[1]
+    version = (
+        (ROOT / "version.ini").read_text(encoding="utf-8").strip().split("=", 1)[1]
+    )
     setup_version = subprocess.run(
         [sys.executable, "setup.py", "--version"],
         cwd=ROOT,
@@ -390,8 +439,13 @@ def test_coordinated_config_version_drift_is_rejected(tmp_path: Path) -> None:
     compatibility["ucm_version"] = "0.5.0rc2"
     release_path, compatibility_path = _write_configs(tmp_path, release, compatibility)
     drift = _run(
-        "config", "validate", "--release", str(release_path),
-        "--compatibility", str(compatibility_path), check=False,
+        "config",
+        "validate",
+        "--release",
+        str(release_path),
+        "--compatibility",
+        str(compatibility_path),
+        check=False,
     )
     assert drift.returncode == 2
     assert "does not match version.ini" in drift.stderr
@@ -438,13 +492,25 @@ def test_wheel_inspection_binds_sha_metadata_version_and_spec(tmp_path: Path) ->
     assert "wheel SHA256 mismatch" in wrong.stderr
 
 
-def test_synthetic_wheel_is_only_an_unpublished_builder_candidate(tmp_path: Path) -> None:
-    spec_id = "cuda-cu129-ubuntu2204-amd64-cp312-release-default-sm75-sm80-sm86-sm89-sm90"
+def test_synthetic_wheel_is_only_an_unpublished_builder_candidate(
+    tmp_path: Path,
+) -> None:
+    spec_id = (
+        "cuda-cu129-ubuntu2204-amd64-cp312-release-default-sm75-sm80-sm86-sm89-sm90"
+    )
     synthetic = _fixture_wheel(tmp_path)
     digest = "sha256:" + hashlib.sha256(synthetic.read_bytes()).hexdigest()
     production_lane = _run(
-        "wheel", "inspect", str(synthetic), "--spec-id", spec_id,
-        "--expected-sha256", digest, "--source-kind", "production", check=False,
+        "wheel",
+        "inspect",
+        str(synthetic),
+        "--spec-id",
+        spec_id,
+        "--expected-sha256",
+        digest,
+        "--source-kind",
+        "production",
+        check=False,
     )
     assert production_lane.returncode == 2
     assert "invalid choice: 'production'" in production_lane.stderr
@@ -452,8 +518,15 @@ def test_synthetic_wheel_is_only_an_unpublished_builder_candidate(tmp_path: Path
     shaped = _builder_candidate_wheel(tmp_path, include_native=True)
     shaped_digest = "sha256:" + hashlib.sha256(shaped.read_bytes()).hexdigest()
     unresolved = _run(
-        "wheel", "inspect", str(shaped), "--spec-id", spec_id,
-        "--expected-sha256", shaped_digest, "--source-kind", "builder-candidate",
+        "wheel",
+        "inspect",
+        str(shaped),
+        "--spec-id",
+        spec_id,
+        "--expected-sha256",
+        shaped_digest,
+        "--source-kind",
+        "builder-candidate",
         check=False,
     )
     assert unresolved.returncode == 2
@@ -465,15 +538,26 @@ def test_synthetic_wheel_is_only_an_unpublished_builder_candidate(tmp_path: Path
         config_dir, _resolved_cuda_release()
     )
     config_args = (
-        "--release", str(release_path), "--compatibility", str(compatibility_path)
+        "--release",
+        str(release_path),
+        "--compatibility",
+        str(compatibility_path),
     )
 
     synthetic = _fixture_wheel(tmp_path)
     digest = "sha256:" + hashlib.sha256(synthetic.read_bytes()).hexdigest()
     missing_record = _run(
-        "wheel", "inspect", str(synthetic), "--spec-id", spec_id,
-        "--expected-sha256", digest, "--source-kind", "builder-candidate",
-        *config_args, check=False,
+        "wheel",
+        "inspect",
+        str(synthetic),
+        "--spec-id",
+        spec_id,
+        "--expected-sha256",
+        digest,
+        "--source-kind",
+        "builder-candidate",
+        *config_args,
+        check=False,
     )
     assert missing_record.returncode == 2
     assert "RECORD" in missing_record.stderr
@@ -481,9 +565,17 @@ def test_synthetic_wheel_is_only_an_unpublished_builder_candidate(tmp_path: Path
     no_native = _builder_candidate_wheel(tmp_path, include_native=False)
     digest = "sha256:" + hashlib.sha256(no_native.read_bytes()).hexdigest()
     missing_native = _run(
-        "wheel", "inspect", str(no_native), "--spec-id", spec_id,
-        "--expected-sha256", digest, "--source-kind", "builder-candidate",
-        *config_args, check=False,
+        "wheel",
+        "inspect",
+        str(no_native),
+        "--spec-id",
+        spec_id,
+        "--expected-sha256",
+        digest,
+        "--source-kind",
+        "builder-candidate",
+        *config_args,
+        check=False,
     )
     assert missing_native.returncode == 2
     assert "native custom-op shared object" in missing_native.stderr
@@ -493,9 +585,17 @@ def test_synthetic_wheel_is_only_an_unpublished_builder_candidate(tmp_path: Path
     )
     digest = "sha256:" + hashlib.sha256(wrong_binding.read_bytes()).hexdigest()
     mismatched = _run(
-        "wheel", "inspect", str(wrong_binding), "--spec-id", spec_id,
-        "--expected-sha256", digest, "--source-kind", "builder-candidate",
-        *config_args, check=False,
+        "wheel",
+        "inspect",
+        str(wrong_binding),
+        "--spec-id",
+        spec_id,
+        "--expected-sha256",
+        digest,
+        "--source-kind",
+        "builder-candidate",
+        *config_args,
+        check=False,
     )
     assert mismatched.returncode == 2
     assert "embedded build binding accelerator_runtime" in mismatched.stderr
@@ -504,8 +604,15 @@ def test_synthetic_wheel_is_only_an_unpublished_builder_candidate(tmp_path: Path
     digest = "sha256:" + hashlib.sha256(candidate.read_bytes()).hexdigest()
     inspected = json.loads(
         _run(
-            "wheel", "inspect", str(candidate), "--spec-id", spec_id,
-            "--expected-sha256", digest, "--source-kind", "builder-candidate",
+            "wheel",
+            "inspect",
+            str(candidate),
+            "--spec-id",
+            spec_id,
+            "--expected-sha256",
+            digest,
+            "--source-kind",
+            "builder-candidate",
             *config_args,
         ).stdout
     )
@@ -518,7 +625,9 @@ def test_synthetic_wheel_is_only_an_unpublished_builder_candidate(tmp_path: Path
 
 
 @pytest.mark.skipif(shutil.which("helm") is None, reason="Helm 3 is required")
-def test_chart_package_runs_cuda_a2_a3_and_is_byte_deterministic(tmp_path: Path) -> None:
+def test_chart_package_runs_cuda_a2_a3_and_is_byte_deterministic(
+    tmp_path: Path,
+) -> None:
     first = tmp_path / "first"
     second = tmp_path / "second"
     record_a = json.loads(_run("chart", "package", "--output-dir", str(first)).stdout)
@@ -548,20 +657,25 @@ def test_chart_package_runs_cuda_a2_a3_and_is_byte_deterministic(tmp_path: Path)
     archive_a = first / record_a["filename"]
     archive_b = second / record_b["filename"]
     assert archive_a.read_bytes() == archive_b.read_bytes()
-    assert record_a["sha256"] == "sha256:" + hashlib.sha256(archive_a.read_bytes()).hexdigest()
+    assert (
+        record_a["sha256"]
+        == "sha256:" + hashlib.sha256(archive_a.read_bytes()).hexdigest()
+    )
 
     with tarfile.open(archive_a, "r:gz") as archive:
         members = archive.getmembers()
-    assert [member.name for member in members] == sorted(member.name for member in members)
+    assert [member.name for member in members] == sorted(
+        member.name for member in members
+    )
     assert all(member.uid == member.gid == 0 for member in members)
     assert all(member.uname == member.gname == "root" for member in members)
     assert all(member.mtime == 0 for member in members)
-    assert all(member.mode == (0o755 if member.isdir() else 0o644) for member in members)
+    assert all(
+        member.mode == (0o755 if member.isdir() else 0o644) for member in members
+    )
 
     provenance = json.loads(
-        (ROOT / "charts" / "ucm" / "SOURCE_PROVENANCE.json").read_text(
-            encoding="utf-8"
-        )
+        (ROOT / "charts" / "ucm" / "SOURCE_PROVENANCE.json").read_text(encoding="utf-8")
     )
     assert provenance["source"] == {
         "commit": "33ac2a37f146a4515e232e4d7a8abaa14d8ef1d7",
@@ -586,7 +700,9 @@ def test_chart_repacker_rejects_unsafe_or_noncanonical_paths(
         _deterministic_repack(source, tmp_path / "out.tgz")
 
 
-def test_chart_repacker_rejects_duplicate_and_non_regular_members(tmp_path: Path) -> None:
+def test_chart_repacker_rejects_duplicate_and_non_regular_members(
+    tmp_path: Path,
+) -> None:
     duplicate = tmp_path / "duplicate.tgz"
     first = tarfile.TarInfo("chart/file")
     first.size = 1

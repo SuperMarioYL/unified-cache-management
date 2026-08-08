@@ -61,6 +61,7 @@ jobs:
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
         with:
           version: v0.19.2
+          driver-opts: image=moby/buildkit:v0.18.2@sha256:86c0ad9d1137c186e9d455912167df20e530bdf7f7c19de802e892bb8ca16552
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: ${{ inputs.wheel_artifact }}

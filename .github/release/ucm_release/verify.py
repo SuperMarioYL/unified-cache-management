@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 import re
+import tempfile
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable
 
-from . import image
+from . import chart, image, wheel
 from .core import build_release_manifest, canonical_bytes, sha256_value, validate_config
 from .registry import (
     TARGET_REPOSITORIES,
@@ -88,6 +91,29 @@ def _envelope(payload: dict[str, Any], run: dict[str, Any] | None) -> dict[str, 
         "payload_sha256": sha256_value(payload),
         "github": copy.deepcopy(run or {}),
     }
+
+
+def _file_sha256(path: Path) -> str:
+    path = Path(path)
+    if not path.is_file():
+        raise ValueError(f"release artifact is not a regular file: {path}")
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _load_canonical_json(path: Path, label: str) -> dict[str, Any]:
+    path = Path(path)
+    if not path.is_file():
+        raise ValueError(f"{label} is not a regular file: {path}")
+    raw = path.read_bytes()
+    try:
+        value = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"{label} is invalid JSON: {error}") from error
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must contain a JSON object")
+    if raw != canonical_bytes(value) + b"\n":
+        raise ValueError(f"{label} must use canonical JSON bytes")
+    return value
 
 
 def prepare_candidate_loop(
@@ -228,15 +254,8 @@ def complete_candidate_loop(
         or first.get("tasks") != [image_input.get("task")]
     ):
         raise ValueError("prepared image input is not the exact first reconcile task")
-    if not isinstance(image_result, dict) or "result_sha256" not in image_result:
-        raise ValueError("image result is missing its canonical identity")
-    result_payload = {
-        key: copy.deepcopy(value)
-        for key, value in image_result.items()
-        if key != "result_sha256"
-    }
-    if image_result["result_sha256"] != sha256_value(result_payload):
-        raise ValueError("image result digest does not match its payload")
+    if not isinstance(image_result, dict):
+        raise ValueError("image result must be an object")
     if (
         image_result.get("fixture_only") is not True
         or image_result.get("unpublished") is not True
@@ -244,12 +263,70 @@ def complete_candidate_loop(
         or image_result.get("status") != "fixture-verified-unpublished"
     ):
         raise ValueError("image result must remain fixture-only and unpublished")
+    image_result = image.validate_image_result(image_result)
     if (
-        image_result.get("build_key_sha256") != candidate["build_key_sha256"]
-        or image_result.get("wheel", {}).get("sha256")
-        != candidate["build_inputs"]["wheel"]["sha256"]
+        image_result.get("fixture_only") is not True
+        or image_result.get("unpublished") is not True
+        or image_result.get("publication_attempted") is not False
+        or image_result.get("status") != "fixture-verified-unpublished"
     ):
-        raise ValueError("image result does not bind the candidate build key and wheel")
+        raise ValueError("image result must remain fixture-only and unpublished")
+    build_inputs = candidate["build_inputs"]
+    wheel_input = build_inputs["wheel"]
+    wheel_records = prepared["source_case"].get("wheel_records")
+    if not isinstance(wheel_records, list) or len(wheel_records) != 1:
+        raise ValueError("prepared loop must retain one exact wheel inspection")
+    wheel_record = wheel_records[0]
+    expected_wheel = {
+        "filename": wheel_record["filename"],
+        "sha256": wheel_record["sha256"],
+        "size": wheel_record["size"],
+        "spec_id": wheel_input["spec_id"],
+        "declaration_sha256": wheel_input["declaration_sha256"],
+        "version": wheel_input["version"],
+        "python_abi": wheel_input["python_abi"],
+        "cpu_arch": wheel_input["cpu_arch"],
+        "accelerator": wheel_input["accelerator"],
+        "accelerator_runtime": wheel_input["accelerator_runtime"],
+        "npu_arch_or_na": wheel_input["npu_arch_or_na"],
+        "os": wheel_input["os"],
+        "binary_profile_id": wheel_input["binary_profile_id"],
+        "requires_dist": ["wrapt==1.17.2"],
+    }
+    target_platform = image_input["target_platform"]
+    target_architecture = target_platform.split("/", 1)[1]
+    upstream = build_inputs["upstream"]
+    upstream_platforms = [
+        item
+        for item in upstream["platforms"]
+        if item["architecture"] == target_architecture
+    ]
+    if len(upstream_platforms) != 1:
+        raise ValueError("candidate does not have one exact target platform")
+    upstream_platform = upstream_platforms[0]
+    manifest = prepared["source_case"]["release_manifest"]
+    expected_source = {
+        "release_manifest_sha256": build_inputs["release_manifest_sha256"],
+        "config_sha256": manifest["config_sha256"],
+        "compatibility_sha256": manifest["compatibility_sha256"],
+        "compatibility_rule_id": build_inputs["compatibility_rule_id"],
+        "compatibility_rule_sha256": build_inputs["compatibility_rule_sha256"],
+        "upstream_repository": upstream["repository"],
+        "upstream_index_digest": upstream["index_digest"],
+        "upstream_platform_manifest_digest": upstream_platform["manifest_digest"],
+        "upstream_platform_config_digest": upstream_platform["config_digest"],
+    }
+    if (
+        image_result["build_key_sha256"] != candidate["build_key_sha256"]
+        or image_result["task_key"] != sha256_value(image_input["task"])
+        or image_result["ucm_version"] != candidate["ucm_version"]
+        or image_result["target_platform"] != target_platform
+        or image_result["wheel"] != expected_wheel
+        or image_result["source"] != expected_source
+        or image_result["implementation"]["aggregate_sha256"]
+        != build_inputs["implementation_digest"]
+    ):
+        raise ValueError("image result does not bind the exact candidate input closure")
     gates = image_result.get("gates")
     if (
         not isinstance(gates, dict)
@@ -294,11 +371,46 @@ def complete_candidate_loop(
     if accepted != {"a2": "a2", "a3": "a3"} or rejected != ["310p", "a5"]:
         raise ValueError("Ascend compatibility boundary is not A2/A3 only")
     loop = prepared["loop_verification"]
+    if not isinstance(loop, dict) or set(loop) != {
+        "schema_version",
+        "kind",
+        "run",
+        "payload",
+        "payload_sha256",
+    }:
+        raise ValueError("prepared loop verification envelope is noncanonical")
+    recomputed_loop = verify_loop(prepared["source_case"], run=loop["run"])
+    if loop != recomputed_loop:
+        raise ValueError("prepared loop verification does not match recomputation")
     scenarios = loop.get("payload", {}).get("scenarios", [])
-    if [item.get("name") for item in scenarios] != REQUIRED_SCENARIOS or loop.get(
-        "payload", {}
-    ).get("must_green") is not True:
+    if (
+        [item.get("name") for item in scenarios] != REQUIRED_SCENARIOS
+        or not all(item.get("passed") is True for item in scenarios)
+        or loop.get("payload", {}).get("must_green") is not True
+    ):
         raise ValueError("prepared deterministic scenario evidence is incomplete")
+    source_batches = loop["payload"].get("operation_batches")
+    if not isinstance(source_batches, list):
+        raise ValueError("prepared loop is missing its operation ledger")
+    if audit_operation_batches(source_batches) != loop["payload"].get(
+        "zero_write_audit"
+    ):
+        raise ValueError("prepared zero-write audit does not match its ledger")
+    operation_batches = copy.deepcopy(source_batches) + [
+        copy.deepcopy(second["operations"])
+    ]
+    operation_audit = audit_operation_batches(operation_batches)
+    if operation_audit["write_count"] != 0:
+        raise ValueError("completed candidate attempted a write")
+    write_audit = {
+        **operation_audit,
+        "ledger_sha256": sha256_value(operation_batches),
+    }
+    publication_attempted = (
+        image_result["publication_attempted"] or write_audit["write_count"] != 0
+    )
+    if publication_attempted or image_result["unpublished"] is not True:
+        raise ValueError("completed fixture candidate must remain unpublished")
     payload = {
         "schema_version": 1,
         "kind": "ucm-vllm-candidate-loop-payload",
@@ -322,67 +434,155 @@ def complete_candidate_loop(
         "runtime_validation": image_result["runtime_validation"],
         "device_validation": image_result["device_validation"],
         "expected_blocked": copy.deepcopy(loop["payload"]["expected_blockers"]),
-        "publication": {"status": "blocked", "attempted": False},
-        "write_audit": copy.deepcopy(loop["payload"]["zero_write_audit"]),
+        "publication": {
+            "status": "blocked" if image_result["unpublished"] else "invalid",
+            "attempted": publication_attempted,
+        },
+        "operation_batches": operation_batches,
+        "write_audit": write_audit,
     }
     return {"second_reconcile": second, "evidence": _envelope(payload, run)}
 
 
 def aggregate_release_evidence(
-    build_record: dict[str, Any],
-    wheel_record: dict[str, Any],
-    chart_result: dict[str, Any],
-    image_loop: dict[str, Any],
     *,
+    build_record_path: Path,
+    wheel_record_path: Path,
+    wheel_path: Path,
+    chart_result_path: Path,
+    chart_package_path: Path,
+    image_result_path: Path,
+    completed_loop_path: Path,
+    second_reconcile_path: Path,
+    image_loop_path: Path,
     repository: str,
     ref: str,
     source_sha: str,
     run: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Bind wheel, Chart, OCI, reconciliation, blockers, and zero writes."""
+    """Reopen every release artifact and recompute the exact candidate closure."""
     source_sha = _source_sha(source_sha)
-    if build_record.get("source_sha") != source_sha:
-        raise ValueError("wheel build record source does not match aggregate source")
-    if (
-        build_record.get("wheel_sha256") != wheel_record.get("sha256")
-        or wheel_record.get("status") != "fixture-only"
-        or wheel_record.get("published") is not False
-    ):
-        raise ValueError("aggregate wheel is not the exact fixture artifact")
-    if chart_result.get("status") != "candidate-verified" or chart_result.get(
-        "rendered_cases"
-    ) != ["cuda", "a2", "a3"]:
-        raise ValueError("aggregate Chart did not pass CUDA/A2/A3")
-    if not isinstance(image_loop, dict) or set(image_loop) != {
+    build_record_path = Path(build_record_path)
+    wheel_record_path = Path(wheel_record_path)
+    wheel_path = Path(wheel_path)
+    chart_result_path = Path(chart_result_path)
+    chart_package_path = Path(chart_package_path)
+    image_result_path = Path(image_result_path)
+    completed_loop_path = Path(completed_loop_path)
+    second_reconcile_path = Path(second_reconcile_path)
+    image_loop_path = Path(image_loop_path)
+
+    build_record = _load_canonical_json(build_record_path, "wheel build record")
+    wheel_record = _load_canonical_json(wheel_record_path, "wheel inspection")
+    actual_wheel_sha256 = _file_sha256(wheel_path)
+    if wheel_path.name != wheel_record.get("filename"):
+        raise ValueError("wheel filename does not match its inspection")
+    inspected = wheel.inspect_wheel(
+        wheel_path,
+        build_record.get("profile_id"),
+        actual_wheel_sha256,
+        "fixture",
+    )
+    if inspected != wheel_record:
+        raise ValueError("actual wheel does not match its canonical inspection")
+    if build_record.get("inspection_sha256") != _file_sha256(wheel_record_path):
+        raise ValueError("wheel build record does not bind inspection bytes")
+    prepared = prepare_candidate_loop(
+        build_record,
+        wheel_record,
+        source_sha=source_sha,
+        run={},
+    )
+
+    chart_result = _load_canonical_json(chart_result_path, "Chart result")
+    with tempfile.TemporaryDirectory() as temporary:
+        expected_chart_dir = Path(temporary) / "chart"
+        expected_chart_result = chart.package_chart(expected_chart_dir)
+        expected_chart_package = expected_chart_dir / expected_chart_result["filename"]
+        if chart_result != expected_chart_result:
+            raise ValueError("Chart result does not match fresh validation")
+        if chart_package_path.name != expected_chart_result["filename"]:
+            raise ValueError("Chart package filename is noncanonical")
+        if not chart_package_path.is_file():
+            raise ValueError("Chart package is not a regular file")
+        if chart_package_path.read_bytes() != expected_chart_package.read_bytes():
+            raise ValueError("Chart package bytes do not match fresh validation")
+
+    image_result = image.validate_image_result(
+        _load_canonical_json(image_result_path, "image result")
+    )
+    completed = _load_canonical_json(completed_loop_path, "completed loop")
+    second_reconcile = _load_canonical_json(second_reconcile_path, "second reconcile")
+    image_loop = _load_canonical_json(image_loop_path, "image loop evidence")
+    if set(completed) != {"second_reconcile", "evidence"}:
+        raise ValueError("completed loop fields are noncanonical")
+    completed_evidence = completed.get("evidence")
+    if not isinstance(completed_evidence, dict) or set(completed_evidence) != {
         "payload",
         "payload_sha256",
         "github",
     }:
-        raise ValueError("image loop envelope fields are noncanonical")
-    image_payload = image_loop["payload"]
+        raise ValueError("completed loop evidence fields are noncanonical")
+    recomputed = complete_candidate_loop(
+        prepared,
+        image_result,
+        source_sha=source_sha,
+        run=completed_evidence["github"],
+    )
+    if completed != recomputed:
+        raise ValueError("completed loop does not match full recomputation")
+    if second_reconcile != recomputed["second_reconcile"]:
+        raise ValueError("standalone second reconcile disagrees with completed loop")
+    if image_loop != recomputed["evidence"]:
+        raise ValueError("image loop envelope disagrees with completed loop")
+
+    image_payload = recomputed["evidence"]["payload"]
+    scenarios = image_payload["scenarios"]
+    operation_batches = image_payload["operation_batches"]
+    derived_operation_audit = audit_operation_batches(operation_batches)
+    derived_write_audit = {
+        **derived_operation_audit,
+        "ledger_sha256": sha256_value(operation_batches),
+    }
+    if image_payload["write_audit"] != derived_write_audit:
+        raise ValueError("completed write audit does not match its operation ledger")
+    must_green = {
+        "fixture_wheel": (
+            build_record["wheel_sha256"] == actual_wheel_sha256
+            and inspected["status"] == "fixture-only"
+            and inspected["published"] is False
+        ),
+        "helm_cuda_a2_a3": (
+            chart_result["rendered_cases"] == ["cuda", "a2", "a3"]
+            and set(chart_result["checks"].values()) == {"passed"}
+            and chart_result["status"] == "candidate-verified"
+        ),
+        "install_only_image": (
+            set(image_result["gates"]) == REQUIRED_IMAGE_GATES
+            and set(image_result["gates"].values()) == {"passed"}
+            and image_result["status"] == "fixture-verified-unpublished"
+        ),
+        "second_reconcile_zero": (
+            second_reconcile["task_count"] == 0
+            and second_reconcile["decision"] == "already-present"
+        ),
+    }
     if (
-        image_loop["payload_sha256"] != sha256_value(image_payload)
-        or image_payload.get("source_sha") != source_sha
-        or image_payload.get("second_task_count") != 0
-        or [item.get("name") for item in image_payload.get("scenarios", [])]
-        != REQUIRED_SCENARIOS
+        not all(must_green.values())
+        or [item.get("name") for item in scenarios] != REQUIRED_SCENARIOS
+        or not all(item.get("passed") is True for item in scenarios)
+        or image_payload["publication"] != {"status": "blocked", "attempted": False}
+        or derived_write_audit["write_count"] != 0
     ):
-        raise ValueError("image loop does not bind the completed source closure")
+        raise ValueError("aggregate candidate closure did not pass every required gate")
     payload = {
         "mode": "fork-dry-run",
         "repository": repository,
         "ref": ref,
         "source_sha": source_sha,
         "workflow_refs": copy.deepcopy(WORKFLOW_REFS),
-        "must_green": {
-            "fixture_wheel": True,
-            "helm_cuda_a2_a3": True,
-            "install_only_image": image_payload["image_result_sha256"].startswith(
-                "sha256:"
-            ),
-            "second_reconcile_zero": True,
-        },
-        "scenarios": copy.deepcopy(image_payload["scenarios"]),
+        "must_green": must_green,
+        "scenarios": copy.deepcopy(scenarios),
         "compatibility": copy.deepcopy(image_payload["compatibility"]),
         "candidate_identity": copy.deepcopy(image_payload["candidate_identity"]),
         "artifact_digests": {
@@ -396,6 +596,11 @@ def aggregate_release_evidence(
             "first_reconcile_sha256": image_payload["first_reconcile_sha256"],
             "second_reconcile_sha256": image_payload["second_reconcile_sha256"],
             "image_loop_payload_sha256": image_loop["payload_sha256"],
+            "build_record_file_sha256": _file_sha256(build_record_path),
+            "image_result_file_sha256": _file_sha256(image_result_path),
+            "completed_loop_file_sha256": _file_sha256(completed_loop_path),
+            "second_reconcile_file_sha256": _file_sha256(second_reconcile_path),
+            "image_loop_file_sha256": _file_sha256(image_loop_path),
         },
         "required_gates": copy.deepcopy(image_payload["required_gates"]),
         "expected_blocked": [
@@ -407,18 +612,10 @@ def aggregate_release_evidence(
             "protected-environment",
             "registry-publication-and-readback",
         ],
-        "publication": {"status": "blocked", "attempted": False},
-        "write_audit": {
-            "pull_request": False,
-            "tag": False,
-            "release": False,
-            "package": False,
-            "upstream": False,
-        },
-        "operation_audit": copy.deepcopy(image_payload["write_audit"]),
+        "publication": copy.deepcopy(image_payload["publication"]),
+        "operation_batches": copy.deepcopy(operation_batches),
+        "write_audit": copy.deepcopy(derived_write_audit),
     }
-    if not all(payload["must_green"].values()):
-        raise ValueError("aggregate candidate gates did not all pass")
     return _envelope(payload, run)
 
 
@@ -734,6 +931,7 @@ def verify_loop(
         "fixture_only": True,
         "unpublished": True,
         "publication_attempted": zero_write_audit["write_count"] != 0,
+        "operation_batches": copy.deepcopy(operation_batches),
         "zero_write_audit": zero_write_audit,
     }
     return {

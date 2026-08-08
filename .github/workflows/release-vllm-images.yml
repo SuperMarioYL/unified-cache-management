@@ -3,6 +3,10 @@ name: Reconcile UCM vLLM image candidates
 on:
   workflow_call:
     inputs:
+      call_contract:
+        type: string
+        required: false
+        default: ucm-vllm-candidate-v1
       source_sha:
         type: string
         required: true
@@ -35,15 +39,19 @@ permissions:
   contents: read
 
 jobs:
-  unsupported-validation-lane:
-    if: ${{ inputs.source_sha != '' && inputs.validation_lane != 'fork-candidate' }}
+  invalid-call:
+    if: >-
+      ${{
+        (inputs.call_contract != '' || inputs.source_sha != '' || inputs.wheel_artifact != '' || inputs.validation_lane != '') &&
+        (inputs.call_contract != 'ucm-vllm-candidate-v1' || inputs.source_sha == '' || inputs.wheel_artifact == '' || inputs.validation_lane != 'fork-candidate')
+      }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
     steps:
       - run: |
-          echo "production image reconciliation remains external-required" >&2
+          echo "release-vllm-images workflow_call inputs are empty, partial, or unsupported" >&2
           exit 2
 
   invalid-manual-ref:
@@ -58,7 +66,11 @@ jobs:
           exit 2
 
   standalone-wheel:
-    if: ${{ inputs.source_sha == '' && (github.event_name != 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch) }}
+    if: >-
+      ${{
+        inputs.call_contract == '' && inputs.source_sha == '' && inputs.wheel_artifact == '' && inputs.validation_lane == '' &&
+        (github.event_name != 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch)
+      }}
     permissions:
       contents: read
     uses: ./.github/workflows/_build-wheel.yml
@@ -69,7 +81,11 @@ jobs:
 
   select-input:
     needs: standalone-wheel
-    if: ${{ always() && ((inputs.source_sha != '' && inputs.wheel_artifact != '' && inputs.validation_lane == 'fork-candidate') || needs.standalone-wheel.result == 'success') }}
+    if: >-
+      ${{
+        always() &&
+        ((inputs.call_contract == 'ucm-vllm-candidate-v1' && inputs.source_sha != '' && inputs.wheel_artifact != '' && inputs.validation_lane == 'fork-candidate') || needs.standalone-wheel.result == 'success')
+      }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -203,11 +219,13 @@ jobs:
           echo "loop_payload_sha256=$(python -c 'import json; print(json.load(open("loop-complete-result.json"))["loop_payload_sha256"])')" >>"${GITHUB_OUTPUT}"
           echo "image_result_sha256=$(python -c 'import json; print(json.load(open("loop-complete-result.json"))["image_result_sha256"])')" >>"${GITHUB_OUTPUT}"
           echo "oci_digest=$(python -c 'import json; print(json.load(open("loop-complete-result.json"))["oci_digest"])')" >>"${GITHUB_OUTPUT}"
+          cp input/image/image-result.json out/image-result.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ steps.close.outputs.loop_artifact }}
           path: |
             out/completed-loop.json
+            out/image-result.json
             out/second-reconcile.json
             out/vllm-loop-evidence.json
           if-no-files-found: error

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PACKAGE_DIR = REPO_ROOT / ".github" / "release" / "ucm_release"
 SCHEMA_DIR = REPO_ROOT / ".github" / "release" / "schemas"
@@ -33,7 +32,8 @@ def _source_files(path: Path, *, excluded_parts: set[str] | None = None) -> list
     return [
         candidate
         for candidate in path.rglob("*")
-        if candidate.is_file() and not exclusions.intersection(candidate.relative_to(path).parts)
+        if candidate.is_file()
+        and not exclusions.intersection(candidate.relative_to(path).parts)
     ]
 
 
@@ -80,7 +80,9 @@ def test_release_tree_obeys_the_slim_structural_budget() -> None:
     """Require the final package layout without silently accepting omissions."""
     violations: list[str] = []
 
-    package_files = [path for path in _source_files(PACKAGE_DIR) if path.suffix == ".py"]
+    package_files = [
+        path for path in _source_files(PACKAGE_DIR) if path.suffix == ".py"
+    ]
     if not PACKAGE_DIR.is_dir():
         violations.append("missing .github/release/ucm_release package")
     if len(package_files) > 8:
@@ -88,7 +90,9 @@ def test_release_tree_obeys_the_slim_structural_budget() -> None:
             f"release package has {len(package_files)} Python files; budget is at most 8"
         )
 
-    schema_files = [path for path in _source_files(SCHEMA_DIR) if path.suffix == ".json"]
+    schema_files = [
+        path for path in _source_files(SCHEMA_DIR) if path.suffix == ".json"
+    ]
     if len(schema_files) != 3:
         violations.append(
             f"release package has {len(schema_files)} JSON schemas; contract requires exactly 3"
@@ -121,9 +125,9 @@ def test_release_tree_obeys_the_slim_structural_budget() -> None:
             f"{sorted(standalone_wrapt_paths)}"
         )
 
-    assert not violations, "release slimming structural contract failed:\n- " + "\n- ".join(
-        violations
-    )
+    assert (
+        not violations
+    ), "release slimming structural contract failed:\n- " + "\n- ".join(violations)
 
 
 def test_forbidden_content_scan_covers_the_new_release_tree(tmp_path: Path) -> None:
@@ -143,7 +147,9 @@ def test_forbidden_content_scan_covers_the_new_release_tree(tmp_path: Path) -> N
     assert wrapt_paths == [".github/release/ucm_release/wrapt_bundle.py"]
 
 
-def test_docker_layout_rejects_a_nested_duplicate_of_an_allowed_name(tmp_path: Path) -> None:
+def test_docker_layout_rejects_a_nested_duplicate_of_an_allowed_name(
+    tmp_path: Path,
+) -> None:
     """Compare relative paths so duplicate basenames cannot satisfy the budget."""
     for filename in EXPECTED_DOCKER_FILES:
         (tmp_path / filename).write_text("placeholder\n")
