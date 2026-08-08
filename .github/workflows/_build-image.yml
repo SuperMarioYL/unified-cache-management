@@ -40,10 +40,6 @@ jobs:
       image_result_sha256: ${{ steps.result.outputs.image_result_sha256 }}
       oci_digest: ${{ steps.result.outputs.oci_digest }}
     env:
-      BASE_CONFIG_DIGEST: sha256:688a685f6a1fa9250d7c6cee916889cbca364e4b027520110e0fce80c64a13e0
-      BASE_INDEX_DIGEST: sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7
-      BASE_MANIFEST_DIGEST: sha256:c00fc7b44d844b6da22861ec24af43968a5200eac4ec607b4725d585165d6b49
-      BASE_REPOSITORY: docker.io/library/python
       CRANE_ARCHIVE_SHA256: 36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059
       CRANE_VERSION: v0.20.3
     steps:
@@ -93,9 +89,15 @@ jobs:
       - name: Read fixed base blobs and run anonymous best-effort probes
         run: |
           mkdir -p base context out
-          crane manifest "${BASE_REPOSITORY}@${BASE_INDEX_DIGEST}" >base/index.json
-          crane manifest "${BASE_REPOSITORY}@${BASE_MANIFEST_DIGEST}" >base/manifest.json
-          crane blob "${BASE_REPOSITORY}@${BASE_CONFIG_DIGEST}" >base/config.json
+          PYTHONPATH=.github/release python -m ucm_release image base-authority \
+            >out/base-authority.json
+          base_repository="$(python -c 'import json; print(json.load(open("out/base-authority.json"))["repository"])')"
+          base_index_digest="$(python -c 'import json; print(json.load(open("out/base-authority.json"))["index_digest"])')"
+          base_manifest_digest="$(python -c 'import json; print(json.load(open("out/base-authority.json"))["manifest_digest"])')"
+          base_config_digest="$(python -c 'import json; print(json.load(open("out/base-authority.json"))["config_digest"])')"
+          crane manifest "${base_repository}@${base_index_digest}" >base/index.json
+          crane manifest "${base_repository}@${base_manifest_digest}" >base/manifest.json
+          crane blob "${base_repository}@${base_config_digest}" >base/config.json
           set +e
           docker_hub_digest="$(timeout 30 crane digest docker.io/vllm/vllm-openai:v0.10.2 2>/dev/null)"
           docker_hub_status=$?
@@ -106,17 +108,17 @@ jobs:
             "${docker_hub_digest}" "${docker_hub_status}" "${quay_digest}" "${quay_status}" \
             >out/live-probes.json
       - name: Prepare the seven-file install-only context
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           PYTHONPATH=.github/release python -m ucm_release image prepare \
             --input input/image/image-input.json \
             --wheel-dir input/wheel \
-            --base-repository "${BASE_REPOSITORY}" \
+            --expected-source-sha "${SOURCE_SHA}" \
+            --base-authority out/base-authority.json \
             --base-index base/index.json \
             --base-manifest base/manifest.json \
             --base-config base/config.json \
-            --base-index-digest "${BASE_INDEX_DIGEST}" \
-            --base-manifest-digest "${BASE_MANIFEST_DIGEST}" \
-            --base-config-digest "${BASE_CONFIG_DIGEST}" \
             --output-dir context >out/image-prepare-result.json
           test "$(find context -maxdepth 1 -type f | wc -l | tr -d ' ')" = 7
           test ! -e context/ucm

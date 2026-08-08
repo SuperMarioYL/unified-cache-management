@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import base64
 import copy
+import csv
 import hashlib
 import importlib
+import io
 import json
 import re
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -62,6 +66,14 @@ HELM_LINUX_SHA256 = {
     "amd64": "ad871aecb0c9fd96aa6702f6b79e87556c8998c2e714a4959bf71ee31282ac9c",
     "arm64": "bd57697305ba46fef3299b50168a34faa777dd2cf5b43b50df92cca7ed118cce",
 }
+BASE_AUTHORITY_FIXTURE = (
+    REPO_ROOT
+    / ".github"
+    / "release"
+    / "tests"
+    / "fixtures"
+    / "python-base-authority.json"
+)
 
 
 def _git(*args: str) -> str:
@@ -87,11 +99,87 @@ def _write_canonical(path: Path, value: object) -> None:
     )
 
 
+def _rewrite_fixture_marker(
+    wheel_path: Path,
+    content: bytes | None,
+    *,
+    duplicate: bool = False,
+    extra_member: tuple[str, bytes] | None = None,
+) -> None:
+    """Rewrite a fixture marker and its RECORD for adversarial inspection tests."""
+    marker = "ucm/_fixture_build.py"
+    with zipfile.ZipFile(wheel_path) as archive:
+        members = {
+            item.filename: archive.read(item.filename)
+            for item in archive.infolist()
+            if not item.is_dir()
+        }
+    record_name = next(name for name in members if name.endswith(".dist-info/RECORD"))
+    members.pop(record_name)
+    if content is None:
+        members.pop(marker)
+    else:
+        members[marker] = content
+    if extra_member is not None:
+        members[extra_member[0]] = extra_member[1]
+    rows: list[list[str]] = []
+    for name, raw in sorted(members.items()):
+        digest = base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).decode()
+        rows.append([name, "sha256=" + digest.rstrip("="), str(len(raw))])
+    rows.append([record_name, "", ""])
+    record = io.StringIO(newline="")
+    csv.writer(record, lineterminator="\n").writerows(rows)
+    members[record_name] = record.getvalue().encode()
+    with zipfile.ZipFile(wheel_path, "w") as archive:
+        for name, raw in sorted(members.items()):
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
+            archive.writestr(info, raw)
+        if duplicate and content is not None:
+            archive.writestr(marker, content)
+
+
+def _authoritative_base_record(image_module: object) -> dict[str, object]:
+    """Reopen the checked-in Registry bytes for the single fixture base policy."""
+    encoded = json.loads(BASE_AUTHORITY_FIXTURE.read_text(encoding="utf-8"))
+    raw = {label: base64.b64decode(value) for label, value in encoded.items()}
+    parsed = {label: json.loads(value) for label, value in raw.items()}
+    authority = image_module.fixture_base_authority()
+    record = {
+        "schema_version": 1,
+        "kind": "fixture-base-image-record",
+        "fixture_only": True,
+        "repository": authority["repository"],
+        "index": {
+            "media_type": parsed["index"]["mediaType"],
+            "digest": authority["index_digest"],
+            "size": len(raw["index"]),
+            "raw": raw["index"].decode("utf-8"),
+        },
+        "manifest": {
+            "media_type": parsed["manifest"]["mediaType"],
+            "digest": authority["manifest_digest"],
+            "size": len(raw["manifest"]),
+            "raw": raw["manifest"].decode("utf-8"),
+        },
+        "config": {
+            "media_type": parsed["manifest"]["config"]["mediaType"],
+            "digest": authority["config_digest"],
+            "size": len(raw["config"]),
+            "raw": raw["config"].decode("utf-8"),
+        },
+    }
+    return image_module._validate_base(record, authority["target_platform"])
+
+
 def _valid_image_result(
     core: object,
     image_module: object,
     prepared: dict[str, object],
     wheel_record: dict[str, object],
+    *,
+    authoritative_base: bool = True,
 ) -> dict[str, object]:
     """Create a schema-valid result whose fields are derived from the real task."""
 
@@ -105,50 +193,53 @@ def _valid_image_result(
             "raw": raw,
         }
 
-    config = blob(
-        {"architecture": "amd64", "os": "linux"},
-        "application/vnd.oci.image.config.v1+json",
-    )
-    manifest = blob(
-        {
-            "schemaVersion": 2,
-            "mediaType": "application/vnd.oci.image.manifest.v1+json",
-            "config": {
-                "mediaType": config["media_type"],
-                "digest": config["digest"],
-                "size": config["size"],
+    if authoritative_base:
+        base = _authoritative_base_record(image_module)
+    else:
+        config = blob(
+            {"architecture": "amd64", "os": "linux"},
+            "application/vnd.oci.image.config.v1+json",
+        )
+        manifest = blob(
+            {
+                "schemaVersion": 2,
+                "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                "config": {
+                    "mediaType": config["media_type"],
+                    "digest": config["digest"],
+                    "size": config["size"],
+                },
+                "layers": [],
             },
-            "layers": [],
-        },
-        "application/vnd.oci.image.manifest.v1+json",
-    )
-    index = blob(
-        {
-            "schemaVersion": 2,
-            "mediaType": "application/vnd.oci.image.index.v1+json",
-            "manifests": [
-                {
-                    "mediaType": manifest["media_type"],
-                    "digest": manifest["digest"],
-                    "size": manifest["size"],
-                    "platform": {"architecture": "amd64", "os": "linux"},
-                }
-            ],
-        },
-        "application/vnd.oci.image.index.v1+json",
-    )
-    base = image_module._validate_base(  # noqa: SLF001 - contract fixture
-        {
-            "schema_version": 1,
-            "kind": "fixture-base-image-record",
-            "fixture_only": True,
-            "repository": "docker.io/library/python",
-            "index": index,
-            "manifest": manifest,
-            "config": config,
-        },
-        "linux/amd64",
-    )
+            "application/vnd.oci.image.manifest.v1+json",
+        )
+        index = blob(
+            {
+                "schemaVersion": 2,
+                "mediaType": "application/vnd.oci.image.index.v1+json",
+                "manifests": [
+                    {
+                        "mediaType": manifest["media_type"],
+                        "digest": manifest["digest"],
+                        "size": manifest["size"],
+                        "platform": {"architecture": "amd64", "os": "linux"},
+                    }
+                ],
+            },
+            "application/vnd.oci.image.index.v1+json",
+        )
+        base = image_module._validate_base(  # noqa: SLF001 - negative fixture
+            {
+                "schema_version": 1,
+                "kind": "fixture-base-image-record",
+                "fixture_only": True,
+                "repository": "docker.io/library/python",
+                "index": index,
+                "manifest": manifest,
+                "config": config,
+            },
+            "linux/amd64",
+        )
     candidate = prepared["candidate"]
     build_inputs = candidate["build_inputs"]
     wheel_input = build_inputs["wheel"]
@@ -221,7 +312,9 @@ def _valid_image_result(
     return {**result_payload, "result_sha256": core.sha256_value(result_payload)}
 
 
-def _release_closure(tmp_path: Path, *, attempt: int = 1) -> dict[str, object]:
+def _release_closure(
+    tmp_path: Path, *, attempt: int = 1, authoritative_base: bool = True
+) -> dict[str, object]:
     core, wheel_module, verify_module = _release_modules()
     image_module = importlib.import_module("ucm_release.image")
     chart_module = importlib.import_module("ucm_release.chart")
@@ -235,7 +328,11 @@ def _release_closure(tmp_path: Path, *, attempt: int = 1) -> dict[str, object]:
         run={"id": "17", "attempt": attempt},
     )
     image_result = _valid_image_result(
-        core, image_module, prepared, fixture["inspection"]
+        core,
+        image_module,
+        prepared,
+        fixture["inspection"],
+        authoritative_base=authoritative_base,
     )
     base_record = {
         key: copy.deepcopy(image_result["base"][key])
@@ -1313,6 +1410,7 @@ def test_reusable_image_router_uses_inputs_not_inherited_event_name() -> None:
     jobs = _jobs(document)
     standalone_condition = str(jobs["standalone-wheel"]["if"])
     select_condition = str(jobs["select-input"]["if"])
+    invalid_manual_condition = str(jobs["invalid-manual-ref"]["if"])
     select_environment = jobs["select-input"]["steps"][0]["env"]
 
     assert "inputs.source_sha == ''" in standalone_condition
@@ -1321,6 +1419,37 @@ def test_reusable_image_router_uses_inputs_not_inherited_event_name() -> None:
     assert "github.event_name == 'workflow_call'" not in select_condition
     assert "inputs.source_sha != ''" in str(select_environment["SOURCE_SHA"])
     assert "inputs.wheel_artifact != ''" in str(select_environment["WHEEL_ARTIFACT"])
+    for name in (
+        "call_contract",
+        "source_sha",
+        "wheel_artifact",
+        "validation_lane",
+    ):
+        assert f"inputs.{name} == ''" in invalid_manual_condition
+
+    def invalid_manual_route(
+        event: str,
+        ref_name: str,
+        default_branch: str,
+        values: tuple[str, str, str, str],
+    ) -> bool:
+        return (
+            not any(values)
+            and event == "workflow_dispatch"
+            and ref_name != default_branch
+        )
+
+    exact = ("ucm-vllm-candidate-v1", "b" * 40, "wheel", "fork-candidate")
+    assert (
+        invalid_manual_route("workflow_dispatch", "feature/cicd", "main", exact)
+        is False
+    )
+    assert (
+        invalid_manual_route(
+            "workflow_dispatch", "feature/cicd", "main", ("", "", "", "")
+        )
+        is True
+    )
 
 
 def test_reusable_release_entry_uses_input_lane_not_inherited_event_name() -> None:
@@ -1476,6 +1605,70 @@ def test_fixture_wheel_builder_is_deterministic_unpublished_and_source_bound(
     assert first["build_record"]["publication_status"] == "unpublished"
 
 
+@pytest.mark.parametrize(
+    ("marker", "duplicate"),
+    [
+        (None, False),
+        (b"SOURCE_SHA = get_sha()\nPROFILE_ID = 'x'\n", False),
+        (b"SOURCE_SHA = 'b' * 40\nPROFILE_ID = 'x'\n", False),
+        (b"SOURCE_SHA = 'b'\n", False),
+        (b"SOURCE_SHA = 'b'\nPROFILE_ID = 'x'\nEXTRA = True\n", False),
+        (
+            b"SOURCE_SHA = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'\n"
+            b"PROFILE_ID = 'x'\n",
+            True,
+        ),
+    ],
+)
+def test_fixture_wheel_rejects_missing_duplicate_extra_or_nonliteral_binding(
+    tmp_path: Path, marker: bytes | None, duplicate: bool
+) -> None:
+    """Fixture provenance is parsed as exact data and is never executed."""
+    _, wheel_module, _ = _release_modules()
+    fixture = wheel_module.build_fixture_wheel(
+        tmp_path / "wheel", "b" * 40, FIXTURE_PROFILE
+    )
+    wheel_path = Path(fixture["wheel_path"])
+    if duplicate:
+        with pytest.warns(UserWarning, match="Duplicate name"):
+            _rewrite_fixture_marker(wheel_path, marker, duplicate=True)
+    else:
+        _rewrite_fixture_marker(wheel_path, marker)
+    actual_sha = "sha256:" + hashlib.sha256(wheel_path.read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match="(fixture|binding|marker|duplicate)"):
+        wheel_module.inspect_wheel(wheel_path, FIXTURE_PROFILE, actual_sha, "fixture")
+
+
+@pytest.mark.parametrize("mutation", ["profile", "extra-member", "trailing-bytes"])
+def test_fixture_wheel_cannot_be_coherently_relabelled_or_extended(
+    tmp_path: Path, mutation: str
+) -> None:
+    """Actual deterministic wheel bytes own profile and exact ZIP membership."""
+    _, wheel_module, _ = _release_modules()
+    source_sha = "b" * 40
+    fixture = wheel_module.build_fixture_wheel(
+        tmp_path / "wheel", source_sha, FIXTURE_PROFILE
+    )
+    wheel_path = Path(fixture["wheel_path"])
+    inspected_profile = FIXTURE_PROFILE
+    if mutation == "profile":
+        inspected_profile = FIXTURE_PROFILE.replace("cu129", "cu130")
+    elif mutation == "extra-member":
+        marker = (
+            f"SOURCE_SHA = {source_sha!r}\nPROFILE_ID = {FIXTURE_PROFILE!r}\n"
+        ).encode()
+        _rewrite_fixture_marker(
+            wheel_path,
+            marker,
+            extra_member=("UNTRACKED-TRAILER", b"coherently-recorded"),
+        )
+    else:
+        wheel_path.write_bytes(wheel_path.read_bytes() + b"trailing-bytes")
+    actual_sha = "sha256:" + hashlib.sha256(wheel_path.read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match="(fixture|profile|member|trailing)"):
+        wheel_module.inspect_wheel(wheel_path, inspected_profile, actual_sha, "fixture")
+
+
 def test_loop_orchestration_prepares_completes_and_aggregates_canonical_evidence(
     tmp_path: Path,
 ) -> None:
@@ -1517,6 +1710,16 @@ def test_loop_orchestration_prepares_completes_and_aggregates_canonical_evidence
     )
 
 
+def test_aggregate_rejects_self_consistent_but_unauthorized_base(
+    tmp_path: Path,
+) -> None:
+    """Internal descriptor consistency cannot replace the release base policy."""
+    closure = _release_closure(tmp_path, authoritative_base=False)
+
+    with pytest.raises(ValueError, match="base.*authority"):
+        _aggregate(closure)
+
+
 @pytest.mark.parametrize(
     "mutation",
     [
@@ -1525,6 +1728,7 @@ def test_loop_orchestration_prepares_completes_and_aggregates_canonical_evidence
         "wheel-inspection-extra",
         "wheel-inspection-missing",
         "wheel-bytes",
+        "wheel-source-binding-coherent",
         "chart-result-extra",
         "chart-result-missing",
         "chart-bytes",
@@ -1568,7 +1772,24 @@ def test_aggregate_rejects_mutated_artifacts_even_after_envelope_rehash(
         _write_canonical(paths["completed_loop"], completed)
         _write_canonical(paths["image_loop"], completed["evidence"])
 
-    if mutation == "recipe-source-date-coherent":
+    if mutation == "wheel-source-binding-coherent":
+        changed_source = "c" * 40
+        build_record = json.loads(paths["build_record"].read_text(encoding="utf-8"))
+        build_record["source_sha"] = changed_source
+        _write_canonical(paths["build_record"], build_record)
+        closure["source_sha"] = changed_source
+        closure["prepared"] = copy.deepcopy(closure["prepared"])
+        closure["prepared"]["source_sha"] = changed_source
+        forged = closure["verify"].complete_candidate_loop(
+            closure["prepared"],
+            closure["image_result_value"],
+            source_sha=changed_source,
+            run=completed["evidence"]["github"],
+        )
+        _write_canonical(paths["completed_loop"], forged)
+        _write_canonical(paths["second_reconcile"], forged["second_reconcile"])
+        _write_canonical(paths["image_loop"], forged["evidence"])
+    elif mutation == "recipe-source-date-coherent":
         recipe = json.loads(paths["image_recipe"].read_text(encoding="utf-8"))
         recipe["payload"]["source_date_epoch"] = 123
         recipe["payload_sha256"] = core.sha256_value(recipe["payload"])
@@ -1687,6 +1908,7 @@ def test_aggregate_rejects_mutated_artifacts_even_after_envelope_rehash(
         "image-result-extra",
         "image-result-missing",
         "image-oci-digest-rehashed",
+        "oci-raw-evidence-bypass-rehashed",
         "image-base-bytes-rehashed",
         "image-implementation-rehashed",
         "image-wheel-sha-rehashed",
@@ -1903,81 +2125,90 @@ def test_image_context_bundle_reopens_fixed_base_descriptor_bytes(
         source_sha=source_sha,
         run={},
     )
-
-    def encoded(value: object) -> tuple[bytes, str]:
-        raw = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
-        return raw, "sha256:" + hashlib.sha256(raw).hexdigest()
-
-    config_raw, config_digest = encoded({"architecture": "amd64", "os": "linux"})
-    manifest_raw, manifest_digest = encoded(
-        {
-            "schemaVersion": 2,
-            "mediaType": "application/vnd.oci.image.manifest.v1+json",
-            "config": {
-                "mediaType": "application/vnd.oci.image.config.v1+json",
-                "digest": config_digest,
-                "size": len(config_raw),
-            },
-            "layers": [],
-        }
-    )
-    index_raw, index_digest = encoded(
-        {
-            "schemaVersion": 2,
-            "mediaType": "application/vnd.oci.image.index.v1+json",
-            "manifests": [
-                {
-                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
-                    "digest": manifest_digest,
-                    "size": len(manifest_raw),
-                    "platform": {"architecture": "amd64", "os": "linux"},
-                }
-            ],
-        }
-    )
+    encoded = json.loads(BASE_AUTHORITY_FIXTURE.read_text(encoding="utf-8"))
+    raw = {label: base64.b64decode(value) for label, value in encoded.items()}
+    authority = image_module.fixture_base_authority()
     blobs = {}
-    for label, raw in (
-        ("index", index_raw),
-        ("manifest", manifest_raw),
-        ("config", config_raw),
-    ):
+    for label, content in raw.items():
         path = tmp_path / f"{label}.json"
-        path.write_bytes(raw)
+        path.write_bytes(content)
         blobs[label] = path
     context = tmp_path / "context"
     recipe = image_module.prepare_context_bundle(
         prepared["image_input"],
         wheel_dir=tmp_path / "wheel",
-        base_repository="docker.io/library/python",
+        expected_source_sha=source_sha,
+        base_authority=authority,
         base_index_path=blobs["index"],
         base_manifest_path=blobs["manifest"],
         base_config_path=blobs["config"],
-        expected_index_digest=index_digest,
-        expected_manifest_digest=manifest_digest,
-        expected_config_digest=config_digest,
         output_dir=context,
     )
     assert recipe["payload"]["base"]["subject"] == (
-        "docker.io/library/python@" + manifest_digest
+        authority["repository"] + "@" + authority["manifest_digest"]
     )
     assert (
         sorted(path.name for path in context.iterdir())
         == recipe["payload"]["context_files"]
     )
-    blobs["config"].write_bytes(config_raw + b"\n")
+    with pytest.raises(ValueError, match="source"):
+        image_module.prepare_context_bundle(
+            prepared["image_input"],
+            wheel_dir=tmp_path / "wheel",
+            expected_source_sha="f" * 40,
+            base_authority=authority,
+            base_index_path=blobs["index"],
+            base_manifest_path=blobs["manifest"],
+            base_config_path=blobs["config"],
+            output_dir=tmp_path / "wrong-source-context",
+        )
+    blobs["config"].write_bytes(raw["config"] + b"\n")
     with __import__("pytest").raises(ValueError, match="config digest"):
         image_module.prepare_context_bundle(
             prepared["image_input"],
             wheel_dir=tmp_path / "wheel",
-            base_repository="docker.io/library/python",
+            expected_source_sha=source_sha,
+            base_authority=authority,
             base_index_path=blobs["index"],
             base_manifest_path=blobs["manifest"],
             base_config_path=blobs["config"],
-            expected_index_digest=index_digest,
-            expected_manifest_digest=manifest_digest,
-            expected_config_digest=config_digest,
             output_dir=tmp_path / "bad-context",
         )
+
+
+def test_base_authority_is_owned_by_python_and_consumed_once_by_workflow() -> None:
+    """Workflow orchestration reads one canonical policy instead of duplicating pins."""
+    image_module = importlib.import_module("ucm_release.image")
+    authority = image_module.fixture_base_authority()
+    environment = {
+        **__import__("os").environ,
+        "PYTHONPATH": str(REPO_ROOT / ".github" / "release"),
+    }
+    command = subprocess.run(
+        [sys.executable, "-m", "ucm_release", "image", "base-authority"],
+        cwd=REPO_ROOT,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(command.stdout) == authority
+
+    workflow = (WORKFLOW_DIR / "_build-image.yml").read_text(encoding="utf-8")
+    assert "image base-authority" in workflow
+    assert "--base-authority out/base-authority.json" in workflow
+    assert '--expected-source-sha "${SOURCE_SHA}"' in workflow
+    for field in (
+        "repository",
+        "index_digest",
+        "manifest_digest",
+        "config_digest",
+    ):
+        assert str(authority[field]) not in workflow
+    assert "BASE_REPOSITORY" not in workflow
+    assert "BASE_INDEX_DIGEST" not in workflow
+    assert "BASE_MANIFEST_DIGEST" not in workflow
+    assert "BASE_CONFIG_DIGEST" not in workflow
 
 
 def test_compact_cli_owns_fixture_build_and_loop_preparation(tmp_path: Path) -> None:

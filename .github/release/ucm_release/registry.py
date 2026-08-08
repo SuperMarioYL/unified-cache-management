@@ -95,7 +95,7 @@ UPSTREAM_INPUT_KEYS = {
     "index_digest",
     "platforms",
 }
-WHEEL_RECORD_KEYS = {
+COMMON_WHEEL_RECORD_KEYS = {
     "schema_version",
     "kind",
     "source_kind",
@@ -114,6 +114,10 @@ WHEEL_RECORD_KEYS = {
     "trust_level",
     "published",
     "publication_eligible",
+}
+WHEEL_RECORD_KEYS_BY_SOURCE = {
+    "fixture": COMMON_WHEEL_RECORD_KEYS | {"fixture_binding"},
+    "builder-candidate": COMMON_WHEEL_RECORD_KEYS | {"builder_evidence"},
 }
 COMPATIBILITY_RULE_KEYS = {
     "id",
@@ -532,9 +536,14 @@ def _select_wheel(
         raise ValueError(
             "selected manifest wheel asset does not match its Task 2 spec status"
         )
-    if not isinstance(record, dict) or set(record) != WHEEL_RECORD_KEYS:
+    expected_record_keys = (
+        WHEEL_RECORD_KEYS_BY_SOURCE.get(record.get("source_kind"))
+        if isinstance(record, dict)
+        else None
+    )
+    if expected_record_keys is None or set(record) != expected_record_keys:
         raise ValueError(
-            "wheel inspection record is not a complete Task 2 fixture result"
+            "wheel inspection record is not a complete Task 2 source result"
         )
     if record["schema_version"] != 1 or record["kind"] != "ucm-wheel-inspection":
         raise ValueError("wheel inspection identity is invalid")
@@ -563,6 +572,13 @@ def _select_wheel(
         and record.get("trust_level") == "fixture-only"
         and record.get("published") is False
         and record.get("publication_eligible") is False
+        and isinstance(record.get("fixture_binding"), dict)
+        and record["fixture_binding"].get("profile_id") == spec_id
+        and record["fixture_binding"].get("marker_status") == "passed"
+        and re.fullmatch(
+            r"[0-9a-f]{40}", str(record["fixture_binding"].get("source_commit"))
+        )
+        is not None
     )
     if fixture_mode and not fixture_semantics:
         raise ValueError(

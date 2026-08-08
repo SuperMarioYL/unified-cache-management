@@ -144,7 +144,7 @@
     "implementation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["files", "aggregate_sha256"],
+      "required": ["files", "base_authority_sha256", "aggregate_sha256"],
       "properties": {
         "files": {
           "type": "object",
@@ -157,6 +157,7 @@
             "verify_base_image.py": {"$ref": "#/$defs/digest"}
           }
         },
+        "base_authority_sha256": {"$ref": "#/$defs/digest"},
         "aggregate_sha256": {"$ref": "#/$defs/digest"}
       }
     },

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import base64
 import copy
+import csv
 import hashlib
 import importlib
+import io
 import json
 import os
 import subprocess
@@ -69,30 +72,45 @@ def _fixture_wheel(tmp_path: Path, spec: dict[str, object], version: str) -> Pat
     tag = f"{spec['python_abi']}-{spec['python_abi']}-linux_{platform}"
     path = tmp_path / f"uc_manager-{version}-{tag}.whl"
     dist_info = f"uc_manager-{version}.dist-info"
+    members = {
+        "ucm/__init__.py": f"__version__ = {version!r}\n",
+        "ucm/_fixture_build.py": (
+            f"SOURCE_SHA = {'0' * 40!r}\nPROFILE_ID = {spec['spec_id']!r}\n"
+        ),
+        f"{dist_info}/METADATA": "\n".join(
+            [
+                "Metadata-Version: 2.1",
+                "Name: uc-manager",
+                f"Version: {version}",
+                "Requires-Dist: wrapt==1.17.2",
+                "",
+            ]
+        ),
+        f"{dist_info}/WHEEL": "\n".join(
+            [
+                "Wheel-Version: 1.0",
+                "Generator: task3-fixture",
+                "Root-Is-Purelib: false",
+                f"Tag: {tag}",
+                "",
+            ]
+        ),
+    }
+    rows: list[list[str]] = []
+    for name, content in sorted(members.items()):
+        raw = content.encode()
+        digest = base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).decode()
+        rows.append([name, "sha256=" + digest.rstrip("="), str(len(raw))])
+    record_name = f"{dist_info}/RECORD"
+    rows.append([record_name, "", ""])
+    record = io.StringIO(newline="")
+    csv.writer(record, lineterminator="\n").writerows(rows)
+    members[record_name] = record.getvalue()
     with zipfile.ZipFile(path, "w") as archive:
-        members = {
-            f"{dist_info}/METADATA": "\n".join(
-                [
-                    "Metadata-Version: 2.1",
-                    "Name: uc-manager",
-                    f"Version: {version}",
-                    "Requires-Dist: wrapt==1.17.2",
-                    "",
-                ]
-            ),
-            f"{dist_info}/WHEEL": "\n".join(
-                [
-                    "Wheel-Version: 1.0",
-                    "Generator: task3-fixture",
-                    "Root-Is-Purelib: false",
-                    f"Tag: {tag}",
-                    "",
-                ]
-            ),
-        }
-        for name, content in members.items():
+        for name, content in sorted(members.items()):
             info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
             archive.writestr(info, content)
     return path
 
@@ -112,14 +130,10 @@ def _case(tmp_path: Path) -> dict[str, object]:
         and item["cpu_arch"] == "arm64"
         and item["python_abi"] == "cp312"
     )
-    wheel_path = _fixture_wheel(tmp_path, spec, manifest["ucm_version"])
-    wheel_sha256 = "sha256:" + hashlib.sha256(wheel_path.read_bytes()).hexdigest()
-    wheel_record = wheel.inspect_wheel(
-        wheel_path,
-        spec["spec_id"],
-        wheel_sha256,
-        "fixture",
+    fixture = wheel.build_fixture_wheel(
+        tmp_path / "fixture-wheel", "0" * 40, spec["spec_id"]
     )
+    wheel_record = fixture["inspection"]
     _, compatibility = core.validate_config()
     return {
         "release_manifest": manifest,
@@ -178,9 +192,10 @@ def test_loop_verify_aggregates_the_six_required_fixture_scenarios(
 ) -> None:
     """Removing any reconcile transition or blocker must make the loop non-green."""
     _, verify = _modules()
+    case = _case(tmp_path)
 
     envelope = verify.verify_loop(
-        _case(tmp_path),
+        case,
         run={"id": "fixture-run-a", "attempt": 3, "started_at": "later"},
     )
     payload = envelope["payload"]
@@ -209,7 +224,7 @@ def test_loop_verify_aggregates_the_six_required_fixture_scenarios(
     ]
     assert (
         payload["expected_blockers"]["production"]
-        == _case(tmp_path)["release_manifest"]["blockers"]
+        == case["release_manifest"]["blockers"]
     )
     assert payload["fixture_only"] is True
     assert payload["unpublished"] is True
@@ -418,6 +433,35 @@ def test_snapshot_and_build_identity_bind_every_immutable_input(tmp_path: Path) 
             registry.validate_snapshot(bad)
 
 
+def test_fixture_base_policy_drift_creates_a_new_build_task(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Changing only the authorized base identity must invalidate an old build key."""
+    registry, _ = _modules()
+    image = importlib.import_module("ucm_release.image")
+    case = _case(tmp_path)
+    original_implementation = image.implementation_digests()
+    case["implementation_digest"] = original_implementation["aggregate_sha256"]
+    baseline = registry.build_candidate(**case, fixture_mode=True)
+
+    changed_authority = copy.deepcopy(image.FIXTURE_BASE_AUTHORITY)
+    changed_authority["manifest_digest"] = "sha256:" + "d" * 64
+    monkeypatch.setattr(image, "FIXTURE_BASE_AUTHORITY", changed_authority)
+    changed_implementation = image.implementation_digests()
+    changed_case = copy.deepcopy(case)
+    changed_case["implementation_digest"] = changed_implementation["aggregate_sha256"]
+    changed = registry.build_candidate(**changed_case, fixture_mode=True)
+    reconciled = registry.reconcile(changed, _inventory([_entry(baseline)]))
+
+    assert (
+        changed_implementation["base_authority_sha256"]
+        != original_implementation["base_authority_sha256"]
+    )
+    assert changed["build_key_sha256"] != baseline["build_key_sha256"]
+    assert reconciled["task_count"] == 1
+    assert reconciled["tasks"][0]["revision"] == 2
+
+
 def test_inventory_tag_and_wheel_boundaries_fail_closed(tmp_path: Path) -> None:
     """Conflicting inventory, ambiguous wheels, and unpublished production never plan."""
     registry, _ = _modules()
@@ -452,6 +496,23 @@ def test_inventory_tag_and_wheel_boundaries_fail_closed(tmp_path: Path) -> None:
         registry.build_candidate(
             **{**case, "wheel_records": [forged]},
             fixture_mode=False,
+        )
+    builder_record = copy.deepcopy(case["wheel_records"][0])
+    builder_record.pop("fixture_binding")
+    builder_record["builder_evidence"] = {
+        "source_commit": "a" * 40,
+        "build_context_digest": "sha256:" + "b" * 64,
+        "native_artifacts": ["ucm/ucm_custom_ops.so"],
+        "record_status": "passed",
+    }
+    builder_record.update(
+        source_kind="builder-candidate",
+        status="candidate-inspected",
+        trust_level="unpublished-builder-candidate",
+    )
+    with pytest.raises(ValueError, match="fixture-only"):
+        registry.build_candidate(
+            **{**case, "wheel_records": [builder_record]}, fixture_mode=True
         )
     forged_candidate = copy.deepcopy(candidate)
     forged_candidate["fixture_only"] = False

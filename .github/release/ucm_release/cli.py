@@ -130,6 +130,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     image_parser = groups.add_parser("image")
     image_actions = image_parser.add_subparsers(dest="action", required=True)
+    image_actions.add_parser("base-authority")
     image_verify = image_actions.add_parser("verify", allow_abbrev=False)
     image_verify.add_argument("--context", type=Path, required=True)
     image_verify.add_argument("--oci", type=Path, required=True)
@@ -140,13 +141,11 @@ def build_parser() -> argparse.ArgumentParser:
     image_prepare = image_actions.add_parser("prepare")
     image_prepare.add_argument("--input", type=Path, required=True)
     image_prepare.add_argument("--wheel-dir", type=Path, required=True)
-    image_prepare.add_argument("--base-repository", required=True)
+    image_prepare.add_argument("--expected-source-sha", required=True)
+    image_prepare.add_argument("--base-authority", type=Path, required=True)
     image_prepare.add_argument("--base-index", type=Path, required=True)
     image_prepare.add_argument("--base-manifest", type=Path, required=True)
     image_prepare.add_argument("--base-config", type=Path, required=True)
-    image_prepare.add_argument("--base-index-digest", required=True)
-    image_prepare.add_argument("--base-manifest-digest", required=True)
-    image_prepare.add_argument("--base-config-digest", required=True)
     image_prepare.add_argument("--output-dir", type=Path, required=True)
     return parser
 
@@ -301,6 +300,8 @@ def main(argv: list[str] | None = None) -> int:
                 "output": str(args.output),
                 "payload_sha256": evidence["payload_sha256"],
             }
+        elif (args.group, args.action) == ("image", "base-authority"):
+            result = image.fixture_base_authority()
         elif (args.group, args.action) == ("image", "verify"):
             result = image.verify_oci(
                 args.context,
@@ -312,13 +313,11 @@ def main(argv: list[str] | None = None) -> int:
             result = image.prepare_context_bundle(
                 core.load_json(args.input),
                 wheel_dir=args.wheel_dir,
-                base_repository=args.base_repository,
+                expected_source_sha=args.expected_source_sha,
+                base_authority=core.load_json(args.base_authority),
                 base_index_path=args.base_index,
                 base_manifest_path=args.base_manifest,
                 base_config_path=args.base_config,
-                expected_index_digest=args.base_index_digest,
-                expected_manifest_digest=args.base_manifest_digest,
-                expected_config_digest=args.base_config_digest,
                 output_dir=args.output_dir,
             )
         else:  # pragma: no cover - argparse owns this branch.

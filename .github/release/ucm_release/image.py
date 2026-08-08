@@ -10,10 +10,12 @@ import json
 import re
 import shutil
 import tarfile
+import tempfile
 from pathlib import Path
 from typing import Any
 
 from . import registry
+from . import wheel as wheel_artifact
 from .core import (
     DEFAULT_SCHEMA_DIR,
     canonical_bytes,
@@ -55,6 +57,15 @@ OCI_LAYER_MEDIA_TYPES = {
     "application/vnd.oci.image.layer.v1.tar+gzip",
     "application/vnd.docker.image.rootfs.diff.tar.gzip",
 }
+FIXTURE_BASE_AUTHORITY = {
+    "schema_version": 1,
+    "kind": "ucm-fixture-base-authority",
+    "repository": "docker.io/library/python",
+    "target_platform": "linux/amd64",
+    "index_digest": "sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7",
+    "manifest_digest": "sha256:c00fc7b44d844b6da22861ec24af43968a5200eac4ec607b4725d585165d6b49",
+    "config_digest": "sha256:688a685f6a1fa9250d7c6cee916889cbca364e4b027520110e0fce80c64a13e0",
+}
 
 
 def _exact(value: object, keys: set[str], label: str) -> dict[str, Any]:
@@ -76,6 +87,32 @@ def _digest(value: object, label: str) -> str:
 
 def _write_json(path: Path, value: object) -> None:
     path.write_bytes(canonical_bytes(value) + b"\n")
+
+
+def fixture_base_authority() -> dict[str, Any]:
+    """Return the single fixed base identity used by the fork candidate lane."""
+    return copy.deepcopy(FIXTURE_BASE_AUTHORITY)
+
+
+def _validate_base_authority(value: object) -> dict[str, Any]:
+    authority = _exact(
+        value,
+        {
+            "schema_version",
+            "kind",
+            "repository",
+            "target_platform",
+            "index_digest",
+            "manifest_digest",
+            "config_digest",
+        },
+        "fixture base authority",
+    )
+    for field in ("index_digest", "manifest_digest", "config_digest"):
+        _digest(authority[field], f"fixture base {field}")
+    if authority != FIXTURE_BASE_AUTHORITY:
+        raise ValueError("fixture base authority differs from release policy")
+    return copy.deepcopy(authority)
 
 
 def _json_bytes(content: bytes, label: str) -> dict[str, Any]:
@@ -122,7 +159,11 @@ def implementation_digests(docker_root: Path = DOCKER_ROOT) -> dict[str, Any]:
     )
     if forbidden_copy.search(dockerfile):
         raise ValueError("Dockerfile attempts to copy UCM source or build scripts")
-    return {"files": files, "aggregate_sha256": sha256_value(files)}
+    identity = {
+        "files": files,
+        "base_authority_sha256": sha256_value(FIXTURE_BASE_AUTHORITY),
+    }
+    return {**identity, "aggregate_sha256": sha256_value(identity)}
 
 
 def _base_blob(
@@ -251,6 +292,43 @@ def _validate_base(base_record: object, target_platform: str) -> dict[str, Any]:
     return result
 
 
+def require_fixture_base_authority(
+    base_record: object, target_platform: str
+) -> dict[str, Any]:
+    raw_keys = {
+        "schema_version",
+        "kind",
+        "fixture_only",
+        "repository",
+        "index",
+        "manifest",
+        "config",
+    }
+    if not isinstance(base_record, dict):
+        raise ValueError("authoritative base record must be an object")
+    if set(base_record) == raw_keys:
+        base = _validate_base(base_record, target_platform)
+    elif set(base_record) == raw_keys | {"platform", "subject"}:
+        base = _validate_base(
+            {key: copy.deepcopy(base_record[key]) for key in raw_keys},
+            target_platform,
+        )
+        if base != base_record:
+            raise ValueError("validated base projection is noncanonical")
+    else:
+        raise ValueError("authoritative base record fields are invalid")
+    authority = fixture_base_authority()
+    if (
+        target_platform != authority["target_platform"]
+        or base["repository"] != authority["repository"]
+        or base["index"]["digest"] != authority["index_digest"]
+        or base["manifest"]["digest"] != authority["manifest_digest"]
+        or base["config"]["digest"] != authority["config_digest"]
+    ):
+        raise ValueError("base descriptor chain differs from fixture base authority")
+    return base
+
+
 def _derive_recipe(
     *,
     source_case: dict[str, Any],
@@ -315,6 +393,26 @@ def _derive_recipe(
     )
     if actual_wheel_sha256 != wheel_record.get("sha256"):
         raise ValueError("wheel bytes do not match the Task 2 inspection record")
+    actual_inspection = wheel_artifact.inspect_wheel(
+        wheel_path,
+        source_case["spec_id"],
+        actual_wheel_sha256,
+        "fixture",
+    )
+    if actual_inspection != wheel_record:
+        raise ValueError("actual wheel inspection differs from Task 2 record")
+    fixture_binding = wheel_record.get("fixture_binding", {})
+    with tempfile.TemporaryDirectory() as temporary:
+        expected_fixture = wheel_artifact.build_fixture_wheel(
+            Path(temporary) / "wheel",
+            fixture_binding.get("source_commit"),
+            source_case["spec_id"],
+        )
+        if (
+            wheel_path.read_bytes() != Path(expected_fixture["wheel_path"]).read_bytes()
+            or wheel_record != expected_fixture["inspection"]
+        ):
+            raise ValueError("fixture wheel differs from authoritative rebuild")
     wheel_input = recomputed_candidate["build_inputs"]["wheel"]
     if (
         wheel_record.get("source_kind") != "fixture"
@@ -452,13 +550,11 @@ def prepare_context_bundle(
     image_input: dict[str, Any],
     *,
     wheel_dir: Path,
-    base_repository: str,
+    expected_source_sha: str,
+    base_authority: dict[str, Any],
     base_index_path: Path,
     base_manifest_path: Path,
     base_config_path: Path,
-    expected_index_digest: str,
-    expected_manifest_digest: str,
-    expected_config_digest: str,
     output_dir: Path,
 ) -> dict[str, Any]:
     """Reopen fixed Registry blobs and prepare the exact Task 4 context."""
@@ -470,15 +566,38 @@ def prepare_context_bundle(
         "target_platform",
     }
     _exact(image_input, required, "image workflow input")
+    if re.fullmatch(r"[0-9a-f]{40}", expected_source_sha) is None:
+        raise ValueError("expected source SHA must be a full lowercase Git commit")
+    source_case = image_input.get("source_case")
+    records = (
+        source_case.get("wheel_records") if isinstance(source_case, dict) else None
+    )
+    binding = (
+        records[0].get("fixture_binding")
+        if isinstance(records, list)
+        and len(records) == 1
+        and isinstance(records[0], dict)
+        else None
+    )
+    if (
+        not isinstance(binding, dict)
+        or binding.get("source_commit") != expected_source_sha
+    ):
+        raise ValueError(
+            "image wheel fixture source does not match expected source SHA"
+        )
+    authority = _validate_base_authority(base_authority)
+    if image_input["target_platform"] != authority["target_platform"]:
+        raise ValueError("image input platform differs from fixture base authority")
     paths = {
         "index": Path(base_index_path),
         "manifest": Path(base_manifest_path),
         "config": Path(base_config_path),
     }
     expected = {
-        "index": _digest(expected_index_digest, "base index digest"),
-        "manifest": _digest(expected_manifest_digest, "base manifest digest"),
-        "config": _digest(expected_config_digest, "base config digest"),
+        "index": authority["index_digest"],
+        "manifest": authority["manifest_digest"],
+        "config": authority["config_digest"],
     }
     raw: dict[str, bytes] = {}
     parsed: dict[str, dict[str, Any]] = {}
@@ -505,7 +624,7 @@ def prepare_context_bundle(
         "schema_version": 1,
         "kind": "fixture-base-image-record",
         "fixture_only": True,
-        "repository": base_repository,
+        "repository": authority["repository"],
         "index": {
             "media_type": index_media_type,
             "digest": expected["index"],

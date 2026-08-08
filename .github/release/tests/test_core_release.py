@@ -41,25 +41,32 @@ def _run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
 
 
 def _fixture_wheel(directory: Path, *, version: str = "0.5.0rc1") -> Path:
-    filename = f"uc_manager-{version}-cp312-cp312-manylinux_2_17_x86_64.whl"
-    wheel = directory / filename
-    dist_info = f"uc_manager-{version}.dist-info"
-    with zipfile.ZipFile(wheel, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(
-            f"{dist_info}/METADATA",
-            "Metadata-Version: 2.1\n"
-            "Name: uc-manager\n"
-            f"Version: {version}\n"
-            "Requires-Dist: wrapt==1.17.2\n\n",
-        )
-        archive.writestr(
-            f"{dist_info}/WHEEL",
-            "Wheel-Version: 1.0\n"
-            "Root-Is-Purelib: false\n"
-            "Tag: cp312-cp312-manylinux_2_17_x86_64\n\n",
-        )
-        archive.writestr("ucm/__init__.py", "__version__ = 'fixture'\n")
-    return wheel
+    assert version == "0.5.0rc1"
+    output = directory / "fixture-only-wheel"
+    if output.exists():
+        return next(output.glob("*.whl"))
+    builder = importlib.import_module("ucm_release.wheel")
+    built = builder.build_fixture_wheel(
+        output,
+        "0" * 40,
+        "cuda-cu129-ubuntu2204-amd64-cp312-release-default-sm75-sm80-sm86-sm89-sm90",
+    )
+    return Path(built["wheel_path"])
+
+
+def _drop_record(wheel: Path) -> None:
+    with zipfile.ZipFile(wheel) as archive:
+        members = {
+            item.filename: archive.read(item.filename)
+            for item in archive.infolist()
+            if not item.is_dir() and not item.filename.endswith(".dist-info/RECORD")
+        }
+    with zipfile.ZipFile(wheel, "w") as archive:
+        for name, content in sorted(members.items()):
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
+            archive.writestr(info, content)
 
 
 def _builder_candidate_wheel(
@@ -498,7 +505,8 @@ def test_synthetic_wheel_is_only_an_unpublished_builder_candidate(
     spec_id = (
         "cuda-cu129-ubuntu2204-amd64-cp312-release-default-sm75-sm80-sm86-sm89-sm90"
     )
-    synthetic = _fixture_wheel(tmp_path)
+    synthetic = _builder_candidate_wheel(tmp_path, include_native=True)
+    _drop_record(synthetic)
     digest = "sha256:" + hashlib.sha256(synthetic.read_bytes()).hexdigest()
     production_lane = _run(
         "wheel",
@@ -544,7 +552,8 @@ def test_synthetic_wheel_is_only_an_unpublished_builder_candidate(
         str(compatibility_path),
     )
 
-    synthetic = _fixture_wheel(tmp_path)
+    synthetic = _builder_candidate_wheel(tmp_path, include_native=True)
+    _drop_record(synthetic)
     digest = "sha256:" + hashlib.sha256(synthetic.read_bytes()).hexdigest()
     missing_record = _run(
         "wheel",

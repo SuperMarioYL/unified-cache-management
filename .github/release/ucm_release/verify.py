@@ -154,6 +154,12 @@ def prepare_candidate_loop(
         build_record["wheel_sha256"] != wheel_record.get("sha256")
         or build_record["inspection_sha256"] != inspection_sha256
         or build_record["profile_id"] != wheel_record.get("spec_id")
+        or wheel_record.get("fixture_binding")
+        != {
+            "source_commit": source_sha,
+            "profile_id": build_record["profile_id"],
+            "marker_status": "passed",
+        }
         or wheel_record.get("status") != "fixture-only"
         or wheel_record.get("trust_level") != "fixture-only"
         or wheel_record.get("published") is not False
@@ -487,6 +493,21 @@ def aggregate_release_evidence(
     build_record = _load_canonical_json(build_record_path, "wheel build record")
     wheel_record = _load_canonical_json(wheel_record_path, "wheel inspection")
     actual_wheel_sha256 = _file_sha256(wheel_path)
+    with tempfile.TemporaryDirectory() as temporary:
+        expected_fixture = wheel.build_fixture_wheel(
+            Path(temporary) / "wheel",
+            source_sha,
+            build_record.get("profile_id"),
+        )
+        expected_wheel_path = Path(expected_fixture["wheel_path"])
+        if (
+            wheel_path.read_bytes() != expected_wheel_path.read_bytes()
+            or wheel_record != expected_fixture["inspection"]
+            or build_record != expected_fixture["build_record"]
+        ):
+            raise ValueError(
+                "actual fixture wheel/build/inspection differs from authoritative rebuild"
+            )
     if wheel_path.name != wheel_record.get("filename"):
         raise ValueError("wheel filename does not match its inspection")
     inspected = wheel.inspect_wheel(
@@ -523,6 +544,13 @@ def aggregate_release_evidence(
     image_result = image.validate_image_result(
         _load_canonical_json(image_result_path, "image result")
     )
+    if (
+        image.require_fixture_base_authority(
+            image_result["base"], image_result["target_platform"]
+        )
+        != image_result["base"]
+    ):
+        raise ValueError("image result base is not the authoritative fixture base")
     if not buildkit_metadata_path.is_file():
         raise ValueError("BuildKit metadata is not a regular file")
     try:

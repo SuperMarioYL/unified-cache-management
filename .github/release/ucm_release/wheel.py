@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import base64
 import csv
 import email.parser
@@ -25,6 +26,7 @@ from .core import (
 )
 
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+FIXTURE_MARKER = "ucm/_fixture_build.py"
 
 
 def _sha256(path: Path) -> str:
@@ -52,19 +54,15 @@ def build_fixture_wheel(
     if profile_id not in specs:
         raise ValueError(f"unknown fixture wheel profile: {profile_id}")
     spec = specs[profile_id]
-    if (spec["accelerator"], spec["cpu_arch"], spec["python_abi"]) != (
-        "cuda",
-        "amd64",
-        "cp312",
-    ):
-        raise ValueError("fork fixture wheel profile must be CUDA linux/amd64 cp312")
     output_dir = Path(output_dir)
     if output_dir.exists() and any(output_dir.iterdir()):
         raise ValueError("fixture wheel output directory must be absent or empty")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     version = release["ucm_version"]
-    filename = f"uc_manager-{version}-cp312-cp312-linux_x86_64.whl"
+    platform = {"amd64": "x86_64", "arm64": "aarch64"}[spec["cpu_arch"]]
+    tag = f"{spec['python_abi']}-{spec['python_abi']}-linux_{platform}"
+    filename = f"uc_manager-{version}-{tag}.whl"
     dist_info = f"uc_manager-{version}.dist-info"
     members = {
         "ucm/__init__.py": f"__version__ = {version!r}\n",
@@ -85,7 +83,7 @@ def build_fixture_wheel(
                 "Wheel-Version: 1.0",
                 "Generator: ucm-fork-fixture-only",
                 "Root-Is-Purelib: false",
-                "Tag: cp312-cp312-linux_x86_64",
+                f"Tag: {tag}",
                 "",
             ]
         ),
@@ -213,6 +211,8 @@ def _verify_builder_candidate_evidence(
     spec: dict[str, Any],
 ) -> dict[str, Any]:
     names = [item.filename for item in archive.infolist() if not item.is_dir()]
+    if FIXTURE_MARKER in names:
+        raise ValueError("builder candidate must not contain a fixture binding marker")
     record_names = [name for name in names if name.endswith(".dist-info/RECORD")]
     if len(record_names) != 1:
         raise ValueError("builder candidate requires exactly one RECORD")
@@ -287,6 +287,69 @@ def _verify_builder_candidate_evidence(
     }
 
 
+def _verify_fixture_binding(
+    archive: zipfile.ZipFile, spec: dict[str, Any]
+) -> dict[str, str]:
+    """Parse the unique canonical fixture marker as literals without execution."""
+    names = [item.filename for item in archive.infolist() if not item.is_dir()]
+    if len(names) != len(set(names)) or any(
+        not _safe_wheel_name(name) for name in names
+    ):
+        raise ValueError("fixture wheel contains duplicate or unsafe members")
+    metadata_names = [name for name in names if name.endswith(".dist-info/METADATA")]
+    wheel_names = [name for name in names if name.endswith(".dist-info/WHEEL")]
+    record_names = [name for name in names if name.endswith(".dist-info/RECORD")]
+    if len(metadata_names) != 1 or len(wheel_names) != 1 or len(record_names) != 1:
+        raise ValueError("fixture wheel requires one METADATA, WHEEL, and RECORD")
+    dist_info = record_names[0].removesuffix("/RECORD")
+    expected_names = {
+        "ucm/__init__.py",
+        FIXTURE_MARKER,
+        f"{dist_info}/METADATA",
+        f"{dist_info}/WHEEL",
+        f"{dist_info}/RECORD",
+    }
+    if set(names) != expected_names or names.count(FIXTURE_MARKER) != 1:
+        raise ValueError("fixture wheel requires exactly the canonical member set")
+    _verify_record(archive, record_names[0])
+    raw = archive.read(FIXTURE_MARKER)
+    try:
+        text = raw.decode("utf-8")
+        module = ast.parse(text, filename=FIXTURE_MARKER, mode="exec")
+    except (UnicodeDecodeError, SyntaxError) as error:
+        raise ValueError(f"fixture binding marker is invalid: {error}") from error
+    values: dict[str, str] = {}
+    for statement in module.body:
+        if (
+            not isinstance(statement, ast.Assign)
+            or len(statement.targets) != 1
+            or not isinstance(statement.targets[0], ast.Name)
+            or not isinstance(statement.value, ast.Constant)
+            or not isinstance(statement.value.value, str)
+        ):
+            raise ValueError("fixture binding accepts only literal assignments")
+        name = statement.targets[0].id
+        if name not in {"SOURCE_SHA", "PROFILE_ID"} or name in values:
+            raise ValueError("fixture binding has duplicate or extra fields")
+        values[name] = statement.value.value
+    if set(values) != {"SOURCE_SHA", "PROFILE_ID"}:
+        raise ValueError("fixture binding is missing required fields")
+    source_sha = values["SOURCE_SHA"]
+    profile_id = values["PROFILE_ID"]
+    canonical = f"SOURCE_SHA = {source_sha!r}\nPROFILE_ID = {profile_id!r}\n"
+    if text != canonical:
+        raise ValueError("fixture binding marker bytes are noncanonical")
+    if re.fullmatch(r"[0-9a-f]{40}", source_sha) is None:
+        raise ValueError("fixture binding source SHA is invalid")
+    if profile_id != spec["spec_id"]:
+        raise ValueError("fixture binding profile does not match the planned spec")
+    return {
+        "source_commit": source_sha,
+        "profile_id": profile_id,
+        "marker_status": "passed",
+    }
+
+
 def inspect_wheel(
     path: Path,
     spec_id: str,
@@ -315,6 +378,15 @@ def inspect_wheel(
         raise ValueError(
             f"wheel SHA256 mismatch: expected {expected_sha256}, got {actual_sha256}"
         )
+    raw_wheel = Path(path).read_bytes()
+    end_record = raw_wheel.rfind(b"PK\x05\x06")
+    if end_record < 0 or end_record + 22 > len(raw_wheel):
+        raise ValueError("wheel ZIP end record is missing")
+    comment_size = int.from_bytes(
+        raw_wheel[end_record + 20 : end_record + 22], "little"
+    )
+    if end_record + 22 + comment_size != len(raw_wheel):
+        raise ValueError("wheel contains trailing bytes after the ZIP end record")
     try:
         filename_name, filename_version, _, filename_tags = parse_wheel_filename(
             path.name
@@ -322,6 +394,7 @@ def inspect_wheel(
     except Exception as error:
         raise ValueError(f"invalid wheel filename: {error}") from error
     builder_evidence: dict[str, Any] | None = None
+    fixture_binding: dict[str, str] | None = None
     with zipfile.ZipFile(path) as archive:
         metadata_names = [
             name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
@@ -340,6 +413,8 @@ def inspect_wheel(
             builder_evidence = _verify_builder_candidate_evidence(
                 archive, wheel_metadata, spec
             )
+        else:
+            fixture_binding = _verify_fixture_binding(archive, spec)
     distribution = metadata.get("Name", "")
     version = metadata.get("Version", "")
     if canonicalize_name(distribution) != "uc-manager":
@@ -397,4 +472,6 @@ def inspect_wheel(
     }
     if builder_evidence is not None:
         result["builder_evidence"] = builder_evidence
+    if fixture_binding is not None:
+        result["fixture_binding"] = fixture_binding
     return result

@@ -55,6 +55,9 @@ def _write_fixture_wheel(tmp_path: Path, spec: dict[str, object], version: str) 
     dist_info = f"uc_manager-{version}.dist-info"
     members = {
         "ucm/__init__.py": "__version__ = %r\n" % version,
+        "ucm/_fixture_build.py": (
+            f"SOURCE_SHA = {'0' * 40!r}\nPROFILE_ID = {spec['spec_id']!r}\n"
+        ),
         f"{dist_info}/METADATA": "\n".join(
             [
                 "Metadata-Version: 2.1",
@@ -242,11 +245,11 @@ def _actual_inputs(tmp_path: Path) -> dict[str, object]:
         and item["cpu_arch"] == "arm64"
         and item["python_abi"] == "cp312"
     )
-    wheel_path = _write_fixture_wheel(tmp_path, spec, manifest["ucm_version"])
-    wheel_sha256 = "sha256:" + hashlib.sha256(wheel_path.read_bytes()).hexdigest()
-    wheel_record = wheel_module.inspect_wheel(
-        wheel_path, spec["spec_id"], wheel_sha256, "fixture"
+    fixture = wheel_module.build_fixture_wheel(
+        tmp_path / "fixture-wheel", "0" * 40, spec["spec_id"]
     )
+    wheel_path = Path(fixture["wheel_path"])
+    wheel_record = fixture["inspection"]
     _, compatibility = core.validate_config()
     source_case = {
         "release_manifest": manifest,
