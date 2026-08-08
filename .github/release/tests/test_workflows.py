@@ -221,7 +221,7 @@ def _valid_image_result(
     return {**result_payload, "result_sha256": core.sha256_value(result_payload)}
 
 
-def _release_closure(tmp_path: Path) -> dict[str, object]:
+def _release_closure(tmp_path: Path, *, attempt: int = 1) -> dict[str, object]:
     core, wheel_module, verify_module = _release_modules()
     image_module = importlib.import_module("ucm_release.image")
     chart_module = importlib.import_module("ucm_release.chart")
@@ -232,16 +232,83 @@ def _release_closure(tmp_path: Path) -> dict[str, object]:
         fixture["build_record"],
         fixture["inspection"],
         source_sha=source_sha,
-        run={"id": "17", "attempt": 1},
+        run={"id": "17", "attempt": attempt},
     )
     image_result = _valid_image_result(
         core, image_module, prepared, fixture["inspection"]
+    )
+    base_record = {
+        key: copy.deepcopy(image_result["base"][key])
+        for key in (
+            "schema_version",
+            "kind",
+            "fixture_only",
+            "repository",
+            "index",
+            "manifest",
+            "config",
+        )
+    }
+    image_context = tmp_path / "image-context"
+    recipe = image_module.prepare_context(
+        **prepared["image_input"],
+        base_record=base_record,
+        wheel_path=Path(fixture["wheel_path"]),
+        output_dir=image_context,
+    )
+    layer_descriptor = {
+        "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+        "digest": "sha256:" + "4" * 64,
+        "size": 17,
+    }
+    diff_id = "sha256:" + "5" * 64
+
+    def raw_json(value: object) -> bytes:
+        return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+
+    config_raw = raw_json(
+        {
+            "architecture": "amd64",
+            "os": "linux",
+            "rootfs": {"type": "layers", "diff_ids": [diff_id]},
+        }
+    )
+    config_descriptor = {
+        "mediaType": "application/vnd.oci.image.config.v1+json",
+        "digest": "sha256:" + hashlib.sha256(config_raw).hexdigest(),
+        "size": len(config_raw),
+    }
+    manifest_raw = raw_json(
+        {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "config": config_descriptor,
+            "layers": [layer_descriptor],
+        }
+    )
+    manifest_descriptor = {
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "digest": "sha256:" + hashlib.sha256(manifest_raw).hexdigest(),
+        "size": len(manifest_raw),
+        "platform": {"architecture": "amd64", "os": "linux"},
+    }
+    index_raw = raw_json(
+        {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "manifests": [manifest_descriptor],
+        }
+    )
+    image_result["recipe_sha256"] = recipe["payload_sha256"]
+    image_result["oci"]["digest"] = manifest_descriptor["digest"]
+    image_result["result_sha256"] = core.sha256_value(
+        {key: value for key, value in image_result.items() if key != "result_sha256"}
     )
     completed = verify_module.complete_candidate_loop(
         prepared,
         image_result,
         source_sha=source_sha,
-        run={"id": "17", "attempt": 1},
+        run={"id": "17", "attempt": attempt},
     )
     chart_dir = tmp_path / "chart"
     chart_result = chart_module.package_chart(chart_dir)
@@ -252,12 +319,65 @@ def _release_closure(tmp_path: Path) -> dict[str, object]:
         "chart_result": tmp_path / "chart-result.json",
         "chart_package": chart_dir / chart_result["filename"],
         "image_result": tmp_path / "image-result.json",
+        "oci_evidence": tmp_path / "oci-evidence",
+        "image_recipe": tmp_path / "image-recipe.json",
+        "image_metadata": tmp_path / "image-metadata.json",
+        "image_prepare": tmp_path / "image-prepare-result.json",
+        "buildkit_metadata": tmp_path / "buildkit-metadata.json",
+        "image_archive_sha256": tmp_path / "image-archive.sha256",
         "completed_loop": tmp_path / "completed-loop.json",
         "second_reconcile": tmp_path / "second-reconcile.json",
         "image_loop": tmp_path / "vllm-loop-evidence.json",
     }
     _write_canonical(paths["chart_result"], chart_result)
     _write_canonical(paths["image_result"], image_result)
+    paths["oci_evidence"].mkdir()
+    (paths["oci_evidence"] / "oci-layout.json").write_bytes(
+        raw_json({"imageLayoutVersion": "1.0.0"})
+    )
+    (paths["oci_evidence"] / "index.json").write_bytes(index_raw)
+    (paths["oci_evidence"] / "manifest.json").write_bytes(manifest_raw)
+    (paths["oci_evidence"] / "config.json").write_bytes(config_raw)
+    archive_sha256 = "sha256:" + "6" * 64
+    _write_canonical(
+        paths["oci_evidence"] / "closure.json",
+        {
+            "schema_version": 1,
+            "kind": "ucm-compact-oci-evidence",
+            "target_platform": "linux/amd64",
+            "manifest_descriptor": manifest_descriptor,
+            "config_descriptor": config_descriptor,
+            "layers": [layer_descriptor],
+            "diff_ids": [diff_id],
+            "recipe_payload_sha256": recipe["payload_sha256"],
+            "metadata_sha256": recipe["payload"]["metadata_sha256"],
+            "wheel_sha256": fixture["wheel_sha256"],
+            "archive_sha256": archive_sha256,
+            "archive_size": 123,
+        },
+    )
+    paths["image_recipe"].write_bytes(
+        (image_context / "image-recipe.json").read_bytes()
+    )
+    paths["image_metadata"].write_bytes(
+        (image_context / "image-metadata.json").read_bytes()
+    )
+    paths["image_prepare"].write_bytes(
+        (image_context / "image-recipe.json").read_bytes()
+    )
+    _write_canonical(
+        paths["buildkit_metadata"],
+        {
+            "buildx.build.ref": f"builder/attempt-{attempt}",
+            "containerimage.digest": manifest_descriptor["digest"],
+            "containerimage.config.digest": config_descriptor["digest"],
+            "containerimage.descriptor": manifest_descriptor,
+        },
+    )
+    paths["image_archive_sha256"].write_text(
+        archive_sha256.removeprefix("sha256:") + "  out/image.oci.tar\n",
+        encoding="utf-8",
+    )
     _write_canonical(paths["completed_loop"], completed)
     _write_canonical(paths["second_reconcile"], completed["second_reconcile"])
     _write_canonical(paths["image_loop"], completed["evidence"])
@@ -282,6 +402,12 @@ def _aggregate(closure: dict[str, object], *, attempt: int = 1) -> dict[str, obj
         chart_result_path=paths["chart_result"],
         chart_package_path=paths["chart_package"],
         image_result_path=paths["image_result"],
+        oci_evidence_dir=paths["oci_evidence"],
+        image_recipe_path=paths["image_recipe"],
+        image_metadata_path=paths["image_metadata"],
+        image_prepare_path=paths["image_prepare"],
+        buildkit_metadata_path=paths["buildkit_metadata"],
+        image_archive_sha256_path=paths["image_archive_sha256"],
         completed_loop_path=paths["completed_loop"],
         second_reconcile_path=paths["second_reconcile"],
         image_loop_path=paths["image_loop"],
@@ -813,6 +939,9 @@ def test_reusable_entry_contracts_reject_empty_partial_and_illegal_calls() -> No
     assert "inputs.call_contract != 'ucm-core-candidate-v1'" in entry_condition
     assert "inputs.validation_lane != 'fork-candidate'" in entry_condition
     assert "exit 2" in "\n".join(_strings(entry_invalid))
+    assert "github.event_name != 'push'" in entry_condition
+    assert "refs/heads/feature/" in entry_condition
+    assert "refs/tags/v" in entry_condition
 
     images = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
     image_inputs = _trigger(images)["workflow_call"]["inputs"]
@@ -835,6 +964,11 @@ def test_reusable_entry_contracts_reject_empty_partial_and_illegal_calls() -> No
     assert "inputs.wheel_artifact == ''" in condition
     assert "inputs.validation_lane != 'fork-candidate'" in condition
     assert "exit 2" in "\n".join(_strings(invalid))
+    assert (
+        'fromJSON(\'["schedule","repository_dispatch","workflow_dispatch"]\')'
+        in condition
+    )
+    assert "github.event_name" in condition
     standalone = str(_jobs(images)["standalone-wheel"]["if"])
     assert all(
         f"inputs.{name} == ''" in standalone
@@ -845,6 +979,66 @@ def test_reusable_entry_contracts_reject_empty_partial_and_illegal_calls() -> No
             "validation_lane",
         )
     )
+    assert (
+        'fromJSON(\'["schedule","repository_dispatch","workflow_dispatch"]\')'
+        in standalone
+    )
+
+
+def test_empty_reusable_inputs_are_routed_only_for_explicit_direct_events() -> None:
+    """Inherited events with all-empty inputs must fail instead of starting a lane."""
+
+    direct_vllm_events = {"schedule", "repository_dispatch", "workflow_dispatch"}
+
+    def vllm_route(event: str, values: tuple[str, str, str, str]) -> str:
+        contract, source_sha, artifact, lane = values
+        any_input = any(values)
+        valid_call = (
+            contract == "ucm-vllm-candidate-v1"
+            and bool(source_sha)
+            and bool(artifact)
+            and lane == "fork-candidate"
+        )
+        if any_input:
+            return "callable" if valid_call else "invalid"
+        return "standalone" if event in direct_vllm_events else "invalid"
+
+    empty = ("", "", "", "")
+    exact = ("ucm-vllm-candidate-v1", "b" * 40, "wheel", "fork-candidate")
+    for event in direct_vllm_events:
+        assert vllm_route(event, empty) == "standalone"
+    for inherited_event in ("push", "pull_request", "workflow_call", "merge_group"):
+        assert vllm_route(inherited_event, empty) == "invalid"
+        assert vllm_route(inherited_event, exact) == "callable"
+    assert vllm_route("push", (exact[0], "", exact[2], exact[3])) == "invalid"
+    assert vllm_route("push", (*exact[:3], "production")) == "invalid"
+
+    def core_route(event: str, ref: str, contract: str, lane: str) -> str:
+        if contract or lane:
+            return (
+                "callable"
+                if (contract, lane) == ("ucm-core-candidate-v1", "fork-candidate")
+                else "invalid"
+            )
+        allowed_ref = ref.startswith("refs/heads/feature/") or ref.startswith(
+            "refs/tags/v"
+        )
+        return "direct" if event == "push" and allowed_ref else "invalid"
+
+    assert core_route("push", "refs/heads/feature/cicd", "", "") == "direct"
+    assert core_route("push", "refs/tags/v0.5.0", "", "") == "direct"
+    assert core_route("push", "refs/heads/main", "", "") == "invalid"
+    for inherited_event in ("workflow_call", "pull_request", "schedule"):
+        assert core_route(inherited_event, "refs/heads/main", "", "") == "invalid"
+        assert (
+            core_route(
+                inherited_event,
+                "refs/heads/main",
+                "ucm-core-candidate-v1",
+                "fork-candidate",
+            )
+            == "callable"
+        )
 
 
 def test_candidate_evidence_binds_the_real_two_reconcile_closure() -> None:
@@ -887,6 +1081,71 @@ def test_candidate_evidence_binds_the_real_two_reconcile_closure() -> None:
         assert rejected in combined
     assert "loop complete" in image_text
     assert "loop aggregate" in entry_text
+
+
+def test_image_and_chart_artifacts_preserve_real_compact_evidence_layout(
+    tmp_path: Path,
+) -> None:
+    """Artifact v4 download layout must expose flat Chart and OCI evidence paths."""
+    entry = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
+    image_build = _load_workflow(WORKFLOW_DIR / "_build-image.yml")
+    images = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
+    entry_text = (WORKFLOW_DIR / "release-ucm.yml").read_text(encoding="utf-8")
+    image_text = (WORKFLOW_DIR / "_build-image.yml").read_text(encoding="utf-8")
+    reconcile_text = (WORKFLOW_DIR / "release-vllm-images.yml").read_text(
+        encoding="utf-8"
+    )
+    policy_text = (REPO_ROOT / ".github/release/ucm_release/verify.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "--evidence-dir out/oci-evidence" in image_text
+    assert "out/oci-evidence/" in image_text
+    for filename in (
+        "oci-layout.json",
+        "index.json",
+        "manifest.json",
+        "config.json",
+        "closure.json",
+    ):
+        assert filename in image_text or "out/oci-evidence/" in image_text
+    aggregate_arguments = {
+        "image-recipe.json": "--image-recipe",
+        "image-metadata.json": "--image-metadata",
+        "image-prepare-result.json": "--image-prepare",
+        "buildkit-metadata.json": "--buildkit-metadata",
+    }
+    for filename, argument in aggregate_arguments.items():
+        assert filename in reconcile_text
+        assert argument in entry_text
+
+    chart_upload = next(
+        upload
+        for upload in _artifact_uploads(entry)
+        if "chart-artifact" in str(upload.get("with", {}).get("path", ""))
+    )
+    chart_path = str(chart_upload["with"]["path"])
+    assert chart_path.strip() == "out/chart-artifact/"
+    package_job = _jobs(entry)["package-chart"]
+    package_commands = "\n".join(
+        str(step.get("run", "")) for step in _steps(package_job)
+    )
+    assert "out/chart-artifact" in package_commands
+
+    # Simulate upload-artifact v4's least-common-ancestor preservation and download.
+    staging = tmp_path / "out" / "chart-artifact"
+    staging.mkdir(parents=True)
+    (staging / "ucm-1.0.0.tgz").write_bytes(b"chart")
+    (staging / "chart-result.json").write_text("{}\n", encoding="utf-8")
+    download = tmp_path / "input" / "chart"
+    download.mkdir(parents=True)
+    for source in staging.iterdir():
+        (download / source.name).write_bytes(source.read_bytes())
+    assert [path.name for path in download.glob("*.tgz")] == ["ucm-1.0.0.tgz"]
+    assert (download / "chart-result.json").is_file()
+
+    assert "out/oci-evidence" in str(_artifact_uploads(image_build))
+    assert "out/oci-evidence" in str(_artifact_uploads(images))
     for argument in (
         "--wheel ",
         "--chart-package ",
@@ -1246,8 +1505,16 @@ def test_loop_orchestration_prepares_completes_and_aggregates_canonical_evidence
     )
     assert aggregate["payload"]["write_audit"]["write_count"] == 0
     assert aggregate["payload"]["write_audit"]["ledger_sha256"].startswith("sha256:")
-    rerun = _aggregate(closure, attempt=2)
+    rerun_closure = _release_closure(tmp_path / "attempt-2", attempt=2)
+    rerun = _aggregate(rerun_closure, attempt=2)
     assert aggregate["payload_sha256"] == rerun["payload_sha256"]
+    assert (
+        aggregate["payload"]["artifact_digests"] == rerun["payload"]["artifact_digests"]
+    )
+    assert (
+        aggregate["github"]["non_deterministic_artifact_file_sha256"]
+        != rerun["github"]["non_deterministic_artifact_file_sha256"]
+    )
 
 
 @pytest.mark.parametrize(
@@ -1265,9 +1532,13 @@ def test_loop_orchestration_prepares_completes_and_aggregates_canonical_evidence
         "image-result-missing",
         "image-result-whitespace",
         "image-oci-digest-rehashed",
+        "oci-raw-evidence-bypass-rehashed",
         "image-base-bytes-rehashed",
         "image-implementation-rehashed",
         "image-wheel-sha-rehashed",
+        "oci-empty-layers-coherent",
+        "oci-layer-media-coherent",
+        "recipe-source-date-coherent",
         "scenario-rehashed",
         "gate-rehashed",
         "publication-rehashed",
@@ -1297,7 +1568,95 @@ def test_aggregate_rejects_mutated_artifacts_even_after_envelope_rehash(
         _write_canonical(paths["completed_loop"], completed)
         _write_canonical(paths["image_loop"], completed["evidence"])
 
-    if mutation in {"build-record-extra", "build-record-missing"}:
+    if mutation == "recipe-source-date-coherent":
+        recipe = json.loads(paths["image_recipe"].read_text(encoding="utf-8"))
+        recipe["payload"]["source_date_epoch"] = 123
+        recipe["payload_sha256"] = core.sha256_value(recipe["payload"])
+        _write_canonical(paths["image_recipe"], recipe)
+        _write_canonical(paths["image_prepare"], recipe)
+        compact = json.loads(
+            (paths["oci_evidence"] / "closure.json").read_text(encoding="utf-8")
+        )
+        compact["recipe_payload_sha256"] = recipe["payload_sha256"]
+        _write_canonical(paths["oci_evidence"] / "closure.json", compact)
+        result = copy.deepcopy(closure["image_result_value"])
+        result["recipe_sha256"] = recipe["payload_sha256"]
+        result["result_sha256"] = core.sha256_value(
+            {key: value for key, value in result.items() if key != "result_sha256"}
+        )
+        _write_canonical(paths["image_result"], result)
+        forged = closure["verify"].complete_candidate_loop(
+            closure["prepared"],
+            result,
+            source_sha=closure["source_sha"],
+            run=completed["evidence"]["github"],
+        )
+        _write_canonical(paths["completed_loop"], forged)
+        _write_canonical(paths["second_reconcile"], forged["second_reconcile"])
+        _write_canonical(paths["image_loop"], forged["evidence"])
+    elif mutation in {"oci-empty-layers-coherent", "oci-layer-media-coherent"}:
+        evidence_dir = paths["oci_evidence"]
+        manifest = json.loads(
+            (evidence_dir / "manifest.json").read_text(encoding="utf-8")
+        )
+        config = json.loads((evidence_dir / "config.json").read_text(encoding="utf-8"))
+        index = json.loads((evidence_dir / "index.json").read_text(encoding="utf-8"))
+        compact = json.loads(
+            (evidence_dir / "closure.json").read_text(encoding="utf-8")
+        )
+        if mutation == "oci-empty-layers-coherent":
+            manifest["layers"] = []
+            config["rootfs"]["diff_ids"] = []
+        else:
+            manifest["layers"][0]["mediaType"] = "application/vnd.example.layer"
+
+        def descriptor_bytes(value: object) -> tuple[bytes, str]:
+            content = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+            return content, "sha256:" + hashlib.sha256(content).hexdigest()
+
+        config_raw, config_digest = descriptor_bytes(config)
+        manifest["config"] = {
+            **manifest["config"],
+            "digest": config_digest,
+            "size": len(config_raw),
+        }
+        manifest_raw, manifest_digest = descriptor_bytes(manifest)
+        index["manifests"][0] = {
+            **index["manifests"][0],
+            "digest": manifest_digest,
+            "size": len(manifest_raw),
+        }
+        (evidence_dir / "config.json").write_bytes(config_raw)
+        (evidence_dir / "manifest.json").write_bytes(manifest_raw)
+        (evidence_dir / "index.json").write_bytes(
+            json.dumps(index, sort_keys=True, separators=(",", ":")).encode()
+        )
+        compact["manifest_descriptor"] = index["manifests"][0]
+        compact["config_descriptor"] = manifest["config"]
+        compact["layers"] = manifest["layers"]
+        compact["diff_ids"] = config["rootfs"]["diff_ids"]
+        _write_canonical(evidence_dir / "closure.json", compact)
+        result = copy.deepcopy(closure["image_result_value"])
+        result["oci"]["digest"] = manifest_digest
+        result["result_sha256"] = core.sha256_value(
+            {key: value for key, value in result.items() if key != "result_sha256"}
+        )
+        _write_canonical(paths["image_result"], result)
+        buildkit = json.loads(paths["buildkit_metadata"].read_text(encoding="utf-8"))
+        buildkit["containerimage.digest"] = manifest_digest
+        buildkit["containerimage.config.digest"] = config_digest
+        buildkit["containerimage.descriptor"] = index["manifests"][0]
+        _write_canonical(paths["buildkit_metadata"], buildkit)
+        forged = closure["verify"].complete_candidate_loop(
+            closure["prepared"],
+            result,
+            source_sha=closure["source_sha"],
+            run=completed["evidence"]["github"],
+        )
+        _write_canonical(paths["completed_loop"], forged)
+        _write_canonical(paths["second_reconcile"], forged["second_reconcile"])
+        _write_canonical(paths["image_loop"], forged["evidence"])
+    elif mutation in {"build-record-extra", "build-record-missing"}:
         value = json.loads(paths["build_record"].read_text(encoding="utf-8"))
         if mutation.endswith("extra"):
             value["extra"] = True
@@ -1337,7 +1696,10 @@ def test_aggregate_rejects_mutated_artifacts_even_after_envelope_rehash(
             value["extra"] = True
         elif mutation == "image-result-missing":
             del value["status"]
-        elif mutation == "image-oci-digest-rehashed":
+        elif mutation in {
+            "image-oci-digest-rehashed",
+            "oci-raw-evidence-bypass-rehashed",
+        }:
             value["oci"]["digest"] = "sha256:" + "8" * 64
         elif mutation == "image-base-bytes-rehashed":
             value["base"]["config"]["raw"] += " "
@@ -1348,6 +1710,16 @@ def test_aggregate_rejects_mutated_artifacts_even_after_envelope_rehash(
         payload = {key: item for key, item in value.items() if key != "result_sha256"}
         value["result_sha256"] = core.sha256_value(payload)
         _write_canonical(paths["image_result"], value)
+        if mutation == "oci-raw-evidence-bypass-rehashed":
+            forged = closure["verify"].complete_candidate_loop(
+                closure["prepared"],
+                value,
+                source_sha=closure["source_sha"],
+                run=completed["evidence"]["github"],
+            )
+            _write_canonical(paths["completed_loop"], forged)
+            _write_canonical(paths["second_reconcile"], forged["second_reconcile"])
+            _write_canonical(paths["image_loop"], forged["evidence"])
     elif mutation == "image-result-whitespace":
         paths["image_result"].write_text(
             json.dumps(closure["image_result_value"], indent=2) + "\n",
@@ -1431,6 +1803,18 @@ def test_aggregate_cli_reopens_files_and_exits_two_for_mutation(
                 str(paths["chart_package"]),
                 "--image-result",
                 str(paths["image_result"]),
+                "--oci-evidence-dir",
+                str(paths["oci_evidence"]),
+                "--image-recipe",
+                str(paths["image_recipe"]),
+                "--image-metadata",
+                str(paths["image_metadata"]),
+                "--image-prepare",
+                str(paths["image_prepare"]),
+                "--buildkit-metadata",
+                str(paths["buildkit_metadata"]),
+                "--image-archive-sha256",
+                str(paths["image_archive_sha256"]),
                 "--completed-loop",
                 str(paths["completed_loop"]),
                 "--second-reconcile",

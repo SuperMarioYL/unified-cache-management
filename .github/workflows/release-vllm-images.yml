@@ -42,8 +42,10 @@ jobs:
   invalid-call:
     if: >-
       ${{
-        (inputs.call_contract != '' || inputs.source_sha != '' || inputs.wheel_artifact != '' || inputs.validation_lane != '') &&
-        (inputs.call_contract != 'ucm-vllm-candidate-v1' || inputs.source_sha == '' || inputs.wheel_artifact == '' || inputs.validation_lane != 'fork-candidate')
+        ((inputs.call_contract != '' || inputs.source_sha != '' || inputs.wheel_artifact != '' || inputs.validation_lane != '') &&
+        (inputs.call_contract != 'ucm-vllm-candidate-v1' || inputs.source_sha == '' || inputs.wheel_artifact == '' || inputs.validation_lane != 'fork-candidate')) ||
+        ((inputs.call_contract == '' && inputs.source_sha == '' && inputs.wheel_artifact == '' && inputs.validation_lane == '') &&
+        !contains(fromJSON('["schedule","repository_dispatch","workflow_dispatch"]'), github.event_name))
       }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -69,6 +71,7 @@ jobs:
     if: >-
       ${{
         inputs.call_contract == '' && inputs.source_sha == '' && inputs.wheel_artifact == '' && inputs.validation_lane == '' &&
+        contains(fromJSON('["schedule","repository_dispatch","workflow_dispatch"]'), github.event_name) &&
         (github.event_name != 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch)
       }}
     permissions:
@@ -220,12 +223,24 @@ jobs:
           echo "image_result_sha256=$(python -c 'import json; print(json.load(open("loop-complete-result.json"))["image_result_sha256"])')" >>"${GITHUB_OUTPUT}"
           echo "oci_digest=$(python -c 'import json; print(json.load(open("loop-complete-result.json"))["oci_digest"])')" >>"${GITHUB_OUTPUT}"
           cp input/image/image-result.json out/image-result.json
+          cp input/image/image-recipe.json out/image-recipe.json
+          cp input/image/image-metadata.json out/image-metadata.json
+          cp input/image/image-prepare-result.json out/image-prepare-result.json
+          cp input/image/buildkit-metadata.json out/buildkit-metadata.json
+          cp input/image/image-archive.sha256 out/image-archive.sha256
+          cp -R input/image/oci-evidence out/oci-evidence
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ steps.close.outputs.loop_artifact }}
           path: |
             out/completed-loop.json
             out/image-result.json
+            out/image-recipe.json
+            out/image-metadata.json
+            out/image-prepare-result.json
+            out/buildkit-metadata.json
+            out/image-archive.sha256
+            out/oci-evidence/
             out/second-reconcile.json
             out/vllm-loop-evidence.json
           if-no-files-found: error

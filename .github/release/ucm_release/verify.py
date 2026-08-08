@@ -452,6 +452,12 @@ def aggregate_release_evidence(
     chart_result_path: Path,
     chart_package_path: Path,
     image_result_path: Path,
+    oci_evidence_dir: Path,
+    image_recipe_path: Path,
+    image_metadata_path: Path,
+    image_prepare_path: Path,
+    buildkit_metadata_path: Path,
+    image_archive_sha256_path: Path,
     completed_loop_path: Path,
     second_reconcile_path: Path,
     image_loop_path: Path,
@@ -468,6 +474,12 @@ def aggregate_release_evidence(
     chart_result_path = Path(chart_result_path)
     chart_package_path = Path(chart_package_path)
     image_result_path = Path(image_result_path)
+    oci_evidence_dir = Path(oci_evidence_dir)
+    image_recipe_path = Path(image_recipe_path)
+    image_metadata_path = Path(image_metadata_path)
+    image_prepare_path = Path(image_prepare_path)
+    buildkit_metadata_path = Path(buildkit_metadata_path)
+    image_archive_sha256_path = Path(image_archive_sha256_path)
     completed_loop_path = Path(completed_loop_path)
     second_reconcile_path = Path(second_reconcile_path)
     image_loop_path = Path(image_loop_path)
@@ -511,6 +523,33 @@ def aggregate_release_evidence(
     image_result = image.validate_image_result(
         _load_canonical_json(image_result_path, "image result")
     )
+    if not buildkit_metadata_path.is_file():
+        raise ValueError("BuildKit metadata is not a regular file")
+    try:
+        buildkit_metadata = json.loads(buildkit_metadata_path.read_bytes())
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"BuildKit metadata is invalid JSON: {error}") from error
+    compact_oci = image.validate_compact_oci_evidence(
+        oci_evidence_dir,
+        image_result=image_result,
+        image_recipe_path=image_recipe_path,
+        image_metadata_path=image_metadata_path,
+        image_prepare_path=image_prepare_path,
+        wheel_path=wheel_path,
+        buildkit_metadata=buildkit_metadata,
+    )
+    if compact_oci["wheel_sha256"] != actual_wheel_sha256:
+        raise ValueError("compact OCI evidence does not bind the actual wheel")
+    if not image_archive_sha256_path.is_file():
+        raise ValueError("OCI archive digest record is not a regular file")
+    archive_record = image_archive_sha256_path.read_text(encoding="utf-8").strip()
+    archive_parts = archive_record.split()
+    if (
+        len(archive_parts) != 2
+        or "sha256:" + archive_parts[0] != compact_oci["archive_sha256"]
+        or Path(archive_parts[1]).name != "image.oci.tar"
+    ):
+        raise ValueError("OCI archive digest record does not match compact evidence")
     completed = _load_canonical_json(completed_loop_path, "completed loop")
     second_reconcile = _load_canonical_json(second_reconcile_path, "second reconcile")
     image_loop = _load_canonical_json(image_loop_path, "image loop evidence")
@@ -596,11 +635,13 @@ def aggregate_release_evidence(
             "first_reconcile_sha256": image_payload["first_reconcile_sha256"],
             "second_reconcile_sha256": image_payload["second_reconcile_sha256"],
             "image_loop_payload_sha256": image_loop["payload_sha256"],
+            "oci_evidence_closure_sha256": compact_oci["closure_sha256"],
+            "oci_manifest_digest": compact_oci["oci_digest"],
+            "oci_config_digest": compact_oci["config_digest"],
+            "oci_archive_sha256": compact_oci["archive_sha256"],
             "build_record_file_sha256": _file_sha256(build_record_path),
             "image_result_file_sha256": _file_sha256(image_result_path),
-            "completed_loop_file_sha256": _file_sha256(completed_loop_path),
             "second_reconcile_file_sha256": _file_sha256(second_reconcile_path),
-            "image_loop_file_sha256": _file_sha256(image_loop_path),
         },
         "required_gates": copy.deepcopy(image_payload["required_gates"]),
         "expected_blocked": [
@@ -616,7 +657,13 @@ def aggregate_release_evidence(
         "operation_batches": copy.deepcopy(operation_batches),
         "write_audit": copy.deepcopy(derived_write_audit),
     }
-    return _envelope(payload, run)
+    evidence = _envelope(payload, run)
+    evidence["github"]["non_deterministic_artifact_file_sha256"] = {
+        "completed_loop": _file_sha256(completed_loop_path),
+        "image_loop": _file_sha256(image_loop_path),
+        "buildkit_metadata": _file_sha256(buildkit_metadata_path),
+    }
+    return evidence
 
 
 def _inventory(entries: list[dict[str, Any]] | None = None) -> dict[str, Any]:

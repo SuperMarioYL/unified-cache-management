@@ -112,6 +112,12 @@ def build_parser() -> argparse.ArgumentParser:
     loop_aggregate.add_argument("--chart-result", type=Path, required=True)
     loop_aggregate.add_argument("--chart-package", type=Path, required=True)
     loop_aggregate.add_argument("--image-result", type=Path, required=True)
+    loop_aggregate.add_argument("--oci-evidence-dir", type=Path, required=True)
+    loop_aggregate.add_argument("--image-recipe", type=Path, required=True)
+    loop_aggregate.add_argument("--image-metadata", type=Path, required=True)
+    loop_aggregate.add_argument("--image-prepare", type=Path, required=True)
+    loop_aggregate.add_argument("--buildkit-metadata", type=Path, required=True)
+    loop_aggregate.add_argument("--image-archive-sha256", type=Path, required=True)
     loop_aggregate.add_argument("--completed-loop", type=Path, required=True)
     loop_aggregate.add_argument("--second-reconcile", type=Path, required=True)
     loop_aggregate.add_argument("--image-loop", type=Path, required=True)
@@ -124,9 +130,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     image_parser = groups.add_parser("image")
     image_actions = image_parser.add_subparsers(dest="action", required=True)
-    image_verify = image_actions.add_parser("verify")
+    image_verify = image_actions.add_parser("verify", allow_abbrev=False)
     image_verify.add_argument("--context", type=Path, required=True)
     image_verify.add_argument("--oci", type=Path, required=True)
+    image_verify.add_argument("--evidence-dir", type=Path, required=True)
     image_verify.add_argument(
         "--schema-dir", type=Path, default=core.DEFAULT_SCHEMA_DIR
     )
@@ -274,6 +281,12 @@ def main(argv: list[str] | None = None) -> int:
                 chart_result_path=args.chart_result,
                 chart_package_path=args.chart_package,
                 image_result_path=args.image_result,
+                oci_evidence_dir=args.oci_evidence_dir,
+                image_recipe_path=args.image_recipe,
+                image_metadata_path=args.image_metadata,
+                image_prepare_path=args.image_prepare,
+                buildkit_metadata_path=args.buildkit_metadata,
+                image_archive_sha256_path=args.image_archive_sha256,
                 completed_loop_path=args.completed_loop,
                 second_reconcile_path=args.second_reconcile,
                 image_loop_path=args.image_loop,
@@ -293,6 +306,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.context,
                 args.oci,
                 schema_dir=args.schema_dir,
+                evidence_dir=args.evidence_dir,
             )
         elif (args.group, args.action) == ("image", "prepare"):
             result = image.prepare_context_bundle(

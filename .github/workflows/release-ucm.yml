@@ -21,8 +21,11 @@ jobs:
   invalid-call:
     if: >-
       ${{
-        (inputs.call_contract != '' || inputs.validation_lane != '') &&
-        (inputs.call_contract != 'ucm-core-candidate-v1' || inputs.validation_lane != 'fork-candidate')
+        ((inputs.call_contract != '' || inputs.validation_lane != '') &&
+        (inputs.call_contract != 'ucm-core-candidate-v1' || inputs.validation_lane != 'fork-candidate')) ||
+        (inputs.call_contract == '' && inputs.validation_lane == '' &&
+        (github.event_name != 'push' ||
+        !(startsWith(github.ref, 'refs/heads/feature/') || startsWith(github.ref, 'refs/tags/v'))))
       }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -96,6 +99,9 @@ jobs:
           mkdir -p out/chart
           PYTHONPATH=.github/release python -m ucm_release chart package \
             --output-dir out/chart >out/chart-result.json
+          mkdir -p out/chart-artifact
+          cp out/chart/*.tgz out/chart-artifact/
+          cp out/chart-result.json out/chart-artifact/chart-result.json
       - id: record
         name: Expose Chart package and source-tree identities
         env:
@@ -107,9 +113,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ steps.record.outputs.chart_artifact }}
-          path: |
-            out/chart/*.tgz
-            out/chart-result.json
+          path: out/chart-artifact/
           if-no-files-found: error
           retention-days: 3
 
@@ -189,6 +193,12 @@ jobs:
             --chart-result input/chart/chart-result.json \
             --chart-package "${chart_package}" \
             --image-result input/images/image-result.json \
+            --oci-evidence-dir input/images/oci-evidence \
+            --image-recipe input/images/image-recipe.json \
+            --image-metadata input/images/image-metadata.json \
+            --image-prepare input/images/image-prepare-result.json \
+            --buildkit-metadata input/images/buildkit-metadata.json \
+            --image-archive-sha256 input/images/image-archive.sha256 \
             --completed-loop input/images/completed-loop.json \
             --second-reconcile input/images/second-reconcile.json \
             --image-loop input/images/vllm-loop-evidence.json \

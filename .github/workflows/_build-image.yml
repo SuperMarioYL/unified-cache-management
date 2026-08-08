@@ -140,7 +140,8 @@ jobs:
           sha256sum out/image.oci.tar >out/image-archive.sha256
           PYTHONPATH=.github/release python -m ucm_release image verify \
             --context context \
-            --oci out/image.oci.tar >out/image-result.json
+            --oci out/image.oci.tar \
+            --evidence-dir out/oci-evidence >out/image-result.json
       - id: result
         name: Expose compact verified image identity
         env:
@@ -157,6 +158,7 @@ jobs:
           name: ${{ steps.result.outputs.image_artifact }}
           path: |
             out/image-result.json
+            out/oci-evidence/
             out/image-recipe.json
             out/image-metadata.json
             out/image-prepare-result.json

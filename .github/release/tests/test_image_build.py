@@ -908,6 +908,8 @@ def test_image_verify_cli_validates_schema_and_source_closure(tmp_path: Path) ->
         str(context),
         "--oci",
         str(oci_path),
+        "--evidence-dir",
+        str(tmp_path / "verified-evidence"),
     )
     assert json.loads(result.stdout)["status"] == "fixture-verified-unpublished"
     metadata = json.loads((context / "image-metadata.json").read_text())
@@ -920,6 +922,8 @@ def test_image_verify_cli_validates_schema_and_source_closure(tmp_path: Path) ->
         str(context),
         "--oci",
         str(oci_path),
+        "--evidence-dir",
+        str(tmp_path / "rejected-evidence"),
         expect=2,
     )
     assert "metadata" in failed.stderr.lower()
@@ -981,6 +985,73 @@ def test_verify_oci_accepts_uncompressed_layer_with_matching_diff_id(
 
     result = image.verify_oci(context, oci_path)
     assert result["status"] == "fixture-verified-unpublished"
+
+
+def test_verify_oci_exports_and_revalidates_compact_raw_descriptor_evidence(
+    tmp_path: Path,
+) -> None:
+    """The uploaded evidence must be derived from real verified OCI raw bytes."""
+    image, _, context, recipe = _prepare(tmp_path)
+    oci_path = tmp_path / "image.oci.tar"
+    evidence_dir = tmp_path / "compact-evidence"
+    _write_oci(
+        oci_path,
+        context,
+        recipe,
+        _evidence(recipe),
+        layer_media_types=(
+            "application/vnd.oci.image.layer.v1.tar+gzip",
+            "application/vnd.oci.image.layer.v1.tar",
+        ),
+    )
+
+    result = image.verify_oci(context, oci_path, evidence_dir=evidence_dir)
+    assert {path.name for path in evidence_dir.iterdir()} == {
+        "oci-layout.json",
+        "index.json",
+        "manifest.json",
+        "config.json",
+        "closure.json",
+    }
+    closure = image.validate_compact_oci_evidence(
+        evidence_dir,
+        image_result=result,
+        image_recipe_path=context / "image-recipe.json",
+        image_metadata_path=context / "image-metadata.json",
+        image_prepare_path=context / "image-recipe.json",
+        wheel_path=context / recipe["payload"]["wheel"]["filename"],
+        buildkit_metadata={
+            "containerimage.digest": result["oci"]["digest"],
+            "containerimage.config.digest": json.loads(
+                (evidence_dir / "closure.json").read_text(encoding="utf-8")
+            )["config_descriptor"]["digest"],
+            "containerimage.descriptor": json.dumps(
+                json.loads((evidence_dir / "closure.json").read_text(encoding="utf-8"))[
+                    "manifest_descriptor"
+                ],
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+        },
+    )
+    assert closure["oci_digest"] == result["oci"]["digest"]
+    assert len(closure["layers"]) == len(closure["diff_ids"]) == 2
+
+    changed = json.loads((evidence_dir / "manifest.json").read_text(encoding="utf-8"))
+    changed["layers"] = []
+    (evidence_dir / "manifest.json").write_text(
+        json.dumps(changed, sort_keys=True, separators=(",", ":")), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="(manifest|digest|layer)"):
+        image.validate_compact_oci_evidence(
+            evidence_dir,
+            image_result=result,
+            image_recipe_path=context / "image-recipe.json",
+            image_metadata_path=context / "image-metadata.json",
+            image_prepare_path=context / "image-recipe.json",
+            wheel_path=context / recipe["payload"]["wheel"]["filename"],
+            buildkit_metadata={},
+        )
 
 
 def test_image_verify_cli_does_not_accept_caller_authored_evidence(

@@ -50,6 +50,11 @@ OCI_CONFIG_MEDIA_TYPES = {
     "application/vnd.oci.image.config.v1+json",
     "application/vnd.docker.container.image.v1+json",
 }
+OCI_LAYER_MEDIA_TYPES = {
+    "application/vnd.oci.image.layer.v1.tar",
+    "application/vnd.oci.image.layer.v1.tar+gzip",
+    "application/vnd.docker.image.rootfs.diff.tar.gzip",
+}
 
 
 def _exact(value: object, keys: set[str], label: str) -> dict[str, Any]:
@@ -927,7 +932,12 @@ def _descriptor_blob(
     return content
 
 
-def evidence_from_oci(context_dir: Path, oci_path: Path) -> dict[str, Any]:
+def evidence_from_oci(
+    context_dir: Path,
+    oci_path: Path,
+    *,
+    evidence_dir: Path | None = None,
+) -> dict[str, Any]:
     """Derive all build evidence directly from a standard local OCI archive."""
     context_dir = Path(context_dir)
     oci_path = Path(oci_path)
@@ -952,13 +962,15 @@ def evidence_from_oci(context_dir: Path, oci_path: Path) -> dict[str, Any]:
             index_stream = archive.extractfile("index.json")
         except KeyError as error:
             raise ValueError("OCI layout requires oci-layout and index.json") from error
-        if layout_stream is None or _json_bytes(layout_stream.read(), "oci-layout") != {
-            "imageLayoutVersion": "1.0.0"
-        }:
+        if layout_stream is None:
+            raise ValueError("OCI oci-layout is not a regular file")
+        layout_raw = layout_stream.read()
+        if _json_bytes(layout_raw, "oci-layout") != {"imageLayoutVersion": "1.0.0"}:
             raise ValueError("unsupported OCI image layout version")
         if index_stream is None:
             raise ValueError("OCI index.json is not a regular file")
-        index = _json_bytes(index_stream.read(), "OCI index.json")
+        index_raw = index_stream.read()
+        index = _json_bytes(index_raw, "OCI index.json")
         if (
             index.get("schemaVersion") != 2
             or index.get("mediaType") != "application/vnd.oci.image.index.v1+json"
@@ -982,9 +994,8 @@ def evidence_from_oci(context_dir: Path, oci_path: Path) -> dict[str, Any]:
             != "application/vnd.oci.image.manifest.v1+json"
         ):
             raise ValueError("OCI descriptor is not an image manifest")
-        manifest = _json_bytes(
-            _descriptor_blob(archive, manifest_descriptor, "manifest"), "OCI manifest"
-        )
+        manifest_raw = _descriptor_blob(archive, manifest_descriptor, "manifest")
+        manifest = _json_bytes(manifest_raw, "OCI manifest")
         if (
             manifest.get("schemaVersion") != 2
             or manifest.get("mediaType") != "application/vnd.oci.image.manifest.v1+json"
@@ -999,9 +1010,8 @@ def evidence_from_oci(context_dir: Path, oci_path: Path) -> dict[str, Any]:
             != "application/vnd.oci.image.config.v1+json"
         ):
             raise ValueError("OCI manifest config media type is invalid")
-        config = _json_bytes(
-            _descriptor_blob(archive, config_descriptor, "config"), "OCI config"
-        )
+        config_raw = _descriptor_blob(archive, config_descriptor, "config")
+        config = _json_bytes(config_raw, "OCI config")
         if (config.get("os"), config.get("architecture")) != (
             target_os,
             target_architecture,
@@ -1027,15 +1037,10 @@ def evidence_from_oci(context_dir: Path, oci_path: Path) -> dict[str, Any]:
             f"tmp/{payload['wheel']['filename']}": "wheel",
         }
         observed: dict[str, bytes] = {}
-        allowed_layer_media = {
-            "application/vnd.oci.image.layer.v1.tar",
-            "application/vnd.oci.image.layer.v1.tar+gzip",
-            "application/vnd.docker.image.rootfs.diff.tar.gzip",
-        }
         for layer_index, layer_descriptor in enumerate(manifest["layers"]):
             if (
                 not isinstance(layer_descriptor, dict)
-                or layer_descriptor.get("mediaType") not in allowed_layer_media
+                or layer_descriptor.get("mediaType") not in OCI_LAYER_MEDIA_TYPES
             ):
                 raise ValueError("OCI image contains an unsupported layer media type")
             layer_bytes = _descriptor_blob(
@@ -1099,6 +1104,37 @@ def evidence_from_oci(context_dir: Path, oci_path: Path) -> dict[str, Any]:
             raise ValueError(
                 "OCI embedded wheel does not match the authorized context bytes"
             )
+        if evidence_dir is not None:
+            evidence_dir = Path(evidence_dir)
+            if evidence_dir.exists() and any(evidence_dir.iterdir()):
+                raise ValueError(
+                    f"OCI evidence directory must be absent or empty: {evidence_dir}"
+                )
+            evidence_dir.mkdir(parents=True, exist_ok=True)
+            raw_files = {
+                "oci-layout.json": layout_raw,
+                "index.json": index_raw,
+                "manifest.json": manifest_raw,
+                "config.json": config_raw,
+            }
+            for filename, content in raw_files.items():
+                (evidence_dir / filename).write_bytes(content)
+            compact_closure = {
+                "schema_version": 1,
+                "kind": "ucm-compact-oci-evidence",
+                "target_platform": payload["target_platform"],
+                "manifest_descriptor": copy.deepcopy(manifest_descriptor),
+                "config_descriptor": copy.deepcopy(config_descriptor),
+                "layers": copy.deepcopy(manifest["layers"]),
+                "diff_ids": copy.deepcopy(diff_ids),
+                "recipe_payload_sha256": recipe["payload_sha256"],
+                "metadata_sha256": payload["metadata_sha256"],
+                "wheel_sha256": payload["wheel"]["sha256"],
+                "archive_sha256": "sha256:"
+                + hashlib.sha256(oci_path.read_bytes()).hexdigest(),
+                "archive_size": oci_path.stat().st_size,
+            }
+            _write_json(evidence_dir / "closure.json", compact_closure)
         return {
             "schema_version": 1,
             "kind": "ucm-image-build-evidence",
@@ -1124,7 +1160,243 @@ def verify_oci(
     oci_path: Path,
     *,
     schema_dir: Path = DEFAULT_SCHEMA_DIR,
+    evidence_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Verify a Buildx local OCI output without caller-authored result summaries."""
-    evidence = evidence_from_oci(context_dir, oci_path)
+    evidence = evidence_from_oci(context_dir, oci_path, evidence_dir=evidence_dir)
     return verify_image(context_dir, evidence, schema_dir=schema_dir)
+
+
+def _raw_compact_json(path: Path, label: str) -> tuple[bytes, dict[str, Any]]:
+    if not Path(path).is_file():
+        raise ValueError(f"{label} is not a regular file")
+    content = Path(path).read_bytes()
+    return content, _json_bytes(content, label)
+
+
+def validate_compact_oci_evidence(
+    evidence_dir: Path,
+    *,
+    image_result: object,
+    image_recipe_path: Path,
+    image_metadata_path: Path,
+    image_prepare_path: Path,
+    wheel_path: Path,
+    buildkit_metadata: object,
+) -> dict[str, Any]:
+    """Reopen compact raw OCI descriptors and bind them to the image result."""
+    evidence_dir = Path(evidence_dir)
+    expected_files = {
+        "oci-layout.json",
+        "index.json",
+        "manifest.json",
+        "config.json",
+        "closure.json",
+    }
+    if (
+        not evidence_dir.is_dir()
+        or {path.name for path in evidence_dir.iterdir() if path.is_file()}
+        != expected_files
+    ):
+        raise ValueError("compact OCI evidence file set is noncanonical")
+    layout_raw, layout = _raw_compact_json(
+        evidence_dir / "oci-layout.json", "compact OCI layout"
+    )
+    index_raw, index = _raw_compact_json(
+        evidence_dir / "index.json", "compact OCI index"
+    )
+    manifest_raw, manifest = _raw_compact_json(
+        evidence_dir / "manifest.json", "compact OCI manifest"
+    )
+    config_raw, config = _raw_compact_json(
+        evidence_dir / "config.json", "compact OCI config"
+    )
+    closure_raw, closure = _raw_compact_json(
+        evidence_dir / "closure.json", "compact OCI closure"
+    )
+    if closure_raw != canonical_bytes(closure) + b"\n":
+        raise ValueError("compact OCI closure bytes are noncanonical")
+    if layout != {"imageLayoutVersion": "1.0.0"}:
+        raise ValueError("compact OCI layout version is invalid")
+    if (
+        index.get("schemaVersion") != 2
+        or index.get("mediaType") != "application/vnd.oci.image.index.v1+json"
+        or not isinstance(index.get("manifests"), list)
+        or len(index["manifests"]) != 1
+    ):
+        raise ValueError("compact OCI index is invalid")
+    manifest_descriptor = index["manifests"][0]
+    if not isinstance(manifest_descriptor, dict):
+        raise ValueError("compact OCI manifest descriptor is invalid")
+    expected_manifest_digest = "sha256:" + hashlib.sha256(manifest_raw).hexdigest()
+    if (
+        manifest_descriptor.get("digest") != expected_manifest_digest
+        or manifest_descriptor.get("size") != len(manifest_raw)
+        or manifest_descriptor.get("mediaType")
+        != "application/vnd.oci.image.manifest.v1+json"
+    ):
+        raise ValueError("compact OCI manifest bytes do not match index descriptor")
+    if (
+        manifest.get("schemaVersion") != 2
+        or manifest.get("mediaType") != "application/vnd.oci.image.manifest.v1+json"
+        or not isinstance(manifest.get("config"), dict)
+        or not isinstance(manifest.get("layers"), list)
+    ):
+        raise ValueError("compact OCI manifest structure is invalid")
+    config_descriptor = manifest["config"]
+    expected_config_digest = "sha256:" + hashlib.sha256(config_raw).hexdigest()
+    if (
+        config_descriptor.get("digest") != expected_config_digest
+        or config_descriptor.get("size") != len(config_raw)
+        or config_descriptor.get("mediaType")
+        != "application/vnd.oci.image.config.v1+json"
+    ):
+        raise ValueError("compact OCI config bytes do not match manifest descriptor")
+    rootfs = config.get("rootfs")
+    diff_ids = rootfs.get("diff_ids") if isinstance(rootfs, dict) else None
+    if (
+        not isinstance(rootfs, dict)
+        or rootfs.get("type") != "layers"
+        or not isinstance(diff_ids, list)
+        or not manifest["layers"]
+        or len(diff_ids) != len(manifest["layers"])
+    ):
+        raise ValueError("compact OCI layer descriptors and diff_ids disagree")
+    for position, (layer, diff_id) in enumerate(
+        zip(manifest["layers"], diff_ids, strict=True)
+    ):
+        if not isinstance(layer, dict):
+            raise ValueError(f"compact OCI layer {position} descriptor is invalid")
+        if layer.get("mediaType") not in OCI_LAYER_MEDIA_TYPES:
+            raise ValueError(f"compact OCI layer {position} media type is invalid")
+        _digest(layer.get("digest"), f"compact OCI layer {position} digest")
+        if not isinstance(layer.get("size"), int) or layer["size"] < 1:
+            raise ValueError(f"compact OCI layer {position} size is invalid")
+        _digest(diff_id, f"compact OCI diff_id {position}")
+
+    recipe_raw, recipe = _raw_compact_json(image_recipe_path, "image recipe")
+    metadata_raw, metadata = _raw_compact_json(image_metadata_path, "image metadata")
+    prepare_raw, image_prepare = _raw_compact_json(
+        image_prepare_path, "image prepare result"
+    )
+    if recipe_raw != canonical_bytes(recipe) + b"\n":
+        raise ValueError("image recipe bytes are noncanonical")
+    if metadata_raw != canonical_bytes(metadata) + b"\n":
+        raise ValueError("image metadata bytes are noncanonical")
+    if prepare_raw != canonical_bytes(image_prepare) + b"\n":
+        raise ValueError("image prepare result bytes are noncanonical")
+    recipe = _exact(recipe, {"payload", "payload_sha256"}, "image recipe")
+    if recipe["payload_sha256"] != sha256_value(recipe["payload"]):
+        raise ValueError("image recipe payload digest is invalid")
+    payload = recipe["payload"]
+    if image_prepare != recipe:
+        raise ValueError("image prepare result is not the exact recipe")
+    if payload.get("metadata_sha256") != sha256_value(metadata):
+        raise ValueError("image recipe does not bind metadata")
+    expected_metadata, expected_recipe = _derive_recipe(
+        source_case=metadata.get("source_case"),
+        candidate=metadata.get("candidate"),
+        task=metadata.get("task"),
+        inventory=metadata.get("inventory"),
+        base_record=metadata.get("base_record"),
+        target_platform=metadata.get("target_platform"),
+        wheel_path=Path(wheel_path),
+        docker_root=DOCKER_ROOT,
+    )
+    if metadata != expected_metadata or recipe != expected_recipe:
+        raise ValueError("image metadata/recipe does not match source recomputation")
+    result = validate_image_result(image_result)
+    if (
+        result["recipe_sha256"] != recipe["payload_sha256"]
+        or result["build_key_sha256"] != payload.get("build_key_sha256")
+        or result["target_platform"] != payload.get("target_platform")
+        or result["wheel"] != payload.get("wheel")
+        or result["source"] != payload.get("source")
+        or result["base"] != payload.get("base")
+        or result["implementation"] != payload.get("implementation")
+    ):
+        raise ValueError("image result does not match recipe closure")
+    expected_closure = {
+        "schema_version": 1,
+        "kind": "ucm-compact-oci-evidence",
+        "target_platform": result["target_platform"],
+        "manifest_descriptor": copy.deepcopy(manifest_descriptor),
+        "config_descriptor": copy.deepcopy(config_descriptor),
+        "layers": copy.deepcopy(manifest["layers"]),
+        "diff_ids": copy.deepcopy(diff_ids),
+        "recipe_payload_sha256": recipe["payload_sha256"],
+        "metadata_sha256": payload["metadata_sha256"],
+        "wheel_sha256": payload["wheel"]["sha256"],
+        "archive_sha256": closure.get("archive_sha256"),
+        "archive_size": closure.get("archive_size"),
+    }
+    _digest(expected_closure["archive_sha256"], "OCI archive digest")
+    if (
+        not isinstance(expected_closure["archive_size"], int)
+        or expected_closure["archive_size"] < 1
+        or closure != expected_closure
+    ):
+        raise ValueError("compact OCI closure is noncanonical")
+    platform = manifest_descriptor.get("platform")
+    expected_platform = {
+        "os": result["target_platform"].split("/", 1)[0],
+        "architecture": result["target_platform"].split("/", 1)[1],
+    }
+    if platform != expected_platform or (
+        config.get("os"),
+        config.get("architecture"),
+    ) != (expected_platform["os"], expected_platform["architecture"]):
+        raise ValueError("compact OCI platform does not match image result")
+    if result["oci"] != {
+        "output": "local-oci",
+        "media_type": manifest_descriptor["mediaType"],
+        "digest": manifest_descriptor["digest"],
+        "platform": result["target_platform"],
+        "published": False,
+    }:
+        raise ValueError("image result OCI identity does not match raw evidence")
+
+    if not isinstance(buildkit_metadata, dict):
+        raise ValueError("BuildKit metadata must be an object")
+    buildkit_descriptor = buildkit_metadata.get("containerimage.descriptor")
+    if isinstance(buildkit_descriptor, str):
+        buildkit_descriptor = _json_bytes(
+            buildkit_descriptor.encode(), "BuildKit image descriptor"
+        )
+    if not isinstance(buildkit_descriptor, dict):
+        raise ValueError("BuildKit image descriptor is missing")
+    descriptor_projection = {
+        key: copy.deepcopy(buildkit_descriptor.get(key))
+        for key in ("mediaType", "digest", "size", "platform")
+    }
+    manifest_projection = {
+        key: copy.deepcopy(manifest_descriptor.get(key))
+        for key in ("mediaType", "digest", "size", "platform")
+    }
+    if (
+        buildkit_metadata.get("containerimage.digest") != manifest_descriptor["digest"]
+        or buildkit_metadata.get("containerimage.config.digest")
+        != config_descriptor["digest"]
+        or descriptor_projection != manifest_projection
+    ):
+        raise ValueError("BuildKit metadata does not match raw OCI descriptors")
+    stable = {
+        "oci_digest": manifest_descriptor["digest"],
+        "config_digest": config_descriptor["digest"],
+        "platform": result["target_platform"],
+        "layers": copy.deepcopy(manifest["layers"]),
+        "diff_ids": copy.deepcopy(diff_ids),
+        "recipe_payload_sha256": recipe["payload_sha256"],
+        "metadata_sha256": payload["metadata_sha256"],
+        "wheel_sha256": payload["wheel"]["sha256"],
+        "archive_sha256": closure["archive_sha256"],
+        "raw_sha256": {
+            "oci_layout": "sha256:" + hashlib.sha256(layout_raw).hexdigest(),
+            "index": "sha256:" + hashlib.sha256(index_raw).hexdigest(),
+            "manifest": expected_manifest_digest,
+            "config": expected_config_digest,
+            "recipe": "sha256:" + hashlib.sha256(recipe_raw).hexdigest(),
+            "metadata": "sha256:" + hashlib.sha256(metadata_raw).hexdigest(),
+        },
+    }
+    return {**stable, "closure_sha256": sha256_value(stable)}
