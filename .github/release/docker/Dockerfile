@@ -43,7 +43,12 @@ ENV TZ=UTC PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_DEFAULT_TIMEOUT=30 PIP_RETRIES=2 
     PYTHONDONTWRITEBYTECODE=1
 ARG LD_LIBRARY_PATH
 ENV LD_LIBRARY_PATH="/usr/local/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-RUN ldconfig /usr/local/lib
+RUN if [[ "${PLATFORM}" == "cuda" ]]; then \
+      test -f /usr/local/cuda/lib64/libcudart.so.13; \
+      ldconfig /usr/local/lib /usr/local/cuda/lib64; \
+    else \
+      ldconfig /usr/local/lib; \
+    fi
 
 RUN if [[ -x /opt/python/cp312-cp312/bin/python ]]; then \
       ln -s /opt/python/cp312-cp312/bin/python /usr/local/bin/ucm-python; \

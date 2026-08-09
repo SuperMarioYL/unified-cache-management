@@ -565,11 +565,35 @@ def test_native_build_and_runtime_preserve_mooncake_loader_path() -> None:
     )
     assert dockerfile.count("ARG LD_LIBRARY_PATH") == 3
     assert dockerfile.count(inherited_loader_path) == 3
-    assert dockerfile.count("RUN ldconfig /usr/local/lib") == 3
+    assert dockerfile.count("RUN ldconfig /usr/local/lib") == 2
     assert "wheel preflight-dependencies" in dockerfile
     assert "--binary /usr/local/lib/libmooncake_store.so" in dockerfile
     assert "grep -F 'not found'" not in dockerfile
     assert '[*directories, os.environ.get("LD_LIBRARY_PATH", "")]' in inspector
+
+
+def test_wheel_base_caches_cuda_runtime_without_changing_runtime_stages() -> None:
+    """Only CUDA wheel builds need cudart added to the common loader cache."""
+    dockerfile = (RELEASE_ROOT / "docker/Dockerfile").read_text(encoding="utf-8")
+    wheel_base = dockerfile.split(
+        "FROM ${UCM_BUILDER_IMAGE} AS wheel-base", maxsplit=1
+    )[1].split("FROM wheel-base AS wheel-build", maxsplit=1)[0]
+    runtime_install = dockerfile.split(
+        "FROM ${BASE_IMAGE} AS runtime-install", maxsplit=1
+    )[1].split("FROM runtime-install AS runtime", maxsplit=1)[0]
+    runtime_real_install = dockerfile.split(
+        "FROM ${BASE_IMAGE} AS runtime-real-install", maxsplit=1
+    )[1].split("FROM runtime-real-install AS runtime-real", maxsplit=1)[0]
+
+    assert 'if [[ "${PLATFORM}" == "cuda" ]]; then' in wheel_base
+    cuda_branch, non_cuda_branch = wheel_base.split("else", maxsplit=1)
+    assert "test -f /usr/local/cuda/lib64/libcudart.so.13" in cuda_branch
+    assert "ldconfig /usr/local/lib /usr/local/cuda/lib64" in cuda_branch
+    assert "ldconfig /usr/local/lib;" in non_cuda_branch
+    assert "/usr/local/cuda/lib64" not in non_cuda_branch
+    for runtime_stage in (runtime_install, runtime_real_install):
+        assert runtime_stage.count("RUN ldconfig /usr/local/lib") == 1
+        assert "/usr/local/cuda/lib64" not in runtime_stage
 
 
 def test_native_build_runs_the_locked_cmake_from_cpython_scripts() -> None:
