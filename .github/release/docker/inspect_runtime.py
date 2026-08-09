@@ -190,7 +190,12 @@ def _inspect_real(
     machines = sorted({value["machine"] for value in elf.values()})
     dt_needed = {member: elf[member]["needed"] for member in sorted(elf)}
     directories = sorted({str(path.parent) for path in installed.values()})
-    environment = {**os.environ, "LD_LIBRARY_PATH": ":".join(directories)}
+    environment = {
+        **os.environ,
+        "LD_LIBRARY_PATH": ":".join(
+            [*directories, os.environ.get("LD_LIBRARY_PATH", "")]
+        ).rstrip(":"),
+    }
     closure: dict[str, Any] = {}
     for component, path in installed.items():
         member = expected_members[component]

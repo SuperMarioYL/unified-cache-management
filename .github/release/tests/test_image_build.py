@@ -556,6 +556,14 @@ def test_prepare_context_consumes_actual_task3_task_and_task2_record(
     assert recipe["payload"]["source_date_epoch"] == 0
 
 
+def test_native_build_and_runtime_preserve_mooncake_loader_path() -> None:
+    """Non-interactive builds and runtime inspection must see /usr/local/lib."""
+    dockerfile = (RELEASE_ROOT / "docker/Dockerfile").read_text(encoding="utf-8")
+    inspector = (RELEASE_ROOT / "docker/inspect_runtime.py").read_text(encoding="utf-8")
+    assert dockerfile.count("RUN ldconfig /usr/local/lib") == 3
+    assert '[*directories, os.environ.get("LD_LIBRARY_PATH", "")]' in inspector
+
+
 @pytest.mark.parametrize("mutation", ["task", "candidate", "record", "wheel"])
 def test_prepare_context_recomputes_instead_of_trusting_summaries(
     tmp_path: Path, mutation: str

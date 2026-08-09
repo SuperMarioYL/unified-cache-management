@@ -1360,6 +1360,13 @@ def test_release_setup_requires_controlled_values_and_uses_local_version(
     assert "version" in wrong.stderr.lower()
 
 
+def test_release_setup_binds_pybind_to_the_invoking_python() -> None:
+    """The wheel tag and every pybind extension must use the same CPython ABI."""
+    setup_text = (ROOT / "setup.py").read_text(encoding="utf-8")
+    assert 'f"-DPYTHON_EXECUTABLE={sys.executable}"' in setup_text
+    assert 'f"-DPython_EXECUTABLE={sys.executable}"' in setup_text
+
+
 def test_release_setup_rejects_self_consistent_caller_forged_authority() -> None:
     base_env = {
         key: value

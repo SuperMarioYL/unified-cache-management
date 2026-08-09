@@ -41,6 +41,7 @@ ARG CMAKE_SHA256
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 ENV TZ=UTC PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_DEFAULT_TIMEOUT=30 PIP_RETRIES=2 \
     PYTHONDONTWRITEBYTECODE=1
+RUN ldconfig /usr/local/lib
 
 RUN if [[ -x /opt/python/cp312-cp312/bin/python ]]; then \
       ln -s /opt/python/cp312-cp312/bin/python /usr/local/bin/ucm-python; \
@@ -207,6 +208,8 @@ ARG SOURCE_DATE_EPOCH
 ARG TARGETPLATFORM
 ARG UCM_WHEEL
 
+RUN ldconfig /usr/local/lib
+
 COPY image-recipe.json /usr/local/share/ucm-release/image-recipe.json
 COPY image-metadata.json /usr/local/share/ucm-release/image-metadata.json
 COPY verify_base_image.py /usr/local/bin/verify_base_image.py
@@ -245,6 +248,8 @@ ARG UCM_TASK_SHA256
 ARG UCM_BUILD_KEY_SHA256
 ARG UCM_WHEEL_SHA256
 ARG UCM_RECIPE_SHA256
+
+RUN ldconfig /usr/local/lib
 
 LABEL org.opencontainers.image.revision="${UCM_SOURCE_SHA}" \
       io.ucm.release.source-tree="${UCM_SOURCE_TREE}" \
