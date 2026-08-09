@@ -554,8 +554,34 @@ def _write_oci(
         "application/vnd.oci.image.layer.v1.tar+gzip",
     ),
     rootfs_mutation: str | None = None,
+    extra_layer_members: tuple[tuple[str, str], ...] = (),
+    layer_member_types: dict[str, str] | None = None,
+    outer_extra_members: tuple[tuple[str, bytes], ...] = (),
 ) -> None:
     """Write a minimal standard OCI layout containing the observable image files."""
+    member_types = layer_member_types or {}
+
+    def add_member(
+        archive: tarfile.TarFile, name: str, content: bytes, member_type: str
+    ) -> None:
+        info = tarfile.TarInfo(name)
+        info.mode = 0o644
+        info.mtime = 0
+        if member_type == "file":
+            info.size = len(content)
+            archive.addfile(info, io.BytesIO(content))
+        elif member_type == "symlink":
+            info.type = tarfile.SYMTYPE
+            info.linkname = "target"
+            archive.addfile(info)
+        elif member_type == "character-device":
+            info.type = tarfile.CHRTYPE
+            info.devmajor = 1
+            info.devminor = 3
+            archive.addfile(info)
+        else:
+            raise AssertionError(f"unknown test tar member type {member_type}")
+
     members = {
         "usr/local/share/ucm-release/image-recipe.json": (
             context / "image-recipe.json"
@@ -594,11 +620,10 @@ def _write_oci(
         )
         with tarfile.open(fileobj=layer_buffer, mode="w") as layer:
             for name, content in sorted(layer_members.items()):
-                info = tarfile.TarInfo(name)
-                info.size = len(content)
-                info.mode = 0o644
-                info.mtime = 0
-                layer.addfile(info, io.BytesIO(content))
+                add_member(layer, name, content, member_types.get(name, "file"))
+            if layer_index == 0:
+                for name, member_type in extra_layer_members:
+                    add_member(layer, name, b"extra layer member", member_type)
         uncompressed = layer_buffer.getvalue()
         diff_ids.append("sha256:" + hashlib.sha256(uncompressed).hexdigest())
         if media_type == "application/vnd.oci.image.layer.v1.tar":
@@ -687,7 +712,7 @@ def _write_oci(
                 for digest, blob in blobs.items()
             }
         )
-        for name, content in sorted(files.items()):
+        for name, content in [*sorted(files.items()), *outer_extra_members]:
             info = tarfile.TarInfo(name)
             info.size = len(content)
             info.mode = 0o644
@@ -1487,6 +1512,100 @@ def test_verify_oci_accepts_uncompressed_layer_with_matching_diff_id(
 
     result = image.verify_oci(context, oci_path)
     assert result["status"] == "fixture-verified-unpublished"
+
+
+def test_verify_oci_accepts_literal_backslash_in_linux_layer_member(
+    tmp_path: Path,
+) -> None:
+    """A POSIX layer filename may contain a literal backslash without extraction."""
+    image, _, context, recipe = _prepare(tmp_path)
+    oci_path = tmp_path / "posix-backslash.oci.tar"
+    _write_oci(
+        oci_path,
+        context,
+        recipe,
+        _evidence(recipe),
+        extra_layer_members=(
+            (r"usr/lib/systemd/system/system-systemd\x2dcryptsetup.slice", "file"),
+        ),
+    )
+
+    result = image.verify_oci(context, oci_path)
+    assert result["status"] == "fixture-verified-unpublished"
+
+
+@pytest.mark.parametrize("member_name", ["/absolute", "a/../b", "a/./b", "a//b"])
+def test_verify_oci_rejects_noncanonical_linux_layer_member(
+    tmp_path: Path, member_name: str
+) -> None:
+    """Allowing POSIX backslashes must not admit absolute or normalized paths."""
+    image, _, context, recipe = _prepare(tmp_path)
+    oci_path = tmp_path / "noncanonical-layer.oci.tar"
+    _write_oci(
+        oci_path,
+        context,
+        recipe,
+        _evidence(recipe),
+        extra_layer_members=((member_name, "file"),),
+    )
+
+    with pytest.raises(ValueError, match="noncanonical member"):
+        image.verify_oci(context, oci_path)
+
+
+def test_verify_oci_keeps_outer_layout_backslash_strict(tmp_path: Path) -> None:
+    """The host-opened OCI layout must not inherit Linux layer filename rules."""
+    image, _, context, recipe = _prepare(tmp_path)
+    oci_path = tmp_path / "outer-backslash.oci.tar"
+    _write_oci(
+        oci_path,
+        context,
+        recipe,
+        _evidence(recipe),
+        outer_extra_members=((r"blobs\sha256\not-a-layout-path", b"extra"),),
+    )
+
+    with pytest.raises(ValueError, match="OCI layout contains noncanonical member"):
+        image.verify_oci(context, oci_path)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "match"),
+    [
+        ("duplicate", "duplicate member"),
+        ("symlink", "duplicate/non-file recipe evidence"),
+        ("character-device", "duplicate/non-file recipe evidence"),
+    ],
+)
+def test_verify_oci_still_rejects_duplicate_or_nonfile_layer_evidence(
+    tmp_path: Path, mutation: str, match: str
+) -> None:
+    """Streaming a layer must preserve duplicate and evidence-type checks."""
+    image, _, context, recipe = _prepare(tmp_path)
+    oci_path = tmp_path / f"{mutation}.oci.tar"
+    recipe_member = "usr/local/share/ucm-release/image-recipe.json"
+    if mutation == "duplicate":
+        _write_oci(
+            oci_path,
+            context,
+            recipe,
+            _evidence(recipe),
+            extra_layer_members=(
+                (r"usr/lib/systemd/system/system-systemd\x2dcryptsetup.slice", "file"),
+                (r"usr/lib/systemd/system/system-systemd\x2dcryptsetup.slice", "file"),
+            ),
+        )
+    else:
+        _write_oci(
+            oci_path,
+            context,
+            recipe,
+            _evidence(recipe),
+            layer_member_types={recipe_member: mutation},
+        )
+
+    with pytest.raises(ValueError, match=match):
+        image.verify_oci(context, oci_path)
 
 
 def test_verify_oci_streams_compressed_layers_without_gzip_decompress(

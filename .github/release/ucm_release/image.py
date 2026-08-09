@@ -15,7 +15,7 @@ import shutil
 import tarfile
 import tempfile
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from . import core as release_core
@@ -2229,12 +2229,14 @@ def validate_image_result(
     return copy.deepcopy(result)
 
 
-def _canonical_tar_name(name: str, label: str) -> str:
-    path = Path(name)
+def _canonical_tar_name(
+    name: str, label: str, *, allow_posix_backslash: bool = False
+) -> str:
+    path = PurePosixPath(name)
     if (
         not name
         or name.startswith("/")
-        or "\\" in name
+        or (not allow_posix_backslash and "\\" in name)
         or any(part in {"", ".", ".."} for part in path.parts)
         or path.as_posix() != name.rstrip("/")
     ):
@@ -2520,7 +2522,9 @@ def evidence_from_oci(
                     layer_seen: set[str] = set()
                     for member in layer_archive:
                         name = _canonical_tar_name(
-                            member.name, f"OCI layer {layer_index}"
+                            member.name,
+                            f"OCI layer {layer_index}",
+                            allow_posix_backslash=True,
                         )
                         if name in layer_seen:
                             raise ValueError(
