@@ -560,8 +560,35 @@ def test_native_build_and_runtime_preserve_mooncake_loader_path() -> None:
     """Non-interactive builds and runtime inspection must see /usr/local/lib."""
     dockerfile = (RELEASE_ROOT / "docker/Dockerfile").read_text(encoding="utf-8")
     inspector = (RELEASE_ROOT / "docker/inspect_runtime.py").read_text(encoding="utf-8")
+    inherited_loader_path = (
+        'ENV LD_LIBRARY_PATH="/usr/local/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"'
+    )
+    assert dockerfile.count("ARG LD_LIBRARY_PATH") == 3
+    assert dockerfile.count(inherited_loader_path) == 3
     assert dockerfile.count("RUN ldconfig /usr/local/lib") == 3
+    assert "! ldd /usr/local/lib/libmooncake_store.so | grep -F 'not found'" in (
+        dockerfile
+    )
     assert '[*directories, os.environ.get("LD_LIBRARY_PATH", "")]' in inspector
+
+
+def test_native_build_runs_the_locked_cmake_from_cpython_scripts() -> None:
+    """The build must not fall back to an older CMake already on the base PATH."""
+    dockerfile = (RELEASE_ROOT / "docker/Dockerfile").read_text(encoding="utf-8")
+    locked_cmake = (
+        "locked_cmake=\"$(ucm-python -c 'import sysconfig; "
+        'print(sysconfig.get_path("scripts"))\')/cmake"'
+    )
+    locked_scripts_path = (
+        "PATH=\"$(ucm-python -c 'import sysconfig; "
+        'print(sysconfig.get_path("scripts"))\'):${PATH}"'
+    )
+    assert locked_cmake in dockerfile
+    assert 'test -x "${locked_cmake}"' in dockerfile
+    assert '"${locked_cmake}" --version' in dockerfile
+    assert '= "${CMAKE_VERSION}"' in dockerfile
+    assert locked_scripts_path in dockerfile
+    assert "command -v cmake" not in dockerfile
 
 
 @pytest.mark.parametrize("mutation", ["task", "candidate", "record", "wheel"])

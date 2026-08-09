@@ -7,15 +7,18 @@ import importlib
 import io
 import json
 import os
+import runpy
 import shutil
 import struct
 import subprocess
 import sys
+import sysconfig
 import tarfile
 import zipfile
 from pathlib import Path
 
 import pytest
+import setuptools
 import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -90,7 +93,7 @@ NATIVE_MEMBERS = {
     "ucmtrans": "ucm/shared/trans/ucmtrans.cpython-312-x86_64-linux-gnu.so",
     "metrics": "ucm/shared/metrics/libmetrics.so",
     "ucmmetrics": "ucm/shared/metrics/ucmmetrics.cpython-312-x86_64-linux-gnu.so",
-    "ucmlogger": "ucm/shared/infra/logger/ucmlogger.cpython-312-x86_64-linux-gnu.so",
+    "ucmlogger": "ucm/shared/infra/ucmlogger.cpython-312-x86_64-linux-gnu.so",
     "ucmnfsstore": "ucm/store/nfsstore/ucmnfsstore.cpython-312-x86_64-linux-gnu.so",
     "ucmpcstore": "ucm/store/pcstore/ucmpcstore.cpython-312-x86_64-linux-gnu.so",
     "posixstore": "ucm/store/posix/libposixstore.so",
@@ -1367,6 +1370,34 @@ def test_release_setup_binds_pybind_to_the_invoking_python() -> None:
     assert 'f"-DPython_EXECUTABLE={sys.executable}"' in setup_text
 
 
+def test_release_setup_configures_cmake_with_invoking_python_development_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Modern FindPython must resolve headers from the same invoking CPython."""
+    monkeypatch.setenv("PLATFORM", "cuda")
+    monkeypatch.delenv("UCM_RELEASE_BUILD", raising=False)
+    monkeypatch.setattr(setuptools, "setup", lambda **_kwargs: None)
+    setup_namespace = runpy.run_path(str(ROOT / "setup.py"))
+
+    calls: list[list[str]] = []
+
+    def record_call(command: list[str], **_kwargs: object) -> None:
+        calls.append(command)
+
+    monkeypatch.setattr(subprocess, "check_call", record_call)
+    builder = setup_namespace["CMakeBuild"](setuptools.Distribution())
+    builder.build_temp = str(tmp_path / "build")
+    builder.build_lib = str(tmp_path / "install")
+    extension = setup_namespace["CMakeExtension"]("ucm", str(ROOT))
+    builder.build_cmake(extension)
+
+    configure_argv = calls[0]
+    assert configure_argv[0] == "cmake"
+    assert f"-DPython_EXECUTABLE={sys.executable}" in configure_argv
+    assert f"-DPython_INCLUDE_DIR={sysconfig.get_path('include')}" in configure_argv
+    assert f"-DPython_ROOT_DIR={sys.prefix}" in configure_argv
+
+
 def test_release_setup_rejects_self_consistent_caller_forged_authority() -> None:
     base_env = {
         key: value
@@ -1427,6 +1458,9 @@ def test_wheel_seal_is_deterministic_and_inspection_recomputes_exact_native_evid
     assert evidence["source_commit"] == REVIEWED_SOURCE_SHA
     assert evidence["build_key"] == CUDA_AMD64_BUILD_KEY
     assert evidence["native_components"] == CUDA_REQUIRED_NATIVE
+    assert evidence["native_members"]["ucmlogger"] == (
+        "ucm/shared/infra/ucmlogger.cpython-312-x86_64-linux-gnu.so"
+    )
     assert evidence["elf_machines"] == ["EM_X86_64"]
     assert evidence["unresolved_dependencies"] == []
     assert evidence["record_status"] == "passed"
@@ -1518,6 +1552,10 @@ def test_wheel_seal_requires_mooncake_for_ascend(tmp_path: Path) -> None:
     (
         ("metrics", "arbitrary/location/libmetrics.so"),
         ("ucmtrans", "ucm/shared/trans/ucmtrans.so"),
+        (
+            "ucmlogger",
+            "ucm/shared/infra/logger/ucmlogger.cpython-312-x86_64-linux-gnu.so",
+        ),
     ),
 )
 def test_wheel_seal_rejects_native_member_moved_from_exact_archive_path(

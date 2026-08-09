@@ -55,7 +55,7 @@ NATIVE_MEMBER_DIRECTORIES = {
     "ucmtrans": "ucm/shared/trans",
     "metrics": "ucm/shared/metrics",
     "ucmmetrics": "ucm/shared/metrics",
-    "ucmlogger": "ucm/shared/infra/logger",
+    "ucmlogger": "ucm/shared/infra",
     "ucmnfsstore": "ucm/store/nfsstore",
     "ucmpcstore": "ucm/store/pcstore",
     "posixstore": "ucm/store/posix",

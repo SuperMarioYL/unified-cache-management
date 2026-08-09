@@ -41,6 +41,8 @@ ARG CMAKE_SHA256
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 ENV TZ=UTC PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_DEFAULT_TIMEOUT=30 PIP_RETRIES=2 \
     PYTHONDONTWRITEBYTECODE=1
+ARG LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH="/usr/local/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 RUN ldconfig /usr/local/lib
 
 RUN if [[ -x /opt/python/cp312-cp312/bin/python ]]; then \
@@ -120,7 +122,9 @@ test -n "${UCM_RELEASE_REQUIRED_TARGETS}"
 test -n "${UCM_RELEASE_FORBIDDEN_TARGETS}"
 test "$(ucm-python -c 'import sysconfig; print(sysconfig.get_config_var("SOABI").split("-")[0])')" = cpython
 test "$(ucm-python -c 'import sys; print(f"cp{sys.version_info.major}{sys.version_info.minor}")')" = cp312
-command -v cmake
+locked_cmake="$(ucm-python -c 'import sysconfig; print(sysconfig.get_path("scripts"))')/cmake"
+test -x "${locked_cmake}"
+test "$("${locked_cmake}" --version | awk 'NR == 1 {print $3}')" = "${CMAKE_VERSION}"
 command -v git
 command -v g++
 command -v make
@@ -161,7 +165,8 @@ RUN PYTHONPATH=/workspace/ucm/.github/release \
       --source-root /workspace/ucm \
       --output /tmp/build-authority.json
 
-RUN UCM_RELEASE_BUILD=1 \
+RUN PATH="$(ucm-python -c 'import sysconfig; print(sysconfig.get_path("scripts"))'):${PATH}" \
+    UCM_RELEASE_BUILD=1 \
     PLATFORM="${PLATFORM}" \
     UCM_RELEASE_PROFILE="${UCM_RELEASE_PROFILE}" \
     UCM_RELEASE_SOURCE_SHA="${UCM_RELEASE_SOURCE_SHA}" \
@@ -208,6 +213,8 @@ ARG SOURCE_DATE_EPOCH
 ARG TARGETPLATFORM
 ARG UCM_WHEEL
 
+ARG LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH="/usr/local/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 RUN ldconfig /usr/local/lib
 
 COPY image-recipe.json /usr/local/share/ucm-release/image-recipe.json
@@ -249,6 +256,8 @@ ARG UCM_BUILD_KEY_SHA256
 ARG UCM_WHEEL_SHA256
 ARG UCM_RECIPE_SHA256
 
+ARG LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH="/usr/local/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 RUN ldconfig /usr/local/lib
 
 LABEL org.opencontainers.image.revision="${UCM_SOURCE_SHA}" \
