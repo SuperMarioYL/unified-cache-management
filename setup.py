@@ -123,7 +123,7 @@ def _release_authority() -> dict[str, object]:
     tools = authority["tool_wheels"]
     if (
         not isinstance(tools, dict)
-        or len(tools) != 6
+        or len(tools) != 7
         or any(
             not isinstance(name, str)
             or re.fullmatch(r"sha256:[0-9a-f]{64}", str(value)) is None

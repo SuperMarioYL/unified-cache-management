@@ -31,12 +31,16 @@ ARG SETUPTOOLS_SHA256
 ARG WHEEL_VERSION
 ARG WHEEL_FILENAME
 ARG WHEEL_SHA256
+ARG PYYAML_VERSION
+ARG PYYAML_FILENAME
+ARG PYYAML_SHA256
 ARG CMAKE_VERSION
 ARG CMAKE_FILENAME
 ARG CMAKE_SHA256
 
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
-ENV TZ=UTC PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_DEFAULT_TIMEOUT=30 PIP_RETRIES=2
+ENV TZ=UTC PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_DEFAULT_TIMEOUT=30 PIP_RETRIES=2 \
+    PYTHONDONTWRITEBYTECODE=1
 
 RUN if [[ -x /opt/python/cp312-cp312/bin/python ]]; then \
       ln -s /opt/python/cp312-cp312/bin/python /usr/local/bin/ucm-python; \
@@ -57,6 +61,7 @@ ucm-python -m pip download --dest /wheelhouse --no-deps --only-binary=:all: \
   "packaging==${PACKAGING_VERSION}" \
   "setuptools==${SETUPTOOLS_VERSION}" \
   "wheel==${WHEEL_VERSION}" \
+  "PyYAML==${PYYAML_VERSION}" \
   "cmake==${CMAKE_VERSION}"
 check_wheel() {
   local filename="$1" expected="${2#sha256:}" actual
@@ -69,6 +74,7 @@ check_wheel "${PYPROJECT_HOOKS_FILENAME}" "${PYPROJECT_HOOKS_SHA256}"
 check_wheel "${PACKAGING_FILENAME}" "${PACKAGING_SHA256}"
 check_wheel "${SETUPTOOLS_FILENAME}" "${SETUPTOOLS_SHA256}"
 check_wheel "${WHEEL_FILENAME}" "${WHEEL_SHA256}"
+check_wheel "${PYYAML_FILENAME}" "${PYYAML_SHA256}"
 check_wheel "${CMAKE_FILENAME}" "${CMAKE_SHA256}"
 cat > /tmp/requirements.lock <<LOCK
 build==${BUILD_VERSION} --hash=${BUILD_SHA256}
@@ -76,6 +82,7 @@ pyproject-hooks==${PYPROJECT_HOOKS_VERSION} --hash=${PYPROJECT_HOOKS_SHA256}
 packaging==${PACKAGING_VERSION} --hash=${PACKAGING_SHA256}
 setuptools==${SETUPTOOLS_VERSION} --hash=${SETUPTOOLS_SHA256}
 wheel==${WHEEL_VERSION} --hash=${WHEEL_SHA256}
+PyYAML==${PYYAML_VERSION} --hash=${PYYAML_SHA256}
 cmake==${CMAKE_VERSION} --hash=${CMAKE_SHA256}
 LOCK
 ucm-python -m pip install --no-index --find-links=/wheelhouse --require-hashes \

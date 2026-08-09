@@ -927,6 +927,45 @@ def test_real_hosted_matrix_projects_the_reviewed_six_tasks_without_a_second_mat
         assert item["image_artifact"] == f"ucm-image-{item['spec_id']}-{source_sha}"
         assert item["build_args"]["UCM_RELEASE_BUILD_KEY"] == item["task_sha256"]
         assert item["build_args"]["SOURCE_DATE_EPOCH"] == str(source_epoch)
+        expected_pyyaml = {
+            "amd64": {
+                "PYYAML_VERSION": "6.0.2",
+                "PYYAML_FILENAME": "PyYAML-6.0.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+                "PYYAML_SHA256": "sha256:80bab7bfc629882493af4aa31a4cfa43a4c57c83813253626916b8c7ada83476",
+            },
+            "arm64": {
+                "PYYAML_VERSION": "6.0.2",
+                "PYYAML_FILENAME": "PyYAML-6.0.2-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl",
+                "PYYAML_SHA256": "sha256:1f71ea527786de97d1a0cc0eacd1defc0985dcf6b3f17bb77dcfc8c34bec4dc5",
+            },
+        }[item["cpu_arch"]]
+        assert {
+            key: item["build_args"][key] for key in expected_pyyaml
+        } == expected_pyyaml
+        expected_cmake = {
+            "amd64": {
+                "CMAKE_VERSION": "3.31.6",
+                "CMAKE_FILENAME": "cmake-3.31.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+                "CMAKE_SHA256": "sha256:1c8b05df0602365da91ee6a3336fe57525b137706c4ab5675498f662ae1dbcec",
+            },
+            "arm64": {
+                "CMAKE_VERSION": "3.31.6",
+                "CMAKE_FILENAME": "cmake-3.31.6-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl",
+                "CMAKE_SHA256": "sha256:42d9883b8958da285d53d5f69d40d9650c2d1bcf922d82b3ebdceb2b3a7d4521",
+            },
+        }[item["cpu_arch"]]
+        assert {
+            key: item["build_args"][key] for key in expected_cmake
+        } == expected_cmake
+
+    dockerfile = (REPO_ROOT / ".github/release/docker/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    assert "ARG PYYAML_VERSION" in dockerfile
+    assert '"PyYAML==${PYYAML_VERSION}"' in dockerfile
+    assert 'check_wheel "${PYYAML_FILENAME}" "${PYYAML_SHA256}"' in dockerfile
+    assert "PyYAML==${PYYAML_VERSION} --hash=${PYYAML_SHA256}" in dockerfile
+    assert "PYTHONDONTWRITEBYTECODE=1" in dockerfile
 
 
 def test_hosted_matrix_cli_writes_the_canonical_workflow_authority(
@@ -1661,6 +1700,9 @@ def test_workflows_only_orchestrate_tested_cli_and_real_runs_full_closure() -> N
     assert re.search(r"CRANE_LINUX_ARM64_SHA256: [0-9a-f]{64}", image_text)
     assert "crane manifest" in image_text and "crane config" in image_text
     assert "crane blob" not in image_text
+    assert 'export SOURCE_DATE_EPOCH="$(' not in image_text
+    assert 'SOURCE_DATE_EPOCH="$(' in image_text
+    assert "export SOURCE_DATE_EPOCH" in image_text
 
 
 def test_release_toolchains_are_immutable_and_checksum_verified() -> None:
@@ -1751,7 +1793,9 @@ def test_clean_image_build_rewrites_timestamps_without_disabling_dependencies() 
         "type=oci,dest=out/image.oci.tar,oci-mediatypes=true,rewrite-timestamp=true"
         in workflow
     )
-    assert 'export SOURCE_DATE_EPOCH="$(python' in workflow
+    assert 'export SOURCE_DATE_EPOCH="$(python' not in workflow
+    assert 'SOURCE_DATE_EPOCH="$(python' in workflow
+    assert "export SOURCE_DATE_EPOCH" in workflow
     assert '"--no-cache-dir"' in installer
     assert '"--disable-pip-version-check"' in installer
     assert '"--only-binary=:all:"' in installer

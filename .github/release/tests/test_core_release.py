@@ -47,10 +47,10 @@ EXPECTED_TARGETS = {
 }
 
 CUDA_AMD64_BUILD_KEY = (
-    "sha256:d0ee32872f80529f63b4aa85f2e9160f8aa115e5db493f0adceba983377bacbf"
+    "sha256:081967dad8d485228cfa8da5f744d3c4b4b1b600828f9b7a14a09912a4309082"
 )
 A2_AMD64_BUILD_KEY = (
-    "sha256:c18c73be8e9bd04f710c304b84df807d78462e5af0abfdcff24ab65b3db81e7d"
+    "sha256:1561d4519f4da2bd3115dd8de523160aa17aaeab4467635da2abd17ad1234850"
 )
 SOURCE_DATE_EPOCH = 1_700_000_000
 REVIEWED_SOURCE_SHA = subprocess.run(
@@ -519,6 +519,8 @@ def _seal_native_wheel(
     }
     cmake = release["python_build_lock"]["cmake"]["artifacts"][task["cpu_arch"]]
     tool_wheels[cmake["filename"]] = cmake["sha256"]
+    pyyaml = release["python_build_lock"]["pyyaml"]["artifacts"][task["cpu_arch"]]
+    tool_wheels[pyyaml["filename"]] = pyyaml["sha256"]
     source_tree = _git(ROOT, "rev-parse", f"{REVIEWED_SOURCE_SHA}^{{tree}}")
     root = task["builder"]["root"]
     authority = {
@@ -767,6 +769,23 @@ def test_release_config_carries_exact_builder_runtime_and_dependency_authorities
         release["python_build_lock"]["cmake"]["artifacts"]["arm64"]["sha256"]
         == "sha256:42d9883b8958da285d53d5f69d40d9650c2d1bcf922d82b3ebdceb2b3a7d4521"
     )
+    assert release["python_build_lock"]["cmake"]["artifacts"]["amd64"] == {
+        "filename": "cmake-3.31.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+        "sha256": "sha256:1c8b05df0602365da91ee6a3336fe57525b137706c4ab5675498f662ae1dbcec",
+    }
+    assert release["python_build_lock"]["pyyaml"] == {
+        "version": "6.0.2",
+        "artifacts": {
+            "amd64": {
+                "filename": "PyYAML-6.0.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+                "sha256": "sha256:80bab7bfc629882493af4aa31a4cfa43a4c57c83813253626916b8c7ada83476",
+            },
+            "arm64": {
+                "filename": "PyYAML-6.0.2-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl",
+                "sha256": "sha256:1f71ea527786de97d1a0cc0eacd1defc0985dcf6b3f17bb77dcfc8c34bec4dc5",
+            },
+        },
+    }
     assert release["wrapt_wheels"]["amd64"]["sha256"] == (
         "sha256:bc570b5f14a79734437cb7b0500376b6b791153314986074486e0b0fa8d71d98"
     )

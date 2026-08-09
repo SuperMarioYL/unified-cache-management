@@ -241,7 +241,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          export SOURCE_DATE_EPOCH="$(python -c 'import json; print(json.load(open("context/image-recipe.json"))["payload"]["source_date_epoch"])')"
+          SOURCE_DATE_EPOCH="$(python -c 'import json; print(json.load(open("context/image-recipe.json"))["payload"]["source_date_epoch"])')"
+          export SOURCE_DATE_EPOCH
           recipe_sha256="$(python -c 'import json; print(json.load(open("context/image-recipe.json"))["payload_sha256"])')"
           task_sha256="$(python -c 'import json; print(json.load(open("context/image-recipe.json"))["payload"]["task_sha256"])')"
           target_platform="$(python -c 'import json; print(json.load(open("context/image-recipe.json"))["payload"]["target_platform"])')"

@@ -177,8 +177,13 @@ def hosted_build_matrix(
             build_args[f"{argument_prefix}_SHA256"] = package["sha256"]
         cmake = release["python_build_lock"]["cmake"]
         cmake_artifact = cmake["artifacts"][reviewed_task["cpu_arch"]]
+        pyyaml = release["python_build_lock"]["pyyaml"]
+        pyyaml_artifact = pyyaml["artifacts"][reviewed_task["cpu_arch"]]
         build_args.update(
             {
+                "PYYAML_VERSION": pyyaml["version"],
+                "PYYAML_FILENAME": pyyaml_artifact["filename"],
+                "PYYAML_SHA256": pyyaml_artifact["sha256"],
                 "CMAKE_VERSION": cmake["version"],
                 "CMAKE_FILENAME": cmake_artifact["filename"],
                 "CMAKE_SHA256": cmake_artifact["sha256"],

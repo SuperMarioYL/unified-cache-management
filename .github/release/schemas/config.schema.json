@@ -237,7 +237,7 @@
         "python_build_lock": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["install_flags", "packages", "cmake"],
+          "required": ["install_flags", "packages", "pyyaml", "cmake"],
           "properties": {
             "install_flags": {
               "type": "array", "minItems": 4, "maxItems": 4, "uniqueItems": true,
@@ -253,6 +253,23 @@
                 "packaging": {"$ref": "#/$defs/lockedPackage"},
                 "setuptools": {"$ref": "#/$defs/lockedPackage"},
                 "wheel": {"$ref": "#/$defs/lockedPackage"}
+              }
+            },
+            "pyyaml": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["version", "artifacts"],
+              "properties": {
+                "version": {"const": "6.0.2"},
+                "artifacts": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["amd64", "arm64"],
+                  "properties": {
+                    "amd64": {"$ref": "#/$defs/lockedWheel"},
+                    "arm64": {"$ref": "#/$defs/lockedWheel"}
+                  }
+                }
               }
             },
             "cmake": {

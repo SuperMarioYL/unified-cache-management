@@ -270,6 +270,8 @@ def _tool_wheel_authority(release: dict[str, Any], architecture: str) -> dict[st
     }
     cmake = release["python_build_lock"]["cmake"]["artifacts"][architecture]
     wheels[cmake["filename"]] = cmake["sha256"]
+    pyyaml = release["python_build_lock"]["pyyaml"]["artifacts"][architecture]
+    wheels[pyyaml["filename"]] = pyyaml["sha256"]
     return dict(sorted(wheels.items()))
 
 

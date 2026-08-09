@@ -267,7 +267,7 @@ CANONICAL_RELEASE_SECTION_SHA256 = {
     "lanes": "sha256:8de0316a0d938870075c4865b6e9bf7beb969e3edcbbfd6a122a2862e8eeb7f1",
     "runner_map": "sha256:9ff3e8be59d3fc512967852b3c2e26e0e5474c7cf81ca500a255f10b13b84869",
     "python_runtime_dependencies": "sha256:a8667534906615d56bb80c5aef52014a6c099bf53b10e07305dd249dedc86b18",
-    "python_build_lock": "sha256:367531ab722e53b1b3cd6283b7385ae0073c78f51ffedf8bb8658478fc593eb0",
+    "python_build_lock": "sha256:bc58dc3dceb19bef10d1152b415afb4954c452a349ade930603cdb0b743f24c8",
     "wrapt_wheels": "sha256:2c674887f2c73e504ba0da5a83d93e2fc88391405e7ac29aa37d082e6184bfab",
     "chart": "sha256:a4d4da0020be293876a242a22910830cc2c600d308df650837c2ae6d53b67f7f",
     "wheel_profiles": "sha256:03af43997bdd323a6e03cb3577b40e3f79654a095dad60164efc36934f807cc5",
