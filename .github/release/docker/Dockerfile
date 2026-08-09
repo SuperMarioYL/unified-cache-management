@@ -222,7 +222,7 @@ ARG UCM_WHEEL
 
 ARG LD_LIBRARY_PATH
 ENV LD_LIBRARY_PATH="/usr/local/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-RUN ldconfig /usr/local/lib
+RUN ldconfig /usr/local/lib && rm -f /var/cache/ldconfig/aux-cache
 
 COPY image-recipe.json /usr/local/share/ucm-release/image-recipe.json
 COPY image-metadata.json /usr/local/share/ucm-release/image-metadata.json
@@ -265,7 +265,7 @@ ARG UCM_RECIPE_SHA256
 
 ARG LD_LIBRARY_PATH
 ENV LD_LIBRARY_PATH="/usr/local/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-RUN ldconfig /usr/local/lib
+RUN ldconfig /usr/local/lib && rm -f /var/cache/ldconfig/aux-cache
 
 LABEL org.opencontainers.image.revision="${UCM_SOURCE_SHA}" \
       io.ucm.release.source-tree="${UCM_SOURCE_TREE}" \

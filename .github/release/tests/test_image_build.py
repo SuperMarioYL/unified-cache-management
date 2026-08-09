@@ -804,6 +804,30 @@ def test_wheel_base_caches_cuda_runtime_without_changing_runtime_stages() -> Non
         assert "/usr/local/cuda/lib64" not in runtime_stage
 
 
+def test_runtime_stages_remove_ldconfig_aux_cache_in_the_same_layer() -> None:
+    """Runtime loader refreshes must not persist host-specific ldconfig metadata."""
+    dockerfile = (RELEASE_ROOT / "docker/Dockerfile").read_text(encoding="utf-8")
+    wheel_base = dockerfile.split(
+        "FROM ${UCM_BUILDER_IMAGE} AS wheel-base", maxsplit=1
+    )[1].split("FROM wheel-base AS wheel-build", maxsplit=1)[0]
+    runtime_install = dockerfile.split(
+        "FROM ${BASE_IMAGE} AS runtime-install", maxsplit=1
+    )[1].split("FROM runtime-install AS runtime", maxsplit=1)[0]
+    runtime_real_install = dockerfile.split(
+        "FROM ${BASE_IMAGE} AS runtime-real-install", maxsplit=1
+    )[1].split("FROM runtime-real-install AS runtime-real", maxsplit=1)[0]
+    deterministic_refresh = (
+        "RUN ldconfig /usr/local/lib && rm -f /var/cache/ldconfig/aux-cache"
+    )
+
+    assert "/var/cache/ldconfig/aux-cache" not in wheel_base
+    assert dockerfile.count(deterministic_refresh) == 2
+    for runtime_stage in (runtime_install, runtime_real_install):
+        assert runtime_stage.count(deterministic_refresh) == 1
+        assert "RUN ldconfig /usr/local/lib\n" not in runtime_stage
+        assert "RUN rm -f /var/cache/ldconfig/aux-cache" not in runtime_stage
+
+
 def test_runtime_stages_invoke_all_python_helpers_through_python3() -> None:
     """A runtime base with python3 but no bare python must reach every helper."""
     dockerfile = (RELEASE_ROOT / "docker/Dockerfile").read_text(encoding="utf-8")
