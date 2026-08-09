@@ -26,6 +26,28 @@
     }
   },
   "type": "object",
+  "oneOf": [
+    {
+      "required": ["fixture_only", "status"],
+      "properties": {
+        "fixture_only": {"const": true},
+        "status": {"const": "fixture-verified-unpublished"}
+      }
+    },
+    {
+      "required": [
+        "candidate_kind", "fixture_only", "output_mode",
+        "content_identity_sha256", "family_id", "profile_id", "spec_id",
+        "target_repository", "target_tag", "wrapt_wheel", "dependency_lock",
+        "toolchain", "content_identity", "status"
+      ],
+      "properties": {
+        "candidate_kind": {"const": "real-candidate"},
+        "fixture_only": {"const": false},
+        "status": {"const": "real-verified-unpublished"}
+      }
+    }
+  ],
   "additionalProperties": false,
   "required": [
     "schema_version", "kind", "fixture_only", "unpublished",
@@ -37,7 +59,8 @@
   "properties": {
     "schema_version": {"const": 1},
     "kind": {"const": "ucm-image-result"},
-    "fixture_only": {"const": true},
+    "candidate_kind": {"enum": ["fixture-candidate", "real-candidate"]},
+    "fixture_only": {"type": "boolean"},
     "unpublished": {"const": true},
     "publication_attempted": {"const": false},
     "recipe_sha256": {"$ref": "#/$defs/digest"},
@@ -45,26 +68,50 @@
     "build_key_sha256": {"$ref": "#/$defs/digest"},
     "task_key": {"$ref": "#/$defs/digest"},
     "ucm_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:rc[1-9][0-9]*)?$"},
+    "output_mode": {"enum": ["feature", "production"]},
+    "content_identity_sha256": {"$ref": "#/$defs/digest"},
+    "family_id": {"type": "string", "minLength": 1},
+    "profile_id": {"type": "string", "minLength": 1},
+    "spec_id": {"type": "string", "minLength": 1},
+    "target_repository": {"type": "string", "minLength": 1},
+    "target_tag": {"type": "string", "minLength": 1},
     "source": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "release_manifest_sha256", "config_sha256", "compatibility_sha256",
-        "compatibility_rule_id", "compatibility_rule_sha256",
-        "upstream_repository", "upstream_index_digest",
-        "upstream_platform_manifest_digest", "upstream_platform_config_digest"
-      ],
-      "properties": {
-        "release_manifest_sha256": {"$ref": "#/$defs/digest"},
-        "config_sha256": {"$ref": "#/$defs/digest"},
-        "compatibility_sha256": {"$ref": "#/$defs/digest"},
-        "compatibility_rule_id": {"type": "string", "minLength": 1},
-        "compatibility_rule_sha256": {"$ref": "#/$defs/digest"},
-        "upstream_repository": {"type": "string", "minLength": 1},
-        "upstream_index_digest": {"$ref": "#/$defs/digest"},
-        "upstream_platform_manifest_digest": {"$ref": "#/$defs/digest"},
-        "upstream_platform_config_digest": {"$ref": "#/$defs/digest"}
-      }
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "release_manifest_sha256", "config_sha256", "compatibility_sha256",
+            "compatibility_rule_id", "compatibility_rule_sha256",
+            "upstream_repository", "upstream_index_digest",
+            "upstream_platform_manifest_digest", "upstream_platform_config_digest"
+          ],
+          "properties": {
+            "release_manifest_sha256": {"$ref": "#/$defs/digest"},
+            "config_sha256": {"$ref": "#/$defs/digest"},
+            "compatibility_sha256": {"$ref": "#/$defs/digest"},
+            "compatibility_rule_id": {"type": "string", "minLength": 1},
+            "compatibility_rule_sha256": {"$ref": "#/$defs/digest"},
+            "upstream_repository": {"type": "string", "minLength": 1},
+            "upstream_index_digest": {"$ref": "#/$defs/digest"},
+            "upstream_platform_manifest_digest": {"$ref": "#/$defs/digest"},
+            "upstream_platform_config_digest": {"$ref": "#/$defs/digest"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["commit", "tree", "archive_sha256", "context_sha256", "task_sha256", "wheel_build_key"],
+          "properties": {
+            "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+            "tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+            "archive_sha256": {"$ref": "#/$defs/digest"},
+            "context_sha256": {"$ref": "#/$defs/digest"},
+            "task_sha256": {"$ref": "#/$defs/digest"},
+            "wheel_build_key": {"$ref": "#/$defs/digest"}
+          }
+        }
+      ]
     },
     "base": {
       "type": "object",
@@ -75,8 +122,8 @@
       ],
       "properties": {
         "schema_version": {"const": 1},
-        "kind": {"const": "fixture-base-image-record"},
-        "fixture_only": {"const": true},
+        "kind": {"enum": ["fixture-base-image-record", "ucm-real-base-image-record"]},
+        "fixture_only": {"type": "boolean"},
         "repository": {"type": "string", "minLength": 1},
         "index": {"$ref": "#/$defs/base_blob"},
         "manifest": {"$ref": "#/$defs/base_blob"},
@@ -162,12 +209,24 @@
         "aggregate_sha256": {"$ref": "#/$defs/digest"}
       }
     },
+    "wrapt_wheel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["filename", "sha256"],
+      "properties": {
+        "filename": {"type": "string", "pattern": "^wrapt-1\\.17\\.2-.+\\.whl$"},
+        "sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "dependency_lock": {"type": "object"},
+    "toolchain": {"type": "object"},
+    "content_identity": {"type": "object"},
     "oci": {
       "type": "object",
       "additionalProperties": false,
       "required": ["output", "media_type", "digest", "platform", "published"],
       "properties": {
-        "output": {"const": "local-oci"},
+        "output": {"enum": ["local-oci", "canonical-member-record"]},
         "media_type": {"enum": ["application/vnd.oci.image.manifest.v1+json", "application/vnd.oci.image.index.v1+json"]},
         "digest": {"$ref": "#/$defs/digest"},
         "platform": {"enum": ["linux/amd64", "linux/arm64"]},
@@ -186,11 +245,14 @@
         "direct_url": {"$ref": "#/$defs/passed"},
         "ucm_import": {"$ref": "#/$defs/passed"},
         "wrapt_import": {"$ref": "#/$defs/passed"},
-        "abi": {"$ref": "#/$defs/passed"}
+        "abi": {"$ref": "#/$defs/passed"},
+        "native_members": {"$ref": "#/$defs/passed"},
+        "elf": {"$ref": "#/$defs/passed"},
+        "dependency_closure": {"$ref": "#/$defs/passed"}
       }
     },
     "runtime_validation": {"const": "external-required"},
     "device_validation": {"const": "external-required"},
-    "status": {"const": "fixture-verified-unpublished"}
+    "status": {"enum": ["fixture-verified-unpublished", "real-verified-unpublished"]}
   }
 }

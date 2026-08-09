@@ -3,20 +3,24 @@
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import gzip
 import hashlib
 import io
 import json
+import os
 import posixpath
 import re
 import shlex
 import shutil
 import tarfile
 import tempfile
+import zipfile
 from pathlib import Path
 from typing import Any
 
 from . import registry
+from . import core as release_core
 from . import wheel as wheel_artifact
 from .core import (
     DEFAULT_SCHEMA_DIR,
@@ -63,6 +67,8 @@ SOURCE_COPY_RE = re.compile(
     r"(?:ucm|scripts)(?:/|\s))"
 )
 INSTALL_IMAGE_TARGET = "runtime"
+REAL_INSTALL_TARGET = "runtime-real"
+INSTALL_IMAGE_TARGETS = (INSTALL_IMAGE_TARGET, REAL_INSTALL_TARGET)
 OCI_INDEX_MEDIA_TYPES = {
     "application/vnd.oci.image.index.v1+json",
     "application/vnd.docker.distribution.manifest.list.v2+json",
@@ -102,6 +108,14 @@ FIXTURE_IMAGE_TOOLCHAIN_AUTHORITY = {
         "sha256:86c0ad9d1137c186e9d455912167df20e530bdf7f7c19de802e892bb8ca16552"
     ),
 }
+REAL_IMAGE_CONTEXT_RECORD = "image-authority.json"
+REAL_REQUIREMENTS_LOCK = "requirements.lock"
+REAL_DETERMINISTIC_FLAGS = [
+    "--provenance=false",
+    "--sbom=false",
+    "oci-mediatypes=true",
+    "rewrite-timestamp=true",
+]
 
 
 def _exact(value: object, keys: set[str], label: str) -> dict[str, Any]:
@@ -177,6 +191,121 @@ def validate_image_toolchain_authority(value: object) -> dict[str, Any]:
 def fixture_image_toolchain_authority() -> dict[str, Any]:
     """Return the one image-toolchain identity consumed by planning and CI."""
     return validate_image_toolchain_authority(FIXTURE_IMAGE_TOOLCHAIN_AUTHORITY)
+
+
+def real_image_toolchain_authority(
+    docker_root: Path = DOCKER_ROOT,
+) -> dict[str, Any]:
+    """Return the reviewed Buildx, BuildKit, frontend, and determinism authority."""
+    fixture = fixture_image_toolchain_authority()
+    dockerfile = (Path(docker_root) / "Dockerfile").read_text(encoding="utf-8")
+    first_line = dockerfile.splitlines()[0] if dockerfile.splitlines() else ""
+    prefix = "# syntax="
+    if (
+        not first_line.startswith(prefix)
+        or re.fullmatch(
+            r"docker/dockerfile:v?[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}",
+            first_line.removeprefix(prefix),
+        )
+        is None
+    ):
+        raise ValueError("Dockerfile frontend must be versioned and digest-pinned")
+    if REAL_INSTALL_TARGET not in _docker_stages(dockerfile):
+        raise ValueError("Dockerfile is missing real install-only runtime target")
+    result = {
+        "schema_version": 1,
+        "kind": "ucm-real-image-toolchain-authority",
+        "buildx_version": fixture["buildx_version"],
+        "buildx_linux_sha256": fixture["buildx_linux_sha256"],
+        "buildkit_image": fixture["buildkit_image"],
+        "dockerfile_frontend": first_line.removeprefix(prefix),
+        "deterministic_flags": list(REAL_DETERMINISTIC_FLAGS),
+    }
+    result["authority_sha256"] = sha256_value(result)
+    return result
+
+
+def real_image_authorities(
+    *,
+    release_path: Path = release_core.DEFAULT_RELEASE,
+    compatibility_path: Path = release_core.DEFAULT_COMPATIBILITY,
+    schema_dir: Path = DEFAULT_SCHEMA_DIR,
+    docker_root: Path = DOCKER_ROOT,
+) -> list[dict[str, Any]]:
+    """Project the only six install-only member authorities from release.yaml."""
+    release, _ = release_core.validate_config(
+        release_path, compatibility_path, schema_dir
+    )
+    matrix = release_core.build_matrix(
+        "feature-candidate", release_path, compatibility_path, schema_dir
+    )
+    tasks = matrix["tasks"]
+    if len(tasks) != 6:
+        raise ValueError("real image authority requires exactly six matrix tasks")
+    toolchain = real_image_toolchain_authority(docker_root)
+    result: list[dict[str, Any]] = []
+    for task in tasks:
+        architecture = task["cpu_arch"]
+        authority: dict[str, Any] = {
+            "schema_version": 1,
+            "kind": "ucm-real-image-task-authority",
+            "candidate_kind": "real-candidate",
+            "fixture_only": False,
+            "unpublished": True,
+            "publication_attempted": False,
+            "spec_id": task["spec_id"],
+            "family_id": task["profile_id"],
+            "profile_id": task["profile_id"],
+            "cpu_arch": architecture,
+            "platform": task["platform"],
+            "python_abi": task["python_abi"],
+            "wheel_version": task["wheel_version"],
+            "builder": copy.deepcopy(task["builder"]),
+            "runtime": copy.deepcopy(task["runtime"]),
+            "target_repository": task["target_repository"],
+            "target_tag": task["target_tag"],
+            "required_native": copy.deepcopy(task["required_native"]),
+            "forbidden_native": copy.deepcopy(task["forbidden_native"]),
+            "allowed_dt_needed": copy.deepcopy(task["allowed_dt_needed"]),
+            "dependency_lock_sha256": task["dependency_lock_sha256"],
+            "wrapt_wheel": copy.deepcopy(release["wrapt_wheels"][architecture]),
+            "task_sha256": task["task_sha256"],
+            "toolchain": copy.deepcopy(toolchain),
+        }
+        authority["authority_sha256"] = sha256_value(authority)
+        result.append(authority)
+    return result
+
+
+def real_image_authority(
+    family_id: str,
+    architecture: str,
+    *,
+    release_path: Path = release_core.DEFAULT_RELEASE,
+    compatibility_path: Path = release_core.DEFAULT_COMPATIBILITY,
+    schema_dir: Path = DEFAULT_SCHEMA_DIR,
+    docker_root: Path = DOCKER_ROOT,
+) -> dict[str, Any]:
+    """Resolve one member only by its reviewed family and CPU architecture."""
+    authorities = real_image_authorities(
+        release_path=release_path,
+        compatibility_path=compatibility_path,
+        schema_dir=schema_dir,
+        docker_root=docker_root,
+    )
+    families = {item["family_id"] for item in authorities}
+    if family_id not in families:
+        raise ValueError(f"unknown real image family: {family_id!r}")
+    if architecture not in {"amd64", "arm64"}:
+        raise ValueError(f"unknown real image architecture: {architecture!r}")
+    matches = [
+        item
+        for item in authorities
+        if item["family_id"] == family_id and item["cpu_arch"] == architecture
+    ]
+    if len(matches) != 1:
+        raise ValueError("real image family/architecture does not resolve uniquely")
+    return matches[0]
 
 
 def _validate_base_authority(value: object) -> dict[str, Any]:
@@ -314,15 +443,15 @@ def _source_copy_argument(argument: str) -> bool:
     } or normalized.startswith(("ucm/", "scripts/"))
 
 
-def _audit_stage_instructions(stage_name: str, body: str) -> None:
+def _audit_stage_instructions(stage_name: str, body: str, target: str) -> None:
     if COMPILE_COMMAND_RE.search(body) or SOURCE_BUILD_COMMAND_RE.search(body):
         raise ValueError(
-            f"install-only target {INSTALL_IMAGE_TARGET!r} reaches compile/source-build "
+            f"install-only target {target!r} reaches compile/source-build "
             f"commands in stage {stage_name!r}"
         )
     if SOURCE_COPY_RE.search(body):
         raise ValueError(
-            f"install-only target {INSTALL_IMAGE_TARGET!r} reaches a UCM source COPY "
+            f"install-only target {target!r} reaches a UCM source COPY "
             f"in stage {stage_name!r}"
         )
     for instruction, arguments in _docker_instruction_arguments(body):
@@ -330,7 +459,7 @@ def _audit_stage_instructions(stage_name: str, body: str) -> None:
             sources = [value for value in arguments if not value.startswith("--")][:-1]
             if any(_source_copy_argument(source) for source in sources):
                 raise ValueError(
-                    f"install-only target {INSTALL_IMAGE_TARGET!r} reaches a UCM "
+                    f"install-only target {target!r} reaches a UCM "
                     f"source {instruction} in stage {stage_name!r}"
                 )
         elif instruction == "RUN":
@@ -339,7 +468,7 @@ def _audit_stage_instructions(stage_name: str, body: str) -> None:
                 normalized
             ):
                 raise ValueError(
-                    f"install-only target {INSTALL_IMAGE_TARGET!r} reaches "
+                    f"install-only target {target!r} reaches "
                     f"compile/source-build commands in stage {stage_name!r}"
                 )
 
@@ -347,21 +476,22 @@ def _audit_stage_instructions(stage_name: str, body: str) -> None:
 def _audit_install_only_target(dockerfile: str) -> None:
     """Reject source builds in the final runtime stage dependency closure."""
     stages = _docker_stages(dockerfile)
-    if INSTALL_IMAGE_TARGET not in stages:
-        raise ValueError(
-            f"Dockerfile is missing install-only target {INSTALL_IMAGE_TARGET!r}"
-        )
-    pending = [INSTALL_IMAGE_TARGET]
-    reachable: set[str] = set()
-    while pending:
-        stage_name = pending.pop()
-        if stage_name in reachable:
-            continue
-        reachable.add(stage_name)
-        pending.extend(stages[stage_name]["dependencies"])
-    for stage_name in sorted(reachable):
-        body = stages[stage_name]["body"]
-        _audit_stage_instructions(stage_name, body)
+    for target in INSTALL_IMAGE_TARGETS:
+        if target not in stages:
+            if target == REAL_INSTALL_TARGET:
+                continue
+            raise ValueError(f"Dockerfile is missing install-only target {target!r}")
+        pending = [target]
+        reachable: set[str] = set()
+        while pending:
+            stage_name = pending.pop()
+            if stage_name in reachable:
+                continue
+            reachable.add(stage_name)
+            pending.extend(stages[stage_name]["dependencies"])
+        for stage_name in sorted(reachable):
+            body = stages[stage_name]["body"]
+            _audit_stage_instructions(stage_name, body, target)
 
 
 def implementation_digests(docker_root: Path = DOCKER_ROOT) -> dict[str, Any]:
@@ -422,7 +552,12 @@ def _base_blob(
     return blob, _json_bytes(raw_bytes, label)
 
 
-def _validate_base(base_record: object, target_platform: str) -> dict[str, Any]:
+def _validate_base(
+    base_record: object,
+    target_platform: str,
+    *,
+    candidate_kind: str = "fixture-candidate",
+) -> dict[str, Any]:
     base = _exact(
         base_record,
         {
@@ -436,12 +571,20 @@ def _validate_base(base_record: object, target_platform: str) -> dict[str, Any]:
         },
         "base record",
     )
+    identities = {
+        "fixture-candidate": ("fixture-base-image-record", True),
+        "real-candidate": ("ucm-real-base-image-record", False),
+    }
+    if candidate_kind not in identities:
+        raise ValueError("base candidate kind is invalid")
+    expected_kind, expected_fixture = identities[candidate_kind]
     if (
         base["schema_version"] != 1
-        or base["kind"] != "fixture-base-image-record"
-        or base["fixture_only"] is not True
+        or base["kind"] != expected_kind
+        or base["fixture_only"] is not expected_fixture
     ):
-        raise ValueError("base record must retain fixture-only identity")
+        label = "fixture-only" if expected_fixture else "real"
+        raise ValueError(f"base record must retain {label} identity")
     repository = base["repository"]
     if not isinstance(repository, str) or REPOSITORY_RE.fullmatch(repository) is None:
         raise ValueError("base repository must be canonical and contain no mutable tag")
@@ -524,6 +667,110 @@ def _validate_base(base_record: object, target_platform: str) -> dict[str, Any]:
     return result
 
 
+def validate_real_base_authority(
+    base_record: object, task_authority: object
+) -> dict[str, Any]:
+    """Reopen a real base descriptor chain and bind it to the exact Task 1 member."""
+    if not isinstance(task_authority, dict):
+        raise ValueError("real image task authority must be an object")
+    task = real_image_authority(
+        task_authority.get("family_id"), task_authority.get("cpu_arch")
+    )
+    if task_authority != task:
+        raise ValueError("real image task authority differs from release config")
+    if not isinstance(base_record, dict):
+        raise ValueError("real base authority must be an object")
+    raw_keys = {
+        "schema_version",
+        "kind",
+        "fixture_only",
+        "repository",
+        "index",
+        "manifest",
+        "config",
+    }
+    if set(base_record) not in (raw_keys, raw_keys | {"platform", "subject"}):
+        raise ValueError("real base authority fields are noncanonical")
+    if (
+        base_record.get("kind") != "ucm-real-base-image-record"
+        or base_record.get("fixture_only") is not False
+    ):
+        raise ValueError("real base authority requires distinct real identity")
+    if base_record.get("repository") != task["runtime"]["repository"]:
+        raise ValueError("real base repository differs from exact task repository")
+    for label in ("index", "manifest", "config"):
+        blob = base_record.get(label)
+        digest = blob.get("digest") if isinstance(blob, dict) else None
+        expected = task["runtime"][f"{label}_digest"]
+        if digest != expected:
+            raise ValueError(f"real base {label} digest differs from exact task")
+    raw_record = {key: copy.deepcopy(base_record[key]) for key in raw_keys}
+    base = _validate_base(raw_record, task["platform"], candidate_kind="real-candidate")
+    if set(base_record) != raw_keys and base != base_record:
+        raise ValueError("real base descriptor projection is noncanonical")
+    if base["subject"] != (
+        f"{task['runtime']['repository']}@{task['runtime']['manifest_digest']}"
+    ):
+        raise ValueError("real base subject differs from exact task platform member")
+    return base
+
+
+def real_base_record_from_files(
+    family_id: str,
+    architecture: str,
+    *,
+    index_path: Path,
+    manifest_path: Path,
+    config_path: Path,
+) -> dict[str, Any]:
+    """Build and reopen a real base record from three raw Registry blobs."""
+    task = real_image_authority(family_id, architecture)
+    paths = {
+        "index": Path(index_path),
+        "manifest": Path(manifest_path),
+        "config": Path(config_path),
+    }
+    parsed: dict[str, dict[str, Any]] = {}
+    raw_blobs: dict[str, bytes] = {}
+    for label, path in paths.items():
+        if not path.is_file() or path.is_symlink():
+            raise ValueError(f"real base {label} blob is missing")
+        raw_blobs[label] = path.read_bytes()
+        parsed[label] = _json_bytes(raw_blobs[label], f"real base {label}")
+    manifest_config = parsed["manifest"].get("config")
+    if not isinstance(manifest_config, dict):
+        raise ValueError("real base manifest config descriptor is missing")
+    media_type_values = {
+        "index": parsed["index"].get("mediaType"),
+        "manifest": parsed["manifest"].get("mediaType"),
+        "config": manifest_config.get("mediaType"),
+    }
+    media_types = {
+        "index": OCI_INDEX_MEDIA_TYPES,
+        "manifest": OCI_MANIFEST_MEDIA_TYPES,
+        "config": OCI_CONFIG_MEDIA_TYPES,
+    }
+    blobs: dict[str, Any] = {}
+    for label, raw in raw_blobs.items():
+        media_type = media_type_values[label]
+        if media_type not in media_types[label]:
+            raise ValueError(f"real base {label} media type is invalid")
+        blobs[label] = {
+            "media_type": media_type,
+            "digest": "sha256:" + hashlib.sha256(raw).hexdigest(),
+            "size": len(raw),
+            "raw": raw.decode("utf-8"),
+        }
+    record = {
+        "schema_version": 1,
+        "kind": "ucm-real-base-image-record",
+        "fixture_only": False,
+        "repository": task["runtime"]["repository"],
+        **blobs,
+    }
+    return validate_real_base_authority(record, task)
+
+
 def require_fixture_base_authority(
     base_record: object, target_platform: str
 ) -> dict[str, Any]:
@@ -559,6 +806,704 @@ def require_fixture_base_authority(
     ):
         raise ValueError("base descriptor chain differs from fixture base authority")
     return base
+
+
+def _single_embedded_json(
+    archive: zipfile.ZipFile, suffix: str, label: str
+) -> dict[str, Any]:
+    names = [name for name in archive.namelist() if name.endswith(suffix)]
+    if len(names) != 1:
+        raise ValueError(f"builder-candidate requires one embedded {label}")
+    raw = archive.read(names[0])
+    value = _json_bytes(raw, label)
+    if raw != canonical_bytes(value) + b"\n":
+        raise ValueError(f"embedded {label} is noncanonical")
+    return value
+
+
+def inspect_real_wheel_candidate(
+    family_id: str,
+    architecture: str,
+    wheel_path: Path,
+    inspection: object,
+    *,
+    release_path: Path = release_core.DEFAULT_RELEASE,
+    compatibility_path: Path = release_core.DEFAULT_COMPATIBILITY,
+    schema_dir: Path = DEFAULT_SCHEMA_DIR,
+    docker_root: Path = DOCKER_ROOT,
+) -> dict[str, Any]:
+    """Reinspect sealed bytes as builder-candidate and reverse them to one task."""
+    task = real_image_authority(
+        family_id,
+        architecture,
+        release_path=release_path,
+        compatibility_path=compatibility_path,
+        schema_dir=schema_dir,
+        docker_root=docker_root,
+    )
+    path = Path(wheel_path)
+    if not path.is_file() or path.is_symlink():
+        raise ValueError("real builder-candidate wheel must be one regular file")
+    raw_sha256 = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    try:
+        reopened = wheel_artifact.inspect_wheel(
+            path,
+            task["spec_id"],
+            raw_sha256,
+            "builder-candidate",
+            release_path=release_path,
+            compatibility_path=compatibility_path,
+            schema_dir=schema_dir,
+        )
+    except (OSError, KeyError, TypeError, ValueError, zipfile.BadZipFile) as error:
+        raise ValueError(
+            f"real image requires raw builder-candidate wheel bytes: {error}"
+        ) from error
+    if not isinstance(inspection, dict) or inspection != reopened:
+        raise ValueError(
+            "supplied builder-candidate inspection differs from raw wheel reinspection"
+        )
+    evidence = reopened.get("builder_evidence")
+    if not isinstance(evidence, dict):
+        raise ValueError("builder-candidate inspection lacks native build evidence")
+    if (
+        reopened.get("source_kind") != "builder-candidate"
+        or reopened.get("status") != "candidate-inspected"
+        or reopened.get("trust_level") != "unpublished-builder-candidate"
+        or reopened.get("published") is not False
+        or reopened.get("publication_eligible") is not False
+        or evidence.get("build_key") != task["task_sha256"]
+    ):
+        raise ValueError("builder-candidate inspection cannot authorize a real task")
+    with zipfile.ZipFile(path) as archive:
+        build = _single_embedded_json(
+            archive, ".dist-info/ucm-build.json", "wheel build binding"
+        )
+        authority = _single_embedded_json(
+            archive,
+            ".dist-info/ucm-build-authority.json",
+            "wheel build authority",
+        )
+        closure = _single_embedded_json(
+            archive,
+            ".dist-info/ucm-dependency-closure.json",
+            "wheel dependency closure",
+        )
+    bindings = {
+        "source_sha": evidence.get("source_commit"),
+        "source_tree": authority.get("source_tree"),
+        "source_archive_sha256": authority.get("source_archive_sha256"),
+        "build_context_sha256": evidence.get("build_context_digest"),
+        "build_key": evidence.get("build_key"),
+        "source_date_epoch": evidence.get("source_date_epoch"),
+        "builder_coordinate": authority.get("builder_coordinate"),
+        "builder_config_digest": authority.get("builder_config_digest"),
+        "dependency_lock_sha256": authority.get("dependency_lock_sha256"),
+        "tool_wheels": authority.get("tool_wheels"),
+        "native_members": evidence.get("native_members"),
+        "elf_machines": evidence.get("elf_machines"),
+        "dt_needed": evidence.get("dt_needed"),
+        "dependency_closure": closure.get("native_members"),
+        "unresolved_dependencies": evidence.get("unresolved_dependencies"),
+    }
+    if (
+        build.get("source_sha") != bindings["source_sha"]
+        or build.get("source_tree") != bindings["source_tree"]
+        or build.get("build_context_sha256") != bindings["build_context_sha256"]
+        or build.get("build_key") != task["task_sha256"]
+        or authority.get("task_sha256") != task["task_sha256"]
+        or authority.get("spec_id") != task["spec_id"]
+        or authority.get("builder_config_digest")
+        != task.get("builder", {}).get("root", {}).get("config_digest")
+        and "builder" in task
+    ):
+        raise ValueError("wheel source/build-key authority does not match exact task")
+    if (
+        not isinstance(bindings["source_sha"], str)
+        or re.fullmatch(r"[0-9a-f]{40}", bindings["source_sha"]) is None
+        or not isinstance(bindings["source_tree"], str)
+        or re.fullmatch(r"[0-9a-f]{40}", bindings["source_tree"]) is None
+        or _digest(bindings["build_context_sha256"], "wheel build context")
+        != bindings["build_context_sha256"]
+        or bindings["unresolved_dependencies"] != []
+    ):
+        raise ValueError("wheel source/native/dependency authority is incomplete")
+    return {
+        "schema_version": 1,
+        "kind": "ucm-real-wheel-authority",
+        "task": copy.deepcopy(task),
+        "inspection": copy.deepcopy(reopened),
+        "embedded_build": build,
+        "embedded_authority": authority,
+        "embedded_closure": closure,
+        "bindings": bindings,
+        "wheel_sha256": raw_sha256,
+        "wheel_size": path.stat().st_size,
+    }
+
+
+def audit_real_context(context_dir: Path, expected_files: set[str]) -> None:
+    """Require a source-free, symlink-free, recursively flat exact file set."""
+    context = Path(context_dir)
+    if not context.is_dir() or context.is_symlink():
+        raise ValueError("real context must be a regular directory")
+    actual: set[str] = set()
+    for root, directories, files in os.walk(context, followlinks=False):
+        root_path = Path(root)
+        if root_path != context:
+            raise ValueError("real context must be flat and contain no directories")
+        if directories:
+            raise ValueError("real context must be flat and contain no directories")
+        for filename in files:
+            path = root_path / filename
+            if path.is_symlink():
+                raise ValueError(f"real context rejects symlink: {filename}")
+            if not path.is_file():
+                raise ValueError(
+                    f"real context entry is not a regular file: {filename}"
+                )
+            actual.add(filename)
+    unexpected = sorted(actual - set(expected_files))
+    missing = sorted(set(expected_files) - actual)
+    if unexpected or missing:
+        source_markers = {
+            "setup.py",
+            "pyproject.toml",
+            "CMakeLists.txt",
+            "ucm-source.tar",
+            ".git",
+        }
+        if source_markers & set(unexpected):
+            raise ValueError(
+                f"real context source files violate allowlist: {unexpected}"
+            )
+        if any(name.endswith(".whl") for name in unexpected):
+            raise ValueError(f"real context wheel set violates allowlist: {unexpected}")
+        if any(
+            name in {"compiler", "cmake", "ninja", "make", "gcc", "g++"}
+            for name in unexpected
+        ):
+            raise ValueError(
+                f"real context build tool violates allowlist: {unexpected}"
+            )
+        raise ValueError(
+            f"real context exact allowlist mismatch: missing={missing}, extra={unexpected}"
+        )
+
+
+def build_real_dependency_lock(
+    task_authority: dict[str, Any],
+    wheel_path: Path,
+    wrapt_path: Path,
+    *,
+    wheel_record: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Generate the two-artifact offline direct-reference hash lock."""
+    task = real_image_authority(
+        task_authority.get("family_id"), task_authority.get("cpu_arch")
+    )
+    if task_authority != task:
+        raise ValueError("real dependency task authority is noncanonical")
+    wrapt = Path(wrapt_path)
+    expected_wrapt = task["wrapt_wheel"]
+    if (
+        not wrapt.is_file()
+        or wrapt.is_symlink()
+        or wrapt.name != expected_wrapt["filename"]
+    ):
+        raise ValueError("exact architecture-specific wrapt wheel is missing")
+    wrapt_sha256 = "sha256:" + hashlib.sha256(wrapt.read_bytes()).hexdigest()
+    if wrapt_sha256 != expected_wrapt["sha256"]:
+        raise ValueError("wrapt wheel SHA256 differs from release authority")
+    wheel = Path(wheel_path)
+    if not wheel.is_file() or wheel.is_symlink() or wheel.suffix != ".whl":
+        raise ValueError("exact UCM wheel is missing")
+    wheel_sha256 = "sha256:" + hashlib.sha256(wheel.read_bytes()).hexdigest()
+    if wheel_record is not None and (
+        wheel_record.get("filename") != wheel.name
+        or wheel_record.get("sha256") != wheel_sha256
+    ):
+        raise ValueError("UCM wheel bytes differ from builder-candidate inspection")
+    requirements = (
+        f"uc-manager @ file:///wheelhouse/{wheel.name} "
+        f"--hash={wheel_sha256}\n"
+        f"wrapt @ file:///wheelhouse/{wrapt.name} "
+        f"--hash={wrapt_sha256}\n"
+    )
+    return {
+        "schema_version": 1,
+        "kind": "ucm-real-runtime-dependency-lock",
+        "requirements": requirements,
+        "sha256": "sha256:" + hashlib.sha256(requirements.encode()).hexdigest(),
+        "wheel": {"filename": wheel.name, "sha256": wheel_sha256},
+        "wrapt": {"filename": wrapt.name, "sha256": wrapt_sha256},
+        "preinstall_command": [
+            "python",
+            "-m",
+            "pip",
+            "uninstall",
+            "--yes",
+            "uc-manager",
+            "wrapt",
+        ],
+        "pip_command": [
+            "python",
+            "-m",
+            "pip",
+            "install",
+            "--no-index",
+            "--find-links=/wheelhouse",
+            "--require-hashes",
+            "--only-binary=:all:",
+            "--no-cache-dir",
+            "--disable-pip-version-check",
+            "-r",
+            "/wheelhouse/requirements.lock",
+        ],
+    }
+
+
+def verify_real_runtime_evidence(recipe: object, evidence: object) -> dict[str, str]:
+    """Verify offline install plus installed native/ELF/closure evidence."""
+    if not isinstance(recipe, dict) or set(recipe) != {"payload", "payload_sha256"}:
+        raise ValueError("real runtime recipe envelope is invalid")
+    payload = recipe["payload"]
+    if (
+        not isinstance(payload, dict)
+        or payload.get("candidate_kind") != "real-candidate"
+        or recipe["payload_sha256"] != sha256_value(payload)
+    ):
+        raise ValueError("real runtime recipe digest is invalid")
+    if not isinstance(evidence, dict):
+        raise ValueError("real runtime evidence must be an object")
+    install = evidence.get("install")
+    runtime = evidence.get("runtime")
+    if (
+        not isinstance(install, dict)
+        or install.get("kind") not in {None, "ucm-real-install-result"}
+        or install.get("status") != "passed"
+    ):
+        raise ValueError("real install gate did not pass")
+    if install.get("pip_check") != "passed":
+        raise ValueError("real pip check gate did not pass")
+    wheel = payload.get("wheel")
+    wrapt = payload.get("wrapt_wheel")
+    if not isinstance(wheel, dict) or not isinstance(wrapt, dict):
+        raise ValueError("real recipe wheel authority is missing")
+    if install.get("kind") == "ucm-real-install-result" and (
+        install.get("wheel_filename") != wheel.get("filename")
+        or install.get("wheel_sha256") != wheel.get("sha256")
+        or install.get("wrapt_filename") != wrapt.get("filename")
+        or install.get("wrapt_sha256") != wrapt.get("sha256")
+        or install.get("version") != wheel.get("version")
+    ):
+        raise ValueError("real install wheel identity differs from recipe")
+    preinstall_command = install.get("preinstall_command")
+    expected_preinstall_command = payload.get("dependency_lock", {}).get(
+        "preinstall_command"
+    )
+    if (
+        not isinstance(preinstall_command, list)
+        or not isinstance(expected_preinstall_command, list)
+        or preinstall_command[1:] != expected_preinstall_command[1:]
+        or not str(preinstall_command[0]).endswith(("python", "python3", "python3.12"))
+    ):
+        raise ValueError("real preinstall purge is not the exact reviewed command")
+    command = install.get("pip_command")
+    expected_command = payload.get("dependency_lock", {}).get("pip_command")
+    if command is not None and (
+        not isinstance(command, list)
+        or not isinstance(expected_command, list)
+        or command[1:] != expected_command[1:]
+        or not str(command[0]).endswith(("python", "python3", "python3.12"))
+    ):
+        raise ValueError("real pip command is not the exact offline hashed install")
+    if install.get("installed_packages") != {
+        "uc-manager": wheel.get("version"),
+        "wrapt": "1.17.2",
+    }:
+        raise ValueError("real installed package versions do not match")
+    if install.get("imports") != {"ucm": "passed", "wrapt": "passed"}:
+        raise ValueError("real import gate did not pass")
+    direct_urls = install.get("direct_urls")
+    if not isinstance(direct_urls, dict):
+        raise ValueError("real direct_url evidence is missing")
+    expected_direct = {
+        "uc-manager": (wheel.get("filename"), wheel.get("sha256")),
+        "wrapt": (wrapt.get("filename"), wrapt.get("sha256")),
+    }
+    for distribution, (filename, digest) in expected_direct.items():
+        direct = direct_urls.get(distribution)
+        if (
+            not isinstance(direct, dict)
+            or direct.get("url") != f"file:///wheelhouse/{filename}"
+            or direct.get("archive_info", {}).get("hash")
+            != "sha256=" + str(digest).removeprefix("sha256:")
+        ):
+            raise ValueError(
+                f"real {distribution} direct_url does not bind wheel bytes"
+            )
+    if not isinstance(runtime, dict) or runtime.get("kind") not in {
+        None,
+        "ucm-real-runtime-inspection",
+    }:
+        raise ValueError("real runtime inspection is missing")
+    abi = runtime.get("abi")
+    expected_abi = wheel.get("python_abi")
+    if abi != {
+        "expected_python_abi": expected_abi,
+        "observed_python_abi": expected_abi,
+        "status": "passed",
+    }:
+        raise ValueError("real runtime ABI gate did not pass")
+    expected_native = wheel.get("builder_evidence")
+    if not isinstance(expected_native, dict):
+        raise ValueError("real recipe lacks Task 2 native evidence")
+    if runtime.get("native_members") != expected_native.get("native_members"):
+        raise ValueError("installed native member paths differ from Task 2 inspection")
+    if runtime.get("elf_machines") != expected_native.get("elf_machines"):
+        raise ValueError("installed ELF machine differs from Task 2 inspection")
+    if runtime.get("dt_needed") != expected_native.get("dt_needed"):
+        raise ValueError("installed ELF DT_NEEDED differs from Task 2 inspection")
+    if runtime.get("dependency_closure") != expected_native.get("dependency_closure"):
+        raise ValueError("installed dependency closure differs from Task 2 inspection")
+    for label in ("accelerator_runtime", "device"):
+        state = runtime.get(label)
+        if not isinstance(state, dict) or state.get("status") != "external-required":
+            raise ValueError(f"real {label} must remain external-required")
+    if (
+        runtime.get("hardware_passed") is not False
+        or runtime.get("status") != "external-required"
+        or runtime.get("package_version") != wheel.get("version")
+    ):
+        raise ValueError("real runtime/device evidence is noncanonical")
+    return {
+        "install": "passed",
+        "pip_check": "passed",
+        "direct_url": "passed",
+        "ucm_import": "passed",
+        "wrapt_import": "passed",
+        "abi": "passed",
+        "native_members": "passed",
+        "elf": "passed",
+        "dependency_closure": "passed",
+    }
+
+
+def _epoch_timestamp(value: object) -> str:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 315532800:
+        raise ValueError("real source epoch is invalid")
+    return dt.datetime.fromtimestamp(value, tz=dt.timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+
+
+def real_content_identity(recipe: object, closure: object) -> dict[str, Any]:
+    """Derive immutable member identity while excluding run/signature envelopes."""
+    if not isinstance(recipe, dict) or set(recipe) != {"payload", "payload_sha256"}:
+        raise ValueError("real content recipe envelope is invalid")
+    payload = recipe["payload"]
+    if (
+        not isinstance(payload, dict)
+        or payload.get("candidate_kind") != "real-candidate"
+        or recipe["payload_sha256"] != sha256_value(payload)
+    ):
+        raise ValueError("real content recipe digest is invalid")
+    if not isinstance(closure, dict):
+        raise ValueError("real OCI closure must be an object")
+    source = payload.get("source")
+    wheel = payload.get("wheel")
+    base = payload.get("base")
+    base_config_blob = base.get("config") if isinstance(base, dict) else None
+    base_config_raw = (
+        base_config_blob.get("raw") if isinstance(base_config_blob, dict) else None
+    )
+    if (
+        not isinstance(source, dict)
+        or not isinstance(wheel, dict)
+        or not isinstance(base_config_raw, str)
+    ):
+        raise ValueError("real content recipe source/wheel/base authority is missing")
+    base_config = _json_bytes(base_config_raw.encode(), "real recipe base config")
+    config_value = base_config.get("config", {})
+    base_labels = (
+        config_value.get("Labels", {}) if isinstance(config_value, dict) else {}
+    )
+    base_history = base_config.get("history", [])
+    if not isinstance(base_labels, dict) or not isinstance(base_history, list):
+        raise ValueError("real recipe base labels/history are invalid")
+    expected_labels = copy.deepcopy(base_labels)
+    expected_labels.update(
+        {
+            "org.opencontainers.image.revision": source.get("commit"),
+            "io.ucm.release.source-tree": source.get("tree"),
+            "io.ucm.release.source-context-sha256": source.get("context_sha256"),
+            "io.ucm.release.task-sha256": payload.get("task_sha256"),
+            "io.ucm.release.build-key-sha256": payload.get("build_key_sha256"),
+            "io.ucm.release.wheel-sha256": wheel.get("sha256"),
+            "io.ucm.release.recipe-sha256": recipe.get("payload_sha256"),
+        }
+    )
+    labels = closure.get("labels")
+    if labels != expected_labels:
+        raise ValueError("real OCI config labels do not bind recipe authority")
+    expected_annotations = {
+        "io.ucm.release.recipe-sha256": recipe.get("payload_sha256"),
+        "io.ucm.release.task-sha256": payload.get("task_sha256"),
+    }
+    if closure.get("annotations") != expected_annotations:
+        raise ValueError("real OCI manifest annotations do not bind recipe authority")
+    created = _epoch_timestamp(payload.get("source_date_epoch"))
+    history = closure.get("history")
+    if (
+        closure.get("created") != created
+        or not isinstance(history, list)
+        or len(history) <= len(base_history)
+        or history[: len(base_history)] != base_history
+        or any(
+            not isinstance(item, dict)
+            or item.get("created") != created
+            or not isinstance(item.get("created_by"), str)
+            or not item["created_by"]
+            for item in history[len(base_history) :]
+        )
+    ):
+        raise ValueError("real OCI created/history is not source-epoch deterministic")
+    layers = closure.get("layers")
+    diff_ids = closure.get("diff_ids")
+    if (
+        not isinstance(layers, list)
+        or not layers
+        or not isinstance(diff_ids, list)
+        or len(layers) != len(diff_ids)
+    ):
+        raise ValueError("real OCI layer/diff-id closure is invalid")
+    for position, (layer, diff_id) in enumerate(zip(layers, diff_ids, strict=True)):
+        if not isinstance(layer, dict):
+            raise ValueError(f"real OCI layer {position} is invalid")
+        _digest(layer.get("digest"), f"real OCI layer {position}")
+        if not isinstance(layer.get("size"), int) or layer["size"] < 1:
+            raise ValueError(f"real OCI layer {position} size is invalid")
+        _digest(diff_id, f"real OCI diff-id {position}")
+    stable = {
+        "manifest_digest": _digest(
+            closure.get("manifest_digest"), "real OCI manifest digest"
+        ),
+        "config_digest": _digest(
+            closure.get("config_digest"), "real OCI config digest"
+        ),
+        "layers": copy.deepcopy(layers),
+        "diff_ids": copy.deepcopy(diff_ids),
+        "annotations": copy.deepcopy(expected_annotations),
+        "labels": copy.deepcopy(expected_labels),
+        "created": created,
+        "history": copy.deepcopy(history),
+        "source": copy.deepcopy(source),
+        "task_sha256": payload.get("task_sha256"),
+        "build_key_sha256": payload.get("build_key_sha256"),
+        "wheel_sha256": wheel.get("sha256"),
+        "recipe_sha256": recipe.get("payload_sha256"),
+    }
+    return {**stable, "content_identity_sha256": sha256_value(stable)}
+
+
+def prepare_real_context(
+    *,
+    family_id: str,
+    architecture: str,
+    wheel_path: Path,
+    wheel_inspection: dict[str, Any],
+    base_record: dict[str, Any],
+    wrapt_path: Path,
+    output_dir: Path,
+    release_path: Path = release_core.DEFAULT_RELEASE,
+    compatibility_path: Path = release_core.DEFAULT_COMPATIBILITY,
+    schema_dir: Path = DEFAULT_SCHEMA_DIR,
+    docker_root: Path = DOCKER_ROOT,
+) -> dict[str, Any]:
+    """Prepare one exact source-free real install-only member context."""
+    task = real_image_authority(
+        family_id,
+        architecture,
+        release_path=release_path,
+        compatibility_path=compatibility_path,
+        schema_dir=schema_dir,
+        docker_root=docker_root,
+    )
+    wheel_authority = inspect_real_wheel_candidate(
+        family_id,
+        architecture,
+        Path(wheel_path),
+        wheel_inspection,
+        release_path=release_path,
+        compatibility_path=compatibility_path,
+        schema_dir=schema_dir,
+        docker_root=docker_root,
+    )
+    base = validate_real_base_authority(base_record, task)
+    dependency_lock = build_real_dependency_lock(
+        task,
+        Path(wheel_path),
+        Path(wrapt_path),
+        wheel_record=wheel_authority["inspection"],
+    )
+    bindings = wheel_authority["bindings"]
+    implementation = implementation_digests(docker_root)
+    source = {
+        "commit": bindings["source_sha"],
+        "tree": bindings["source_tree"],
+        "archive_sha256": bindings["source_archive_sha256"],
+        "context_sha256": bindings["build_context_sha256"],
+    }
+    wheel = {
+        "filename": wheel_authority["inspection"]["filename"],
+        "sha256": wheel_authority["wheel_sha256"],
+        "size": wheel_authority["wheel_size"],
+        "spec_id": task["spec_id"],
+        "version": task["wheel_version"],
+        "python_abi": task["python_abi"],
+        "cpu_arch": task["cpu_arch"],
+        "builder_evidence": {
+            "source_commit": bindings["source_sha"],
+            "source_tree": bindings["source_tree"],
+            "build_context_digest": bindings["build_context_sha256"],
+            "build_key": bindings["build_key"],
+            "builder_coordinate": bindings["builder_coordinate"],
+            "builder_config_digest": bindings["builder_config_digest"],
+            "dependency_lock_sha256": bindings["dependency_lock_sha256"],
+            "tool_wheels": copy.deepcopy(bindings["tool_wheels"]),
+            "native_members": copy.deepcopy(bindings["native_members"]),
+            "elf_machines": copy.deepcopy(bindings["elf_machines"]),
+            "dt_needed": copy.deepcopy(bindings["dt_needed"]),
+            "dependency_closure": copy.deepcopy(bindings["dependency_closure"]),
+            "unresolved_dependencies": copy.deepcopy(
+                bindings["unresolved_dependencies"]
+            ),
+        },
+    }
+    identity_inputs = {
+        "schema_version": 1,
+        "kind": "ucm-real-image-build-key-input",
+        "source": source,
+        "source_date_epoch": bindings["source_date_epoch"],
+        "task_sha256": task["task_sha256"],
+        "task_authority_sha256": task["authority_sha256"],
+        "wheel_sha256": wheel["sha256"],
+        "wheel_inspection_sha256": sha256_value(wheel_authority["inspection"]),
+        "wheel_build_key": bindings["build_key"],
+        "profile_id": task["profile_id"],
+        "cpu_arch": task["cpu_arch"],
+        "base": {
+            "index_digest": base["index"]["digest"],
+            "manifest_digest": base["manifest"]["digest"],
+            "config_digest": base["config"]["digest"],
+        },
+        "implementation_sha256": implementation["aggregate_sha256"],
+        "dependency_lock_sha256": dependency_lock["sha256"],
+        "task_dependency_lock_sha256": task["dependency_lock_sha256"],
+        "toolchain_sha256": task["toolchain"]["authority_sha256"],
+        "deterministic_flags": copy.deepcopy(task["toolchain"]["deterministic_flags"]),
+    }
+    build_key = sha256_value(identity_inputs)
+    authority_payload = {
+        "schema_version": 1,
+        "kind": "ucm-real-image-source-authority",
+        "candidate_kind": "real-candidate",
+        "fixture_only": False,
+        "unpublished": True,
+        "publication_attempted": False,
+        "task": copy.deepcopy(task),
+        "wheel_inspection": copy.deepcopy(wheel_authority["inspection"]),
+        "wheel_embedded_authority": copy.deepcopy(
+            wheel_authority["embedded_authority"]
+        ),
+        "wheel_embedded_build": copy.deepcopy(wheel_authority["embedded_build"]),
+        "wheel_embedded_closure": copy.deepcopy(wheel_authority["embedded_closure"]),
+        "base": copy.deepcopy(base),
+        "dependency_lock": copy.deepcopy(dependency_lock),
+        "build_key_inputs": identity_inputs,
+        "build_key_sha256": build_key,
+    }
+    authority = {
+        **authority_payload,
+        "authority_sha256": sha256_value(authority_payload),
+    }
+    context_files = sorted(
+        [
+            *DOCKER_FILES,
+            REAL_IMAGE_CONTEXT_RECORD,
+            CONTEXT_RECIPE,
+            REAL_REQUIREMENTS_LOCK,
+            wheel["filename"],
+            task["wrapt_wheel"]["filename"],
+        ]
+    )
+    payload = {
+        "schema_version": 1,
+        "kind": "ucm-install-image-recipe",
+        "candidate_kind": "real-candidate",
+        "fixture_only": False,
+        "unpublished": True,
+        "publication_attempted": False,
+        "source_date_epoch": bindings["source_date_epoch"],
+        "family_id": family_id,
+        "profile_id": task["profile_id"],
+        "spec_id": task["spec_id"],
+        "target_platform": task["platform"],
+        "target_repository": task["target_repository"],
+        "target_tag": task["target_tag"],
+        "task_sha256": task["task_sha256"],
+        "build_key_sha256": build_key,
+        "authority_sha256": authority["authority_sha256"],
+        "source": source,
+        "base": copy.deepcopy(base),
+        "wheel": wheel,
+        "wrapt_wheel": copy.deepcopy(task["wrapt_wheel"]),
+        "dependency_lock": {
+            "filename": REAL_REQUIREMENTS_LOCK,
+            "sha256": dependency_lock["sha256"],
+            "preinstall_command": copy.deepcopy(dependency_lock["preinstall_command"]),
+            "pip_command": copy.deepcopy(dependency_lock["pip_command"]),
+        },
+        "implementation": implementation,
+        "toolchain": copy.deepcopy(task["toolchain"]),
+        "build": {
+            "target": REAL_INSTALL_TARGET,
+            "base_image": base["subject"],
+            "output": "local-oci-or-canonical-member",
+            "build_args": {
+                "BASE_IMAGE": base["subject"],
+                "SOURCE_DATE_EPOCH": str(bindings["source_date_epoch"]),
+                "TARGETPLATFORM": task["platform"],
+                "UCM_WHEEL": wheel["filename"],
+                "WRAPT_WHEEL": task["wrapt_wheel"]["filename"],
+                "UCM_SOURCE_SHA": source["commit"],
+                "UCM_SOURCE_TREE": source["tree"],
+                "UCM_SOURCE_CONTEXT_SHA256": source["context_sha256"],
+                "UCM_TASK_SHA256": task["task_sha256"],
+                "UCM_BUILD_KEY_SHA256": build_key,
+                "UCM_WHEEL_SHA256": wheel["sha256"],
+            },
+        },
+        "context_files": context_files,
+    }
+    recipe = {"payload": payload, "payload_sha256": sha256_value(payload)}
+
+    output = Path(output_dir)
+    if output.exists() and any(output.iterdir()):
+        raise ValueError(f"real build context must be absent or empty: {output}")
+    output.mkdir(parents=True, exist_ok=True)
+    for filename in DOCKER_FILES:
+        shutil.copyfile(Path(docker_root) / filename, output / filename)
+    shutil.copyfile(Path(wheel_path), output / wheel["filename"])
+    shutil.copyfile(Path(wrapt_path), output / task["wrapt_wheel"]["filename"])
+    _write_json(output / REAL_IMAGE_CONTEXT_RECORD, authority)
+    _write_json(output / CONTEXT_RECIPE, recipe)
+    (output / REAL_REQUIREMENTS_LOCK).write_text(
+        dependency_lock["requirements"], encoding="utf-8"
+    )
+    audit_real_context(output, set(context_files))
+    return recipe
 
 
 def _derive_recipe(
@@ -1218,6 +2163,43 @@ def validate_image_result(
     }
     if result["result_sha256"] != sha256_value(payload):
         raise ValueError("image result digest does not match its payload")
+    if result.get("candidate_kind") == "real-candidate":
+        task = real_image_authority(
+            result.get("family_id"), result["target_platform"].split("/", 1)[1]
+        )
+        if (
+            result.get("fixture_only") is not False
+            or result.get("unpublished") is not True
+            or result.get("publication_attempted") is not False
+            or result.get("task_key") != task["task_sha256"]
+            or result.get("profile_id") != task["profile_id"]
+            or result.get("spec_id") != task["spec_id"]
+            or result.get("target_repository") != task["target_repository"]
+            or result.get("target_tag") != task["target_tag"]
+        ):
+            raise ValueError("real image result differs from exact task authority")
+        if validate_real_base_authority(result["base"], task) != result["base"]:
+            raise ValueError("real image result base authority is noncanonical")
+        if result["implementation"] != implementation_digests():
+            raise ValueError("real image result implementation digest is not current")
+        content = result.get("content_identity")
+        if not isinstance(content, dict):
+            raise ValueError("real image result content identity is missing")
+        stable = {
+            key: copy.deepcopy(value)
+            for key, value in content.items()
+            if key != "content_identity_sha256"
+        }
+        if (
+            content.get("content_identity_sha256") != sha256_value(stable)
+            or result.get("content_identity_sha256")
+            != content.get("content_identity_sha256")
+            or result["oci"]["digest"] != content.get("manifest_digest")
+            or result["oci"]["platform"] != result["target_platform"]
+            or result["oci"]["published"] is not False
+        ):
+            raise ValueError("real image result content identity is invalid")
+        return copy.deepcopy(result)
     target_platform = result["target_platform"]
     base_record = {
         key: copy.deepcopy(result["base"][key])
@@ -1257,6 +2239,59 @@ def _canonical_tar_name(name: str, label: str) -> str:
     return name.rstrip("/")
 
 
+def _load_real_context(
+    context_dir: Path,
+) -> tuple[dict[str, Any], dict[str, Any], Path, Path]:
+    """Rebuild a real context contract from raw wheels and reviewed authorities."""
+    context = Path(context_dir)
+    recipe = load_json(context / CONTEXT_RECIPE)
+    authority = load_json(context / REAL_IMAGE_CONTEXT_RECORD)
+    if (
+        not isinstance(recipe.get("payload"), dict)
+        or recipe["payload"].get("candidate_kind") != "real-candidate"
+    ):
+        raise ValueError("context is not a real-candidate image recipe")
+    payload = recipe["payload"]
+    if recipe.get("payload_sha256") != sha256_value(payload):
+        raise ValueError("real context recipe payload digest is invalid")
+    wheel = payload.get("wheel")
+    wrapt = payload.get("wrapt_wheel")
+    if not isinstance(wheel, dict) or not isinstance(wrapt, dict):
+        raise ValueError("real context wheel authority is missing")
+    wheel_path = context / str(wheel.get("filename"))
+    wrapt_path = context / str(wrapt.get("filename"))
+    expected_files = payload.get("context_files")
+    if not isinstance(expected_files, list) or not all(
+        isinstance(item, str) for item in expected_files
+    ):
+        raise ValueError("real context allowlist is invalid")
+    audit_real_context(context, set(expected_files))
+    target_platform = payload.get("target_platform")
+    if not isinstance(target_platform, str) or "/" not in target_platform:
+        raise ValueError("real context target platform is invalid")
+    with tempfile.TemporaryDirectory() as temporary:
+        rebuilt_dir = Path(temporary) / "context"
+        rebuilt_recipe = prepare_real_context(
+            family_id=payload.get("family_id"),
+            architecture=target_platform.split("/", 1)[1],
+            wheel_path=wheel_path,
+            wheel_inspection=authority.get("wheel_inspection"),
+            base_record=authority.get("base"),
+            wrapt_path=wrapt_path,
+            output_dir=rebuilt_dir,
+            docker_root=context,
+        )
+        rebuilt_authority = load_json(rebuilt_dir / REAL_IMAGE_CONTEXT_RECORD)
+        rebuilt_lock = (rebuilt_dir / REAL_REQUIREMENTS_LOCK).read_bytes()
+    if recipe != rebuilt_recipe or authority != rebuilt_authority:
+        raise ValueError(
+            "real context recipe/authority differs from source recomputation"
+        )
+    if (context / REAL_REQUIREMENTS_LOCK).read_bytes() != rebuilt_lock:
+        raise ValueError("real context requirements lock differs from recomputation")
+    return authority, recipe, wheel_path, wrapt_path
+
+
 def _descriptor_blob(
     archive: tarfile.TarFile, descriptor: dict[str, Any], label: str
 ) -> bytes:
@@ -1292,7 +2327,17 @@ def evidence_from_oci(
     """Derive all build evidence directly from a standard local OCI archive."""
     context_dir = Path(context_dir)
     oci_path = Path(oci_path)
-    _, recipe, wheel_path = _load_context(context_dir)
+    candidate_recipe = load_json(context_dir / CONTEXT_RECIPE)
+    candidate_payload = candidate_recipe.get("payload")
+    real_candidate = (
+        isinstance(candidate_payload, dict)
+        and candidate_payload.get("candidate_kind") == "real-candidate"
+    )
+    if real_candidate:
+        context_authority, recipe, wheel_path, _ = _load_real_context(context_dir)
+    else:
+        _, recipe, wheel_path = _load_context(context_dir)
+        context_authority = None
     payload = recipe["payload"]
     target_os, target_architecture = payload["target_platform"].split("/", 1)
     try:
@@ -1381,12 +2426,19 @@ def evidence_from_oci(
 
         expected_paths = {
             "usr/local/share/ucm-release/image-recipe.json": "recipe",
-            "usr/local/share/ucm-release/image-metadata.json": "metadata",
             "usr/local/share/ucm-release/base-verification.json": "base_verification",
             "usr/local/share/ucm-release/install-result.json": "install",
             "usr/local/share/ucm-release/runtime-inspection.json": "runtime",
-            f"tmp/{payload['wheel']['filename']}": "wheel",
         }
+        if real_candidate:
+            expected_paths["usr/local/share/ucm-release/image-authority.json"] = (
+                "authority"
+            )
+        else:
+            expected_paths["usr/local/share/ucm-release/image-metadata.json"] = (
+                "metadata"
+            )
+            expected_paths[f"tmp/{payload['wheel']['filename']}"] = "wheel"
         observed: dict[str, bytes] = {}
         for layer_index, layer_descriptor in enumerate(manifest["layers"]):
             if (
@@ -1446,15 +2498,25 @@ def evidence_from_oci(
                 f"OCI image is missing required embedded evidence: {missing}"
             )
         context_recipe = load_json(context_dir / CONTEXT_RECIPE)
-        context_metadata = load_json(context_dir / CONTEXT_METADATA)
         if _json_bytes(observed["recipe"], "embedded recipe") != context_recipe:
             raise ValueError("OCI embedded recipe does not match context")
-        if _json_bytes(observed["metadata"], "embedded metadata") != context_metadata:
-            raise ValueError("OCI embedded metadata does not match context")
-        if observed["wheel"] != wheel_path.read_bytes():
-            raise ValueError(
-                "OCI embedded wheel does not match the authorized context bytes"
-            )
+        if real_candidate:
+            if (
+                _json_bytes(observed["authority"], "embedded authority")
+                != context_authority
+            ):
+                raise ValueError("OCI embedded real authority does not match context")
+        else:
+            context_metadata = load_json(context_dir / CONTEXT_METADATA)
+            if (
+                _json_bytes(observed["metadata"], "embedded metadata")
+                != context_metadata
+            ):
+                raise ValueError("OCI embedded metadata does not match context")
+            if observed["wheel"] != wheel_path.read_bytes():
+                raise ValueError(
+                    "OCI embedded wheel does not match the authorized context bytes"
+                )
         if evidence_dir is not None:
             evidence_dir = Path(evidence_dir)
             if evidence_dir.exists() and any(evidence_dir.iterdir()):
@@ -1472,23 +2534,42 @@ def evidence_from_oci(
                 (evidence_dir / filename).write_bytes(content)
             compact_closure = {
                 "schema_version": 1,
-                "kind": "ucm-compact-oci-evidence",
+                "kind": (
+                    "ucm-real-compact-oci-evidence"
+                    if real_candidate
+                    else "ucm-compact-oci-evidence"
+                ),
                 "target_platform": payload["target_platform"],
                 "manifest_descriptor": copy.deepcopy(manifest_descriptor),
                 "config_descriptor": copy.deepcopy(config_descriptor),
                 "layers": copy.deepcopy(manifest["layers"]),
                 "diff_ids": copy.deepcopy(diff_ids),
                 "recipe_payload_sha256": recipe["payload_sha256"],
-                "metadata_sha256": payload["metadata_sha256"],
                 "wheel_sha256": payload["wheel"]["sha256"],
                 "archive_sha256": "sha256:"
                 + hashlib.sha256(oci_path.read_bytes()).hexdigest(),
                 "archive_size": oci_path.stat().st_size,
             }
+            if real_candidate:
+                compact_closure["authority_sha256"] = payload["authority_sha256"]
+                compact_closure["annotations"] = copy.deepcopy(
+                    manifest.get("annotations", {})
+                )
+                compact_closure["labels"] = copy.deepcopy(
+                    config.get("config", {}).get("Labels", {})
+                )
+                compact_closure["created"] = config.get("created")
+                compact_closure["history"] = copy.deepcopy(config.get("history"))
+            else:
+                compact_closure["metadata_sha256"] = payload["metadata_sha256"]
             _write_json(evidence_dir / "closure.json", compact_closure)
-        return {
+        common_evidence = {
             "schema_version": 1,
-            "kind": "ucm-image-build-evidence",
+            "kind": (
+                "ucm-real-image-build-evidence"
+                if real_candidate
+                else "ucm-image-build-evidence"
+            ),
             "recipe_sha256": recipe["payload_sha256"],
             "build_key_sha256": payload["build_key_sha256"],
             "base_verification": _json_bytes(
@@ -1504,6 +2585,257 @@ def evidence_from_oci(
                 "published": False,
             },
         }
+        if real_candidate:
+            common_evidence["oci_closure"] = {
+                "manifest_digest": manifest_descriptor["digest"],
+                "config_digest": config_descriptor["digest"],
+                "layers": copy.deepcopy(manifest["layers"]),
+                "diff_ids": copy.deepcopy(diff_ids),
+                "annotations": copy.deepcopy(manifest.get("annotations", {})),
+                "labels": copy.deepcopy(config.get("config", {}).get("Labels", {})),
+                "created": config.get("created"),
+                "history": copy.deepcopy(config.get("history")),
+            }
+        return common_evidence
+
+
+def verify_real_image(
+    context_dir: Path,
+    evidence: dict[str, Any],
+    *,
+    output_mode: str,
+    schema_dir: Path = DEFAULT_SCHEMA_DIR,
+) -> dict[str, Any]:
+    """Recompute a real context and emit an unpublished member result."""
+    if output_mode not in {"feature", "production"}:
+        raise ValueError("real image output mode must be feature or production")
+    authority, recipe, _, _ = _load_real_context(Path(context_dir))
+    payload = recipe["payload"]
+    _exact(
+        evidence,
+        {
+            "schema_version",
+            "kind",
+            "recipe_sha256",
+            "build_key_sha256",
+            "base_verification",
+            "install",
+            "runtime",
+            "oci",
+            "oci_closure",
+        },
+        "real image build evidence",
+    )
+    if (
+        evidence["schema_version"] != 1
+        or evidence["kind"] != "ucm-real-image-build-evidence"
+        or evidence["recipe_sha256"] != recipe["payload_sha256"]
+        or evidence["build_key_sha256"] != payload["build_key_sha256"]
+    ):
+        raise ValueError("real image evidence identity differs from recipe")
+    base_verification = evidence["base_verification"]
+    if base_verification != {
+        "schema_version": 1,
+        "kind": "ucm-base-verification",
+        "base_subject": payload["base"]["subject"],
+        "target_platform": payload["target_platform"],
+        "status": "passed",
+    }:
+        raise ValueError("real base image gate did not pass")
+    gates = {
+        "base_verified": "passed",
+        "wheel_verified": "passed",
+        **verify_real_runtime_evidence(recipe, evidence),
+    }
+    identity = real_content_identity(recipe, evidence["oci_closure"])
+    oci = evidence["oci"]
+    if (
+        not isinstance(oci, dict)
+        or oci.get("output") != "local-oci"
+        or oci.get("digest") != identity["manifest_digest"]
+        or oci.get("platform") != payload["target_platform"]
+        or oci.get("published") is not False
+    ):
+        raise ValueError("real OCI evidence differs from content identity")
+    task = authority["task"]
+    wheel_result = {
+        "filename": payload["wheel"]["filename"],
+        "sha256": payload["wheel"]["sha256"],
+        "size": payload["wheel"]["size"],
+        "spec_id": task["spec_id"],
+        "declaration_sha256": authority["wheel_inspection"]["declaration_sha256"],
+        "version": payload["wheel"]["version"],
+        "python_abi": task["python_abi"],
+        "cpu_arch": task["cpu_arch"],
+        "accelerator": authority["wheel_embedded_build"]["accelerator"],
+        "accelerator_runtime": authority["wheel_embedded_build"]["accelerator_runtime"],
+        "npu_arch_or_na": authority["wheel_embedded_build"]["npu_arch_or_na"],
+        "os": authority["wheel_embedded_build"]["os"],
+        "binary_profile_id": authority["wheel_embedded_build"]["binary_profile_id"],
+        "requires_dist": ["wrapt==1.17.2"],
+    }
+    source = {
+        "commit": payload["source"]["commit"],
+        "tree": payload["source"]["tree"],
+        "archive_sha256": payload["source"]["archive_sha256"],
+        "context_sha256": payload["source"]["context_sha256"],
+        "task_sha256": payload["task_sha256"],
+        "wheel_build_key": authority["wheel_embedded_build"]["build_key"],
+    }
+    result_payload = {
+        "schema_version": 1,
+        "kind": "ucm-image-result",
+        "candidate_kind": "real-candidate",
+        "fixture_only": False,
+        "unpublished": True,
+        "publication_attempted": False,
+        "output_mode": output_mode,
+        "recipe_sha256": recipe["payload_sha256"],
+        "content_identity_sha256": identity["content_identity_sha256"],
+        "build_key_sha256": payload["build_key_sha256"],
+        "task_key": payload["task_sha256"],
+        "family_id": payload["family_id"],
+        "profile_id": payload["profile_id"],
+        "spec_id": payload["spec_id"],
+        "ucm_version": payload["wheel"]["version"].split("+", 1)[0],
+        "source": source,
+        "base": copy.deepcopy(payload["base"]),
+        "target_platform": payload["target_platform"],
+        "target_repository": payload["target_repository"],
+        "target_tag": payload["target_tag"],
+        "wheel": wheel_result,
+        "wrapt_wheel": copy.deepcopy(payload["wrapt_wheel"]),
+        "dependency_lock": copy.deepcopy(payload["dependency_lock"]),
+        "implementation": copy.deepcopy(payload["implementation"]),
+        "toolchain": copy.deepcopy(payload["toolchain"]),
+        "oci": {
+            "output": (
+                "local-oci" if output_mode == "feature" else "canonical-member-record"
+            ),
+            "media_type": oci["media_type"],
+            "digest": identity["manifest_digest"],
+            "platform": payload["target_platform"],
+            "published": False,
+        },
+        "content_identity": identity,
+        "gates": gates,
+        "runtime_validation": "external-required",
+        "device_validation": "external-required",
+        "status": "real-verified-unpublished",
+    }
+    result = {**result_payload, "result_sha256": sha256_value(result_payload)}
+    schema = load_json(Path(schema_dir) / "image-result.schema.json")
+    validate_schema(result, schema)
+    return result
+
+
+def validate_real_compact_oci_evidence(
+    evidence_dir: Path,
+    *,
+    image_result: object,
+    recipe: object,
+) -> dict[str, Any]:
+    """Reopen saved real descriptors after the large OCI archive is discarded."""
+    directory = Path(evidence_dir)
+    expected_files = {
+        "oci-layout.json",
+        "index.json",
+        "manifest.json",
+        "config.json",
+        "closure.json",
+    }
+    if (
+        not directory.is_dir()
+        or {path.name for path in directory.iterdir() if path.is_file()}
+        != expected_files
+        or any(path.is_symlink() for path in directory.iterdir())
+    ):
+        raise ValueError("real compact OCI evidence file set is noncanonical")
+    raw: dict[str, bytes] = {}
+    values: dict[str, dict[str, Any]] = {}
+    for name in expected_files:
+        raw[name] = (directory / name).read_bytes()
+        values[name] = _json_bytes(raw[name], f"real compact {name}")
+    if values["oci-layout.json"] != {"imageLayoutVersion": "1.0.0"}:
+        raise ValueError("real compact OCI layout version is invalid")
+    closure = values["closure.json"]
+    if raw["closure.json"] != canonical_bytes(closure) + b"\n":
+        raise ValueError("real compact OCI closure bytes are noncanonical")
+    index = values["index.json"]
+    manifest = values["manifest.json"]
+    config = values["config.json"]
+    manifests = index.get("manifests")
+    if not isinstance(manifests, list) or len(manifests) != 1:
+        raise ValueError("real compact OCI index must contain one manifest")
+    manifest_descriptor = manifests[0]
+    config_descriptor = manifest.get("config")
+    if not isinstance(manifest_descriptor, dict) or not isinstance(
+        config_descriptor, dict
+    ):
+        raise ValueError("real compact OCI descriptors are missing")
+    if (
+        manifest_descriptor.get("digest")
+        != "sha256:" + hashlib.sha256(raw["manifest.json"]).hexdigest()
+        or manifest_descriptor.get("size") != len(raw["manifest.json"])
+        or config_descriptor.get("digest")
+        != "sha256:" + hashlib.sha256(raw["config.json"]).hexdigest()
+        or config_descriptor.get("size") != len(raw["config.json"])
+    ):
+        raise ValueError("real compact OCI raw descriptors do not reopen")
+    result = validate_image_result(image_result)
+    if result.get("candidate_kind") != "real-candidate":
+        raise ValueError("real compact OCI evidence requires a real result")
+    if not isinstance(recipe, dict) or recipe.get("payload_sha256") != result.get(
+        "recipe_sha256"
+    ):
+        raise ValueError("real compact OCI recipe does not match result")
+    identity = result["content_identity"]
+    expected_closure = {
+        "schema_version": 1,
+        "kind": "ucm-real-compact-oci-evidence",
+        "target_platform": result["target_platform"],
+        "manifest_descriptor": manifest_descriptor,
+        "config_descriptor": config_descriptor,
+        "layers": manifest.get("layers"),
+        "diff_ids": config.get("rootfs", {}).get("diff_ids"),
+        "recipe_payload_sha256": result["recipe_sha256"],
+        "wheel_sha256": result["wheel"]["sha256"],
+        "archive_sha256": closure.get("archive_sha256"),
+        "archive_size": closure.get("archive_size"),
+        "authority_sha256": recipe["payload"]["authority_sha256"],
+        "annotations": manifest.get("annotations", {}),
+        "labels": config.get("config", {}).get("Labels", {}),
+        "created": config.get("created"),
+        "history": config.get("history"),
+    }
+    _digest(expected_closure["archive_sha256"], "real OCI archive digest")
+    if (
+        not isinstance(expected_closure["archive_size"], int)
+        or expected_closure["archive_size"] < 1
+        or closure != expected_closure
+        or manifest_descriptor.get("digest") != identity["manifest_digest"]
+        or config_descriptor.get("digest") != identity["config_digest"]
+        or manifest.get("layers") != identity["layers"]
+        or config.get("rootfs", {}).get("diff_ids") != identity["diff_ids"]
+        or manifest.get("annotations", {}) != identity["annotations"]
+        or config.get("config", {}).get("Labels", {}) != identity["labels"]
+        or config.get("created") != identity["created"]
+        or config.get("history") != identity["history"]
+    ):
+        raise ValueError("real compact OCI closure differs from result identity")
+    stable = {
+        "manifest_digest": manifest_descriptor["digest"],
+        "config_digest": config_descriptor["digest"],
+        "layers": copy.deepcopy(identity["layers"]),
+        "diff_ids": copy.deepcopy(identity["diff_ids"]),
+        "content_identity_sha256": identity["content_identity_sha256"],
+        "archive_sha256": closure["archive_sha256"],
+        "raw_sha256": {
+            name: "sha256:" + hashlib.sha256(content).hexdigest()
+            for name, content in sorted(raw.items())
+        },
+    }
+    return {**stable, "closure_sha256": sha256_value(stable)}
 
 
 def verify_oci(
@@ -1512,9 +2844,26 @@ def verify_oci(
     *,
     schema_dir: Path = DEFAULT_SCHEMA_DIR,
     evidence_dir: Path | None = None,
+    output_mode: str = "feature",
 ) -> dict[str, Any]:
     """Verify a Buildx local OCI output without caller-authored result summaries."""
     evidence = evidence_from_oci(context_dir, oci_path, evidence_dir=evidence_dir)
+    if evidence.get("kind") == "ucm-real-image-build-evidence":
+        result = verify_real_image(
+            context_dir,
+            evidence,
+            output_mode=output_mode,
+            schema_dir=schema_dir,
+        )
+        if evidence_dir is not None:
+            validate_real_compact_oci_evidence(
+                evidence_dir,
+                image_result=result,
+                recipe=load_json(Path(context_dir) / CONTEXT_RECIPE),
+            )
+        if Path(oci_path).is_file():
+            Path(oci_path).unlink()
+        return result
     return verify_image(context_dir, evidence, schema_dir=schema_dir)
 
 

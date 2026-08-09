@@ -92,7 +92,9 @@ def _blob(
     return value, _raw_json(raw, label)
 
 
-def _validated_base(base: object, target_platform: str) -> tuple[str, str]:
+def _validated_base(
+    base: object, target_platform: str, candidate_kind: str
+) -> tuple[str, str]:
     required = {
         "schema_version",
         "kind",
@@ -106,12 +108,19 @@ def _validated_base(base: object, target_platform: str) -> tuple[str, str]:
     }
     if not isinstance(base, dict) or set(base) != required:
         raise ValueError("recipe base record has noncanonical fields")
+    identities = {
+        "fixture-candidate": ("fixture-base-image-record", True),
+        "real-candidate": ("ucm-real-base-image-record", False),
+    }
+    if candidate_kind not in identities:
+        raise ValueError("recipe candidate kind is invalid")
+    expected_kind, fixture_only = identities[candidate_kind]
     if (
         base["schema_version"] != 1
-        or base["kind"] != "fixture-base-image-record"
-        or base["fixture_only"] is not True
+        or base["kind"] != expected_kind
+        or base["fixture_only"] is not fixture_only
     ):
-        raise ValueError("recipe base record is not fixture-only")
+        raise ValueError("recipe base record candidate identity is invalid")
     try:
         target_os, target_architecture = target_platform.split("/", 1)
     except ValueError as error:
@@ -204,7 +213,8 @@ def verify(recipe_path: Path, base_image: str, target_platform: str) -> dict[str
         raise ValueError("recipe payload digest mismatch")
     payload = recipe["payload"]
     base = payload.get("base") if isinstance(payload, dict) else None
-    subject, expected_platform = _validated_base(base, target_platform)
+    candidate_kind = payload.get("candidate_kind", "fixture-candidate")
+    subject, expected_platform = _validated_base(base, target_platform, candidate_kind)
     if (
         target_platform != payload.get("target_platform")
         or target_platform != expected_platform

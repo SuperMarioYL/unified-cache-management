@@ -1227,3 +1227,473 @@ def test_image_builder_rejects_unsupported_or_mixed_ascend_tasks(
 
     with pytest.raises(ValueError):
         image.prepare_context(**values, output_dir=tmp_path / "bad-mixed")
+
+
+def _real_image_task(image, spec_id: str = "cuda130-amd64"):
+    authorities = image.real_image_authorities()
+    return next(item for item in authorities if item["spec_id"] == spec_id)
+
+
+def test_real_image_authority_projects_exactly_the_six_reviewed_members() -> None:
+    """Dropping, inventing, or caller-renaming a production member is a bug."""
+    core, _, _, image = _modules()
+    matrix = core.build_matrix("feature-candidate")
+    authorities = image.real_image_authorities()
+
+    assert [item["spec_id"] for item in authorities] == [
+        "cuda130-amd64",
+        "cuda130-arm64",
+        "cann900-a2-amd64",
+        "cann900-a2-arm64",
+        "cann900-a3-amd64",
+        "cann900-a3-arm64",
+    ]
+    assert [item["task_sha256"] for item in authorities] == [
+        item["task_sha256"] for item in matrix["tasks"]
+    ]
+    assert all(item["kind"] == "ucm-real-image-task-authority" for item in authorities)
+    assert all(item["candidate_kind"] == "real-candidate" for item in authorities)
+    assert all(item["fixture_only"] is False for item in authorities)
+    assert all(item["unpublished"] is True for item in authorities)
+    assert all(item["publication_attempted"] is False for item in authorities)
+    assert len({item["authority_sha256"] for item in authorities}) == 6
+    assert {
+        (item["runtime"]["repository"], item["target_repository"])
+        for item in authorities
+    } == {
+        ("docker.io/vllm/vllm-openai", "ghcr.io/supermarioyl/vllm-openai"),
+        ("quay.io/ascend/vllm-ascend", "ghcr.io/supermarioyl/vllm-ascend"),
+    }
+
+
+@pytest.mark.parametrize(
+    ("family_id", "architecture", "message"),
+    [
+        ("cuda130", "aarch64", "architecture"),
+        ("cann900-a5", "arm64", "family"),
+        ("../cuda130", "amd64", "family"),
+    ],
+)
+def test_real_image_authority_rejects_caller_invented_coordinates(
+    family_id: str, architecture: str, message: str
+) -> None:
+    """A caller-controlled family, architecture, repository, or tag must not resolve."""
+    *_, image = _modules()
+    with pytest.raises(ValueError, match=message):
+        image.real_image_authority(family_id, architecture)
+
+
+def test_real_entry_reinspects_raw_wheel_and_rejects_fixture_relabeling(
+    tmp_path: Path,
+) -> None:
+    """Changing summary labels cannot turn fixture bytes into a real wheel."""
+    core, wheel, _, image = _modules()
+    manifest = core.build_release_manifest()
+    spec = next(
+        item for item in manifest["wheel_specs"] if item["spec_id"] == "cuda130-amd64"
+    )
+    built = wheel.build_fixture_wheel(tmp_path / "fixture", "0" * 40, spec["spec_id"])
+    relabeled = copy.deepcopy(built["inspection"])
+    relabeled.update(
+        {
+            "source_kind": "builder-candidate",
+            "status": "candidate-inspected",
+            "trust_level": "unpublished-builder-candidate",
+        }
+    )
+
+    with pytest.raises(ValueError, match="builder-candidate|fixture"):
+        image.inspect_real_wheel_candidate(
+            "cuda130",
+            "amd64",
+            Path(built["wheel_path"]),
+            relabeled,
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("fixture-kind", "real"),
+        ("repository", "repository"),
+        ("index", "base"),
+        ("manifest", "base"),
+        ("config", "base"),
+    ],
+)
+def test_real_base_authority_requires_the_exact_task_descriptor_chain(
+    mutation: str, message: str
+) -> None:
+    """Basename matches and internally consistent wrong descriptor chains are invalid."""
+    *_, image = _modules()
+    task = _real_image_task(image)
+    record = _base_chain_record()
+    record["kind"] = "ucm-real-base-image-record"
+    record["fixture_only"] = False
+    record["repository"] = task["runtime"]["repository"]
+    if mutation == "fixture-kind":
+        record["kind"] = "fixture-base-image-record"
+        record["fixture_only"] = True
+    elif mutation == "repository":
+        record["repository"] = "evil.example/vllm/vllm-openai"
+    elif mutation == "index":
+        record["index"]["digest"] = task["runtime"]["index_digest"]
+    elif mutation == "manifest":
+        record["manifest"]["digest"] = task["runtime"]["manifest_digest"]
+    elif mutation == "config":
+        record["config"]["digest"] = task["runtime"]["config_digest"]
+
+    with pytest.raises(ValueError, match=message):
+        image.validate_real_base_authority(record, task)
+
+
+@pytest.mark.parametrize(
+    ("artifact", "message"),
+    [
+        ("setup.py", "source|allowlist"),
+        ("CMakeLists.txt", "source|allowlist"),
+        ("compiler", "tool|allowlist"),
+        ("second.whl", "wheel|allowlist"),
+        ("nested/ucm.cc", "flat|directory|allowlist"),
+        ("linked", "symlink"),
+    ],
+)
+def test_real_context_recursive_allowlist_rejects_source_tools_and_extra_wheels(
+    tmp_path: Path, artifact: str, message: str
+) -> None:
+    """A top-level-only file check must not hide nested source or symlink payloads."""
+    *_, image = _modules()
+    context = tmp_path / "context"
+    context.mkdir()
+    expected = {"Dockerfile", "image-recipe.json"}
+    for name in expected:
+        (context / name).write_text("{}\n", encoding="utf-8")
+    target = context / artifact
+    if artifact == "linked":
+        target.symlink_to(context / "Dockerfile")
+    elif "/" in artifact:
+        target.parent.mkdir()
+        target.write_text("source\n", encoding="utf-8")
+    else:
+        target.write_text("payload\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        image.audit_real_context(context, expected)
+
+
+def test_real_dependency_lock_rejects_missing_or_wrong_arch_wrapt(
+    tmp_path: Path,
+) -> None:
+    """A network fallback or a same-version wrong wheel is not the reviewed dependency."""
+    *_, image = _modules()
+    task = _real_image_task(image, "cuda130-arm64")
+    missing = tmp_path / task["wrapt_wheel"]["filename"]
+    with pytest.raises(ValueError, match="wrapt"):
+        image.build_real_dependency_lock(task, tmp_path / "ucm.whl", missing)
+    missing.write_bytes(b"wrong architecture and hash")
+    with pytest.raises(ValueError, match="wrapt.*SHA256|SHA256.*wrapt"):
+        image.build_real_dependency_lock(task, tmp_path / "ucm.whl", missing)
+
+
+def test_real_dependency_lock_uses_exact_install_and_preinstall_purge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The locked install replaces rather than reuses packages present in the base."""
+    *_, image = _modules()
+    task = _real_image_task(image)
+    wrapt_bytes = b"reviewed wrapt wheel bytes"
+    task["wrapt_wheel"]["sha256"] = "sha256:" + hashlib.sha256(wrapt_bytes).hexdigest()
+    monkeypatch.setattr(image, "real_image_authority", lambda *args, **kwargs: task)
+    ucm = tmp_path / "uc_manager.whl"
+    ucm.write_bytes(b"reviewed UCM wheel bytes")
+    wrapt = tmp_path / task["wrapt_wheel"]["filename"]
+    wrapt.write_bytes(wrapt_bytes)
+
+    lock = image.build_real_dependency_lock(task, ucm, wrapt)
+
+    assert lock["preinstall_command"] == [
+        "python",
+        "-m",
+        "pip",
+        "uninstall",
+        "--yes",
+        "uc-manager",
+        "wrapt",
+    ]
+    assert lock["pip_command"] == [
+        "python",
+        "-m",
+        "pip",
+        "install",
+        "--no-index",
+        "--find-links=/wheelhouse",
+        "--require-hashes",
+        "--only-binary=:all:",
+        "--no-cache-dir",
+        "--disable-pip-version-check",
+        "-r",
+        "/wheelhouse/requirements.lock",
+    ]
+
+
+def _real_runtime_probe(image, spec_id: str = "cuda130-amd64"):
+    task = _real_image_task(image, spec_id)
+    machine = "EM_X86_64" if task["cpu_arch"] == "amd64" else "EM_AARCH64"
+    wheel_sha256 = "sha256:" + "a" * 64
+    wrapt_sha256 = task["wrapt_wheel"]["sha256"]
+    native_members = {
+        component: f"ucm/native/{component}.so" for component in task["required_native"]
+    }
+    dt_needed = {member: ["libc.so.6"] for member in native_members.values()}
+    dependency_closure = {
+        member: {
+            "dt_needed": ["libc.so.6"],
+            "resolved_dependencies": [
+                {
+                    "dependency": "libc.so.6",
+                    "direct": True,
+                    "kind": "external",
+                    "path": "/lib/libc.so.6",
+                    "sha256": "sha256:" + "b" * 64,
+                }
+            ],
+            "unresolved_dependencies": [],
+        }
+        for member in native_members.values()
+    }
+    recipe = {
+        "payload": {
+            "candidate_kind": "real-candidate",
+            "target_platform": task["platform"],
+            "wheel": {
+                "filename": "uc_manager.whl",
+                "sha256": wheel_sha256,
+                "version": task["wheel_version"],
+                "python_abi": task["python_abi"],
+                "builder_evidence": {
+                    "native_members": native_members,
+                    "elf_machines": [machine],
+                    "dt_needed": dt_needed,
+                    "dependency_closure": dependency_closure,
+                },
+            },
+            "wrapt_wheel": copy.deepcopy(task["wrapt_wheel"]),
+            "dependency_lock": {
+                "preinstall_command": [
+                    "python",
+                    "-m",
+                    "pip",
+                    "uninstall",
+                    "--yes",
+                    "uc-manager",
+                    "wrapt",
+                ],
+                "pip_command": [
+                    "python",
+                    "-m",
+                    "pip",
+                    "install",
+                    "--no-index",
+                    "--find-links=/wheelhouse",
+                    "--require-hashes",
+                    "--only-binary=:all:",
+                    "--no-cache-dir",
+                    "--disable-pip-version-check",
+                    "-r",
+                    "/wheelhouse/requirements.lock",
+                ],
+            },
+        }
+    }
+    recipe["payload_sha256"] = (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(
+                recipe["payload"], sort_keys=True, separators=(",", ":")
+            ).encode()
+        ).hexdigest()
+    )
+    evidence = {
+        "install": {
+            "preinstall_command": [
+                "/usr/local/bin/python",
+                "-m",
+                "pip",
+                "uninstall",
+                "--yes",
+                "uc-manager",
+                "wrapt",
+            ],
+            "pip_command": [
+                "/usr/local/bin/python",
+                "-m",
+                "pip",
+                "install",
+                "--no-index",
+                "--find-links=/wheelhouse",
+                "--require-hashes",
+                "--only-binary=:all:",
+                "--no-cache-dir",
+                "--disable-pip-version-check",
+                "-r",
+                "/wheelhouse/requirements.lock",
+            ],
+            "pip_check": "passed",
+            "installed_packages": {
+                "uc-manager": task["wheel_version"],
+                "wrapt": "1.17.2",
+            },
+            "imports": {"ucm": "passed", "wrapt": "passed"},
+            "direct_urls": {
+                "uc-manager": {
+                    "url": "file:///wheelhouse/uc_manager.whl",
+                    "archive_info": {
+                        "hash": "sha256=" + wheel_sha256.removeprefix("sha256:")
+                    },
+                },
+                "wrapt": {
+                    "url": f"file:///wheelhouse/{task['wrapt_wheel']['filename']}",
+                    "archive_info": {
+                        "hash": "sha256=" + wrapt_sha256.removeprefix("sha256:")
+                    },
+                },
+            },
+            "status": "passed",
+        },
+        "runtime": {
+            "package_version": task["wheel_version"],
+            "native_members": native_members,
+            "elf_machines": [machine],
+            "dt_needed": dt_needed,
+            "dependency_closure": dependency_closure,
+            "abi": {
+                "expected_python_abi": task["python_abi"],
+                "observed_python_abi": task["python_abi"],
+                "status": "passed",
+            },
+            "accelerator_runtime": {"status": "external-required"},
+            "device": {"status": "external-required"},
+            "hardware_passed": False,
+            "status": "external-required",
+        },
+    }
+    return recipe, evidence
+
+
+@pytest.mark.parametrize(
+    ("path", "value", "message"),
+    [
+        (("install", "preinstall_command"), [], "preinstall"),
+        (("install", "pip_check"), "failed", "pip"),
+        (
+            ("install", "direct_urls", "uc-manager", "archive_info", "hash"),
+            "sha256=bad",
+            "direct_url",
+        ),
+        (
+            ("install", "direct_urls", "wrapt", "archive_info", "hash"),
+            "sha256=bad",
+            "direct_url",
+        ),
+        (("runtime", "native_members"), {}, "native"),
+        (("runtime", "elf_machines"), ["EM_AARCH64"], "ELF"),
+        (("runtime", "dt_needed"), {}, "DT_NEEDED"),
+        (("runtime", "dependency_closure"), {}, "dependency closure"),
+        (("runtime", "abi", "status"), "failed", "ABI"),
+        (("runtime", "device", "status"), "passed", "external-required"),
+    ],
+)
+def test_real_runtime_verification_fails_closed_on_every_required_gate(
+    path: tuple[str, ...], value: object, message: str
+) -> None:
+    """A real member cannot survive install, ABI, native, ELF, or runtime gate drift."""
+    *_, image = _modules()
+    recipe, evidence = _real_runtime_probe(image)
+    cursor = evidence
+    for key in path[:-1]:
+        cursor = cursor[key]
+    cursor[path[-1]] = value
+    with pytest.raises(ValueError, match=message):
+        image.verify_real_runtime_evidence(recipe, evidence)
+
+
+def test_real_content_identity_rejects_mutable_or_missing_oci_authority() -> None:
+    """Run/signature bytes are excluded, while OCI labels and deterministic history bind."""
+    *_, image = _modules()
+    task = _real_image_task(image)
+    epoch = 1_700_000_000
+    base_history = [{"created": "2022-01-01T00:00:00Z", "created_by": "base-layer"}]
+    recipe = {
+        "payload": {
+            "candidate_kind": "real-candidate",
+            "source_date_epoch": epoch,
+            "base": {
+                "config": {
+                    "raw": json.dumps(
+                        {
+                            "config": {"Labels": {"base.label": "preserved"}},
+                            "history": base_history,
+                        },
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                }
+            },
+            "source": {
+                "commit": "1" * 40,
+                "tree": "2" * 40,
+                "context_sha256": "sha256:" + "3" * 64,
+            },
+            "task_sha256": task["task_sha256"],
+            "build_key_sha256": "sha256:" + "4" * 64,
+            "wheel": {"sha256": "sha256:" + "5" * 64},
+        }
+    }
+    recipe["payload_sha256"] = (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(
+                recipe["payload"], sort_keys=True, separators=(",", ":")
+            ).encode()
+        ).hexdigest()
+    )
+    created = "2023-11-14T22:13:20Z"
+    closure = {
+        "manifest_digest": "sha256:" + "6" * 64,
+        "config_digest": "sha256:" + "7" * 64,
+        "layers": [{"digest": "sha256:" + "8" * 64, "size": 123}],
+        "diff_ids": ["sha256:" + "9" * 64],
+        "annotations": {
+            "io.ucm.release.recipe-sha256": recipe["payload_sha256"],
+            "io.ucm.release.task-sha256": task["task_sha256"],
+        },
+        "labels": {
+            "base.label": "preserved",
+            "org.opencontainers.image.revision": "1" * 40,
+            "io.ucm.release.source-tree": "2" * 40,
+            "io.ucm.release.source-context-sha256": "sha256:" + "3" * 64,
+            "io.ucm.release.task-sha256": task["task_sha256"],
+            "io.ucm.release.build-key-sha256": "sha256:" + "4" * 64,
+            "io.ucm.release.wheel-sha256": "sha256:" + "5" * 64,
+            "io.ucm.release.recipe-sha256": recipe["payload_sha256"],
+        },
+        "created": created,
+        "history": [
+            *base_history,
+            {"created": created, "created_by": "ucm-install-only-v1"},
+        ],
+    }
+    first = image.real_content_identity(recipe, closure)
+    changed_envelope = copy.deepcopy(closure)
+    changed_envelope["run_id"] = "different-run"
+    changed_envelope["signature"] = "different-signature"
+    assert image.real_content_identity(recipe, changed_envelope) == first
+
+    missing_label = copy.deepcopy(closure)
+    del missing_label["labels"]["io.ucm.release.task-sha256"]
+    with pytest.raises(ValueError, match="label"):
+        image.real_content_identity(recipe, missing_label)
+    mutable_history = copy.deepcopy(closure)
+    mutable_history["history"][0]["created"] = "2026-08-09T12:34:56Z"
+    with pytest.raises(ValueError, match="created|history"):
+        image.real_content_identity(recipe, mutable_history)

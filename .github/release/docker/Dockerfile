@@ -223,3 +223,53 @@ RUN python /usr/local/bin/inspect_runtime.py \
       --output /usr/local/share/ucm-release/runtime-inspection.json
 
 FROM runtime-install AS runtime
+
+FROM ${BASE_IMAGE} AS runtime-real-install
+
+ARG BASE_IMAGE
+ARG SOURCE_DATE_EPOCH
+ARG TARGETPLATFORM
+ARG UCM_WHEEL
+ARG WRAPT_WHEEL
+ARG UCM_SOURCE_SHA
+ARG UCM_SOURCE_TREE
+ARG UCM_SOURCE_CONTEXT_SHA256
+ARG UCM_TASK_SHA256
+ARG UCM_BUILD_KEY_SHA256
+ARG UCM_WHEEL_SHA256
+ARG UCM_RECIPE_SHA256
+
+LABEL org.opencontainers.image.revision="${UCM_SOURCE_SHA}" \
+      io.ucm.release.source-tree="${UCM_SOURCE_TREE}" \
+      io.ucm.release.source-context-sha256="${UCM_SOURCE_CONTEXT_SHA256}" \
+      io.ucm.release.task-sha256="${UCM_TASK_SHA256}" \
+      io.ucm.release.build-key-sha256="${UCM_BUILD_KEY_SHA256}" \
+      io.ucm.release.wheel-sha256="${UCM_WHEEL_SHA256}" \
+      io.ucm.release.recipe-sha256="${UCM_RECIPE_SHA256}"
+
+COPY image-recipe.json /usr/local/share/ucm-release/image-recipe.json
+COPY image-authority.json /usr/local/share/ucm-release/image-authority.json
+COPY verify_base_image.py /usr/local/bin/verify_base_image.py
+COPY install_ucm.py /usr/local/bin/install_ucm.py
+COPY inspect_runtime.py /usr/local/bin/inspect_runtime.py
+
+RUN python /usr/local/bin/verify_base_image.py \
+      --recipe /usr/local/share/ucm-release/image-recipe.json \
+      --base-image "${BASE_IMAGE}" \
+      --target-platform "${TARGETPLATFORM}" \
+      --output /usr/local/share/ucm-release/base-verification.json
+RUN --mount=type=bind,source=${UCM_WHEEL},target=/wheelhouse/${UCM_WHEEL},readonly \
+    --mount=type=bind,source=${WRAPT_WHEEL},target=/wheelhouse/${WRAPT_WHEEL},readonly \
+    --mount=type=bind,source=requirements.lock,target=/wheelhouse/requirements.lock,readonly \
+    python /usr/local/bin/install_ucm.py \
+      --recipe /usr/local/share/ucm-release/image-recipe.json \
+      --authority /usr/local/share/ucm-release/image-authority.json \
+      --wheelhouse /wheelhouse \
+      --lock /wheelhouse/requirements.lock \
+      --output /usr/local/share/ucm-release/install-result.json
+RUN python /usr/local/bin/inspect_runtime.py \
+      --recipe /usr/local/share/ucm-release/image-recipe.json \
+      --install-result /usr/local/share/ucm-release/install-result.json \
+      --output /usr/local/share/ucm-release/runtime-inspection.json
+
+FROM runtime-real-install AS runtime-real

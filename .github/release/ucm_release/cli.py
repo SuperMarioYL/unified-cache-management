@@ -186,6 +186,9 @@ def build_parser() -> argparse.ArgumentParser:
     image_verify.add_argument(
         "--schema-dir", type=Path, default=core.DEFAULT_SCHEMA_DIR
     )
+    image_verify.add_argument(
+        "--output-mode", choices=("feature", "production"), default="feature"
+    )
     image_prepare = image_actions.add_parser("prepare")
     image_prepare.add_argument("--input", type=Path, required=True)
     image_prepare.add_argument("--wheel-dir", type=Path, required=True)
@@ -195,6 +198,26 @@ def build_parser() -> argparse.ArgumentParser:
     image_prepare.add_argument("--base-manifest", type=Path, required=True)
     image_prepare.add_argument("--base-config", type=Path, required=True)
     image_prepare.add_argument("--output-dir", type=Path, required=True)
+    image_actions.add_parser("real-authorities")
+    image_real_base = image_actions.add_parser("base-record-real")
+    image_real_base.add_argument("--family-id", required=True)
+    image_real_base.add_argument(
+        "--architecture", choices=("amd64", "arm64"), required=True
+    )
+    image_real_base.add_argument("--index", type=Path, required=True)
+    image_real_base.add_argument("--manifest", type=Path, required=True)
+    image_real_base.add_argument("--config", type=Path, required=True)
+    image_prepare_real = image_actions.add_parser("prepare-real")
+    image_prepare_real.add_argument("--family-id", required=True)
+    image_prepare_real.add_argument(
+        "--architecture", choices=("amd64", "arm64"), required=True
+    )
+    image_prepare_real.add_argument("--wheel", type=Path, required=True)
+    image_prepare_real.add_argument("--wheel-inspection", type=Path, required=True)
+    image_prepare_real.add_argument("--base-record", type=Path, required=True)
+    image_prepare_real.add_argument("--wrapt-wheel", type=Path, required=True)
+    image_prepare_real.add_argument("--output-dir", type=Path, required=True)
+    _paths(image_prepare_real)
     return parser
 
 
@@ -419,6 +442,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.oci,
                 schema_dir=args.schema_dir,
                 evidence_dir=args.evidence_dir,
+                output_mode=args.output_mode,
             )
         elif (args.group, args.action) == ("image", "prepare"):
             result = image.prepare_context_bundle(
@@ -430,6 +454,34 @@ def main(argv: list[str] | None = None) -> int:
                 base_manifest_path=args.base_manifest,
                 base_config_path=args.base_config,
                 output_dir=args.output_dir,
+            )
+        elif (args.group, args.action) == ("image", "real-authorities"):
+            result = {
+                "schema_version": 1,
+                "kind": "ucm-real-image-authorities",
+                "members": image.real_image_authorities(),
+            }
+            result["authorities_sha256"] = core.sha256_value(result)
+        elif (args.group, args.action) == ("image", "base-record-real"):
+            result = image.real_base_record_from_files(
+                args.family_id,
+                args.architecture,
+                index_path=args.index,
+                manifest_path=args.manifest,
+                config_path=args.config,
+            )
+        elif (args.group, args.action) == ("image", "prepare-real"):
+            result = image.prepare_real_context(
+                family_id=args.family_id,
+                architecture=args.architecture,
+                wheel_path=args.wheel,
+                wheel_inspection=core.load_json(args.wheel_inspection),
+                base_record=core.load_json(args.base_record),
+                wrapt_path=args.wrapt_wheel,
+                output_dir=args.output_dir,
+                release_path=args.release,
+                compatibility_path=args.compatibility,
+                schema_dir=args.schema_dir,
             )
         else:  # pragma: no cover - argparse owns this branch.
             parser.error("unsupported command")
