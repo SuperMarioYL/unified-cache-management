@@ -4,6 +4,13 @@ on:
   push:
     branches: ["feature/**"]
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      deliver_full_oci:
+        description: Upload each complete OCI archive as a one-day Actions Artifact
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -12,7 +19,8 @@ jobs:
   blocked-invocation:
     if: >-
       ${{
-        github.event_name != 'push' ||
+        (github.event_name != 'push' &&
+        github.event_name != 'workflow_dispatch') ||
         github.repository != 'SuperMarioYL/unified-cache-management' ||
         !startsWith(github.ref, 'refs/heads/feature/')
       }}
@@ -29,7 +37,8 @@ jobs:
   plan:
     if: >-
       ${{
-        github.event_name == 'push' &&
+        (github.event_name == 'push' ||
+        github.event_name == 'workflow_dispatch') &&
         github.repository == 'SuperMarioYL/unified-cache-management' &&
         startsWith(github.ref, 'refs/heads/feature/')
       }}
@@ -40,7 +49,35 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       source_sha: ${{ steps.plan.outputs.source_sha }}
+      deliver_full_oci: ${{ steps.delivery.outputs.deliver_full_oci }}
     steps:
+      - id: delivery
+        name: Resolve explicit full OCI delivery opt-in
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          MANUAL_DELIVER_FULL_OCI: ${{ inputs.deliver_full_oci }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          deliver_full_oci=false
+          case "${EVENT_NAME}" in
+            push)
+              if [[ "${HEAD_COMMIT_MESSAGE}" == *"[ucm-deliver-full-oci]"* ]]; then
+                deliver_full_oci=true
+              fi
+              ;;
+            workflow_dispatch)
+              if [[ "${MANUAL_DELIVER_FULL_OCI}" == true ]]; then
+                deliver_full_oci=true
+              fi
+              ;;
+            *)
+              echo "unsupported full OCI delivery event: ${EVENT_NAME}" >&2
+              exit 2
+              ;;
+          esac
+          echo "deliver_full_oci=${deliver_full_oci}" >>"${GITHUB_OUTPUT}"
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ github.sha }}
@@ -177,6 +214,7 @@ jobs:
     uses: ./.github/workflows/release-vllm-images.yml
     with:
       source_sha: ${{ needs.plan.outputs.source_sha }}
+      deliver_full_oci: ${{ needs.plan.outputs.deliver_full_oci == 'true' }}
 
   candidate-barrier:
     needs: [plan, build-wheels, package-chart, reconcile-images]

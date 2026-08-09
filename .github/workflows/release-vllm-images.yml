@@ -6,6 +6,9 @@ on:
       source_sha:
         type: string
         required: true
+      deliver_full_oci:
+        type: boolean
+        required: true
     outputs:
       loop_artifact:
         description: Deterministic three-family real image candidate evidence
@@ -80,6 +83,7 @@ jobs:
     with:
       source_sha: ${{ needs.plan.outputs.source_sha }}
       spec_id: ${{ matrix.spec_id }}
+      deliver_full_oci: ${{ inputs.deliver_full_oci }}
 
   matrix-barrier:
     needs: [plan, build-images]

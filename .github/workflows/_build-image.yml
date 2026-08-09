@@ -9,6 +9,9 @@ on:
       spec_id:
         type: string
         required: true
+      deliver_full_oci:
+        type: boolean
+        required: true
     outputs:
       image_artifact:
         description: Compact same-run real image evidence for this reviewed task
@@ -237,7 +240,7 @@ jobs:
             --base-record out/base-record-real.json \
             --wrapt-wheel "${wrapt_path}" \
             --output-dir context >out/image-prepare-result.json
-      - name: Build runtime-real OCI and verify compact evidence
+      - name: Build runtime-real OCI and record archive checksum
         shell: bash
         run: |
           set -euo pipefail
@@ -264,6 +267,18 @@ jobs:
             --progress plain \
             context 2>&1 | tee out/build.log
           sha256sum out/image.oci.tar >out/image-archive.sha256
+      - name: Preserve full OCI archive for manual delivery
+        if: ${{ inputs.deliver_full_oci }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf out/full-oci-preserved
+          mkdir -p out/full-oci-preserved
+          ln out/image.oci.tar out/full-oci-preserved/image.oci.tar
+      - name: Verify runtime-real OCI and emit compact evidence
+        shell: bash
+        run: |
+          set -euo pipefail
           PYTHONPATH=.github/release python -m ucm_release image verify \
             --context context \
             --oci out/image.oci.tar \
@@ -271,6 +286,30 @@ jobs:
             --output-mode feature >out/image-result.json
           test ! -e out/image.oci.tar
           rm -f out/image.oci.tar
+      - name: Stage verified full OCI artifact
+        if: ${{ inputs.deliver_full_oci }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          preserved_archive=out/full-oci-preserved/image.oci.tar
+          closure=out/oci-evidence/closure.json
+          expected_sha256="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["archive_sha256"])' "${closure}")"
+          expected_size="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["archive_size"])' "${closure}")"
+          actual_sha256="sha256:$(sha256sum "${preserved_archive}" | cut -d' ' -f1)"
+          actual_size="$(wc -c <"${preserved_archive}" | tr -d ' ')"
+          read -r recorded_sha256 recorded_path <out/image-archive.sha256
+          test "${actual_sha256}" = "${expected_sha256}"
+          test "${actual_size}" = "${expected_size}"
+          test "${recorded_sha256}" = "${actual_sha256#sha256:}"
+          test "${recorded_path}" = out/image.oci.tar
+          test -f out/image-result.json
+          rm -rf out/full-oci-artifact
+          mkdir -p out/full-oci-artifact
+          mv "${preserved_archive}" out/full-oci-artifact/image.oci.tar
+          printf '%s  image.oci.tar\n' "${actual_sha256#sha256:}" \
+            >out/full-oci-artifact/image-archive.sha256
+          cp out/image-result.json out/full-oci-artifact/image-result.json
+          test "$(find out/full-oci-artifact -maxdepth 1 -type f | wc -l | tr -d ' ')" = 3
       - id: result
         name: Expose compact verified image identity
         shell: bash
@@ -307,3 +346,12 @@ jobs:
             out/available-gib.txt
           if-no-files-found: error
           retention-days: 3
+      - name: Upload manually requested full OCI artifact
+        if: ${{ inputs.deliver_full_oci }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ucm-oci-${{ inputs.spec_id }}-${{ inputs.source_sha }}
+          path: out/full-oci-artifact/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1

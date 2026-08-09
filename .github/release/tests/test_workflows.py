@@ -1082,6 +1082,273 @@ def test_four_workflows_run_real_six_wheel_and_six_image_native_jobs() -> None:
     assert "--push" not in image_text
 
 
+def test_full_oci_delivery_opt_in_is_resolved_then_explicitly_forwarded() -> None:
+    """Only the entry resolver output may reach the full-archive upload step."""
+    entry = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
+    entry_triggers = _trigger(entry)
+    assert entry_triggers["push"] == {
+        "branches": ["feature/**"],
+        "tags": ["v*"],
+    }
+    dispatch = entry_triggers["workflow_dispatch"]
+    assert isinstance(dispatch, dict)
+    dispatch_inputs = dispatch.get("inputs")
+    assert isinstance(dispatch_inputs, dict)
+    assert set(dispatch_inputs) == {"deliver_full_oci"}
+    assert dispatch_inputs["deliver_full_oci"] == {
+        "description": "Upload each complete OCI archive as a one-day Actions Artifact",
+        "type": "boolean",
+        "required": False,
+        "default": False,
+    }
+
+    entry_jobs = _jobs(entry)
+    plan_condition = str(entry_jobs["plan"]["if"])
+    blocked_condition = str(entry_jobs["blocked-invocation"]["if"])
+    for condition in (plan_condition, blocked_condition):
+        assert "github.event_name" in condition
+        assert "workflow_dispatch" in condition
+        assert "SuperMarioYL/unified-cache-management" in condition
+        assert "refs/heads/feature/" in condition
+    assert "github.event_name == 'push'" in plan_condition
+    assert "github.event_name == 'workflow_dispatch'" in plan_condition
+    assert "github.event_name != 'push'" in blocked_condition
+    assert "github.event_name != 'workflow_dispatch'" in blocked_condition
+
+    plan_outputs = entry_jobs["plan"]["outputs"]
+    assert plan_outputs["deliver_full_oci"] == (
+        "${{ steps.delivery.outputs.deliver_full_oci }}"
+    )
+    plan_steps = {str(step.get("name")): step for step in _steps(entry_jobs["plan"])}
+    resolver = plan_steps["Resolve explicit full OCI delivery opt-in"]
+    assert resolver["env"] == {
+        "EVENT_NAME": "${{ github.event_name }}",
+        "HEAD_COMMIT_MESSAGE": "${{ github.event.head_commit.message }}",
+        "MANUAL_DELIVER_FULL_OCI": "${{ inputs.deliver_full_oci }}",
+    }
+    assert "[ucm-deliver-full-oci]" in str(resolver["run"])
+
+    image_call = entry_jobs["reconcile-images"]["with"]
+    assert image_call == {
+        "source_sha": "${{ needs.plan.outputs.source_sha }}",
+        "deliver_full_oci": "${{ needs.plan.outputs.deliver_full_oci == 'true' }}",
+    }
+
+    images = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
+    image_inputs = _trigger(images)["workflow_call"]["inputs"]
+    assert image_inputs["deliver_full_oci"] == {
+        "type": "boolean",
+        "required": True,
+    }
+    assert _jobs(images)["build-images"]["with"]["deliver_full_oci"] == (
+        "${{ inputs.deliver_full_oci }}"
+    )
+
+    image = _load_workflow(WORKFLOW_DIR / "_build-image.yml")
+    unit_inputs = _trigger(image)["workflow_call"]["inputs"]
+    assert unit_inputs["deliver_full_oci"] == {
+        "type": "boolean",
+        "required": True,
+    }
+    steps = _steps(_jobs(image)["build"])
+    named_steps = {str(step.get("name")): step for step in steps}
+    for step_name in (
+        "Preserve full OCI archive for manual delivery",
+        "Stage verified full OCI artifact",
+        "Upload manually requested full OCI artifact",
+    ):
+        assert named_steps[step_name]["if"] == "${{ inputs.deliver_full_oci }}"
+
+    full_upload = named_steps["Upload manually requested full OCI artifact"]
+    assert str(full_upload["uses"]).startswith("actions/upload-artifact@")
+    assert full_upload["with"] == {
+        "name": "ucm-oci-${{ inputs.spec_id }}-${{ inputs.source_sha }}",
+        "path": "out/full-oci-artifact/",
+        "if-no-files-found": "error",
+        "compression-level": 0,
+        "retention-days": 1,
+    }
+    compact_upload = next(
+        upload
+        for upload in _artifact_uploads(image)
+        if "steps.task.outputs.image_artifact" in str(upload["with"]["name"])
+    )
+    assert "if" not in compact_upload
+    assert compact_upload["with"]["name"] == (
+        "${{ steps.task.outputs.image_artifact }}"
+    )
+    aggregate_downloads = "\n".join(_strings(_jobs(images)["aggregate-images"]))
+    assert "ucm-image-*" in aggregate_downloads
+    assert "ucm-oci-*" not in aggregate_downloads
+
+
+@pytest.mark.parametrize(
+    ("event_name", "head_commit_message", "manual_opt_in", "expected"),
+    [
+        ("push", "ordinary feature change", "false", "false"),
+        (
+            "push",
+            "release candidate [ucm-deliver-full-oci]",
+            "false",
+            "true",
+        ),
+        ("workflow_dispatch", "", "true", "true"),
+    ],
+)
+def test_full_oci_delivery_resolver_routes_each_explicit_opt_in(
+    tmp_path: Path,
+    event_name: str,
+    head_commit_message: str,
+    manual_opt_in: str,
+    expected: str,
+) -> None:
+    """Run the real resolver for ordinary push, marker push, and manual true."""
+    entry = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
+    steps = {str(step.get("name")): step for step in _steps(_jobs(entry)["plan"])}
+    assert "Resolve explicit full OCI delivery opt-in" in steps
+    resolver = steps["Resolve explicit full OCI delivery opt-in"]
+    github_output = tmp_path / "github-output"
+    completed = subprocess.run(
+        ["bash", "-c", str(resolver["run"])],
+        env={
+            **os.environ,
+            "EVENT_NAME": event_name,
+            "HEAD_COMMIT_MESSAGE": head_commit_message,
+            "MANUAL_DELIVER_FULL_OCI": manual_opt_in,
+            "GITHUB_OUTPUT": str(github_output),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert github_output.read_text(encoding="utf-8") == (
+        f"deliver_full_oci={expected}\n"
+    )
+
+
+def test_full_oci_preserve_and_stage_shells_keep_verified_bytes_flat(
+    tmp_path: Path,
+) -> None:
+    """A hardlink must survive verifier unlink and stage three verified flat files."""
+    image = _load_workflow(WORKFLOW_DIR / "_build-image.yml")
+    named_steps = {
+        str(step.get("name")): step for step in _steps(_jobs(image)["build"])
+    }
+    required = {
+        "Preserve full OCI archive for manual delivery",
+        "Stage verified full OCI artifact",
+    }
+    assert required <= set(named_steps), "full OCI preserve/stage steps are missing"
+
+    out = tmp_path / "out"
+    out.mkdir()
+    archive = out / "image.oci.tar"
+    archive_bytes = b"complete OCI archive\x00with layer bytes\n"
+    archive.write_bytes(archive_bytes)
+    digest = hashlib.sha256(archive_bytes).hexdigest()
+    (out / "image-archive.sha256").write_text(
+        f"{digest}  out/image.oci.tar\n", encoding="utf-8"
+    )
+
+    preserved = subprocess.run(
+        [
+            "bash",
+            "-c",
+            str(named_steps["Preserve full OCI archive for manual delivery"]["run"]),
+        ],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert preserved.returncode == 0, preserved.stderr
+    retained = out / "full-oci-preserved" / "image.oci.tar"
+    assert retained.read_bytes() == archive_bytes
+    assert retained.stat().st_dev == archive.stat().st_dev
+    assert retained.stat().st_ino == archive.stat().st_ino
+    retained_device = retained.stat().st_dev
+    retained_inode = retained.stat().st_ino
+
+    evidence = out / "oci-evidence"
+    evidence.mkdir()
+    _write_canonical(
+        evidence / "closure.json",
+        {
+            "archive_sha256": f"sha256:{digest}",
+            "archive_size": len(archive_bytes),
+        },
+    )
+    image_result = b'{"verified":true}\n'
+    (out / "image-result.json").write_bytes(image_result)
+    archive.unlink()  # The real verifier owns and removes this original path.
+    assert not archive.exists() and retained.is_file()
+
+    staged = subprocess.run(
+        ["bash", "-c", str(named_steps["Stage verified full OCI artifact"]["run"])],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert staged.returncode == 0, staged.stderr
+    delivery = out / "full-oci-artifact"
+    assert {path.name for path in delivery.iterdir()} == {
+        "image.oci.tar",
+        "image-archive.sha256",
+        "image-result.json",
+    }
+    delivered_archive = delivery / "image.oci.tar"
+    assert delivered_archive.read_bytes() == archive_bytes
+    assert delivered_archive.stat().st_dev == retained_device
+    assert delivered_archive.stat().st_ino == retained_inode
+    assert not retained.exists()
+    assert (delivery / "image-archive.sha256").read_text(encoding="utf-8") == (
+        f"{digest}  image.oci.tar\n"
+    )
+    assert (delivery / "image-result.json").read_bytes() == image_result
+
+
+@pytest.mark.parametrize("mutation", ["sha256", "size"])
+def test_full_oci_stage_shell_rejects_compact_closure_mismatch(
+    tmp_path: Path, mutation: str
+) -> None:
+    """Neither altered archive identity field may reach upload staging."""
+    image = _load_workflow(WORKFLOW_DIR / "_build-image.yml")
+    named_steps = {
+        str(step.get("name")): step for step in _steps(_jobs(image)["build"])
+    }
+    assert "Stage verified full OCI artifact" in named_steps
+    out = tmp_path / "out"
+    retained_dir = out / "full-oci-preserved"
+    retained_dir.mkdir(parents=True)
+    archive_bytes = b"complete OCI archive\n"
+    (retained_dir / "image.oci.tar").write_bytes(archive_bytes)
+    digest = hashlib.sha256(archive_bytes).hexdigest()
+    closure = {
+        "archive_sha256": f"sha256:{digest}",
+        "archive_size": len(archive_bytes),
+    }
+    if mutation == "sha256":
+        closure["archive_sha256"] = "sha256:" + "0" * 64
+    else:
+        closure["archive_size"] = len(archive_bytes) + 1
+    evidence = out / "oci-evidence"
+    evidence.mkdir()
+    _write_canonical(evidence / "closure.json", closure)
+    (out / "image-result.json").write_text("{}\n", encoding="utf-8")
+
+    staged = subprocess.run(
+        ["bash", "-c", str(named_steps["Stage verified full OCI artifact"]["run"])],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert staged.returncode != 0
+    assert not (out / "full-oci-artifact").exists()
+
+
 @pytest.mark.parametrize("success_on", [3, 0])
 def test_native_wheel_build_retries_on_one_builder_and_cleans_partial_output(
     tmp_path: Path, success_on: int
@@ -1355,7 +1622,7 @@ def test_release_workflow_topology_runs_the_four_files_at_the_pushed_sha() -> No
     assert isinstance(push, dict)
     assert push.get("branches") == ["feature/**"]
     assert push.get("tags") == ["v*"]
-    assert set(triggers) == {"push"}
+    assert set(triggers) == {"push", "workflow_dispatch"}
 
     entry_jobs = _jobs(entry)
     assert entry_jobs["build-wheels"]["permissions"] == {"contents": "read"}
@@ -1418,7 +1685,11 @@ def test_reusable_workflow_inputs_outputs_and_artifacts_are_exact() -> None:
     image = _load_workflow(WORKFLOW_DIR / "_build-image.yml")
     image_call = _trigger(image)["workflow_call"]
     assert isinstance(image_call, dict)
-    assert set(image_call.get("inputs", {})) == {"source_sha", "spec_id"}
+    assert set(image_call.get("inputs", {})) == {
+        "source_sha",
+        "spec_id",
+        "deliver_full_oci",
+    }
     assert {"image_artifact", "image_result_sha256", "oci_digest"} <= set(
         image_call.get("outputs", {})
     )
@@ -1434,7 +1705,11 @@ def test_reusable_workflow_inputs_outputs_and_artifacts_are_exact() -> None:
         for upload in uploads:
             inputs = upload.get("with")
             assert isinstance(inputs, dict)
-            assert inputs.get("retention-days") == 3
+            if str(inputs.get("name", "")).startswith("ucm-oci-"):
+                assert inputs.get("retention-days") == 1
+                assert inputs.get("compression-level") == 0
+            else:
+                assert inputs.get("retention-days") == 3
 
 
 @pytest.mark.parametrize(
@@ -1546,8 +1821,12 @@ def test_reusable_entry_contracts_reject_empty_partial_and_illegal_calls() -> No
 
     images = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
     image_inputs = _trigger(images)["workflow_call"]["inputs"]
-    assert set(image_inputs) == {"source_sha"}
+    assert set(image_inputs) == {"source_sha", "deliver_full_oci"}
     assert image_inputs["source_sha"]["required"] is True
+    assert image_inputs["deliver_full_oci"] == {
+        "type": "boolean",
+        "required": True,
+    }
     first = _steps(_jobs(images)["plan"])[0]
     assert first["name"] == "Validate reusable image workflow contract"
     assert "exit 2" in str(first["run"])
@@ -1954,7 +2233,10 @@ def test_reusable_image_router_uses_inputs_not_inherited_event_name() -> None:
     document = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
     jobs = _jobs(document)
     assert set(_trigger(document)) == {"workflow_call"}
-    assert set(_trigger(document)["workflow_call"]["inputs"]) == {"source_sha"}
+    assert set(_trigger(document)["workflow_call"]["inputs"]) == {
+        "source_sha",
+        "deliver_full_oci",
+    }
     plan_text = "\n".join(_strings(jobs["plan"]))
     assert "inputs.source_sha" in plan_text
     assert "github.event_name" not in plan_text
