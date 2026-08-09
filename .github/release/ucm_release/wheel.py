@@ -30,8 +30,8 @@ from .core import (
     DEFAULT_RELEASE,
     DEFAULT_SCHEMA_DIR,
     REPO_ROOT,
-    canonical_bytes,
     build_matrix,
+    canonical_bytes,
     expand_wheel_specs,
     validate_config,
 )
