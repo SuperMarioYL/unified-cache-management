@@ -460,6 +460,8 @@ def _write_oci(
         descriptor(blob, media_type)
         for blob, media_type in zip(layer_blobs, layer_media_types, strict=True)
     ]
+    if rootfs_mutation == "wrong-layer-descriptor-digest":
+        layer_descriptors[0]["digest"] = "sha256:" + "c" * 64
     manifest = json.dumps(
         {
             "schemaVersion": 2,
@@ -1077,6 +1079,10 @@ def test_image_verify_cli_validates_schema_and_source_closure(tmp_path: Path) ->
         ("extra-diff-id", ("application/vnd.oci.image.layer.v1.tar+gzip",)),
         ("missing-diff-id", ("application/vnd.oci.image.layer.v1.tar+gzip",)),
         (
+            "wrong-layer-descriptor-digest",
+            ("application/vnd.oci.image.layer.v1.tar+gzip",),
+        ),
+        (
             "reversed-diff-ids",
             (
                 "application/vnd.oci.image.layer.v1.tar+gzip",
@@ -1124,6 +1130,67 @@ def test_verify_oci_accepts_uncompressed_layer_with_matching_diff_id(
 
     result = image.verify_oci(context, oci_path)
     assert result["status"] == "fixture-verified-unpublished"
+
+
+def test_verify_oci_streams_compressed_layers_without_gzip_decompress(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A full-layer gzip materialization must not be required to verify an OCI."""
+    image, _, context, recipe = _prepare(tmp_path)
+    oci_path = tmp_path / "compressed.oci.tar"
+    _write_oci(oci_path, context, recipe, _evidence(recipe))
+
+    def reject_full_decompression(*args: object, **kwargs: object) -> bytes:
+        raise AssertionError("gzip.decompress materializes the complete layer")
+
+    monkeypatch.setattr(gzip, "decompress", reject_full_decompression)
+
+    result = image.verify_oci(context, oci_path)
+    assert result["status"] == "fixture-verified-unpublished"
+
+
+def test_verify_oci_bounds_descriptor_and_archive_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Multi-GiB descriptor/archive bytes must be consumed in bounded chunks."""
+    image, _, context, recipe = _prepare(tmp_path)
+    oci_path = tmp_path / "uncompressed.oci.tar"
+    evidence_dir = tmp_path / "compact-evidence"
+    _write_oci(
+        oci_path,
+        context,
+        recipe,
+        _evidence(recipe),
+        layer_media_types=("application/vnd.oci.image.layer.v1.tar",),
+    )
+    with oci_path.open("rb") as stream:
+        expected_archive_sha256 = (
+            "sha256:" + hashlib.file_digest(stream, "sha256").hexdigest()
+        )
+
+    original_member_read = tarfile.ExFileObject.read
+
+    def bounded_member_read(
+        stream: tarfile.ExFileObject, size: int | None = None
+    ) -> bytes:
+        if size is None or size < 0 or size > 1024 * 1024:
+            raise AssertionError("OCI member read must be bounded to one MiB")
+        return original_member_read(stream, size)
+
+    original_path_read_bytes = Path.read_bytes
+
+    def reject_archive_read_bytes(path: Path) -> bytes:
+        if path == oci_path:
+            raise AssertionError("OCI archive must not be materialized with read_bytes")
+        return original_path_read_bytes(path)
+
+    monkeypatch.setattr(tarfile.ExFileObject, "read", bounded_member_read)
+    monkeypatch.setattr(Path, "read_bytes", reject_archive_read_bytes)
+
+    result = image.verify_oci(context, oci_path, evidence_dir=evidence_dir)
+    closure = json.loads((evidence_dir / "closure.json").read_text(encoding="utf-8"))
+    assert result["status"] == "fixture-verified-unpublished"
+    assert closure["archive_sha256"] == expected_archive_sha256
 
 
 def test_verify_oci_exports_and_revalidates_compact_raw_descriptor_evidence(

@@ -6,7 +6,6 @@ import copy
 import datetime as dt
 import gzip
 import hashlib
-import io
 import json
 import os
 import posixpath
@@ -19,8 +18,8 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from . import registry
 from . import core as release_core
+from . import registry
 from . import wheel as wheel_artifact
 from .core import (
     DEFAULT_SCHEMA_DIR,
@@ -69,6 +68,7 @@ SOURCE_COPY_RE = re.compile(
 INSTALL_IMAGE_TARGET = "runtime"
 REAL_INSTALL_TARGET = "runtime-real"
 INSTALL_IMAGE_TARGETS = (INSTALL_IMAGE_TARGET, REAL_INSTALL_TARGET)
+OCI_STREAM_CHUNK_SIZE = 1024 * 1024
 OCI_INDEX_MEDIA_TYPES = {
     "application/vnd.oci.image.index.v1+json",
     "application/vnd.docker.distribution.manifest.list.v2+json",
@@ -2292,9 +2292,53 @@ def _load_real_context(
     return authority, recipe, wheel_path, wrapt_path
 
 
-def _descriptor_blob(
+class _DigestingReader:
+    """Hash a binary stream while never requesting an unbounded read."""
+
+    def __init__(self, stream: Any) -> None:
+        self._stream = stream
+        self._sha256 = hashlib.sha256()
+        self.size = 0
+
+    def read(self, size: int | None = OCI_STREAM_CHUNK_SIZE) -> bytes:
+        if size is None or size < 0:
+            size = OCI_STREAM_CHUNK_SIZE
+        content = self._stream.read(min(size, OCI_STREAM_CHUNK_SIZE))
+        if content:
+            self._sha256.update(content)
+            self.size += len(content)
+        return content
+
+    def drain(self) -> None:
+        while self.read(OCI_STREAM_CHUNK_SIZE):
+            pass
+
+    def hexdigest(self) -> str:
+        return self._sha256.hexdigest()
+
+
+def _read_stream_bytes(stream: Any) -> bytes:
+    chunks: list[bytes] = []
+    while True:
+        content = stream.read(OCI_STREAM_CHUNK_SIZE)
+        if not content:
+            return b"".join(chunks)
+        chunks.append(content)
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        while True:
+            content = stream.read(OCI_STREAM_CHUNK_SIZE)
+            if not content:
+                return "sha256:" + digest.hexdigest()
+            digest.update(content)
+
+
+def _descriptor_stream(
     archive: tarfile.TarFile, descriptor: dict[str, Any], label: str
-) -> bytes:
+) -> tuple[_DigestingReader, str, int]:
     if not isinstance(descriptor, dict):
         raise ValueError(f"{label} descriptor must be an object")
     digest = _digest(descriptor.get("digest"), f"{label} digest")
@@ -2309,12 +2353,23 @@ def _descriptor_blob(
         raise ValueError(f"OCI layout is missing {label} blob {digest}") from error
     if stream is None or not member.isfile():
         raise ValueError(f"OCI {label} blob is not a regular file")
-    content = stream.read()
-    if (
-        len(content) != size
-        or "sha256:" + hashlib.sha256(content).hexdigest() != digest
-    ):
+    return _DigestingReader(stream), digest, size
+
+
+def _finish_descriptor_stream(
+    stream: _DigestingReader, digest: str, size: int, label: str
+) -> None:
+    stream.drain()
+    if stream.size != size or "sha256:" + stream.hexdigest() != digest:
         raise ValueError(f"OCI {label} blob does not match descriptor size/digest")
+
+
+def _descriptor_blob(
+    archive: tarfile.TarFile, descriptor: dict[str, Any], label: str
+) -> bytes:
+    stream, digest, size = _descriptor_stream(archive, descriptor, label)
+    content = _read_stream_bytes(stream)
+    _finish_descriptor_stream(stream, digest, size, label)
     return content
 
 
@@ -2360,12 +2415,12 @@ def evidence_from_oci(
             raise ValueError("OCI layout requires oci-layout and index.json") from error
         if layout_stream is None:
             raise ValueError("OCI oci-layout is not a regular file")
-        layout_raw = layout_stream.read()
+        layout_raw = _read_stream_bytes(layout_stream)
         if _json_bytes(layout_raw, "oci-layout") != {"imageLayoutVersion": "1.0.0"}:
             raise ValueError("unsupported OCI image layout version")
         if index_stream is None:
             raise ValueError("OCI index.json is not a regular file")
-        index_raw = index_stream.read()
+        index_raw = _read_stream_bytes(index_stream)
         index = _json_bytes(index_raw, "OCI index.json")
         if (
             index.get("schemaVersion") != 2
@@ -2446,52 +2501,63 @@ def evidence_from_oci(
                 or layer_descriptor.get("mediaType") not in OCI_LAYER_MEDIA_TYPES
             ):
                 raise ValueError("OCI image contains an unsupported layer media type")
-            layer_bytes = _descriptor_blob(
+            layer_stream, layer_digest, layer_size = _descriptor_stream(
                 archive, layer_descriptor, f"layer {layer_index}"
             )
             media_type = layer_descriptor["mediaType"]
-            if media_type == "application/vnd.oci.image.layer.v1.tar":
-                uncompressed_layer = layer_bytes
+            gzip_stream: gzip.GzipFile | None = None
+            if media_type != "application/vnd.oci.image.layer.v1.tar":
+                gzip_stream = gzip.GzipFile(fileobj=layer_stream, mode="rb")
+                uncompressed_stream = _DigestingReader(gzip_stream)
             else:
-                try:
-                    uncompressed_layer = gzip.decompress(layer_bytes)
-                except (gzip.BadGzipFile, EOFError, OSError) as error:
-                    raise ValueError(
-                        f"OCI gzip layer {layer_index} cannot be decompressed: {error}"
-                    ) from error
-            observed_diff_id = (
-                "sha256:" + hashlib.sha256(uncompressed_layer).hexdigest()
-            )
-            if observed_diff_id != diff_ids[layer_index]:
-                raise ValueError(
-                    f"OCI layer {layer_index} does not match rootfs diff_id order"
-                )
+                uncompressed_stream = _DigestingReader(layer_stream)
             try:
-                layer_archive = tarfile.open(
-                    fileobj=io.BytesIO(uncompressed_layer), mode="r:"
-                )
+                layer_archive = tarfile.open(fileobj=uncompressed_stream, mode="r|")
+                with layer_archive:
+                    layer_seen: set[str] = set()
+                    for member in layer_archive:
+                        name = _canonical_tar_name(
+                            member.name, f"OCI layer {layer_index}"
+                        )
+                        if name in layer_seen:
+                            raise ValueError(
+                                f"OCI layer contains duplicate member {name}"
+                            )
+                        layer_seen.add(name)
+                        label = expected_paths.get(name)
+                        if label is None:
+                            continue
+                        if label in observed or not member.isfile():
+                            raise ValueError(
+                                f"OCI image contains duplicate/non-file {label} evidence"
+                            )
+                        stream = layer_archive.extractfile(member)
+                        if stream is None:
+                            raise ValueError(f"cannot read OCI {label} evidence")
+                        observed[label] = _read_stream_bytes(stream)
+                uncompressed_stream.drain()
+            except (gzip.BadGzipFile, EOFError, OSError) as error:
+                raise ValueError(
+                    f"OCI gzip layer {layer_index} cannot be decompressed: {error}"
+                ) from error
             except tarfile.TarError as error:
                 raise ValueError(
                     f"cannot read OCI layer {layer_index}: {error}"
                 ) from error
-            with layer_archive:
-                layer_seen: set[str] = set()
-                for member in layer_archive.getmembers():
-                    name = _canonical_tar_name(member.name, f"OCI layer {layer_index}")
-                    if name in layer_seen:
-                        raise ValueError(f"OCI layer contains duplicate member {name}")
-                    layer_seen.add(name)
-                    label = expected_paths.get(name)
-                    if label is None:
-                        continue
-                    if label in observed or not member.isfile():
-                        raise ValueError(
-                            f"OCI image contains duplicate/non-file {label} evidence"
-                        )
-                    stream = layer_archive.extractfile(member)
-                    if stream is None:
-                        raise ValueError(f"cannot read OCI {label} evidence")
-                    observed[label] = stream.read()
+            finally:
+                if gzip_stream is not None:
+                    gzip_stream.close()
+            observed_diff_id = "sha256:" + uncompressed_stream.hexdigest()
+            if observed_diff_id != diff_ids[layer_index]:
+                raise ValueError(
+                    f"OCI layer {layer_index} does not match rootfs diff_id order"
+                )
+            _finish_descriptor_stream(
+                layer_stream,
+                layer_digest,
+                layer_size,
+                f"layer {layer_index}",
+            )
         missing = sorted(set(expected_paths.values()) - set(observed))
         if missing:
             raise ValueError(
@@ -2546,8 +2612,7 @@ def evidence_from_oci(
                 "diff_ids": copy.deepcopy(diff_ids),
                 "recipe_payload_sha256": recipe["payload_sha256"],
                 "wheel_sha256": payload["wheel"]["sha256"],
-                "archive_sha256": "sha256:"
-                + hashlib.sha256(oci_path.read_bytes()).hexdigest(),
+                "archive_sha256": _file_sha256(oci_path),
                 "archive_size": oci_path.stat().st_size,
             }
             if real_candidate:
