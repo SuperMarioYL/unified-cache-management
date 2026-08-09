@@ -9,6 +9,7 @@ import hashlib
 import importlib
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -1079,6 +1080,111 @@ def test_four_workflows_run_real_six_wheel_and_six_image_native_jobs() -> None:
         assert required in image_text
     assert "crane blob" not in image_text
     assert "--push" not in image_text
+
+
+@pytest.mark.parametrize("success_on", [3, 0])
+def test_native_wheel_build_retries_on_one_builder_and_cleans_partial_output(
+    tmp_path: Path, success_on: int
+) -> None:
+    """Transient Buildx failures retain logs but never leak a partial wheel tree."""
+    workflow = _load_workflow(WORKFLOW_DIR / "_build-wheel.yml")
+    steps = _steps(_jobs(workflow)["build"])
+    install = next(
+        step for step in steps if step.get("name") == "Install checksum-pinned Buildx"
+    )
+    build = next(
+        step
+        for step in steps
+        if step.get("name") == "Build, seal, and export the real native wheel"
+    )
+    install_command = str(install["run"])
+    build_command = str(build["run"])
+
+    assert install_command.count("docker buildx create --name ucm-release-builder") == 1
+    assert "docker buildx create" not in build_command
+    assert "--builder ucm-release-builder" in build_command
+    assert "max_build_attempts=3" in build_command
+    assert 'attempt_log="out/build-attempt-${build_attempt}.log"' in build_command
+    assert 'tee -a "${attempt_log}" out/build.log' in build_command
+    assert build_command.count("rm -rf out/wheel") >= 2
+
+    hosted_task = {
+        "docker_target": "wheel-cuda",
+        "platform": "linux/amd64",
+        "build_args": {"SOURCE_DATE_EPOCH": "0"},
+    }
+    (tmp_path / "out/source-context").mkdir(parents=True)
+    (tmp_path / "out/hosted-task.json").write_text(
+        json.dumps(hosted_task), encoding="utf-8"
+    )
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+count="$(cat "${UCM_TEST_DOCKER_COUNT}" 2>/dev/null || printf 0)"
+count="$((count + 1))"
+printf '%s\n' "${count}" >"${UCM_TEST_DOCKER_COUNT}"
+printf '%s\n' "$*" >>"${UCM_TEST_DOCKER_ARGS}"
+if [[ "${UCM_TEST_SUCCESS_ON}" -gt 0 && "${count}" -eq "${UCM_TEST_SUCCESS_ON}" ]]; then
+  test ! -e out/wheel/partial.whl
+  printf 'sealed\n' >out/wheel/final.whl
+  printf 'success attempt %s\n' "${count}"
+  exit 0
+fi
+printf 'partial\n' >out/wheel/partial.whl
+printf 'unexpected EOF attempt %s\n' "${count}" >&2
+exit 19
+""",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    sleep = fake_bin / "sleep"
+    sleep.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    sleep.chmod(0o755)
+    counter = tmp_path / "docker-count.txt"
+    arguments = tmp_path / "docker-args.txt"
+    environment = {
+        **os.environ,
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        "UCM_TEST_DOCKER_COUNT": str(counter),
+        "UCM_TEST_DOCKER_ARGS": str(arguments),
+        "UCM_TEST_SUCCESS_ON": str(success_on),
+    }
+
+    completed = subprocess.run(
+        ["bash", "-c", build_command],
+        cwd=tmp_path,
+        env=environment,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    expected_returncode = 0 if success_on else 19
+    assert completed.returncode == expected_returncode, completed.stderr
+    assert counter.read_text(encoding="utf-8").strip() == "3"
+    invocations = arguments.read_text(encoding="utf-8").splitlines()
+    assert len(invocations) == 3
+    assert all(
+        invocation.startswith("buildx build --builder ucm-release-builder")
+        for invocation in invocations
+    )
+    merged_log = (tmp_path / "out/build.log").read_text(encoding="utf-8")
+    assert merged_log.count("unexpected EOF attempt") == (2 if success_on else 3)
+    for attempt in range(1, 4):
+        attempt_log = tmp_path / f"out/build-attempt-{attempt}.log"
+        assert attempt_log.is_file()
+        assert f"attempt {attempt}" in attempt_log.read_text(encoding="utf-8")
+    if success_on:
+        assert (tmp_path / "out/wheel/final.whl").read_text(encoding="utf-8") == (
+            "sealed\n"
+        )
+        assert "success attempt 3" in merged_log
+    else:
+        assert not (tmp_path / "out/wheel").exists()
 
 
 def test_real_family_plans_are_three_sorted_dual_arch_candidates_and_reconcile_zero() -> (

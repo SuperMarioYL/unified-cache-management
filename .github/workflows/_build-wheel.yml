@@ -148,15 +148,46 @@ jobs:
           while IFS= read -r build_arg; do
             build_args+=(--build-arg "${build_arg}")
           done < <(python -c 'import json; value=json.load(open("out/hosted-task.json")); [print(f"{key}={item}") for key,item in sorted(value["build_args"].items())]')
-          mkdir -p out/wheel
-          docker buildx build \
-            --platform "${platform}" \
-            --target "${docker_target}" \
-            "${build_args[@]}" \
-            --output type=local,dest=out/wheel \
-            --progress plain \
-            -f .github/release/docker/Dockerfile \
-            out/source-context 2>&1 | tee out/build.log
+          mkdir -p out
+          : >out/build.log
+          max_build_attempts=3
+          for ((build_attempt=1; build_attempt<=max_build_attempts; build_attempt++)); do
+            rm -rf out/wheel
+            mkdir -p out/wheel
+            attempt_log="out/build-attempt-${build_attempt}.log"
+            : >"${attempt_log}"
+            printf '=== Buildx attempt %s/%s ===\n' \
+              "${build_attempt}" "${max_build_attempts}" \
+              | tee -a "${attempt_log}" out/build.log
+            if docker buildx build \
+              --builder ucm-release-builder \
+              --platform "${platform}" \
+              --target "${docker_target}" \
+              "${build_args[@]}" \
+              --output type=local,dest=out/wheel \
+              --progress plain \
+              -f .github/release/docker/Dockerfile \
+              out/source-context 2>&1 \
+              | tee -a "${attempt_log}" out/build.log; then
+              build_status=0
+            else
+              build_status=$?
+            fi
+            printf '=== Buildx attempt %s/%s exit=%s ===\n' \
+              "${build_attempt}" "${max_build_attempts}" "${build_status}" \
+              | tee -a "${attempt_log}" out/build.log
+            if [[ "${build_status}" -eq 0 ]]; then
+              break
+            fi
+            rm -rf out/wheel
+            if [[ "${build_attempt}" -eq "${max_build_attempts}" ]]; then
+              exit "${build_status}"
+            fi
+            retry_delay="$((build_attempt * 5))"
+            printf 'Retrying the same BuildKit builder in %s seconds\n' \
+              "${retry_delay}" | tee -a "${attempt_log}" out/build.log
+            sleep "${retry_delay}"
+          done
       - id: record
         name: Reopen the sealed wheel and expose immutable identities
         env:
