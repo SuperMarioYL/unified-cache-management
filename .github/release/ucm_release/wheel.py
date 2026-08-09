@@ -42,7 +42,7 @@ COMPONENT_MANIFEST = "ucm/ucm-native-components.json"
 AUTHORITY_KIND = "ucm-native-build-authority"
 CLOSURE_KIND = "ucm-linux-dependency-closure"
 SOURCE_CONTEXT_KIND = "ucm-canonical-source-context"
-SOURCE_CONTEXT_PREFIX = b"ucm-build-context-v1\0"
+SOURCE_CONTEXT_PREFIX = b"ucm-build-context-v2\0"
 HOST_PATH_MARKERS = (
     b"/Users/",
     b"/home/runner/",
@@ -288,6 +288,48 @@ def _git_object_digest(kind: str, data: bytes) -> bytes:
     return hashlib.sha1(header + data).digest()  # noqa: S324 - Git SHA-1 object ID
 
 
+def _source_context_digest(archive: bytes, commit_payload: bytes) -> str:
+    material = (
+        SOURCE_CONTEXT_PREFIX
+        + len(archive).to_bytes(8, byteorder="big")
+        + archive
+        + commit_payload
+    )
+    return "sha256:" + hashlib.sha256(material).hexdigest()
+
+
+def _commit_tree(commit_payload: bytes) -> str:
+    """Strictly parse the one tree identity carried by a raw Git commit payload."""
+    if b"\0" in commit_payload or b"\r" in commit_payload:
+        raise ValueError("source commit payload contains invalid control bytes")
+    header_block, separator, _ = commit_payload.partition(b"\n\n")
+    if not separator or not header_block:
+        raise ValueError("source commit payload has no complete header block")
+
+    headers: list[tuple[bytes, bytes]] = []
+    has_header = False
+    for line in header_block.split(b"\n"):
+        if line.startswith(b" "):
+            if not has_header:
+                raise ValueError("source commit payload has an orphan continuation")
+            continue
+        match = re.fullmatch(rb"([a-z][a-z0-9-]*) (.+)", line)
+        if match is None:
+            raise ValueError("source commit payload has a malformed header")
+        headers.append((match.group(1), match.group(2)))
+        has_header = True
+
+    tree_headers = [value for name, value in headers if name == b"tree"]
+    if not headers or headers[0][0] != b"tree" or len(tree_headers) != 1:
+        raise ValueError(
+            "source commit payload must have exactly one leading tree header"
+        )
+    tree = tree_headers[0]
+    if re.fullmatch(rb"[0-9a-f]{40}", tree) is None:
+        raise ValueError("source commit payload tree is invalid")
+    return tree.decode("ascii")
+
+
 def _git_tree_digest(archive: tarfile.TarFile) -> str:
     root: dict[str, Any] = {}
     directories: set[str] = set()
@@ -389,36 +431,62 @@ def _verify_source_root(archive: tarfile.TarFile, source_root: Path) -> None:
 
 
 def verify_source_context(
-    archive_path: Path, manifest_path: Path, source_root: Path
+    archive_path: Path,
+    manifest_path: Path,
+    source_root: Path,
+    commit_payload_path: Path | None = None,
+    expected_source_sha: str | None = None,
 ) -> dict[str, Any]:
     """Verify raw git-archive bytes, Git identity, and the extracted source root."""
+    if commit_payload_path is None or expected_source_sha is None:
+        raise ValueError("trusted expected source SHA and commit payload are required")
+    if re.fullmatch(r"[0-9a-f]{40}", expected_source_sha) is None:
+        raise ValueError("trusted expected source SHA is invalid")
     manifest = _canonical_record(manifest_path, "source context manifest")
     fields = {
         "schema_version",
         "kind",
         "source_sha",
         "source_tree",
+        "source_object_type",
+        "source_commit_payload_sha256",
         "source_archive_sha256",
         "build_context_sha256",
     }
     if set(manifest) != fields:
         raise ValueError("source context manifest fields are not exact")
+    if manifest["schema_version"] != 1 or manifest["kind"] != SOURCE_CONTEXT_KIND:
+        raise ValueError("source context manifest identity is invalid")
     raw = Path(archive_path).read_bytes()
+    commit_payload = Path(commit_payload_path).read_bytes()
     archive_digest = "sha256:" + hashlib.sha256(raw).hexdigest()
-    context_digest = "sha256:" + hashlib.sha256(SOURCE_CONTEXT_PREFIX + raw).hexdigest()
+    commit_payload_digest = "sha256:" + hashlib.sha256(commit_payload).hexdigest()
+    context_digest = _source_context_digest(raw, commit_payload)
     if manifest["source_archive_sha256"] != archive_digest:
         raise ValueError("source context archive digest differs from actual bytes")
+    if manifest["source_commit_payload_sha256"] != commit_payload_digest:
+        raise ValueError("source commit payload digest differs from actual bytes")
     if manifest["build_context_sha256"] != context_digest:
-        raise ValueError("source context digest differs from actual archive bytes")
-    if re.fullmatch(r"[0-9a-f]{40}", str(manifest["source_sha"])) is None:
-        raise ValueError("source context SHA is invalid")
+        raise ValueError("source context digest differs from actual context bytes")
+    if manifest["source_sha"] != expected_source_sha:
+        raise ValueError("source context SHA differs from trusted expected source SHA")
+    if manifest["source_object_type"] != "commit":
+        raise ValueError("source context object type must be commit")
+    actual_commit_sha = _git_object_digest("commit", commit_payload).hex()
+    if actual_commit_sha != expected_source_sha:
+        raise ValueError(
+            "source commit object does not match trusted expected source SHA"
+        )
     if re.fullmatch(r"[0-9a-f]{40}", str(manifest["source_tree"])) is None:
         raise ValueError("source context tree is invalid")
+    commit_tree = _commit_tree(commit_payload)
+    if manifest["source_tree"] != commit_tree:
+        raise ValueError("source context tree does not match source commit")
     with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
-        if archive.pax_headers != {"comment": manifest["source_sha"]}:
+        if archive.pax_headers != {"comment": expected_source_sha}:
             raise ValueError("source context archive commit does not match source SHA")
-        if _git_tree_digest(archive) != manifest["source_tree"]:
-            raise ValueError("source context archive tree does not match source tree")
+        if _git_tree_digest(archive) != commit_tree:
+            raise ValueError("source context archive tree does not match source commit")
         _verify_source_root(archive, Path(source_root))
     return manifest
 
@@ -445,21 +513,37 @@ def prepare_source_context(output_dir: Path, source_sha: str) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     archive_path = output_dir / "ucm-source.tar"
     archive_path.write_bytes(completed.stdout)
+    commit = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "cat-file", "commit", source_sha],
+        capture_output=True,
+        check=False,
+    )
+    if commit.returncode != 0:
+        raise ValueError("Git commit payload cannot be exported for source context")
+    if _git_object_digest("commit", commit.stdout).hex() != source_sha:
+        raise ValueError("exported Git commit payload differs from source SHA")
+    if _commit_tree(commit.stdout) != source_tree:
+        raise ValueError("exported Git commit tree differs from source tree")
+    commit_payload_path = output_dir / "source-commit.payload"
+    commit_payload_path.write_bytes(commit.stdout)
     manifest = {
         "schema_version": 1,
         "kind": SOURCE_CONTEXT_KIND,
         "source_sha": source_sha,
         "source_tree": source_tree,
+        "source_object_type": "commit",
+        "source_commit_payload_sha256": "sha256:"
+        + hashlib.sha256(commit.stdout).hexdigest(),
         "source_archive_sha256": "sha256:"
         + hashlib.sha256(completed.stdout).hexdigest(),
-        "build_context_sha256": "sha256:"
-        + hashlib.sha256(SOURCE_CONTEXT_PREFIX + completed.stdout).hexdigest(),
+        "build_context_sha256": _source_context_digest(completed.stdout, commit.stdout),
     }
     manifest_path = output_dir / "source-context.json"
     _write_canonical(manifest_path, manifest)
     return {
         **manifest,
         "source_archive_path": str(archive_path),
+        "source_commit_payload_path": str(commit_payload_path),
         "source_manifest_path": str(manifest_path),
     }
 
@@ -906,6 +990,7 @@ def build_authority_record(
     builder_coordinate: str,
     wheelhouse: Path,
     source_archive: Path,
+    source_commit_payload: Path,
     source_manifest: Path,
     source_root: Path,
     *,
@@ -924,9 +1009,13 @@ def build_authority_record(
     if spec_id not in tasks:
         raise ValueError(f"unknown build authority spec: {spec_id}")
     task = tasks[spec_id]
-    context = verify_source_context(source_archive, source_manifest, source_root)
-    if context["source_sha"] != source_sha:
-        raise ValueError("source authority SHA differs from canonical context")
+    context = verify_source_context(
+        source_archive,
+        source_manifest,
+        source_root,
+        source_commit_payload,
+        source_sha,
+    )
     expected_tools = _tool_wheel_authority(release, task["cpu_arch"])
     wheelhouse = Path(wheelhouse)
     actual_names = sorted(item.name for item in wheelhouse.iterdir() if item.is_file())

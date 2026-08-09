@@ -88,6 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
     authority.add_argument("--builder-coordinate", required=True)
     authority.add_argument("--wheelhouse", required=True, type=Path)
     authority.add_argument("--source-archive", required=True, type=Path)
+    authority.add_argument("--source-commit-payload", required=True, type=Path)
     authority.add_argument("--source-manifest", required=True, type=Path)
     authority.add_argument("--source-root", required=True, type=Path)
     authority.add_argument("--output", required=True, type=Path)
@@ -97,6 +98,8 @@ def build_parser() -> argparse.ArgumentParser:
     context.add_argument("--output-dir", required=True, type=Path)
     verify_context = wheel_actions.add_parser("verify-context")
     verify_context.add_argument("--archive", required=True, type=Path)
+    verify_context.add_argument("--commit-payload", required=True, type=Path)
+    verify_context.add_argument("--expected-source-sha", required=True)
     verify_context.add_argument("--manifest", required=True, type=Path)
     verify_context.add_argument("--source-root", required=True, type=Path)
     closure = wheel_actions.add_parser("closure")
@@ -266,6 +269,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.builder_coordinate,
                 args.wheelhouse,
                 args.source_archive,
+                args.source_commit_payload,
                 args.source_manifest,
                 args.source_root,
                 release_path=args.release,
@@ -276,7 +280,11 @@ def main(argv: list[str] | None = None) -> int:
             result = wheel.prepare_source_context(args.output_dir, args.source_sha)
         elif (args.group, args.action) == ("wheel", "verify-context"):
             result = wheel.verify_source_context(
-                args.archive, args.manifest, args.source_root
+                args.archive,
+                args.manifest,
+                args.source_root,
+                args.commit_payload,
+                args.expected_source_sha,
             )
         elif (args.group, args.action) == ("wheel", "closure"):
             result = wheel.audit_dependency_closure(

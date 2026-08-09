@@ -124,6 +124,39 @@ def _write_canonical_json(path: Path, value: object) -> None:
     path.write_bytes(release_core.canonical_bytes(value) + b"\n")
 
 
+def _git_object_sha1(kind: str, payload: bytes) -> str:
+    header = f"{kind} {len(payload)}\0".encode()
+    return hashlib.sha1(header + payload).hexdigest()  # noqa: S324 - Git object ID
+
+
+def _source_context_digest(archive: bytes, commit_payload: bytes) -> str:
+    material = (
+        b"ucm-build-context-v2\0"
+        + len(archive).to_bytes(8, "big")
+        + archive
+        + commit_payload
+    )
+    return "sha256:" + hashlib.sha256(material).hexdigest()
+
+
+def _rewrite_source_archive_comment(path: Path, comment: str) -> None:
+    with tarfile.open(path) as source:
+        members = source.getmembers()
+        payloads = {
+            member.name: source.extractfile(member).read()
+            for member in members
+            if member.isfile()
+        }
+    rewritten = path.with_suffix(".rewritten.tar")
+    with tarfile.open(rewritten, "w", pax_headers={"comment": comment}) as target:
+        for member in members:
+            target.addfile(
+                member,
+                io.BytesIO(payloads[member.name]) if member.isfile() else None,
+            )
+    rewritten.replace(path)
+
+
 def _git(repository: Path, *arguments: str, input_text: str | None = None) -> str:
     return subprocess.run(
         ["git", "-C", str(repository), *arguments],
@@ -1588,6 +1621,7 @@ def test_source_context_is_a_no_git_canonical_archive_of_actual_bytes(
     )
     archive = Path(prepared["source_archive_path"])
     manifest = Path(prepared["source_manifest_path"])
+    commit_payload = Path(prepared["source_commit_payload_path"])
     source_root = tmp_path / "source"
     source_root.mkdir()
     with tarfile.open(archive) as bundle:
@@ -1602,21 +1636,64 @@ def test_source_context_is_a_no_git_canonical_archive_of_actual_bytes(
             str(archive),
             "--manifest",
             str(manifest),
+            "--commit-payload",
+            str(commit_payload),
+            "--expected-source-sha",
+            REVIEWED_SOURCE_SHA,
             "--source-root",
             str(source_root),
         ).stdout
     )
     raw = archive.read_bytes()
+    commit_raw = commit_payload.read_bytes()
     assert verified["source_archive_sha256"] == (
         "sha256:" + hashlib.sha256(raw).hexdigest()
     )
-    assert verified["build_context_sha256"] == (
-        "sha256:" + hashlib.sha256(b"ucm-build-context-v1\0" + raw).hexdigest()
+    assert verified["build_context_sha256"] == (_source_context_digest(raw, commit_raw))
+    assert verified["source_commit_payload_sha256"] == (
+        "sha256:" + hashlib.sha256(commit_raw).hexdigest()
     )
+    assert _git_object_sha1("commit", commit_raw) == REVIEWED_SOURCE_SHA
     assert verified["source_sha"] == REVIEWED_SOURCE_SHA
     assert verified["source_tree"] == _git(
         ROOT, "rev-parse", f"{REVIEWED_SOURCE_SHA}^{{tree}}"
     )
+
+
+def test_no_git_verifier_rejects_self_consistent_untrusted_source_sha(
+    tmp_path: Path,
+) -> None:
+    prepared = json.loads(
+        _run(
+            "wheel",
+            "context",
+            "--source-sha",
+            REVIEWED_SOURCE_SHA,
+            "--output-dir",
+            str(tmp_path / "context"),
+        ).stdout
+    )
+    archive = Path(prepared["source_archive_path"])
+    manifest_path = Path(prepared["source_manifest_path"])
+    fake_source_sha = "f" * 40
+    _rewrite_source_archive_comment(archive, fake_source_sha)
+    archive_raw = archive.read_bytes()
+    manifest = json.loads(manifest_path.read_text())
+    manifest["source_sha"] = fake_source_sha
+    manifest["source_archive_sha256"] = (
+        "sha256:" + hashlib.sha256(archive_raw).hexdigest()
+    )
+    manifest["build_context_sha256"] = (
+        "sha256:" + hashlib.sha256(b"ucm-build-context-v1\0" + archive_raw).hexdigest()
+    )
+    _write_canonical_json(manifest_path, manifest)
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    with tarfile.open(archive) as bundle:
+        bundle.extractall(source_root, filter="data")
+
+    with pytest.raises(ValueError, match="trusted expected source"):
+        release_wheel.verify_source_context(archive, manifest_path, source_root)
 
 
 @pytest.mark.parametrize(
@@ -1636,6 +1713,7 @@ def test_source_context_rejects_ignored_build_artifact_in_extracted_root(
         ).stdout
     )
     archive = Path(prepared["source_archive_path"])
+    commit_payload = Path(prepared["source_commit_payload_path"])
     source_root = tmp_path / "source"
     source_root.mkdir()
     with tarfile.open(archive) as bundle:
@@ -1651,6 +1729,10 @@ def test_source_context_rejects_ignored_build_artifact_in_extracted_root(
         str(archive),
         "--manifest",
         prepared["source_manifest_path"],
+        "--commit-payload",
+        str(commit_payload),
+        "--expected-source-sha",
+        REVIEWED_SOURCE_SHA,
         "--source-root",
         str(source_root),
         check=False,
@@ -1675,6 +1757,7 @@ def test_source_context_rejects_mutated_digest_or_source_identity(
     )
     archive = Path(prepared["source_archive_path"])
     manifest_path = Path(prepared["source_manifest_path"])
+    commit_payload = Path(prepared["source_commit_payload_path"])
     manifest = json.loads(manifest_path.read_text())
     field = {
         "context-digest": "build_context_sha256",
@@ -1697,12 +1780,280 @@ def test_source_context_rejects_mutated_digest_or_source_identity(
         str(archive),
         "--manifest",
         str(manifest_path),
+        "--commit-payload",
+        str(commit_payload),
+        "--expected-source-sha",
+        REVIEWED_SOURCE_SHA,
         "--source-root",
         str(source_root),
         check=False,
     )
     assert rejected.returncode == 2
     assert "context" in rejected.stderr.lower() or "source" in rejected.stderr.lower()
+
+
+def test_source_context_rejects_self_consistent_tar_with_nonexistent_source_sha(
+    tmp_path: Path,
+) -> None:
+    prepared = json.loads(
+        _run(
+            "wheel",
+            "context",
+            "--source-sha",
+            REVIEWED_SOURCE_SHA,
+            "--output-dir",
+            str(tmp_path / "context"),
+        ).stdout
+    )
+    archive = Path(prepared["source_archive_path"])
+    manifest_path = Path(prepared["source_manifest_path"])
+    commit_payload = Path(prepared["source_commit_payload_path"])
+    fake_source_sha = "f" * 40
+    _rewrite_source_archive_comment(archive, fake_source_sha)
+    archive_raw = archive.read_bytes()
+    commit_raw = commit_payload.read_bytes()
+    manifest = json.loads(manifest_path.read_text())
+    manifest.update(
+        {
+            "source_sha": fake_source_sha,
+            "source_archive_sha256": "sha256:"
+            + hashlib.sha256(archive_raw).hexdigest(),
+            "source_commit_payload_sha256": "sha256:"
+            + hashlib.sha256(commit_raw).hexdigest(),
+            "build_context_sha256": _source_context_digest(archive_raw, commit_raw),
+        }
+    )
+    _write_canonical_json(manifest_path, manifest)
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    with tarfile.open(archive) as bundle:
+        bundle.extractall(source_root, filter="data")
+
+    rejected = _run(
+        "wheel",
+        "verify-context",
+        "--archive",
+        str(archive),
+        "--manifest",
+        str(manifest_path),
+        "--commit-payload",
+        str(commit_payload),
+        "--expected-source-sha",
+        fake_source_sha,
+        "--source-root",
+        str(source_root),
+        check=False,
+    )
+    assert rejected.returncode == 2
+    assert "commit object" in rejected.stderr.lower()
+
+
+def test_source_context_rejects_commit_payload_from_another_commit(
+    tmp_path: Path,
+) -> None:
+    prepared = json.loads(
+        _run(
+            "wheel",
+            "context",
+            "--source-sha",
+            REVIEWED_SOURCE_SHA,
+            "--output-dir",
+            str(tmp_path / "context"),
+        ).stdout
+    )
+    archive = Path(prepared["source_archive_path"])
+    manifest_path = Path(prepared["source_manifest_path"])
+    commit_payload = Path(prepared["source_commit_payload_path"])
+    commit_raw = subprocess.run(
+        ["git", "-C", str(ROOT), "cat-file", "commit", f"{REVIEWED_SOURCE_SHA}^"],
+        capture_output=True,
+        check=True,
+    ).stdout
+    commit_payload.write_bytes(commit_raw)
+    manifest = json.loads(manifest_path.read_text())
+    manifest["source_commit_payload_sha256"] = (
+        "sha256:" + hashlib.sha256(commit_raw).hexdigest()
+    )
+    manifest["build_context_sha256"] = _source_context_digest(
+        archive.read_bytes(), commit_raw
+    )
+    _write_canonical_json(manifest_path, manifest)
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    with tarfile.open(archive) as bundle:
+        bundle.extractall(source_root, filter="data")
+
+    rejected = _run(
+        "wheel",
+        "verify-context",
+        "--archive",
+        str(archive),
+        "--manifest",
+        str(manifest_path),
+        "--commit-payload",
+        str(commit_payload),
+        "--expected-source-sha",
+        REVIEWED_SOURCE_SHA,
+        "--source-root",
+        str(source_root),
+        check=False,
+    )
+    assert rejected.returncode == 2
+    assert "commit object" in rejected.stderr.lower()
+
+
+@pytest.mark.parametrize("mutation", ("duplicate-tree", "malformed-header"))
+def test_source_context_rejects_malformed_commit_payload(
+    tmp_path: Path, mutation: str
+) -> None:
+    prepared = json.loads(
+        _run(
+            "wheel",
+            "context",
+            "--source-sha",
+            REVIEWED_SOURCE_SHA,
+            "--output-dir",
+            str(tmp_path / "context"),
+        ).stdout
+    )
+    archive = Path(prepared["source_archive_path"])
+    manifest_path = Path(prepared["source_manifest_path"])
+    commit_payload = Path(prepared["source_commit_payload_path"])
+    tree = json.loads(manifest_path.read_text())["source_tree"]
+    malformed = (
+        f"tree {tree}\ntree {tree}\n\nmessage\n".encode()
+        if mutation == "duplicate-tree"
+        else f"tree {tree}\nmalformed\n\nmessage\n".encode()
+    )
+    fake_source_sha = _git_object_sha1("commit", malformed)
+    commit_payload.write_bytes(malformed)
+    _rewrite_source_archive_comment(archive, fake_source_sha)
+    archive_raw = archive.read_bytes()
+    manifest = json.loads(manifest_path.read_text())
+    manifest.update(
+        {
+            "source_sha": fake_source_sha,
+            "source_archive_sha256": "sha256:"
+            + hashlib.sha256(archive_raw).hexdigest(),
+            "source_commit_payload_sha256": "sha256:"
+            + hashlib.sha256(malformed).hexdigest(),
+            "build_context_sha256": _source_context_digest(archive_raw, malformed),
+        }
+    )
+    _write_canonical_json(manifest_path, manifest)
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    with tarfile.open(archive) as bundle:
+        bundle.extractall(source_root, filter="data")
+
+    rejected = _run(
+        "wheel",
+        "verify-context",
+        "--archive",
+        str(archive),
+        "--manifest",
+        str(manifest_path),
+        "--commit-payload",
+        str(commit_payload),
+        "--expected-source-sha",
+        fake_source_sha,
+        "--source-root",
+        str(source_root),
+        check=False,
+    )
+    assert rejected.returncode == 2
+    assert "commit" in rejected.stderr.lower()
+
+
+@pytest.mark.parametrize(
+    "mutation", ("wrong-type", "wrong-kind", "wrong-schema", "extra-manifest")
+)
+def test_source_context_rejects_wrong_object_type_or_extra_manifest_field(
+    tmp_path: Path, mutation: str
+) -> None:
+    prepared = json.loads(
+        _run(
+            "wheel",
+            "context",
+            "--source-sha",
+            REVIEWED_SOURCE_SHA,
+            "--output-dir",
+            str(tmp_path / "context"),
+        ).stdout
+    )
+    manifest_path = Path(prepared["source_manifest_path"])
+    manifest = json.loads(manifest_path.read_text())
+    if mutation == "wrong-type":
+        manifest["source_object_type"] = "blob"
+    elif mutation == "wrong-kind":
+        manifest["kind"] = "caller-source-context"
+    elif mutation == "wrong-schema":
+        manifest["schema_version"] = 2
+    else:
+        manifest["caller_trust"] = True
+    _write_canonical_json(manifest_path, manifest)
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    with tarfile.open(prepared["source_archive_path"]) as bundle:
+        bundle.extractall(source_root, filter="data")
+
+    rejected = _run(
+        "wheel",
+        "verify-context",
+        "--archive",
+        prepared["source_archive_path"],
+        "--manifest",
+        str(manifest_path),
+        "--commit-payload",
+        prepared["source_commit_payload_path"],
+        "--expected-source-sha",
+        REVIEWED_SOURCE_SHA,
+        "--source-root",
+        str(source_root),
+        check=False,
+    )
+    assert rejected.returncode == 2
+    assert (
+        "manifest" in rejected.stderr.lower()
+        or "object type" in rejected.stderr.lower()
+    )
+
+
+def test_source_context_rejects_external_expected_source_sha_mismatch(
+    tmp_path: Path,
+) -> None:
+    prepared = json.loads(
+        _run(
+            "wheel",
+            "context",
+            "--source-sha",
+            REVIEWED_SOURCE_SHA,
+            "--output-dir",
+            str(tmp_path / "context"),
+        ).stdout
+    )
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    with tarfile.open(prepared["source_archive_path"]) as bundle:
+        bundle.extractall(source_root, filter="data")
+
+    rejected = _run(
+        "wheel",
+        "verify-context",
+        "--archive",
+        prepared["source_archive_path"],
+        "--manifest",
+        prepared["source_manifest_path"],
+        "--commit-payload",
+        prepared["source_commit_payload_path"],
+        "--expected-source-sha",
+        "f" * 40,
+        "--source-root",
+        str(source_root),
+        check=False,
+    )
+    assert rejected.returncode == 2
+    assert "expected source" in rejected.stderr.lower()
 
 
 def test_wheel_seal_rejects_forged_source_even_when_manifest_agrees(

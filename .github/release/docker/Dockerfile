@@ -84,6 +84,7 @@ EOF
 
 WORKDIR /workspace/ucm
 COPY ucm-source.tar /tmp/ucm-source.tar
+COPY source-commit.payload /tmp/source-commit.payload
 COPY source-context.json /tmp/source-context.json
 RUN ucm-python - <<'PY'
 import tarfile
@@ -93,6 +94,8 @@ PY
 RUN PYTHONPATH=/workspace/ucm/.github/release \
     ucm-python -m ucm_release wheel verify-context \
       --archive /tmp/ucm-source.tar \
+      --commit-payload /tmp/source-commit.payload \
+      --expected-source-sha "${UCM_RELEASE_SOURCE_SHA}" \
       --manifest /tmp/source-context.json \
       --source-root /workspace/ucm
 
@@ -145,6 +148,7 @@ RUN PYTHONPATH=/workspace/ucm/.github/release \
       --builder-coordinate "${UCM_BUILDER_IMAGE}" \
       --wheelhouse /wheelhouse \
       --source-archive /tmp/ucm-source.tar \
+      --source-commit-payload /tmp/source-commit.payload \
       --source-manifest /tmp/source-context.json \
       --source-root /workspace/ucm \
       --output /tmp/build-authority.json
