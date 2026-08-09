@@ -25,7 +25,8 @@ sys.path.insert(0, PYTHONPATH)
 _deterministic_repack = importlib.import_module(
     "ucm_release.chart"
 )._deterministic_repack
-derive_chart_version = importlib.import_module("ucm_release.core").derive_chart_version
+release_core = importlib.import_module("ucm_release.core")
+derive_chart_version = release_core.derive_chart_version
 
 
 EXPECTED_TASK_IDS = [
@@ -58,6 +59,101 @@ def _run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
 
 def _clone(value: object) -> object:
     return json.loads(json.dumps(value))
+
+
+def _git(repository: Path, *arguments: str, input_text: str | None = None) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repository), *arguments],
+        input=input_text,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+
+
+def _protected_tag_repository(
+    tmp_path: Path,
+) -> tuple[Path, dict[str, str], Path, str, str]:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    _git(repository, "init", "--initial-branch=develop")
+    _git(repository, "config", "user.email", "release-test@example.invalid")
+    _git(repository, "config", "user.name", "Release Test")
+    _git(
+        repository,
+        "remote",
+        "add",
+        "origin",
+        "https://github.com/SuperMarioYL/unified-cache-management.git",
+    )
+    (repository / "version.ini").write_text(
+        "VLLM_UC_VERSION=0.5.0rc1\n", encoding="utf-8"
+    )
+    chart_directory = repository / "charts" / "ucm"
+    chart_directory.mkdir(parents=True)
+    shutil.copyfile(
+        ROOT / "charts" / "ucm" / "Chart.yaml", chart_directory / "Chart.yaml"
+    )
+    _git(repository, "add", "version.ini", "charts/ucm/Chart.yaml")
+    _git(repository, "commit", "-m", "release source")
+    tag_sha = _git(repository, "rev-parse", "HEAD")
+    _git(repository, "tag", "v0.5.0rc1", tag_sha)
+    (repository / "develop.txt").write_text("after release\n", encoding="utf-8")
+    _git(repository, "add", "develop.txt")
+    _git(repository, "commit", "-m", "advance develop")
+    default_branch_sha = _git(repository, "rev-parse", "HEAD")
+    _git(
+        repository,
+        "update-ref",
+        "refs/remotes/origin/develop",
+        default_branch_sha,
+    )
+    _git(repository, "checkout", "--detach", tag_sha)
+
+    event_path = tmp_path / "event.json"
+    event = {
+        "after": tag_sha,
+        "ref": "refs/tags/v0.5.0rc1",
+        "repository": {
+            "default_branch": "develop",
+            "full_name": "SuperMarioYL/unified-cache-management",
+            "owner": {"login": "SuperMarioYL"},
+        },
+        "sender": {"login": "SuperMarioYL"},
+    }
+    event_path.write_text(json.dumps(event), encoding="utf-8")
+    environment = {
+        "GITHUB_ACTIONS": "true",
+        "GITHUB_ACTOR": "SuperMarioYL",
+        "GITHUB_EVENT_NAME": "push",
+        "GITHUB_EVENT_PATH": str(event_path),
+        "GITHUB_REF": "refs/tags/v0.5.0rc1",
+        "GITHUB_REF_NAME": "v0.5.0rc1",
+        "GITHUB_REF_PROTECTED": "true",
+        "GITHUB_REF_TYPE": "tag",
+        "GITHUB_REPOSITORY": "SuperMarioYL/unified-cache-management",
+        "GITHUB_REPOSITORY_OWNER": "SuperMarioYL",
+        "GITHUB_SHA": tag_sha,
+        "UCM_RELEASE_POLICY": "owner-reviewed-v1",
+    }
+    return repository, environment, event_path, tag_sha, default_branch_sha
+
+
+def _run_protected_tag_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+    repository: Path,
+    environment: dict[str, str],
+) -> dict[str, object]:
+    monkeypatch.setattr(release_core, "REPO_ROOT", repository)
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    return release_core.tag_preflight(lane="protected-tag")
+
+
+def _rewrite_event(event_path: Path, **updates: object) -> None:
+    event = json.loads(event_path.read_text(encoding="utf-8"))
+    event.update(updates)
+    event_path.write_text(json.dumps(event), encoding="utf-8")
 
 
 def _reject_config(
@@ -339,73 +435,28 @@ def test_release_authority_mutations_fail_closed(
     assert message in rejected.stderr
 
 
-def test_tag_preflight_is_fail_closed_and_feature_has_no_write_authority(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_feature_preflight_has_no_write_authority_without_identity_arguments() -> None:
     feature = json.loads(
-        _run(
-            "core",
-            "tag-preflight",
-            "--lane",
-            "feature-candidate",
-            "--repository",
-            "SuperMarioYL/unified-cache-management",
-            "--repository-owner",
-            "SuperMarioYL",
-            "--ref-name",
-            "feature/cicd",
-            "--source-sha",
-            "1" * 40,
-            "--default-branch",
-            "develop",
-            "--ref-protected",
-            "false",
-        ).stdout
+        _run("core", "tag-preflight", "--lane", "feature-candidate").stdout
     )
     assert feature["publication_allowed"] is False
     assert feature["write_authority"] == []
 
-    monkeypatch.setenv("UCM_RELEASE_POLICY", "owner-reviewed-v1")
-    protected = json.loads(
-        _run(
-            "core",
-            "tag-preflight",
-            "--lane",
-            "protected-tag",
-            "--repository",
-            "SuperMarioYL/unified-cache-management",
-            "--repository-owner",
-            "SuperMarioYL",
-            "--ref-name",
-            "v0.5.0rc1",
-            "--source-sha",
-            "2" * 40,
-            "--default-branch",
-            "develop",
-            "--ref-protected",
-            "true",
-        ).stdout
-    )
-    assert protected["publication_allowed"] is True
-    assert protected["write_authority"] == [
-        "github-prerelease",
-        "ghcr-final-index",
-        "ghcr-private-staging",
-    ]
 
+def test_tag_preflight_rejects_caller_supplied_identity_arguments() -> None:
     rejected = _run(
         "core",
         "tag-preflight",
         "--lane",
         "protected-tag",
         "--repository",
-        "attacker/unified-cache-management",
+        "SuperMarioYL/unified-cache-management",
         "--repository-owner",
         "SuperMarioYL",
         "--ref-name",
         "v0.5.0rc1",
         "--source-sha",
-        "2" * 40,
+        "a" * 40,
         "--default-branch",
         "develop",
         "--ref-protected",
@@ -413,7 +464,106 @@ def test_tag_preflight_is_fail_closed_and_feature_has_no_write_authority(
         check=False,
     )
     assert rejected.returncode == 2
-    assert "repository" in rejected.stderr
+    assert "unrecognized arguments" in rejected.stderr
+
+
+def test_tag_preflight_binds_actual_tag_head_and_default_branch_ancestry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository, environment, _, tag_sha, default_branch_sha = _protected_tag_repository(
+        tmp_path
+    )
+    protected = _run_protected_tag_preflight(monkeypatch, repository, environment)
+    assert protected["publication_allowed"] is True
+    assert protected["write_authority"] == [
+        "github-prerelease",
+        "ghcr-final-index",
+        "ghcr-private-staging",
+    ]
+    assert protected["ref"] == "refs/tags/v0.5.0rc1"
+    assert protected["ref_type"] == "tag"
+    assert protected["source_sha"] == tag_sha
+    assert protected["tag_commit_sha"] == tag_sha
+    assert protected["checked_head_sha"] == tag_sha
+    assert protected["default_branch_ref"] == "refs/remotes/origin/develop"
+    assert protected["default_branch_sha"] == default_branch_sha
+
+
+def test_tag_preflight_rejects_nonexistent_context_sha(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository, environment, event_path, _, _ = _protected_tag_repository(tmp_path)
+    nonexistent_sha = "a" * 40
+    environment["GITHUB_SHA"] = nonexistent_sha
+    _rewrite_event(event_path, after=nonexistent_sha)
+    with pytest.raises(ValueError, match="source_sha"):
+        _run_protected_tag_preflight(monkeypatch, repository, environment)
+
+
+def test_tag_preflight_rejects_branch_named_like_release_tag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository, environment, event_path, _, _ = _protected_tag_repository(tmp_path)
+    environment["GITHUB_REF"] = "refs/heads/v0.5.0rc1"
+    environment["GITHUB_REF_TYPE"] = "branch"
+    _rewrite_event(event_path, ref="refs/heads/v0.5.0rc1")
+    with pytest.raises(ValueError, match="ref"):
+        _run_protected_tag_preflight(monkeypatch, repository, environment)
+
+
+def test_tag_preflight_rejects_wrong_actor_even_when_event_agrees(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository, environment, event_path, _, _ = _protected_tag_repository(tmp_path)
+    environment["GITHUB_ACTOR"] = "attacker"
+    event = json.loads(event_path.read_text(encoding="utf-8"))
+    event["sender"] = {"login": "attacker"}
+    event_path.write_text(json.dumps(event), encoding="utf-8")
+    with pytest.raises(ValueError, match="actor"):
+        _run_protected_tag_preflight(monkeypatch, repository, environment)
+
+
+def test_tag_preflight_rejects_tag_commit_different_from_checked_head(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository, environment, _, _, default_branch_sha = _protected_tag_repository(
+        tmp_path
+    )
+    _git(repository, "checkout", "--detach", default_branch_sha)
+    with pytest.raises(ValueError, match="checked_head"):
+        _run_protected_tag_preflight(monkeypatch, repository, environment)
+
+
+def test_tag_preflight_rejects_tag_unreachable_from_origin_default_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository, environment, event_path, _, _ = _protected_tag_repository(tmp_path)
+    tree = _git(repository, "rev-parse", "HEAD^{tree}")
+    unrelated_sha = _git(repository, "commit-tree", tree, input_text="unrelated\n")
+    _git(repository, "tag", "--force", "v0.5.0rc1", unrelated_sha)
+    _git(repository, "checkout", "--detach", unrelated_sha)
+    environment["GITHUB_SHA"] = unrelated_sha
+    _rewrite_event(event_path, after=unrelated_sha)
+    with pytest.raises(ValueError, match="default_branch_ancestry"):
+        _run_protected_tag_preflight(monkeypatch, repository, environment)
+
+
+def test_tag_preflight_rejects_forged_environment_event_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository, environment, _, _, _ = _protected_tag_repository(tmp_path)
+    environment["GITHUB_REPOSITORY"] = "attacker/unified-cache-management"
+    with pytest.raises(ValueError, match="repository"):
+        _run_protected_tag_preflight(monkeypatch, repository, environment)
+
+
+def test_tag_preflight_rejects_forged_release_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository, environment, _, _, _ = _protected_tag_repository(tmp_path)
+    environment["UCM_RELEASE_POLICY"] = "caller-claimed"
+    with pytest.raises(ValueError, match="release_policy"):
+        _run_protected_tag_preflight(monkeypatch, repository, environment)
 
 
 def test_config_is_strict_and_rejects_duplicate_json_keys(tmp_path: Path) -> None:

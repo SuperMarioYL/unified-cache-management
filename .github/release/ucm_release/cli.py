@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -59,14 +58,6 @@ def build_parser() -> argparse.ArgumentParser:
     tag_preflight = core_actions.add_parser("tag-preflight")
     tag_preflight.add_argument(
         "--lane", choices=("feature-candidate", "protected-tag"), required=True
-    )
-    tag_preflight.add_argument("--repository", required=True)
-    tag_preflight.add_argument("--repository-owner", required=True)
-    tag_preflight.add_argument("--ref-name", required=True)
-    tag_preflight.add_argument("--source-sha", required=True)
-    tag_preflight.add_argument("--default-branch", required=True)
-    tag_preflight.add_argument(
-        "--ref-protected", choices=("true", "false"), required=True
     )
     _paths(tag_preflight)
 
@@ -204,13 +195,6 @@ def main(argv: list[str] | None = None) -> int:
         elif (args.group, args.action) == ("core", "tag-preflight"):
             result = core.tag_preflight(
                 lane=args.lane,
-                repository=args.repository,
-                repository_owner=args.repository_owner,
-                ref_name=args.ref_name,
-                source_sha=args.source_sha,
-                default_branch=args.default_branch,
-                ref_protected=args.ref_protected == "true",
-                policy=os.environ.get("UCM_RELEASE_POLICY"),
                 release_path=args.release,
                 compatibility_path=args.compatibility,
                 schema_dir=args.schema_dir,

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -582,16 +584,60 @@ def build_matrix(
     return result
 
 
+def _git_output(repository_root: Path, *arguments: str) -> str | None:
+    completed = subprocess.run(
+        ["git", "-C", str(repository_root), *arguments],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.strip()
+
+
+def _git_commit(repository_root: Path, revision: str) -> str | None:
+    commit = _git_output(
+        repository_root, "rev-parse", "--verify", f"{revision}^{{commit}}"
+    )
+    if commit is None or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        return None
+    return commit
+
+
+def _origin_repository(remote_url: str | None) -> str | None:
+    if remote_url is None:
+        return None
+    prefixes = ("https://github.com/", "git@github.com:")
+    for prefix in prefixes:
+        if remote_url.startswith(prefix):
+            repository = remote_url.removeprefix(prefix).removesuffix(".git")
+            if re.fullmatch(r"[^/]+/[^/]+", repository):
+                return repository
+    return None
+
+
+def _is_ancestor(repository_root: Path, ancestor: str, descendant: str) -> bool:
+    completed = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repository_root),
+            "merge-base",
+            "--is-ancestor",
+            ancestor,
+            descendant,
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return completed.returncode == 0
+
+
 def tag_preflight(
     *,
     lane: str,
-    repository: str,
-    repository_owner: str,
-    ref_name: str,
-    source_sha: str,
-    default_branch: str,
-    ref_protected: bool,
-    policy: str | None = None,
     release_path: Path = DEFAULT_RELEASE,
     compatibility_path: Path = DEFAULT_COMPATIBILITY,
     schema_dir: Path = DEFAULT_SCHEMA_DIR,
@@ -600,44 +646,138 @@ def tag_preflight(
         raise ValueError(f"unsupported validation lane: {lane}")
     release, _ = validate_config(release_path, compatibility_path, schema_dir)
     authority = release["source"]
+    version_matches = (
+        read_version(REPO_ROOT / release["version_file"]) == release["ucm_version"]
+    )
+    if lane == "feature-candidate":
+        checks = {"feature_zero_write": True, "version_file": version_matches}
+        failed = sorted(name for name, passed in checks.items() if not passed)
+        if failed:
+            raise ValueError(f"release preflight failed: {failed}")
+        result: dict[str, Any] = {
+            "schema_version": 1,
+            "kind": "ucm-tag-preflight",
+            "lane": lane,
+            "repository": authority["repository"],
+            "repository_owner": authority["owner"],
+            "ref": None,
+            "ref_type": None,
+            "ref_name": None,
+            "source_sha": None,
+            "default_branch": authority["default_branch"],
+            "checks": checks,
+            "publication_allowed": False,
+            "write_authority": [],
+        }
+        result["preflight_sha256"] = sha256_value(result)
+        return result
+
+    context_names = (
+        "GITHUB_ACTIONS",
+        "GITHUB_ACTOR",
+        "GITHUB_EVENT_NAME",
+        "GITHUB_EVENT_PATH",
+        "GITHUB_REF",
+        "GITHUB_REF_NAME",
+        "GITHUB_REF_PROTECTED",
+        "GITHUB_REF_TYPE",
+        "GITHUB_REPOSITORY",
+        "GITHUB_REPOSITORY_OWNER",
+        "GITHUB_SHA",
+        "UCM_RELEASE_POLICY",
+    )
+    context = {name: os.environ.get(name, "") for name in context_names}
+    event_path = Path(context["GITHUB_EVENT_PATH"])
+    if not context["GITHUB_EVENT_PATH"] or not event_path.is_file():
+        raise ValueError("release preflight failed: ['github_event_path']")
+    event = load_json(event_path)
+    event_repository = event.get("repository")
+    if not isinstance(event_repository, dict):
+        event_repository = {}
+    event_owner = event_repository.get("owner")
+    if not isinstance(event_owner, dict):
+        event_owner = {}
+    event_sender = event.get("sender")
+    if not isinstance(event_sender, dict):
+        event_sender = {}
+
+    release_tag = authority["release_tag"]
+    tag_ref = f"refs/tags/{release_tag}"
+    default_branch_ref = f"refs/remotes/origin/{authority['default_branch']}"
+    source_sha = context["GITHUB_SHA"]
+    checked_head_sha = _git_commit(REPO_ROOT, "HEAD")
+    tag_commit_sha = _git_commit(REPO_ROOT, tag_ref)
+    default_branch_sha = _git_commit(REPO_ROOT, default_branch_ref)
+    source_commit_sha = (
+        _git_commit(REPO_ROOT, source_sha)
+        if re.fullmatch(r"[0-9a-f]{40}", source_sha)
+        else None
+    )
+    worktree_root = _git_output(REPO_ROOT, "rev-parse", "--show-toplevel")
+    origin_repository = _origin_repository(
+        _git_output(REPO_ROOT, "remote", "get-url", "origin")
+    )
     checks = {
-        "repository": repository == authority["repository"],
-        "owner": repository_owner == authority["owner"],
-        "source_sha": re.fullmatch(r"[0-9a-f]{40}", source_sha) is not None,
-        "default_branch": default_branch == authority["default_branch"],
-        "version_file": read_version(REPO_ROOT / release["version_file"])
-        == release["ucm_version"],
+        "actor": context["GITHUB_ACTOR"] == authority["owner"],
+        "checked_head": checked_head_sha == source_sha,
+        "default_branch": event_repository.get("default_branch")
+        == authority["default_branch"],
+        "default_branch_ancestry": (
+            tag_commit_sha is not None
+            and default_branch_sha is not None
+            and _is_ancestor(REPO_ROOT, tag_commit_sha, default_branch_sha)
+        ),
+        "event_actor": event_sender.get("login") == context["GITHUB_ACTOR"],
+        "event_name": context["GITHUB_EVENT_NAME"] == "push",
+        "event_owner": event_owner.get("login") == context["GITHUB_REPOSITORY_OWNER"],
+        "event_ref": event.get("ref") == context["GITHUB_REF"],
+        "event_repository": event_repository.get("full_name")
+        == context["GITHUB_REPOSITORY"],
+        "event_source_sha": event.get("after") == source_sha,
+        "github_actions": context["GITHUB_ACTIONS"] == "true",
+        "origin_repository": origin_repository == authority["repository"],
+        "owner": context["GITHUB_REPOSITORY_OWNER"] == authority["owner"],
+        "ref": context["GITHUB_REF"] == tag_ref,
+        "ref_name": context["GITHUB_REF_NAME"] == release_tag,
+        "ref_protected": context["GITHUB_REF_PROTECTED"] == "true",
+        "ref_type": context["GITHUB_REF_TYPE"] == "tag",
+        "release_policy": context["UCM_RELEASE_POLICY"] == authority["release_policy"],
+        "repository": context["GITHUB_REPOSITORY"] == authority["repository"],
+        "repository_root": (
+            worktree_root is not None
+            and Path(worktree_root).resolve() == REPO_ROOT.resolve()
+        ),
+        "source_sha": source_commit_sha == source_sha,
+        "tag_commit": tag_commit_sha == source_sha,
+        "version_file": version_matches,
     }
-    if lane == "protected-tag":
-        checks.update(
-            {
-                "tag": ref_name == authority["release_tag"],
-                "ref_protected": ref_protected is True,
-                "release_policy": policy == authority["release_policy"],
-            }
-        )
-    elif not ref_name or ref_name == authority["release_tag"]:
-        checks["feature_ref"] = False
     failed = sorted(name for name, passed in checks.items() if not passed)
     if failed:
         raise ValueError(f"release preflight failed: {failed}")
-    publication_allowed = lane == "protected-tag"
-    result: dict[str, Any] = {
+    result = {
         "schema_version": 1,
         "kind": "ucm-tag-preflight",
         "lane": lane,
-        "repository": repository,
-        "repository_owner": repository_owner,
-        "ref_name": ref_name,
+        "repository": context["GITHUB_REPOSITORY"],
+        "repository_owner": context["GITHUB_REPOSITORY_OWNER"],
+        "actor": context["GITHUB_ACTOR"],
+        "ref": context["GITHUB_REF"],
+        "ref_type": context["GITHUB_REF_TYPE"],
+        "ref_name": context["GITHUB_REF_NAME"],
         "source_sha": source_sha,
-        "default_branch": default_branch,
+        "tag_commit_sha": tag_commit_sha,
+        "checked_head_sha": checked_head_sha,
+        "default_branch": authority["default_branch"],
+        "default_branch_ref": default_branch_ref,
+        "default_branch_sha": default_branch_sha,
+        "event_payload_sha256": sha256_value(event),
         "checks": checks,
-        "publication_allowed": publication_allowed,
-        "write_authority": (
-            ["github-prerelease", "ghcr-final-index", "ghcr-private-staging"]
-            if publication_allowed
-            else []
-        ),
+        "publication_allowed": True,
+        "write_authority": [
+            "github-prerelease",
+            "ghcr-final-index",
+            "ghcr-private-staging",
+        ],
     }
     result["preflight_sha256"] = sha256_value(result)
     return result
