@@ -3,6 +3,7 @@
 - 状态：待用户审阅
 - 日期：2026-08-09
 - 决策：用户选择方案 A，一次发布 vLLM OpenAI、Ascend A2、Ascend A3 三个镜像族，每族同时包含 amd64 与 arm64。
+- Runner 决策：参考 vLLM Ascend 的公开 Workflow 与成功运行，首选原生 GitHub-hosted x64/ARM64；Tag lane 允许在最终 tag barrier 前写入受保护的 private staging member，跨 Job 只传 digest record，不再要求 self-hosted 持久化大型 OCI layout。
 
 待用户明确确认的发布策略：本设计建议把 `0.5.0rc1` 作为公开 prerelease，即 build/install/import/ABI 通过即可发布，release manifest 继续显示 `runtime/device: external-required`；stable 始终 blocked。若用户不接受这一策略，首版终点改为 private GHCR + draft Release，直至 CUDA/A2/A3 设备门禁通过。
 
@@ -80,7 +81,7 @@
 - 保护 `develop` 和 `v*` Tag；
 - 创建 `release-production` Environment，required reviewer 为仓库 owner，并只允许受保护 Tag；
 - 在该 Environment 设置非敏感变量 `UCM_RELEASE_POLICY=owner-reviewed-v1`；
-- 注册两个只服务于 push/tag release 的临时 self-hosted runner profile，详见 6.2；
+- 确认 public repository 可以调度原生 `ubuntu-24.04` 与 `ubuntu-24.04-arm`；实际可用磁盘由每个 build job 动态检查，不能只依赖文档标称值；
 - 将实现提交合入或快进到 `develop` 后再创建 Tag。
 
 默认 token、PR approval、branch/ruleset 等管理设置不由最小权限 `GITHUB_TOKEN` 动态读取，owner 在首发前按清单配置，GitHub 平台负责强制 ruleset 和 Environment。写 job 进入 Environment 后还必须检查 `github.ref_protected` 和 `vars.UCM_RELEASE_POLICY` 的精确值，再执行 login 或写 API。单 owner fork 若由触发者本人审批，Environment 必须允许 self-review；此时 approval 只是人工确认，真正授权仍来自 tag ruleset、受保护 source 和 exact-SHA checks。若以后有第二位 reviewer，则开启 prevent self-review。
@@ -173,13 +174,16 @@ flowchart LR
   Gate --> Wheels["Build six real wheels"]
   Wheels --> Chart["Package deterministic Chart"]
   Wheels --> Members["Build six install-only image members"]
-  Members --> Push["Push members by digest"]
-  Push --> Indexes["Create three multi-platform rN indexes"]
-  Chart --> Draft["Create or resume draft GitHub Release"]
-  Wheels --> Draft
-  Indexes --> Readback["Registry and asset readback"]
-  Draft --> Readback
-  Readback --> Publish["Publish prerelease"]
+  Members --> Staging["Push private staging members by digest"]
+  Staging --> Barrier["Six of six member barrier"]
+  Barrier --> Indexes["Create three public multi-platform rN indexes"]
+  Indexes --> AuthReadback["Authenticated Registry readback"]
+  AuthReadback --> Draft["Create or resume empty draft Release"]
+  Draft --> Anonymous["Anonymous Registry readback"]
+  Wheels --> Assets["Upload and download-verify assets"]
+  Chart --> Assets
+  Anonymous --> Assets
+  Assets --> Publish["Publish prerelease"]
 ```
 
 ### 6.1 `release-ucm.yml`
@@ -201,12 +205,12 @@ flowchart LR
 
 每次调用只构建一个 `(profile, cpu_arch)`，由顶层 matrix 并行调用六次。
 
-- `amd64` 只路由到 repository-owned `[self-hosted, linux, x64, ucm-release-build-x64]`；
-- `arm64` 只路由到 repository-owned `[self-hosted, linux, ARM64, ucm-release-build-arm64]`；
+- `amd64` 固定使用 GitHub-hosted `ubuntu-24.04`，`arm64` 固定使用原生 GitHub-hosted `ubuntu-24.04-arm`，不使用 QEMU；
 - runner mapping 固定在受信配置中，Workflow caller 不能传 raw `runs-on` labels；
-- 两个 runner 都以 `--ephemeral` 注册，每个任务开始时要求至少 200GiB 可用 SSD，结束时清理 BuildKit state 和工作目录；
-- self-hosted runner 不接收 `pull_request` 或 fork 代码，只运行 owner 控制的 feature push 和受保护 Tag；
-- 每个任务都在临时 builder 容器中编译；builder 的 `FROM` 是该架构的 exact upstream member digest，额外系统包、Python build 包和工具链全部由带制品 digest 的 lock 安装；
+- wheel matrix 设置 `fail-fast: false`，单 job `timeout-minutes: 180`，让六项都产出明确结果但不把超时误报成外部完成；
+- checkout 后运行固定 commit `jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be`，保留 Docker 基础镜像但清理无关 SDK、large packages 与 tool cache；随后记录 `df -BG`、Docker data-root 和 BuildKit usage，根分区可用空间低于 `60GiB` 时以 `hosted-capacity-insufficient` 失败；
+- 每个任务都在临时 builder 容器中编译；CUDA、Ascend A2、Ascend A3 分别使用独立、原生架构的 builder image，配置必须固定 builder index/member/config digest，不能用 mutable tag；builder 与最终 vLLM runtime image 分离；
+- 额外系统包、Python build 包和工具链全部由带制品 digest 的 lock 安装；
 - `PLATFORM` 分别为 `cuda`、`ascend`、`ascend-a3`；
 - `ENABLE_SPARSE=false`，不构建独立 Ascend custom-op wheel；
 - common required native targets 精确为 `ucmtrans`、`metrics`、`ucmmetrics`、`ucmlogger`、`ucmnfsstore`、`ucmpcstore`、`posixstore`、`compressor`、`cachestore`、`emptystore`、`fakestore`、`ucmpipelinestore`；
@@ -227,7 +231,7 @@ flowchart LR
 
 同一 source SHA 的 rerun 必须产出相同 wheel SHA，否则 Tag 发布失败。
 
-标准 `ubuntu-24.04` 与 `ubuntu-24.04-arm` hosted runner 只有 14GB SSD，不能承载这些上游镜像的 BuildKit snapshot 与 OCI 输出。2026-08-09 读取到的单个 member 压缩层总量约为 6.3–9.2GiB，尚未计入解压层、builder、源码和输出。因此不使用标准 hosted runner 假装可行；当前 fork 尚未注册上述两个 self-hosted runner，这是一项明确的首发前置能力。
+GitHub 文档当前仍把标准 public Linux runner 的 SSD 标为 `14GB`，因此不能把 live 容量当成永久规格；但 vLLM Ascend 的公开成功 run `31246405996` 实际在标准 hosted x64/ARM64 runner 上分别看到约 `145G/146G` 根分区，清理后可用 `116G/122G`，并完成了比本设计 install-only 镜像更重的源码编译。这里采用 hosted-first、每 job 动态 preflight 和真实 feature run 验收；只有实际 preflight 或构建证明不足时，才把 larger/self-hosted runner 作为测得的 fallback，而不是首发硬前置。UCM 只复用其 runner、磁盘清理和 digest merge 拓扑；上游使用的 floating Action tag 不进入本设计，全部第三方 Action 仍固定完整 commit SHA。
 
 ### 6.3 `_build-image.yml`
 
@@ -245,11 +249,15 @@ flowchart LR
 - 使用 `SOURCE_DATE_EPOCH=<tag-commit-time>`、`rewrite-timestamp=true`、`--provenance=false`、`--sbom=false`，并禁用 pip cache/version check；这些参数和 toolchain authority 都进入 build key；
 - 首次 push 前写入 `org.opencontainers.image.source=https://github.com/SuperMarioYL/unified-cache-management`、`org.opencontainers.image.revision=<source-sha>` 和 UCM build-key annotations，使 GHCR package 自动关联来源仓库并可被 readback；
 - feature lane 输出本地 OCI 与 compact evidence，随后删除大型 tar；
-- Tag build lane 只有 `contents: read`，把验证通过的单 member 写成 OCI layout 目录，封存在对应架构 host 的 `/var/lib/ucm-release-staging/<source-sha>/<member-build-key>/`；目录固定 owner、mode `0700`，拒绝 symlink，保存 canonical tree digest 和 expiry marker；
-- Tag build lane 只把 compact evidence 上传为 Actions Artifact，不上传大型 OCI layout，也没有 Registry 登录或写权限；
-- 输出 member manifest/config/layer digest、build key、sealed-layout tree digest 与 host profile；Actions Artifact 名精确包含 source SHA、image family 与 CPU 架构。
+- Tag lane 进入 `release-production` Environment 后使用 `contents: read, packages: write`，Buildx 输出为 `type=image,name=ghcr.io/supermarioyl/ucm-release-staging,push-by-digest=true,name-canonical=true,push=true`；不导出本地 OCI tar，也不跨 job 保存大镜像；
+- image member job 的 `timeout-minutes` 为 `210`；超过时失败且不进入最终 tag barrier，不能通过放宽验证换取完成；
+- staging package 已存在时，写入前必须由 Packages API 证明它仍为 private、已关联本仓库且本仓库 Actions 具有 write 权限；首次创建使用 GitHub Container registry 的默认 private 可见性，首个 member 写入后立即重读并要求 `visibility == private`，否则该 job 失败且最终 tag barrier 永远不开放；
+- 每个 member push 完成后立即按 digest 做认证 readback。创建唯一 GC-protection tag `staging-<64-hex-member-build-key>` 前必须在 Tag run 锁内读取该 tag：不存在才创建，已指向同一 member digest 则只读复用，指向任何其他 digest 则在 retag 前硬失败；tag 只位于 private staging package，不是正式发布 tag；
+- Actions Artifact 只上传 canonical digest record、wheel SHA、build key、manifest/config/layer descriptor、构建门禁和磁盘峰值，预计为 KB 级；Artifact 名精确包含 source SHA、image family 与 CPU 架构；
+- 首版禁用 Registry `cache-to`，避免新增另一组 mutable tag 和写权限；如使用 `cache-from`，只接受配置中固定的 immutable digest，cache miss 必须仍能完整构建，cache 内容不作为发布信任根；
+- 每个 job 结束前再次记录磁盘峰值和 BuildKit usage。member build 或 staging push 失败时保留失败证据，但不创建任何正式 `r1` tag 或 GitHub Release。
 
-两台物理 build host 持久运行 BuildKit/content store，但 Actions runner registration 每个 job 使用 `--ephemeral` 并由 host controller 重新注册。每个架构 label 只映射一台 host，确保 barrier 后的 publisher job 回到持有 sealed layout 的同一 host。staging 数据只按 canonical source/build key 寻址，成功后清理，失败数据最多保留 24 小时供同 Tag rerun；host 丢失时重新构建，不能改用 caller 提供路径。
+这种做法有意把安全边界从“barrier 前 Registry 绝对零写入”调整为“barrier 前只允许 private、content-addressed staging 写入，禁止最终 tag/Release”。这是去掉 persistent self-hosted storage 的关键交换：大型 OCI bytes 直接流向 GHCR，跨 job 只传 digest record。
 
 首版没有 CUDA/NPU 设备 runner。若用户批准文档开头的公开 prerelease 策略，本配置选择的 RC 明确标为 build/install/import verified prerelease；runtime/device gate 保持 `external-required`，不得描述成设备验证通过。若用户不批准，GHCR 保持 private、Release 保持 draft。稳定版在这些 gate 通过前始终 blocked。
 
@@ -259,16 +267,19 @@ flowchart LR
 
 - Tag lane 只接受来自同一 `release-ucm.yml` run 的六个 wheel record；
 - 为三个镜像族各生成两个 member task；
-- 六个 `_build-image.yml` 本地 build/verify job 必须全部成功，形成显式 barrier；barrier 前任何 job 都没有 `packages: write`；
 - 先对现有 GHCR tags 和 annotations 做只读 inventory；
 - 按 canonical `{target_repository, tag_base}` 计算 tag family；
-- `concurrency.group` 使用 tag family digest，`cancel-in-progress: false`；
-- 锁内再次读取 inventory；不存在 tag 时创建 `r1`，已有完全相同 build key/digest 时复用 `r1`，已有任何不同内容时硬失败；
-- barrier 后启动独立 member publisher matrix；publisher 绑定 `release-production` Environment，回到对应 host，重新校验 sealed layout、tree digest、manifest/config/layer 和 compact evidence，然后用 checksum-pinned crane `v0.20.3` 把 OCI layout 推到预期 digest reference，不创建临时可变平台 tag；Linux x86_64 archive SHA 为 `36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059`，Linux arm64 为 `d2235f7779cd39c6e40f43701d2512c997409f629fb53e621ede0d57d3f995e2`；
-- 两个 member 都按 digest 推送并 readback 后，使用 `docker buildx imagetools create` 创建 index；
+- 顶层 `release-ucm.yml` 用 `ucm-tag-${repository_id}-${ref_name}` 锁住整个 Tag run，`cancel-in-progress: false`；member matrix 不再按 family 单独配置 concurrency，避免同 family 的两个架构互相串行或被 pending-run 淘汰；
+- 六项 barrier 后，单个 merge job 按规范化 `{target_repository, tag_base}` 排序依次处理三个 family；每个 family 在同一 Tag run 锁内重新读取 inventory，不存在 tag 时创建 `r1`，已有完全相同 build key/digest 时复用 `r1`，已有任何不同内容时硬失败；
+- 六个 `_build-image.yml` member job 在原生 hosted runner 上独立 build/verify，并且只允许向 exact staging package push-by-digest；matrix 设置 `fail-fast: false`，所有六项结束后形成显式 barrier；
+- barrier 前可以存在 private staging member 与唯一 GC-protection tag，但三个目标仓库的正式 `r1` tag 和 GitHub Release 必须都不存在；任一 member 为 failed、cancelled 或 skipped 时，merge/index/Release jobs 全部不启动；
+- barrier 后的 merge job 下载六个 digest record，逐项重算 record digest，并从 staging package 认证重读 member manifest/config/layers、annotations、wheel SHA 与 build key；
+- 使用 `docker buildx imagetools create` 从 staging digest 为三个目标仓库各创建一个双架构 `r1` index；同一 index 的两个 member 必须分别为 `linux/amd64`、`linux/arm64`，顺序和 build key exact；
 - index annotation 记录 exact source、wheel、upstream、member、toolchain 和 build key；
 - 再次读取公开 tag、index、两个 member 与 config，结果写入 release manifest；
 - schedule、manual 和 repository dispatch 保持 candidate/read-only，不允许进入 Tag publish job。
+
+staging identity 不能复用 vLLM Ascend 的共享 `nightly-*-temp` 形式。GC-protection tag 完整绑定 member build key，而 build key 已绑定 source SHA、profile、CPU 架构、wheel 和上游 digest；同一 release Tag 的 batch concurrency 禁止重叠 run。vLLM Ascend 曾出现 merge 时临时 digest 已被 Registry 回收的失败，本设计必须在 member push 后立即以“缺失才创建、同 digest 才复用”的规则加唯一 staging tag，并在 merge 前重新 readback。
 
 GHCR 没有可依赖的通用 tag compare-and-swap。本设计通过 GitHub concurrency、锁内重读、最小 packages write 权限和发布后 readback防止本 Workflow 自身覆盖；若目标 `r1` 已被不同 build key 占用，或同 build key 的 readback digest 与记录不一致，则硬失败，绝不覆盖。Registry 外部管理员仍可改写 tag，这一平台限制必须在文档中保留。
 
@@ -301,16 +312,16 @@ Release asset 的实际下载复验发生在 manifest 上传之后，因此不�
 
 失败恢复规则：
 
-- wheel build 或 image 的本地构建/验证阶段失败时，没有 Registry 或 Release 写入；
-- member publish 阶段并行失败时，可能留下无公开 `rN` tag 的 content-addressed blob/member manifest；它们不是发布成功，rerun 只按 digest 复用，不删除；
+- wheel build 发生在任何 Registry 写之前；任一 wheel 失败时没有 Registry 或 Release 写入；
+- image member build、验证或 staging push 失败时，可能留下 private staging blob/member manifest 或唯一 staging tag，但三个目标仓库都不能出现正式 `r1`，GitHub Release 也不能创建；这些 staging 内容不是发布成功，rerun 只在 build key 与 readback digest 完全匹配时复用；
 - draft Release 的 body 在创建时先写 machine-readable `source_sha`、release Tag 和 batch digest marker；marker 不匹配时禁止恢复；
 - draft Release 创建后失败时，保持 draft，不发布；
-- member 已按 digest 推送但 index 尚未创建时，rerun 复用相同 digest；
+- member 已写入 staging 但 index 尚未创建时，rerun 复用相同 digest record，并再次完成六项 barrier；
 - 三个 index 不是跨仓库事务；若部分 `r1` 已创建而后续 family 失败，GitHub Release 不发布，rerun 必须对已存在 family 做 exact readback 并复用，不能重写；
 - index 已创建但 Release 尚未发布时，rerun 通过 annotation 找到相同 build key 并复用同一 rN；
 - 已发布 Release 若 source、manifest、asset 和 Registry digest 全部匹配，则 rerun 进入只读幂等验证并成功；任一不匹配则失败；
 - 已发布 Release 或相同 Tag 下的 asset 不允许替换；同名不同内容直接失败；
-- Workflow 不授予 delete 权限，不执行删除或强制覆盖。
+- Workflow 不授予 delete 权限，不执行删除或强制覆盖；private staging tag 以完整 build key 命名，同一内容 rerun 不新增 tag。首版接受每个真实 release 最多保留六个 staging member 作为恢复证据，后续若增加 retention 必须独立设计 admin 审批，不能静默删除。
 
 ## 8. GitHub 权限与 GHCR 可见性
 
@@ -321,19 +332,20 @@ Release asset 的实际下载复验发生在 manifest 上传之后，因此不�
 | Tag preflight 与 exact-SHA run 查询 | `contents: read`, `actions: read` |
 | checkout、plan、build、test、匿名 Registry readback | `contents: read` |
 | 私有 package inventory | `contents: read`, `packages: read` |
-| GHCR member/index publish | `contents: read`, `packages: write` |
+| 受保护 Tag 的 staging member build/push | `contents: read`, `packages: write` |
+| barrier 后的 GHCR index publish | `contents: read`, `packages: write` |
 | draft Release 和 assets | `contents: write` |
 
-调用 reusable Workflow 的 caller job 必须显式授予被调用路径所需的上限；called workflow 只能降低、不能提升 caller 权限。所有 `_build-image.yml` caller 都只有 `contents: read`。六项 barrier 之后，`release-vllm-images.yml` 内独立的 member/index publisher jobs 才取得 `contents: read, packages: write`。member publisher、index publisher 和 Release publisher 三类写 job 都绑定 `release-production` Environment。feature/schedule/manual caller 只有 `contents: read`。
+调用 reusable Workflow 的 caller job 必须显式授予被调用路径所需的上限；called workflow 只能降低、不能提升 caller 权限。feature/schedule/manual 的 `_build-image.yml` caller 只有 `contents: read`，不得 login 或 push。受保护 Tag 的 member caller 和 barrier 后的 index/Release publisher 才能取得各自需要的写权限；member staging、index publisher 和 Release publisher 三类写 job 都绑定 `release-production` Environment。
 
 首版不需要 `id-token: write`、`attestations: write`、Secrets、PAT、`workflows: write` 或 `packages: delete`。GHCR 使用 `${{ github.actor }}` 与 `${{ secrets.GITHUB_TOKEN }}` 登录；GitHub 官方支持工作流用 `GITHUB_TOKEN` 发布与仓库关联的 Container package。
 
-写入前先用同一个 `GITHUB_TOKEN` 查询目标 package：不存在时允许首次创建；存在时必须已经关联本仓库且本仓库 Actions 具有 admin/write access。若 package 存在但不可读、未关联或没有写权限，流程在 push 前失败并输出 owner 修复指引，不能尝试覆盖。
+写入前先用同一个 `GITHUB_TOKEN` 查询目标 package：不存在时只允许首次创建 staging package；存在时必须已经关联本仓库且本仓库 Actions 具有 admin/write access。staging package 还必须为 private；若不可读、未关联、没有写权限或已变为 public，流程在 push 前失败并输出 owner 修复指引，不能尝试覆盖。目标发布 package 的 public visibility 仍按下面的一次性 bootstrap 处理。
 
 Container package 首次出现时可能是 private。发布流程不假设可见性：
 
-1. 六个 member build/verify job 全部成功后，publisher barrier 才允许任何 Registry 写入；
-2. publisher matrix 从 sealed OCI layout 按 digest 推送；该阶段失败可能留下无最终 tag 的 content-addressed 内容，按第 7 节恢复规则处理；
+1. wheel barrier 全部成功后，受保护 Tag 的 member matrix 才能向 private staging package 写 content-addressed member；
+2. 六个 member build/push/认证 readback 全部成功后，index barrier 才允许创建三个目标仓库的正式 `r1`；
 3. 六个 member 与三个 index 全部完成认证 readback 后，创建或恢复带 source marker 的空 draft Release；
 4. 若三个 tag 的匿名 readback 失败，draft 保持为空，不上传最终 assets，Workflow 明确输出 package visibility bootstrap 指引；
 5. 仓库 owner 在 GitHub package settings 中把 `vllm-openai` 与 `vllm-ascend` 设为 public；
@@ -360,9 +372,12 @@ Container package 首次出现时可能是 private。发布流程不假设可见
 - 同 build key 重跑保持 r1；同 source/config 的 wheel、member 或 index 内容漂移必须硬失败，不能产生 r2；
 - public tag 中错误加入 CUDA/CANN/OS/Python/channel 后缀；
 - feature、schedule、manual route 出现 login、push、Release 或写权限；
-- 六个 build/verify direct need 任一为 failed、cancelled 或 skipped 时，member publisher、index publisher 和 Release publisher 全部不得启动；只有六项全部 success 才能越过 barrier；
-- Tag build job 出现 Registry credential、login、push 或 `packages: write`；publisher 接受 caller 自选 staging 路径、错误 host、过期 marker、symlink、tree digest 漂移或不完整 layer 集合；
-- 本地 publisher 验收把目标从 loopback 改为外部 Registry、缺少 `--insecure` 的明确本地例外、使用非固定 crane/Registry、篡改 manifest/config/layer/annotation/build key 后仍返回成功，或退出后遗留容器、volume、credential 与测试 staging；
+- hosted 磁盘清理后低于阈值仍继续 build，或没有记录 build 前后 `df`/BuildKit 峰值；
+- Tag member job 向 exact staging package 之外写入、启用 Registry `cache-to`、使用共享/mutable 临时 tag、staging tag 未绑定完整 build key，或把 staging tag 当成正式发布结果；
+- 已存在的 staging tag 指向不同 digest 时仍执行 retag，或相同 digest rerun 没有走只读复用；
+- 六个 member direct need 任一为 failed、cancelled 或 skipped 时，index publisher 和 Release publisher 仍启动；只有六项全部 success 才能越过最终 tag barrier；
+- digest record 缺失、重复、多余，或 staging manifest/config/layer/annotation/wheel SHA/build key readback 被篡改后仍能 merge；
+- 同一 Tag 的两个 run 能重叠修改 staging/final tag、member matrix 错用 per-family concurrency、三个 family 未按规范顺序锁内重读，或 final tag 在 barrier 前出现；
 - final image context 出现 UCM 源码、CMake 或编译命令；
 - Release asset 或 GHCR readback 任一 digest 不匹配；
 - 同一 Tag 已发布、同名 asset 不同内容、同 rN 不同 build key；
@@ -376,10 +391,8 @@ Container package 首次出现时可能是 private。发布流程不假设可见
 - 三个 Schema 严格校验；
 - CUDA/A2/A3 Helm lint/template/package 且双包 SHA 一致；
 - Docker 可用时至少完成一条真实 wheel 加 install-only OCI；本机 Docker 不可用时不得把 fixture 结果升级为真实构建证据；
-- x64 与 arm64 build host 都必须通过一次真实 publisher contract test。测试固定使用 `docker.io/library/registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373`，创建独立 internal network、临时 volume 和随机 host port，并且只绑定 `127.0.0.1`；目标 allowlist 只接受该次分配的 `127.0.0.1:<port>`，命令与 operation ledger 中不得出现 GHCR；
-- contract test 使用与生产 publisher 完全相同的 checksum-pinned crane `v0.20.3`，以 `--insecure` 明确标识仅限 loopback 的 HTTP Registry，把 sealed OCI layout 直接 push 到 `127.0.0.1:<port>/ucm-test/member@sha256:<expected-manifest>`，不经过可变临时 tag；随后按 digest 重开 raw manifest、config 和全部 layer，重新计算每个 blob 的 SHA/size、rootfs diff-id 与 canonical tree digest，并核对 source/revision/build-key annotations、host profile、expiry marker 和 compact evidence；
-- 正例完成后，分别对 copied layout 的 manifest、config、任一 layer、annotation、build key、tree marker、symlink 和 TTL 做单字段篡改；每个负例都必须在 push 前失败，且本地 Registry inventory 保持不变。测试用 `trap`/等价 finally 无条件删除 container、network、volume、credential 临时目录和测试 staging；清理失败也使测试失败；
-- 该测试属于 feature/local 必过门禁，不登录或写入 GHCR，不证明 GHCR 权限或可见性。任一架构 host 未通过时 Tag publish jobs 不可进入，状态保持 `publication_blocked: publisher-contract-unverified`；
+- 用固定 `docker.io/library/registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373` 启动 loopback-only 临时 Registry，运行与生产相同的 Buildx `type=image,push-by-digest=true,name-canonical=true` 路径；Artifact 只传 digest record，随后重开 raw manifest/config/layers/annotations 并创建双 member fixture index；
+- 本地 contract test 覆盖 digest record、staging tag、manifest/config/layer/annotation/build key 篡改与缺 member；负例不得创建 final fixture tag。测试用 `trap`/等价 finally 清理 container、network、volume 与 credential；它不登录或写入 GHCR；
 - `git diff --check` 与精确 staging guard 通过。
 
 ### 9.3 GitHub feature candidate
@@ -389,6 +402,7 @@ Container package 首次出现时可能是 private。发布流程不假设可见
 - 六个真实 wheel job 全部成功；
 - 六个真实 install-only image member build 全部成功，但不 push；
 - wheel、Chart、OCI/evidence 由 Workflow 生成；
+- x64/ARM64 job 的磁盘 preflight 通过并记录实际峰值；若任一 job 低于阈值或 `ENOSPC`，保持 blocked，再依据实测决定是否引入 larger/self-hosted fallback；
 - 同一 SHA rerun 后六个 wheel SHA、Chart SHA、六个 OCI member digest 和三个预期 index build key 完全一致；
 - 第二次 full reconcile 为零新增；
 - PR、Tag、Release、GHCR 和 upstream 均无写入。
@@ -416,18 +430,22 @@ Container package 首次出现时可能是 private。发布流程不假设可见
 
 实现完成前，下列能力保持明确状态：
 
-- x64/arm64 临时 self-hosted build runner 与 200GiB 工作盘：`external-required`；
+- hosted x64/ARM64 的真实 UCM wheel 与六 member 峰值：尚待 feature run 实测；默认使用 hosted，只有实测容量不足时才引入 larger/self-hosted fallback；
 - CUDA/A2/A3 真设备 runtime/device 验证：`external-required`；
 - stable release：`blocked`；
 - PyPI、ModelEngine org、可变 tag alias、签名/attestation：不在首版范围；
 - GHCR 公共可见性：首个 package 需要一次 owner bootstrap，匿名 readback 前 Release 不发布。
 
-## 11. 官方约束参考
+## 11. 官方约束与参考实现
 
-- [GitHub-hosted runners reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) - 标准 Linux x64/arm64 runner 只有 14GB SSD，因此不适合本设计的 6.3–9.2GiB 基础镜像构建。
-- [Self-hosted runners reference](https://docs.github.com/en/actions/reference/runners/self-hosted-runners) - 原生 x64/ARM64 runner 可由仓库按固定 labels 路由；本设计只允许 push/tag，不允许公开 PR 使用这些 runner。
+- [GitHub-hosted runners reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) - 文档标称标准 public Linux x64/arm64 为 14GB SSD；设计因此保留动态容量门禁，不能把某次 live 容量当平台承诺。
+- [vLLM Ascend hosted image Workflow](https://github.com/vllm-project/vllm-ascend/blob/d2e818f572299c93f1f7f3b2aed05b615f58b527/.github/workflows/_schedule_image_build.yaml) - 原生 hosted x64/ARM64、磁盘清理、push-by-digest、digest Artifact 和 imagetools merge 的参考实现。
+- [vLLM Ascend 成功 image run 31246405996](https://github.com/vllm-project/vllm-ascend/actions/runs/31246405996) - 16 个架构 build job 均为 GitHub-hosted；公开日志显示清理后 x64/ARM64 分别约有 116GiB/122GiB 可用并成功构建。
+- [vLLM Ascend 成功 wheel run 31248959294](https://github.com/vllm-project/vllm-ascend/actions/runs/31248959294) - A2/A3/310P 的原生 x64/ARM64 wheel matrix 在 hosted runner 上成功；UCM 只参考 runner/builder 拆分，不复制其源码直装镜像边界。
+- [vLLM Ascend 失败 image run 28449137398](https://github.com/vllm-project/vllm-ascend/actions/runs/28449137398) - merge 阶段曾遇到临时 member digest 不存在；UCM 因此使用 build-key 唯一保护 tag、禁止重叠 run，并在最终 merge 前重读全部 staging 内容。
+- [free-disk-space pinned commit](https://github.com/jlumbroso/free-disk-space/tree/54081f138730dfa15788a46383842cd2f914a1be) - upstream 实际固定的清理 Action；UCM 同样固定完整 commit，并在清理后做自己的容量门禁。
 - [Publishing Docker images](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images) - GHCR 可使用 `GITHUB_TOKEN` 与 `packages: write`，第三方 Action 应固定完整 commit SHA。
 - [Working with the Container registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry) - 从仓库 Workflow 发布会自动关联 package。
 - [Configuring package visibility](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility) - 首次 package 可能为 private，public Container package 才能匿名拉取。
 - [REST API endpoints for releases](https://docs.github.com/en/rest/releases/releases) - 创建和更新 GitHub Release 需要 contents write；Tag commit 与默认分支的 Workflow 差异会影响授权边界。
-- [crane push v0.20.3](https://github.com/google/go-containerregistry/blob/v0.20.3/cmd/crane/doc/crane_push.md) - 目录输入按 OCI image layout 读取，可用于生产 publisher 与 loopback Registry contract test 的同一路径验证。
+- [crane v0.20.3](https://github.com/google/go-containerregistry/blob/v0.20.3/cmd/crane/doc/crane.md) - 用 checksum-pinned crane 做 Registry inventory、raw readback 与 digest 校验；生产 image bytes 由 Buildx 直接 push-by-digest。
