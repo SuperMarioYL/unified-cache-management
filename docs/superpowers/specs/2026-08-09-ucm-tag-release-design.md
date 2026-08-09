@@ -1,0 +1,433 @@
+# UCM Tag 自动发布设计
+
+- 状态：待用户审阅
+- 日期：2026-08-09
+- 决策：用户选择方案 A，一次发布 vLLM OpenAI、Ascend A2、Ascend A3 三个镜像族，每族同时包含 amd64 与 arm64。
+
+待用户明确确认的发布策略：本设计建议把 `0.5.0rc1` 作为公开 prerelease，即 build/install/import/ABI 通过即可发布，release manifest 继续显示 `runtime/device: external-required`；stable 始终 blocked。若用户不接受这一策略，首版终点改为 private GHCR + draft Release，直至 CUDA/A2/A3 设备门禁通过。
+
+## 1. 目标
+
+当 `SuperMarioYL/unified-cache-management` 收到与 `version.ini` 完全一致的 Git tag，例如 `v0.5.0rc1`，GitHub Actions 必须在该仓库内从源码构建真实 UCM wheel，再把 wheel 安装进三个固定上游 vLLM 镜像族，生成并发布三个双架构 OCI index。
+
+本机不预制、不手工上传 wheel 或镜像。所有发布产物都由 Tag 所指向提交里的 Workflow 构建。正常发布在同一次 GitHub Actions run 内闭合；只有首次 GHCR package 仍为 private 时，允许在 owner 完成一次可见性设置后 rerun 同一 Tag，并复用相同内容 digest。
+
+首个发布矩阵如下。
+
+| 镜像族 | 固定上游 tag | UCM 构建平台 | CPU 架构 | 目标仓库 |
+| --- | --- | --- | --- | --- |
+| vLLM OpenAI | `docker.io/vllm/vllm-openai:v0.21.0` | CUDA 13.0 | amd64、arm64 | `ghcr.io/supermarioyl/vllm-openai` |
+| Ascend A2 | `quay.io/ascend/vllm-ascend:v0.22.1rc1` | CANN 9.0.0 A2 | amd64、arm64 | `ghcr.io/supermarioyl/vllm-ascend` |
+| Ascend A3 | `quay.io/ascend/vllm-ascend:v0.22.1rc1-a3` | CANN 9.0.0 A3 | amd64、arm64 | `ghcr.io/supermarioyl/vllm-ascend` |
+
+首版不发布到 PyPI，不发布到 `ModelEngine-Group`，不创建可变的 `latest`、`stable` 或平台别名，也不发布独立 wrapt 产物。
+
+## 2. 当前基线与必须修正的差距
+
+当前四个 release Workflow 已能在 feature 分支完成 fixture wheel、本地 OCI、两次 reconcile 和只读 evidence，但它们刻意不做生产发布。Tag 在 fork 中仍走 fixture candidate；production job 会 `exit 2`。
+
+实施本设计时必须替换以下边界，而不是把 fixture 状态改名为 production。
+
+- `_build-wheel.yml` 当前调用 `wheel fixture-build`，产物不是 `setup.py` 的原生 CMake wheel。
+- `_build-image.yml` 当前只构建固定 Python 基础镜像上的 linux/amd64 本地 OCI，并在上传 compact evidence 前删除 OCI tar。
+- 当前 36 个 wheel 声明全部因 builder、toolchain 或 runner 未解析而不可发布；Tag 发布必须显式选择本设计的六个任务，不能把 36 项整体标为 ready。
+- 当前 wheel inspector 要求 fixture marker，与真实 `setup.py` wheel 不兼容。
+- 当前 image build key 把单架构成员当成独立修订；本设计要求 amd64 与 arm64 先组成同一个 OCI index，再由这个 index 分配一个 `rN`。
+- 当前上游仓库只按 basename 判断，必须改成 exact repository allowlist，拒绝 `evil.example/.../vllm-openai` 一类同名仓库。
+- 当前没有 GHCR 登录、按 digest 推送、index 合并、公开 readback、GitHub Release draft 或 Release asset readback。
+
+已通过的 fixture evidence 继续保留为候选链路回归测试，不作为真实 wheel、GHCR、GPU/NPU 或正式发布证据。
+
+## 3. 方案选择
+
+### 3.1 方案 A - 单个 Tag 编排四个现有 Workflow
+
+`release-ucm.yml` 作为 Tag 发布入口，依次调用 `_build-wheel.yml`、`release-vllm-images.yml` 和 `_build-image.yml`。wheel、镜像成员、OCI index、Chart 和 GitHub Release 都绑定同一个 Tag SHA。
+
+优点是运行边界最清楚，四个 Workflow 数量不增加，feature candidate 与 Tag production 可以复用同一构建实现。失败后也可以从同一 Tag 重跑并基于 digest 恢复。
+
+这是选定方案。
+
+### 3.2 方案 B - Wheel Release 完成后用 `workflow_run` 再发布镜像
+
+这种拆分减少单次运行长度，但跨运行传递 artifact 和权限更复杂，容易把错误 SHA 或不可信 artifact 带入高权限发布运行，也不利于同一 Tag 的原子证据闭包，因此不选。
+
+### 3.3 方案 C - 首次发布全部 36 个 wheel 声明
+
+这种方式需要当前不存在的 builder/toolchain lock、CUDA 设备、Ascend A2/A3 设备和更多上游 tag，既不能真实验证，也会重新膨胀流水线，因此不选。首版只实现用户选定的六个 wheel 与三个 index。
+
+## 4. 发布前置条件
+
+### 4.1 Git 与仓库边界
+
+生产 Tag 必须同时满足：
+
+- `github.repository == "SuperMarioYL/unified-cache-management"`；
+- 首版 Tag 必须匹配 `^v[0-9]+\.[0-9]+\.[0-9]+rc[0-9]+$`，不接受已有 local、dev、post 或 stable 段；去掉 `v` 后与 `version.ini` 的 `VLLM_UC_VERSION` 完全一致；
+- 新发布第一次运行时，Tag 指向的 commit 与 `origin/develop` HEAD 完全一致，且 `github.ref_protected == true`；
+- draft/published rerun 时，Tag commit 必须与 durable source marker 完全一致，并且仍是受保护 `develop` 的可达祖先；
+- Workflow 文件已经存在于默认分支 `develop`，不能只存在于 feature 分支；
+- exact source SHA 的 feature candidate run 与 Push Commit Checks 均已成功；
+- Release 不存在、是带同一 source SHA marker 的 draft，或是内容完全匹配的已发布 prerelease；其他同 Tag Release 一律拒绝；
+- 触发者为仓库 owner `SuperMarioYL`，且生产 job 进入 `release-production` Environment。
+
+要求 Tag 指向默认分支是必要的。GitHub 当前 Release API 文档说明：当 release 的目标 commit 相对默认分支新增或修改 Workflow 时，认证令牌还需要 workflow 修改授权，而 Actions 的 `GITHUB_TOKEN` 不能取得该授权。本设计通过“Tag commit 等于默认分支 HEAD”避开该边界，不引入额外令牌。
+
+首个 Tag 前需要一次仓库设置：
+
+- 把默认 `GITHUB_TOKEN` 权限改为 read；
+- 禁止 Actions 代批 PR；
+- 保护 `develop` 和 `v*` Tag；
+- 创建 `release-production` Environment，required reviewer 为仓库 owner，并只允许受保护 Tag；
+- 在该 Environment 设置非敏感变量 `UCM_RELEASE_POLICY=owner-reviewed-v1`；
+- 注册两个只服务于 push/tag release 的临时 self-hosted runner profile，详见 6.2；
+- 将实现提交合入或快进到 `develop` 后再创建 Tag。
+
+默认 token、PR approval、branch/ruleset 等管理设置不由最小权限 `GITHUB_TOKEN` 动态读取，owner 在首发前按清单配置，GitHub 平台负责强制 ruleset 和 Environment。写 job 进入 Environment 后还必须检查 `github.ref_protected` 和 `vars.UCM_RELEASE_POLICY` 的精确值，再执行 login 或写 API。单 owner fork 若由触发者本人审批，Environment 必须允许 self-review；此时 approval 只是人工确认，真正授权仍来自 tag ruleset、受保护 source 和 exact-SHA checks。若以后有第二位 reviewer，则开启 prevent self-review。
+
+### 4.2 上游镜像固定坐标
+
+配置只接受两个上游仓库：
+
+```text
+docker.io/vllm/vllm-openai
+quay.io/ascend/vllm-ascend
+```
+
+每个目标同时记录上游 tag、index digest、amd64 member digest、arm64 member digest和各 member 的 config digest。Workflow 每次运行都重新从 Registry 读取 tag；读取结果必须与配置固定 digest 完全一致，否则视为上游 tag 漂移并在构建前失败。
+
+2026-08-09 审计到的首发 index 与 member digest 是：
+
+| 上游 tag | index digest | amd64 member | arm64 member |
+| --- | --- | --- | --- |
+| `vllm-openai:v0.21.0` | `sha256:a230095847e93bd4df9888b33dab956fa9504537b828a23657d2b26fed57b5c9` | `sha256:4ac9b7c6dabc3ec762c0edef4e9245abe98373844da91cc53ee42e5c58280c5b` | `sha256:4f63b83537c4cbd82822403965f395877054dc3b69612e7044ecd649a9badb02` |
+| `vllm-ascend:v0.22.1rc1` | `sha256:9008b47081282612abfe4d28069ce34436752c980fd06f7599343213205ce64d` | `sha256:a4176a62da7ff54e8eaf2e68e09578917d5c93dab6d2c9c7ebce551781e117b3` | `sha256:638fc04eaa3654fcf14688096ed4e9d88ea0d905fa8685eed4b36d5fffe8fd8d` |
+| `vllm-ascend:v0.22.1rc1-a3` | `sha256:e3d89f09a1c1d85f0ec6a1cc26e3c807b7bc8a7ec0f97a830dbef63ab50d8f81` | `sha256:ac166d960b3cb1b584f6ec413e5f4ef353b78049aa2b85e22b0e04eb8770eae4` | `sha256:28f44b9c94c7667a7cbcd6b7b91432f03e4dffe476784dfd9fd82f036bdb1e4d` |
+
+对应 config digest：
+
+| 上游 tag | CPU 架构 | config digest |
+| --- | --- | --- |
+| `vllm-openai:v0.21.0` | amd64 | `sha256:2497255b1272ba3ae9581acd51349f840038f228d0709cd9f6a142d39008d290` |
+| `vllm-openai:v0.21.0` | arm64 | `sha256:f023269abe06db3a1a7cd9e170a0f5bd2b333a19ef9cb99ed8df97a70345bc25` |
+| `vllm-ascend:v0.22.1rc1` | amd64 | `sha256:0539c8ff2dbe3f02d6e5de0d8a463e1d6142482d41e5139dc4b957a191951c8b` |
+| `vllm-ascend:v0.22.1rc1` | arm64 | `sha256:1b8f114d14c4d0bea66ca32ebb5afe34bd1e10bfd0802b930ed678a116aaf078` |
+| `vllm-ascend:v0.22.1rc1-a3` | amd64 | `sha256:9c5cc2811d8dd9f26e871389723bc432fc321ba7bf46279ec423cbdd4daf9853` |
+| `vllm-ascend:v0.22.1rc1-a3` | arm64 | `sha256:c4d766b5f04fe6238a74731d67a215bb6331072ba242c7c5f24a25f99ce36c3b` |
+
+digest 更新必须作为代码审查中的显式配置变更，不能在发布运行里静默接受。
+
+在编译前，六个 member 都必须在对应原生 CPU runner 上执行只读 probe：`uname -m`、`python3 --version`、`sysconfig.get_config_var("SOABI")`、基础镜像 config digest，以及 CUDA 或 CANN/SOC 标识必须与 profile 完全一致。本批次只接受 Python 3.12 / `cp312`；任一 member 不是 cp312 时，六项矩阵整体失败，不能通过改 wheel 文件名绕过。
+
+## 5. 版本与命名
+
+### 5.1 Wheel 版本
+
+`version.ini` 继续保存用户版本 `0.5.0rc1`。为避免同一 CPU 架构上的 CUDA、A2、A3 wheel 文件名冲突，构建时增加受控的 PEP 440 local version：
+
+| profile | wheel version |
+| --- | --- |
+| CUDA 13.0 | `0.5.0rc1+cuda130` |
+| CANN 9.0.0 A2 | `0.5.0rc1+cann900.a2` |
+| CANN 9.0.0 A3 | `0.5.0rc1+cann900.a3` |
+
+`setup.py` 只接受配置中声明的 local version，基础版本仍必须来自 `version.ini`。首版 wheel 面向 GitHub Release 和固定上游镜像，不宣称 manylinux；实际标签按构建结果使用 `cp312-cp312-linux_x86_64` 或 `cp312-cp312-linux_aarch64`。
+
+预计六个 asset：
+
+```text
+uc_manager-0.5.0rc1+cuda130-cp312-cp312-linux_x86_64.whl
+uc_manager-0.5.0rc1+cuda130-cp312-cp312-linux_aarch64.whl
+uc_manager-0.5.0rc1+cann900.a2-cp312-cp312-linux_x86_64.whl
+uc_manager-0.5.0rc1+cann900.a2-cp312-cp312-linux_aarch64.whl
+uc_manager-0.5.0rc1+cann900.a3-cp312-cp312-linux_x86_64.whl
+uc_manager-0.5.0rc1+cann900.a3-cp312-cp312-linux_aarch64.whl
+```
+
+### 5.2 镜像 Tag
+
+公开镜像名保留原框架仓库 basename，公开 tag 只在完整上游 tag 后增加 UCM 版本与 index 修订号：
+
+```text
+ghcr.io/supermarioyl/vllm-openai:<exact-upstream-tag>-ucm-<base-ucm-version>-rN
+ghcr.io/supermarioyl/vllm-ascend:<exact-upstream-tag>-ucm-<base-ucm-version>-rN
+```
+
+首个成功发布结果应为：
+
+```text
+ghcr.io/supermarioyl/vllm-openai:v0.21.0-ucm-0.5.0rc1-r1
+ghcr.io/supermarioyl/vllm-ascend:v0.22.1rc1-ucm-0.5.0rc1-r1
+ghcr.io/supermarioyl/vllm-ascend:v0.22.1rc1-a3-ucm-0.5.0rc1-r1
+```
+
+CUDA/CANN、OS、Python、A2/A3 profile 不由 UCM 再拼成长后缀；只有上游原始 tag 自带的 `-a3` 会保留。内部 recipe、OCI annotation 和 release manifest 记录全部平台细节。
+
+`rN` 属于双架构 OCI index。amd64 与 arm64 是同一个 `r1` 的两个 member，不能分别被分配成 `r1`、`r2`。首版 immutable Tag 路径只允许产生或复用 `r1`；同一 source/config 的 rerun 若得到不同 build key 或 digest，属于不确定构建并硬失败，不能借 `r2` 掩盖。`rN` 为未来显式 image-revision 流程保留，但该流程不在首版范围。
+
+## 6. 四个 Workflow 的职责
+
+```mermaid
+flowchart LR
+  Tag["Tag push v0.5.0rc1"] --> Gate["Read-only preflight"]
+  Gate --> Wheels["Build six real wheels"]
+  Wheels --> Chart["Package deterministic Chart"]
+  Wheels --> Members["Build six install-only image members"]
+  Members --> Push["Push members by digest"]
+  Push --> Indexes["Create three multi-platform rN indexes"]
+  Chart --> Draft["Create or resume draft GitHub Release"]
+  Wheels --> Draft
+  Indexes --> Readback["Registry and asset readback"]
+  Draft --> Readback
+  Readback --> Publish["Publish prerelease"]
+```
+
+### 6.1 `release-ucm.yml`
+
+这是唯一 Tag 入口和顶层编排器。
+
+- feature branch push 继续走 candidate lane，复用真实构建实现，但只上传 Actions Artifact，不登录 GHCR、不创建 Release；
+- `v*` Tag 先执行只读 preflight；
+- 生成固定六项 wheel matrix；
+- 调用 `_build-wheel.yml`；
+- 从同一 source tree 确定性打包一个 Helm Chart tgz；三个 index readback 后，再用 CUDA、A2、A3 三组 values 和实际 `repository@digest` 分别执行 lint/template，render evidence 进入 release manifest；
+- 调用 `release-vllm-images.yml`；
+- 所有 image 的认证 readback 成功后创建或恢复一个空的 draft Release；
+- GHCR 匿名 readback 成功后生成最终 release manifest，再上传六个 wheel、Chart、checksums 和 manifest；
+- 从 GitHub Release 下载每个 asset 并重算 SHA；
+- asset readback 与三个公开 index 全部匹配后，把 `rc` Release 发布为 prerelease。
+
+### 6.2 `_build-wheel.yml`
+
+每次调用只构建一个 `(profile, cpu_arch)`，由顶层 matrix 并行调用六次。
+
+- `amd64` 只路由到 repository-owned `[self-hosted, linux, x64, ucm-release-build-x64]`；
+- `arm64` 只路由到 repository-owned `[self-hosted, linux, ARM64, ucm-release-build-arm64]`；
+- runner mapping 固定在受信配置中，Workflow caller 不能传 raw `runs-on` labels；
+- 两个 runner 都以 `--ephemeral` 注册，每个任务开始时要求至少 200GiB 可用 SSD，结束时清理 BuildKit state 和工作目录；
+- self-hosted runner 不接收 `pull_request` 或 fork 代码，只运行 owner 控制的 feature push 和受保护 Tag；
+- 每个任务都在临时 builder 容器中编译；builder 的 `FROM` 是该架构的 exact upstream member digest，额外系统包、Python build 包和工具链全部由带制品 digest 的 lock 安装；
+- `PLATFORM` 分别为 `cuda`、`ascend`、`ascend-a3`；
+- `ENABLE_SPARSE=false`，不构建独立 Ascend custom-op wheel；
+- common required native targets 精确为 `ucmtrans`、`metrics`、`ucmmetrics`、`ucmlogger`、`ucmnfsstore`、`ucmpcstore`、`posixstore`、`compressor`、`cachestore`、`emptystore`、`fakestore`、`ucmpipelinestore`；
+- CUDA 明确禁止 `mooncakestore`，Ascend A2/A3 明确要求 `mooncakestore`；首版所有 profile 都禁止 `ds3fsstore`、MindIE extension 和全部 sparse targets；
+- CMake 增加 required/forbidden component gate，依赖缺失导致配置失败，不能再用日志中的 `Skipping build` 生成不完整 wheel；inspector 对 wheel native member set 做 exact equality；
+- 使用 Tag commit time 作为 `SOURCE_DATE_EPOCH`；
+- 使用固定工作目录和 `-ffile-prefix-map`、`-fdebug-prefix-map` 消除 runner 绝对路径；native linker 选项和 build-id 策略进入 toolchain digest；
+- CMake 下载依赖由 immutable commit 固定，不再只信 mutable tag：
+  - fmt `40626af88bd7df9a5fb80be7b25ac85b122d6c21`；
+  - spdlog `6fa36017cfd5731d617e1a934f0e5ea9c4445b13`；
+  - pybind11 `f5fbe867d2d26e4a0a9177a51f6e568868ad3dc8`；
+  - zlib `51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf`；
+- 使用 commit SHA 后关闭当前 `GIT_SHALLOW TRUE` 路径，或改用带 SHA256 的源码 archive，避免浅克隆无法取得指定 commit；
+- builder 系统包、Python 包和工具必须有版本与制品 digest；任一锁未解析则该任务失败，不允许降级成 fixture；
+- 真实 wheel 构建后插入规范化的 `ucm-build.json`，重写 `RECORD`，固定 ZIP 时间戳、顺序和权限；
+- inspector 重新打开 wheel，校验文件 SHA、METADATA 版本、Requires-Dist、WHEEL tag、RECORD、native ELF 架构、source SHA、profile、上游 member/config digest 和 toolchain digest；
+- 输出 wheel、`wheel-record.json` 与检查日志，状态为 `candidate-verified`、`publication_status: unpublished`；Actions Artifact 名精确包含 source SHA、profile 与 CPU 架构，六项不得重名。
+
+同一 source SHA 的 rerun 必须产出相同 wheel SHA，否则 Tag 发布失败。
+
+标准 `ubuntu-24.04` 与 `ubuntu-24.04-arm` hosted runner 只有 14GB SSD，不能承载这些上游镜像的 BuildKit snapshot 与 OCI 输出。2026-08-09 读取到的单个 member 压缩层总量约为 6.3–9.2GiB，尚未计入解压层、builder、源码和输出。因此不使用标准 hosted runner 假装可行；当前 fork 尚未注册上述两个 self-hosted runner，这是一项明确的首发前置能力。
+
+### 6.3 `_build-image.yml`
+
+每次调用只构建一个镜像 member。
+
+- 输入为同一 run 的 exact wheel Artifact、目标配置和 exact upstream member digest；
+- 最终 context 只含 Dockerfile、安装/检查 helper、recipe、UCM wheel 和普通依赖 wheelhouse；
+- context 不含 UCM 源码、`setup.py`、CMake、编译器或 UCM build 命令；
+- wrapt 只作为 `Requires-Dist: wrapt==1.17.2` 的普通依赖，通过带 hash 的标准 pip lock 下载并安装；没有独立 wrapt Workflow、manifest、Release asset 或发布状态；
+- cp312/glibc wheel lock 固定为 amd64 `wrapt-1.17.2-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl@sha256:bc570b5f14a79734437cb7b0500376b6b791153314986074486e0b0fa8d71d98`、arm64 `wrapt-1.17.2-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl@sha256:5bb1d0dbf99411f3d871deb6faa9aabb9d4e744d67dcaaa05399af89d847a91d`；下载文件名和 bytes 必须与 PyPI record 精确匹配；
+- Dockerfile 使用 `FROM <exact-repository>@<member-digest>`；
+- requirements lock 使用 `uc-manager @ file:///artifacts/<exact-wheel> --hash=sha256:<wheel-sha>`，普通依赖也逐项带 hash；pip 使用 `--no-index --find-links --require-hashes --only-binary=:all:` 安装 wheelhouse，因此 `direct_url.json` 必须精确指向该 wheel；
+- 执行 `pip check`、`import ucm`、`import wrapt`、版本、`direct_url.json`、ELF 架构和基础镜像 descriptor chain 检查；
+- 固定 Buildx `v0.19.2`，其 amd64 binary SHA 为 `sha256:a5ff61c0b6d2c8ee20964a9d6dac7a7a6383c4a4a0ee8d354e983917578306ea`、arm64 为 `sha256:bd54f0e28c29789da1679bad2dd94c1923786ccd2cd80dd3a0a1d560a6baf10c`；固定 BuildKit `v0.18.2@sha256:86c0ad9d1137c186e9d455912167df20e530bdf7f7c19de802e892bb8ca16552` 和 Dockerfile frontend `1.12.1@sha256:93bfd3b68c109427185cd78b4779fc82b484b0b7618e36d0f104d4d801e66d25`；
+- 使用 `SOURCE_DATE_EPOCH=<tag-commit-time>`、`rewrite-timestamp=true`、`--provenance=false`、`--sbom=false`，并禁用 pip cache/version check；这些参数和 toolchain authority 都进入 build key；
+- 首次 push 前写入 `org.opencontainers.image.source=https://github.com/SuperMarioYL/unified-cache-management`、`org.opencontainers.image.revision=<source-sha>` 和 UCM build-key annotations，使 GHCR package 自动关联来源仓库并可被 readback；
+- feature lane 输出本地 OCI 与 compact evidence，随后删除大型 tar；
+- Tag build lane 只有 `contents: read`，把验证通过的单 member 写成 OCI layout 目录，封存在对应架构 host 的 `/var/lib/ucm-release-staging/<source-sha>/<member-build-key>/`；目录固定 owner、mode `0700`，拒绝 symlink，保存 canonical tree digest 和 expiry marker；
+- Tag build lane 只把 compact evidence 上传为 Actions Artifact，不上传大型 OCI layout，也没有 Registry 登录或写权限；
+- 输出 member manifest/config/layer digest、build key、sealed-layout tree digest 与 host profile；Actions Artifact 名精确包含 source SHA、image family 与 CPU 架构。
+
+两台物理 build host 持久运行 BuildKit/content store，但 Actions runner registration 每个 job 使用 `--ephemeral` 并由 host controller 重新注册。每个架构 label 只映射一台 host，确保 barrier 后的 publisher job 回到持有 sealed layout 的同一 host。staging 数据只按 canonical source/build key 寻址，成功后清理，失败数据最多保留 24 小时供同 Tag rerun；host 丢失时重新构建，不能改用 caller 提供路径。
+
+首版没有 CUDA/NPU 设备 runner。若用户批准文档开头的公开 prerelease 策略，本配置选择的 RC 明确标为 build/install/import verified prerelease；runtime/device gate 保持 `external-required`，不得描述成设备验证通过。若用户不批准，GHCR 保持 private、Release 保持 draft。稳定版在这些 gate 通过前始终 blocked。
+
+### 6.4 `release-vllm-images.yml`
+
+这个 Workflow 负责 Registry reconcile、member matrix、index 合并和 readback。
+
+- Tag lane 只接受来自同一 `release-ucm.yml` run 的六个 wheel record；
+- 为三个镜像族各生成两个 member task；
+- 六个 `_build-image.yml` 本地 build/verify job 必须全部成功，形成显式 barrier；barrier 前任何 job 都没有 `packages: write`；
+- 先对现有 GHCR tags 和 annotations 做只读 inventory；
+- 按 canonical `{target_repository, tag_base}` 计算 tag family；
+- `concurrency.group` 使用 tag family digest，`cancel-in-progress: false`；
+- 锁内再次读取 inventory；不存在 tag 时创建 `r1`，已有完全相同 build key/digest 时复用 `r1`，已有任何不同内容时硬失败；
+- barrier 后启动独立 member publisher matrix；publisher 绑定 `release-production` Environment，回到对应 host，重新校验 sealed layout、tree digest、manifest/config/layer 和 compact evidence，然后用 checksum-pinned crane `v0.20.3` 把 OCI layout 推到预期 digest reference，不创建临时可变平台 tag；Linux x86_64 archive SHA 为 `36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059`，Linux arm64 为 `d2235f7779cd39c6e40f43701d2512c997409f629fb53e621ede0d57d3f995e2`；
+- 两个 member 都按 digest 推送并 readback 后，使用 `docker buildx imagetools create` 创建 index；
+- index annotation 记录 exact source、wheel、upstream、member、toolchain 和 build key；
+- 再次读取公开 tag、index、两个 member 与 config，结果写入 release manifest；
+- schedule、manual 和 repository dispatch 保持 candidate/read-only，不允许进入 Tag publish job。
+
+GHCR 没有可依赖的通用 tag compare-and-swap。本设计通过 GitHub concurrency、锁内重读、最小 packages write 权限和发布后 readback防止本 Workflow 自身覆盖；若目标 `r1` 已被不同 build key 占用，或同 build key 的 readback digest 与记录不一致，则硬失败，绝不覆盖。Registry 外部管理员仍可改写 tag，这一平台限制必须在文档中保留。
+
+## 7. Build key、发布记录与可恢复性
+
+member build key 使用 `schema_version: 2` 的 exact-key JSON 对象。编码规则为 UTF-8、键按 Unicode code point 排序、无多余空白、拒绝重复键，digest 为小写 `sha256:<64-hex>`。对象精确绑定：
+
+- UCM Tag、source commit、基础版本和 wheel local version；
+- wheel SHA、wheel profile、CPU 架构；
+- exact upstream repository、tag、index/member/config digest；
+- Dockerfile、安装 helper、检查 helper和 toolchain authority digest；
+- 普通依赖 lock digest；
+- source epoch 与构建参数。
+
+index build key 使用相同 canonical JSON 与 SHA256 规则，精确绑定两个按 `linux/amd64`、`linux/arm64` 排序的 member build key、两个 member manifest digest、target repository 和 tag base。它不把 runner ID、run ID、attempt、时间戳或签名字节放入内容身份。Schema 缺字段、多字段或版本不匹配都硬失败。
+
+`release-manifest.json` 是本次 GitHub Release 的可审计记录，至少包含：
+
+- release Tag、source SHA、workflow ref；
+- 六个 wheel 的文件名、SHA、size、version、profile、架构和 build record digest；
+- Chart filename、SHA、source/release tree digest；
+- 三个上游 index 和六个上游 member/config digest；
+- 三个目标 index、六个目标 member/config digest；
+- 三个 tag family、rN、public tag 和 build key；
+- install/import/ABI gate 结果；
+- `runtime_validation: external-required` 与 `device_validation: external-required`；
+- GitHub Release 预期 asset 集合与 SHA，以及 GHCR anonymous readback 结果。
+
+Release asset 的实际下载复验发生在 manifest 上传之后，因此不把自引用的“manifest 已验证”写回 manifest。下载结果保存在同一次 Actions run 的 verification evidence 和日志中，全部通过后才把 draft 发布为 prerelease。
+
+失败恢复规则：
+
+- wheel build 或 image 的本地构建/验证阶段失败时，没有 Registry 或 Release 写入；
+- member publish 阶段并行失败时，可能留下无公开 `rN` tag 的 content-addressed blob/member manifest；它们不是发布成功，rerun 只按 digest 复用，不删除；
+- draft Release 的 body 在创建时先写 machine-readable `source_sha`、release Tag 和 batch digest marker；marker 不匹配时禁止恢复；
+- draft Release 创建后失败时，保持 draft，不发布；
+- member 已按 digest 推送但 index 尚未创建时，rerun 复用相同 digest；
+- 三个 index 不是跨仓库事务；若部分 `r1` 已创建而后续 family 失败，GitHub Release 不发布，rerun 必须对已存在 family 做 exact readback 并复用，不能重写；
+- index 已创建但 Release 尚未发布时，rerun 通过 annotation 找到相同 build key 并复用同一 rN；
+- 已发布 Release 若 source、manifest、asset 和 Registry digest 全部匹配，则 rerun 进入只读幂等验证并成功；任一不匹配则失败；
+- 已发布 Release 或相同 Tag 下的 asset 不允许替换；同名不同内容直接失败；
+- Workflow 不授予 delete 权限，不执行删除或强制覆盖。
+
+## 8. GitHub 权限与 GHCR 可见性
+
+顶层设置 `permissions: {}`，每个 job 按职责单独授权：
+
+| job 类别 | 权限 |
+| --- | --- |
+| Tag preflight 与 exact-SHA run 查询 | `contents: read`, `actions: read` |
+| checkout、plan、build、test、匿名 Registry readback | `contents: read` |
+| 私有 package inventory | `contents: read`, `packages: read` |
+| GHCR member/index publish | `contents: read`, `packages: write` |
+| draft Release 和 assets | `contents: write` |
+
+调用 reusable Workflow 的 caller job 必须显式授予被调用路径所需的上限；called workflow 只能降低、不能提升 caller 权限。所有 `_build-image.yml` caller 都只有 `contents: read`。六项 barrier 之后，`release-vllm-images.yml` 内独立的 member/index publisher jobs 才取得 `contents: read, packages: write`。member publisher、index publisher 和 Release publisher 三类写 job 都绑定 `release-production` Environment。feature/schedule/manual caller 只有 `contents: read`。
+
+首版不需要 `id-token: write`、`attestations: write`、Secrets、PAT、`workflows: write` 或 `packages: delete`。GHCR 使用 `${{ github.actor }}` 与 `${{ secrets.GITHUB_TOKEN }}` 登录；GitHub 官方支持工作流用 `GITHUB_TOKEN` 发布与仓库关联的 Container package。
+
+写入前先用同一个 `GITHUB_TOKEN` 查询目标 package：不存在时允许首次创建；存在时必须已经关联本仓库且本仓库 Actions 具有 admin/write access。若 package 存在但不可读、未关联或没有写权限，流程在 push 前失败并输出 owner 修复指引，不能尝试覆盖。
+
+Container package 首次出现时可能是 private。发布流程不假设可见性：
+
+1. 六个 member build/verify job 全部成功后，publisher barrier 才允许任何 Registry 写入；
+2. publisher matrix 从 sealed OCI layout 按 digest 推送；该阶段失败可能留下无最终 tag 的 content-addressed 内容，按第 7 节恢复规则处理；
+3. 六个 member 与三个 index 全部完成认证 readback 后，创建或恢复带 source marker 的空 draft Release；
+4. 若三个 tag 的匿名 readback 失败，draft 保持为空，不上传最终 assets，Workflow 明确输出 package visibility bootstrap 指引；
+5. 仓库 owner 在 GitHub package settings 中把 `vllm-openai` 与 `vllm-ascend` 设为 public；
+6. 重跑同一 Tag，重新构建并证明内容 digest 相同，随后复用已存在的 member/index/r1；
+7. 三个 tag 都能匿名按 digest 读取后，才生成最终 manifest、上传并 readback Release assets、发布 GitHub prerelease。
+
+这是一次性的 GitHub package visibility bootstrap，不引入 PAT，也不把 private package 误报为已公开。后续 Tag 应全自动通过。
+
+## 9. 校验策略
+
+### 9.1 TDD 与静态测试
+
+实现阶段先增加 RED，再修改实现。至少覆盖：
+
+- Tag 与 `version.ini` 不一致；
+- Tag 不在 exact `origin/develop` HEAD；
+- 仓库、actor 或 Environment 不符合；
+- 上游 repository 非 exact allowlist；
+- 上游 tag digest、member 架构或 config 漂移；
+- wheel local version、文件名、METADATA、RECORD、ELF 或 build record 被篡改；
+- 六项 matrix 缺失、重复或多余；
+- CUDA/A2/A3 wheel 互换；
+- amd64/arm64 被错误分成不同 rN；
+- 同 build key 重跑保持 r1；同 source/config 的 wheel、member 或 index 内容漂移必须硬失败，不能产生 r2；
+- public tag 中错误加入 CUDA/CANN/OS/Python/channel 后缀；
+- feature、schedule、manual route 出现 login、push、Release 或写权限；
+- 六个 build/verify direct need 任一为 failed、cancelled 或 skipped 时，member publisher、index publisher 和 Release publisher 全部不得启动；只有六项全部 success 才能越过 barrier；
+- Tag build job 出现 Registry credential、login、push 或 `packages: write`；publisher 接受 caller 自选 staging 路径、错误 host、过期 marker、symlink、tree digest 漂移或不完整 layer 集合；
+- 本地 publisher 验收把目标从 loopback 改为外部 Registry、缺少 `--insecure` 的明确本地例外、使用非固定 crane/Registry、篡改 manifest/config/layer/annotation/build key 后仍返回成功，或退出后遗留容器、volume、credential 与测试 staging；
+- final image context 出现 UCM 源码、CMake 或编译命令；
+- Release asset 或 GHCR readback 任一 digest 不匹配；
+- 同一 Tag 已发布、同名 asset 不同内容、同 rN 不同 build key；
+- package 仍 private 时 Release 保持 draft。
+
+### 9.2 本地验证
+
+- compact release pytest 全量通过；
+- repository lint/unit tests 通过，若有环境依赖则精确记录而不误报；
+- actionlint 对所有 Workflow 通过；
+- 三个 Schema 严格校验；
+- CUDA/A2/A3 Helm lint/template/package 且双包 SHA 一致；
+- Docker 可用时至少完成一条真实 wheel 加 install-only OCI；本机 Docker 不可用时不得把 fixture 结果升级为真实构建证据；
+- x64 与 arm64 build host 都必须通过一次真实 publisher contract test。测试固定使用 `docker.io/library/registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373`，创建独立 internal network、临时 volume 和随机 host port，并且只绑定 `127.0.0.1`；目标 allowlist 只接受该次分配的 `127.0.0.1:<port>`，命令与 operation ledger 中不得出现 GHCR；
+- contract test 使用与生产 publisher 完全相同的 checksum-pinned crane `v0.20.3`，以 `--insecure` 明确标识仅限 loopback 的 HTTP Registry，把 sealed OCI layout 直接 push 到 `127.0.0.1:<port>/ucm-test/member@sha256:<expected-manifest>`，不经过可变临时 tag；随后按 digest 重开 raw manifest、config 和全部 layer，重新计算每个 blob 的 SHA/size、rootfs diff-id 与 canonical tree digest，并核对 source/revision/build-key annotations、host profile、expiry marker 和 compact evidence；
+- 正例完成后，分别对 copied layout 的 manifest、config、任一 layer、annotation、build key、tree marker、symlink 和 TTL 做单字段篡改；每个负例都必须在 push 前失败，且本地 Registry inventory 保持不变。测试用 `trap`/等价 finally 无条件删除 container、network、volume、credential 临时目录和测试 staging；清理失败也使测试失败；
+- 该测试属于 feature/local 必过门禁，不登录或写入 GHCR，不证明 GHCR 权限或可见性。任一架构 host 未通过时 Tag publish jobs 不可进入，状态保持 `publication_blocked: publisher-contract-unverified`；
+- `git diff --check` 与精确 staging guard 通过。
+
+### 9.3 GitHub feature candidate
+
+在任何 Tag 写入前，先把实现推到 `origin/feature/cicd`：
+
+- 六个真实 wheel job 全部成功；
+- 六个真实 install-only image member build 全部成功，但不 push；
+- wheel、Chart、OCI/evidence 由 Workflow 生成；
+- 同一 SHA rerun 后六个 wheel SHA、Chart SHA、六个 OCI member digest 和三个预期 index build key 完全一致；
+- 第二次 full reconcile 为零新增；
+- PR、Tag、Release、GHCR 和 upstream 均无写入。
+
+### 9.4 首个真实 Tag 发布
+
+只有 feature candidate 全绿并且代码已进入 `develop` 后，才允许用户明确授权推送 `v0.5.0rc1` Tag。完成标准是：
+
+- `Release UCM core artifacts` Tag run 全绿；
+- GitHub prerelease `v0.5.0rc1` 存在；
+- Release 含六个真实 wheel、一个 Chart tgz、checksums 与 release manifest；
+- 三个目标 GHCR tag 存在，均能匿名读取；
+- 每个 tag 是同时含 amd64/arm64 的 OCI index；
+- Release asset、wheel record、上游 digest、目标 member/index digest 可从同一 manifest 反查；
+- 对成功的 Tag run 做一次 same-run rerun，进入只读幂等路径，仍复用 r1，不产生 r2，不替换 asset；
+- fork PR、额外 Tag、额外 Release 和 upstream 均无变化。
+
+如果 GHCR 首次 visibility 仍为 private，状态是 `publication_blocked: package-visibility`，不算发布完成。
+
+## 10. 实施边界
+
+本设计只修改当前紧凑 `.github/release/` 工具包、四个 release Workflow、三份现有 Schema、`setup.py` 的受控 local version、四个 vendor CMake immutable pin、required-component gate、测试和两份正式发布文档。不会恢复已删除的顶层 `release/`、`scripts/release/`、`docker/release/`，不会新增第五个 release Workflow，也不会恢复独立 wrapt、PR release、自定义本地 release state 或 `/opt/ucm-release` 接口。
+
+实现期间继续保护当前工作区的三个用户 C++ 修改，所有提交只做精确 staging。
+
+实现完成前，下列能力保持明确状态：
+
+- x64/arm64 临时 self-hosted build runner 与 200GiB 工作盘：`external-required`；
+- CUDA/A2/A3 真设备 runtime/device 验证：`external-required`；
+- stable release：`blocked`；
+- PyPI、ModelEngine org、可变 tag alias、签名/attestation：不在首版范围；
+- GHCR 公共可见性：首个 package 需要一次 owner bootstrap，匿名 readback 前 Release 不发布。
+
+## 11. 官方约束参考
+
+- [GitHub-hosted runners reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) - 标准 Linux x64/arm64 runner 只有 14GB SSD，因此不适合本设计的 6.3–9.2GiB 基础镜像构建。
+- [Self-hosted runners reference](https://docs.github.com/en/actions/reference/runners/self-hosted-runners) - 原生 x64/ARM64 runner 可由仓库按固定 labels 路由；本设计只允许 push/tag，不允许公开 PR 使用这些 runner。
+- [Publishing Docker images](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images) - GHCR 可使用 `GITHUB_TOKEN` 与 `packages: write`，第三方 Action 应固定完整 commit SHA。
+- [Working with the Container registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry) - 从仓库 Workflow 发布会自动关联 package。
+- [Configuring package visibility](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility) - 首次 package 可能为 private，public Container package 才能匿名拉取。
+- [REST API endpoints for releases](https://docs.github.com/en/rest/releases/releases) - 创建和更新 GitHub Release 需要 contents write；Tag commit 与默认分支的 Workflow 差异会影响授权边界。
+- [crane push v0.20.3](https://github.com/google/go-containerregistry/blob/v0.20.3/cmd/crane/doc/crane_push.md) - 目录输入按 OCI image layout 读取，可用于生产 publisher 与 loopback Registry contract test 的同一路径验证。
