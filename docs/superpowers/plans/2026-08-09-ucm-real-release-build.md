@@ -76,6 +76,9 @@ Common required native libraries are `ucmtrans`, `metrics`, `ucmmetrics`, `ucmlo
 - Modify: `.github/release/ucm_release/cli.py`
 - Modify: `.github/release/tests/test_config.py`
 - Modify: `.github/release/tests/test_core_release.py`
+- Modify mechanically as required by exact-six fixture IDs only: `.github/release/tests/test_image_build.py`
+- Modify mechanically as required by exact-six fixture IDs only: `.github/release/tests/test_registry_reconcile.py`
+- Modify mechanically as required by exact-six fixture IDs only: `.github/release/tests/test_workflows.py`
 
 - [ ] Write RED tests asserting exactly six immutable wheel specs, three image families/two target repositories, exact builder/runtime descriptor chains, runner mapping, local versions, dependency locks, target tags, and exact allowlists. Add mutations for a missing/extra profile, swapped architecture digest, mutable tag-only authority, basename-only evil repository, unresolved lock, duplicated public coordinate, and a caller-supplied raw runner label.
 - [ ] Replace the 36 unresolved wheel declarations with the exact matrix and authorities above. Keep the configuration small: one base release object, three profiles, two architectures per profile, three image families, and exact runner maps.
