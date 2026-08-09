@@ -27,6 +27,7 @@ _deterministic_repack = importlib.import_module(
     "ucm_release.chart"
 )._deterministic_repack
 release_core = importlib.import_module("ucm_release.core")
+release_wheel = importlib.import_module("ucm_release.wheel")
 derive_chart_version = release_core.derive_chart_version
 
 
@@ -117,6 +118,10 @@ def _run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
 
 def _clone(value: object) -> object:
     return json.loads(json.dumps(value))
+
+
+def _write_canonical_json(path: Path, value: object) -> None:
+    path.write_bytes(release_core.canonical_bytes(value) + b"\n")
 
 
 def _git(repository: Path, *arguments: str, input_text: str | None = None) -> str:
@@ -493,6 +498,8 @@ def _seal_native_wheel(
         "wheel_version": task["wheel_version"],
         "source_sha": REVIEWED_SOURCE_SHA,
         "source_tree": source_tree,
+        "source_archive_sha256": "sha256:"
+        + hashlib.sha256(b"unit-test-source-archive").hexdigest(),
         "source_date_epoch": SOURCE_DATE_EPOCH,
         "task_sha256": task["task_sha256"],
         "builder_coordinate": f"{root['repository']}@{root['manifest_digest']}",
@@ -505,7 +512,8 @@ def _seal_native_wheel(
     if authority_mutation is not None:
         authority_mutation(authority)
     authority["build_context_sha256"] = (
-        "sha256:" + hashlib.sha256(release_core.canonical_bytes(authority)).hexdigest()
+        "sha256:"
+        + hashlib.sha256(b"ucm-build-context-v1\0unit-test-source-archive").hexdigest()
     )
     authority_path = tmp_path / "build-authority.json"
     authority_path.parent.mkdir(parents=True, exist_ok=True)
@@ -519,17 +527,20 @@ def _seal_native_wheel(
         )
     closure_members = {}
     for name in native_names:
-        resolutions = {
-            needed: {
+        resolutions = [
+            {
+                "dependency": needed,
+                "direct": True,
                 "kind": "external",
                 "path": f"/verified-root/{needed}",
                 "sha256": "sha256:" + hashlib.sha256(needed.encode()).hexdigest(),
             }
             for needed in closure_resolved
-        }
+        ]
         closure_members[name] = {
             "dt_needed": list(closure_resolved),
-            "resolutions": resolutions,
+            "resolved_dependencies": resolutions,
+            "unresolved_dependencies": [],
         }
     closure = {
         "schema_version": 1,
@@ -1490,6 +1501,208 @@ def test_wheel_seal_requires_libmetrics_from_exact_wheel_member(
     )
     assert rejected.returncode == 2
     assert "exact wheel member" in rejected.stderr.lower()
+
+
+def test_ldd_closure_rejects_transitive_not_found() -> None:
+    with pytest.raises(ValueError, match="transitive.*not found"):
+        release_wheel._parse_ldd_output(
+            "ucm/store/cache/libcachestore.so",
+            ["libc.so.6"],
+            """\
+libc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000ffff)
+libtransitive.so.1 => not found
+/lib/ld-linux-aarch64.so.1 (0x0000aaaa)
+""",
+        )
+
+
+def test_ldd_closure_records_direct_transitive_virtual_and_loader_lines() -> None:
+    assert (
+        release_wheel._parse_ldd_output(
+            "ucm/store/cache/libcachestore.so",
+            ["libc.so.6"],
+            """\
+linux-vdso.so.1 (0x0000ffff)
+libc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x00001111)
+libgcc_s.so.1 => /lib/aarch64-linux-gnu/libgcc_s.so.1 (0x00002222)
+/lib/ld-linux-aarch64.so.1 (0x00003333)
+""",
+        )
+        == [
+            {
+                "dependency": "/lib/ld-linux-aarch64.so.1",
+                "direct": False,
+                "kind": "located",
+                "path": "/lib/ld-linux-aarch64.so.1",
+            },
+            {
+                "dependency": "libc.so.6",
+                "direct": True,
+                "kind": "located",
+                "path": "/lib/aarch64-linux-gnu/libc.so.6",
+            },
+            {
+                "dependency": "libgcc_s.so.1",
+                "direct": False,
+                "kind": "located",
+                "path": "/lib/aarch64-linux-gnu/libgcc_s.so.1",
+            },
+            {
+                "dependency": "linux-vdso.so.1",
+                "direct": False,
+                "kind": "virtual",
+            },
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    "line",
+    (
+        "libextra.so.1 (0x0000ffff)",
+        "unexpected ldd diagnostic",
+        "libextra.so.1 => relative/libextra.so.1 (0x0000ffff)",
+    ),
+)
+def test_ldd_closure_rejects_malformed_or_unbound_lines(line: str) -> None:
+    with pytest.raises(ValueError, match="malformed|unbound|absolute"):
+        release_wheel._parse_ldd_output(
+            "ucm/store/cache/libcachestore.so",
+            ["libc.so.6"],
+            f"libc.so.6 => /lib/libc.so.6 (0x1)\n{line}\n",
+        )
+
+
+def test_source_context_is_a_no_git_canonical_archive_of_actual_bytes(
+    tmp_path: Path,
+) -> None:
+    prepared = json.loads(
+        _run(
+            "wheel",
+            "context",
+            "--source-sha",
+            REVIEWED_SOURCE_SHA,
+            "--output-dir",
+            str(tmp_path / "context"),
+        ).stdout
+    )
+    archive = Path(prepared["source_archive_path"])
+    manifest = Path(prepared["source_manifest_path"])
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    with tarfile.open(archive) as bundle:
+        bundle.extractall(source_root, filter="data")
+    assert not (source_root / ".git").exists()
+
+    verified = json.loads(
+        _run(
+            "wheel",
+            "verify-context",
+            "--archive",
+            str(archive),
+            "--manifest",
+            str(manifest),
+            "--source-root",
+            str(source_root),
+        ).stdout
+    )
+    raw = archive.read_bytes()
+    assert verified["source_archive_sha256"] == (
+        "sha256:" + hashlib.sha256(raw).hexdigest()
+    )
+    assert verified["build_context_sha256"] == (
+        "sha256:" + hashlib.sha256(b"ucm-build-context-v1\0" + raw).hexdigest()
+    )
+    assert verified["source_sha"] == REVIEWED_SOURCE_SHA
+    assert verified["source_tree"] == _git(
+        ROOT, "rev-parse", f"{REVIEWED_SOURCE_SHA}^{{tree}}"
+    )
+
+
+@pytest.mark.parametrize(
+    "injected_name", ("build/injected.so", "dist/uc_manager.whl", "ucm/injected.so")
+)
+def test_source_context_rejects_ignored_build_artifact_in_extracted_root(
+    tmp_path: Path, injected_name: str
+) -> None:
+    prepared = json.loads(
+        _run(
+            "wheel",
+            "context",
+            "--source-sha",
+            REVIEWED_SOURCE_SHA,
+            "--output-dir",
+            str(tmp_path / "context"),
+        ).stdout
+    )
+    archive = Path(prepared["source_archive_path"])
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    with tarfile.open(archive) as bundle:
+        bundle.extractall(source_root, filter="data")
+    injected = source_root / injected_name
+    injected.parent.mkdir(exist_ok=True)
+    injected.write_bytes(b"ignored build output")
+
+    rejected = _run(
+        "wheel",
+        "verify-context",
+        "--archive",
+        str(archive),
+        "--manifest",
+        prepared["source_manifest_path"],
+        "--source-root",
+        str(source_root),
+        check=False,
+    )
+    assert rejected.returncode == 2
+    assert "extra" in rejected.stderr.lower()
+
+
+@pytest.mark.parametrize("mutation", ("context-digest", "source-sha", "source-tree"))
+def test_source_context_rejects_mutated_digest_or_source_identity(
+    tmp_path: Path, mutation: str
+) -> None:
+    prepared = json.loads(
+        _run(
+            "wheel",
+            "context",
+            "--source-sha",
+            REVIEWED_SOURCE_SHA,
+            "--output-dir",
+            str(tmp_path / "context"),
+        ).stdout
+    )
+    archive = Path(prepared["source_archive_path"])
+    manifest_path = Path(prepared["source_manifest_path"])
+    manifest = json.loads(manifest_path.read_text())
+    field = {
+        "context-digest": "build_context_sha256",
+        "source-sha": "source_sha",
+        "source-tree": "source_tree",
+    }[mutation]
+    manifest[field] = (
+        "0" * 40 if field != "build_context_sha256" else "sha256:" + "0" * 64
+    )
+    _write_canonical_json(manifest_path, manifest)
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    with tarfile.open(archive) as bundle:
+        bundle.extractall(source_root, filter="data")
+
+    rejected = _run(
+        "wheel",
+        "verify-context",
+        "--archive",
+        str(archive),
+        "--manifest",
+        str(manifest_path),
+        "--source-root",
+        str(source_root),
+        check=False,
+    )
+    assert rejected.returncode == 2
+    assert "context" in rejected.stderr.lower() or "source" in rejected.stderr.lower()
 
 
 def test_wheel_seal_rejects_forged_source_even_when_manifest_agrees(

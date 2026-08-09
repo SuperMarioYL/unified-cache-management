@@ -87,8 +87,18 @@ def build_parser() -> argparse.ArgumentParser:
     authority.add_argument("--source-date-epoch", required=True, type=int)
     authority.add_argument("--builder-coordinate", required=True)
     authority.add_argument("--wheelhouse", required=True, type=Path)
+    authority.add_argument("--source-archive", required=True, type=Path)
+    authority.add_argument("--source-manifest", required=True, type=Path)
+    authority.add_argument("--source-root", required=True, type=Path)
     authority.add_argument("--output", required=True, type=Path)
     _paths(authority)
+    context = wheel_actions.add_parser("context")
+    context.add_argument("--source-sha", required=True)
+    context.add_argument("--output-dir", required=True, type=Path)
+    verify_context = wheel_actions.add_parser("verify-context")
+    verify_context.add_argument("--archive", required=True, type=Path)
+    verify_context.add_argument("--manifest", required=True, type=Path)
+    verify_context.add_argument("--source-root", required=True, type=Path)
     closure = wheel_actions.add_parser("closure")
     closure.add_argument("wheel", type=Path)
     closure.add_argument("--spec-id", required=True)
@@ -255,9 +265,18 @@ def main(argv: list[str] | None = None) -> int:
                 args.source_date_epoch,
                 args.builder_coordinate,
                 args.wheelhouse,
+                args.source_archive,
+                args.source_manifest,
+                args.source_root,
                 release_path=args.release,
                 compatibility_path=args.compatibility,
                 schema_dir=args.schema_dir,
+            )
+        elif (args.group, args.action) == ("wheel", "context"):
+            result = wheel.prepare_source_context(args.output_dir, args.source_sha)
+        elif (args.group, args.action) == ("wheel", "verify-context"):
+            result = wheel.verify_source_context(
+                args.archive, args.manifest, args.source_root
             )
         elif (args.group, args.action) == ("wheel", "closure"):
             result = wheel.audit_dependency_closure(

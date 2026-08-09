@@ -23,7 +23,6 @@
 #
 
 import atexit
-import hashlib
 import json
 import os
 import platform as host_platform
@@ -81,6 +80,7 @@ def _release_authority() -> dict[str, object]:
         "wheel_version",
         "source_sha",
         "source_tree",
+        "source_archive_sha256",
         "source_date_epoch",
         "task_sha256",
         "builder_coordinate",
@@ -98,23 +98,15 @@ def _release_authority() -> dict[str, object]:
     ).encode()
     if raw != canonical + b"\n":
         raise RuntimeError("release authority is noncanonical")
-    context = dict(authority)
-    digest = context.pop("build_context_sha256")
-    expected_digest = (
-        "sha256:"
-        + hashlib.sha256(
-            json.dumps(
-                context, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-            ).encode()
-        ).hexdigest()
-    )
-    if digest != expected_digest:
-        raise RuntimeError("release authority context digest is invalid")
     if (
         authority["schema_version"] != 1
         or authority["kind"] != "ucm-native-build-authority"
         or re.fullmatch(r"[0-9a-f]{40}", str(authority["source_sha"])) is None
         or re.fullmatch(r"[0-9a-f]{40}", str(authority["source_tree"])) is None
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", str(authority["source_archive_sha256"]))
+        is None
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", str(authority["build_context_sha256"]))
+        is None
         or re.fullmatch(r"sha256:[0-9a-f]{64}", str(authority["task_sha256"])) is None
         or re.fullmatch(
             r"[^@ ]+@sha256:[0-9a-f]{64}", str(authority["builder_coordinate"])

@@ -834,6 +834,11 @@ FROM runtime-install AS runtime
     (
         'COPY ["setup.py", "/workspace/ucm/setup.py"]',
         'COPY ["ucm", "/workspace/ucm/ucm"]',
+        'COPY [".", "/workspace/ucm"]',
+        'COPY --chown=0:0 ["setup.py", "/workspace/ucm/setup.py"]',
+        'COPY ["/setup.py", "/workspace/ucm/setup.py"]',
+        'COPY ["././setup.py", "/workspace/ucm/setup.py"]',
+        'COPY ["safe/../setup.py", "/workspace/ucm/setup.py"]',
         'RUN ["python", "-m", "build", "--wheel"]',
     ),
 )
@@ -853,6 +858,23 @@ FROM runtime-install AS runtime
 
     with pytest.raises(ValueError, match="install-only"):
         image.implementation_digests(mutated)
+
+
+def test_install_only_audit_accepts_legal_multiline_shell_run(tmp_path: Path) -> None:
+    """A legal backslash-continued runtime command remains accepted."""
+    *_, image = _modules()
+    dockerfile = f"""\
+ARG BASE_IMAGE=registry.invalid/base@sha256:{'0' * 64}
+FROM ${{BASE_IMAGE}} AS runtime-install
+RUN python -c 'print("runtime")' \\
+ && python -c 'print("still runtime")'
+COPY ${{UCM_WHEEL}} /tmp/${{UCM_WHEEL}}
+FROM runtime-install AS runtime
+"""
+    mutated = _mutated_docker_root(tmp_path, dockerfile)
+
+    result = image.implementation_digests(mutated)
+    assert result["files"]["Dockerfile"].startswith("sha256:")
 
 
 def test_base_helper_rejects_mutable_and_mismatched_subjects(tmp_path: Path) -> None:

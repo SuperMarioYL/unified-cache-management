@@ -83,7 +83,18 @@ ucm-python -m pip install --no-index --find-links=/wheelhouse --require-hashes \
 EOF
 
 WORKDIR /workspace/ucm
-COPY . /workspace/ucm
+COPY ucm-source.tar /tmp/ucm-source.tar
+COPY source-context.json /tmp/source-context.json
+RUN ucm-python - <<'PY'
+import tarfile
+with tarfile.open('/tmp/ucm-source.tar', mode='r:') as archive:
+    archive.extractall('/workspace/ucm', filter='data')
+PY
+RUN PYTHONPATH=/workspace/ucm/.github/release \
+    ucm-python -m ucm_release wheel verify-context \
+      --archive /tmp/ucm-source.tar \
+      --manifest /tmp/source-context.json \
+      --source-root /workspace/ucm
 
 FROM wheel-base AS wheel-build
 
@@ -133,6 +144,9 @@ RUN PYTHONPATH=/workspace/ucm/.github/release \
       --source-date-epoch "${SOURCE_DATE_EPOCH}" \
       --builder-coordinate "${UCM_BUILDER_IMAGE}" \
       --wheelhouse /wheelhouse \
+      --source-archive /tmp/ucm-source.tar \
+      --source-manifest /tmp/source-context.json \
+      --source-root /workspace/ucm \
       --output /tmp/build-authority.json
 
 RUN UCM_RELEASE_BUILD=1 \

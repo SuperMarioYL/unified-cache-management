@@ -7,6 +7,7 @@ import gzip
 import hashlib
 import io
 import json
+import posixpath
 import re
 import shlex
 import shutil
@@ -271,8 +272,22 @@ def _docker_instruction_arguments(body: str) -> list[tuple[str, list[str]]]:
         # and must be parsed so array-form COPY/RUN cannot evade the audit.
         if not raw.startswith("[") and raw.endswith("\\"):
             continue
+        json_offset = raw.find("[")
+        prefix = raw[:json_offset].strip() if json_offset >= 0 else ""
+        prefix_arguments = shlex.split(prefix) if prefix else []
+        json_form = json_offset >= 0 and all(
+            argument.startswith("--") for argument in prefix_arguments
+        )
         try:
-            arguments = json.loads(raw) if raw.startswith("[") else shlex.split(raw)
+            if json_form:
+                json_arguments = json.loads(raw[json_offset:])
+                if not isinstance(json_arguments, list) or not all(
+                    isinstance(argument, str) for argument in json_arguments
+                ):
+                    raise ValueError("JSON arguments must be a string array")
+                arguments = [*prefix_arguments, *json_arguments]
+            else:
+                arguments = shlex.split(raw)
         except (json.JSONDecodeError, ValueError) as error:
             raise ValueError(
                 f"Dockerfile has invalid {instruction} instruction: {error}"
@@ -288,7 +303,7 @@ def _docker_instruction_arguments(body: str) -> list[tuple[str, list[str]]]:
 
 
 def _source_copy_argument(argument: str) -> bool:
-    normalized = argument.removeprefix("./").rstrip("/")
+    normalized = posixpath.normpath("/" + argument.lstrip("/")).lstrip("/") or "."
     return normalized in {
         ".",
         "setup.py",

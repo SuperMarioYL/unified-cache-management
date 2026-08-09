@@ -6,6 +6,7 @@ import ast
 import base64
 import csv
 import email.parser
+import functools
 import hashlib
 import io
 import json
@@ -14,6 +15,7 @@ import re
 import struct
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import zipfile
@@ -39,6 +41,8 @@ FIXTURE_MARKER = "ucm/_fixture_build.py"
 COMPONENT_MANIFEST = "ucm/ucm-native-components.json"
 AUTHORITY_KIND = "ucm-native-build-authority"
 CLOSURE_KIND = "ucm-linux-dependency-closure"
+SOURCE_CONTEXT_KIND = "ucm-canonical-source-context"
+SOURCE_CONTEXT_PREFIX = b"ucm-build-context-v1\0"
 HOST_PATH_MARKERS = (
     b"/Users/",
     b"/home/runner/",
@@ -279,6 +283,187 @@ def _git_value(*arguments: str) -> str | None:
     return completed.stdout.strip() if completed.returncode == 0 else None
 
 
+def _git_object_digest(kind: str, data: bytes) -> bytes:
+    header = f"{kind} {len(data)}\0".encode("ascii")
+    return hashlib.sha1(header + data).digest()  # noqa: S324 - Git SHA-1 object ID
+
+
+def _git_tree_digest(archive: tarfile.TarFile) -> str:
+    root: dict[str, Any] = {}
+    directories: set[str] = set()
+    seen: set[str] = set()
+    for member in archive.getmembers():
+        name = member.name.rstrip("/")
+        if not _safe_wheel_name(name) or name in seen:
+            raise ValueError("source archive contains duplicate or unsafe paths")
+        seen.add(name)
+        if member.isdir():
+            directories.add(name)
+            continue
+        if not (member.isfile() or member.issym()):
+            raise ValueError(f"source archive has unsupported member type: {name}")
+        node = root
+        parts = name.split("/")
+        for part in parts[:-1]:
+            child = node.setdefault(part, {})
+            if not isinstance(child, dict):
+                raise ValueError("source archive has a file/directory path collision")
+            node = child
+        leaf = parts[-1]
+        if leaf in node:
+            raise ValueError("source archive has a file/directory path collision")
+        if member.issym():
+            data = member.linkname.encode("utf-8")
+            mode = "120000"
+        else:
+            stream = archive.extractfile(member)
+            if stream is None:
+                raise ValueError(f"source archive member cannot be read: {name}")
+            data = stream.read()
+            mode = "100755" if member.mode & 0o111 else "100644"
+        node[leaf] = (mode, _git_object_digest("blob", data))
+
+    derived_directories: set[str] = set()
+
+    def digest_tree(node: dict[str, Any], prefix: str = "") -> bytes:
+        entries: list[tuple[str, bool, str, bytes]] = []
+        for name, value in node.items():
+            if isinstance(value, dict):
+                path = f"{prefix}/{name}" if prefix else name
+                derived_directories.add(path)
+                entries.append((name, True, "40000", digest_tree(value, path)))
+            else:
+                mode, digest = value
+                entries.append((name, False, mode, digest))
+
+        def compare(
+            left: tuple[str, bool, str, bytes],
+            right: tuple[str, bool, str, bytes],
+        ) -> int:
+            left_key = left[0].encode() + (b"/" if left[1] else b"\0")
+            right_key = right[0].encode() + (b"/" if right[1] else b"\0")
+            return (left_key > right_key) - (left_key < right_key)
+
+        body = b"".join(
+            mode.encode("ascii") + b" " + name.encode() + b"\0" + digest
+            for name, _, mode, digest in sorted(
+                entries, key=functools.cmp_to_key(compare)
+            )
+        )
+        return _git_object_digest("tree", body)
+
+    digest = digest_tree(root).hex()
+    if directories != derived_directories:
+        raise ValueError("source archive directory entries are not canonical")
+    return digest
+
+
+def _verify_source_root(archive: tarfile.TarFile, source_root: Path) -> None:
+    expected = {member.name.rstrip("/"): member for member in archive.getmembers()}
+    actual = {
+        path.relative_to(source_root).as_posix(): path
+        for path in source_root.rglob("*")
+    }
+    missing = sorted(set(expected) - set(actual))
+    extra = sorted(set(actual) - set(expected))
+    if missing or extra:
+        raise ValueError(
+            f"extracted source context path set differs: missing={missing}, extra={extra}"
+        )
+    for name, member in expected.items():
+        path = actual[name]
+        if member.isdir():
+            if not path.is_dir() or path.is_symlink():
+                raise ValueError(f"extracted source directory differs: {name}")
+        elif member.issym():
+            if not path.is_symlink() or os.readlink(path) != member.linkname:
+                raise ValueError(f"extracted source symlink differs: {name}")
+        else:
+            if not path.is_file() or path.is_symlink():
+                raise ValueError(f"extracted source file differs: {name}")
+            stream = archive.extractfile(member)
+            if stream is None or path.read_bytes() != stream.read():
+                raise ValueError(f"extracted source file bytes differ: {name}")
+            if bool(path.stat().st_mode & 0o111) != bool(member.mode & 0o111):
+                raise ValueError(f"extracted source executable mode differs: {name}")
+
+
+def verify_source_context(
+    archive_path: Path, manifest_path: Path, source_root: Path
+) -> dict[str, Any]:
+    """Verify raw git-archive bytes, Git identity, and the extracted source root."""
+    manifest = _canonical_record(manifest_path, "source context manifest")
+    fields = {
+        "schema_version",
+        "kind",
+        "source_sha",
+        "source_tree",
+        "source_archive_sha256",
+        "build_context_sha256",
+    }
+    if set(manifest) != fields:
+        raise ValueError("source context manifest fields are not exact")
+    raw = Path(archive_path).read_bytes()
+    archive_digest = "sha256:" + hashlib.sha256(raw).hexdigest()
+    context_digest = "sha256:" + hashlib.sha256(SOURCE_CONTEXT_PREFIX + raw).hexdigest()
+    if manifest["source_archive_sha256"] != archive_digest:
+        raise ValueError("source context archive digest differs from actual bytes")
+    if manifest["build_context_sha256"] != context_digest:
+        raise ValueError("source context digest differs from actual archive bytes")
+    if re.fullmatch(r"[0-9a-f]{40}", str(manifest["source_sha"])) is None:
+        raise ValueError("source context SHA is invalid")
+    if re.fullmatch(r"[0-9a-f]{40}", str(manifest["source_tree"])) is None:
+        raise ValueError("source context tree is invalid")
+    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
+        if archive.pax_headers != {"comment": manifest["source_sha"]}:
+            raise ValueError("source context archive commit does not match source SHA")
+        if _git_tree_digest(archive) != manifest["source_tree"]:
+            raise ValueError("source context archive tree does not match source tree")
+        _verify_source_root(archive, Path(source_root))
+    return manifest
+
+
+def prepare_source_context(output_dir: Path, source_sha: str) -> dict[str, Any]:
+    """Create the only accepted wheel-build context from exact Git objects."""
+    if re.fullmatch(r"[0-9a-f]{40}", source_sha) is None:
+        raise ValueError("source context requires a full lowercase Git commit")
+    if _git_value("rev-parse", "HEAD") != source_sha:
+        raise ValueError("source context SHA does not match checked HEAD")
+    source_tree = _git_value("rev-parse", f"{source_sha}^{{tree}}")
+    if source_tree is None:
+        raise ValueError("source context tree cannot be resolved")
+    completed = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "archive", "--format=tar", source_sha],
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise ValueError("git archive failed for source context")
+    output_dir = Path(output_dir)
+    if output_dir.exists() and any(output_dir.iterdir()):
+        raise ValueError("source context output directory must be absent or empty")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    archive_path = output_dir / "ucm-source.tar"
+    archive_path.write_bytes(completed.stdout)
+    manifest = {
+        "schema_version": 1,
+        "kind": SOURCE_CONTEXT_KIND,
+        "source_sha": source_sha,
+        "source_tree": source_tree,
+        "source_archive_sha256": "sha256:"
+        + hashlib.sha256(completed.stdout).hexdigest(),
+        "build_context_sha256": "sha256:"
+        + hashlib.sha256(SOURCE_CONTEXT_PREFIX + completed.stdout).hexdigest(),
+    }
+    manifest_path = output_dir / "source-context.json"
+    _write_canonical(manifest_path, manifest)
+    return {
+        **manifest,
+        "source_archive_path": str(archive_path),
+        "source_manifest_path": str(manifest_path),
+    }
+
+
 def _validate_build_authority(
     authority: dict[str, Any],
     spec_id: str,
@@ -295,6 +480,7 @@ def _validate_build_authority(
         "wheel_version",
         "source_sha",
         "source_tree",
+        "source_archive_sha256",
         "source_date_epoch",
         "task_sha256",
         "builder_coordinate",
@@ -307,13 +493,10 @@ def _validate_build_authority(
     }
     if set(authority) != fields:
         raise ValueError("build authority fields are not exact")
-    context = dict(authority)
-    context_digest = context.pop("build_context_sha256")
-    if (
-        context_digest
-        != "sha256:" + hashlib.sha256(canonical_bytes(context)).hexdigest()
-    ):
+    if DIGEST_RE.fullmatch(str(authority["build_context_sha256"])) is None:
         raise ValueError("build authority context digest is invalid")
+    if DIGEST_RE.fullmatch(str(authority["source_archive_sha256"])) is None:
+        raise ValueError("build authority source archive digest is invalid")
     root = task["builder"]["root"]
     expected = {
         "schema_version": 1,
@@ -337,10 +520,21 @@ def _validate_build_authority(
     source_sha = authority["source_sha"]
     if re.fullmatch(r"[0-9a-f]{40}", str(source_sha)) is None:
         raise ValueError("build source authority SHA is invalid")
-    if _git_value("rev-parse", "HEAD") != source_sha:
-        raise ValueError("build source authority does not match checked source HEAD")
-    if _git_value("rev-parse", f"{source_sha}^{{tree}}") != authority["source_tree"]:
-        raise ValueError("build source authority tree does not match checked source")
+    if re.fullmatch(r"[0-9a-f]{40}", str(authority["source_tree"])) is None:
+        raise ValueError("build source authority tree is invalid")
+    checked_head = _git_value("rev-parse", "HEAD")
+    if checked_head is not None:
+        if checked_head != source_sha:
+            raise ValueError(
+                "build source authority does not match checked source HEAD"
+            )
+        if (
+            _git_value("rev-parse", f"{source_sha}^{{tree}}")
+            != authority["source_tree"]
+        ):
+            raise ValueError(
+                "build source authority tree does not match checked source"
+            )
     _zip_timestamp(authority["source_date_epoch"])
     return authority
 
@@ -396,9 +590,14 @@ def _validate_dependency_closure(
         record = records[name]
         if not isinstance(record, dict) or set(record) != {
             "dt_needed",
-            "resolutions",
+            "resolved_dependencies",
+            "unresolved_dependencies",
         }:
             raise ValueError(f"dependency closure record is invalid: {name}")
+        if record["unresolved_dependencies"] != []:
+            raise ValueError(
+                f"dependency closure has unresolved dependencies for {name}"
+            )
         needed = native["dt_needed"][name]
         if record["dt_needed"] != needed:
             missing = sorted(set(needed) - set(record.get("dt_needed", [])))
@@ -407,15 +606,36 @@ def _validate_dependency_closure(
                     f"dependency closure has unresolved entries for {name}: {missing}"
                 )
             raise ValueError(f"dependency closure DT_NEEDED differs for {name}")
-        resolutions = record["resolutions"]
-        if not isinstance(resolutions, dict) or set(resolutions) != set(needed):
-            missing = sorted(set(needed) - set(resolutions or {}))
+        resolutions = record["resolved_dependencies"]
+        if not isinstance(resolutions, list) or not all(
+            isinstance(resolution, dict) for resolution in resolutions
+        ):
+            raise ValueError(f"dependency closure resolutions are invalid: {name}")
+        dependencies = [resolution.get("dependency") for resolution in resolutions]
+        if len(dependencies) != len(set(dependencies)):
+            raise ValueError(f"dependency closure has duplicate resolutions: {name}")
+        direct_resolutions = {
+            resolution.get("dependency")
+            for resolution in resolutions
+            if resolution.get("direct") is True
+        }
+        if direct_resolutions != set(needed):
+            missing = sorted(set(needed) - direct_resolutions)
             raise ValueError(f"dependency closure has unresolved entries: {missing}")
-        for dependency in needed:
-            resolution = resolutions[dependency]
-            internal_member = member_by_basename.get(dependency)
+        for resolution in resolutions:
+            dependency = resolution.get("dependency")
+            if not isinstance(dependency, str) or resolution.get("direct") not in {
+                True,
+                False,
+            }:
+                raise ValueError(
+                    f"dependency closure resolution identity is invalid: {name}"
+                )
+            internal_member = member_by_basename.get(PurePosixPath(dependency).name)
             if internal_member is not None:
                 expected_resolution = {
+                    "dependency": dependency,
+                    "direct": dependency in needed,
                     "kind": "wheel-member",
                     "member": internal_member,
                     "sha256": member_digests[internal_member],
@@ -425,9 +645,18 @@ def _validate_dependency_closure(
                         f"dependency closure must resolve internal {dependency} "
                         "from the exact wheel member"
                     )
+            elif resolution.get("kind") == "virtual":
+                if resolution != {
+                    "dependency": "linux-vdso.so.1",
+                    "direct": dependency in needed,
+                    "kind": "virtual",
+                }:
+                    raise ValueError(
+                        f"dependency closure virtual resolution is invalid: {dependency}"
+                    )
             elif (
                 not isinstance(resolution, dict)
-                or set(resolution) != {"kind", "path", "sha256"}
+                or set(resolution) != {"dependency", "direct", "kind", "path", "sha256"}
                 or resolution["kind"] != "external"
                 or not isinstance(resolution["path"], str)
                 or not resolution["path"].startswith("/")
@@ -676,12 +905,15 @@ def build_authority_record(
     source_date_epoch: int,
     builder_coordinate: str,
     wheelhouse: Path,
+    source_archive: Path,
+    source_manifest: Path,
+    source_root: Path,
     *,
     release_path: Path = DEFAULT_RELEASE,
     compatibility_path: Path = DEFAULT_COMPATIBILITY,
     schema_dir: Path = DEFAULT_SCHEMA_DIR,
 ) -> dict[str, Any]:
-    """Derive build authority from the checked Git tree and locked tool bytes."""
+    """Derive build authority from canonical source and locked tool bytes."""
     release, _ = validate_config(release_path, compatibility_path, schema_dir)
     tasks = {
         item["spec_id"]: item
@@ -692,14 +924,9 @@ def build_authority_record(
     if spec_id not in tasks:
         raise ValueError(f"unknown build authority spec: {spec_id}")
     task = tasks[spec_id]
-    if _git_value("rev-parse", "HEAD") != source_sha:
-        raise ValueError("source authority SHA does not match checked source HEAD")
-    source_tree = _git_value("rev-parse", f"{source_sha}^{{tree}}")
-    if source_tree is None:
-        raise ValueError("source authority tree cannot be resolved")
-    status = _git_value("status", "--porcelain", "--untracked-files=all")
-    if status:
-        raise ValueError("source authority requires a clean checked source tree")
+    context = verify_source_context(source_archive, source_manifest, source_root)
+    if context["source_sha"] != source_sha:
+        raise ValueError("source authority SHA differs from canonical context")
     expected_tools = _tool_wheel_authority(release, task["cpu_arch"])
     wheelhouse = Path(wheelhouse)
     actual_names = sorted(item.name for item in wheelhouse.iterdir() if item.is_file())
@@ -718,7 +945,8 @@ def build_authority_record(
         "platform": task["platform"],
         "wheel_version": task["wheel_version"],
         "source_sha": source_sha,
-        "source_tree": source_tree,
+        "source_tree": context["source_tree"],
+        "source_archive_sha256": context["source_archive_sha256"],
         "source_date_epoch": source_date_epoch,
         "task_sha256": task["task_sha256"],
         "builder_coordinate": builder_coordinate,
@@ -728,12 +956,90 @@ def build_authority_record(
         "required_native": task["required_native"],
         "forbidden_native": task["forbidden_native"],
     }
-    record["build_context_sha256"] = (
-        "sha256:" + hashlib.sha256(canonical_bytes(record)).hexdigest()
-    )
+    record["build_context_sha256"] = context["build_context_sha256"]
     _validate_build_authority(record, spec_id, release, task)
     Path(output).write_bytes(canonical_bytes(record) + b"\n")
     return record
+
+
+def _parse_ldd_output(
+    label: str, direct_needed: list[str], output: str
+) -> list[dict[str, Any]]:
+    """Parse every ldd line; reject unresolved or unbound output."""
+    direct = set(direct_needed)
+    seen: set[str] = set()
+    resolved: list[dict[str, Any]] = []
+    missing = re.compile(r"^(\S+)\s+=>\s+not found$")
+    arrow = re.compile(r"^(\S+)\s+=>\s+(\S+)(?:\s+\(0x[0-9a-fA-F]+\))?$")
+    located = re.compile(r"^(\S+)\s+\(0x[0-9a-fA-F]+\)$")
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        missing_match = missing.fullmatch(line)
+        if missing_match is not None:
+            dependency = missing_match.group(1)
+            relation = "direct" if dependency in direct else "transitive"
+            raise ValueError(
+                f"{relation} dependency {dependency} is not found for {label}"
+            )
+        arrow_match = arrow.fullmatch(line)
+        if arrow_match is not None:
+            dependency, location = arrow_match.groups()
+            if dependency in seen:
+                raise ValueError(f"ldd output has duplicate dependency for {label}")
+            seen.add(dependency)
+            if not location.startswith("/"):
+                raise ValueError(
+                    f"ldd resolution must use an absolute path for {label}: {line}"
+                )
+            resolved.append(
+                {
+                    "dependency": dependency,
+                    "direct": dependency in direct,
+                    "kind": "located",
+                    "path": location,
+                }
+            )
+            continue
+        located_match = located.fullmatch(line)
+        if located_match is None:
+            raise ValueError(
+                f"ldd output has a malformed extra line for {label}: {line}"
+            )
+        location = located_match.group(1)
+        if location in seen:
+            raise ValueError(f"ldd output has duplicate dependency for {label}")
+        seen.add(location)
+        if location == "linux-vdso.so.1":
+            resolved.append(
+                {
+                    "dependency": location,
+                    "direct": location in direct,
+                    "kind": "virtual",
+                }
+            )
+        elif location.startswith("/"):
+            resolved.append(
+                {
+                    "dependency": location,
+                    "direct": location in direct,
+                    "kind": "located",
+                    "path": location,
+                }
+            )
+        else:
+            raise ValueError(f"ldd output has an unbound line for {label}: {line}")
+    observed_direct = {
+        item["dependency"] for item in resolved if item["dependency"] in direct
+    }
+    missing = sorted(direct - observed_direct)
+    if missing:
+        raise ValueError(f"direct dependencies are not found in ldd output: {missing}")
+    return sorted(
+        resolved,
+        key=lambda item: (str(item["dependency"]), str(item.get("path", ""))),
+    )
 
 
 def audit_dependency_closure(
@@ -784,7 +1090,6 @@ def audit_dependency_closure(
                 ).rstrip(":"),
             }
             members: dict[str, Any] = {}
-            unresolved: list[str] = []
             extracted_by_name = {
                 PurePosixPath(name).name: (name, root / name)
                 for name in native["native_artifacts"]
@@ -808,34 +1113,45 @@ def audit_dependency_closure(
                 )
                 if linked.returncode != 0:
                     raise ValueError(f"ldd failed for dependency closure: {name}")
-                resolutions: dict[str, Any] = {}
-                for dependency in native["dt_needed"][name]:
-                    match = re.search(
-                        rf"(?m)^\s*{re.escape(dependency)}\s+=>\s+(\S+)",
-                        linked.stdout,
-                    )
-                    if match is None or match.group(1) == "not":
-                        unresolved.append(f"{name}:{dependency}")
+                resolved_dependencies: list[dict[str, Any]] = []
+                for parsed in _parse_ldd_output(
+                    name, native["dt_needed"][name], linked.stdout
+                ):
+                    if parsed["kind"] == "virtual":
+                        resolved_dependencies.append(parsed)
                         continue
-                    resolved = Path(match.group(1)).resolve()
-                    internal = extracted_by_name.get(dependency)
+                    dependency = parsed["dependency"]
+                    resolved = Path(parsed["path"]).resolve()
+                    internal = extracted_by_name.get(PurePosixPath(dependency).name)
                     if internal is not None and resolved == internal[1].resolve():
-                        resolutions[dependency] = {
-                            "kind": "wheel-member",
-                            "member": internal[0],
-                            "sha256": _sha256(internal[1]),
-                        }
+                        resolved_dependencies.append(
+                            {
+                                "dependency": dependency,
+                                "direct": parsed["direct"],
+                                "kind": "wheel-member",
+                                "member": internal[0],
+                                "sha256": _sha256(internal[1]),
+                            }
+                        )
                     elif resolved.is_file():
-                        resolutions[dependency] = {
-                            "kind": "external",
-                            "path": str(resolved),
-                            "sha256": _sha256(resolved),
-                        }
+                        resolved_dependencies.append(
+                            {
+                                "dependency": dependency,
+                                "direct": parsed["direct"],
+                                "kind": "external",
+                                "path": str(resolved),
+                                "sha256": _sha256(resolved),
+                            }
+                        )
                     else:
-                        unresolved.append(f"{name}:{dependency}")
+                        raise ValueError(
+                            f"ldd resolved dependency is not a file for {name}: "
+                            f"{dependency} => {resolved}"
+                        )
                 members[name] = {
                     "dt_needed": native["dt_needed"][name],
-                    "resolutions": resolutions,
+                    "resolved_dependencies": resolved_dependencies,
+                    "unresolved_dependencies": [],
                 }
     record: dict[str, Any] = {
         "schema_version": 1,
@@ -844,15 +1160,11 @@ def audit_dependency_closure(
         "raw_wheel_sha256": raw_digest,
         "build_context_sha256": authority["build_context_sha256"],
         "native_members": members,
-        "unresolved_dependencies": sorted(unresolved),
+        "unresolved_dependencies": [],
     }
     record["closure_sha256"] = (
         "sha256:" + hashlib.sha256(canonical_bytes(record)).hexdigest()
     )
-    if unresolved:
-        raise ValueError(
-            f"dependency closure has unresolved dependencies: {unresolved}"
-        )
     with zipfile.ZipFile(path) as archive:
         _validate_dependency_closure(record, raw_digest, authority, native, archive)
     Path(output).write_bytes(canonical_bytes(record) + b"\n")
@@ -912,6 +1224,7 @@ def _verify_builder_candidate_evidence(
         "build_key",
         "build_context_sha256",
         "source_tree",
+        "source_archive_sha256",
         "builder_coordinate",
         "builder_config_digest",
         "dependency_lock_sha256",
@@ -1011,6 +1324,7 @@ def _verify_builder_candidate_evidence(
         "build_key": authority["task_sha256"],
         "build_context_sha256": authority["build_context_sha256"],
         "source_tree": authority["source_tree"],
+        "source_archive_sha256": authority["source_archive_sha256"],
         "builder_coordinate": authority["builder_coordinate"],
         "builder_config_digest": authority["builder_config_digest"],
         "dependency_lock_sha256": authority["dependency_lock_sha256"],
@@ -1284,6 +1598,7 @@ def seal_wheel(
         "build_key": build_key,
         "build_context_sha256": authority["build_context_sha256"],
         "source_tree": authority["source_tree"],
+        "source_archive_sha256": authority["source_archive_sha256"],
         "builder_coordinate": authority["builder_coordinate"],
         "builder_config_digest": authority["builder_config_digest"],
         "dependency_lock_sha256": authority["dependency_lock_sha256"],
