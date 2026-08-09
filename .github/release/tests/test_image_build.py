@@ -741,6 +741,94 @@ def test_docker_recipe_rejects_compile_mutation_even_when_rehashed(
         image.implementation_digests(mutated)
 
 
+def _mutated_docker_root(tmp_path: Path, dockerfile: str) -> Path:
+    """Copy the install helpers and replace only the Dockerfile under audit."""
+    *_, image = _modules()
+    mutated = tmp_path / "docker"
+    mutated.mkdir()
+    for filename in image.DOCKER_FILES:
+        source = DOCKER_ROOT / filename
+        (mutated / source.name).write_bytes(source.read_bytes())
+    (mutated / "Dockerfile").write_text(dockerfile, encoding="utf-8")
+    return mutated
+
+
+def test_install_only_audit_allows_disconnected_wheel_build_stage(
+    tmp_path: Path,
+) -> None:
+    """A native wheel authority may compile outside the runtime dependency graph."""
+    *_, image = _modules()
+    dockerfile = """\
+ARG BASE_IMAGE=registry.invalid/base@sha256:0000000000000000000000000000000000000000000000000000000000000000
+FROM registry.invalid/builder@sha256:1111111111111111111111111111111111111111111111111111111111111111 AS wheel-build
+COPY . /src
+RUN cmake -S /src -B /build && cmake --build /build
+FROM ${BASE_IMAGE} AS runtime-install
+COPY install_ucm.py /usr/local/bin/install_ucm.py
+COPY ${UCM_WHEEL} /tmp/${UCM_WHEEL}
+RUN python /usr/local/bin/install_ucm.py
+FROM runtime-install AS runtime
+"""
+    mutated = _mutated_docker_root(tmp_path, dockerfile)
+
+    assert image.implementation_digests(mutated)["aggregate_sha256"].startswith(
+        "sha256:"
+    )
+
+
+@pytest.mark.parametrize(
+    "runtime_dependency",
+    (
+        "FROM wheel-build AS runtime-install",
+        "FROM ${BASE_IMAGE} AS runtime-install\nCOPY --from=wheel-build /out /tmp",
+    ),
+)
+def test_install_only_audit_rejects_direct_or_copied_build_stage_dependency(
+    tmp_path: Path, runtime_dependency: str
+) -> None:
+    """The runtime target may not inherit or copy from a native build stage."""
+    *_, image = _modules()
+    dockerfile = f"""\
+ARG BASE_IMAGE=registry.invalid/base@sha256:{'0' * 64}
+FROM registry.invalid/builder@sha256:{'1' * 64} AS wheel-build
+COPY . /src
+RUN cmake -S /src -B /build && cmake --build /build
+{runtime_dependency}
+COPY ${{UCM_WHEEL}} /tmp/${{UCM_WHEEL}}
+FROM runtime-install AS runtime
+"""
+    mutated = _mutated_docker_root(tmp_path, dockerfile)
+
+    with pytest.raises(ValueError, match="install-only.*compile"):
+        image.implementation_digests(mutated)
+
+
+@pytest.mark.parametrize(
+    "forbidden_instruction",
+    (
+        "COPY . /workspace/ucm",
+        "COPY setup.py /workspace/ucm/setup.py",
+        "RUN python -m build --wheel",
+    ),
+)
+def test_install_only_audit_rejects_source_or_compile_in_runtime_graph(
+    tmp_path: Path, forbidden_instruction: str
+) -> None:
+    """The final runtime graph contains an exact wheel install and no source build."""
+    *_, image = _modules()
+    dockerfile = f"""\
+ARG BASE_IMAGE=registry.invalid/base@sha256:{'0' * 64}
+FROM ${{BASE_IMAGE}} AS runtime-install
+{forbidden_instruction}
+COPY ${{UCM_WHEEL}} /tmp/${{UCM_WHEEL}}
+FROM runtime-install AS runtime
+"""
+    mutated = _mutated_docker_root(tmp_path, dockerfile)
+
+    with pytest.raises(ValueError, match="install-only"):
+        image.implementation_digests(mutated)
+
+
 def test_base_helper_rejects_mutable_and_mismatched_subjects(tmp_path: Path) -> None:
     """The FROM argument cannot be a tag or differ from the authorized subject."""
     _, _, context, recipe = _prepare(tmp_path)

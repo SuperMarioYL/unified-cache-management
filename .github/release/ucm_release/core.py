@@ -270,7 +270,7 @@ CANONICAL_RELEASE_SECTION_SHA256 = {
     "python_build_lock": "sha256:367531ab722e53b1b3cd6283b7385ae0073c78f51ffedf8bb8658478fc593eb0",
     "wrapt_wheels": "sha256:2c674887f2c73e504ba0da5a83d93e2fc88391405e7ac29aa37d082e6184bfab",
     "chart": "sha256:a4d4da0020be293876a242a22910830cc2c600d308df650837c2ae6d53b67f7f",
-    "wheel_profiles": "sha256:01e2129a06ebd5acbbd5107b7cb0490442db9d352d1716a8833b9437f496e8ac",
+    "wheel_profiles": "sha256:1082eaa39a16c5004c5458468ddfac4d1da6dbd85d15bc59873746e93ee85ff4",
     "image_families": "sha256:e7200360dda58fd1d1caeaf0eb52bc4ca33157c521ef408fbc6a06c809c5819e",
 }
 CANONICAL_COMPATIBILITY_SHA256 = (
@@ -351,23 +351,28 @@ def _validate_cross_config(
             if profile["accelerator"] == "cuda":
                 if builder["sources"] or builder["copy_paths"]:
                     raise ValueError("CUDA builder must be a complete pinned root")
+                if profile["wheel_platform"] != "manylinux_2_28":
+                    raise ValueError("CUDA wheel platform must be manylinux_2_28")
             else:
-                if len(builder["sources"]) != 1:
+                if builder["sources"] or builder["copy_paths"]:
                     raise ValueError(
-                        "Ascend builder requires one immutable Mooncake donor"
+                        "Ascend builder must not compose a cross-distribution donor"
                     )
-                donor = builder["sources"][0]
                 member = family["runtime"]["members"][architecture]
-                expected_donor = {
+                expected_root = {
                     "repository": family["runtime"]["repository"],
                     "tag": family["runtime"]["tag"],
                     "index_digest": family["runtime"]["index_digest"],
                     "manifest_digest": member["manifest_digest"],
                     "config_digest": member["config_digest"],
                 }
-                if donor != expected_donor:
+                if root != expected_root:
                     raise ValueError(
-                        f"{profile['id']}/{architecture} Mooncake donor/runtime drift"
+                        f"{profile['id']}/{architecture} builder/runtime root drift"
+                    )
+                if profile["wheel_platform"] != "linux":
+                    raise ValueError(
+                        "runtime-root Ascend wheels must be recorded as linux"
                     )
 
     rules = compatibility["rules"]
@@ -494,8 +499,13 @@ def expand_wheel_specs(release: dict[str, Any]) -> list[dict[str, Any]]:
                 "cpu_arch": architecture,
                 "python_version": profile["python_version"],
                 "python_abi": profile["python_abi"],
+                "wheel_version": profile["wheel_version"],
+                "wheel_platform": profile["wheel_platform"],
                 "binary_profile_id": profile["binary_profile_id"],
                 "validation_targets": profile["validation_targets"],
+                "required_native": profile["required_native"],
+                "forbidden_native": profile["forbidden_native"],
+                "allowed_dt_needed": profile["allowed_dt_needed"],
                 "locks": _resolved_locks(release, profile, architecture),
                 "runner": {
                     "selector": f"runner-map://{architecture}",
@@ -555,6 +565,7 @@ def build_matrix(
             "runner": release["runner_map"][architecture],
             "python_abi": profile["python_abi"],
             "wheel_version": profile["wheel_version"],
+            "wheel_platform": profile["wheel_platform"],
             "builder": profile["builders"][architecture],
             "runtime": {
                 "repository": family["runtime"]["repository"],
@@ -566,6 +577,7 @@ def build_matrix(
             "target_tag": family["target_tag"],
             "required_native": profile["required_native"],
             "forbidden_native": profile["forbidden_native"],
+            "allowed_dt_needed": profile["allowed_dt_needed"],
             "dependency_lock_sha256": sha256_value(dependency_lock),
             "write_authority": write_authority,
             "build_eligible": True,

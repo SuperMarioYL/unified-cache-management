@@ -40,6 +40,27 @@ REPOSITORY_RE = re.compile(
 COMPILE_COMMAND_RE = re.compile(
     r"(?im)^\s*(?:RUN\s+)?[^#\n]*(?:\bcmake\b|\bninja\b|\bmake\b|\bgcc\b|g\+\+|\bclang\b|\bpip\s+wheel\b|python[^\n]*\s-m\s+build\b)"
 )
+SOURCE_BUILD_COMMAND_RE = re.compile(
+    r"(?im)^\s*(?:RUN\s+)?[^#\n]*(?:"
+    r"python[^\n]*\bsetup\.py\b|"
+    r"\bpip\s+install\s+(?:\.|/workspace/ucm)(?:\s|$)|"
+    r"\bucm_release\s+wheel\s+(?:native-)?build\b|"
+    r"\bbuild_ext\b)"
+)
+FROM_RE = re.compile(
+    r"(?im)^\s*FROM(?:\s+--[^\s]+)*\s+(?P<base>[^\s]+)"
+    r"(?:\s+AS\s+(?P<alias>[A-Za-z0-9_.-]+))?\s*$"
+)
+COPY_FROM_RE = re.compile(
+    r"(?im)^\s*COPY\s+(?:--[^\s]+\s+)*--from=(?P<stage>[^\s]+)\s+"
+)
+SOURCE_COPY_RE = re.compile(
+    r"(?im)^\s*(?:COPY|ADD)\s+(?:--[^\s]+\s+)*(?:"
+    r"\.(?:/)?\s+|"
+    r"(?:setup\.py|pyproject\.toml|CMakeLists\.txt)(?:\s|$)|"
+    r"(?:ucm|scripts)(?:/|\s))"
+)
+INSTALL_IMAGE_TARGET = "runtime"
 OCI_INDEX_MEDIA_TYPES = {
     "application/vnd.oci.image.index.v1+json",
     "application/vnd.docker.distribution.manifest.list.v2+json",
@@ -195,8 +216,76 @@ def _json_bytes(content: bytes, label: str) -> dict[str, Any]:
     return value
 
 
+def _docker_stages(dockerfile: str) -> dict[str, dict[str, Any]]:
+    """Parse the named Docker stages and their prior-stage dependencies."""
+    matches = list(FROM_RE.finditer(dockerfile))
+    stages: dict[str, dict[str, Any]] = {}
+    aliases_by_index: list[str | None] = []
+    for index, match in enumerate(matches):
+        alias_value = match.group("alias")
+        alias = alias_value.lower() if alias_value is not None else None
+        if alias is not None and alias in stages:
+            raise ValueError(f"Dockerfile has duplicate stage alias {alias!r}")
+        end = (
+            matches[index + 1].start() if index + 1 < len(matches) else len(dockerfile)
+        )
+        body = dockerfile[match.end() : end]
+        dependencies: set[str] = set()
+        base = match.group("base").lower()
+        if base in stages:
+            dependencies.add(base)
+        elif base.isdecimal() and int(base) < len(aliases_by_index):
+            dependency = aliases_by_index[int(base)]
+            if dependency is not None:
+                dependencies.add(dependency)
+        for copy_match in COPY_FROM_RE.finditer(body):
+            reference = copy_match.group("stage").lower()
+            if reference in stages:
+                dependencies.add(reference)
+            elif reference.isdecimal() and int(reference) < len(aliases_by_index):
+                dependency = aliases_by_index[int(reference)]
+                if dependency is not None:
+                    dependencies.add(dependency)
+        if alias is not None:
+            stages[alias] = {
+                "body": body,
+                "dependencies": dependencies,
+            }
+        aliases_by_index.append(alias)
+    return stages
+
+
+def _audit_install_only_target(dockerfile: str) -> None:
+    """Reject source builds in the final runtime stage dependency closure."""
+    stages = _docker_stages(dockerfile)
+    if INSTALL_IMAGE_TARGET not in stages:
+        raise ValueError(
+            f"Dockerfile is missing install-only target {INSTALL_IMAGE_TARGET!r}"
+        )
+    pending = [INSTALL_IMAGE_TARGET]
+    reachable: set[str] = set()
+    while pending:
+        stage_name = pending.pop()
+        if stage_name in reachable:
+            continue
+        reachable.add(stage_name)
+        pending.extend(stages[stage_name]["dependencies"])
+    for stage_name in sorted(reachable):
+        body = stages[stage_name]["body"]
+        if COMPILE_COMMAND_RE.search(body) or SOURCE_BUILD_COMMAND_RE.search(body):
+            raise ValueError(
+                f"install-only target {INSTALL_IMAGE_TARGET!r} reaches compile/source-build "
+                f"commands in stage {stage_name!r}"
+            )
+        if SOURCE_COPY_RE.search(body):
+            raise ValueError(
+                f"install-only target {INSTALL_IMAGE_TARGET!r} reaches a UCM source COPY "
+                f"in stage {stage_name!r}"
+            )
+
+
 def implementation_digests(docker_root: Path = DOCKER_ROOT) -> dict[str, Any]:
-    """Hash the exact Docker recipe/helper implementation and reject compilation."""
+    """Hash the recipe/helpers and enforce an install-only runtime stage graph."""
     if not docker_root.is_dir():
         raise ValueError(
             f"Docker implementation directory does not exist: {docker_root}"
@@ -208,19 +297,17 @@ def implementation_digests(docker_root: Path = DOCKER_ROOT) -> dict[str, Any]:
             raise ValueError(f"Docker implementation is missing {filename}")
         content = path.read_bytes()
         text = content.decode("utf-8")
-        if COMPILE_COMMAND_RE.search(text):
+        if filename != "Dockerfile" and (
+            COMPILE_COMMAND_RE.search(text) or SOURCE_BUILD_COMMAND_RE.search(text)
+        ):
             raise ValueError(
                 f"compile command is forbidden in install-only file {filename}"
             )
         files[filename] = "sha256:" + hashlib.sha256(content).hexdigest()
     dockerfile = (docker_root / "Dockerfile").read_text(encoding="utf-8")
+    _audit_install_only_target(dockerfile)
     if "ARG BASE_IMAGE" not in dockerfile or "FROM ${BASE_IMAGE}" not in dockerfile:
         raise ValueError("Dockerfile must use the authorized BASE_IMAGE argument")
-    forbidden_copy = re.compile(
-        r"(?im)^\s*COPY\s+(?:--[^\s]+\s+)*(?:setup\.py|CMakeLists\.txt|ucm/|scripts/)"
-    )
-    if forbidden_copy.search(dockerfile):
-        raise ValueError("Dockerfile attempts to copy UCM source or build scripts")
     identity = {
         "files": files,
         "base_authority_sha256": sha256_value(FIXTURE_BASE_AUTHORITY),

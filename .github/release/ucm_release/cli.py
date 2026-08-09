@@ -71,6 +71,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--source-kind", choices=("fixture", "builder-candidate"), required=True
     )
     _paths(inspect)
+    seal = wheel_actions.add_parser("seal")
+    seal.add_argument("wheel", type=Path)
+    seal.add_argument("--spec-id", required=True)
+    seal.add_argument("--source-sha", required=True)
+    seal.add_argument("--build-key", required=True)
+    seal.add_argument("--source-date-epoch", required=True, type=int)
+    seal.add_argument("--output-dir", required=True, type=Path)
+    _paths(seal)
     fixture_build = wheel_actions.add_parser("fixture-build")
     fixture_build.add_argument("--output-dir", type=Path, required=True)
     fixture_build.add_argument("--source-sha", required=True)
@@ -205,6 +213,18 @@ def main(argv: list[str] | None = None) -> int:
                 args.spec_id,
                 args.expected_sha256,
                 args.source_kind,
+                release_path=args.release,
+                compatibility_path=args.compatibility,
+                schema_dir=args.schema_dir,
+            )
+        elif (args.group, args.action) == ("wheel", "seal"):
+            result = wheel.seal_wheel(
+                args.wheel,
+                args.output_dir,
+                args.spec_id,
+                args.source_sha,
+                args.build_key,
+                args.source_date_epoch,
                 release_path=args.release,
                 compatibility_path=args.compatibility,
                 schema_dir=args.schema_dir,

@@ -8,6 +8,7 @@ import io
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tarfile
@@ -42,6 +43,57 @@ EXPECTED_TARGETS = {
     "ghcr.io/supermarioyl/vllm-openai:v0.21.0-ucm-0.5.0rc1-r1",
     "ghcr.io/supermarioyl/vllm-ascend:v0.22.1rc1-ucm-0.5.0rc1-r1",
     "ghcr.io/supermarioyl/vllm-ascend:v0.22.1rc1-a3-ucm-0.5.0rc1-r1",
+}
+
+CUDA_AMD64_BUILD_KEY = (
+    "sha256:920078a3cd327d21a747e70801611ad3aa3f91d8ae0d51fa26e6d127fb6bf8f1"
+)
+A2_AMD64_BUILD_KEY = (
+    "sha256:d7aeaaad84ab38f252495c22f92571a2f07f2c11d70db82ac93c6f230b3c0bbf"
+)
+SOURCE_DATE_EPOCH = 1_700_000_000
+CUDA_REQUIRED_NATIVE = [
+    "ucmtrans",
+    "metrics",
+    "ucmmetrics",
+    "ucmlogger",
+    "ucmnfsstore",
+    "ucmpcstore",
+    "posixstore",
+    "compressor",
+    "cachestore",
+    "emptystore",
+    "fakestore",
+    "ucmpipelinestore",
+]
+CUDA_FORBIDDEN_NATIVE = [
+    "mooncakestore",
+    "ds3fsstore",
+    "uc_hash_ext",
+    "ucm_custom_ops",
+    "hash_retrieval_backend",
+    "hamming",
+    "gsa_prefetch",
+    "kvstar_retrieve",
+    "retrieval_backend",
+    "gsa_offload_ops",
+]
+
+NATIVE_MEMBERS = {
+    "ucmtrans": "ucm/shared/trans/ucmtrans.cpython-312-x86_64-linux-gnu.so",
+    "metrics": "ucm/shared/metrics/libmetrics.so",
+    "ucmmetrics": "ucm/shared/metrics/ucmmetrics.cpython-312-x86_64-linux-gnu.so",
+    "ucmlogger": "ucm/shared/infra/logger/ucmlogger.cpython-312-x86_64-linux-gnu.so",
+    "ucmnfsstore": "ucm/store/nfsstore/ucmnfsstore.cpython-312-x86_64-linux-gnu.so",
+    "ucmpcstore": "ucm/store/pcstore/ucmpcstore.cpython-312-x86_64-linux-gnu.so",
+    "posixstore": "ucm/store/posix/libposixstore.so",
+    "compressor": "ucm/store/compress/libcompressor.so",
+    "cachestore": "ucm/store/cache/libcachestore.so",
+    "emptystore": "ucm/store/empty/libemptystore.so",
+    "fakestore": "ucm/store/fake/libfakestore.so",
+    "ucmpipelinestore": "ucm/store/pipeline/ucmpipelinestore.cpython-312-x86_64-linux-gnu.so",
+    "mooncakestore": "ucm/store/mooncakestore/libmooncakestore.so",
+    "ds3fsstore": "ucm/store/ds3fs/libds3fsstore.so",
 }
 
 
@@ -258,6 +310,211 @@ def _builder_candidate_wheel(
         for name, data in entries.items():
             archive.writestr(name, data)
     return wheel
+
+
+def _elf64(
+    *,
+    machine: int = 62,
+    needed: tuple[str, ...] = ("libc.so.6",),
+    rpath: str | None = None,
+    leaked_path: bytes = b"",
+) -> bytes:
+    """Build the smallest ELF64 image needed to exercise the real parser."""
+    strings = bytearray(b"\0")
+    offsets: dict[str, int] = {}
+    for value in (*needed, *((rpath,) if rpath is not None else ())):
+        offsets[value] = len(strings)
+        strings.extend(value.encode("utf-8") + b"\0")
+    dynamic: list[tuple[int, int]] = []
+    dynamic_offset = 64 + 2 * 56
+    dynamic_size = (3 + len(needed) + (1 if rpath is not None else 0)) * 16
+    strings_offset = dynamic_offset + dynamic_size
+    dynamic.extend([(5, strings_offset), (10, len(strings))])
+    dynamic.extend((1, offsets[value]) for value in needed)
+    if rpath is not None:
+        dynamic.append((29, offsets[rpath]))
+    dynamic.append((0, 0))
+    dynamic_bytes = b"".join(struct.pack("<QQ", *entry) for entry in dynamic)
+    payload = dynamic_bytes + bytes(strings) + leaked_path
+    file_size = dynamic_offset + len(payload)
+    ident = b"\x7fELF" + bytes([2, 1, 1, 0]) + b"\0" * 8
+    header = ident + struct.pack(
+        "<HHIQQQIHHHHHH",
+        3,
+        machine,
+        1,
+        0,
+        64,
+        0,
+        0,
+        64,
+        56,
+        2,
+        0,
+        0,
+        0,
+    )
+    load = struct.pack("<IIQQQQQQ", 1, 5, 0, 0, 0, file_size, file_size, 0x1000)
+    dyn = struct.pack(
+        "<IIQQQQQQ",
+        2,
+        4,
+        dynamic_offset,
+        dynamic_offset,
+        dynamic_offset,
+        len(dynamic_bytes),
+        len(dynamic_bytes),
+        8,
+    )
+    return header + load + dyn + payload
+
+
+def _native_component_manifest(
+    *,
+    profile_id: str = "cuda130",
+    spec_id: str = "cuda130-amd64",
+    source_sha: str = "d" * 40,
+    build_key: str = CUDA_AMD64_BUILD_KEY,
+    cpu_arch: str = "amd64",
+    required: list[str] | None = None,
+    forbidden: list[str] | None = None,
+) -> bytes:
+    value = {
+        "schema_version": 1,
+        "kind": "ucm-native-components",
+        "profile_id": profile_id,
+        "spec_id": spec_id,
+        "source_sha": source_sha,
+        "build_key": build_key,
+        "version": "0.5.0rc1+cuda130",
+        "cpu_arch": cpu_arch,
+        "required_native": required or CUDA_REQUIRED_NATIVE,
+        "forbidden_native": forbidden or CUDA_FORBIDDEN_NATIVE,
+        "installed_targets": required or CUDA_REQUIRED_NATIVE,
+    }
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+
+
+def _raw_native_wheel(
+    directory: Path,
+    *,
+    version: str = "0.5.0rc1+cuda130",
+    profile_id: str = "cuda130",
+    spec_id: str = "cuda130-amd64",
+    build_key: str = CUDA_AMD64_BUILD_KEY,
+    forbidden: list[str] | None = None,
+    required: list[str] | None = None,
+    extra_components: tuple[str, ...] = (),
+    machine: int = 62,
+    needed: tuple[str, ...] = ("libc.so.6",),
+    rpath: str | None = None,
+    leaked_path: bytes = b"",
+    manifest_overrides: dict[str, object] | None = None,
+) -> Path:
+    required = required or CUDA_REQUIRED_NATIVE
+    forbidden = forbidden or CUDA_FORBIDDEN_NATIVE
+    dist_info = f"uc_manager-{version}.dist-info"
+    entries: dict[str, bytes] = {
+        f"{dist_info}/METADATA": (
+            "Metadata-Version: 2.1\nName: uc-manager\n"
+            f"Version: {version}\nRequires-Dist: wrapt==1.17.2\n\n"
+        ).encode(),
+        f"{dist_info}/WHEEL": (
+            "Wheel-Version: 1.0\nRoot-Is-Purelib: false\n"
+            "Tag: cp312-cp312-linux_x86_64\n\n"
+        ).encode(),
+        "ucm/__init__.py": f"__version__ = {version!r}\n".encode(),
+    }
+    manifest = json.loads(
+        _native_component_manifest(
+            profile_id=profile_id,
+            spec_id=spec_id,
+            build_key=build_key,
+            required=required,
+            forbidden=forbidden,
+        )
+    )
+    manifest["version"] = version
+    if manifest_overrides:
+        manifest.update(manifest_overrides)
+    entries["ucm/ucm-native-components.json"] = (
+        json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+    )
+    elf = _elf64(
+        machine=machine,
+        needed=needed,
+        rpath=rpath,
+        leaked_path=leaked_path,
+    )
+    for component in [*required, *extra_components]:
+        entries[NATIVE_MEMBERS[component]] = elf
+    raw = directory / f"uc_manager-{version}-cp312-cp312-linux_x86_64.whl"
+    with zipfile.ZipFile(raw, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, data in entries.items():
+            archive.writestr(name, data)
+    return raw
+
+
+def _seal_native_wheel(
+    tmp_path: Path,
+    raw: Path,
+    *,
+    spec_id: str = "cuda130-amd64",
+    source_sha: str = "d" * 40,
+    build_key: str = CUDA_AMD64_BUILD_KEY,
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    return _run(
+        "wheel",
+        "seal",
+        str(raw),
+        "--spec-id",
+        spec_id,
+        "--source-sha",
+        source_sha,
+        "--build-key",
+        build_key,
+        "--source-date-epoch",
+        str(SOURCE_DATE_EPOCH),
+        "--output-dir",
+        str(tmp_path / "sealed"),
+        check=check,
+    )
+
+
+def _rewrite_zip(
+    source: Path,
+    output: Path,
+    transform,
+    *,
+    reverse: bool = False,
+    mode: int = 0o644,
+) -> None:
+    with zipfile.ZipFile(source) as archive:
+        entries = {
+            item.filename: archive.read(item.filename)
+            for item in archive.infolist()
+            if not item.is_dir()
+        }
+    transform(entries)
+    record_name = next(name for name in entries if name.endswith(".dist-info/RECORD"))
+    entries.pop(record_name)
+    rows: list[list[str]] = []
+    for name in sorted(entries):
+        data = entries[name]
+        digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=")
+        rows.append([name, f"sha256={digest.decode()}", str(len(data))])
+    rows.append([record_name, "", ""])
+    record = io.StringIO()
+    csv.writer(record, lineterminator="\n").writerows(rows)
+    entries[record_name] = record.getvalue().encode()
+    names = sorted(entries, reverse=reverse)
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name in names:
+            info = zipfile.ZipInfo(name, date_time=(2023, 11, 14, 22, 13, 20))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = mode << 16
+            archive.writestr(info, entries[name])
 
 
 def _write_configs(
@@ -855,101 +1112,287 @@ def test_synthetic_wheel_is_only_an_unpublished_builder_candidate(
     assert production_lane.returncode == 2
     assert "invalid choice: 'production'" in production_lane.stderr
 
-    shaped = _builder_candidate_wheel(tmp_path, include_native=True)
-    shaped_digest = "sha256:" + hashlib.sha256(shaped.read_bytes()).hexdigest()
-    shaped_candidate = _run(
+    legacy = _builder_candidate_wheel(tmp_path, include_native=True)
+    legacy_digest = "sha256:" + hashlib.sha256(legacy.read_bytes()).hexdigest()
+    rejected_legacy = _run(
         "wheel",
         "inspect",
-        str(shaped),
+        str(legacy),
         "--spec-id",
         spec_id,
         "--expected-sha256",
-        shaped_digest,
+        legacy_digest,
         "--source-kind",
         "builder-candidate",
-    )
-    assert json.loads(shaped_candidate.stdout)["status"] == "candidate-inspected"
-    config_args: tuple[str, ...] = ()
-
-    synthetic = _builder_candidate_wheel(tmp_path, include_native=True)
-    _drop_record(synthetic)
-    digest = "sha256:" + hashlib.sha256(synthetic.read_bytes()).hexdigest()
-    missing_record = _run(
-        "wheel",
-        "inspect",
-        str(synthetic),
-        "--spec-id",
-        spec_id,
-        "--expected-sha256",
-        digest,
-        "--source-kind",
-        "builder-candidate",
-        *config_args,
         check=False,
     )
-    assert missing_record.returncode == 2
-    assert "RECORD" in missing_record.stderr
+    assert rejected_legacy.returncode == 2
+    assert (
+        "ucm_custom_ops" in rejected_legacy.stderr
+        or "binding" in rejected_legacy.stderr
+    )
 
-    no_native = _builder_candidate_wheel(tmp_path, include_native=False)
-    digest = "sha256:" + hashlib.sha256(no_native.read_bytes()).hexdigest()
-    missing_native = _run(
-        "wheel",
-        "inspect",
-        str(no_native),
-        "--spec-id",
-        spec_id,
-        "--expected-sha256",
-        digest,
-        "--source-kind",
-        "builder-candidate",
-        *config_args,
+
+def test_release_setup_requires_controlled_values_and_uses_local_version() -> None:
+    base_env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("UCM_RELEASE_") and key != "SOURCE_DATE_EPOCH"
+    }
+    missing_platform = subprocess.run(
+        [sys.executable, "setup.py", "--version"],
+        cwd=ROOT,
+        env={**base_env, "UCM_RELEASE_BUILD": "1"},
+        text=True,
+        capture_output=True,
         check=False,
     )
-    assert missing_native.returncode == 2
-    assert "native custom-op shared object" in missing_native.stderr
+    assert missing_platform.returncode != 0
+    assert "PLATFORM" in missing_platform.stderr
 
-    wrong_binding = _builder_candidate_wheel(
-        tmp_path, include_native=True, runtime="cuda-12.9"
-    )
-    digest = "sha256:" + hashlib.sha256(wrong_binding.read_bytes()).hexdigest()
-    mismatched = _run(
-        "wheel",
-        "inspect",
-        str(wrong_binding),
-        "--spec-id",
-        spec_id,
-        "--expected-sha256",
-        digest,
-        "--source-kind",
-        "builder-candidate",
-        *config_args,
+    release_env = {
+        **base_env,
+        "UCM_RELEASE_BUILD": "1",
+        "PLATFORM": "cuda",
+        "UCM_RELEASE_PROFILE": "cuda130",
+        "UCM_RELEASE_SOURCE_SHA": "d" * 40,
+        "UCM_RELEASE_VERSION": "0.5.0rc1+cuda130",
+        "UCM_RELEASE_BUILD_KEY": CUDA_AMD64_BUILD_KEY,
+        "UCM_RELEASE_REQUIRED_TARGETS": ",".join(CUDA_REQUIRED_NATIVE),
+        "UCM_RELEASE_FORBIDDEN_TARGETS": ",".join(CUDA_FORBIDDEN_NATIVE),
+        "SOURCE_DATE_EPOCH": str(SOURCE_DATE_EPOCH),
+    }
+    controlled = subprocess.run(
+        [sys.executable, "setup.py", "--version"],
+        cwd=ROOT,
+        env=release_env,
+        text=True,
+        capture_output=True,
         check=False,
     )
-    assert mismatched.returncode == 2
-    assert "embedded build binding accelerator_runtime" in mismatched.stderr
+    assert controlled.returncode == 0, controlled.stderr
+    assert controlled.stdout.strip() == "0.5.0rc1+cuda130"
 
-    candidate = _builder_candidate_wheel(tmp_path, include_native=True)
-    digest = "sha256:" + hashlib.sha256(candidate.read_bytes()).hexdigest()
+    wrong = subprocess.run(
+        [sys.executable, "setup.py", "--version"],
+        cwd=ROOT,
+        env={**release_env, "UCM_RELEASE_VERSION": "0.5.0rc1+cann900.a2"},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert wrong.returncode != 0
+    assert "version" in wrong.stderr.lower()
+
+
+def test_wheel_seal_is_deterministic_and_inspection_recomputes_exact_native_evidence(
+    tmp_path: Path,
+) -> None:
+    raw = _raw_native_wheel(tmp_path)
+    first = json.loads(_seal_native_wheel(tmp_path / "first", raw).stdout)
+    second = json.loads(_seal_native_wheel(tmp_path / "second", raw).stdout)
+    first_wheel = Path(first["wheel_path"])
+    second_wheel = Path(second["wheel_path"])
+    assert first_wheel.name == (
+        "uc_manager-0.5.0rc1+cuda130-cp312-cp312-manylinux_2_28_x86_64.whl"
+    )
+    assert first_wheel.read_bytes() == second_wheel.read_bytes()
+    assert first["wheel_sha256"] == second["wheel_sha256"]
+
     inspected = json.loads(
         _run(
             "wheel",
             "inspect",
-            str(candidate),
+            str(first_wheel),
             "--spec-id",
-            spec_id,
+            "cuda130-amd64",
             "--expected-sha256",
-            digest,
+            first["wheel_sha256"],
             "--source-kind",
             "builder-candidate",
-            *config_args,
         ).stdout
     )
-    assert inspected["source_kind"] == "builder-candidate"
+    evidence = inspected["builder_evidence"]
+    assert evidence["source_commit"] == "d" * 40
+    assert evidence["build_key"] == CUDA_AMD64_BUILD_KEY
+    assert evidence["native_components"] == CUDA_REQUIRED_NATIVE
+    assert evidence["elf_machines"] == ["EM_X86_64"]
+    assert evidence["unresolved_dependencies"] == []
+    assert evidence["record_status"] == "passed"
+    assert inspected["version"] == "0.5.0rc1+cuda130"
     assert inspected["status"] == "candidate-inspected"
-    assert inspected["trust_level"] == "unpublished-builder-candidate"
-    assert inspected["published"] is False
     assert inspected["publication_eligible"] is False
-    assert "production" not in json.dumps(inspected).lower()
+
+    with zipfile.ZipFile(first_wheel) as archive:
+        infos = archive.infolist()
+        assert [item.filename for item in infos] == sorted(
+            item.filename for item in infos
+        )
+        assert all(item.date_time == (2023, 11, 14, 22, 13, 20) for item in infos)
+        assert all(item.external_attr >> 16 == 0o644 for item in infos)
+        assert all(item.create_system == 3 for item in infos)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("bad-source", "source"),
+        ("wrong-profile", "profile"),
+        ("wrong-architecture", "architecture"),
+        ("incomplete-native", "required native"),
+        ("forbidden-native", "forbidden native"),
+        ("mooncake-on-cuda", "forbidden native"),
+        ("wrong-elf-machine", "ELF machine"),
+        ("unapproved-needed", "DT_NEEDED"),
+        ("rpath", "RPATH"),
+        ("host-path", "path leakage"),
+    ],
+)
+def test_wheel_seal_rejects_invalid_native_builds(
+    tmp_path: Path, mutation: str, message: str
+) -> None:
+    kwargs: dict[str, object] = {}
+    seal_kwargs: dict[str, str] = {}
+    if mutation == "bad-source":
+        seal_kwargs["source_sha"] = "not-a-commit"
+    elif mutation == "wrong-profile":
+        kwargs["manifest_overrides"] = {"profile_id": "cann900-a2"}
+    elif mutation == "wrong-architecture":
+        kwargs["manifest_overrides"] = {"cpu_arch": "arm64"}
+    elif mutation == "incomplete-native":
+        kwargs["required"] = CUDA_REQUIRED_NATIVE[:-1]
+    elif mutation == "forbidden-native":
+        kwargs["extra_components"] = ("ds3fsstore",)
+    elif mutation == "mooncake-on-cuda":
+        kwargs["extra_components"] = ("mooncakestore",)
+    elif mutation == "wrong-elf-machine":
+        kwargs["machine"] = 183
+    elif mutation == "unapproved-needed":
+        kwargs["needed"] = ("libc.so.6", "libevil.so")
+    elif mutation == "rpath":
+        kwargs["rpath"] = "/tmp/host-libs"
+    elif mutation == "host-path":
+        kwargs["leaked_path"] = b"/Users/builder/private/source.cc\0"
+    raw = _raw_native_wheel(tmp_path, **kwargs)
+    rejected = _seal_native_wheel(tmp_path, raw, check=False, **seal_kwargs)
+    assert rejected.returncode == 2
+    assert message.lower() in rejected.stderr.lower()
+
+
+def test_wheel_seal_requires_mooncake_for_ascend(tmp_path: Path) -> None:
+    ascend_required = CUDA_REQUIRED_NATIVE + ["mooncakestore"]
+    raw = _raw_native_wheel(
+        tmp_path,
+        version="0.5.0rc1+cann900.a2",
+        profile_id="cann900-a2",
+        spec_id="cann900-a2-amd64",
+        build_key=A2_AMD64_BUILD_KEY,
+        forbidden=CUDA_FORBIDDEN_NATIVE[1:],
+        required=CUDA_REQUIRED_NATIVE,
+    )
+    rejected = _seal_native_wheel(
+        tmp_path,
+        raw,
+        spec_id="cann900-a2-amd64",
+        build_key=A2_AMD64_BUILD_KEY,
+        check=False,
+    )
+    assert rejected.returncode == 2
+    assert "mooncakestore" in rejected.stderr
+    assert ascend_required[-1] == "mooncakestore"
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("trailing-bytes", "trailing bytes"),
+        ("corrupt-zip", "corrupt"),
+        ("order", "order"),
+        ("mode", "mode"),
+        ("forged-record", "RECORD"),
+        ("wrong-machine", "ELF machine"),
+        ("unapproved-needed", "DT_NEEDED"),
+        ("host-path", "path leakage"),
+    ],
+)
+def test_builder_inspection_rejects_tampered_sealed_wheels(
+    tmp_path: Path, mutation: str, message: str
+) -> None:
+    raw = _raw_native_wheel(tmp_path)
+    sealed = json.loads(_seal_native_wheel(tmp_path / "base", raw).stdout)
+    wheel = Path(sealed["wheel_path"])
+    tampered = tmp_path / wheel.name
+    if mutation == "trailing-bytes":
+        tampered.write_bytes(wheel.read_bytes() + b"not-zip")
+    elif mutation == "corrupt-zip":
+        raw_bytes = bytearray(wheel.read_bytes())
+        with zipfile.ZipFile(wheel) as archive:
+            item = next(
+                value
+                for value in archive.infolist()
+                if value.filename.endswith("libmetrics.so")
+            )
+        name_length = int.from_bytes(
+            raw_bytes[item.header_offset + 26 : item.header_offset + 28], "little"
+        )
+        extra_length = int.from_bytes(
+            raw_bytes[item.header_offset + 28 : item.header_offset + 30], "little"
+        )
+        data_offset = item.header_offset + 30 + name_length + extra_length
+        raw_bytes[data_offset + item.compress_size // 2] ^= 0xFF
+        tampered.write_bytes(raw_bytes)
+    elif mutation == "order":
+        _rewrite_zip(wheel, tampered, lambda entries: None, reverse=True)
+    elif mutation == "mode":
+        _rewrite_zip(wheel, tampered, lambda entries: None, mode=0o600)
+    else:
+
+        def transform(entries: dict[str, bytes]) -> None:
+            native = next(name for name in entries if name.endswith("libmetrics.so"))
+            if mutation == "forged-record":
+                entries[native] += b"forged"
+                return
+            if mutation == "wrong-machine":
+                entries[native] = _elf64(machine=183)
+            elif mutation == "unapproved-needed":
+                entries[native] = _elf64(needed=("libc.so.6", "libevil.so"))
+            elif mutation == "host-path":
+                entries[native] = _elf64(
+                    leaked_path=b"/home/runner/work/ucm/private.cc\0"
+                )
+
+        if mutation == "forged-record":
+            with zipfile.ZipFile(wheel) as archive:
+                entries = {
+                    item.filename: archive.read(item.filename)
+                    for item in archive.infolist()
+                    if not item.is_dir()
+                }
+            native = next(name for name in entries if name.endswith("libmetrics.so"))
+            entries[native] += b"forged"
+            with zipfile.ZipFile(tampered, "w") as archive:
+                for name in sorted(entries):
+                    info = zipfile.ZipInfo(name, date_time=(2023, 11, 14, 22, 13, 20))
+                    info.compress_type = zipfile.ZIP_DEFLATED
+                    info.external_attr = 0o644 << 16
+                    archive.writestr(info, entries[name])
+        else:
+            _rewrite_zip(wheel, tampered, transform)
+    digest = "sha256:" + hashlib.sha256(tampered.read_bytes()).hexdigest()
+    rejected = _run(
+        "wheel",
+        "inspect",
+        str(tampered),
+        "--spec-id",
+        "cuda130-amd64",
+        "--expected-sha256",
+        digest,
+        "--source-kind",
+        "builder-candidate",
+        check=False,
+    )
+    assert rejected.returncode == 2
+    assert message.lower() in rejected.stderr.lower()
 
 
 @pytest.mark.skipif(shutil.which("helm") is None, reason="Helm 3 is required")

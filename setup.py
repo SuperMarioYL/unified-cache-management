@@ -24,6 +24,8 @@
 
 import atexit
 import os
+import platform as host_platform
+import re
 import subprocess
 import sys
 
@@ -36,9 +38,13 @@ ENABLE_SPARSE = os.getenv("ENABLE_SPARSE")
 ENABLE_MINDIE = os.getenv("UCM_ENABLE_MINDIE", "0") not in ("", "0", "false", "False")
 ENABLE_GDR = os.getenv("ENABLE_GDR", "0") not in ("", "0", "false", "False")
 ASCEND_ROOT = os.getenv("ASCEND_ROOT")
+RELEASE_BUILD_VALUE = os.getenv("UCM_RELEASE_BUILD")
+if RELEASE_BUILD_VALUE not in (None, "0", "1"):
+    raise RuntimeError("UCM_RELEASE_BUILD must be exactly 0 or 1")
+RELEASE_BUILD = RELEASE_BUILD_VALUE == "1"
 
 
-def get_release_version() -> str:
+def get_source_version() -> str:
     version_path = os.path.join(ROOT_DIR, "version.ini")
     with open(version_path, encoding="utf-8") as version_file:
         for line in version_file:
@@ -46,6 +52,98 @@ def get_release_version() -> str:
             if separator and key == "VLLM_UC_VERSION" and value:
                 return value
     raise RuntimeError(f"VLLM_UC_VERSION is missing from {version_path}")
+
+
+def _required_release_value(name: str) -> str:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        raise RuntimeError(f"{name} is required when UCM_RELEASE_BUILD=1")
+    return value
+
+
+def _release_settings() -> dict[str, object] | None:
+    if not RELEASE_BUILD:
+        return None
+    if PLATFORM is None:
+        raise RuntimeError("PLATFORM is required when UCM_RELEASE_BUILD=1")
+    profile = _required_release_value("UCM_RELEASE_PROFILE")
+    source_sha = _required_release_value("UCM_RELEASE_SOURCE_SHA")
+    version = _required_release_value("UCM_RELEASE_VERSION")
+    build_key = _required_release_value("UCM_RELEASE_BUILD_KEY")
+    source_date_epoch = _required_release_value("SOURCE_DATE_EPOCH")
+    required = _required_release_value("UCM_RELEASE_REQUIRED_TARGETS").split(",")
+    forbidden = _required_release_value("UCM_RELEASE_FORBIDDEN_TARGETS").split(",")
+    if re.fullmatch(r"(?:cuda[0-9]+|cann[0-9]+-a[23])", profile) is None:
+        raise RuntimeError(f"invalid UCM_RELEASE_PROFILE={profile!r}")
+    expected_platform = (
+        "ascend-a3"
+        if profile.endswith("-a3")
+        else "ascend" if profile.endswith("-a2") else "cuda"
+    )
+    if PLATFORM != expected_platform:
+        raise RuntimeError(
+            f"PLATFORM={PLATFORM!r} is inconsistent with release profile {profile!r}"
+        )
+    expected_suffix = profile.replace("-a", ".a")
+    source_version = get_source_version()
+    if version != f"{source_version}+{expected_suffix}":
+        raise RuntimeError(
+            f"release version {version!r} is inconsistent with {source_version!r} "
+            f"and profile {profile!r}"
+        )
+    if re.fullmatch(r"[0-9a-f]{40}", source_sha) is None:
+        raise RuntimeError("UCM_RELEASE_SOURCE_SHA must be a full lowercase Git commit")
+    if re.fullmatch(r"sha256:[0-9a-f]{64}", build_key) is None:
+        raise RuntimeError("UCM_RELEASE_BUILD_KEY must be sha256:<64 lowercase hex>")
+    if (
+        not source_date_epoch.isdecimal()
+        or not 315532800 <= int(source_date_epoch) <= 4354819199
+    ):
+        raise RuntimeError(
+            "SOURCE_DATE_EPOCH must fit the canonical ZIP timestamp range"
+        )
+    if (
+        not required
+        or not forbidden
+        or any(not re.fullmatch(r"[a-z0-9_]+", item) for item in required + forbidden)
+        or len(required) != len(set(required))
+        or len(forbidden) != len(set(forbidden))
+        or set(required) & set(forbidden)
+    ):
+        raise RuntimeError("release required/forbidden target lists are invalid")
+    machine = host_platform.machine().lower()
+    architecture = {
+        "x86_64": "amd64",
+        "amd64": "amd64",
+        "aarch64": "arm64",
+        "arm64": "arm64",
+    }.get(machine)
+    if architecture is None:
+        raise RuntimeError(f"unsupported native release architecture: {machine}")
+    if ENABLE_MINDIE:
+        raise RuntimeError("MindIE must be disabled in a release wheel build")
+    if ENABLE_SPARSE is not None and ENABLE_SPARSE.lower() == "true":
+        raise RuntimeError("ENABLE_SPARSE must be false in a release wheel build")
+    return {
+        "profile": profile,
+        "source_sha": source_sha,
+        "version": version,
+        "build_key": build_key,
+        "source_date_epoch": source_date_epoch,
+        "required": required,
+        "forbidden": forbidden,
+        "architecture": architecture,
+        "spec_id": f"{profile}-{architecture}",
+    }
+
+
+RELEASE_SETTINGS = _release_settings()
+
+
+def get_release_version() -> str:
+    if RELEASE_SETTINGS is not None:
+        return str(RELEASE_SETTINGS["version"])
+    return get_source_version()
 
 
 def get_abi_flag_from_env() -> str:
@@ -76,14 +174,14 @@ def print_platform_warning():
         RESET = "\033[0m"
 
         warning_msg = f"""
-{RED}{'=' * 80}
+{RED}{"=" * 80}
 {BOLD}⚠️  WARNING: PLATFORM environment variable is not set! ⚠️{RESET}
-{RED}{'=' * 80}{RESET}
+{RED}{"=" * 80}{RESET}
 {YELLOW}Please set PLATFORM to one of: cuda, ascend, ascend-a3, musa, maca{RESET}
 Example:
   {BOLD}export PLATFORM=cuda{RESET}    # For CUDA platform
 {YELLOW}In CI scenarios only, you don't need to specify PLATFORM. If it's not a CI scenario, please uninstall and then reinstall with PLATFORM specified.{RESET}
-{RED}{'=' * 80}{RESET}
+{RED}{"=" * 80}{RESET}
 """
         # Use write and flush to ensure output even without -v flag
         sys.stderr.write(warning_msg)
@@ -172,6 +270,23 @@ class CMakeBuild(build_ext):
             f"-DCMAKE_INSTALL_PREFIX={install_dir}",
         ]
 
+        if RELEASE_SETTINGS is not None:
+            cmake_args += [
+                "-DUCM_RELEASE_BUILD=ON",
+                f"-DUCM_RELEASE_PROFILE={RELEASE_SETTINGS['profile']}",
+                f"-DUCM_RELEASE_SPEC_ID={RELEASE_SETTINGS['spec_id']}",
+                f"-DUCM_RELEASE_SOURCE_SHA={RELEASE_SETTINGS['source_sha']}",
+                f"-DUCM_RELEASE_VERSION={RELEASE_SETTINGS['version']}",
+                f"-DUCM_RELEASE_BUILD_KEY={RELEASE_SETTINGS['build_key']}",
+                f"-DSOURCE_DATE_EPOCH={RELEASE_SETTINGS['source_date_epoch']}",
+                "-DUCM_RELEASE_REQUIRED_TARGETS="
+                + ";".join(RELEASE_SETTINGS["required"]),
+                "-DUCM_RELEASE_FORBIDDEN_TARGETS="
+                + ";".join(RELEASE_SETTINGS["forbidden"]),
+                "-DBUILD_UCM_MINDIE=OFF",
+                "-DBUILD_UCM_SPARSE=OFF",
+            ]
+
         if ENABLE_MINDIE:
             cmake_args += ["-DBUILD_UCM_MINDIE=ON"]
             cmake_args += [f"-DUCM_CXX11_ABI={UCM_CXX11_ABI}"]
@@ -201,17 +316,25 @@ class CMakeBuild(build_ext):
                 cmake_args += ["-DRUNTIME_ENVIRONMENT=simu"]
                 cmake_args += ["-DBUILD_UCM_SPARSE=OFF"]
 
+        build_env = os.environ.copy()
+        if RELEASE_SETTINGS is not None:
+            build_env["SOURCE_DATE_EPOCH"] = str(RELEASE_SETTINGS["source_date_epoch"])
+            build_env["TZ"] = "UTC"
         subprocess.check_call(
-            ["cmake", *cmake_args, ext.cmake_file_path], cwd=build_dir
+            ["cmake", *cmake_args, ext.cmake_file_path],
+            cwd=build_dir,
+            env=build_env,
         )
         subprocess.check_call(
             ["cmake", "--build", ".", "--config", "Release", "--", "-j8"],
             cwd=build_dir,
+            env=build_env,
         )
 
         subprocess.check_call(
             ["cmake", "--install", ".", "--config", "Release", "--component", "ucm"],
             cwd=build_dir,
+            env=build_env,
         )
 
 

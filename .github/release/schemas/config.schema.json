@@ -79,7 +79,7 @@
       "required": [
         "id", "accelerator", "accelerator_runtime", "npu_arch", "os",
         "cpu_arch", "python_version", "python_abi", "wheel_version",
-        "binary_profile_id", "validation_targets", "required_native",
+        "wheel_platform", "binary_profile_id", "allowed_dt_needed", "validation_targets", "required_native",
         "forbidden_native", "builders"
       ],
       "properties": {
@@ -101,7 +101,12 @@
         "python_version": {"const": "3.12"},
         "python_abi": {"const": "cp312"},
         "wheel_version": {"type": "string", "pattern": "^0\\.5\\.0rc1\\+(cuda130|cann900\\.(a2|a3))$"},
+        "wheel_platform": {"enum": ["manylinux_2_28", "linux"]},
         "binary_profile_id": {"type": "string", "pattern": "^release-(cuda130|cann900-a[23])$"},
+        "allowed_dt_needed": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+$"}
+        },
         "validation_targets": {
           "type": "array", "minItems": 1, "uniqueItems": true,
           "items": {"enum": ["cuda-13.0", "a2", "a3"]}
