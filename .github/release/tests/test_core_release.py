@@ -46,12 +46,18 @@ EXPECTED_TARGETS = {
 }
 
 CUDA_AMD64_BUILD_KEY = (
-    "sha256:920078a3cd327d21a747e70801611ad3aa3f91d8ae0d51fa26e6d127fb6bf8f1"
+    "sha256:d0ee32872f80529f63b4aa85f2e9160f8aa115e5db493f0adceba983377bacbf"
 )
 A2_AMD64_BUILD_KEY = (
-    "sha256:d7aeaaad84ab38f252495c22f92571a2f07f2c11d70db82ac93c6f230b3c0bbf"
+    "sha256:c18c73be8e9bd04f710c304b84df807d78462e5af0abfdcff24ab65b3db81e7d"
 )
 SOURCE_DATE_EPOCH = 1_700_000_000
+REVIEWED_SOURCE_SHA = subprocess.run(
+    ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+    text=True,
+    capture_output=True,
+    check=True,
+).stdout.strip()
 CUDA_REQUIRED_NATIVE = [
     "ucmtrans",
     "metrics",
@@ -373,7 +379,7 @@ def _native_component_manifest(
     *,
     profile_id: str = "cuda130",
     spec_id: str = "cuda130-amd64",
-    source_sha: str = "d" * 40,
+    source_sha: str = REVIEWED_SOURCE_SHA,
     build_key: str = CUDA_AMD64_BUILD_KEY,
     cpu_arch: str = "amd64",
     required: list[str] | None = None,
@@ -460,10 +466,85 @@ def _seal_native_wheel(
     raw: Path,
     *,
     spec_id: str = "cuda130-amd64",
-    source_sha: str = "d" * 40,
+    source_sha: str = REVIEWED_SOURCE_SHA,
     build_key: str = CUDA_AMD64_BUILD_KEY,
+    authority_mutation=None,
+    closure_resolved: tuple[str, ...] = ("libc.so.6",),
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
+    matrix = release_core.build_matrix("feature-candidate")
+    task = next(item for item in matrix["tasks"] if item["spec_id"] == spec_id)
+    release = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
+    tool_wheels = {
+        value["filename"]: value["sha256"]
+        for value in release["python_build_lock"]["packages"].values()
+    }
+    cmake = release["python_build_lock"]["cmake"]["artifacts"][task["cpu_arch"]]
+    tool_wheels[cmake["filename"]] = cmake["sha256"]
+    source_tree = _git(ROOT, "rev-parse", f"{REVIEWED_SOURCE_SHA}^{{tree}}")
+    root = task["builder"]["root"]
+    authority = {
+        "schema_version": 1,
+        "kind": "ucm-native-build-authority",
+        "spec_id": spec_id,
+        "profile_id": task["profile_id"],
+        "cpu_arch": task["cpu_arch"],
+        "platform": task["platform"],
+        "wheel_version": task["wheel_version"],
+        "source_sha": REVIEWED_SOURCE_SHA,
+        "source_tree": source_tree,
+        "source_date_epoch": SOURCE_DATE_EPOCH,
+        "task_sha256": task["task_sha256"],
+        "builder_coordinate": f"{root['repository']}@{root['manifest_digest']}",
+        "builder_config_digest": root["config_digest"],
+        "dependency_lock_sha256": task["dependency_lock_sha256"],
+        "tool_wheels": dict(sorted(tool_wheels.items())),
+        "required_native": task["required_native"],
+        "forbidden_native": task["forbidden_native"],
+    }
+    if authority_mutation is not None:
+        authority_mutation(authority)
+    authority["build_context_sha256"] = (
+        "sha256:" + hashlib.sha256(release_core.canonical_bytes(authority)).hexdigest()
+    )
+    authority_path = tmp_path / "build-authority.json"
+    authority_path.parent.mkdir(parents=True, exist_ok=True)
+    authority_path.write_bytes(release_core.canonical_bytes(authority) + b"\n")
+
+    with zipfile.ZipFile(raw) as archive:
+        native_names = sorted(
+            item.filename
+            for item in archive.infolist()
+            if not item.is_dir() and item.filename.endswith(".so")
+        )
+    closure_members = {}
+    for name in native_names:
+        resolutions = {
+            needed: {
+                "kind": "external",
+                "path": f"/verified-root/{needed}",
+                "sha256": "sha256:" + hashlib.sha256(needed.encode()).hexdigest(),
+            }
+            for needed in closure_resolved
+        }
+        closure_members[name] = {
+            "dt_needed": list(closure_resolved),
+            "resolutions": resolutions,
+        }
+    closure = {
+        "schema_version": 1,
+        "kind": "ucm-linux-dependency-closure",
+        "spec_id": spec_id,
+        "raw_wheel_sha256": "sha256:" + hashlib.sha256(raw.read_bytes()).hexdigest(),
+        "build_context_sha256": authority["build_context_sha256"],
+        "native_members": closure_members,
+        "unresolved_dependencies": [],
+    }
+    closure["closure_sha256"] = (
+        "sha256:" + hashlib.sha256(release_core.canonical_bytes(closure)).hexdigest()
+    )
+    closure_path = tmp_path / "dependency-closure.json"
+    closure_path.write_bytes(release_core.canonical_bytes(closure) + b"\n")
     return _run(
         "wheel",
         "seal",
@@ -476,6 +557,10 @@ def _seal_native_wheel(
         build_key,
         "--source-date-epoch",
         str(SOURCE_DATE_EPOCH),
+        "--authority-file",
+        str(authority_path),
+        "--dependency-closure",
+        str(closure_path),
         "--output-dir",
         str(tmp_path / "sealed"),
         check=check,
@@ -640,6 +725,10 @@ def test_release_config_carries_exact_builder_runtime_and_dependency_authorities
     )
     assert release["wrapt_wheels"]["amd64"]["sha256"] == (
         "sha256:bc570b5f14a79734437cb7b0500376b6b791153314986074486e0b0fa8d71d98"
+    )
+    assert all(
+        "libmetrics.so" in profile["allowed_dt_needed"]
+        for profile in release["wheel_profiles"]
     )
 
 
@@ -1130,10 +1219,13 @@ def test_synthetic_wheel_is_only_an_unpublished_builder_candidate(
     assert (
         "ucm_custom_ops" in rejected_legacy.stderr
         or "binding" in rejected_legacy.stderr
+        or "authority" in rejected_legacy.stderr
     )
 
 
-def test_release_setup_requires_controlled_values_and_uses_local_version() -> None:
+def test_release_setup_requires_controlled_values_and_uses_local_version(
+    tmp_path: Path,
+) -> None:
     base_env = {
         key: value
         for key, value in os.environ.items()
@@ -1150,17 +1242,37 @@ def test_release_setup_requires_controlled_values_and_uses_local_version() -> No
     assert missing_platform.returncode != 0
     assert "PLATFORM" in missing_platform.stderr
 
+    authority_root = tmp_path / "setup-authority"
+    authority_root.mkdir()
+    raw = _raw_native_wheel(authority_root)
+    setup_arch = (
+        "arm64" if os.uname().machine.lower() in {"arm64", "aarch64"} else "amd64"
+    )
+    setup_spec = f"cuda130-{setup_arch}"
+    setup_task = next(
+        item
+        for item in release_core.build_matrix("feature-candidate")["tasks"]
+        if item["spec_id"] == setup_spec
+    )
+    _seal_native_wheel(
+        authority_root,
+        raw,
+        spec_id=setup_spec,
+        build_key=setup_task["task_sha256"],
+        check=False,
+    )
     release_env = {
         **base_env,
         "UCM_RELEASE_BUILD": "1",
         "PLATFORM": "cuda",
         "UCM_RELEASE_PROFILE": "cuda130",
-        "UCM_RELEASE_SOURCE_SHA": "d" * 40,
+        "UCM_RELEASE_SOURCE_SHA": REVIEWED_SOURCE_SHA,
         "UCM_RELEASE_VERSION": "0.5.0rc1+cuda130",
-        "UCM_RELEASE_BUILD_KEY": CUDA_AMD64_BUILD_KEY,
+        "UCM_RELEASE_BUILD_KEY": setup_task["task_sha256"],
         "UCM_RELEASE_REQUIRED_TARGETS": ",".join(CUDA_REQUIRED_NATIVE),
         "UCM_RELEASE_FORBIDDEN_TARGETS": ",".join(CUDA_FORBIDDEN_NATIVE),
         "SOURCE_DATE_EPOCH": str(SOURCE_DATE_EPOCH),
+        "UCM_RELEASE_AUTHORITY_FILE": str(authority_root / "build-authority.json"),
     }
     controlled = subprocess.run(
         [sys.executable, "setup.py", "--version"],
@@ -1183,6 +1295,35 @@ def test_release_setup_requires_controlled_values_and_uses_local_version() -> No
     )
     assert wrong.returncode != 0
     assert "version" in wrong.stderr.lower()
+
+
+def test_release_setup_rejects_self_consistent_caller_forged_authority() -> None:
+    base_env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("UCM_RELEASE_") and key != "SOURCE_DATE_EPOCH"
+    }
+    forged = subprocess.run(
+        [sys.executable, "setup.py", "--version"],
+        cwd=ROOT,
+        env={
+            **base_env,
+            "UCM_RELEASE_BUILD": "1",
+            "PLATFORM": "cuda",
+            "UCM_RELEASE_PROFILE": "cuda999",
+            "UCM_RELEASE_SOURCE_SHA": "0" * 40,
+            "UCM_RELEASE_VERSION": "0.5.0rc1+cuda999",
+            "UCM_RELEASE_BUILD_KEY": "sha256:" + "0" * 64,
+            "UCM_RELEASE_REQUIRED_TARGETS": "foo",
+            "UCM_RELEASE_FORBIDDEN_TARGETS": "bar",
+            "SOURCE_DATE_EPOCH": str(SOURCE_DATE_EPOCH),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert forged.returncode != 0
+    assert "authority" in forged.stderr.lower()
 
 
 def test_wheel_seal_is_deterministic_and_inspection_recomputes_exact_native_evidence(
@@ -1213,7 +1354,7 @@ def test_wheel_seal_is_deterministic_and_inspection_recomputes_exact_native_evid
         ).stdout
     )
     evidence = inspected["builder_evidence"]
-    assert evidence["source_commit"] == "d" * 40
+    assert evidence["source_commit"] == REVIEWED_SOURCE_SHA
     assert evidence["build_key"] == CUDA_AMD64_BUILD_KEY
     assert evidence["native_components"] == CUDA_REQUIRED_NATIVE
     assert evidence["elf_machines"] == ["EM_X86_64"]
@@ -1300,6 +1441,88 @@ def test_wheel_seal_requires_mooncake_for_ascend(tmp_path: Path) -> None:
     assert rejected.returncode == 2
     assert "mooncakestore" in rejected.stderr
     assert ascend_required[-1] == "mooncakestore"
+
+
+@pytest.mark.parametrize(
+    ("component", "moved_member"),
+    (
+        ("metrics", "arbitrary/location/libmetrics.so"),
+        ("ucmtrans", "ucm/shared/trans/ucmtrans.so"),
+    ),
+)
+def test_wheel_seal_rejects_native_member_moved_from_exact_archive_path(
+    tmp_path: Path, component: str, moved_member: str
+) -> None:
+    raw = _raw_native_wheel(tmp_path)
+
+    def move(entries: dict[str, bytes]) -> None:
+        entries[moved_member] = entries.pop(NATIVE_MEMBERS[component])
+
+    moved = tmp_path / f"moved-{component}.whl"
+    with zipfile.ZipFile(raw) as archive:
+        entries = {
+            item.filename: archive.read(item.filename)
+            for item in archive.infolist()
+            if not item.is_dir()
+        }
+    move(entries)
+    with zipfile.ZipFile(moved, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, data in entries.items():
+            archive.writestr(name, data)
+    rejected = _seal_native_wheel(tmp_path, moved, check=False)
+    assert rejected.returncode == 2
+    assert "archive path" in rejected.stderr.lower()
+
+
+def test_wheel_seal_rejects_allowed_but_unresolved_dependency(tmp_path: Path) -> None:
+    raw = _raw_native_wheel(tmp_path, needed=("libcuda.so.1",))
+    rejected = _seal_native_wheel(tmp_path, raw, closure_resolved=(), check=False)
+    assert rejected.returncode == 2
+    assert "unresolved" in rejected.stderr.lower()
+
+
+def test_wheel_seal_requires_libmetrics_from_exact_wheel_member(
+    tmp_path: Path,
+) -> None:
+    raw = _raw_native_wheel(tmp_path, needed=("libmetrics.so",))
+    rejected = _seal_native_wheel(
+        tmp_path, raw, closure_resolved=("libmetrics.so",), check=False
+    )
+    assert rejected.returncode == 2
+    assert "exact wheel member" in rejected.stderr.lower()
+
+
+def test_wheel_seal_rejects_forged_source_even_when_manifest_agrees(
+    tmp_path: Path,
+) -> None:
+    forged_source = "e" * 40
+    raw = _raw_native_wheel(tmp_path, manifest_overrides={"source_sha": forged_source})
+    rejected = _seal_native_wheel(tmp_path, raw, source_sha=forged_source, check=False)
+    assert rejected.returncode == 2
+    assert "source authority" in rejected.stderr.lower()
+
+
+@pytest.mark.parametrize("mutation", ("builder", "tool", "task", "tree"))
+def test_wheel_seal_rejects_mutated_build_authority(
+    tmp_path: Path, mutation: str
+) -> None:
+    raw = _raw_native_wheel(tmp_path)
+
+    def mutate(authority: dict[str, object]) -> None:
+        if mutation == "builder":
+            authority["builder_coordinate"] = "evil.invalid/builder@sha256:" + "0" * 64
+        elif mutation == "tool":
+            tools = authority["tool_wheels"]
+            assert isinstance(tools, dict)
+            tools[next(iter(tools))] = "sha256:" + "0" * 64
+        elif mutation == "task":
+            authority["task_sha256"] = "sha256:" + "0" * 64
+        else:
+            authority["source_tree"] = "0" * 40
+
+    rejected = _seal_native_wheel(tmp_path, raw, authority_mutation=mutate, check=False)
+    assert rejected.returncode == 2
+    assert "authority" in rejected.stderr.lower()
 
 
 @pytest.mark.parametrize(

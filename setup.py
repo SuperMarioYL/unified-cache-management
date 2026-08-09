@@ -23,6 +23,8 @@
 #
 
 import atexit
+import hashlib
+import json
 import os
 import platform as host_platform
 import re
@@ -61,11 +63,91 @@ def _required_release_value(name: str) -> str:
     return value
 
 
+def _release_authority() -> dict[str, object]:
+    path = _required_release_value("UCM_RELEASE_AUTHORITY_FILE")
+    with open(path, "rb") as stream:
+        raw = stream.read()
+    try:
+        authority = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"release authority is invalid JSON: {error}") from error
+    fields = {
+        "schema_version",
+        "kind",
+        "spec_id",
+        "profile_id",
+        "cpu_arch",
+        "platform",
+        "wheel_version",
+        "source_sha",
+        "source_tree",
+        "source_date_epoch",
+        "task_sha256",
+        "builder_coordinate",
+        "builder_config_digest",
+        "dependency_lock_sha256",
+        "tool_wheels",
+        "required_native",
+        "forbidden_native",
+        "build_context_sha256",
+    }
+    if not isinstance(authority, dict) or set(authority) != fields:
+        raise RuntimeError("release authority fields are not exact")
+    canonical = json.dumps(
+        authority, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
+    if raw != canonical + b"\n":
+        raise RuntimeError("release authority is noncanonical")
+    context = dict(authority)
+    digest = context.pop("build_context_sha256")
+    expected_digest = (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(
+                context, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+        ).hexdigest()
+    )
+    if digest != expected_digest:
+        raise RuntimeError("release authority context digest is invalid")
+    if (
+        authority["schema_version"] != 1
+        or authority["kind"] != "ucm-native-build-authority"
+        or re.fullmatch(r"[0-9a-f]{40}", str(authority["source_sha"])) is None
+        or re.fullmatch(r"[0-9a-f]{40}", str(authority["source_tree"])) is None
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", str(authority["task_sha256"])) is None
+        or re.fullmatch(
+            r"[^@ ]+@sha256:[0-9a-f]{64}", str(authority["builder_coordinate"])
+        )
+        is None
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", str(authority["builder_config_digest"]))
+        is None
+        or re.fullmatch(
+            r"sha256:[0-9a-f]{64}", str(authority["dependency_lock_sha256"])
+        )
+        is None
+    ):
+        raise RuntimeError("release authority identity is invalid")
+    tools = authority["tool_wheels"]
+    if (
+        not isinstance(tools, dict)
+        or len(tools) != 6
+        or any(
+            not isinstance(name, str)
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", str(value)) is None
+            for name, value in tools.items()
+        )
+    ):
+        raise RuntimeError("release authority tool wheel evidence is invalid")
+    return authority
+
+
 def _release_settings() -> dict[str, object] | None:
     if not RELEASE_BUILD:
         return None
     if PLATFORM is None:
         raise RuntimeError("PLATFORM is required when UCM_RELEASE_BUILD=1")
+    authority = _release_authority()
     profile = _required_release_value("UCM_RELEASE_PROFILE")
     source_sha = _required_release_value("UCM_RELEASE_SOURCE_SHA")
     version = _required_release_value("UCM_RELEASE_VERSION")
@@ -73,7 +155,7 @@ def _release_settings() -> dict[str, object] | None:
     source_date_epoch = _required_release_value("SOURCE_DATE_EPOCH")
     required = _required_release_value("UCM_RELEASE_REQUIRED_TARGETS").split(",")
     forbidden = _required_release_value("UCM_RELEASE_FORBIDDEN_TARGETS").split(",")
-    if re.fullmatch(r"(?:cuda[0-9]+|cann[0-9]+-a[23])", profile) is None:
+    if profile not in {"cuda130", "cann900-a2", "cann900-a3"}:
         raise RuntimeError(f"invalid UCM_RELEASE_PROFILE={profile!r}")
     expected_platform = (
         "ascend-a3"
@@ -120,6 +202,26 @@ def _release_settings() -> dict[str, object] | None:
     }.get(machine)
     if architecture is None:
         raise RuntimeError(f"unsupported native release architecture: {machine}")
+    authority_values = {
+        "profile": (profile, authority["profile_id"]),
+        "source": (source_sha, authority["source_sha"]),
+        "version": (version, authority["wheel_version"]),
+        "build key": (build_key, authority["task_sha256"]),
+        "source epoch": (int(source_date_epoch), authority["source_date_epoch"]),
+        "architecture": (architecture, authority["cpu_arch"]),
+        "spec": (f"{profile}-{architecture}", authority["spec_id"]),
+        "required targets": (required, authority["required_native"]),
+        "forbidden targets": (forbidden, authority["forbidden_native"]),
+    }
+    mismatches = [
+        name
+        for name, (actual, expected) in authority_values.items()
+        if actual != expected
+    ]
+    if mismatches:
+        raise RuntimeError(
+            f"release environment differs from reviewed build authority: {mismatches}"
+        )
     if ENABLE_MINDIE:
         raise RuntimeError("MindIE must be disabled in a release wheel build")
     if ENABLE_SPARSE is not None and ENABLE_SPARSE.lower() == "true":
@@ -134,6 +236,7 @@ def _release_settings() -> dict[str, object] | None:
         "forbidden": forbidden,
         "architecture": architecture,
         "spec_id": f"{profile}-{architecture}",
+        "build_context_sha256": authority["build_context_sha256"],
     }
 
 

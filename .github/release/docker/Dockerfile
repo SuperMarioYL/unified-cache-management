@@ -126,6 +126,15 @@ case "${PLATFORM}" in
 esac
 EOF
 
+RUN PYTHONPATH=/workspace/ucm/.github/release \
+    ucm-python -m ucm_release wheel authority \
+      --spec-id "${UCM_RELEASE_PROFILE}-${TARGETARCH}" \
+      --source-sha "${UCM_RELEASE_SOURCE_SHA}" \
+      --source-date-epoch "${SOURCE_DATE_EPOCH}" \
+      --builder-coordinate "${UCM_BUILDER_IMAGE}" \
+      --wheelhouse /wheelhouse \
+      --output /tmp/build-authority.json
+
 RUN UCM_RELEASE_BUILD=1 \
     PLATFORM="${PLATFORM}" \
     UCM_RELEASE_PROFILE="${UCM_RELEASE_PROFILE}" \
@@ -134,16 +143,15 @@ RUN UCM_RELEASE_BUILD=1 \
     UCM_RELEASE_BUILD_KEY="${UCM_RELEASE_BUILD_KEY}" \
     UCM_RELEASE_REQUIRED_TARGETS="${UCM_RELEASE_REQUIRED_TARGETS}" \
     UCM_RELEASE_FORBIDDEN_TARGETS="${UCM_RELEASE_FORBIDDEN_TARGETS}" \
+    UCM_RELEASE_AUTHORITY_FILE=/tmp/build-authority.json \
     SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}" \
     ucm-python -m build --no-isolation --wheel --outdir /tmp/raw-wheel
 
-RUN ucm-python -m zipfile -e /tmp/raw-wheel/*.whl /tmp/raw-wheel-root && \
-    while IFS= read -r -d '' library; do \
-      readelf -h -d "${library}"; \
-      ldd "${library}"; \
-    done < <(find /tmp/raw-wheel-root -type f -name '*.so' -print0) \
-      | tee /tmp/native-link-audit.txt && \
-    ! grep -F 'not found' /tmp/native-link-audit.txt
+RUN PYTHONPATH=/workspace/ucm/.github/release \
+    ucm-python -m ucm_release wheel closure /tmp/raw-wheel/*.whl \
+      --spec-id "${UCM_RELEASE_PROFILE}-${TARGETARCH}" \
+      --authority-file /tmp/build-authority.json \
+      --output /tmp/dependency-closure.json
 
 RUN PYTHONPATH=/workspace/ucm/.github/release \
     ucm-python -m ucm_release wheel seal /tmp/raw-wheel/*.whl \
@@ -151,6 +159,8 @@ RUN PYTHONPATH=/workspace/ucm/.github/release \
       --source-sha "${UCM_RELEASE_SOURCE_SHA}" \
       --build-key "${UCM_RELEASE_BUILD_KEY}" \
       --source-date-epoch "${SOURCE_DATE_EPOCH}" \
+      --authority-file /tmp/build-authority.json \
+      --dependency-closure /tmp/dependency-closure.json \
       --output-dir /out
 
 FROM wheel-build AS wheel-cuda-build

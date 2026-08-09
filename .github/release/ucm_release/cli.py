@@ -77,8 +77,24 @@ def build_parser() -> argparse.ArgumentParser:
     seal.add_argument("--source-sha", required=True)
     seal.add_argument("--build-key", required=True)
     seal.add_argument("--source-date-epoch", required=True, type=int)
+    seal.add_argument("--authority-file", required=True, type=Path)
+    seal.add_argument("--dependency-closure", required=True, type=Path)
     seal.add_argument("--output-dir", required=True, type=Path)
     _paths(seal)
+    authority = wheel_actions.add_parser("authority")
+    authority.add_argument("--spec-id", required=True)
+    authority.add_argument("--source-sha", required=True)
+    authority.add_argument("--source-date-epoch", required=True, type=int)
+    authority.add_argument("--builder-coordinate", required=True)
+    authority.add_argument("--wheelhouse", required=True, type=Path)
+    authority.add_argument("--output", required=True, type=Path)
+    _paths(authority)
+    closure = wheel_actions.add_parser("closure")
+    closure.add_argument("wheel", type=Path)
+    closure.add_argument("--spec-id", required=True)
+    closure.add_argument("--authority-file", required=True, type=Path)
+    closure.add_argument("--output", required=True, type=Path)
+    _paths(closure)
     fixture_build = wheel_actions.add_parser("fixture-build")
     fixture_build.add_argument("--output-dir", type=Path, required=True)
     fixture_build.add_argument("--source-sha", required=True)
@@ -225,6 +241,30 @@ def main(argv: list[str] | None = None) -> int:
                 args.source_sha,
                 args.build_key,
                 args.source_date_epoch,
+                args.authority_file,
+                args.dependency_closure,
+                release_path=args.release,
+                compatibility_path=args.compatibility,
+                schema_dir=args.schema_dir,
+            )
+        elif (args.group, args.action) == ("wheel", "authority"):
+            result = wheel.build_authority_record(
+                args.output,
+                args.spec_id,
+                args.source_sha,
+                args.source_date_epoch,
+                args.builder_coordinate,
+                args.wheelhouse,
+                release_path=args.release,
+                compatibility_path=args.compatibility,
+                schema_dir=args.schema_dir,
+            )
+        elif (args.group, args.action) == ("wheel", "closure"):
+            result = wheel.audit_dependency_closure(
+                args.wheel,
+                args.output,
+                args.spec_id,
+                args.authority_file,
                 release_path=args.release,
                 compatibility_path=args.compatibility,
                 schema_dir=args.schema_dir,

@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import re
+import shlex
 import shutil
 import tarfile
 import tempfile
@@ -255,6 +256,79 @@ def _docker_stages(dockerfile: str) -> dict[str, dict[str, Any]]:
     return stages
 
 
+def _docker_instruction_arguments(body: str) -> list[tuple[str, list[str]]]:
+    """Parse shell/JSON arguments for the instructions relevant to the audit."""
+    parsed: list[tuple[str, list[str]]] = []
+    for line in body.splitlines():
+        match = re.match(r"^\s*(COPY|ADD|RUN)\s+(.+?)\s*$", line, re.IGNORECASE)
+        if match is None:
+            continue
+        instruction = match.group(1).upper()
+        raw = match.group(2)
+        # Shell-form instructions may continue across physical lines.  The
+        # existing whole-stage regexes audit those commands; only parse a
+        # complete shell line here.  JSON form is necessarily self-contained
+        # and must be parsed so array-form COPY/RUN cannot evade the audit.
+        if not raw.startswith("[") and raw.endswith("\\"):
+            continue
+        try:
+            arguments = json.loads(raw) if raw.startswith("[") else shlex.split(raw)
+        except (json.JSONDecodeError, ValueError) as error:
+            raise ValueError(
+                f"Dockerfile has invalid {instruction} instruction: {error}"
+            ) from error
+        if not isinstance(arguments, list) or not all(
+            isinstance(argument, str) for argument in arguments
+        ):
+            raise ValueError(
+                f"Dockerfile {instruction} arguments must be a string array"
+            )
+        parsed.append((instruction, arguments))
+    return parsed
+
+
+def _source_copy_argument(argument: str) -> bool:
+    normalized = argument.removeprefix("./").rstrip("/")
+    return normalized in {
+        ".",
+        "setup.py",
+        "pyproject.toml",
+        "CMakeLists.txt",
+        "ucm",
+        "scripts",
+    } or normalized.startswith(("ucm/", "scripts/"))
+
+
+def _audit_stage_instructions(stage_name: str, body: str) -> None:
+    if COMPILE_COMMAND_RE.search(body) or SOURCE_BUILD_COMMAND_RE.search(body):
+        raise ValueError(
+            f"install-only target {INSTALL_IMAGE_TARGET!r} reaches compile/source-build "
+            f"commands in stage {stage_name!r}"
+        )
+    if SOURCE_COPY_RE.search(body):
+        raise ValueError(
+            f"install-only target {INSTALL_IMAGE_TARGET!r} reaches a UCM source COPY "
+            f"in stage {stage_name!r}"
+        )
+    for instruction, arguments in _docker_instruction_arguments(body):
+        if instruction in {"COPY", "ADD"}:
+            sources = [value for value in arguments if not value.startswith("--")][:-1]
+            if any(_source_copy_argument(source) for source in sources):
+                raise ValueError(
+                    f"install-only target {INSTALL_IMAGE_TARGET!r} reaches a UCM "
+                    f"source {instruction} in stage {stage_name!r}"
+                )
+        elif instruction == "RUN":
+            normalized = "RUN " + " ".join(arguments)
+            if COMPILE_COMMAND_RE.search(normalized) or SOURCE_BUILD_COMMAND_RE.search(
+                normalized
+            ):
+                raise ValueError(
+                    f"install-only target {INSTALL_IMAGE_TARGET!r} reaches "
+                    f"compile/source-build commands in stage {stage_name!r}"
+                )
+
+
 def _audit_install_only_target(dockerfile: str) -> None:
     """Reject source builds in the final runtime stage dependency closure."""
     stages = _docker_stages(dockerfile)
@@ -272,16 +346,7 @@ def _audit_install_only_target(dockerfile: str) -> None:
         pending.extend(stages[stage_name]["dependencies"])
     for stage_name in sorted(reachable):
         body = stages[stage_name]["body"]
-        if COMPILE_COMMAND_RE.search(body) or SOURCE_BUILD_COMMAND_RE.search(body):
-            raise ValueError(
-                f"install-only target {INSTALL_IMAGE_TARGET!r} reaches compile/source-build "
-                f"commands in stage {stage_name!r}"
-            )
-        if SOURCE_COPY_RE.search(body):
-            raise ValueError(
-                f"install-only target {INSTALL_IMAGE_TARGET!r} reaches a UCM source COPY "
-                f"in stage {stage_name!r}"
-            )
+        _audit_stage_instructions(stage_name, body)
 
 
 def implementation_digests(docker_root: Path = DOCKER_ROOT) -> dict[str, Any]:

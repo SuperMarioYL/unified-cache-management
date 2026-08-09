@@ -829,6 +829,32 @@ FROM runtime-install AS runtime
         image.implementation_digests(mutated)
 
 
+@pytest.mark.parametrize(
+    "forbidden_instruction",
+    (
+        'COPY ["setup.py", "/workspace/ucm/setup.py"]',
+        'COPY ["ucm", "/workspace/ucm/ucm"]',
+        'RUN ["python", "-m", "build", "--wheel"]',
+    ),
+)
+def test_install_only_audit_rejects_json_source_and_build_instructions(
+    tmp_path: Path, forbidden_instruction: str
+) -> None:
+    """JSON-form Docker instructions cannot bypass the runtime source-build gate."""
+    *_, image = _modules()
+    dockerfile = f"""\
+ARG BASE_IMAGE=registry.invalid/base@sha256:{'0' * 64}
+FROM ${{BASE_IMAGE}} AS runtime-install
+{forbidden_instruction}
+COPY ${{UCM_WHEEL}} /tmp/${{UCM_WHEEL}}
+FROM runtime-install AS runtime
+"""
+    mutated = _mutated_docker_root(tmp_path, dockerfile)
+
+    with pytest.raises(ValueError, match="install-only"):
+        image.implementation_digests(mutated)
+
+
 def test_base_helper_rejects_mutable_and_mismatched_subjects(tmp_path: Path) -> None:
     """The FROM argument cannot be a tag or differ from the authorized subject."""
     _, _, context, recipe = _prepare(tmp_path)

@@ -9,8 +9,12 @@ import email.parser
 import hashlib
 import io
 import json
+import os
 import re
 import struct
+import subprocess
+import sys
+import tempfile
 import time
 import zipfile
 import zlib
@@ -23,6 +27,7 @@ from .core import (
     DEFAULT_COMPATIBILITY,
     DEFAULT_RELEASE,
     DEFAULT_SCHEMA_DIR,
+    REPO_ROOT,
     canonical_bytes,
     build_matrix,
     expand_wheel_specs,
@@ -32,6 +37,8 @@ from .core import (
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 FIXTURE_MARKER = "ucm/_fixture_build.py"
 COMPONENT_MANIFEST = "ucm/ucm-native-components.json"
+AUTHORITY_KIND = "ucm-native-build-authority"
+CLOSURE_KIND = "ucm-linux-dependency-closure"
 HOST_PATH_MARKERS = (
     b"/Users/",
     b"/home/runner/",
@@ -40,6 +47,22 @@ HOST_PATH_MARKERS = (
     b"/tmp/",
 )
 ELF_MACHINES = {"amd64": (62, "EM_X86_64"), "arm64": (183, "EM_AARCH64")}
+NATIVE_MEMBER_DIRECTORIES = {
+    "ucmtrans": "ucm/shared/trans",
+    "metrics": "ucm/shared/metrics",
+    "ucmmetrics": "ucm/shared/metrics",
+    "ucmlogger": "ucm/shared/infra/logger",
+    "ucmnfsstore": "ucm/store/nfsstore",
+    "ucmpcstore": "ucm/store/pcstore",
+    "posixstore": "ucm/store/posix",
+    "compressor": "ucm/store/compress",
+    "cachestore": "ucm/store/cache",
+    "emptystore": "ucm/store/empty",
+    "fakestore": "ucm/store/fake",
+    "ucmpipelinestore": "ucm/store/pipeline",
+    "mooncakestore": "ucm/store/mooncakestore",
+    "ds3fsstore": "ucm/store/ds3fs",
+}
 SHARED_LIBRARY_COMPONENTS = {
     "metrics",
     "posixstore",
@@ -228,18 +251,209 @@ def _unique_json(data: bytes, label: str) -> dict[str, Any]:
     return value
 
 
-def _component_for_member(name: str, known_components: set[str]) -> str | None:
-    basename = PurePosixPath(name).name
-    for component in sorted(known_components, key=len, reverse=True):
-        if component in SHARED_LIBRARY_COMPONENTS:
-            if basename == f"lib{component}.so":
-                return component
-        elif re.fullmatch(
-            rf"{re.escape(component)}(?:\.cpython-312-[A-Za-z0-9_-]+)?\.so",
-            basename,
-        ):
-            return component
-    return None
+def _canonical_record(path: Path, label: str) -> dict[str, Any]:
+    raw = Path(path).read_bytes()
+    value = _unique_json(raw, label)
+    if raw != canonical_bytes(value) + b"\n":
+        raise ValueError(f"{label} is noncanonical")
+    return value
+
+
+def _tool_wheel_authority(release: dict[str, Any], architecture: str) -> dict[str, str]:
+    wheels = {
+        item["filename"]: item["sha256"]
+        for item in release["python_build_lock"]["packages"].values()
+    }
+    cmake = release["python_build_lock"]["cmake"]["artifacts"][architecture]
+    wheels[cmake["filename"]] = cmake["sha256"]
+    return dict(sorted(wheels.items()))
+
+
+def _git_value(*arguments: str) -> str | None:
+    completed = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), *arguments],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return completed.stdout.strip() if completed.returncode == 0 else None
+
+
+def _validate_build_authority(
+    authority: dict[str, Any],
+    spec_id: str,
+    release: dict[str, Any],
+    task: dict[str, Any],
+) -> dict[str, Any]:
+    fields = {
+        "schema_version",
+        "kind",
+        "spec_id",
+        "profile_id",
+        "cpu_arch",
+        "platform",
+        "wheel_version",
+        "source_sha",
+        "source_tree",
+        "source_date_epoch",
+        "task_sha256",
+        "builder_coordinate",
+        "builder_config_digest",
+        "dependency_lock_sha256",
+        "tool_wheels",
+        "required_native",
+        "forbidden_native",
+        "build_context_sha256",
+    }
+    if set(authority) != fields:
+        raise ValueError("build authority fields are not exact")
+    context = dict(authority)
+    context_digest = context.pop("build_context_sha256")
+    if (
+        context_digest
+        != "sha256:" + hashlib.sha256(canonical_bytes(context)).hexdigest()
+    ):
+        raise ValueError("build authority context digest is invalid")
+    root = task["builder"]["root"]
+    expected = {
+        "schema_version": 1,
+        "kind": AUTHORITY_KIND,
+        "spec_id": spec_id,
+        "profile_id": task["profile_id"],
+        "cpu_arch": task["cpu_arch"],
+        "platform": task["platform"],
+        "wheel_version": task["wheel_version"],
+        "task_sha256": task["task_sha256"],
+        "builder_coordinate": f"{root['repository']}@{root['manifest_digest']}",
+        "builder_config_digest": root["config_digest"],
+        "dependency_lock_sha256": task["dependency_lock_sha256"],
+        "tool_wheels": _tool_wheel_authority(release, task["cpu_arch"]),
+        "required_native": task["required_native"],
+        "forbidden_native": task["forbidden_native"],
+    }
+    for name, value in expected.items():
+        if authority[name] != value:
+            raise ValueError(f"build authority {name} differs from reviewed task")
+    source_sha = authority["source_sha"]
+    if re.fullmatch(r"[0-9a-f]{40}", str(source_sha)) is None:
+        raise ValueError("build source authority SHA is invalid")
+    if _git_value("rev-parse", "HEAD") != source_sha:
+        raise ValueError("build source authority does not match checked source HEAD")
+    if _git_value("rev-parse", f"{source_sha}^{{tree}}") != authority["source_tree"]:
+        raise ValueError("build source authority tree does not match checked source")
+    _zip_timestamp(authority["source_date_epoch"])
+    return authority
+
+
+def _validate_dependency_closure(
+    closure: dict[str, Any],
+    raw_wheel_sha256: str,
+    authority: dict[str, Any],
+    native: dict[str, Any],
+    archive: zipfile.ZipFile,
+) -> dict[str, Any]:
+    fields = {
+        "schema_version",
+        "kind",
+        "spec_id",
+        "raw_wheel_sha256",
+        "build_context_sha256",
+        "native_members",
+        "unresolved_dependencies",
+        "closure_sha256",
+    }
+    if set(closure) != fields:
+        raise ValueError("dependency closure fields are not exact")
+    digest_input = dict(closure)
+    closure_digest = digest_input.pop("closure_sha256")
+    if (
+        closure_digest
+        != "sha256:" + hashlib.sha256(canonical_bytes(digest_input)).hexdigest()
+    ):
+        raise ValueError("dependency closure digest is invalid")
+    if (
+        closure["schema_version"] != 1
+        or closure["kind"] != CLOSURE_KIND
+        or closure["spec_id"] != authority["spec_id"]
+        or closure["raw_wheel_sha256"] != raw_wheel_sha256
+        or closure["build_context_sha256"] != authority["build_context_sha256"]
+    ):
+        raise ValueError("dependency closure authority binding is invalid")
+    if closure["unresolved_dependencies"] != []:
+        raise ValueError(
+            f"dependency closure has unresolved dependencies: {closure['unresolved_dependencies']}"
+        )
+    expected_names = set(native["native_artifacts"])
+    records = closure["native_members"]
+    if not isinstance(records, dict) or set(records) != expected_names:
+        raise ValueError("dependency closure native member set is not exact")
+    member_digests = {
+        name: "sha256:" + hashlib.sha256(archive.read(name)).hexdigest()
+        for name in expected_names
+    }
+    member_by_basename = {PurePosixPath(name).name: name for name in expected_names}
+    for name in sorted(expected_names):
+        record = records[name]
+        if not isinstance(record, dict) or set(record) != {
+            "dt_needed",
+            "resolutions",
+        }:
+            raise ValueError(f"dependency closure record is invalid: {name}")
+        needed = native["dt_needed"][name]
+        if record["dt_needed"] != needed:
+            missing = sorted(set(needed) - set(record.get("dt_needed", [])))
+            if missing:
+                raise ValueError(
+                    f"dependency closure has unresolved entries for {name}: {missing}"
+                )
+            raise ValueError(f"dependency closure DT_NEEDED differs for {name}")
+        resolutions = record["resolutions"]
+        if not isinstance(resolutions, dict) or set(resolutions) != set(needed):
+            missing = sorted(set(needed) - set(resolutions or {}))
+            raise ValueError(f"dependency closure has unresolved entries: {missing}")
+        for dependency in needed:
+            resolution = resolutions[dependency]
+            internal_member = member_by_basename.get(dependency)
+            if internal_member is not None:
+                expected_resolution = {
+                    "kind": "wheel-member",
+                    "member": internal_member,
+                    "sha256": member_digests[internal_member],
+                }
+                if resolution != expected_resolution:
+                    raise ValueError(
+                        f"dependency closure must resolve internal {dependency} "
+                        "from the exact wheel member"
+                    )
+            elif (
+                not isinstance(resolution, dict)
+                or set(resolution) != {"kind", "path", "sha256"}
+                or resolution["kind"] != "external"
+                or not isinstance(resolution["path"], str)
+                or not resolution["path"].startswith("/")
+                or DIGEST_RE.fullmatch(str(resolution["sha256"])) is None
+            ):
+                raise ValueError(
+                    f"dependency closure external resolution is invalid: {dependency}"
+                )
+    return closure
+
+
+def _expected_native_members(spec: dict[str, Any]) -> dict[str, str]:
+    architecture = {"amd64": "x86_64", "arm64": "aarch64"}[spec["cpu_arch"]]
+    suffix = f".cpython-312-{architecture}-linux-gnu.so"
+    known = set(spec["required_native"]) | set(spec["forbidden_native"])
+    missing = sorted(set(spec["required_native"]) - set(NATIVE_MEMBER_DIRECTORIES))
+    if missing:
+        raise ValueError(f"native component archive paths are undeclared: {missing}")
+    return {
+        component: (
+            f"{NATIVE_MEMBER_DIRECTORIES[component]}/lib{component}.so"
+            if component in SHARED_LIBRARY_COMPONENTS
+            else f"{NATIVE_MEMBER_DIRECTORIES[component]}/{component}{suffix}"
+        )
+        for component in known & set(NATIVE_MEMBER_DIRECTORIES)
+    }
 
 
 def _elf_string(data: bytes, offset: int, size: int, label: str) -> str:
@@ -334,7 +548,10 @@ def _verify_native_evidence(
 ) -> dict[str, Any]:
     required = spec["required_native"]
     forbidden = spec["forbidden_native"]
-    known = set(required) | set(forbidden)
+    expected_members = _expected_native_members(spec)
+    components_by_member = {
+        member: component for component, member in expected_members.items()
+    }
     native_members: dict[str, str] = {}
     elf_evidence: dict[str, dict[str, Any]] = {}
     for item in archive.infolist():
@@ -344,7 +561,27 @@ def _verify_native_evidence(
         data = archive.read(name)
         if not data.startswith(b"\x7fELF"):
             continue
-        component = _component_for_member(name, known)
+        component = components_by_member.get(name)
+        if component is None:
+            basename = PurePosixPath(name).name
+            if any(
+                basename == PurePosixPath(member).name
+                or basename == component_name
+                or basename == f"{component_name}.so"
+                for component_name, member in expected_members.items()
+            ):
+                raise ValueError(f"native component archive path is not exact: {name}")
+            component = next(
+                (
+                    forbidden_component
+                    for forbidden_component in forbidden
+                    if re.fullmatch(
+                        rf"(?:lib)?{re.escape(forbidden_component)}(?:\.cpython-312-[A-Za-z0-9_-]+)?\.so",
+                        basename,
+                    )
+                ),
+                None,
+            )
         if component is None:
             raise ValueError(f"unclassified native wheel member: {name}")
         if component in native_members:
@@ -390,7 +627,6 @@ def _verify_native_evidence(
         "dt_needed": {
             name: elf_evidence[name]["needed"] for name in sorted(elf_evidence)
         },
-        "unresolved_dependencies": [],
     }
 
 
@@ -433,12 +669,203 @@ def _verify_component_manifest(
     return manifest, digest
 
 
+def build_authority_record(
+    output: Path,
+    spec_id: str,
+    source_sha: str,
+    source_date_epoch: int,
+    builder_coordinate: str,
+    wheelhouse: Path,
+    *,
+    release_path: Path = DEFAULT_RELEASE,
+    compatibility_path: Path = DEFAULT_COMPATIBILITY,
+    schema_dir: Path = DEFAULT_SCHEMA_DIR,
+) -> dict[str, Any]:
+    """Derive build authority from the checked Git tree and locked tool bytes."""
+    release, _ = validate_config(release_path, compatibility_path, schema_dir)
+    tasks = {
+        item["spec_id"]: item
+        for item in build_matrix(
+            "feature-candidate", release_path, compatibility_path, schema_dir
+        )["tasks"]
+    }
+    if spec_id not in tasks:
+        raise ValueError(f"unknown build authority spec: {spec_id}")
+    task = tasks[spec_id]
+    if _git_value("rev-parse", "HEAD") != source_sha:
+        raise ValueError("source authority SHA does not match checked source HEAD")
+    source_tree = _git_value("rev-parse", f"{source_sha}^{{tree}}")
+    if source_tree is None:
+        raise ValueError("source authority tree cannot be resolved")
+    status = _git_value("status", "--porcelain", "--untracked-files=all")
+    if status:
+        raise ValueError("source authority requires a clean checked source tree")
+    expected_tools = _tool_wheel_authority(release, task["cpu_arch"])
+    wheelhouse = Path(wheelhouse)
+    actual_names = sorted(item.name for item in wheelhouse.iterdir() if item.is_file())
+    if actual_names != sorted(expected_tools):
+        raise ValueError("build tool wheelhouse file set differs from reviewed lock")
+    for filename, expected_digest in expected_tools.items():
+        if _sha256(wheelhouse / filename) != expected_digest:
+            raise ValueError(f"build tool wheel bytes differ from lock: {filename}")
+    root = task["builder"]["root"]
+    record: dict[str, Any] = {
+        "schema_version": 1,
+        "kind": AUTHORITY_KIND,
+        "spec_id": spec_id,
+        "profile_id": task["profile_id"],
+        "cpu_arch": task["cpu_arch"],
+        "platform": task["platform"],
+        "wheel_version": task["wheel_version"],
+        "source_sha": source_sha,
+        "source_tree": source_tree,
+        "source_date_epoch": source_date_epoch,
+        "task_sha256": task["task_sha256"],
+        "builder_coordinate": builder_coordinate,
+        "builder_config_digest": root["config_digest"],
+        "dependency_lock_sha256": task["dependency_lock_sha256"],
+        "tool_wheels": expected_tools,
+        "required_native": task["required_native"],
+        "forbidden_native": task["forbidden_native"],
+    }
+    record["build_context_sha256"] = (
+        "sha256:" + hashlib.sha256(canonical_bytes(record)).hexdigest()
+    )
+    _validate_build_authority(record, spec_id, release, task)
+    Path(output).write_bytes(canonical_bytes(record) + b"\n")
+    return record
+
+
+def audit_dependency_closure(
+    path: Path,
+    output: Path,
+    spec_id: str,
+    authority_path: Path,
+    *,
+    release_path: Path = DEFAULT_RELEASE,
+    compatibility_path: Path = DEFAULT_COMPATIBILITY,
+    schema_dir: Path = DEFAULT_SCHEMA_DIR,
+) -> dict[str, Any]:
+    """Resolve every DT_NEEDED entry under Linux with wheel directories visible."""
+    if sys.platform != "linux":
+        raise ValueError("dependency closure audit requires Linux")
+    release, _ = validate_config(release_path, compatibility_path, schema_dir)
+    specs = {item["spec_id"]: item for item in expand_wheel_specs(release)}
+    tasks = {
+        item["spec_id"]: item
+        for item in build_matrix(
+            "feature-candidate", release_path, compatibility_path, schema_dir
+        )["tasks"]
+    }
+    if spec_id not in specs:
+        raise ValueError(f"unknown dependency closure spec: {spec_id}")
+    authority = _validate_build_authority(
+        _canonical_record(authority_path, "build authority"),
+        spec_id,
+        release,
+        tasks[spec_id],
+    )
+    raw_digest = _sha256(Path(path))
+    with zipfile.ZipFile(path) as archive:
+        native = _verify_native_evidence(archive, specs[spec_id])
+        with tempfile.TemporaryDirectory(prefix="ucm-wheel-closure-") as temporary:
+            root = Path(temporary)
+            for name in archive.namelist():
+                if not _safe_wheel_name(name):
+                    raise ValueError("dependency closure wheel has unsafe members")
+                archive.extract(name, root)
+            loader_dirs = sorted(
+                {str((root / name).parent) for name in native["native_artifacts"]}
+            )
+            environment = {
+                **os.environ,
+                "LD_LIBRARY_PATH": ":".join(
+                    [*loader_dirs, os.environ.get("LD_LIBRARY_PATH", "")]
+                ).rstrip(":"),
+            }
+            members: dict[str, Any] = {}
+            unresolved: list[str] = []
+            extracted_by_name = {
+                PurePosixPath(name).name: (name, root / name)
+                for name in native["native_artifacts"]
+            }
+            for name in native["native_artifacts"]:
+                library = root / name
+                readelf = subprocess.run(
+                    ["readelf", "-h", "-d", str(library)],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                if readelf.returncode != 0:
+                    raise ValueError(f"readelf failed for dependency closure: {name}")
+                linked = subprocess.run(
+                    ["ldd", str(library)],
+                    env=environment,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                if linked.returncode != 0:
+                    raise ValueError(f"ldd failed for dependency closure: {name}")
+                resolutions: dict[str, Any] = {}
+                for dependency in native["dt_needed"][name]:
+                    match = re.search(
+                        rf"(?m)^\s*{re.escape(dependency)}\s+=>\s+(\S+)",
+                        linked.stdout,
+                    )
+                    if match is None or match.group(1) == "not":
+                        unresolved.append(f"{name}:{dependency}")
+                        continue
+                    resolved = Path(match.group(1)).resolve()
+                    internal = extracted_by_name.get(dependency)
+                    if internal is not None and resolved == internal[1].resolve():
+                        resolutions[dependency] = {
+                            "kind": "wheel-member",
+                            "member": internal[0],
+                            "sha256": _sha256(internal[1]),
+                        }
+                    elif resolved.is_file():
+                        resolutions[dependency] = {
+                            "kind": "external",
+                            "path": str(resolved),
+                            "sha256": _sha256(resolved),
+                        }
+                    else:
+                        unresolved.append(f"{name}:{dependency}")
+                members[name] = {
+                    "dt_needed": native["dt_needed"][name],
+                    "resolutions": resolutions,
+                }
+    record: dict[str, Any] = {
+        "schema_version": 1,
+        "kind": CLOSURE_KIND,
+        "spec_id": spec_id,
+        "raw_wheel_sha256": raw_digest,
+        "build_context_sha256": authority["build_context_sha256"],
+        "native_members": members,
+        "unresolved_dependencies": sorted(unresolved),
+    }
+    record["closure_sha256"] = (
+        "sha256:" + hashlib.sha256(canonical_bytes(record)).hexdigest()
+    )
+    if unresolved:
+        raise ValueError(
+            f"dependency closure has unresolved dependencies: {unresolved}"
+        )
+    with zipfile.ZipFile(path) as archive:
+        _validate_dependency_closure(record, raw_digest, authority, native, archive)
+    Path(output).write_bytes(canonical_bytes(record) + b"\n")
+    return record
+
+
 def _verify_builder_candidate_evidence(
     archive: zipfile.ZipFile,
     wheel_metadata: email.message.Message,
     spec: dict[str, Any],
     profile_id: str,
     task: dict[str, Any],
+    release: dict[str, Any],
 ) -> dict[str, Any]:
     names = [item.filename for item in archive.infolist() if not item.is_dir()]
     if FIXTURE_MARKER in names:
@@ -455,6 +882,26 @@ def _verify_builder_candidate_evidence(
             "builder candidate requires exactly one embedded ucm-build.json"
         )
     binding = _unique_json(archive.read(build_names[0]), build_names[0])
+    authority_names = [
+        name for name in names if name.endswith(".dist-info/ucm-build-authority.json")
+    ]
+    closure_names = [
+        name
+        for name in names
+        if name.endswith(".dist-info/ucm-dependency-closure.json")
+    ]
+    if len(authority_names) != 1 or len(closure_names) != 1:
+        raise ValueError(
+            "builder candidate requires one build authority and dependency closure"
+        )
+    authority = _validate_build_authority(
+        _unique_json(archive.read(authority_names[0]), authority_names[0]),
+        spec["spec_id"],
+        release,
+        task,
+    )
+    if archive.read(authority_names[0]) != canonical_bytes(authority) + b"\n":
+        raise ValueError("embedded build authority is noncanonical")
     required = {
         "schema_version",
         "spec_id",
@@ -463,6 +910,12 @@ def _verify_builder_candidate_evidence(
         "profile_id",
         "source_sha",
         "build_key",
+        "build_context_sha256",
+        "source_tree",
+        "builder_coordinate",
+        "builder_config_digest",
+        "dependency_lock_sha256",
+        "tool_wheels",
         "source_date_epoch",
         "accelerator",
         "accelerator_runtime",
@@ -478,6 +931,8 @@ def _verify_builder_candidate_evidence(
         "allowed_dt_needed",
         "native_members",
         "component_manifest_sha256",
+        "dependency_closure_sha256",
+        "build_authority_sha256",
     }
     if set(binding) != required:
         raise ValueError(
@@ -526,6 +981,17 @@ def _verify_builder_candidate_evidence(
             "embedded build binding profile_id does not match planned spec"
         )
     native = _verify_native_evidence(archive, spec)
+    closure_raw = archive.read(closure_names[0])
+    closure_value = _unique_json(closure_raw, closure_names[0])
+    if closure_raw != canonical_bytes(closure_value) + b"\n":
+        raise ValueError("embedded dependency closure is noncanonical")
+    closure = _validate_dependency_closure(
+        closure_value,
+        closure_value["raw_wheel_sha256"],
+        authority,
+        native,
+        archive,
+    )
     _, component_digest = _verify_component_manifest(
         archive,
         spec,
@@ -537,14 +1003,32 @@ def _verify_builder_candidate_evidence(
         raise ValueError("embedded component manifest digest mismatch")
     if binding["native_members"] != native["native_members"]:
         raise ValueError("embedded native member map does not match wheel bytes")
+    authority_digest = (
+        "sha256:" + hashlib.sha256(archive.read(authority_names[0])).hexdigest()
+    )
+    bound_authority = {
+        "source_sha": authority["source_sha"],
+        "build_key": authority["task_sha256"],
+        "build_context_sha256": authority["build_context_sha256"],
+        "source_tree": authority["source_tree"],
+        "builder_coordinate": authority["builder_coordinate"],
+        "builder_config_digest": authority["builder_config_digest"],
+        "dependency_lock_sha256": authority["dependency_lock_sha256"],
+        "tool_wheels": authority["tool_wheels"],
+        "build_authority_sha256": authority_digest,
+        "dependency_closure_sha256": closure["closure_sha256"],
+    }
+    for field, value in bound_authority.items():
+        if binding[field] != value:
+            raise ValueError(f"embedded build binding {field} differs from authority")
     if archive.read(build_names[0]) != canonical_bytes(binding) + b"\n":
         raise ValueError("embedded build binding is noncanonical")
     return {
         "source_commit": binding["source_sha"],
-        "build_context_digest": binding["build_key"],
+        "build_context_digest": binding["build_context_sha256"],
         "build_key": binding["build_key"],
         "source_date_epoch": binding["source_date_epoch"],
-        **native,
+        **{**native, "unresolved_dependencies": closure["unresolved_dependencies"]},
         "record_status": "passed",
     }
 
@@ -667,6 +1151,8 @@ def seal_wheel(
     source_sha: str,
     build_key: str,
     source_date_epoch: int,
+    authority_path: Path,
+    dependency_closure_path: Path,
     *,
     release_path: Path = DEFAULT_RELEASE,
     compatibility_path: Path = DEFAULT_COMPATIBILITY,
@@ -691,15 +1177,26 @@ def seal_wheel(
         )["tasks"]
     }
     task = tasks[spec_id]
-    if build_key != task["task_sha256"]:
+    authority = _validate_build_authority(
+        _canonical_record(authority_path, "build authority"),
+        spec_id,
+        release,
+        task,
+    )
+    if source_sha != authority["source_sha"]:
+        raise ValueError("release wheel source SHA differs from source authority")
+    if build_key != authority["task_sha256"]:
         raise ValueError(
             f"release wheel build key does not match exact task authority for {spec_id}"
         )
+    if source_date_epoch != authority["source_date_epoch"]:
+        raise ValueError("release wheel epoch differs from build authority")
     output_dir = Path(output_dir)
     if output_dir.exists() and any(output_dir.iterdir()):
         raise ValueError("sealed wheel output directory must be absent or empty")
     output_dir.mkdir(parents=True, exist_ok=True)
     raw = Path(path).read_bytes()
+    raw_wheel_sha256 = "sha256:" + hashlib.sha256(raw).hexdigest()
     end_record = raw.rfind(b"PK\x05\x06")
     if end_record < 0 or end_record + 22 > len(raw):
         raise ValueError("input wheel ZIP end record is missing")
@@ -751,6 +1248,13 @@ def seal_wheel(
             archive, spec, profile_id, source_sha, build_key
         )
         native = _verify_native_evidence(archive, spec)
+        closure = _validate_dependency_closure(
+            _canonical_record(dependency_closure_path, "Linux dependency closure"),
+            raw_wheel_sha256,
+            authority,
+            native,
+            archive,
+        )
         members = {
             name: archive.read(name)
             for name in names
@@ -767,6 +1271,8 @@ def seal_wheel(
     metadata_name = f"{expected_dist_info}/METADATA"
     wheel_name = f"{expected_dist_info}/WHEEL"
     build_name = f"{expected_dist_info}/ucm-build.json"
+    authority_name = f"{expected_dist_info}/ucm-build-authority.json"
+    closure_name = f"{expected_dist_info}/ucm-dependency-closure.json"
     record_name = f"{expected_dist_info}/RECORD"
     binding = {
         "schema_version": 1,
@@ -776,6 +1282,12 @@ def seal_wheel(
         "spec_id": spec_id,
         "source_sha": source_sha,
         "build_key": build_key,
+        "build_context_sha256": authority["build_context_sha256"],
+        "source_tree": authority["source_tree"],
+        "builder_coordinate": authority["builder_coordinate"],
+        "builder_config_digest": authority["builder_config_digest"],
+        "dependency_lock_sha256": authority["dependency_lock_sha256"],
+        "tool_wheels": authority["tool_wheels"],
         "source_date_epoch": source_date_epoch,
         "accelerator": spec["accelerator"],
         "accelerator_runtime": spec["accelerator_runtime"],
@@ -791,12 +1303,17 @@ def seal_wheel(
         "allowed_dt_needed": spec["allowed_dt_needed"],
         "native_members": native["native_members"],
         "component_manifest_sha256": component_digest,
+        "dependency_closure_sha256": closure["closure_sha256"],
+        "build_authority_sha256": "sha256:"
+        + hashlib.sha256(canonical_bytes(authority) + b"\n").hexdigest(),
     }
     members[metadata_name] = _canonical_metadata(
         spec["wheel_version"], release["python_runtime_dependencies"]
     )
     members[wheel_name] = _canonical_wheel_metadata(tag)
     members[build_name] = canonical_bytes(binding) + b"\n"
+    members[authority_name] = canonical_bytes(authority) + b"\n"
+    members[closure_name] = canonical_bytes(closure) + b"\n"
     members[record_name] = _record_bytes(members, record_name)
     filename = f"uc_manager-{spec['wheel_version']}-{tag}.whl"
     wheel_path = output_dir / filename
@@ -978,7 +1495,7 @@ def inspect_wheel(
         wheel_metadata = parser.parsestr(archive.read(wheel_names[0]).decode("utf-8"))
         if source_kind == "builder-candidate":
             builder_evidence = _verify_builder_candidate_evidence(
-                archive, wheel_metadata, spec, profile_id, task
+                archive, wheel_metadata, spec, profile_id, task, release
             )
             build_name = next(
                 name

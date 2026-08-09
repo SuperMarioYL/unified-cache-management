@@ -270,7 +270,7 @@ CANONICAL_RELEASE_SECTION_SHA256 = {
     "python_build_lock": "sha256:367531ab722e53b1b3cd6283b7385ae0073c78f51ffedf8bb8658478fc593eb0",
     "wrapt_wheels": "sha256:2c674887f2c73e504ba0da5a83d93e2fc88391405e7ac29aa37d082e6184bfab",
     "chart": "sha256:a4d4da0020be293876a242a22910830cc2c600d308df650837c2ae6d53b67f7f",
-    "wheel_profiles": "sha256:1082eaa39a16c5004c5458468ddfac4d1da6dbd85d15bc59873746e93ee85ff4",
+    "wheel_profiles": "sha256:03af43997bdd323a6e03cb3577b40e3f79654a095dad60164efc36934f807cc5",
     "image_families": "sha256:e7200360dda58fd1d1caeaf0eb52bc4ca33157c521ef408fbc6a06c809c5819e",
 }
 CANONICAL_COMPATIBILITY_SHA256 = (
