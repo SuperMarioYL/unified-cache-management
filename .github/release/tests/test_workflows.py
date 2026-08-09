@@ -1997,6 +1997,21 @@ def test_lint_workflow_explicitly_runs_compact_release_tests() -> None:
     assert "pytest -q .github/release/tests" in text
 
 
+def test_release_test_checkout_fetches_the_parent_commit() -> None:
+    """Source-context tests inspect HEAD^ and cannot run from a depth-one checkout."""
+    lint = _load_workflow(WORKFLOW_DIR / "lint-and-test.yml")
+    steps = _steps(_jobs(lint)["release-tests"])
+    checkout = next(
+        step
+        for step in steps
+        if str(step.get("uses", "")).startswith("actions/checkout@")
+    )
+    assert checkout["with"] == {
+        "persist-credentials": False,
+        "fetch-depth": 2,
+    }
+
+
 def test_release_test_job_installs_locked_setup_runtime_in_clean_python() -> None:
     """Python 3.12 setup-python does not provide setuptools for setup.py tests."""
     lint = _load_workflow(WORKFLOW_DIR / "lint-and-test.yml")
