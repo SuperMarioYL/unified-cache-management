@@ -25,8 +25,9 @@ commit [`b9de1b3a29ae094e4c6d3895b0b642e92aa8ab42`](https://github.com/SuperMari
 - A frozen, downloaded comparison of all 15 artifacts passed across the two
   attempts. The six wheel bytes, Chart package/result, six image archive
   checksums and compact OCI identities, three family plans, candidate
-  inventory, second reconcile, image aggregate payload, and final payload are
-  exact. Only the expected `github.run_attempt` envelope field was excluded.
+  inventory, deterministic zero marker, image aggregate payload, and final
+  payload are exact. Only the expected `github.run_attempt` envelope field was
+  excluded.
 
 This is real hosted build evidence, not a release. The workflows have no GHCR
 login or push, create no Git tag or GitHub Release, and do not write upstream.
@@ -53,7 +54,7 @@ The four release workflows are:
 | --- | --- |
 | `_build-wheel.yml` | Build, seal, reopen, inspect, and upload one reviewed native wheel |
 | `_build-image.yml` | Reopen the same-run wheel, verify the pinned upstream base, install UCM and locked `wrapt`, build a local OCI archive, fully scan it, delete the large archive, and upload compact evidence |
-| `release-vllm-images.yml` | Build all six image members, enforce a six-of-six barrier, form three dual-architecture candidate plans, and recompute the feature-only zero-task result |
+| `release-vllm-images.yml` | Build all six image members, enforce a six-of-six barrier, form three dual-architecture candidate plans, and emit the feature-only deterministic zero marker after exact-six closure validation |
 | `release-ucm.yml` | Project the exact six tasks, build all wheels, package the Chart, invoke the image workflow, enforce the final barrier, and upload the final aggregate |
 
 All feature jobs use `contents: read`. A `v*` or non-fork invocation enters the
@@ -157,23 +158,29 @@ and its release-tree SHA256 is
 The frozen comparison also byte-matched all six wheels and the Chart archive.
 For every image it matched the archive checksum, OCI manifest, config, layers,
 diff IDs, compact closure, content identity, result, authority, and recipe. All
-three family plans, the candidate inventory, and the zero-task second reconcile
+three family plans, the candidate inventory, and the deterministic zero marker
 matched as well.
 
 ## What `second_reconcile.task_count == 0` means
 
 The image aggregate first reopens the exact six same-run wheel and image
-artifacts and creates three unpublished family plans. It then places those
-plans into a deterministic feature candidate inventory and recomputes the
-strict expected task list. Zero means that this closed, exact-six inventory
-contains no missing member or family.
+artifacts, creates three unpublished family plans, and places those plans into a
+deterministic feature candidate inventory. After those gates pass, the current
+implementation directly emits this canonical marker:
+
+```json
+{"decision":"already-present","task_count":0,"tasks":[]}
+```
+
+The marker records that aggregation reached the validated exact-six closure. It
+does not recompute an expected task set or call Registry reconciliation.
 
 It is not a target-GHCR query, publication digest readback, or proof that a
 public tag already exists. Image jobs do read and verify the pinned upstream
 base descriptors; no target-GHCR write or publication readback occurs.
 
 The same-SHA claim comes from the separate strict attempt-1/attempt-2 artifact
-comparison, not from the second-zero value alone.
+comparison, not from the zero marker alone.
 
 ## Historical determinism failure and fix
 

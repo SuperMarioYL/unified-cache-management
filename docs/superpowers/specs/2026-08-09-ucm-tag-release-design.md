@@ -36,11 +36,11 @@
 - 两次 final payload 均为 `sha256:88596b412798e34a037132320044d47283c1bfb9001eab20236f65ad44bcac1b`；image aggregate payload 均为 `sha256:dd2c17b710ddd01b7e836b1dbc25fac866e82a7512d43cbd3e734f083b8a7b37`；
 - publication 为 `{status: blocked, attempted: false}`。
 
-冻结证据的严格比较已通过：六个 wheel bytes、Chart tgz/result、六个 image archive checksum、OCI manifest/config/layers/diff IDs/closure、content identity/result/authority/recipe、三个 family、candidate inventory、second-zero 与两个 aggregate payload 均完全一致。日志、磁盘 telemetry 与 BuildKit session metadata 是诊断信息，不是 release identity；两个 canonical aggregate envelope 只排除了预期不同的 `github.run_attempt`。
+冻结证据的严格比较已通过：六个 wheel bytes、Chart tgz/result、六个 image archive checksum、OCI manifest/config/layers/diff IDs/closure、content identity/result/authority/recipe、三个 family、candidate inventory、deterministic zero marker 与两个 aggregate payload 均完全一致。日志、磁盘 telemetry 与 BuildKit session metadata 是诊断信息，不是 release identity；两个 canonical aggregate envelope 只排除了预期不同的 `github.run_attempt`。
 
 这次闭环保留了失败链：[旧 run 31324468754](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31324468754) 在 `166e0f474a3adab88917d65b7af61ea948f7492c` 上两次 Workflow 均成功，但六个 image identity 全部漂移。共同根因是两个 runtime stage 生成的 `/var/cache/ldconfig/aux-cache`；[`ea931a95c231835a4bb4af353821084af9b998e6`](https://github.com/SuperMarioYL/unified-cache-management/commit/ea931a95c231835a4bb4af353821084af9b998e6) 在执行 `ldconfig` 的同一层删除该缓存。之后加入的 bounded wheel-build retry 只增强传输韧性；新 run 两次都没有发生 retry，retry recovery 证据来自动态 shell 测试，不能写成 hosted retry recovery。
 
-Tag 在当前 Workflow 中仍显式进入 blocked job。生产方案尚缺 GHCR 登录与 push-by-digest、三个双架构 index 合并、目标 GHCR 发布 readback、GitHub Release draft/assets/readback、受保护 Environment，以及 CUDA/A2/A3 真设备和 cluster acceptance。这些差距不能由 feature 的 `second_reconcile.task_count=0` 代替；该值只是对同 run 严格 artifact 清单构造的候选 inventory 做重算，不是目标 GHCR 发布 readback。image job 对固定上游 base descriptor 的只读校验是另一条证据链。
+Tag 在当前 Workflow 中仍显式进入 blocked job。生产方案尚缺 GHCR 登录与 push-by-digest、三个双架构 index 合并、目标 GHCR 发布 readback、GitHub Release draft/assets/readback、受保护 Environment，以及 CUDA/A2/A3 真设备和 cluster acceptance。这些差距不能由 feature 的 `second_reconcile.task_count=0` 代替；当前实现是在 exact-six closure 校验通过后直接生成 deterministic zero marker，并未调用 Registry reconcile，也不是目标 GHCR 发布 readback。image job 对固定上游 base descriptor 的只读校验是另一条证据链。
 
 CANN wheel closure 中的 `libascend_hal.so` 继续以结构化、已解析的 `kind=external-required` host-driver 依赖记录；它既没有被打进 wheel，也不是被策略放行的 unresolved dependency。
 
@@ -410,10 +410,11 @@ Container package 首次出现时可能是 private。发布流程不假设可见
 - wheel、Chart、OCI/evidence 由 Workflow 生成；
 - x64/ARM64 job 的磁盘 preflight 通过并记录实际峰值；若任一 job 低于阈值或 `ENOSPC`，保持 blocked，再依据实测决定是否引入 larger/self-hosted fallback；
 - 同一 SHA rerun 后六个 wheel SHA、Chart SHA、六个 OCI member digest 和三个预期 index build key 完全一致；
-- 第二次 full reconcile 为零新增；
+- exact-six aggregate 生成 canonical zero marker，并明确该 marker 不是
+  Registry reconcile 或发布 readback；
 - PR、Tag、Release、GHCR 和 upstream 均无写入。
 
-当前 run 的两个 attempt 已满足本节 feature candidate 项：六个真实 wheel、六个 install-only image、Chart、三族双架构计划、磁盘门禁、feature 内部 second-zero、same-SHA canonical identity 全量一致，以及 PR、Tag、Release、GHCR 和 upstream 零写入。唯一远端输出是正常的 Actions Artifact 上传。完整 OCI tar 在各 image job 内验证后删除，只上传 compact evidence。Actions Artifact 只有三天 retention，rerun 会更换 artifact ID，因此验收应从当前 run API 枚举 Artifact，不能把任一 attempt 的临时 ID 写成长期下载地址。两次 hosted wheel build 都在首次尝试成功，不能把动态 shell 测试覆盖的 bounded retry 写成 hosted recovery 证据。
+当前 run 的两个 attempt 已满足本节 feature candidate 项：六个真实 wheel、六个 install-only image、Chart、三族双架构计划、磁盘门禁、exact-six aggregate zero marker、same-SHA canonical identity 全量一致，以及 PR、Tag、Release、GHCR 和 upstream 零写入。该 marker 是 closure 后生成的 sentinel，不是 Registry reconcile/readback。唯一远端输出是正常的 Actions Artifact 上传。完整 OCI tar 在各 image job 内验证后删除，只上传 compact evidence。Actions Artifact 只有三天 retention，rerun 会更换 artifact ID，因此验收应从当前 run API 枚举 Artifact，不能把任一 attempt 的临时 ID 写成长期下载地址。两次 hosted wheel build 都在首次尝试成功，不能把动态 shell 测试覆盖的 bounded retry 写成 hosted recovery 证据。
 
 ### 9.4 首个真实 Tag 发布
 

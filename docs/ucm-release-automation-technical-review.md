@@ -22,8 +22,8 @@ production release. All image results are `real-verified-unpublished`, and the
 aggregate records publication as `{status: blocked, attempted: false}`. The
 downloaded identity comparison passed across all 15 artifact groups. It matched
 all six wheel bytes, the Chart, all six compact image identities, three family
-plans, both aggregates, and the feature second-zero result. The only excluded
-field in the aggregate envelopes was the expected `github.run_attempt`.
+plans, both aggregates, and the feature zero marker. The only excluded field in
+the aggregate envelopes was the expected `github.run_attempt`.
 
 ## Reviewed architecture
 
@@ -31,7 +31,7 @@ field in the aggregate envelopes was the expected `github.run_attempt`.
 | --- | --- |
 | `_build-wheel.yml` | Validate `source_sha` and one of six `spec_id` values before checkout; build on the matching native CPU runner; seal, reopen, inspect, and upload one native wheel |
 | `_build-image.yml` | Reopen the exact same-run wheel; verify pinned upstream index/member/config bytes; prepare the allowlisted offline context; build and fully scan a local OCI member; upload compact evidence |
-| `release-vllm-images.yml` | Run the six-member matrix, enforce the six-of-six barrier, reopen every wheel/image pair, form three dual-architecture plans, and require the feature inventory to return zero new tasks |
+| `release-vllm-images.yml` | Run the six-member matrix, enforce the six-of-six barrier, reopen every wheel/image pair, form three dual-architecture plans, and emit the deterministic zero marker after exact-six closure validation |
 | `release-ucm.yml` | Project the reviewed matrix, build six wheels, package the Chart, call the image loop, enforce the final barrier, and aggregate all evidence |
 | `.github/release/ucm_release` | Own strict configuration, source, wheel, ELF/dependency, image, Registry-plan, and aggregate identities |
 | `charts/ucm` | Produce the deterministic product Chart and bind `SOURCE_PROVENANCE.json` |
@@ -154,7 +154,7 @@ The frozen attempt-1 and attempt-2 artifact sets produced this result:
 | Six image archive checksums | Exact match |
 | Six OCI manifests, configs, layers, diff IDs, and compact closures | Exact match |
 | Six image content identities, results, authorities, and recipes | Exact match |
-| Three family plans, candidate inventory, and `second_reconcile` | Exact match |
+| Three family plans, candidate inventory, and deterministic `second_reconcile` zero marker | Exact match |
 | Image aggregate payload | Exact match: `sha256:dd2c17b710ddd01b7e836b1dbc25fac866e82a7512d43cbd3e734f083b8a7b37` |
 | Final aggregate payload | Exact match: `sha256:88596b412798e34a037132320044d47283c1bfb9001eab20236f65ad44bcac1b` |
 
@@ -182,25 +182,27 @@ The remaining artifacts are the [Chart](https://github.com/SuperMarioYL/unified-
 [image aggregate](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/artifacts/9042832261),
 and [final aggregate](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/artifacts/9042839761).
 
-## Meaning of the second zero-task result
+## Meaning of the `second_reconcile` zero marker
 
-`second_reconcile.task_count == 0` is a strict feature-internal recomputation:
+The current real aggregate performs these feature-internal steps:
 
 1. reopen all six wheel artifacts and six compact image artifacts;
 2. require their tasks and source SHA to equal the reviewed matrix;
 3. construct three dual-architecture unpublished family plans;
 4. place those exact plans in a deterministic candidate inventory;
-5. recompute the expected task set and require it to be empty.
+5. directly emit the canonical marker
+   `{"decision":"already-present","task_count":0,"tasks":[]}`.
 
-This proves closure of the same-run feature artifact list. It is not a scan of
-the target GHCR repositories, a publication digest readback, an existing public
-OCI index, or idempotence of a publication path. Image jobs do read pinned
-upstream descriptors, but perform no target-GHCR login or push.
+The marker is a deterministic sentinel emitted after the exact-six closure
+checks pass. It is not a task-set recomputation, a call to Registry reconcile,
+a scan of the target GHCR repositories, a publication digest readback, an
+existing public OCI index, or idempotence of a publication path. Image jobs do
+read pinned upstream descriptors, but perform no target-GHCR login or push.
 
-The result was structurally identical and zero in both current attempts. That
-same-run closure is necessary, but the independent cross-attempt comparison is
-what proves repeatable artifact identities. The historical failure below shows
-why the two claims must remain separate.
+The marker was structurally identical in both current attempts. The enclosing
+aggregate binds the same-run closure, but the independent cross-attempt
+comparison is what proves repeatable artifact identities. The historical
+failure below shows why the two claims must remain separate.
 
 ## Historical determinism failure and repair
 
@@ -208,8 +210,8 @@ At source SHA `166e0f474a3adab88917d65b7af61ea948f7492c`, both attempts of
 [run 31324468754](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31324468754)
 completed successfully. Six wheel identities and the Chart matched, but all six
 image manifest/content identities changed, which changed all three family
-plans and both aggregate payloads. The same-run second reconcile was still zero
-in both attempts; it did not detect that cross-attempt drift.
+plans and both aggregate payloads. The same-run zero marker was still present in
+both attempts; it did not detect that cross-attempt drift.
 
 The common source was the generated `/var/cache/ldconfig/aux-cache` in both
 runtime stages. Commit

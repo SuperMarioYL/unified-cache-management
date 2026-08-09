@@ -110,8 +110,8 @@ of six result reaches aggregation.
 
 The aggregate job downloads all six wheels and all six compact images. It
 reopens each source/task/wheel/image closure, forms three exact dual-architecture
-plans, performs the feature-internal second zero-task computation, and uploads
-`ucm-real-images-<source-sha>`.
+plans, constructs their candidate inventory, emits the deterministic zero marker
+after exact-six closure validation, and uploads `ucm-real-images-<source-sha>`.
 
 ## 3. Configuration and identity
 
@@ -289,7 +289,7 @@ device_validation=external-required
 status=real-verified-unpublished
 ```
 
-## 6. Family aggregation and second reconcile
+## 6. Family aggregation and deterministic zero marker
 
 `aggregate-real` first requires exactly six task records and recomputes the
 reviewed matrix from source SHA plus source epoch. For each task it reopens:
@@ -304,21 +304,22 @@ It then forms three family plans. Each plan must contain exactly
 `linux/amd64` and `linux/arm64`, with each member bound to its task SHA,
 manifest digest, build key, content identity, and image-result digest.
 
-The candidate inventory is built from those three plans. The second reconcile
-compares the expected plans with that exact feature inventory and emits:
+The candidate inventory is built from those three plans. After the exact-six
+closure checks pass, `build_real_family_plans` directly emits this canonical
+`second_reconcile` marker:
 
 ```json
 {"decision":"already-present","task_count":0,"tasks":[]}
 ```
 
-This zero is a strict same-run artifact-list recomputation. It does not query
-the target GHCR repositories and is not publication idempotence or public-tag
-readback. The earlier image jobs separately read and verify pinned upstream
-base descriptors.
+This is a deterministic sentinel, not a second task-set computation. The real
+aggregate does not call Registry reconcile, query the target GHCR repositories,
+or prove publication idempotence or public-tag readback. The earlier image jobs
+separately read and verify pinned upstream base descriptors.
 
 The image aggregate contains six wheels, six images, three families, the
-candidate inventory, and the second reconcile. The final aggregate adds the
-Chart and independently reruns the same reopening logic.
+candidate inventory, and the zero marker. The final aggregate adds the Chart
+and independently reruns the same reopening logic.
 
 ## 7. Hosted evidence and artifact locations
 
@@ -362,7 +363,8 @@ The frozen same-SHA comparison passed for all canonical identities:
 - Chart tgz and result JSON;
 - all six image archive checksums, manifests, configs, layers, diff IDs,
   compact closures, content identities, results, authorities, and recipes;
-- all three family plans, the candidate inventory, and the feature second-zero;
+- all three family plans, the candidate inventory, and the deterministic zero
+  marker;
 - the image aggregate payload and final aggregate payload.
 
 Logs, disk telemetry, and BuildKit session metadata are diagnostics rather than
@@ -411,7 +413,7 @@ At source SHA `166e0f474a3adab88917d65b7af61ea948f7492c`, [run 31324468754](http
 completed successfully twice, but its same-SHA identity comparison failed. The
 six wheel identities and Chart matched while all six image identities drifted,
 which changed all three family plans and both aggregate payloads. Both
-same-run second reconciles still returned zero tasks.
+same-run zero markers were still present.
 
 The common nondeterministic input was the generated
 `/var/cache/ldconfig/aux-cache` in both runtime stages. Commit
@@ -424,9 +426,10 @@ the hosted closure for that repair.
 The earlier fixture path remains regression history. For example,
 [Release run 31260552670](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31260552670)
 at `0ee113433b75868142d86c66ee0cda2af533cc89` built one synthetic wheel
-and one local amd64 OCI archive. Its fixture second reconcile and zero-write
-ledger passed, but it did not build the six native wheels or six real image
-members. It must not be used as the current feature result.
+and one local amd64 OCI archive. Unlike the current real aggregate marker, that
+legacy fixture path performed an actual second reconciliation; its reconcile
+and zero-write ledger passed, but it did not build the six native wheels or six
+real image members. It must not be used as the current feature result.
 
 ## 10. Open items
 
