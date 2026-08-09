@@ -1,4 +1,4 @@
-name: Reusable build fixture integration image
+name: Reusable real install-only UCM image build
 
 on:
   workflow_call:
@@ -6,21 +6,15 @@ on:
       source_sha:
         type: string
         required: true
-      wheel_artifact:
-        type: string
-        required: true
-      image_input_artifact:
-        type: string
-        required: true
-      validation_lane:
+      spec_id:
         type: string
         required: true
     outputs:
       image_artifact:
-        description: Compact verified image metadata artifact
+        description: Compact same-run real image evidence for this reviewed task
         value: ${{ jobs.build.outputs.image_artifact }}
       image_result_sha256:
-        description: Canonical image-result identity
+        description: Canonical real image-result identity
         value: ${{ jobs.build.outputs.image_result_sha256 }}
       oci_digest:
         description: Verified local OCI manifest digest
@@ -31,24 +25,23 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    runs-on: ${{ endsWith(inputs.spec_id, '-arm64') && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 210
     permissions:
       contents: read
     outputs:
-      image_artifact: ${{ steps.result.outputs.image_artifact }}
+      image_artifact: ${{ steps.task.outputs.image_artifact }}
       image_result_sha256: ${{ steps.result.outputs.image_result_sha256 }}
       oci_digest: ${{ steps.result.outputs.oci_digest }}
     env:
-      CRANE_ARCHIVE_SHA256: 36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059
       CRANE_VERSION: v0.20.3
+      CRANE_LINUX_AMD64_SHA256: 36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059
+      CRANE_LINUX_ARM64_SHA256: d2235f7779cd39c6e40f43701d2512c997409f629fb53e621ede0d57d3f995e2
     steps:
       - name: Validate reusable build contract
         env:
-          IMAGE_INPUT_ARTIFACT: ${{ inputs.image_input_artifact }}
           SOURCE_SHA: ${{ inputs.source_sha }}
-          VALIDATION_LANE: ${{ inputs.validation_lane }}
-          WHEEL_ARTIFACT: ${{ inputs.wheel_artifact }}
+          SPEC_ID: ${{ inputs.spec_id }}
         shell: bash
         run: |
           set -euo pipefail
@@ -56,17 +49,41 @@ jobs:
             echo "source_sha must be a full lowercase commit SHA" >&2
             exit 2
           fi
-          if [[ "${VALIDATION_LANE}" != fork-candidate ]]; then
-            echo "production image runners, devices, and publication authority are unresolved" >&2
+          case "${SPEC_ID}" in
+            cuda130-amd64|cuda130-arm64|cann900-a2-amd64|cann900-a2-arm64|cann900-a3-amd64|cann900-a3-arm64) ;;
+            *) echo "spec_id is not one of the six reviewed native tasks" >&2; exit 2 ;;
+          esac
+      - name: Record disk before cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -Pk / | tee "${RUNNER_TEMP}/ucm-disk-before.txt"
+      - name: Free disk for immutable runtime image
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: false
+      - name: Require sixty GiB after cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -Pk / | tee "${RUNNER_TEMP}/ucm-disk-after.txt"
+          available_kib="$(df -Pk / | awk 'NR==2 {print $4}')"
+          available_gib="$((available_kib / 1024 / 1024))"
+          if (( available_gib < 60 )); then
+            echo "runtime image build requires at least 60 GiB, found ${available_gib} GiB" >&2
             exit 2
           fi
-          if [[ -z "${WHEEL_ARTIFACT}" || -z "${IMAGE_INPUT_ARTIFACT}" ]]; then
-            echo "wheel_artifact and image_input_artifact must be non-empty" >&2
-            exit 2
-          fi
+          printf '%s\n' "${available_gib}" >"${RUNNER_TEMP}/ucm-available-gib.txt"
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ inputs.source_sha }}
+          fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -75,24 +92,66 @@ jobs:
         run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
-      - name: Install checksum-pinned Buildx
+      - id: task
+        name: Resolve exact reviewed task and same-run artifact names
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SPEC_ID: ${{ inputs.spec_id }}
+        shell: bash
         run: |
+          set -euo pipefail
+          source_date_epoch="$(git show -s --format=%ct "${SOURCE_SHA}")"
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
           mkdir -p out
-          PYTHONPATH=.github/release python -m ucm_release image toolchain-authority \
-            >out/image-toolchain-authority.json
-          buildx_version="$(python -c 'import json; print(json.load(open("out/image-toolchain-authority.json"))["buildx_version"])')"
-          buildkit_image="$(python -c 'import json; print(json.load(open("out/image-toolchain-authority.json"))["buildkit_image"])')"
+          PYTHONPATH=.github/release python -m ucm_release core hosted-matrix \
+            --source-sha "${SOURCE_SHA}" \
+            --source-date-epoch "${source_date_epoch}" \
+            --spec-id "${SPEC_ID}" \
+            --output out/hosted-task.json >/dev/null
+          PYTHONPATH=.github/release python -m ucm_release image real-authorities \
+            >out/real-image-authorities.json
+          python -c 'import json,sys; a=json.load(open(sys.argv[1])); matches=[x for x in a["members"] if x["spec_id"]==sys.argv[2]]; assert len(matches)==1; t=matches[0]; h=json.load(open(sys.argv[3])); assert t["task_sha256"]==h["task_sha256"]; open(sys.argv[4],"w").write(json.dumps(t,sort_keys=True,separators=(",",":"))+"\n")' \
+            out/real-image-authorities.json "${SPEC_ID}" out/hosted-task.json out/real-image-authority.json
+          {
+            echo "wheel_artifact=$(python -c 'import json; print(json.load(open("out/hosted-task.json"))["wheel_artifact"])')"
+            echo "image_artifact=$(python -c 'import json; print(json.load(open("out/hosted-task.json"))["image_artifact"])')"
+          } >>"${GITHUB_OUTPUT}"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ steps.task.outputs.wheel_artifact }}
+          path: input/wheel
+      - name: Reopen exact same-run wheel artifact
+        env:
+          SPEC_ID: ${{ inputs.spec_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t wheel_paths < <(find input/wheel -maxdepth 1 -type f -name '*.whl' -print | sort)
+          test "${#wheel_paths[@]}" = 1
+          wheel_path="${wheel_paths[0]}"
+          wheel_sha256="sha256:$(sha256sum "${wheel_path}" | cut -d' ' -f1)"
+          PYTHONPATH=.github/release python -m ucm_release wheel inspect \
+            "${wheel_path}" \
+            --spec-id "${SPEC_ID}" \
+            --expected-sha256 "${wheel_sha256}" \
+            --source-kind builder-candidate >out/reopened-wheel-inspection.json
+          cmp input/wheel/wheel-inspection.json out/reopened-wheel-inspection.json
+      - name: Install checksum-pinned Buildx
+        shell: bash
+        run: |
+          set -euo pipefail
+          buildx_version="$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["toolchain"]["buildx_version"])')"
+          buildkit_image="$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["toolchain"]["buildkit_image"])')"
           case "$(uname -m)" in
             x86_64) buildx_arch=amd64 ;;
             aarch64|arm64) buildx_arch=arm64 ;;
             *) echo "unsupported Buildx architecture: $(uname -m)" >&2; exit 2 ;;
           esac
-          buildx_sha="$(python -c 'import json,sys; print(json.load(open("out/image-toolchain-authority.json"))["buildx_linux_sha256"][sys.argv[1]])' "${buildx_arch}")"
-          buildx_sha="${buildx_sha#sha256:}"
+          buildx_sha="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["toolchain"]["buildx_linux_sha256"][sys.argv[2]])' out/real-image-authority.json "${buildx_arch}")"
           buildx_binary="${RUNNER_TEMP}/docker-buildx"
           curl -fsSL --retry 3 -o "${buildx_binary}" \
             "https://github.com/docker/buildx/releases/download/${buildx_version}/buildx-${buildx_version}.linux-${buildx_arch}"
-          echo "${buildx_sha}  ${buildx_binary}" | sha256sum --check
+          echo "${buildx_sha#sha256:}  ${buildx_binary}" | sha256sum --check
           mkdir -p "${HOME}/.docker/cli-plugins"
           install -m 0755 "${buildx_binary}" "${HOME}/.docker/cli-plugins/docker-buildx"
           test "$(docker buildx version | awk '{print $2}')" = "${buildx_version}"
@@ -101,107 +160,149 @@ jobs:
             --driver-opt "image=${buildkit_image}" \
             --use
           docker buildx inspect ucm-release-builder --bootstrap
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: ${{ inputs.wheel_artifact }}
-          path: input/wheel
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: ${{ inputs.image_input_artifact }}
-          path: input/image
       - name: Install checksum-pinned read-only crane
+        shell: bash
         run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) crane_arch=x86_64; crane_sha="${CRANE_LINUX_AMD64_SHA256}" ;;
+            aarch64|arm64) crane_arch=arm64; crane_sha="${CRANE_LINUX_ARM64_SHA256}" ;;
+            *) echo "unsupported crane architecture: $(uname -m)" >&2; exit 2 ;;
+          esac
           mkdir -p "${RUNNER_TEMP}/crane"
-          curl -fsSL --retry 3 \
-            -o "${RUNNER_TEMP}/crane.tar.gz" \
-            "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
-          echo "${CRANE_ARCHIVE_SHA256}  ${RUNNER_TEMP}/crane.tar.gz" | sha256sum --check
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/crane.tar.gz" \
+            "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_${crane_arch}.tar.gz"
+          echo "${crane_sha}  ${RUNNER_TEMP}/crane.tar.gz" | sha256sum --check
           tar -xzf "${RUNNER_TEMP}/crane.tar.gz" -C "${RUNNER_TEMP}/crane" crane
           test "$("${RUNNER_TEMP}/crane/crane" version)" = "${CRANE_VERSION#v}"
           echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
-      - name: Read fixed base blobs and run anonymous best-effort probes
+      - name: Fetch and reopen exact upstream index member and config bytes
+        shell: bash
         run: |
-          mkdir -p base context out
-          PYTHONPATH=.github/release python -m ucm_release image base-authority \
-            >out/base-authority.json
-          base_repository="$(python -c 'import json; print(json.load(open("out/base-authority.json"))["repository"])')"
-          base_index_digest="$(python -c 'import json; print(json.load(open("out/base-authority.json"))["index_digest"])')"
-          base_manifest_digest="$(python -c 'import json; print(json.load(open("out/base-authority.json"))["manifest_digest"])')"
-          base_config_digest="$(python -c 'import json; print(json.load(open("out/base-authority.json"))["config_digest"])')"
-          crane manifest "${base_repository}@${base_index_digest}" >base/index.json
-          crane manifest "${base_repository}@${base_manifest_digest}" >base/manifest.json
-          crane blob "${base_repository}@${base_config_digest}" >base/config.json
-          set +e
-          docker_hub_digest="$(timeout 30 crane digest docker.io/vllm/vllm-openai:v0.10.2 2>/dev/null)"
-          docker_hub_status=$?
-          quay_digest="$(timeout 30 crane digest quay.io/ascend/vllm-ascend:v0.9.1 2>/dev/null)"
-          quay_status=$?
-          set -e
-          printf '{"docker_hub":{"digest":"%s","exit_code":%d,"tag":"v0.10.2"},"identity_input":false,"quay":{"digest":"%s","exit_code":%d,"tag":"v0.9.1"}}\n' \
-            "${docker_hub_digest}" "${docker_hub_status}" "${quay_digest}" "${quay_status}" \
-            >out/live-probes.json
-      - name: Prepare the seven-file install-only context
-        env:
-          SOURCE_SHA: ${{ inputs.source_sha }}
+          set -euo pipefail
+          mkdir -p out/base
+          repository="$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["runtime"]["repository"])')"
+          index_digest="$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["runtime"]["index_digest"])')"
+          manifest_digest="$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["runtime"]["manifest_digest"])')"
+          config_digest="$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["runtime"]["config_digest"])')"
+          test "$(crane digest "${repository}@${index_digest}")" = "${index_digest}"
+          crane manifest "${repository}@${index_digest}" >out/base/index.json
+          crane manifest "${repository}@${manifest_digest}" >out/base/manifest.json
+          crane config "${repository}@${manifest_digest}" >out/base/config.json
+          test "sha256:$(sha256sum out/base/index.json | cut -d' ' -f1)" = "${index_digest}"
+          test "sha256:$(sha256sum out/base/manifest.json | cut -d' ' -f1)" = "${manifest_digest}"
+          test "sha256:$(sha256sum out/base/config.json | cut -d' ' -f1)" = "${config_digest}"
+          family_id="$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["family_id"])')"
+          architecture="$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["cpu_arch"])')"
+          PYTHONPATH=.github/release python -m ucm_release image base-record-real \
+            --family-id "${family_id}" \
+            --architecture "${architecture}" \
+            --index out/base/index.json \
+            --manifest out/base/manifest.json \
+            --config out/base/config.json >out/base-record-real.json
+      - name: Download and hash-check the architecture-specific wrapt wheel
+        shell: bash
         run: |
-          PYTHONPATH=.github/release python -m ucm_release image prepare \
-            --input input/image/image-input.json \
-            --wheel-dir input/wheel \
-            --expected-source-sha "${SOURCE_SHA}" \
-            --base-authority out/base-authority.json \
-            --base-index base/index.json \
-            --base-manifest base/manifest.json \
-            --base-config base/config.json \
+          set -euo pipefail
+          architecture="$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["cpu_arch"])')"
+          wrapt_filename="$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["wrapt_wheel"]["filename"])')"
+          wrapt_sha256="$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["wrapt_wheel"]["sha256"])')"
+          case "${architecture}" in
+            amd64) pip_platform=manylinux2014_x86_64 ;;
+            arm64) pip_platform=manylinux2014_aarch64 ;;
+            *) echo "unsupported wrapt architecture: ${architecture}" >&2; exit 2 ;;
+          esac
+          mkdir -p input/wrapt
+          python -m pip download --disable-pip-version-check --no-cache-dir \
+            --only-binary=:all: --no-deps \
+            --platform "${pip_platform}" --python-version 312 \
+            --implementation cp --abi cp312 \
+            --dest input/wrapt wrapt==1.17.2
+          test "$(find input/wrapt -maxdepth 1 -type f | wc -l | tr -d ' ')" = 1
+          test -f "input/wrapt/${wrapt_filename}"
+          echo "${wrapt_sha256#sha256:}  input/wrapt/${wrapt_filename}" | sha256sum --check
+      - name: Prepare the allowlisted offline runtime-real context
+        shell: bash
+        run: |
+          set -euo pipefail
+          family_id="$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["family_id"])')"
+          architecture="$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["cpu_arch"])')"
+          wheel_path="$(find input/wheel -maxdepth 1 -type f -name '*.whl' -print)"
+          wrapt_path="$(find input/wrapt -maxdepth 1 -type f -name '*.whl' -print)"
+          PYTHONPATH=.github/release python -m ucm_release image prepare-real \
+            --family-id "${family_id}" \
+            --architecture "${architecture}" \
+            --wheel "${wheel_path}" \
+            --wheel-inspection input/wheel/wheel-inspection.json \
+            --base-record out/base-record-real.json \
+            --wrapt-wheel "${wrapt_path}" \
             --output-dir context >out/image-prepare-result.json
-          test "$(find context -maxdepth 1 -type f | wc -l | tr -d ' ')" = 7
-          test ! -e context/ucm
-          test ! -e context/setup.py
-      - name: Build local OCI and run required install gates
+      - name: Build runtime-real OCI and verify compact evidence
+        shell: bash
         run: |
-          base_subject="$(python -c 'import json; print(json.load(open("context/image-recipe.json"))["payload"]["base"]["subject"])')"
-          wheel_filename="$(python -c 'import json; print(json.load(open("context/image-recipe.json"))["payload"]["wheel"]["filename"])')"
-          [[ "${base_subject}" =~ @sha256:[0-9a-f]{64}$ ]]
+          set -euo pipefail
+          export SOURCE_DATE_EPOCH="$(python -c 'import json; print(json.load(open("context/image-recipe.json"))["payload"]["source_date_epoch"])')"
+          recipe_sha256="$(python -c 'import json; print(json.load(open("context/image-recipe.json"))["payload_sha256"])')"
+          task_sha256="$(python -c 'import json; print(json.load(open("context/image-recipe.json"))["payload"]["task_sha256"])')"
+          target_platform="$(python -c 'import json; print(json.load(open("context/image-recipe.json"))["payload"]["target_platform"])')"
+          build_args=()
+          while IFS= read -r build_arg; do
+            build_args+=(--build-arg "${build_arg}")
+          done < <(python -c 'import json; value=json.load(open("context/image-recipe.json"))["payload"]["build"]["build_args"]; [print(f"{key}={item}") for key,item in sorted(value.items())]')
+          build_args+=(--build-arg "UCM_RECIPE_SHA256=${recipe_sha256}")
           docker buildx build \
-            --platform linux/amd64 \
+            --platform "${target_platform}" \
+            --target runtime-real \
             --provenance=false \
             --sbom=false \
-            --build-arg "BASE_IMAGE=${base_subject}" \
-            --build-arg "SOURCE_DATE_EPOCH=0" \
-            --build-arg "UCM_WHEEL=${wheel_filename}" \
+            --annotation "manifest:io.ucm.release.recipe-sha256=${recipe_sha256}" \
+            --annotation "manifest:io.ucm.release.task-sha256=${task_sha256}" \
+            "${build_args[@]}" \
             --metadata-file out/buildkit-metadata.json \
-            --output type=oci,dest=out/image.oci.tar,rewrite-timestamp=true \
+            --output type=oci,dest=out/image.oci.tar,oci-mediatypes=true,rewrite-timestamp=true \
             --progress plain \
             context 2>&1 | tee out/build.log
           sha256sum out/image.oci.tar >out/image-archive.sha256
           PYTHONPATH=.github/release python -m ucm_release image verify \
             --context context \
             --oci out/image.oci.tar \
-            --evidence-dir out/oci-evidence >out/image-result.json
+            --evidence-dir out/oci-evidence \
+            --output-mode feature >out/image-result.json
+          test ! -e out/image.oci.tar
+          rm -f out/image.oci.tar
       - id: result
         name: Expose compact verified image identity
-        env:
-          SOURCE_SHA: ${{ inputs.source_sha }}
+        shell: bash
         run: |
+          set -euo pipefail
           {
-            echo "image_artifact=ucm-image-result-${SOURCE_SHA}"
             echo "image_result_sha256=$(python -c 'import json; print(json.load(open("out/image-result.json"))["result_sha256"])')"
             echo "oci_digest=$(python -c 'import json; print(json.load(open("out/image-result.json"))["oci"]["digest"])')"
           } >>"${GITHUB_OUTPUT}"
           cp context/image-recipe.json out/image-recipe.json
-          cp context/image-metadata.json out/image-metadata.json
-          rm -f out/image.oci.tar
+          cp context/image-authority.json out/image-authority.json
+          cp "${RUNNER_TEMP}/ucm-disk-before.txt" out/disk-before.txt
+          cp "${RUNNER_TEMP}/ucm-disk-after.txt" out/disk-after.txt
+          cp "${RUNNER_TEMP}/ucm-available-gib.txt" out/available-gib.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ steps.result.outputs.image_artifact }}
+          name: ${{ steps.task.outputs.image_artifact }}
           path: |
             out/image-result.json
             out/oci-evidence/
             out/image-recipe.json
-            out/image-metadata.json
+            out/image-authority.json
             out/image-prepare-result.json
+            out/base-record-real.json
+            out/base/
+            out/hosted-task.json
+            out/real-image-authority.json
+            out/reopened-wheel-inspection.json
             out/image-archive.sha256
             out/buildkit-metadata.json
             out/build.log
-            out/live-probes.json
+            out/disk-before.txt
+            out/disk-after.txt
+            out/available-gib.txt
           if-no-files-found: error
           retention-days: 3

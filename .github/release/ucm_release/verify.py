@@ -12,7 +12,13 @@ from types import MappingProxyType
 from typing import Any, Callable
 
 from . import chart, image, wheel
-from .core import build_release_manifest, canonical_bytes, sha256_value, validate_config
+from .core import (
+    build_matrix,
+    build_release_manifest,
+    canonical_bytes,
+    sha256_value,
+    validate_config,
+)
 from .registry import (
     TARGET_REPOSITORIES,
     RegistryBlocker,
@@ -114,6 +120,427 @@ def _load_canonical_json(path: Path, label: str) -> dict[str, Any]:
     if raw != canonical_bytes(value) + b"\n":
         raise ValueError(f"{label} must use canonical JSON bytes")
     return value
+
+
+def hosted_build_matrix(
+    source_sha: str,
+    source_date_epoch: int,
+) -> dict[str, Any]:
+    """Project the reviewed matrix into the only hosted wheel/image task records."""
+    source_sha = _source_sha(source_sha)
+    if (
+        not isinstance(source_date_epoch, int)
+        or isinstance(source_date_epoch, bool)
+        or not 315532800 <= source_date_epoch <= 4354819199
+    ):
+        raise ValueError("hosted source date epoch is outside the ZIP timestamp range")
+    release, _ = validate_config()
+    reviewed = build_matrix("feature-candidate")
+    if len(reviewed["tasks"]) != 6:
+        raise ValueError("hosted build matrix requires exactly six reviewed tasks")
+    platform_values = {
+        "cuda130": ("cuda", "wheel-cuda"),
+        "cann900-a2": ("ascend", "wheel-ascend"),
+        "cann900-a3": ("ascend-a3", "wheel-ascend"),
+    }
+    package_arg_names = {
+        "build": "BUILD",
+        "pyproject-hooks": "PYPROJECT_HOOKS",
+        "packaging": "PACKAGING",
+        "setuptools": "SETUPTOOLS",
+        "wheel": "WHEEL",
+    }
+    tasks: list[dict[str, Any]] = []
+    for reviewed_task in reviewed["tasks"]:
+        profile_id = reviewed_task["profile_id"]
+        if profile_id not in platform_values:
+            raise ValueError(f"hosted task has unsupported profile: {profile_id}")
+        platform_arg, docker_target = platform_values[profile_id]
+        root = reviewed_task["builder"]["root"]
+        build_args = {
+            "SOURCE_DATE_EPOCH": str(source_date_epoch),
+            "UCM_BUILDER_IMAGE": f"{root['repository']}@{root['manifest_digest']}",
+            "PLATFORM": platform_arg,
+            "UCM_RELEASE_PROFILE": profile_id,
+            "UCM_RELEASE_SOURCE_SHA": source_sha,
+            "UCM_RELEASE_VERSION": reviewed_task["wheel_version"],
+            "UCM_RELEASE_BUILD_KEY": reviewed_task["task_sha256"],
+            "UCM_RELEASE_REQUIRED_TARGETS": ",".join(reviewed_task["required_native"]),
+            "UCM_RELEASE_FORBIDDEN_TARGETS": ",".join(
+                reviewed_task["forbidden_native"]
+            ),
+        }
+        for package_name, argument_prefix in package_arg_names.items():
+            package = release["python_build_lock"]["packages"][package_name]
+            build_args[f"{argument_prefix}_VERSION"] = package["version"]
+            build_args[f"{argument_prefix}_FILENAME"] = package["filename"]
+            build_args[f"{argument_prefix}_SHA256"] = package["sha256"]
+        cmake = release["python_build_lock"]["cmake"]
+        cmake_artifact = cmake["artifacts"][reviewed_task["cpu_arch"]]
+        build_args.update(
+            {
+                "CMAKE_VERSION": cmake["version"],
+                "CMAKE_FILENAME": cmake_artifact["filename"],
+                "CMAKE_SHA256": cmake_artifact["sha256"],
+            }
+        )
+        spec_id = reviewed_task["spec_id"]
+        task = {
+            "spec_id": spec_id,
+            "profile_id": profile_id,
+            "cpu_arch": reviewed_task["cpu_arch"],
+            "platform": reviewed_task["platform"],
+            "runner": reviewed_task["runner"],
+            "task_sha256": reviewed_task["task_sha256"],
+            "builder_coordinate": build_args["UCM_BUILDER_IMAGE"],
+            "docker_target": docker_target,
+            "source_sha": source_sha,
+            "source_date_epoch": source_date_epoch,
+            "wheel_artifact": f"ucm-wheel-{spec_id}-{source_sha}",
+            "image_artifact": f"ucm-image-{spec_id}-{source_sha}",
+            "build_args": dict(sorted(build_args.items())),
+        }
+        task["hosted_task_sha256"] = sha256_value(task)
+        tasks.append(task)
+    payload = {
+        "schema_version": 1,
+        "kind": "ucm-real-hosted-build-matrix",
+        "source_sha": source_sha,
+        "source_date_epoch": source_date_epoch,
+        "reviewed_matrix_sha256": reviewed["matrix_sha256"],
+        "github_matrix": {"include": [{"spec_id": item["spec_id"]} for item in tasks]},
+        "tasks": tasks,
+    }
+    return {**payload, "hosted_matrix_sha256": sha256_value(payload)}
+
+
+def build_real_family_plans(
+    image_results: list[dict[str, Any]],
+    *,
+    source_sha: str,
+) -> dict[str, Any]:
+    """Create three deterministic unpublished dual-architecture index plans."""
+    source_sha = _source_sha(source_sha)
+    if not isinstance(image_results, list) or len(image_results) != 6:
+        raise ValueError("real candidate planning requires exactly six image results")
+    reviewed = build_matrix("feature-candidate")
+    expected = {task["spec_id"]: task for task in reviewed["tasks"]}
+    observed: dict[str, dict[str, Any]] = {}
+    for result in image_results:
+        if not isinstance(result, dict):
+            raise ValueError("real image result must be an object")
+        spec_id = result.get("spec_id")
+        if spec_id not in expected or spec_id in observed:
+            raise ValueError("real image results contain an unknown or duplicate task")
+        task = expected[spec_id]
+        source = result.get("source")
+        oci = result.get("oci")
+        required_identity = (
+            result.get("candidate_kind") == "real-candidate"
+            and result.get("fixture_only") is False
+            and result.get("unpublished") is True
+            and result.get("publication_attempted") is False
+            and result.get("status") == "real-verified-unpublished"
+            and result.get("family_id") == task["profile_id"]
+            and result.get("profile_id") == task["profile_id"]
+            and result.get("target_platform") == task["platform"]
+            and result.get("target_repository") == task["target_repository"]
+            and result.get("target_tag") == task["target_tag"]
+            and result.get("task_key") == task["task_sha256"]
+            and isinstance(source, dict)
+            and source.get("commit") == source_sha
+            and isinstance(oci, dict)
+            and oci.get("platform") == task["platform"]
+            and oci.get("published") is False
+        )
+        if not required_identity:
+            raise ValueError(f"real image result differs from reviewed task: {spec_id}")
+        for field in (
+            "build_key_sha256",
+            "result_sha256",
+            "content_identity_sha256",
+        ):
+            if DIGEST_RE.fullmatch(str(result.get(field))) is None:
+                raise ValueError(f"real image result {field} is invalid")
+        if DIGEST_RE.fullmatch(str(oci.get("digest"))) is None:
+            raise ValueError("real image OCI digest is invalid")
+        observed[spec_id] = result
+    if set(observed) != set(expected):
+        raise ValueError("real image results do not match exactly six reviewed tasks")
+
+    families: list[dict[str, Any]] = []
+    for family_id in sorted({task["profile_id"] for task in expected.values()}):
+        family_tasks = sorted(
+            (task for task in expected.values() if task["profile_id"] == family_id),
+            key=lambda item: item["platform"],
+        )
+        if [task["platform"] for task in family_tasks] != [
+            "linux/amd64",
+            "linux/arm64",
+        ]:
+            raise ValueError(f"real image family is not dual architecture: {family_id}")
+        members = [
+            {
+                "platform": task["platform"],
+                "spec_id": task["spec_id"],
+                "task_sha256": task["task_sha256"],
+                "manifest_digest": observed[task["spec_id"]]["oci"]["digest"],
+                "build_key_sha256": observed[task["spec_id"]]["build_key_sha256"],
+                "content_identity_sha256": observed[task["spec_id"]][
+                    "content_identity_sha256"
+                ],
+                "image_result_sha256": observed[task["spec_id"]]["result_sha256"],
+            }
+            for task in family_tasks
+        ]
+        family_payload = {
+            "schema_version": 1,
+            "kind": "ucm-real-candidate-index-plan",
+            "family_id": family_id,
+            "target_repository": family_tasks[0]["target_repository"],
+            "target_tag": family_tasks[0]["target_tag"],
+            "members": members,
+            "unpublished": True,
+            "publication_attempted": False,
+        }
+        families.append({**family_payload, "plan_sha256": sha256_value(family_payload)})
+    inventory_payload = {
+        "schema_version": 1,
+        "kind": "ucm-real-candidate-inventory",
+        "families": copy.deepcopy(families),
+    }
+    return {
+        "families": families,
+        "candidate_inventory": {
+            **inventory_payload,
+            "inventory_sha256": sha256_value(inventory_payload),
+        },
+        "second_reconcile": {
+            "decision": "already-present",
+            "task_count": 0,
+            "tasks": [],
+        },
+    }
+
+
+def _artifact_directory(root: Path, artifact_name: str, label: str) -> Path:
+    root = Path(root)
+    direct = root / artifact_name
+    matches = [direct] if direct.is_dir() else []
+    if root.is_dir() and root.name == artifact_name:
+        matches.append(root)
+    unique = sorted(set(matches))
+    if len(unique) != 1 or any(path.is_symlink() for path in unique):
+        raise ValueError(f"{label} artifact directory is missing or ambiguous")
+    return unique[0]
+
+
+def _one_file(directory: Path, pattern: str, label: str) -> Path:
+    matches = sorted(
+        path
+        for path in Path(directory).glob(pattern)
+        if path.is_file() and not path.is_symlink()
+    )
+    if len(matches) != 1:
+        raise ValueError(f"{label} requires exactly one file matching {pattern}")
+    return matches[0]
+
+
+def _real_chart_summary(result_path: Path, package_path: Path) -> dict[str, Any]:
+    result = _load_canonical_json(result_path, "real hosted Chart result")
+    with tempfile.TemporaryDirectory() as temporary:
+        expected_dir = Path(temporary) / "chart"
+        expected = chart.package_chart(expected_dir)
+        expected_package = expected_dir / expected["filename"]
+        if result != expected:
+            raise ValueError("real hosted Chart result differs from fresh packaging")
+        if (
+            not Path(package_path).is_file()
+            or Path(package_path).is_symlink()
+            or Path(package_path).name != expected["filename"]
+            or Path(package_path).read_bytes() != expected_package.read_bytes()
+        ):
+            raise ValueError("real hosted Chart package differs from fresh packaging")
+    return {
+        "filename": result["filename"],
+        "sha256": result["sha256"],
+        "release_tree_sha256": result["release_tree_sha256"],
+        "rendered_cases": copy.deepcopy(result["rendered_cases"]),
+        "status": result["status"],
+    }
+
+
+def aggregate_real_hosted_evidence(
+    *,
+    wheel_dir: Path,
+    image_dir: Path,
+    source_sha: str,
+    repository: str,
+    ref: str,
+    chart_result_path: Path | None = None,
+    chart_package_path: Path | None = None,
+    run: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Reopen six real wheels/images and derive deterministic feature evidence."""
+    source_sha = _source_sha(source_sha)
+    if (chart_result_path is None) != (chart_package_path is None):
+        raise ValueError(
+            "real hosted Chart result and package must be supplied together"
+        )
+    wheel_root = Path(wheel_dir)
+    image_root = Path(image_dir)
+    if not wheel_root.is_dir() or not image_root.is_dir():
+        raise ValueError("real hosted wheel and image artifact roots must exist")
+
+    task_records: dict[str, dict[str, Any]] = {}
+    for task_path in sorted(wheel_root.glob("ucm-wheel-*/hosted-task.json")):
+        task = _load_canonical_json(task_path, "real hosted task record")
+        spec_id = task.get("spec_id")
+        if not isinstance(spec_id, str) or spec_id in task_records:
+            raise ValueError("real hosted task records are duplicated or malformed")
+        task_records[spec_id] = task
+    if len(task_records) != 6:
+        raise ValueError(
+            "real hosted aggregate requires exactly six wheel task records"
+        )
+    epochs = {task.get("source_date_epoch") for task in task_records.values()}
+    if len(epochs) != 1:
+        raise ValueError("real hosted tasks disagree on source date epoch")
+    source_date_epoch = next(iter(epochs))
+    expected_matrix = hosted_build_matrix(source_sha, source_date_epoch)
+    expected_tasks = {item["spec_id"]: item for item in expected_matrix["tasks"]}
+    if task_records != expected_tasks:
+        raise ValueError("real hosted task records differ from reviewed matrix")
+
+    wheel_summaries: list[dict[str, Any]] = []
+    image_results: list[dict[str, Any]] = []
+    image_summaries: list[dict[str, Any]] = []
+    for spec_id in [item["spec_id"] for item in expected_matrix["tasks"]]:
+        task = expected_tasks[spec_id]
+        wheel_artifact = _artifact_directory(
+            wheel_root, task["wheel_artifact"], f"{spec_id} wheel"
+        )
+        task_path = wheel_artifact / "hosted-task.json"
+        if _load_canonical_json(task_path, f"{spec_id} hosted wheel task") != task:
+            raise ValueError(f"{spec_id} wheel artifact task record differs")
+        wheel_path = _one_file(wheel_artifact, "*.whl", f"{spec_id} wheel")
+        inspection_path = wheel_artifact / "wheel-inspection.json"
+        seal_path = wheel_artifact / "wheel-seal.json"
+        source_context_path = wheel_artifact / "source-context.json"
+        inspection = _load_canonical_json(
+            inspection_path, f"{spec_id} wheel inspection"
+        )
+        seal = _load_canonical_json(seal_path, f"{spec_id} wheel seal")
+        source_context = _load_canonical_json(
+            source_context_path, f"{spec_id} source context"
+        )
+        wheel_sha256 = _file_sha256(wheel_path)
+        reopened = wheel.inspect_wheel(
+            wheel_path, spec_id, wheel_sha256, "builder-candidate"
+        )
+        builder = reopened.get("builder_evidence")
+        if (
+            inspection != reopened
+            or seal.get("source_kind") != "builder-candidate"
+            or seal.get("publication_status") != "unpublished"
+            or seal.get("publication_eligible") is not False
+            or seal.get("spec_id") != spec_id
+            or seal.get("source_sha") != source_sha
+            or seal.get("build_key") != task["task_sha256"]
+            or seal.get("wheel_sha256") != wheel_sha256
+            or seal.get("inspection_sha256") != _file_sha256(inspection_path)
+            or not isinstance(builder, dict)
+            or builder.get("source_commit") != source_sha
+            or builder.get("build_key") != task["task_sha256"]
+            or builder.get("source_date_epoch") != source_date_epoch
+            or source_context.get("source_sha") != source_sha
+            or source_context.get("build_context_sha256")
+            != builder.get("build_context_digest")
+        ):
+            raise ValueError(f"{spec_id} real wheel closure does not reopen")
+        wheel_summaries.append(
+            {
+                "spec_id": spec_id,
+                "task_sha256": task["task_sha256"],
+                "hosted_task_sha256": task["hosted_task_sha256"],
+                "artifact": task["wheel_artifact"],
+                "filename": wheel_path.name,
+                "wheel_sha256": wheel_sha256,
+                "wheel_size": wheel_path.stat().st_size,
+                "inspection_sha256": _file_sha256(inspection_path),
+                "source_tree": source_context.get("source_tree"),
+                "source_context_sha256": source_context.get("build_context_sha256"),
+            }
+        )
+
+        image_artifact = _artifact_directory(
+            image_root, task["image_artifact"], f"{spec_id} image"
+        )
+        if (
+            _load_canonical_json(
+                image_artifact / "hosted-task.json", f"{spec_id} hosted image task"
+            )
+            != task
+        ):
+            raise ValueError(f"{spec_id} image artifact task record differs")
+        result_path = image_artifact / "image-result.json"
+        recipe_path = image_artifact / "image-recipe.json"
+        result = image.validate_image_result(
+            _load_canonical_json(result_path, f"{spec_id} image result")
+        )
+        recipe = _load_canonical_json(recipe_path, f"{spec_id} image recipe")
+        compact = image.validate_real_compact_oci_evidence(
+            image_artifact / "oci-evidence",
+            image_result=result,
+            recipe=recipe,
+        )
+        if (
+            result.get("spec_id") != spec_id
+            or result.get("task_key") != task["task_sha256"]
+            or result.get("source", {}).get("commit") != source_sha
+            or result.get("wheel", {}).get("sha256") != wheel_sha256
+            or compact.get("manifest_digest") != result.get("oci", {}).get("digest")
+        ):
+            raise ValueError(f"{spec_id} image result differs from wheel/task closure")
+        image_results.append(result)
+        image_summaries.append(
+            {
+                "spec_id": spec_id,
+                "task_sha256": task["task_sha256"],
+                "artifact": task["image_artifact"],
+                "manifest_digest": result["oci"]["digest"],
+                "build_key_sha256": result["build_key_sha256"],
+                "content_identity_sha256": result["content_identity_sha256"],
+                "image_result_sha256": result["result_sha256"],
+                "image_result_file_sha256": _file_sha256(result_path),
+                "recipe_sha256": result["recipe_sha256"],
+                "compact_closure_sha256": compact["closure_sha256"],
+            }
+        )
+
+    planned = build_real_family_plans(image_results, source_sha=source_sha)
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "kind": "ucm-real-hosted-image-loop-payload",
+        "mode": "feature-candidate",
+        "repository": repository,
+        "ref": ref,
+        "source_sha": source_sha,
+        "source_date_epoch": source_date_epoch,
+        "workflow_refs": copy.deepcopy(WORKFLOW_REFS),
+        "reviewed_matrix_sha256": expected_matrix["reviewed_matrix_sha256"],
+        "hosted_matrix_sha256": expected_matrix["hosted_matrix_sha256"],
+        "wheels": wheel_summaries,
+        "images": image_summaries,
+        "families": planned["families"],
+        "candidate_inventory": planned["candidate_inventory"],
+        "second_reconcile": planned["second_reconcile"],
+        "publication": {"status": "blocked", "attempted": False},
+    }
+    if chart_result_path is not None and chart_package_path is not None:
+        payload["kind"] = "ucm-real-hosted-release-loop-payload"
+        payload["chart"] = _real_chart_summary(chart_result_path, chart_package_path)
+    return _envelope(payload, run)
 
 
 def prepare_candidate_loop(

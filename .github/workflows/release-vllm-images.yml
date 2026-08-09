@@ -1,131 +1,46 @@
-name: Reconcile UCM vLLM image candidates
+name: Build six real UCM vLLM image candidates
 
 on:
   workflow_call:
     inputs:
-      call_contract:
-        type: string
-        required: false
-        default: ucm-vllm-candidate-v1
       source_sha:
-        type: string
-        required: true
-      wheel_artifact:
-        type: string
-        required: true
-      validation_lane:
         type: string
         required: true
     outputs:
       loop_artifact:
-        description: Compact two-reconcile and image evidence
-        value: ${{ jobs.final-reconcile.outputs.loop_artifact }}
+        description: Deterministic three-family real image candidate evidence
+        value: ${{ jobs.aggregate-images.outputs.loop_artifact }}
       loop_payload_sha256:
-        description: Deterministic image-loop payload identity
-        value: ${{ jobs.final-reconcile.outputs.loop_payload_sha256 }}
-      image_result_sha256:
-        description: Verified Task 4 result identity
-        value: ${{ jobs.final-reconcile.outputs.image_result_sha256 }}
-      oci_digest:
-        description: Verified local OCI manifest digest
-        value: ${{ jobs.final-reconcile.outputs.oci_digest }}
-  schedule:
-    - cron: "17 4 * * *"
-  repository_dispatch:
-    types: [ucm-reconcile]
-  workflow_dispatch:
+        description: Deterministic six-member image-loop payload identity
+        value: ${{ jobs.aggregate-images.outputs.loop_payload_sha256 }}
 
 permissions:
   contents: read
 
 jobs:
-  invalid-call:
-    if: >-
-      ${{
-        ((inputs.call_contract != '' || inputs.source_sha != '' || inputs.wheel_artifact != '' || inputs.validation_lane != '') &&
-        (inputs.call_contract != 'ucm-vllm-candidate-v1' || inputs.source_sha == '' || inputs.wheel_artifact == '' || inputs.validation_lane != 'fork-candidate')) ||
-        ((inputs.call_contract == '' && inputs.source_sha == '' && inputs.wheel_artifact == '' && inputs.validation_lane == '') &&
-        !contains(fromJSON('["schedule","repository_dispatch","workflow_dispatch"]'), github.event_name))
-      }}
+  plan:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - run: |
-          echo "release-vllm-images workflow_call inputs are empty, partial, or unsupported" >&2
-          exit 2
-
-  invalid-manual-ref:
-    if: >-
-      ${{
-        inputs.call_contract == '' && inputs.source_sha == '' && inputs.wheel_artifact == '' && inputs.validation_lane == '' &&
-        github.event_name == 'workflow_dispatch' && github.ref_name != github.event.repository.default_branch
-      }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - run: |
-          echo "manual reconciliation is allowed only from the default branch" >&2
-          exit 2
-
-  standalone-wheel:
-    if: >-
-      ${{
-        inputs.call_contract == '' && inputs.source_sha == '' && inputs.wheel_artifact == '' && inputs.validation_lane == '' &&
-        contains(fromJSON('["schedule","repository_dispatch","workflow_dispatch"]'), github.event_name) &&
-        (github.event_name != 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch)
-      }}
-    permissions:
-      contents: read
-    uses: ./.github/workflows/_build-wheel.yml
-    with:
-      source_sha: ${{ github.sha }}
-      profile_id: cuda-cu129-ubuntu2204-amd64-cp312-release-default-sm75-sm80-sm86-sm89-sm90
-      validation_lane: fork-candidate
-
-  select-input:
-    needs: standalone-wheel
-    if: >-
-      ${{
-        !cancelled() &&
-        ((inputs.call_contract == 'ucm-vllm-candidate-v1' && inputs.source_sha != '' && inputs.wheel_artifact != '' && inputs.validation_lane == 'fork-candidate') || needs.standalone-wheel.result == 'success')
-      }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
-      source_sha: ${{ steps.select.outputs.source_sha }}
-      wheel_artifact: ${{ steps.select.outputs.wheel_artifact }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      source_sha: ${{ steps.plan.outputs.source_sha }}
     steps:
-      - id: select
+      - name: Validate reusable image workflow contract
         env:
-          SOURCE_SHA: ${{ inputs.source_sha != '' && inputs.source_sha || github.sha }}
-          WHEEL_ARTIFACT: ${{ inputs.wheel_artifact != '' && inputs.wheel_artifact || needs.standalone-wheel.outputs.wheel_artifact }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        shell: bash
         run: |
-          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
-          test -n "${WHEEL_ARTIFACT}"
-          echo "source_sha=${SOURCE_SHA}" >>"${GITHUB_OUTPUT}"
-          echo "wheel_artifact=${WHEEL_ARTIFACT}" >>"${GITHUB_OUTPUT}"
-
-  reconcile-fixture:
-    needs: select-input
-    if: ${{ !cancelled() && needs.select-input.result == 'success' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    outputs:
-      image_input_artifact: ${{ steps.plan.outputs.image_input_artifact }}
-      first_reconcile_sha256: ${{ steps.plan.outputs.first_reconcile_sha256 }}
-      upstream_index_digest: ${{ steps.plan.outputs.upstream_index_digest }}
-    steps:
+          set -euo pipefail
+          if [[ ! "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "source_sha must be a full lowercase commit SHA" >&2
+            exit 2
+          fi
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ needs.select-input.outputs.source_sha }}
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -134,68 +49,79 @@ jobs:
         run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: ${{ needs.select-input.outputs.wheel_artifact }}
-          path: input/wheel
       - id: plan
-        name: Scan fixture Registry and reconcile one immutable task
+        name: Project exact six image tasks from reviewed authority
         env:
-          SOURCE_SHA: ${{ needs.select-input.outputs.source_sha }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        shell: bash
         run: |
-          PYTHONPATH=.github/release python -m ucm_release loop prepare \
-            --build-record input/wheel/fixture-build.json \
-            --wheel-inspection input/wheel/wheel-inspection.json \
+          set -euo pipefail
+          source_date_epoch="$(git show -s --format=%ct "${SOURCE_SHA}")"
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          mkdir -p out
+          PYTHONPATH=.github/release python -m ucm_release core hosted-matrix \
             --source-sha "${SOURCE_SHA}" \
-            --output-dir out \
-            --run-id "${GITHUB_RUN_ID}" \
-            --attempt "${GITHUB_RUN_ATTEMPT}" >loop-prepare-result.json
+            --source-date-epoch "${source_date_epoch}" \
+            --output out/hosted-matrix.json >/dev/null
           {
-            echo "image_input_artifact=ucm-image-input-${SOURCE_SHA}"
-            echo "first_reconcile_sha256=$(cat out/first-reconcile.sha256)"
-            echo "upstream_index_digest=$(python -c 'import json; print(json.load(open("loop-prepare-result.json"))["upstream_index_digest"])')"
+            echo "matrix=$(python -c 'import json; print(json.dumps(json.load(open("out/hosted-matrix.json"))["github_matrix"],separators=(",",":")))')"
+            echo "source_sha=${SOURCE_SHA}"
           } >>"${GITHUB_OUTPUT}"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: ${{ steps.plan.outputs.image_input_artifact }}
-          path: |
-            out/prepared-loop.json
-            out/image-input.json
-            out/candidate.json
-            out/first-reconcile.json
-            out/first-reconcile.sha256
-            out/loop-verification.json
-          if-no-files-found: error
-          retention-days: 3
 
-  build-image:
-    needs: [select-input, reconcile-fixture]
-    if: ${{ !cancelled() && needs.select-input.result == 'success' && needs.reconcile-fixture.result == 'success' }}
+  build-images:
+    needs: plan
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     permissions:
       contents: read
     uses: ./.github/workflows/_build-image.yml
     with:
-      source_sha: ${{ needs.select-input.outputs.source_sha }}
-      wheel_artifact: ${{ needs.select-input.outputs.wheel_artifact }}
-      image_input_artifact: ${{ needs.reconcile-fixture.outputs.image_input_artifact }}
-      validation_lane: fork-candidate
+      source_sha: ${{ needs.plan.outputs.source_sha }}
+      spec_id: ${{ matrix.spec_id }}
 
-  final-reconcile:
-    needs: [select-input, reconcile-fixture, build-image]
-    if: ${{ !cancelled() && needs.select-input.result == 'success' && needs.reconcile-fixture.result == 'success' && needs.build-image.result == 'success' }}
+  matrix-barrier:
+    needs: [plan, build-images]
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Fail unless plan and every native image member succeeded
+        env:
+          BUILD_IMAGES_RESULT: ${{ needs.build-images.result }}
+          PLAN_RESULT: ${{ needs.plan.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${PLAN_RESULT}" != success || "${BUILD_IMAGES_RESULT}" != success ]]; then
+            echo "all six image members are required: plan=${PLAN_RESULT} images=${BUILD_IMAGES_RESULT}" >&2
+            exit 2
+          fi
+
+  aggregate-images:
+    needs: [plan, build-images, matrix-barrier]
+    if: >-
+      ${{
+        !cancelled() &&
+        needs.plan.result == 'success' &&
+        needs.build-images.result == 'success' &&
+        needs.matrix-barrier.result == 'success'
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: read
     outputs:
-      loop_artifact: ${{ steps.close.outputs.loop_artifact }}
-      loop_payload_sha256: ${{ steps.close.outputs.loop_payload_sha256 }}
-      image_result_sha256: ${{ steps.close.outputs.image_result_sha256 }}
-      oci_digest: ${{ steps.close.outputs.oci_digest }}
+      loop_artifact: ${{ steps.aggregate.outputs.loop_artifact }}
+      loop_payload_sha256: ${{ steps.aggregate.outputs.loop_payload_sha256 }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ needs.select-input.outputs.source_sha }}
+          ref: ${{ needs.plan.outputs.source_sha }}
+          fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -206,50 +132,46 @@ jobs:
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: ${{ needs.reconcile-fixture.outputs.image_input_artifact }}
-          path: input/reconcile
+          pattern: ucm-wheel-*-${{ needs.plan.outputs.source_sha }}
+          path: input/wheels
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: ${{ needs.build-image.outputs.image_artifact }}
-          path: input/image
-      - id: close
-        name: Materialize local result and prove the second reconcile is zero
+          pattern: ucm-image-*-${{ needs.plan.outputs.source_sha }}
+          path: input/images
+      - id: aggregate
+        name: Reopen six results and prove three plans then second reconcile zero
         env:
-          SOURCE_SHA: ${{ needs.select-input.outputs.source_sha }}
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+        shell: bash
         run: |
-          PYTHONPATH=.github/release python -m ucm_release loop complete \
-            --prepared input/reconcile/prepared-loop.json \
-            --image-result input/image/image-result.json \
+          set -euo pipefail
+          mkdir -p out
+          PYTHONPATH=.github/release python -m ucm_release loop aggregate-real \
+            --wheel-dir input/wheels \
+            --image-dir input/images \
+            --repository "${GITHUB_REPOSITORY}" \
+            --ref "${GITHUB_REF}" \
             --source-sha "${SOURCE_SHA}" \
-            --output-dir out \
             --run-id "${GITHUB_RUN_ID}" \
-            --attempt "${GITHUB_RUN_ATTEMPT}" >loop-complete-result.json
+            --attempt "${GITHUB_RUN_ATTEMPT}" \
+            --output out/real-image-loop-evidence.json \
+            --output-dir out/aggregate >out/aggregate-real-result.json
+          test "$(python -c 'import json; print(json.load(open("out/aggregate-real-result.json"))["wheel_count"])')" = 6
+          test "$(python -c 'import json; print(json.load(open("out/aggregate-real-result.json"))["image_count"])')" = 6
+          test "$(python -c 'import json; print(json.load(open("out/aggregate-real-result.json"))["family_count"])')" = 3
+          test "$(python -c 'import json; print(json.load(open("out/aggregate-real-result.json"))["second_task_count"])')" = 0
           {
-            echo "loop_artifact=ucm-vllm-loop-${SOURCE_SHA}"
-            echo "loop_payload_sha256=$(python -c 'import json; print(json.load(open("loop-complete-result.json"))["loop_payload_sha256"])')"
-            echo "image_result_sha256=$(python -c 'import json; print(json.load(open("loop-complete-result.json"))["image_result_sha256"])')"
-            echo "oci_digest=$(python -c 'import json; print(json.load(open("loop-complete-result.json"))["oci_digest"])')"
+            echo "loop_artifact=ucm-real-images-${SOURCE_SHA}"
+            echo "loop_payload_sha256=$(python -c 'import json; print(json.load(open("out/real-image-loop-evidence.json"))["payload_sha256"])')"
           } >>"${GITHUB_OUTPUT}"
-          cp input/image/image-result.json out/image-result.json
-          cp input/image/image-recipe.json out/image-recipe.json
-          cp input/image/image-metadata.json out/image-metadata.json
-          cp input/image/image-prepare-result.json out/image-prepare-result.json
-          cp input/image/buildkit-metadata.json out/buildkit-metadata.json
-          cp input/image/image-archive.sha256 out/image-archive.sha256
-          cp -R input/image/oci-evidence out/oci-evidence
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ steps.close.outputs.loop_artifact }}
+          name: ${{ steps.aggregate.outputs.loop_artifact }}
           path: |
-            out/completed-loop.json
-            out/image-result.json
-            out/image-recipe.json
-            out/image-metadata.json
-            out/image-prepare-result.json
-            out/buildkit-metadata.json
-            out/image-archive.sha256
-            out/oci-evidence/
-            out/second-reconcile.json
-            out/vllm-loop-evidence.json
+            out/real-image-loop-evidence.json
+            out/aggregate-real-result.json
+            out/aggregate/family-plans.json
+            out/aggregate/candidate-inventory.json
+            out/aggregate/second-reconcile.json
           if-no-files-found: error
           retention-days: 3

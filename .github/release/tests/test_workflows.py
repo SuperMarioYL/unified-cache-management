@@ -38,6 +38,7 @@ SAFE_FORK_ACTIONS = {
     "actions/download-artifact",
     "actions/setup-python",
     "actions/upload-artifact",
+    "jlumbroso/free-disk-space",
     "azure/setup-helm",
     "docker/setup-buildx-action",
     "docker/setup-qemu-action",
@@ -54,6 +55,14 @@ FIXTURE_PROFILE = "cuda130-amd64"
 WORKFLOW_FIXTURE_PROFILE = (
     "cuda-cu129-ubuntu2204-amd64-cp312-release-default-sm75-sm80-sm86-sm89-sm90"
 )
+REAL_SPEC_IDS = [
+    "cuda130-amd64",
+    "cuda130-arm64",
+    "cann900-a2-amd64",
+    "cann900-a2-arm64",
+    "cann900-a3-amd64",
+    "cann900-a3-arm64",
+]
 BUILDKIT_IMAGE = (
     "moby/buildkit:v0.18.2@"
     "sha256:86c0ad9d1137c186e9d455912167df20e530bdf7f7c19de802e892bb8ca16552"
@@ -540,6 +549,7 @@ def _toolchain_pin_violations(
                         f"{filename}:{job_name}: setup-helm has no checksum"
                     )
     image_steps = _steps(_jobs(workflows["_build-image.yml"])["build"])
+    image_workflow_text = "\n".join(_strings(workflows["_build-image.yml"]))
     buildx_steps = [
         step
         for step in image_steps
@@ -564,10 +574,9 @@ def _toolchain_pin_violations(
                     "_build-image.yml: image toolchain authority is duplicated in YAML"
                 )
         required_buildx_fragments = (
-            "image toolchain-authority",
-            '["buildx_version"]',
-            '["buildx_linux_sha256"]',
-            '["buildkit_image"]',
+            '["toolchain"]["buildx_version"]',
+            '["toolchain"]["buildx_linux_sha256"]',
+            '["toolchain"]["buildkit_image"]',
             "https://github.com/docker/buildx/releases/download/${buildx_version}/buildx-${buildx_version}.linux-${buildx_arch}",
             "sha256sum --check",
             '"${HOME}/.docker/cli-plugins/docker-buildx"',
@@ -582,6 +591,10 @@ def _toolchain_pin_violations(
                 violations.append(
                     f"_build-image.yml: Buildx installer missing {fragment}"
                 )
+        if "image real-authorities" not in image_workflow_text:
+            violations.append(
+                "_build-image.yml: real image toolchain-authority is missing"
+            )
         if '--driver-opt "image=${buildkit_image}"' not in command:
             violations.append("_build-image.yml: mutable BuildKit")
     if dockerfile.splitlines()[0] != DOCKERFILE_FRONTEND:
@@ -838,30 +851,30 @@ def test_release_workflows_are_compact_and_fork_candidate_is_read_only() -> None
         else {}
     )
     jobs = document.get("jobs", {}) if isinstance(document, dict) else {}
-    candidate = jobs.get("fork-candidate") if isinstance(jobs, dict) else None
+    candidate = jobs.get("build-wheels") if isinstance(jobs, dict) else None
     if not isinstance(candidate, dict):
-        violations.append("release-ucm.yml must define a fork-candidate job")
+        violations.append("release-ucm.yml must define a build-wheels candidate job")
     else:
         if candidate.get("permissions") != {"contents": "read"}:
             violations.append(
-                "fork-candidate permissions must be exactly {'contents': 'read'}"
+                "build-wheels permissions must be exactly {'contents': 'read'}"
             )
         candidate_text = "\n".join(_strings(candidate)).lower()
         if "environment" in candidate:
-            violations.append("fork-candidate must not use protected environments")
+            violations.append("build-wheels must not use protected environments")
         banned_fragments = {
             "secrets.": "secrets",
             "self-hosted": "self-hosted runners",
         }
         for fragment, label in banned_fragments.items():
             if fragment in candidate_text:
-                violations.append(f"fork-candidate must not use {label}")
+                violations.append(f"build-wheels must not use {label}")
         if re.search(r"\b(?:docker|crane)\s+(?:login|push)\b", candidate_text):
             violations.append(
-                "fork-candidate must not log in to or push a container registry"
+                "build-wheels must not log in to or push a container registry"
             )
         if re.search(r"\bgh\s+api\b.*\bdispatch", candidate_text):
-            violations.append("fork-candidate must not dispatch workflows")
+            violations.append("build-wheels must not dispatch workflows")
 
     documents = _release_workflow_documents(WORKFLOW_DIR)
     violations.extend(_fork_isolation_violations(documents))
@@ -869,6 +882,224 @@ def test_release_workflows_are_compact_and_fork_candidate_is_read_only() -> None
     assert not violations, "release workflow safety contract failed:\n- " + "\n- ".join(
         violations
     )
+
+
+def test_real_hosted_matrix_projects_the_reviewed_six_tasks_without_a_second_matrix() -> (
+    None
+):
+    """A missing/wrong task, runner, target, or immutable builder breaks hosted builds."""
+    core, _, verify_module = _release_modules()
+    source_sha = "a" * 40
+    source_epoch = 1_700_000_000
+    hosted = verify_module.hosted_build_matrix(source_sha, source_epoch)
+    reviewed = core.build_matrix("feature-candidate")
+
+    assert [item["spec_id"] for item in hosted["tasks"]] == REAL_SPEC_IDS
+    assert hosted["github_matrix"] == {
+        "include": [{"spec_id": spec_id} for spec_id in REAL_SPEC_IDS]
+    }
+    assert [item["task_sha256"] for item in hosted["tasks"]] == [
+        item["task_sha256"] for item in reviewed["tasks"]
+    ]
+    assert {
+        item["runner"] for item in hosted["tasks"] if item["cpu_arch"] == "amd64"
+    } == {"ubuntu-24.04"}
+    assert {
+        item["runner"] for item in hosted["tasks"] if item["cpu_arch"] == "arm64"
+    } == {"ubuntu-24.04-arm"}
+    assert {item["docker_target"] for item in hosted["tasks"]} == {
+        "wheel-cuda",
+        "wheel-ascend",
+    }
+    assert all(
+        item["builder_coordinate"]
+        == next(
+            task for task in reviewed["tasks"] if task["spec_id"] == item["spec_id"]
+        )["builder"]["root"]["repository"]
+        + "@"
+        + next(
+            task for task in reviewed["tasks"] if task["spec_id"] == item["spec_id"]
+        )["builder"]["root"]["manifest_digest"]
+        for item in hosted["tasks"]
+    )
+    for item in hosted["tasks"]:
+        assert item["wheel_artifact"] == f"ucm-wheel-{item['spec_id']}-{source_sha}"
+        assert item["image_artifact"] == f"ucm-image-{item['spec_id']}-{source_sha}"
+        assert item["build_args"]["UCM_RELEASE_BUILD_KEY"] == item["task_sha256"]
+        assert item["build_args"]["SOURCE_DATE_EPOCH"] == str(source_epoch)
+
+
+def test_hosted_matrix_cli_writes_the_canonical_workflow_authority(
+    tmp_path: Path,
+) -> None:
+    """Workflows consume one tested record instead of reconstructing task authority."""
+    output = tmp_path / "hosted-matrix.json"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ucm_release",
+            "core",
+            "hosted-matrix",
+            "--source-sha",
+            "c" * 40,
+            "--source-date-epoch",
+            "1700000000",
+            "--output",
+            str(output),
+        ],
+        cwd=REPO_ROOT,
+        env={
+            **__import__("os").environ,
+            "PYTHONPATH": str(REPO_ROOT / ".github" / "release"),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    stdout = json.loads(completed.stdout)
+    written = json.loads(output.read_text(encoding="utf-8"))
+    assert stdout == written
+    assert [item["spec_id"] for item in written["tasks"]] == REAL_SPEC_IDS
+    assert output.read_bytes() == (
+        json.dumps(written, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+    )
+
+
+def test_four_workflows_run_real_six_wheel_and_six_image_native_jobs() -> None:
+    """The feature push must execute six native wheels and six install-only OCIs."""
+    entry = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
+    entry_jobs = _jobs(entry)
+    assert _trigger(entry)["push"] == {
+        "branches": ["feature/**"],
+        "tags": ["v*"],
+    }
+    wheel_job = entry_jobs["build-wheels"]
+    assert wheel_job["strategy"]["fail-fast"] is False
+    assert wheel_job["strategy"]["matrix"] == (
+        "${{ fromJSON(needs.plan.outputs.matrix) }}"
+    )
+    assert wheel_job["uses"] == "./.github/workflows/_build-wheel.yml"
+    assert wheel_job["with"] == {
+        "source_sha": "${{ needs.plan.outputs.source_sha }}",
+        "spec_id": "${{ matrix.spec_id }}",
+    }
+
+    wheel = _load_workflow(WORKFLOW_DIR / "_build-wheel.yml")
+    wheel_build = _jobs(wheel)["build"]
+    assert wheel_build["timeout-minutes"] == 180
+    assert "ubuntu-24.04-arm" in str(wheel_build["runs-on"])
+    wheel_text = "\n".join(_strings(wheel_build))
+    for required in (
+        "wheel context",
+        "core hosted-matrix",
+        '--target "${docker_target}"',
+        "--output type=local,dest=out/wheel",
+        "wheel inspect",
+        "Free disk for immutable native builder",
+        "available_gib",
+        "60",
+    ):
+        assert required in wheel_text
+    assert "wheel fixture-build" not in wheel_text
+
+    images = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
+    image_jobs = _jobs(images)
+    image_matrix = image_jobs["build-images"]
+    assert image_matrix["strategy"]["fail-fast"] is False
+    assert image_matrix["strategy"]["matrix"] == (
+        "${{ fromJSON(needs.plan.outputs.matrix) }}"
+    )
+    assert image_matrix["uses"] == "./.github/workflows/_build-image.yml"
+    assert "matrix-barrier" in image_jobs
+    barrier = image_jobs["matrix-barrier"]
+    assert set(barrier["needs"]) == {"plan", "build-images"}
+    assert "always()" in str(barrier["if"])
+    assert "needs.build-images.result" in "\n".join(_strings(barrier))
+
+    image_workflow = _load_workflow(WORKFLOW_DIR / "_build-image.yml")
+    image_build = _jobs(image_workflow)["build"]
+    assert image_build["timeout-minutes"] == 210
+    assert "ubuntu-24.04-arm" in str(image_build["runs-on"])
+    image_text = "\n".join(_strings(image_build))
+    for required in (
+        "image real-authorities",
+        "image base-record-real",
+        "crane config",
+        "image prepare-real",
+        "--target runtime-real",
+        "UCM_RECIPE_SHA256",
+        "manifest:io.ucm.release.recipe-sha256",
+        "manifest:io.ucm.release.task-sha256",
+        "rewrite-timestamp=true",
+        "image verify",
+        "rm -f out/image.oci.tar",
+    ):
+        assert required in image_text
+    assert "crane blob" not in image_text
+    assert "--push" not in image_text
+
+
+def test_real_family_plans_are_three_sorted_dual_arch_candidates_and_reconcile_zero() -> (
+    None
+):
+    """Missing, duplicated, or cross-family members cannot produce a green aggregate."""
+    core, _, verify_module = _release_modules()
+    source_sha = "b" * 40
+    matrix = core.build_matrix("feature-candidate")
+    results = []
+    for index, task in enumerate(matrix["tasks"]):
+        results.append(
+            {
+                "candidate_kind": "real-candidate",
+                "fixture_only": False,
+                "unpublished": True,
+                "publication_attempted": False,
+                "status": "real-verified-unpublished",
+                "spec_id": task["spec_id"],
+                "family_id": task["profile_id"],
+                "profile_id": task["profile_id"],
+                "target_platform": task["platform"],
+                "target_repository": task["target_repository"],
+                "target_tag": task["target_tag"],
+                "task_key": task["task_sha256"],
+                "build_key_sha256": "sha256:" + f"{index + 1:064x}",
+                "result_sha256": "sha256:" + f"{index + 11:064x}",
+                "content_identity_sha256": "sha256:" + f"{index + 21:064x}",
+                "source": {"commit": source_sha},
+                "oci": {
+                    "digest": "sha256:" + f"{index + 31:064x}",
+                    "platform": task["platform"],
+                    "published": False,
+                },
+            }
+        )
+
+    first = verify_module.build_real_family_plans(results, source_sha=source_sha)
+    second = verify_module.build_real_family_plans(
+        list(reversed(results)), source_sha=source_sha
+    )
+
+    assert first == second
+    assert [item["family_id"] for item in first["families"]] == [
+        "cann900-a2",
+        "cann900-a3",
+        "cuda130",
+    ]
+    assert all(
+        [member["platform"] for member in family["members"]]
+        == ["linux/amd64", "linux/arm64"]
+        for family in first["families"]
+    )
+    assert first["second_reconcile"] == {
+        "decision": "already-present",
+        "task_count": 0,
+        "tasks": [],
+    }
+    with pytest.raises(ValueError, match="exactly six"):
+        verify_module.build_real_family_plans(results[:-1], source_sha=source_sha)
 
 
 def test_existing_cpp_changes_are_explicitly_forbidden_from_the_stage() -> None:
@@ -972,17 +1203,17 @@ def test_fork_isolation_allows_a_read_only_reusable_build() -> None:
 
 
 def test_release_workflow_topology_runs_the_four_files_at_the_pushed_sha() -> None:
-    """The feature push must reach wheel, Chart, image, and evidence jobs locally."""
+    """The feature push must reach six wheels, Chart, six images, and aggregate."""
     entry = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
     triggers = _trigger(entry)
     push = triggers.get("push")
     assert isinstance(push, dict)
     assert push.get("branches") == ["feature/**"]
     assert push.get("tags") == ["v*"]
-    assert "workflow_call" in triggers
+    assert set(triggers) == {"push"}
 
     entry_jobs = _jobs(entry)
-    assert entry_jobs["fork-candidate"]["permissions"] == {"contents": "read"}
+    assert entry_jobs["build-wheels"]["permissions"] == {"contents": "read"}
     local_calls = {
         str(job["uses"])
         for job in entry_jobs.values()
@@ -994,33 +1225,31 @@ def test_release_workflow_topology_runs_the_four_files_at_the_pushed_sha() -> No
     }
     assert all("@" not in reference for reference in local_calls)
     assert any("chart package" in value for value in _strings(entry))
+    assert "loop aggregate-real" in "\n".join(_strings(entry))
+    assert set(entry_jobs["candidate-barrier"]["needs"]) == {
+        "plan",
+        "build-wheels",
+        "package-chart",
+        "reconcile-images",
+    }
 
     image_release = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
     image_triggers = _trigger(image_release)
-    assert set(image_triggers) == {
-        "workflow_call",
-        "schedule",
-        "repository_dispatch",
-        "workflow_dispatch",
-    }
+    assert set(image_triggers) == {"workflow_call"}
     image_calls = {
         str(job["uses"])
         for job in _jobs(image_release).values()
         if isinstance(job.get("uses"), str)
     }
-    assert image_calls == {
-        "./.github/workflows/_build-wheel.yml",
-        "./.github/workflows/_build-image.yml",
-    }
+    assert image_calls == {"./.github/workflows/_build-image.yml"}
     image_jobs = _jobs(image_release)
-    assert image_jobs["standalone-wheel"]["uses"] == (
-        "./.github/workflows/_build-wheel.yml"
+    assert image_jobs["build-images"]["uses"] == (
+        "./.github/workflows/_build-image.yml"
     )
-    assert image_jobs["build-image"]["uses"] == ("./.github/workflows/_build-image.yml")
-    assert set(image_jobs["final-reconcile"]["needs"]) == {
-        "select-input",
-        "reconcile-fixture",
-        "build-image",
+    assert set(image_jobs["aggregate-images"]["needs"]) == {
+        "plan",
+        "build-images",
+        "matrix-barrier",
     }
 
 
@@ -1029,36 +1258,28 @@ def test_reusable_workflow_inputs_outputs_and_artifacts_are_exact() -> None:
     wheel = _load_workflow(WORKFLOW_DIR / "_build-wheel.yml")
     wheel_call = _trigger(wheel)["workflow_call"]
     assert isinstance(wheel_call, dict)
-    assert set(wheel_call.get("inputs", {})) == {
-        "source_sha",
-        "profile_id",
-        "validation_lane",
-    }
+    assert set(wheel_call.get("inputs", {})) == {"source_sha", "spec_id"}
     assert {
         "wheel_artifact",
         "wheel_sha256",
         "inspection_sha256",
     } <= set(wheel_call.get("outputs", {}))
     wheel_text = "\n".join(_strings(wheel))
-    assert "Requires-Dist wrapt==1.17.2" in wheel_text
-    assert "wheel fixture-build" in wheel_text
-    assert "fixture-only" in wheel_text
+    assert "wheel context" in wheel_text
+    assert "wheel inspect" in wheel_text
+    assert "builder-candidate" in wheel_text
+    assert "wheel fixture-build" not in wheel_text
 
     image = _load_workflow(WORKFLOW_DIR / "_build-image.yml")
     image_call = _trigger(image)["workflow_call"]
     assert isinstance(image_call, dict)
-    assert set(image_call.get("inputs", {})) == {
-        "source_sha",
-        "wheel_artifact",
-        "image_input_artifact",
-        "validation_lane",
-    }
+    assert set(image_call.get("inputs", {})) == {"source_sha", "spec_id"}
     assert {"image_artifact", "image_result_sha256", "oci_digest"} <= set(
         image_call.get("outputs", {})
     )
     image_text = "\n".join(_strings(image)).lower()
     assert "type=oci" in image_text
-    assert "image verify" in image_text
+    assert "image prepare-real" in image_text and "image verify" in image_text
     assert "--push" not in image_text
     assert not re.search(r"\b(?:cmake|ninja|gcc|g\+\+|clang|pip wheel)\b", image_text)
 
@@ -1078,28 +1299,24 @@ def test_reusable_workflow_inputs_outputs_and_artifacts_are_exact() -> None:
             "_build-wheel.yml",
             {
                 "SOURCE_SHA": "a" * 40,
-                "PROFILE_ID": WORKFLOW_FIXTURE_PROFILE,
-                "VALIDATION_LANE": "fork-candidate",
+                "SPEC_ID": "cuda130-amd64",
             },
             [
                 {"SOURCE_SHA": "refs/heads/feature/cicd"},
-                {"VALIDATION_LANE": "production"},
-                {"PROFILE_ID": ""},
+                {"SPEC_ID": ""},
+                {"SPEC_ID": "cuda130-riscv64"},
             ],
         ),
         (
             "_build-image.yml",
             {
                 "SOURCE_SHA": "b" * 40,
-                "WHEEL_ARTIFACT": "ucm-fixture-wheel-b",
-                "IMAGE_INPUT_ARTIFACT": "ucm-image-input-b",
-                "VALIDATION_LANE": "fork-candidate",
+                "SPEC_ID": "cann900-a3-arm64",
             },
             [
                 {"SOURCE_SHA": "refs/heads/feature/cicd"},
-                {"VALIDATION_LANE": "production"},
-                {"WHEEL_ARTIFACT": ""},
-                {"IMAGE_INPUT_ARTIFACT": ""},
+                {"SPEC_ID": ""},
+                {"SPEC_ID": "cann900-a5-arm64"},
             ],
         ),
     ],
@@ -1170,60 +1387,25 @@ def test_reusable_build_contract_gate_runs_before_checkout_or_untrusted_code(
 
 
 def test_reusable_entry_contracts_reject_empty_partial_and_illegal_calls() -> None:
-    """A malformed workflow_call must run an explicit exit-2 job, never go green."""
+    """Only fork feature pushes execute; image calls accept one exact source SHA."""
     entry = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
-    entry_inputs = _trigger(entry)["workflow_call"]["inputs"]
-    assert entry_inputs["validation_lane"]["required"] is True
-    assert entry_inputs["call_contract"]["default"] == "ucm-core-candidate-v1"
-    entry_invalid = _jobs(entry)["invalid-call"]
+    entry_invalid = _jobs(entry)["blocked-invocation"]
     entry_condition = str(entry_invalid["if"])
-    assert "inputs.call_contract != 'ucm-core-candidate-v1'" in entry_condition
-    assert "inputs.validation_lane != 'fork-candidate'" in entry_condition
-    assert "exit 2" in "\n".join(_strings(entry_invalid))
-    assert "github.event_name != 'push'" in entry_condition
+    assert (
+        "github.repository != 'SuperMarioYL/unified-cache-management'"
+        in entry_condition
+    )
     assert "refs/heads/feature/" in entry_condition
-    assert "refs/tags/v" in entry_condition
+    assert "exit 2" in "\n".join(_strings(entry_invalid))
+    assert "production/tag publication is blocked" in "\n".join(_strings(entry_invalid))
 
     images = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
     image_inputs = _trigger(images)["workflow_call"]["inputs"]
-    assert image_inputs["call_contract"]["default"] == "ucm-vllm-candidate-v1"
-    assert all(
-        image_inputs[name]["required"] is True
-        for name in ("source_sha", "wheel_artifact", "validation_lane")
-    )
-    invalid = _jobs(images)["invalid-call"]
-    condition = str(invalid["if"])
-    for value in (
-        "inputs.call_contract",
-        "inputs.source_sha",
-        "inputs.wheel_artifact",
-        "inputs.validation_lane",
-    ):
-        assert value in condition
-    assert "inputs.call_contract != 'ucm-vllm-candidate-v1'" in condition
-    assert "inputs.source_sha == ''" in condition
-    assert "inputs.wheel_artifact == ''" in condition
-    assert "inputs.validation_lane != 'fork-candidate'" in condition
-    assert "exit 2" in "\n".join(_strings(invalid))
-    assert (
-        'fromJSON(\'["schedule","repository_dispatch","workflow_dispatch"]\')'
-        in condition
-    )
-    assert "github.event_name" in condition
-    standalone = str(_jobs(images)["standalone-wheel"]["if"])
-    assert all(
-        f"inputs.{name} == ''" in standalone
-        for name in (
-            "call_contract",
-            "source_sha",
-            "wheel_artifact",
-            "validation_lane",
-        )
-    )
-    assert (
-        'fromJSON(\'["schedule","repository_dispatch","workflow_dispatch"]\')'
-        in standalone
-    )
+    assert set(image_inputs) == {"source_sha"}
+    assert image_inputs["source_sha"]["required"] is True
+    first = _steps(_jobs(images)["plan"])[0]
+    assert first["name"] == "Validate reusable image workflow contract"
+    assert "exit 2" in str(first["run"])
 
 
 def test_empty_reusable_inputs_are_routed_only_for_explicit_direct_events() -> None:
@@ -1282,8 +1464,8 @@ def test_empty_reusable_inputs_are_routed_only_for_explicit_direct_events() -> N
         )
 
 
-def test_candidate_evidence_binds_the_real_two_reconcile_closure() -> None:
-    """The final artifact must bind actual build output and all required scenarios."""
+def test_candidate_evidence_binds_six_real_members_three_plans_and_chart() -> None:
+    """The deterministic payload binds every real hosted output without publication."""
     entry_text = (WORKFLOW_DIR / "release-ucm.yml").read_text(encoding="utf-8")
     image_text = (WORKFLOW_DIR / "release-vllm-images.yml").read_text(encoding="utf-8")
     policy_text = (REPO_ROOT / ".github/release/ucm_release/verify.py").read_text(
@@ -1296,32 +1478,20 @@ def test_candidate_evidence_binds_the_real_two_reconcile_closure() -> None:
         "workflow_refs",
         "source_sha",
         "wheel_sha256",
-        "chart_sha256",
-        "chart_tree_sha256",
-        "upstream_index_digest",
-        "oci_digest",
         "image_result_sha256",
-        "first_reconcile_sha256",
-        "second_reconcile_sha256",
+        "manifest_digest",
+        "build_key_sha256",
+        "families",
+        "candidate_inventory",
+        "second_reconcile",
+        "release_tree_sha256",
         "publication",
-        "write_audit",
     }
     assert not {field for field in required_fields if field not in combined}
-    for scenario in (
-        "new-input-one-task",
-        "identical-input-zero-tasks",
-        "tag-digest-drift-r2",
-        "complete-digest-chain",
-        "required-failures-block",
-        "fixture-candidate-full-zero-reconcile",
-    ):
-        assert scenario in combined
-    for accepted in ("a2", "a3"):
-        assert f'"{accepted}"' in combined
-    for rejected in ("310p", "a5"):
-        assert rejected in combined
-    assert "loop complete" in image_text
-    assert "loop aggregate" in entry_text
+    assert "loop aggregate-real" in image_text
+    assert "loop aggregate-real" in entry_text
+    assert "wheel_count" in image_text and "image_count" in image_text
+    assert "family_count" in image_text and "second_task_count" in image_text
 
 
 def test_image_and_chart_artifacts_preserve_real_compact_evidence_layout(
@@ -1350,15 +1520,17 @@ def test_image_and_chart_artifacts_preserve_real_compact_evidence_layout(
         "closure.json",
     ):
         assert filename in image_text or "out/oci-evidence/" in image_text
-    aggregate_arguments = {
-        "image-recipe.json": "--image-recipe",
-        "image-metadata.json": "--image-metadata",
-        "image-prepare-result.json": "--image-prepare",
-        "buildkit-metadata.json": "--buildkit-metadata",
-    }
-    for filename, argument in aggregate_arguments.items():
-        assert filename in reconcile_text
-        assert argument in entry_text
+    for filename in (
+        "image-result.json",
+        "image-recipe.json",
+        "image-authority.json",
+        "image-prepare-result.json",
+        "buildkit-metadata.json",
+    ):
+        assert filename in image_text
+    assert "--wheel-dir input/wheels" in reconcile_text
+    assert "--image-dir input/images" in reconcile_text
+    assert "--chart-result input/chart/chart-result.json" in entry_text
 
     chart_upload = next(
         upload
@@ -1386,24 +1558,79 @@ def test_image_and_chart_artifacts_preserve_real_compact_evidence_layout(
     assert (download / "chart-result.json").is_file()
 
     assert "out/oci-evidence" in str(_artifact_uploads(image_build))
-    assert "out/oci-evidence" in str(_artifact_uploads(images))
-    for argument in (
-        "--wheel ",
-        "--chart-package ",
-        "--image-result ",
-        "--completed-loop ",
-        "--second-reconcile ",
-    ):
-        assert argument in entry_text
+    assert "family-plans.json" in str(_artifact_uploads(images))
+    assert "candidate-inventory.json" in str(_artifact_uploads(images))
+    assert "second-reconcile.json" in str(_artifact_uploads(images))
     assert "out/image-result.json" in image_text
     assert '"status": "blocked"' in policy_text
     assert '"attempted": False' in policy_text
 
 
-def test_workflows_only_orchestrate_tested_cli_and_standalone_runs_full_closure() -> (
+def test_wheel_artifact_is_flat_for_same_run_image_and_aggregate_consumers(
+    tmp_path: Path,
+) -> None:
+    """upload-artifact's LCA must not hide wheel records under a wheel/ subdir."""
+    wheel = _load_workflow(WORKFLOW_DIR / "_build-wheel.yml")
+    upload = _artifact_uploads(wheel)[0]
+    assert str(upload["with"]["path"]).strip() == "out/wheel-artifact/"
+    commands = "\n".join(_strings(_jobs(wheel)["build"]))
+    for filename in (
+        "*.whl",
+        "wheel-inspection.json",
+        "wheel-seal.json",
+        "hosted-task.json",
+        "source-context.json",
+    ):
+        assert filename in commands
+
+    staging = tmp_path / "out" / "wheel-artifact"
+    staging.mkdir(parents=True)
+    for filename in (
+        "uc_manager.whl",
+        "wheel-inspection.json",
+        "wheel-seal.json",
+        "hosted-task.json",
+        "source-context.json",
+    ):
+        (staging / filename).write_text("artifact\n", encoding="utf-8")
+    downloaded = tmp_path / "input" / "wheel"
+    downloaded.mkdir(parents=True)
+    for source in staging.iterdir():
+        (downloaded / source.name).write_bytes(source.read_bytes())
+    assert len(list(downloaded.glob("*.whl"))) == 1
+    assert (downloaded / "wheel-inspection.json").is_file()
+    assert (downloaded / "source-context.json").is_file()
+
+
+def test_native_wheel_and_image_jobs_clean_disk_and_gate_sixty_gib_before_checkout() -> (
     None
 ):
-    """Rules stay in Python while every public entry reaches the same fixture loop."""
+    """Both multi-gigabyte hosted builds need recoverable pre-checkout disk evidence."""
+    for filename in ("_build-wheel.yml", "_build-image.yml"):
+        workflow = _load_workflow(WORKFLOW_DIR / filename)
+        steps = _steps(_jobs(workflow)["build"])
+        checkout_index = next(
+            index
+            for index, step in enumerate(steps)
+            if str(step.get("uses", "")).startswith("actions/checkout@")
+        )
+        cleanup_index = next(
+            index
+            for index, step in enumerate(steps)
+            if str(step.get("uses", "")).startswith("jlumbroso/free-disk-space@")
+        )
+        assert cleanup_index < checkout_index
+        assert steps[cleanup_index]["uses"] == (
+            "jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be"
+        )
+        precheckout = "\n".join(_strings(steps[:checkout_index]))
+        assert "RUNNER_TEMP" in precheckout
+        assert "available_gib" in precheckout
+        assert "60" in precheckout
+
+
+def test_workflows_only_orchestrate_tested_cli_and_real_runs_full_closure() -> None:
+    """Rules stay in Python while feature push reaches the reviewed real closure."""
     release_documents = {
         name: _load_workflow(WORKFLOW_DIR / name) for name in EXPECTED_RELEASE_WORKFLOWS
     }
@@ -1417,22 +1644,23 @@ def test_workflows_only_orchestrate_tested_cli_and_standalone_runs_full_closure(
         encoding="utf-8"
     )
     entry_text = (WORKFLOW_DIR / "release-ucm.yml").read_text(encoding="utf-8")
-    assert "wheel fixture-build" in wheel_text
-    assert "image prepare" in image_text and "image verify" in image_text
-    assert "loop prepare" in reconcile_text and "loop complete" in reconcile_text
-    assert "loop aggregate" in entry_text
-    assert "standalone-wheel:" in reconcile_text
-    assert "live-probes.json" in image_text
-    assert 'identity_input":false' in image_text
+    assert "core hosted-matrix" in wheel_text and "wheel context" in wheel_text
+    assert "wheel fixture-build" not in wheel_text
+    assert "image prepare-real" in image_text and "image verify" in image_text
+    assert "loop aggregate-real" in reconcile_text
+    assert "loop aggregate-real" in entry_text
+    assert "standalone-wheel:" not in reconcile_text
+    assert "image real-authorities" in image_text
     assert "CRANE_VERSION: v0.20.3" in image_text
-    assert "image toolchain-authority" in image_text
+    assert "buildx_linux_sha256" in image_text
     assert BUILDX_VERSION not in image_text
     assert BUILDX_LINUX_SHA256["amd64"] not in image_text
     assert BUILDX_LINUX_SHA256["arm64"] not in image_text
     assert BUILDKIT_IMAGE not in image_text
-    assert re.search(r"CRANE_ARCHIVE_SHA256: [0-9a-f]{64}", image_text)
-    assert "crane digest docker.io/vllm/vllm-openai:v0.10.2" in image_text
-    assert "crane digest quay.io/ascend/vllm-ascend:v0.9.1" in image_text
+    assert re.search(r"CRANE_LINUX_AMD64_SHA256: [0-9a-f]{64}", image_text)
+    assert re.search(r"CRANE_LINUX_ARM64_SHA256: [0-9a-f]{64}", image_text)
+    assert "crane manifest" in image_text and "crane config" in image_text
+    assert "crane blob" not in image_text
 
 
 def test_release_toolchains_are_immutable_and_checksum_verified() -> None:
@@ -1468,17 +1696,23 @@ def test_toolchain_pin_audit_rejects_each_mutable_or_unverified_input(
         encoding="utf-8"
     )
     if mutation in {"buildx-authority", "buildkit"}:
-        step = next(
-            step
-            for job in _jobs(workflows["_build-image.yml"]).values()
-            for step in _steps(job)
-            if step.get("name") == "Install checksum-pinned Buildx"
-        )
         if mutation == "buildx-authority":
+            step = next(
+                step
+                for job in _jobs(workflows["_build-image.yml"]).values()
+                for step in _steps(job)
+                if "image real-authorities" in str(step.get("run", ""))
+            )
             step["run"] = str(step["run"]).replace(
-                "image toolchain-authority", "image base-authority"
+                "image real-authorities", "image base-authority"
             )
         else:
+            step = next(
+                step
+                for job in _jobs(workflows["_build-image.yml"]).values()
+                for step in _steps(job)
+                if step.get("name") == "Install checksum-pinned Buildx"
+            )
             step["run"] = str(step["run"]).replace(
                 '--driver-opt "image=${buildkit_image}"',
                 '--driver-opt "image=moby/buildkit:latest"',
@@ -1513,7 +1747,11 @@ def test_clean_image_build_rewrites_timestamps_without_disabling_dependencies() 
         encoding="utf-8"
     )
 
-    assert "type=oci,dest=out/image.oci.tar,rewrite-timestamp=true" in workflow
+    assert (
+        "type=oci,dest=out/image.oci.tar,oci-mediatypes=true,rewrite-timestamp=true"
+        in workflow
+    )
+    assert 'export SOURCE_DATE_EPOCH="$(python' in workflow
     assert '"--no-cache-dir"' in installer
     assert '"--disable-pip-version-check"' in installer
     assert '"--only-binary=:all:"' in installer
@@ -1527,10 +1765,11 @@ def test_every_hosted_cli_job_installs_the_locked_runtime_dependencies_first() -
     expected_jobs = {
         ("_build-wheel.yml", "build"),
         ("_build-image.yml", "build"),
+        ("release-ucm.yml", "plan"),
         ("release-ucm.yml", "package-chart"),
         ("release-ucm.yml", "aggregate-evidence"),
-        ("release-vllm-images.yml", "reconcile-fixture"),
-        ("release-vllm-images.yml", "final-reconcile"),
+        ("release-vllm-images.yml", "plan"),
+        ("release-vllm-images.yml", "aggregate-images"),
     }
     observed_jobs: set[tuple[str, str]] = set()
     for filename in EXPECTED_RELEASE_WORKFLOWS:
@@ -1561,174 +1800,55 @@ def test_every_hosted_cli_job_installs_the_locked_runtime_dependencies_first() -
 
 
 def test_reusable_image_router_uses_inputs_not_inherited_event_name() -> None:
-    """A nested reusable workflow inherits the caller event (for example push)."""
+    """The nested image workflow is callable-only and binds the explicit source SHA."""
     document = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
     jobs = _jobs(document)
-    standalone_condition = str(jobs["standalone-wheel"]["if"])
-    select_condition = str(jobs["select-input"]["if"])
-    invalid_manual_condition = str(jobs["invalid-manual-ref"]["if"])
-    select_environment = jobs["select-input"]["steps"][0]["env"]
-
-    assert "inputs.source_sha == ''" in standalone_condition
-    assert "inputs.source_sha != ''" in select_condition
-    assert "github.event_name == 'workflow_call'" not in standalone_condition
-    assert "github.event_name == 'workflow_call'" not in select_condition
-    assert "inputs.source_sha != ''" in str(select_environment["SOURCE_SHA"])
-    assert "inputs.wheel_artifact != ''" in str(select_environment["WHEEL_ARTIFACT"])
-    for name in (
-        "call_contract",
-        "source_sha",
-        "wheel_artifact",
-        "validation_lane",
-    ):
-        assert f"inputs.{name} == ''" in invalid_manual_condition
-
-    def invalid_manual_route(
-        event: str,
-        ref_name: str,
-        default_branch: str,
-        values: tuple[str, str, str, str],
-    ) -> bool:
-        return (
-            not any(values)
-            and event == "workflow_dispatch"
-            and ref_name != default_branch
-        )
-
-    exact = ("ucm-vllm-candidate-v1", "b" * 40, "wheel", "fork-candidate")
-    assert (
-        invalid_manual_route("workflow_dispatch", "feature/cicd", "main", exact)
-        is False
-    )
-    assert (
-        invalid_manual_route(
-            "workflow_dispatch", "feature/cicd", "main", ("", "", "", "")
-        )
-        is True
-    )
+    assert set(_trigger(document)) == {"workflow_call"}
+    assert set(_trigger(document)["workflow_call"]["inputs"]) == {"source_sha"}
+    plan_text = "\n".join(_strings(jobs["plan"]))
+    assert "inputs.source_sha" in plan_text
+    assert "github.event_name" not in plan_text
+    assert "standalone-wheel" not in jobs
 
 
 def test_callable_image_chain_overrides_skipped_standalone_ancestor() -> None:
-    """A skipped direct-entry wheel must not transitively skip a valid call."""
+    """Every image aggregate dependency has explicit success and cancellation gates."""
     document = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
     jobs = _jobs(document)
     dependencies = {
-        "standalone-wheel": [],
-        "select-input": ["standalone-wheel"],
-        "reconcile-fixture": ["select-input"],
-        "build-image": ["select-input", "reconcile-fixture"],
-        "final-reconcile": ["select-input", "reconcile-fixture", "build-image"],
+        "build-images": ["plan"],
+        "aggregate-images": ["plan", "build-images", "matrix-barrier"],
     }
-
-    def ancestors(job_name: str) -> set[str]:
-        result = set(dependencies[job_name])
-        for dependency in dependencies[job_name]:
-            result.update(ancestors(dependency))
-        return result
-
-    results = {"standalone-wheel": "skipped"}
-    for job_name in (
-        "select-input",
-        "reconcile-fixture",
-        "build-image",
-        "final-reconcile",
-    ):
-        condition = str(jobs[job_name]["if"])
-        skipped_ancestor = any(
-            results.get(dependency) == "skipped" for dependency in ancestors(job_name)
-        )
-        has_status_override = "always()" in condition or "!cancelled()" in condition
-        if skipped_ancestor and not has_status_override:
-            results[job_name] = "skipped"
-        elif job_name == "select-input":
-            # The exact workflow_call inputs make the callable side of its OR true.
-            results[job_name] = "success"
-        elif all(
-            results.get(dependency) == "success"
-            for dependency in dependencies[job_name]
-        ):
-            results[job_name] = "success"
-        else:
-            results[job_name] = "skipped"
-
-    assert results == {
-        "standalone-wheel": "skipped",
-        "select-input": "success",
-        "reconcile-fixture": "success",
-        "build-image": "success",
-        "final-reconcile": "success",
-    }
-    for job_name in (
-        "select-input",
-        "reconcile-fixture",
-        "build-image",
-        "final-reconcile",
-    ):
+    for job_name, direct_needs in dependencies.items():
         condition = str(jobs[job_name]["if"])
         assert "!cancelled()" in condition, job_name
-        if job_name != "select-input":
-            for dependency in dependencies[job_name]:
-                assert f"needs.{dependency}.result == 'success'" in condition
+        for dependency in direct_needs:
+            assert f"needs.{dependency}.result == 'success'" in condition
 
 
 def test_callable_image_chain_fails_closed_for_direct_needs_and_cancellation() -> None:
-    """The status override must never admit cancelled or failed direct needs."""
+    """The always barrier converts failed, skipped, or cancelled matrix state to failure."""
     document = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
     jobs = _jobs(document)
-    select_condition = str(jobs["select-input"]["if"])
-    assert "!cancelled()" in select_condition
-    assert "needs.standalone-wheel.result == 'success'" in select_condition
-
-    def select_eligible(
-        callable_contract_is_exact: bool,
-        standalone_result: str,
-        run_cancelled: bool = False,
-    ) -> bool:
-        return not run_cancelled and (
-            callable_contract_is_exact or standalone_result == "success"
-        )
-
-    assert select_eligible(True, "skipped")
-    assert not select_eligible(True, "skipped", run_cancelled=True)
-    assert select_eligible(False, "success")
-    for bad_result in ("failure", "cancelled", "skipped"):
-        assert not select_eligible(False, bad_result)
-
-    direct_needs = {
-        "reconcile-fixture": ("select-input",),
-        "build-image": ("select-input", "reconcile-fixture"),
-        "final-reconcile": ("select-input", "reconcile-fixture", "build-image"),
-    }
-
-    for job_name, dependencies in direct_needs.items():
-        condition = str(jobs[job_name]["if"])
-        assert "!cancelled()" in condition, job_name
-        for dependency in dependencies:
-            assert f"needs.{dependency}.result == 'success'" in condition
-
-        def eligible(results: dict[str, str], run_cancelled: bool = False) -> bool:
-            return not run_cancelled and all(
-                results[dependency] == "success" for dependency in dependencies
-            )
-
-        success = {dependency: "success" for dependency in dependencies}
-        assert eligible(success)
-        assert not eligible(success, run_cancelled=True)
-        for dependency in dependencies:
-            for bad_result in ("failure", "cancelled", "skipped"):
-                results = dict(success)
-                results[dependency] = bad_result
-                assert not eligible(results), (job_name, dependency, bad_result)
+    barrier = jobs["matrix-barrier"]
+    assert set(barrier["needs"]) == {"plan", "build-images"}
+    assert "always()" in str(barrier["if"])
+    assert "!cancelled()" in str(barrier["if"])
+    command = "\n".join(_strings(barrier))
+    assert "PLAN_RESULT" in command and "BUILD_IMAGES_RESULT" in command
+    assert "!= success" in command and "exit 2" in command
 
 
 def test_multi_output_steps_use_one_grouped_github_output_append() -> None:
     """ShellCheck SC2129: write each multi-value output file only once."""
     targets = {
-        ("_build-wheel.yml", "build", "record"): 3,
-        ("_build-image.yml", "build", "result"): 3,
+        ("_build-wheel.yml", "build", "record"): 2,
+        ("_build-image.yml", "build", "task"): 2,
+        ("_build-image.yml", "build", "result"): 2,
+        ("release-ucm.yml", "plan", "plan"): 2,
         ("release-ucm.yml", "package-chart", "record"): 3,
-        ("release-vllm-images.yml", "reconcile-fixture", "plan"): 3,
-        ("release-vllm-images.yml", "final-reconcile", "close"): 4,
+        ("release-vllm-images.yml", "plan", "plan"): 2,
+        ("release-vllm-images.yml", "aggregate-images", "aggregate"): 2,
     }
     for (filename, job_name, step_id), output_count in targets.items():
         document = _load_workflow(WORKFLOW_DIR / filename)
@@ -1748,48 +1868,45 @@ def test_multi_output_steps_use_one_grouped_github_output_append() -> None:
             filename,
             step_id,
         )
-        grouped = command[command.index("{") : command.rindex("}")]
-        assert grouped.count("echo ") == output_count, (filename, step_id)
+        assert len(re.findall(r"(?m)^\s*echo ", command)) == output_count, (
+            filename,
+            step_id,
+        )
 
 
 def test_reusable_release_entry_uses_input_lane_not_inherited_event_name() -> None:
-    """The core reusable entry must recognize a call even when the event is push."""
+    """The entry executes only the configured fork feature push lane."""
     document = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
-    condition = str(_jobs(document)["fork-candidate"]["if"])
-
-    assert "inputs.validation_lane == 'fork-candidate'" in condition
-    assert "github.event_name == 'workflow_call'" not in condition
+    condition = str(_jobs(document)["plan"]["if"])
+    assert "github.event_name == 'push'" in condition
+    assert "github.repository == 'SuperMarioYL/unified-cache-management'" in condition
+    assert "refs/heads/feature/" in condition
+    assert "inputs." not in condition
 
 
 def test_fork_v_tag_runs_the_read_only_candidate_instead_of_green_noop() -> None:
-    """A fork tag must prove blocked candidate behavior without entering production."""
+    """A tag is explicitly failed instead of pretending production was published."""
     document = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
-    condition = str(_jobs(document)["fork-candidate"]["if"])
-
-    assert "refs/tags/v" in condition
-    assert (
-        "github.repository != 'ModelEngine-Group/unified-cache-management'" in condition
-    )
+    blocked = _jobs(document)["blocked-invocation"]
+    condition = str(blocked["if"])
+    assert "!startsWith(github.ref, 'refs/heads/feature/')" in condition
+    assert "production/tag publication is blocked" in "\n".join(_strings(blocked))
+    assert "exit 2" in "\n".join(_strings(blocked))
 
 
 def test_production_and_unsupported_callable_lanes_fail_closed() -> None:
-    """A caller must get an explicit failure, never a green no-op production run."""
+    """No workflow has production authority, credentials, or an Environment."""
     entry = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
     entry_jobs = _jobs(entry)
-    blocked = entry_jobs["production-external-required"]
+    blocked = entry_jobs["blocked-invocation"]
     blocked_condition = str(blocked["if"])
-    assert "ModelEngine-Group/unified-cache-management" in blocked_condition
-    assert "refs/tags/v" in blocked_condition
-    assert blocked["environment"] == "ucm-production-release"
+    assert "SuperMarioYL/unified-cache-management" in blocked_condition
     assert "exit 2" in "\n".join(_strings(blocked))
-
-    for filename in ("release-ucm.yml", "release-vllm-images.yml"):
+    for filename in EXPECTED_RELEASE_WORKFLOWS:
         document = _load_workflow(WORKFLOW_DIR / filename)
-        rejected = _jobs(document)["invalid-call"]
-        condition = str(rejected["if"])
-        assert "inputs.validation_lane != 'fork-candidate'" in condition
-        assert rejected["permissions"] == {"contents": "read"}
-        assert "exit 2" in "\n".join(_strings(rejected))
+        assert document["permissions"] == {"contents": "read"}
+        assert "environment" not in "\n".join(_strings(document)).lower()
+        assert "secrets." not in "\n".join(_strings(document)).lower()
 
 
 def test_changed_workflows_pin_actions_and_keep_fork_jobs_read_only() -> None:
@@ -2477,38 +2594,29 @@ def test_image_context_bundle_reopens_fixed_base_descriptor_bytes(
 
 
 def test_base_authority_is_owned_by_python_and_consumed_once_by_workflow() -> None:
-    """Workflow orchestration reads one canonical policy instead of duplicating pins."""
+    """Workflow derives all six real base chains instead of duplicating coordinates."""
     image_module = importlib.import_module("ucm_release.image")
-    authority = image_module.fixture_base_authority()
+    authority = image_module.real_image_authorities()
     environment = {
         **__import__("os").environ,
         "PYTHONPATH": str(REPO_ROOT / ".github" / "release"),
     }
     command = subprocess.run(
-        [sys.executable, "-m", "ucm_release", "image", "base-authority"],
+        [sys.executable, "-m", "ucm_release", "image", "real-authorities"],
         cwd=REPO_ROOT,
         env=environment,
         check=True,
         capture_output=True,
         text=True,
     )
-    assert json.loads(command.stdout) == authority
+    assert json.loads(command.stdout)["members"] == authority
 
     workflow = (WORKFLOW_DIR / "_build-image.yml").read_text(encoding="utf-8")
-    assert "image base-authority" in workflow
-    assert "--base-authority out/base-authority.json" in workflow
-    assert '--expected-source-sha "${SOURCE_SHA}"' in workflow
-    for field in (
-        "repository",
-        "index_digest",
-        "manifest_digest",
-        "config_digest",
-    ):
-        assert str(authority[field]) not in workflow
-    assert "BASE_REPOSITORY" not in workflow
-    assert "BASE_INDEX_DIGEST" not in workflow
-    assert "BASE_MANIFEST_DIGEST" not in workflow
-    assert "BASE_CONFIG_DIGEST" not in workflow
+    assert "image real-authorities" in workflow
+    assert "image base-record-real" in workflow
+    for item in authority:
+        for field in ("index_digest", "manifest_digest", "config_digest"):
+            assert str(item["runtime"][field]) not in workflow
 
 
 def test_image_toolchain_authority_is_python_owned_and_strict() -> None:

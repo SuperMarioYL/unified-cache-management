@@ -55,6 +55,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--lane", choices=("feature-candidate", "protected-tag"), required=True
     )
     _paths(matrix)
+    hosted_matrix = core_actions.add_parser("hosted-matrix")
+    hosted_matrix.add_argument("--source-sha", required=True)
+    hosted_matrix.add_argument("--source-date-epoch", required=True, type=int)
+    hosted_matrix.add_argument("--spec-id")
+    hosted_matrix.add_argument("--output", required=True, type=Path)
     tag_preflight = core_actions.add_parser("tag-preflight")
     tag_preflight.add_argument(
         "--lane", choices=("feature-candidate", "protected-tag"), required=True
@@ -174,6 +179,18 @@ def build_parser() -> argparse.ArgumentParser:
     loop_aggregate.add_argument("--output", type=Path, required=True)
     loop_aggregate.add_argument("--run-id", required=True)
     loop_aggregate.add_argument("--attempt", type=int, required=True)
+    loop_aggregate_real = loop_actions.add_parser("aggregate-real")
+    loop_aggregate_real.add_argument("--wheel-dir", type=Path, required=True)
+    loop_aggregate_real.add_argument("--image-dir", type=Path, required=True)
+    loop_aggregate_real.add_argument("--chart-result", type=Path)
+    loop_aggregate_real.add_argument("--chart-package", type=Path)
+    loop_aggregate_real.add_argument("--repository", required=True)
+    loop_aggregate_real.add_argument("--ref", required=True)
+    loop_aggregate_real.add_argument("--source-sha", required=True)
+    loop_aggregate_real.add_argument("--output", type=Path, required=True)
+    loop_aggregate_real.add_argument("--output-dir", type=Path)
+    loop_aggregate_real.add_argument("--run-id", required=True)
+    loop_aggregate_real.add_argument("--attempt", type=int, required=True)
 
     image_parser = groups.add_parser("image")
     image_actions = image_parser.add_subparsers(dest="action", required=True)
@@ -252,6 +269,17 @@ def main(argv: list[str] | None = None) -> int:
             result = core.build_matrix(
                 args.lane, args.release, args.compatibility, args.schema_dir
             )
+        elif (args.group, args.action) == ("core", "hosted-matrix"):
+            result = verify.hosted_build_matrix(args.source_sha, args.source_date_epoch)
+            if args.spec_id:
+                matches = [
+                    item for item in result["tasks"] if item["spec_id"] == args.spec_id
+                ]
+                if len(matches) != 1:
+                    raise ValueError("hosted spec does not resolve exactly once")
+                result = matches[0]
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            _write(args.output, result)
         elif (args.group, args.action) == ("core", "tag-preflight"):
             result = core.tag_preflight(
                 lane=args.lane,
@@ -431,6 +459,41 @@ def main(argv: list[str] | None = None) -> int:
             result = {
                 "output": str(args.output),
                 "payload_sha256": evidence["payload_sha256"],
+            }
+        elif (args.group, args.action) == ("loop", "aggregate-real"):
+            evidence = verify.aggregate_real_hosted_evidence(
+                wheel_dir=args.wheel_dir,
+                image_dir=args.image_dir,
+                chart_result_path=args.chart_result,
+                chart_package_path=args.chart_package,
+                repository=args.repository,
+                ref=args.ref,
+                source_sha=args.source_sha,
+                run={"run_id": args.run_id, "run_attempt": args.attempt},
+            )
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            _write(args.output, evidence)
+            if args.output_dir is not None:
+                output_dir = _empty_output_dir(args.output_dir)
+                payload = evidence["payload"]
+                _write(output_dir / "family-plans.json", payload["families"])
+                _write(
+                    output_dir / "candidate-inventory.json",
+                    payload["candidate_inventory"],
+                )
+                _write(
+                    output_dir / "second-reconcile.json",
+                    payload["second_reconcile"],
+                )
+            result = {
+                "output": str(args.output),
+                "payload_sha256": evidence["payload_sha256"],
+                "family_count": len(evidence["payload"]["families"]),
+                "wheel_count": len(evidence["payload"]["wheels"]),
+                "image_count": len(evidence["payload"]["images"]),
+                "second_task_count": evidence["payload"]["second_reconcile"][
+                    "task_count"
+                ],
             }
         elif (args.group, args.action) == ("image", "base-authority"):
             result = image.fixture_base_authority()
