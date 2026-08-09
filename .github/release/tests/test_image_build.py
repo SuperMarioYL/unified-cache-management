@@ -566,9 +566,9 @@ def test_native_build_and_runtime_preserve_mooncake_loader_path() -> None:
     assert dockerfile.count("ARG LD_LIBRARY_PATH") == 3
     assert dockerfile.count(inherited_loader_path) == 3
     assert dockerfile.count("RUN ldconfig /usr/local/lib") == 3
-    assert "! ldd /usr/local/lib/libmooncake_store.so | grep -F 'not found'" in (
-        dockerfile
-    )
+    assert "wheel preflight-dependencies" in dockerfile
+    assert "--binary /usr/local/lib/libmooncake_store.so" in dockerfile
+    assert "grep -F 'not found'" not in dockerfile
     assert '[*directories, os.environ.get("LD_LIBRARY_PATH", "")]' in inspector
 
 
@@ -1359,6 +1359,25 @@ def test_real_image_authority_projects_exactly_the_six_reviewed_members() -> Non
     assert all(item["unpublished"] is True for item in authorities)
     assert all(item["publication_attempted"] is False for item in authorities)
     assert len({item["authority_sha256"] for item in authorities}) == 6
+    assert all(
+        item["external_required_dependencies"] == []
+        for item in authorities
+        if item["profile_id"] == "cuda130"
+    )
+    assert all(
+        item["external_required_dependencies"]
+        == [
+            {
+                "dependency": "libascend_hal.so",
+                "provider": "host-ascend-driver",
+                "expected_mount_root": "/usr/local/Ascend/driver/lib64",
+                "relation": "transitive",
+                "required_at": "device-runtime",
+            }
+        ]
+        for item in authorities
+        if item["profile_id"] != "cuda130"
+    )
     assert {
         (item["runtime"]["repository"], item["target_repository"])
         for item in authorities

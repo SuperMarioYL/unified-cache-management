@@ -50,10 +50,10 @@ EXPECTED_TARGETS = {
 }
 
 CUDA_AMD64_BUILD_KEY = (
-    "sha256:081967dad8d485228cfa8da5f744d3c4b4b1b600828f9b7a14a09912a4309082"
+    "sha256:7451d868b0b2d4b3393640c0166d36a3bf45a19f3975bf10aad6d7fb06e6a887"
 )
 A2_AMD64_BUILD_KEY = (
-    "sha256:1561d4519f4da2bd3115dd8de523160aa17aaeab4467635da2abd17ad1234850"
+    "sha256:899162d9f594b3c135deec0bae8e413b739955898dd177a449e6dc4375e205a5"
 )
 SOURCE_DATE_EPOCH = 1_700_000_000
 REVIEWED_SOURCE_SHA = subprocess.run(
@@ -88,6 +88,16 @@ CUDA_FORBIDDEN_NATIVE = [
     "retrieval_backend",
     "gsa_offload_ops",
 ]
+ASCEND_REQUIRED_NATIVE = [*CUDA_REQUIRED_NATIVE, "mooncakestore"]
+ASCEND_FORBIDDEN_NATIVE = CUDA_FORBIDDEN_NATIVE[1:]
+
+ASCEND_EXTERNAL_REQUIRED = {
+    "dependency": "libascend_hal.so",
+    "provider": "host-ascend-driver",
+    "expected_mount_root": "/usr/local/Ascend/driver/lib64",
+    "relation": "transitive",
+    "required_at": "device-runtime",
+}
 
 NATIVE_MEMBERS = {
     "ucmtrans": "ucm/shared/trans/ucmtrans.cpython-312-x86_64-linux-gnu.so",
@@ -511,6 +521,7 @@ def _seal_native_wheel(
     build_key: str = CUDA_AMD64_BUILD_KEY,
     authority_mutation=None,
     closure_resolved: tuple[str, ...] = ("libc.so.6",),
+    closure_external_required: dict[str, str] | None = None,
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     matrix = release_core.build_matrix("feature-candidate")
@@ -575,6 +586,14 @@ def _seal_native_wheel(
             }
             for needed in closure_resolved
         ]
+        if closure_external_required is not None:
+            resolutions.append(
+                {
+                    **closure_external_required,
+                    "direct": False,
+                    "kind": "external-required",
+                }
+            )
         closure_members[name] = {
             "dt_needed": list(closure_resolved),
             "resolved_dependencies": resolutions,
@@ -796,6 +815,27 @@ def test_release_config_carries_exact_builder_runtime_and_dependency_authorities
         "libmetrics.so" in profile["allowed_dt_needed"]
         for profile in release["wheel_profiles"]
     )
+
+
+def test_release_matrix_projects_platform_loaders_and_exact_driver_boundary() -> None:
+    """Both CPU arches share one profile allowlist; only Ascend may defer HAL."""
+    matrix = release_core.build_matrix("feature-candidate")
+    tasks = {task["spec_id"]: task for task in matrix["tasks"]}
+    platform_loaders = {"ld-linux-x86-64.so.2", "ld-linux-aarch64.so.1"}
+
+    for task in tasks.values():
+        assert platform_loaders <= set(task["allowed_dt_needed"])
+    assert tasks["cuda130-amd64"]["external_required_dependencies"] == []
+    assert tasks["cuda130-arm64"]["external_required_dependencies"] == []
+    for spec_id in (
+        "cann900-a2-amd64",
+        "cann900-a2-arm64",
+        "cann900-a3-amd64",
+        "cann900-a3-arm64",
+    ):
+        assert tasks[spec_id]["external_required_dependencies"] == [
+            ASCEND_EXTERNAL_REQUIRED
+        ]
 
 
 @pytest.mark.parametrize(
@@ -1600,6 +1640,136 @@ def test_wheel_seal_requires_libmetrics_from_exact_wheel_member(
     assert "exact wheel member" in rejected.stderr.lower()
 
 
+def test_wheel_seal_accepts_exact_transitive_ascend_driver_requirement(
+    tmp_path: Path,
+) -> None:
+    """A sealed Ascend closure may defer only the declared host driver SONAME."""
+    raw = _raw_native_wheel(
+        tmp_path,
+        version="0.5.0rc1+cann900.a2",
+        profile_id="cann900-a2",
+        spec_id="cann900-a2-amd64",
+        build_key=A2_AMD64_BUILD_KEY,
+        required=ASCEND_REQUIRED_NATIVE,
+        forbidden=ASCEND_FORBIDDEN_NATIVE,
+    )
+
+    accepted = _seal_native_wheel(
+        tmp_path,
+        raw,
+        spec_id="cann900-a2-amd64",
+        build_key=A2_AMD64_BUILD_KEY,
+        closure_external_required=ASCEND_EXTERNAL_REQUIRED,
+        check=False,
+    )
+
+    assert accepted.returncode == 0, accepted.stderr
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (("provider", "image-builder"), ("relation", "direct")),
+)
+def test_wheel_seal_rejects_mutated_external_requirement(
+    tmp_path: Path, field: str, value: str
+) -> None:
+    """Caller-authored closure evidence cannot weaken the reviewed declaration."""
+    raw = _raw_native_wheel(
+        tmp_path,
+        version="0.5.0rc1+cann900.a2",
+        profile_id="cann900-a2",
+        spec_id="cann900-a2-amd64",
+        build_key=A2_AMD64_BUILD_KEY,
+        required=ASCEND_REQUIRED_NATIVE,
+        forbidden=ASCEND_FORBIDDEN_NATIVE,
+    )
+    declaration = {**ASCEND_EXTERNAL_REQUIRED, field: value}
+
+    rejected = _seal_native_wheel(
+        tmp_path,
+        raw,
+        spec_id="cann900-a2-amd64",
+        build_key=A2_AMD64_BUILD_KEY,
+        closure_external_required=declaration,
+        check=False,
+    )
+
+    assert rejected.returncode == 2
+    assert "external-required" in rejected.stderr
+
+
+def test_wheel_seal_rejects_ascend_driver_requirement_for_cuda(
+    tmp_path: Path,
+) -> None:
+    """A CUDA closure cannot borrow the host Ascend driver exception."""
+    raw = _raw_native_wheel(tmp_path)
+
+    rejected = _seal_native_wheel(
+        tmp_path,
+        raw,
+        closure_external_required=ASCEND_EXTERNAL_REQUIRED,
+        check=False,
+    )
+
+    assert rejected.returncode == 2
+    assert "external-required" in rejected.stderr
+
+
+def test_dependency_closure_audit_preserves_external_required_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The real audit loop must not treat an abstract driver record as a file path."""
+    raw = _raw_native_wheel(
+        tmp_path,
+        version="0.5.0rc1+cann900.a2",
+        profile_id="cann900-a2",
+        spec_id="cann900-a2-amd64",
+        build_key=A2_AMD64_BUILD_KEY,
+        required=ASCEND_REQUIRED_NATIVE,
+        forbidden=ASCEND_FORBIDDEN_NATIVE,
+    )
+    _seal_native_wheel(
+        tmp_path,
+        raw,
+        spec_id="cann900-a2-amd64",
+        build_key=A2_AMD64_BUILD_KEY,
+        closure_external_required=ASCEND_EXTERNAL_REQUIRED,
+        check=False,
+    )
+
+    real_run = subprocess.run
+
+    def completed(command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        stdout = ""
+        if command[0] == "ldd":
+            stdout = """\
+libc.so.6 => /bin/sh (0x00001111)
+libascend_hal.so => not found
+libascend_hal.so => not found
+"""
+        if command[0] in {"ldd", "readelf"}:
+            return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+        return real_run(command, **kwargs)
+
+    monkeypatch.setattr(release_wheel.sys, "platform", "linux")
+    monkeypatch.setattr(release_wheel.subprocess, "run", completed)
+    record = release_wheel.audit_dependency_closure(
+        raw,
+        tmp_path / "audited-closure.json",
+        "cann900-a2-amd64",
+        tmp_path / "build-authority.json",
+    )
+
+    for member in record["native_members"].values():
+        assert {
+            **ASCEND_EXTERNAL_REQUIRED,
+            "direct": False,
+            "kind": "external-required",
+        } in member["resolved_dependencies"]
+        assert member["unresolved_dependencies"] == []
+    assert record["unresolved_dependencies"] == []
+
+
 def test_ldd_closure_rejects_transitive_not_found() -> None:
     with pytest.raises(ValueError, match="transitive.*not found"):
         release_wheel._parse_ldd_output(
@@ -1649,6 +1819,153 @@ libgcc_s.so.1 => /lib/aarch64-linux-gnu/libgcc_s.so.1 (0x00002222)
                 "direct": False,
                 "kind": "virtual",
             },
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    ("loader", "path"),
+    (
+        ("ld-linux-x86-64.so.2", "/lib64/ld-linux-x86-64.so.2"),
+        ("ld-linux-aarch64.so.1", "/lib/ld-linux-aarch64.so.1"),
+    ),
+)
+def test_ldd_closure_binds_direct_platform_loader_soname_to_absolute_path(
+    loader: str, path: str
+) -> None:
+    """ldd prints a loader path, while ELF DT_NEEDED carries its SONAME."""
+    assert release_wheel._parse_ldd_output(
+        "ucm/store/cache/libcachestore.so",
+        [loader],
+        f"{path} (0x00003333)\n",
+    ) == [
+        {
+            "dependency": loader,
+            "direct": True,
+            "kind": "located",
+            "path": path,
+        }
+    ]
+
+
+@pytest.mark.parametrize("spec_id", ("cann900-a2-amd64", "cann900-a3-arm64"))
+def test_preflight_deduplicates_only_declared_transitive_hal(spec_id: str) -> None:
+    """Repeated driver misses are one declared device-runtime requirement."""
+    evidence = release_wheel.validate_preflight_ldd(
+        spec_id,
+        "/usr/local/lib/libmooncake_store.so",
+        ["libtransfer_engine.so"],
+        """\
+libtransfer_engine.so => /usr/local/lib/libtransfer_engine.so (0x00001111)
+libascend_hal.so => not found
+libascend_hal.so => not found
+""",
+    )
+
+    assert evidence["resolved_dependencies"] == [
+        {
+            **ASCEND_EXTERNAL_REQUIRED,
+            "direct": False,
+            "kind": "external-required",
+        },
+        {
+            "dependency": "libtransfer_engine.so",
+            "direct": True,
+            "kind": "located",
+            "path": "/usr/local/lib/libtransfer_engine.so",
+        },
+    ]
+    assert evidence["unexpected_unresolved"] == []
+
+
+def test_preflight_reads_direct_needed_without_applying_wheel_elf_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pinned Mooncake base ELF is inspected for NEEDED, not wheel-only policy."""
+    binary = tmp_path / "libmooncake_store.so"
+    binary.write_bytes(b"host runtime ELF bytes are supplied by the pinned image")
+
+    def completed(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess:
+        if command[0] == "readelf":
+            stdout = """\
+ 0x0000000000000001 (NEEDED) Shared library: [libtransfer_engine.so]
+ 0x0000000000000001 (NEEDED) Shared library: [ld-linux-x86-64.so.2]
+"""
+        else:
+            stdout = """\
+libtransfer_engine.so => /usr/local/lib/libtransfer_engine.so (0x00001111)
+/lib64/ld-linux-x86-64.so.2 (0x00002222)
+libascend_hal.so => not found
+"""
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(release_wheel.subprocess, "run", completed)
+    evidence = release_wheel.preflight_dependencies(binary, "cann900-a2-amd64")
+
+    assert evidence["status"] == "passed"
+    assert evidence["unexpected_unresolved"] == []
+
+
+def test_preflight_rejects_declared_hal_mixed_with_an_unknown_missing_soname() -> None:
+    """A declared driver boundary must not hide an unrelated broken dependency."""
+    with pytest.raises(ValueError, match="unexpected unresolved.*libfoo"):
+        release_wheel.validate_preflight_ldd(
+            "cann900-a2-amd64",
+            "/usr/local/lib/libmooncake_store.so",
+            [],
+            """\
+libascend_hal.so => not found
+libfoo.so => not found
+""",
+        )
+
+
+def test_cuda_and_direct_dependencies_cannot_use_the_ascend_hal_boundary() -> None:
+    """HAL is Ascend-only and its declaration is transitive, never DT_NEEDED."""
+    with pytest.raises(ValueError, match="unexpected unresolved.*libascend_hal"):
+        release_wheel.validate_preflight_ldd(
+            "cuda130-amd64",
+            "ucm/store/cache/libcachestore.so",
+            [],
+            "libascend_hal.so => not found\n",
+        )
+    with pytest.raises(ValueError, match="direct.*external-required|transitive"):
+        release_wheel.validate_preflight_ldd(
+            "cann900-a3-arm64",
+            "/usr/local/lib/libmooncake_store.so",
+            ["libascend_hal.so"],
+            "libascend_hal.so => not found\n",
+        )
+
+
+def test_wheel_and_runtime_ldd_parsers_record_identical_external_requirement() -> None:
+    """The install-only image must preserve the sealed wheel closure exactly."""
+    declarations = [ASCEND_EXTERNAL_REQUIRED]
+    output = "libascend_hal.so => not found\nlibascend_hal.so => not found\n"
+    wheel_closure = release_wheel._parse_ldd_output(
+        "ucm/store/mooncakestore/libmooncakestore.so",
+        [],
+        output,
+        external_required_dependencies=declarations,
+    )
+    runtime_module = runpy.run_path(str(RELEASE_ROOT / "docker" / "inspect_runtime.py"))
+    runtime_closure = runtime_module["_parse_ldd"](
+        "ucm/store/mooncakestore/libmooncakestore.so",
+        [],
+        output,
+        {},
+        external_required_dependencies=declarations,
+    )
+
+    assert (
+        runtime_closure
+        == wheel_closure
+        == [
+            {
+                **ASCEND_EXTERNAL_REQUIRED,
+                "direct": False,
+                "kind": "external-required",
+            }
         ]
     )
 

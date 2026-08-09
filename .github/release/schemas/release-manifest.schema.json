@@ -1,6 +1,20 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://modelengine-group.example/ucm/release-manifest.schema.json",
+  "$defs": {
+    "externalRequiredDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dependency", "provider", "expected_mount_root", "relation", "required_at"],
+      "properties": {
+        "dependency": {"const": "libascend_hal.so"},
+        "provider": {"const": "host-ascend-driver"},
+        "expected_mount_root": {"const": "/usr/local/Ascend/driver/lib64"},
+        "relation": {"const": "transitive"},
+        "required_at": {"const": "device-runtime"}
+      }
+    }
+  },
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "kind", "ucm_version", "config_sha256", "compatibility_sha256", "declared_wheel_count", "eligible_wheel_count", "wheel_specs", "blockers", "publication", "status"],
@@ -17,7 +31,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["spec_id", "accelerator", "accelerator_runtime", "npu_arch_or_na", "os", "cpu_arch", "python_version", "python_abi", "wheel_version", "wheel_platform", "binary_profile_id", "validation_targets", "required_native", "forbidden_native", "allowed_dt_needed", "locks", "runner", "build_eligible", "blocked_reasons", "declaration_sha256"],
+        "required": ["spec_id", "accelerator", "accelerator_runtime", "npu_arch_or_na", "os", "cpu_arch", "python_version", "python_abi", "wheel_version", "wheel_platform", "binary_profile_id", "validation_targets", "required_native", "forbidden_native", "allowed_dt_needed", "external_required_dependencies", "locks", "runner", "build_eligible", "blocked_reasons", "declaration_sha256"],
         "properties": {
           "spec_id": {"type": "string"},
           "accelerator": {"enum": ["cuda", "ascend"]},
@@ -34,6 +48,7 @@
           "required_native": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
           "forbidden_native": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
           "allowed_dt_needed": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+          "external_required_dependencies": {"type": "array", "maxItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/externalRequiredDependency"}},
           "locks": {"type": "array", "minItems": 2, "items": {"type": "object"}},
           "runner": {"type": "object"},
           "build_eligible": {"type": "boolean"},

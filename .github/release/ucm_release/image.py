@@ -267,6 +267,9 @@ def real_image_authorities(
             "required_native": copy.deepcopy(task["required_native"]),
             "forbidden_native": copy.deepcopy(task["forbidden_native"]),
             "allowed_dt_needed": copy.deepcopy(task["allowed_dt_needed"]),
+            "external_required_dependencies": copy.deepcopy(
+                task["external_required_dependencies"]
+            ),
             "dependency_lock_sha256": task["dependency_lock_sha256"],
             "wrapt_wheel": copy.deepcopy(release["wrapt_wheels"][architecture]),
             "task_sha256": task["task_sha256"],

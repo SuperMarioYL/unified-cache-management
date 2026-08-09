@@ -145,8 +145,10 @@ case "${PLATFORM}" in
     test -d /vllm-workspace/Mooncake/mooncake-store/include
     test -f /usr/local/include/transfer_engine.h
     test -f /usr/local/lib/libmooncake_store.so
-    readelf -h -d /usr/local/lib/libmooncake_store.so
-    ! ldd /usr/local/lib/libmooncake_store.so | grep -F 'not found'
+    PYTHONPATH=/workspace/ucm/.github/release ucm-python -m ucm_release \
+      wheel preflight-dependencies \
+      --binary /usr/local/lib/libmooncake_store.so \
+      --spec-id "${UCM_RELEASE_PROFILE}-${TARGETARCH}"
     ;;
   *) echo "unsupported release PLATFORM=${PLATFORM}" >&2; exit 1 ;;
 esac

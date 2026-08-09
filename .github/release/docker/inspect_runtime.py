@@ -96,10 +96,35 @@ def _parse_ldd(
     direct_needed: list[str],
     output: str,
     installed_paths: dict[Path, str],
+    *,
+    external_required_dependencies: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     direct = set(direct_needed)
     result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    missing: set[str] = set()
+    declaration_fields = {
+        "dependency",
+        "provider",
+        "expected_mount_root",
+        "relation",
+        "required_at",
+    }
+    declared_external: dict[str, dict[str, Any]] = {}
+    for declaration in external_required_dependencies or []:
+        if (
+            not isinstance(declaration, dict)
+            or set(declaration) != declaration_fields
+            or declaration.get("relation") != "transitive"
+            or declaration.get("required_at") != "device-runtime"
+        ):
+            raise ValueError("installed external-required declaration is invalid")
+        dependency = declaration.get("dependency")
+        if not isinstance(dependency, str) or dependency in declared_external:
+            raise ValueError("installed external-required declarations are not unique")
+        declared_external[dependency] = declaration
     patterns = (
+        re.compile(r"^(\S+)\s+=>\s+not found$"),
         re.compile(r"^(\S+)\s+=>\s+(\S+)(?:\s+\(0x[0-9a-fA-F]+\))?$"),
         re.compile(r"^(\S+)\s+\(0x[0-9a-fA-F]+\)$"),
     )
@@ -107,15 +132,23 @@ def _parse_ldd(
         line = raw.strip()
         if not line:
             continue
-        if line.endswith("=> not found"):
-            raise ValueError(f"installed dependency is unresolved for {member}: {line}")
-        arrow = patterns[0].fullmatch(line)
-        located = patterns[1].fullmatch(line)
+        missing_match = patterns[0].fullmatch(line)
+        if missing_match is not None:
+            missing.add(missing_match.group(1))
+            continue
+        arrow = patterns[1].fullmatch(line)
+        located = patterns[2].fullmatch(line)
         if arrow:
             dependency, raw_path = arrow.groups()
         elif located:
-            dependency = located.group(1)
-            if dependency == "linux-vdso.so.1":
+            raw_path = located.group(1)
+            if raw_path == "linux-vdso.so.1":
+                dependency = raw_path
+                if dependency in seen:
+                    raise ValueError(
+                        f"installed ldd output has duplicate dependency for {member}"
+                    )
+                seen.add(dependency)
                 result.append(
                     {
                         "dependency": dependency,
@@ -124,9 +157,15 @@ def _parse_ldd(
                     }
                 )
                 continue
-            raw_path = dependency
+            basename = Path(raw_path).name
+            dependency = basename if basename in direct else raw_path
         else:
             raise ValueError(f"installed ldd output is malformed for {member}: {line}")
+        if dependency in seen:
+            raise ValueError(
+                f"installed ldd output has duplicate dependency for {member}"
+            )
+        seen.add(dependency)
         path = Path(raw_path).resolve()
         internal_member = installed_paths.get(path)
         if internal_member is not None:
@@ -151,6 +190,38 @@ def _parse_ldd(
             )
         else:
             raise ValueError(f"installed dependency path is not a file: {line}")
+    unexpected = sorted(missing - set(declared_external))
+    if unexpected:
+        raise ValueError(
+            f"installed dependency has unexpected unresolved entries for {member}: "
+            f"{unexpected}"
+        )
+    for dependency in sorted(missing):
+        declaration = declared_external[dependency]
+        if dependency in direct:
+            raise ValueError(
+                f"installed direct dependency {dependency} cannot be external-required"
+            )
+        if dependency in seen:
+            raise ValueError(
+                f"installed dependency is both resolved and external-required: {dependency}"
+            )
+        seen.add(dependency)
+        result.append(
+            {
+                **declaration,
+                "direct": False,
+                "kind": "external-required",
+            }
+        )
+    observed_direct = {
+        item["dependency"] for item in result if item["dependency"] in direct
+    }
+    missing_direct = sorted(direct - observed_direct)
+    if missing_direct:
+        raise ValueError(
+            f"installed direct dependencies are not found for {member}: {missing_direct}"
+        )
     return sorted(
         result, key=lambda item: (str(item["dependency"]), str(item.get("path", "")))
     )
@@ -199,6 +270,22 @@ def _inspect_real(
     closure: dict[str, Any] = {}
     for component, path in installed.items():
         member = expected_members[component]
+        expected_closure = expected.get("dependency_closure", {}).get(member, {})
+        expected_resolutions = expected_closure.get("resolved_dependencies", [])
+        external_required = [
+            {
+                key: resolution[key]
+                for key in (
+                    "dependency",
+                    "provider",
+                    "expected_mount_root",
+                    "relation",
+                    "required_at",
+                )
+            }
+            for resolution in expected_resolutions
+            if resolution.get("kind") == "external-required"
+        ]
         completed = subprocess.run(
             ["ldd", str(path)],
             env=environment,
@@ -211,7 +298,11 @@ def _inspect_real(
         closure[member] = {
             "dt_needed": dt_needed[member],
             "resolved_dependencies": _parse_ldd(
-                member, dt_needed[member], completed.stdout, installed_paths
+                member,
+                dt_needed[member],
+                completed.stdout,
+                installed_paths,
+                external_required_dependencies=external_required,
             ),
             "unresolved_dependencies": [],
         }

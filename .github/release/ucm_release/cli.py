@@ -113,6 +113,10 @@ def build_parser() -> argparse.ArgumentParser:
     closure.add_argument("--authority-file", required=True, type=Path)
     closure.add_argument("--output", required=True, type=Path)
     _paths(closure)
+    preflight_dependencies = wheel_actions.add_parser("preflight-dependencies")
+    preflight_dependencies.add_argument("--binary", required=True, type=Path)
+    preflight_dependencies.add_argument("--spec-id", required=True)
+    _paths(preflight_dependencies)
     fixture_build = wheel_actions.add_parser("fixture-build")
     fixture_build.add_argument("--output-dir", type=Path, required=True)
     fixture_build.add_argument("--source-sha", required=True)
@@ -343,6 +347,14 @@ def main(argv: list[str] | None = None) -> int:
                 args.output,
                 args.spec_id,
                 args.authority_file,
+                release_path=args.release,
+                compatibility_path=args.compatibility,
+                schema_dir=args.schema_dir,
+            )
+        elif (args.group, args.action) == ("wheel", "preflight-dependencies"):
+            result = wheel.preflight_dependencies(
+                args.binary,
+                args.spec_id,
                 release_path=args.release,
                 compatibility_path=args.compatibility,
                 schema_dir=args.schema_dir,

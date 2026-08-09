@@ -77,6 +77,13 @@ SHARED_LIBRARY_COMPONENTS = {
     "mooncakestore",
     "ds3fsstore",
 }
+EXTERNAL_REQUIRED_FIELDS = {
+    "dependency",
+    "provider",
+    "expected_mount_root",
+    "relation",
+    "required_at",
+}
 
 
 def _sha256(path: Path) -> str:
@@ -85,6 +92,37 @@ def _sha256(path: Path) -> str:
 
 def _write_canonical(path: Path, value: object) -> None:
     path.write_bytes(canonical_bytes(value) + b"\n")
+
+
+def _external_required_by_dependency(
+    declarations: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for declaration in declarations:
+        if (
+            not isinstance(declaration, dict)
+            or set(declaration) != EXTERNAL_REQUIRED_FIELDS
+        ):
+            raise ValueError("external-required dependency declaration is invalid")
+        dependency = declaration.get("dependency")
+        if not isinstance(dependency, str) or dependency in result:
+            raise ValueError("external-required dependency declarations are not unique")
+        if (
+            declaration.get("relation") != "transitive"
+            or declaration.get("required_at") != "device-runtime"
+            or not str(declaration.get("expected_mount_root", "")).startswith("/")
+        ):
+            raise ValueError("external-required dependency declaration is invalid")
+        result[dependency] = declaration
+    return result
+
+
+def _external_required_resolution(declaration: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **declaration,
+        "direct": False,
+        "kind": "external-required",
+    }
 
 
 def build_fixture_wheel(
@@ -631,6 +669,8 @@ def _validate_dependency_closure(
     authority: dict[str, Any],
     native: dict[str, Any],
     archive: zipfile.ZipFile,
+    *,
+    external_required_dependencies: list[dict[str, Any]],
 ) -> dict[str, Any]:
     fields = {
         "schema_version",
@@ -672,6 +712,8 @@ def _validate_dependency_closure(
         for name in expected_names
     }
     member_by_basename = {PurePosixPath(name).name: name for name in expected_names}
+    declared_external = _external_required_by_dependency(external_required_dependencies)
+    observed_external: set[str] = set()
     for name in sorted(expected_names):
         record = records[name]
         if not isinstance(record, dict) or set(record) != {
@@ -731,6 +773,16 @@ def _validate_dependency_closure(
                         f"dependency closure must resolve internal {dependency} "
                         "from the exact wheel member"
                     )
+            elif resolution.get("kind") == "external-required":
+                declaration = declared_external.get(str(dependency))
+                if declaration is None or resolution != _external_required_resolution(
+                    declaration
+                ):
+                    raise ValueError(
+                        "dependency closure external-required resolution is invalid: "
+                        f"{dependency}"
+                    )
+                observed_external.add(str(dependency))
             elif resolution.get("kind") == "virtual":
                 if resolution != {
                     "dependency": "linux-vdso.so.1",
@@ -751,6 +803,11 @@ def _validate_dependency_closure(
                 raise ValueError(
                     f"dependency closure external resolution is invalid: {dependency}"
                 )
+    if observed_external != set(declared_external):
+        raise ValueError(
+            "dependency closure external-required set differs from declaration: "
+            f"expected={sorted(declared_external)}, observed={sorted(observed_external)}"
+        )
     return closure
 
 
@@ -1054,12 +1111,20 @@ def build_authority_record(
 
 
 def _parse_ldd_output(
-    label: str, direct_needed: list[str], output: str
+    label: str,
+    direct_needed: list[str],
+    output: str,
+    *,
+    external_required_dependencies: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Parse every ldd line; reject unresolved or unbound output."""
     direct = set(direct_needed)
     seen: set[str] = set()
+    missing_dependencies: set[str] = set()
     resolved: list[dict[str, Any]] = []
+    declared_external = _external_required_by_dependency(
+        external_required_dependencies or []
+    )
     missing = re.compile(r"^(\S+)\s+=>\s+not found$")
     arrow = re.compile(r"^(\S+)\s+=>\s+(\S+)(?:\s+\(0x[0-9a-fA-F]+\))?$")
     located = re.compile(r"^(\S+)\s+\(0x[0-9a-fA-F]+\)$")
@@ -1070,10 +1135,8 @@ def _parse_ldd_output(
         missing_match = missing.fullmatch(line)
         if missing_match is not None:
             dependency = missing_match.group(1)
-            relation = "direct" if dependency in direct else "transitive"
-            raise ValueError(
-                f"{relation} dependency {dependency} is not found for {label}"
-            )
+            missing_dependencies.add(dependency)
+            continue
         arrow_match = arrow.fullmatch(line)
         if arrow_match is not None:
             dependency, location = arrow_match.groups()
@@ -1099,9 +1162,11 @@ def _parse_ldd_output(
                 f"ldd output has a malformed extra line for {label}: {line}"
             )
         location = located_match.group(1)
-        if location in seen:
+        basename = PurePosixPath(location).name
+        dependency = basename if basename in direct else location
+        if dependency in seen:
             raise ValueError(f"ldd output has duplicate dependency for {label}")
-        seen.add(location)
+        seen.add(dependency)
         if location == "linux-vdso.so.1":
             resolved.append(
                 {
@@ -1113,14 +1178,38 @@ def _parse_ldd_output(
         elif location.startswith("/"):
             resolved.append(
                 {
-                    "dependency": location,
-                    "direct": location in direct,
+                    "dependency": dependency,
+                    "direct": dependency in direct,
                     "kind": "located",
                     "path": location,
                 }
             )
         else:
             raise ValueError(f"ldd output has an unbound line for {label}: {line}")
+    unexpected = sorted(missing_dependencies - set(declared_external))
+    if unexpected:
+        relations = [
+            f"{'direct' if dependency in direct else 'transitive'} {dependency}"
+            for dependency in unexpected
+        ]
+        raise ValueError(
+            f"unexpected unresolved dependencies for {label}: "
+            f"{relations} are not found"
+        )
+    for dependency in sorted(missing_dependencies):
+        declaration = declared_external[dependency]
+        if dependency in direct or declaration["relation"] != "transitive":
+            raise ValueError(
+                f"direct dependency {dependency} cannot use a transitive "
+                f"external-required declaration for {label}"
+            )
+        if dependency in seen:
+            raise ValueError(
+                f"ldd output both resolves and defers dependency for {label}: "
+                f"{dependency}"
+            )
+        seen.add(dependency)
+        resolved.append(_external_required_resolution(declaration))
     observed_direct = {
         item["dependency"] for item in resolved if item["dependency"] in direct
     }
@@ -1130,6 +1219,95 @@ def _parse_ldd_output(
     return sorted(
         resolved,
         key=lambda item: (str(item["dependency"]), str(item.get("path", ""))),
+    )
+
+
+def validate_preflight_ldd(
+    spec_id: str,
+    label: str,
+    direct_needed: list[str],
+    output: str,
+    *,
+    release_path: Path = DEFAULT_RELEASE,
+    compatibility_path: Path = DEFAULT_COMPATIBILITY,
+    schema_dir: Path = DEFAULT_SCHEMA_DIR,
+) -> dict[str, Any]:
+    """Apply one reviewed spec's exact external dependency boundary to ldd output."""
+    release, _ = validate_config(release_path, compatibility_path, schema_dir)
+    specs = {item["spec_id"]: item for item in expand_wheel_specs(release)}
+    if spec_id not in specs:
+        raise ValueError(f"unknown dependency preflight spec: {spec_id}")
+    declarations = specs[spec_id]["external_required_dependencies"]
+    resolved = _parse_ldd_output(
+        label,
+        direct_needed,
+        output,
+        external_required_dependencies=declarations,
+    )
+    observed = {
+        item["dependency"]
+        for item in resolved
+        if item.get("kind") == "external-required"
+    }
+    declared = {
+        item["dependency"]
+        for item in _external_required_by_dependency(declarations).values()
+    }
+    if observed != declared:
+        raise ValueError(
+            "dependency preflight external-required set differs from declaration: "
+            f"expected={sorted(declared)}, observed={sorted(observed)}"
+        )
+    return {
+        "schema_version": 1,
+        "kind": "ucm-external-dependency-preflight",
+        "spec_id": spec_id,
+        "binary": label,
+        "external_required_dependencies": declarations,
+        "resolved_dependencies": resolved,
+        "unexpected_unresolved": [],
+        "status": "passed",
+    }
+
+
+def preflight_dependencies(
+    binary: Path,
+    spec_id: str,
+    *,
+    release_path: Path = DEFAULT_RELEASE,
+    compatibility_path: Path = DEFAULT_COMPATIBILITY,
+    schema_dir: Path = DEFAULT_SCHEMA_DIR,
+) -> dict[str, Any]:
+    """Inspect a builder library and fail on any undeclared unresolved dependency."""
+    path = Path(binary)
+    if not path.is_file():
+        raise ValueError(f"dependency preflight binary is missing: {path}")
+    dynamic = subprocess.run(
+        ["readelf", "-d", str(path)], text=True, capture_output=True, check=False
+    )
+    if dynamic.returncode != 0:
+        raise ValueError(f"readelf failed for dependency preflight: {path}")
+    needed_pattern = re.compile(r"\(NEEDED\)\s+Shared library: \[([^\]]+)\]$")
+    direct_needed = sorted(
+        match.group(1)
+        for line in dynamic.stdout.splitlines()
+        if (match := needed_pattern.search(line.strip())) is not None
+    )
+    if not direct_needed:
+        raise ValueError(f"dependency preflight found no DT_NEEDED entries: {path}")
+    linked = subprocess.run(
+        ["ldd", str(path)], text=True, capture_output=True, check=False
+    )
+    if linked.returncode != 0:
+        raise ValueError(f"ldd failed for dependency preflight: {path}")
+    return validate_preflight_ldd(
+        spec_id,
+        str(path),
+        direct_needed,
+        linked.stdout,
+        release_path=release_path,
+        compatibility_path=compatibility_path,
+        schema_dir=schema_dir,
     )
 
 
@@ -1206,9 +1384,14 @@ def audit_dependency_closure(
                     raise ValueError(f"ldd failed for dependency closure: {name}")
                 resolved_dependencies: list[dict[str, Any]] = []
                 for parsed in _parse_ldd_output(
-                    name, native["dt_needed"][name], linked.stdout
+                    name,
+                    native["dt_needed"][name],
+                    linked.stdout,
+                    external_required_dependencies=specs[spec_id][
+                        "external_required_dependencies"
+                    ],
                 ):
-                    if parsed["kind"] == "virtual":
+                    if parsed["kind"] in {"virtual", "external-required"}:
                         resolved_dependencies.append(parsed)
                         continue
                     dependency = parsed["dependency"]
@@ -1257,7 +1440,16 @@ def audit_dependency_closure(
         "sha256:" + hashlib.sha256(canonical_bytes(record)).hexdigest()
     )
     with zipfile.ZipFile(path) as archive:
-        _validate_dependency_closure(record, raw_digest, authority, native, archive)
+        _validate_dependency_closure(
+            record,
+            raw_digest,
+            authority,
+            native,
+            archive,
+            external_required_dependencies=specs[spec_id][
+                "external_required_dependencies"
+            ],
+        )
     Path(output).write_bytes(canonical_bytes(record) + b"\n")
     return record
 
@@ -1333,6 +1525,7 @@ def _verify_builder_candidate_evidence(
         "required_native",
         "forbidden_native",
         "allowed_dt_needed",
+        "external_required_dependencies",
         "native_members",
         "component_manifest_sha256",
         "dependency_closure_sha256",
@@ -1373,6 +1566,7 @@ def _verify_builder_candidate_evidence(
         "required_native",
         "forbidden_native",
         "allowed_dt_needed",
+        "external_required_dependencies",
     )
     for field in bound_fields:
         if binding[field] != spec[field]:
@@ -1395,6 +1589,7 @@ def _verify_builder_candidate_evidence(
         authority,
         native,
         archive,
+        external_required_dependencies=spec["external_required_dependencies"],
     )
     _, component_digest = _verify_component_manifest(
         archive,
@@ -1659,6 +1854,7 @@ def seal_wheel(
             authority,
             native,
             archive,
+            external_required_dependencies=spec["external_required_dependencies"],
         )
         members = {
             name: archive.read(name)
@@ -1707,6 +1903,7 @@ def seal_wheel(
         "required_native": spec["required_native"],
         "forbidden_native": spec["forbidden_native"],
         "allowed_dt_needed": spec["allowed_dt_needed"],
+        "external_required_dependencies": spec["external_required_dependencies"],
         "native_members": native["native_members"],
         "component_manifest_sha256": component_digest,
         "dependency_closure_sha256": closure["closure_sha256"],

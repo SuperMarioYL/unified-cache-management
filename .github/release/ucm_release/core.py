@@ -262,6 +262,15 @@ FORBIDDEN_NATIVE = [
     "retrieval_backend",
     "gsa_offload_ops",
 ]
+ASCEND_EXTERNAL_REQUIRED = [
+    {
+        "dependency": "libascend_hal.so",
+        "provider": "host-ascend-driver",
+        "expected_mount_root": "/usr/local/Ascend/driver/lib64",
+        "relation": "transitive",
+        "required_at": "device-runtime",
+    }
+]
 CANONICAL_RELEASE_SECTION_SHA256 = {
     "source": "sha256:d2d52dd28fa8307c6be94b8ed9e69db7c94d8f8a634ed7dc57032dfdb13ac5b1",
     "lanes": "sha256:8de0316a0d938870075c4865b6e9bf7beb969e3edcbbfd6a122a2862e8eeb7f1",
@@ -270,7 +279,7 @@ CANONICAL_RELEASE_SECTION_SHA256 = {
     "python_build_lock": "sha256:bc58dc3dceb19bef10d1152b415afb4954c452a349ade930603cdb0b743f24c8",
     "wrapt_wheels": "sha256:2c674887f2c73e504ba0da5a83d93e2fc88391405e7ac29aa37d082e6184bfab",
     "chart": "sha256:a4d4da0020be293876a242a22910830cc2c600d308df650837c2ae6d53b67f7f",
-    "wheel_profiles": "sha256:03af43997bdd323a6e03cb3577b40e3f79654a095dad60164efc36934f807cc5",
+    "wheel_profiles": "sha256:d0d143ebbf7f457cd8f3cdaa34b368329bf2fe5ba861e8ee0fdafa731b4d812e",
     "image_families": "sha256:e7200360dda58fd1d1caeaf0eb52bc4ca33157c521ef408fbc6a06c809c5819e",
 }
 CANONICAL_COMPATIBILITY_SHA256 = (
@@ -342,6 +351,13 @@ def _validate_cross_config(
             raise ValueError(f"{profile['id']} required native allowlist drifted")
         if profile["forbidden_native"] != expected_forbidden:
             raise ValueError(f"{profile['id']} forbidden native allowlist drifted")
+        expected_external = (
+            [] if profile["accelerator"] == "cuda" else ASCEND_EXTERNAL_REQUIRED
+        )
+        if profile["external_required_dependencies"] != expected_external:
+            raise ValueError(
+                f"{profile['id']} external-required dependency boundary drifted"
+            )
         for architecture in ARCHITECTURE_ORDER:
             builder = profile["builders"][architecture]
             root = builder["root"]
@@ -506,6 +522,9 @@ def expand_wheel_specs(release: dict[str, Any]) -> list[dict[str, Any]]:
                 "required_native": profile["required_native"],
                 "forbidden_native": profile["forbidden_native"],
                 "allowed_dt_needed": profile["allowed_dt_needed"],
+                "external_required_dependencies": profile[
+                    "external_required_dependencies"
+                ],
                 "locks": _resolved_locks(release, profile, architecture),
                 "runner": {
                     "selector": f"runner-map://{architecture}",
@@ -578,6 +597,7 @@ def build_matrix(
             "required_native": profile["required_native"],
             "forbidden_native": profile["forbidden_native"],
             "allowed_dt_needed": profile["allowed_dt_needed"],
+            "external_required_dependencies": profile["external_required_dependencies"],
             "dependency_lock_sha256": sha256_value(dependency_lock),
             "write_authority": write_authority,
             "build_eligible": True,
