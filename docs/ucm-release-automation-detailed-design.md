@@ -2,406 +2,447 @@
 
 ## 1. Scope and invariants
 
-The release system builds deterministic local evidence for UCM core artifacts,
-the product Helm Chart, and UCM-installed vLLM image candidates. Repository
-policy lives in `.github/release`; workflows only install fixed tools, move
-artifacts, and call `python -m ucm_release`.
+The current implementation builds real UCM wheels and install-only vLLM image
+candidates in GitHub Actions. A developer machine runs contract checks only; it
+does not prebuild or upload release artifacts.
 
-The checked-in release surface is fixed at:
+The checked-in release surface remains compact:
 
 - four release workflows;
 - eight `ucm_release` Python modules;
 - three JSON Schemas;
-- four Docker files;
+- one multi-stage Dockerfile and three verification helpers;
 - two YAML configuration files;
-- one product Chart at `charts/ucm`, including `SOURCE_PROVENANCE.json`.
+- one product Chart at `charts/ucm`.
 
-The feature/fork lane is always fixture-only, read-only, and unpublished. The
-production lane remains fail-closed while its external requirements are absent.
+The feature lane is real-build, read-only, and unpublished. It has exactly six
+reviewed tasks and uses native GitHub-hosted x64/ARM64 runners. The current
+`v*` route is explicitly blocked; Registry publication, GitHub Release
+creation, hardware validation, and cluster acceptance are outside the completed
+feature path.
 
-## 2. Repository layout
+All feature jobs use `contents: read`. Their only intended remote output is the
+temporary Actions Artifact upload.
 
-### 2.1 Four workflows
+The words `candidate` and `eligible` mean that a task has complete build
+authority. They do not mean `published`.
 
-| Workflow | Trigger/interface | Responsibility |
-| --- | --- | --- |
-| `_build-wheel.yml` | Required `workflow_call` inputs `source_sha`, `profile_id`, `validation_lane` | First step validates the complete lowercase commit SHA, the one authorized fixture profile, and `fork-candidate`; then builds and uploads one deterministic fixture wheel and its canonical records |
-| `_build-image.yml` | Required `workflow_call` inputs `source_sha`, `wheel_artifact`, `image_input_artifact`, `validation_lane` | First step validates all inputs; then authenticates Buildx, reads the fixed base descriptor chain, prepares the seven-file context, builds a local OCI archive, verifies it, removes the large archive, and uploads compact evidence |
-| `release-vllm-images.yml` | Reusable call plus schedule, repository dispatch, and default-branch manual entry | Produces or accepts the fixture wheel, prepares one reconcile task, calls the image builder, records the verified image, and requires the second reconcile to return zero tasks |
-| `release-ucm.yml` | Reusable call and pushes to `feature/**` or `v*` | Runs the read-only candidate lane for feature branches and fork tags, packages the Chart, invokes the image loop, and aggregates all evidence; an upstream `v*` tag reaches an explicit production failure until external capabilities exist |
+## 2. Workflow topology
 
-All jobs explicitly use `contents: read`. Candidate routes do not inherit
-secrets and do not use a protected environment, self-hosted runner, Registry
-login/write, or GitHub mutation. `release-vllm-images.yml` can be awakened by a
-`repository_dispatch` event, but the candidate never calls or initiates the
-repository-dispatch API and has neither permission nor a write operation that
-can send one.
+### 2.1 `release-ucm.yml`
 
-### 2.2 Eight modules
+This is the feature push entry point.
 
-| Module | Contract |
-| --- | --- |
-| `__init__.py` | Compact `python -m ucm_release` dispatch without a ninth forwarding file |
-| `cli.py` | Single CLI surface and exit-2 fail-closed error handling |
-| `core.py` | Strict YAML/JSON loading, schema subset validation, version agreement, 36-spec expansion, and manifest generation |
-| `wheel.py` | Deterministic fixture wheel creation plus fixture/builder-candidate byte and metadata inspection |
-| `chart.py` | Provenance verification, CUDA/A2/A3 Helm checks, and deterministic package normalization |
-| `registry.py` | Exact upstream-tag parsing, read-only Registry snapshots, candidate identity, revision allocation, and reconciliation |
-| `image.py` | Base/toolchain authority, seven-file context, local OCI scanning, image-result validation, and compact descriptor evidence |
-| `verify.py` | Six-scenario loop, zero-write ledger audit, second reconcile, and final artifact recomputation |
+1. Reject non-fork, non-feature, or Tag publication invocations through the
+   explicit blocked job.
+2. Check out the exact `github.sha`, run feature preflight, and project the
+   canonical six-task matrix.
+3. Call `_build-wheel.yml` once for each `spec_id`, with `fail-fast: false`.
+4. Continue only after all six wheel calls succeed.
+5. Lint, template, and deterministically package the Chart.
+6. Call `release-vllm-images.yml` with the same full source SHA.
+7. Require plan, six wheels, Chart, and all image work to be successful.
+8. Download the six wheel artifacts, six image artifacts, and Chart; reopen the
+   complete closure; upload the final aggregate.
 
-### 2.3 Three schemas
+The workflow does not publish a Registry package and does not create a GitHub
+Release. The final Actions Artifact is named
+`release-loop-evidence-<source-sha>`.
 
-| Schema | Instance |
-| --- | --- |
-| `config.schema.json` | `release.yaml` or `compatibility.yaml`, discriminated by `kind` |
-| `release-manifest.schema.json` | Generated 36-wheel core manifest and GitHub Release asset declarations |
-| `image-result.schema.json` | Fixture-only, unpublished image result and its required gates |
+### 2.2 `_build-wheel.yml`
 
-Unknown fields and duplicate JSON/YAML keys fail. The CLI additionally enforces
-cross-document semantics that are more specific than structural schema checks.
+The reusable interface is the exact pair `source_sha` and `spec_id`. The first
+step accepts only a full lowercase SHA and one of:
 
-### 2.4 Four Docker files
+```text
+cuda130-amd64
+cuda130-arm64
+cann900-a2-amd64
+cann900-a2-arm64
+cann900-a3-amd64
+cann900-a3-arm64
+```
 
-| File | Responsibility |
-| --- | --- |
-| `Dockerfile` | Digest-pinned frontend and install-only build sequence |
-| `verify_base_image.py` | Reopen index, platform manifest, and config bytes; bind `FROM` to the exact platform digest |
-| `install_ucm.py` | Verify the exact wheel, perform normal pip dependency resolution, run `pip check`, verify direct URL, versions, and imports |
-| `inspect_runtime.py` | Verify Python ABI/package facts while retaining accelerator runtime and device checks as external-required |
+The CPU suffix selects `ubuntu-24.04` or `ubuntu-24.04-arm`. Each job records
+disk state, runs the pinned cleanup action, and requires at least 60 GiB free
+before pulling the immutable builder.
 
-## 3. Configuration and artifact contracts
+The job then:
+
+1. derives a canonical source context from the exact source commit;
+2. reprojects the single reviewed hosted task and checks its task digest;
+3. installs checksum-pinned Buildx v0.19.2 and digest-pinned BuildKit v0.18.2;
+4. builds the `wheel-cuda` or `wheel-cann` target in the immutable builder,
+   with at most three attempts on that same builder and partial-output cleanup
+   between attempts;
+5. requires one wheel and a matching `wheel-seal.json`;
+6. reopens the wheel through `wheel inspect --source-kind builder-candidate`;
+7. byte-compares the original and reopened inspection;
+8. uploads the wheel plus source, task, toolchain, disk, and build-log evidence.
+
+The artifact is `ucm-wheel-<spec-id>-<source-sha>`.
+
+### 2.3 `_build-image.yml`
+
+This reusable workflow has the same `source_sha` and `spec_id` interface and
+uses the same native CPU runner selection. It:
+
+1. downloads the exact same-run wheel artifact;
+2. recomputes and compares its inspection;
+3. installs the pinned Buildx/BuildKit and read-only crane tools;
+4. fetches the configured upstream index, member manifest, and config by
+   digest, then hashes the returned raw bytes;
+5. downloads the exact architecture-specific `wrapt==1.17.2` wheel and checks
+   its SHA256;
+6. prepares the nine-file offline install context;
+7. builds one local OCI member for the exact target platform;
+8. streams and verifies the complete OCI archive, saves compact descriptor
+   evidence, and removes the large archive;
+9. uploads `ucm-image-<spec-id>-<source-sha>`.
+
+No image job logs in to a Registry or pushes a blob, member, index, or tag.
+
+### 2.4 `release-vllm-images.yml`
+
+This workflow reprojects the same six tasks, calls `_build-image.yml` six
+times, and places a mandatory matrix barrier after the calls. Only a full six
+of six result reaches aggregation.
+
+The aggregate job downloads all six wheels and all six compact images. It
+reopens each source/task/wheel/image closure, forms three exact dual-architecture
+plans, performs the feature-internal second zero-task computation, and uploads
+`ucm-real-images-<source-sha>`.
+
+## 3. Configuration and identity
 
 ### 3.1 Version authority
 
-`version.ini` supplies `VLLM_UC_VERSION`. `core.validate_config` requires exact
-agreement with:
+`version.ini` supplies `VLLM_UC_VERSION=0.5.0rc1`. Configuration validation
+requires agreement with `release.yaml`, `compatibility.yaml`, `setup.py`, and
+Chart `appVersion`. The Helm SemVer is `0.5.0-rc.1`.
 
-- `release.yaml.ucm_version`;
-- `compatibility.yaml.ucm_version`;
-- Chart `appVersion`;
-- `setup.py` version output.
+The wheel profiles use controlled PEP 440 local versions:
 
-For `0.5.0rc1`, the deterministic Helm SemVer is `0.5.0-rc.1`.
+| Profile | Wheel version | Wheel platform |
+| --- | --- | --- |
+| `cuda130` | `0.5.0rc1+cuda130` | `manylinux_2_28` |
+| `cann900-a2` | `0.5.0rc1+cann900.a2` | `linux` |
+| `cann900-a3` | `0.5.0rc1+cann900.a3` | `linux` |
 
-### 3.2 Wheel plan
+### 3.2 Reviewed matrix
 
-Six declared profiles expand by NPU architecture, OS, CPU architecture, and ABI
-to 36 specifications: 4 CUDA and 32 Ascend. CUDA requires immutable builder and
-toolchain identities. Ascend additionally requires immutable ATB and torch-npu
-package identities. Every specification requires an immutable runner identity.
+`core plan` currently reports six declared wheel specifications and six build
+eligible specifications. Each entry resolves:
 
-All 36 checked-in specifications have unresolved identities and therefore 0 are
-eligible. `core plan` succeeds to expose the complete blocked manifest;
-`core plan --require-publishable` exits 2.
+- native hosted runner identity;
+- immutable builder index/member/config coordinate;
+- Python 3.12/`cp312` build dependency lock;
+- required and forbidden native members;
+- allowed `DT_NEEDED` and external-required dependency policy;
+- upstream image family and target identity inputs.
 
-The feature/fork lane creates one deterministic fixture wheel bound to the full
-source commit and exact fixture profile. That wheel is synthetic and remains
-`fixture-only`, `published=false`, and `publication_eligible=false`.
-
-Builder-candidate inspection, when the corresponding plan is resolved, requires
-complete RECORD coverage, one ELF custom-op shared object, and an embedded build
-binding for source commit, build-context digest, accelerator/runtime/device/OS/
-CPU/ABI/profile. Inspection alone never marks an artifact published.
-
-`wrapt==1.17.2` is ordinary wheel `Requires-Dist` metadata. The image install
-uses pip dependency resolution with binary packages, then verifies `pip check`,
-the installed direct URL, exact package versions, `import ucm`, and
-`import wrapt`.
-
-### 3.3 Chart contract
-
-`release.yaml` binds `charts/ucm`, Chart name `unified-cache-pd`, the version
-pair, and three cases:
-
-- CUDA renders a digest-pinned synthetic image and `nvidia.com/gpu`;
-- A2 renders a distinct digest-pinned synthetic image and
-  `huawei.com/Ascend910`;
-- A3 renders a third digest-pinned synthetic image and
-  `huawei.com/Ascend910`.
-
-Packaging verifies the immutable HTTPS source repository, source commit,
-source-tree digest, every imported file digest, and the release-tree digest in
-`SOURCE_PROVENANCE.json`. Helm lint and template run for all three cases. The
-Helm-created archive is repacked with sorted members, fixed owner/group, mtime
-zero, normalized modes, and deterministic gzip metadata, then linted again.
-
-## 4. Image naming and Registry reconciliation
-
-The two target repositories and public naming rules are:
+The six wheel filenames are:
 
 ```text
-ghcr.io/modelengine-group/vllm-openai:<exact-upstream-tag>-ucm-<version>-rN
-ghcr.io/modelengine-group/vllm-ascend:<exact-upstream-tag>-ucm-<version>-rN
+uc_manager-0.5.0rc1+cuda130-cp312-cp312-manylinux_2_28_x86_64.whl
+uc_manager-0.5.0rc1+cuda130-cp312-cp312-manylinux_2_28_aarch64.whl
+uc_manager-0.5.0rc1+cann900.a2-cp312-cp312-linux_x86_64.whl
+uc_manager-0.5.0rc1+cann900.a2-cp312-cp312-linux_aarch64.whl
+uc_manager-0.5.0rc1+cann900.a3-cp312-cp312-linux_x86_64.whl
+uc_manager-0.5.0rc1+cann900.a3-cp312-cp312-linux_aarch64.whl
 ```
 
-Accepted vLLM OpenAI tags are canonical stable or RC tags. Accepted Ascend tags
-use the same version with optional `-a3` and optional final `-openeuler`. No NPU
-suffix means A2. An explicit A2 suffix, 310P, A5, nightly, dev, custom, `rc0`,
-leading zeros, reordered suffixes, and extra architecture suffixes fail.
+### 3.3 Source and wheel authority
 
-A3 and openEuler suffixes are retained only when present in the exact upstream
-tag. CUDA, CANN, OS, Python, channel, and profile never become UCM-added
-public-tag suffixes.
+The source context binds the commit, Git tree, deterministic archive SHA256,
+source-context digest, and `SOURCE_DATE_EPOCH`. The build key additionally
+binds the profile, CPU, builder, dependency lock, required/forbidden targets,
+and tool wheels.
 
-`tag_base` is `<exact-upstream-tag>-ucm-<version>`. `tag_family` is
-`(target_repository, tag_base)`. The build key separately hashes the generated
-manifest, exact wheel/spec, compatibility rule, upstream index and both platform
-descriptor chains, Docker/base/toolchain implementation identity, and other
-immutable build inputs.
+Wheel inspection requires complete RECORD coverage and verifies every native
+member. It records ELF machine values, direct `DT_NEEDED`, and the resolved
+dependency closure, and requires every unresolved-dependency list to be empty.
+CUDA has no declared external-required dependency. CANN allows
+`libascend_hal.so` only as a structured, resolved
+`kind=external-required` transitive device-runtime dependency supplied by the
+host Ascend driver.
 
-Reconciliation consumes an inventory covering exactly both target repositories:
+The seal and reopened inspection bind the exact wheel bytes. A wheel that was
+built but did not pass seal, reopen, and artifact upload is not counted among
+the six results.
 
-1. If one matching build key has equal observed and evidenced digests, return
-   zero tasks.
-2. If no matching build key exists, schedule the first unused revision.
-3. If the matching tag has digest drift, preserve the prior revision and
-   schedule the next unused revision, so `r1` remains and `r2` is created.
-4. Duplicate/conflicting tags or multiple stable entries for one build key fail.
+## 4. Chart contract
 
-Every task carries the inventory SHA256, a tag-absence precondition, and the
-tag-family concurrency key. The local candidate ledger permits read operations
-and build planning only; any unknown or write-capable operation fails.
+`release.yaml` binds Chart source `charts/ucm`, name `unified-cache-pd`, Chart
+version `0.5.0-rc.1`, app version `0.5.0rc1`, and three render cases:
 
-## 5. Install-only OCI contract
+- CUDA with `nvidia.com/gpu`;
+- A2 with `huawei.com/Ascend910`;
+- A3 with `huawei.com/Ascend910`.
 
-The candidate base authority fixes the repository, target platform, index,
-platform manifest, and config digests. The image toolchain authority fixes
-Buildx v0.19.2 binary hashes and digest-pinned BuildKit v0.18.2. Both authority
-digests and all four Docker-file digests contribute to the implementation key.
+Packaging verifies `SOURCE_PROVENANCE.json`, source/release tree identities,
+and imported file digests. Helm lint and template run for all three cases. The
+archive is normalized for member order, ownership, mode, timestamp, and gzip
+metadata, then linted again.
 
-The generated context contains exactly:
+Both hosted attempts at the current source SHA produced the same:
+
+- Chart package SHA256
+  `4805117c69725d1ce093096ba6d5fcf46c4b2a7ff716544e993f5b87bedfefc6`;
+- release-tree SHA256
+  `6e0ea559cc946593ef162d8ea40497c05091466a543c8b997a2ecb0da22edb6f`.
+
+The Chart is an Actions Artifact, not a GitHub Release asset.
+
+## 5. Install-only image contract
+
+### 5.1 Base and target identities
+
+The feature candidate fixes the exact upstream index and architecture member
+for each family:
+
+| Family | Upstream tag | Target platforms |
+| --- | --- | --- |
+| `cuda130` | `docker.io/vllm/vllm-openai:v0.21.0` | `linux/amd64`, `linux/arm64` |
+| `cann900-a2` | `quay.io/ascend/vllm-ascend:v0.22.1rc1` | `linux/amd64`, `linux/arm64` |
+| `cann900-a3` | `quay.io/ascend/vllm-ascend:v0.22.1rc1-a3` | `linux/amd64`, `linux/arm64` |
+
+The planned target repositories/tags are included in the build identity, but
+they remain unpublished:
+
+```text
+ghcr.io/supermarioyl/vllm-openai:v0.21.0-ucm-0.5.0rc1-r1
+ghcr.io/supermarioyl/vllm-ascend:v0.22.1rc1-ucm-0.5.0rc1-r1
+ghcr.io/supermarioyl/vllm-ascend:v0.22.1rc1-a3-ucm-0.5.0rc1-r1
+```
+
+### 5.2 Context and install
+
+The real image context contains exactly:
 
 1. `Dockerfile`;
 2. `verify_base_image.py`;
 3. `install_ucm.py`;
 4. `inspect_runtime.py`;
-5. the exact wheel;
-6. `image-recipe.json`;
-7. `image-metadata.json`.
+5. the exact UCM wheel;
+6. the exact architecture-specific `wrapt` wheel;
+7. `requirements.lock`;
+8. `image-recipe.json`;
+9. `image-authority.json`.
 
-It contains no UCM source tree, setup/build script, CMake input, compiler input,
-or source build command. Buildx produces a local OCI archive with provenance and
-SBOM disabled and timestamp rewriting enabled. There is no Registry login or
-push.
+The context cannot contain the UCM source tree, `setup.py`, CMake input,
+compiler input, or a UCM build command. The runtime stage only installs the
+mounted, hash-locked UCM and `wrapt` wheels.
 
-`image verify` reopens the OCI layout, index, manifest, config, every layer
-descriptor, and ordered rootfs diff IDs. It extracts the embedded base, install,
-runtime, recipe, metadata, and wheel evidence and requires these eight gates:
+The install record checks the UCM/wrapt dependency scope rather than treating
+unrelated packages already present in the upstream vLLM base as UCM release
+dependencies. It still records the required `pip_check` gate for the locked
+scope, exact package versions, direct URLs and hashes, and both imports.
 
-- base verified;
-- exact wheel verified;
-- install passed;
-- `pip check` passed;
-- direct URL passed;
-- `ucm` import passed;
-- `wrapt` import passed;
-- Python ABI passed.
+### 5.3 Native and dependency closure
 
-Runtime and device fields remain `external-required` with
-`hardware_passed=false`.
+The installed native-member set, ELF machine, and `DT_NEEDED` map must equal the
+wheel-builder inspection. Both the builder closure and runtime closure are
+strictly validated before comparison.
 
-The workflow uploads raw OCI layout/index/manifest/config documents and a
-canonical descriptor/diff-ID closure, but omits the large archive and layer
-blobs. Aggregation can bind that compact evidence to the recipe, metadata,
-wheel, BuildKit descriptor, and image result. It cannot independently
-decompress omitted layers; the full layer scan is proved only inside the same
-image job before upload.
+For CANN, builder and runtime use the same immutable upstream member root, so
+external library path and byte digest comparisons remain literal. CUDA uses a
+manylinux builder root and a vLLM runtime root. In that cross-root case only the
+absolute location and byte digest of ordinary `kind=external` system libraries
+are normalized for the cross-root equality check. Dependency names, directness,
+kind, all `wheel-member`, `virtual`, and `external-required` records,
+`DT_NEEDED`, native members, and unresolved dependencies remain exact.
 
-## 6. Loop Engineer protocol
+This normalization is compatibility between two independently validated
+immutable roots; it does not turn unresolved dependencies into accepted ones.
 
-Every implementation change follows this sequence:
+### 5.4 OCI evidence
 
-1. Capture the narrow failing check or mutation.
-2. Apply the smallest contract or implementation change.
-3. Rerun the narrow check to GREEN.
-4. Run the complete local matrix.
-5. Record only observed successful results; keep external work blocked.
+The build uses local OCI output, disables provenance and SBOM, and enables
+timestamp rewriting. Each runtime stage removes the generated
+`/var/cache/ldconfig/aux-cache` in the same layer that runs `ldconfig` so that
+the cache does not make otherwise identical runtime layers drift. Verification
+streams the archive and checks:
 
-The deterministic loop must pass these six scenarios:
+- OCI layout and index;
+- manifest and config descriptor bytes;
+- every layer digest and size;
+- ordered rootfs diff IDs;
+- annotations, labels, creation/history, recipe, and build key;
+- embedded base, install, runtime, and native evidence.
 
-1. new input schedules one `r1` task;
-2. identical stable input schedules zero tasks;
-3. digest drift schedules `r2` without changing `r1`;
-4. the upstream index contains complete amd64 and arm64 manifest/config chains;
-5. missing arm64, duplicate/conflicting inventory, and unpublished production
-   wheel paths block with their exact codes;
-6. the fixture candidate goes from one task to a second full reconcile with
-   zero tasks.
+The large OCI archive and layer blobs are omitted from Actions Artifact upload.
+The compact artifact contains five canonical OCI files (`oci-layout.json`,
+`index.json`, `manifest.json`, `config.json`, `closure.json`) plus the recipe,
+authority, base records, BuildKit metadata, disk records, and logs. Aggregation
+can reopen the complete compact descriptor closure but cannot decompress the
+omitted layers a second time; the full layer scan occurred in the image job.
 
-Ascend tag checks accept A2 and A3 and reject 310P and A5. Run metadata is kept
-outside the deterministic payload identity. The final operation ledger must
-derive `write_count=0` and publication `{status: blocked, attempted: false}`.
+All feature image results retain:
 
-## 7. Verification commands
+```text
+fixture_only=false
+unpublished=true
+publication_attempted=false
+runtime_validation=external-required
+device_validation=external-required
+status=real-verified-unpublished
+```
+
+## 6. Family aggregation and second reconcile
+
+`aggregate-real` first requires exactly six task records and recomputes the
+reviewed matrix from source SHA plus source epoch. For each task it reopens:
+
+- hosted task record;
+- wheel bytes, inspection, seal, and source context;
+- image result and recipe;
+- compact OCI descriptor closure;
+- source, task, wheel, image, and manifest identities.
+
+It then forms three family plans. Each plan must contain exactly
+`linux/amd64` and `linux/arm64`, with each member bound to its task SHA,
+manifest digest, build key, content identity, and image-result digest.
+
+The candidate inventory is built from those three plans. The second reconcile
+compares the expected plans with that exact feature inventory and emits:
+
+```json
+{"decision":"already-present","task_count":0,"tasks":[]}
+```
+
+This zero is a strict same-run artifact-list recomputation. It does not query
+the target GHCR repositories and is not publication idempotence or public-tag
+readback. The earlier image jobs separately read and verify pinned upstream
+base descriptors.
+
+The image aggregate contains six wheels, six images, three families, the
+candidate inventory, and the second reconcile. The final aggregate adds the
+Chart and independently reruns the same reopening logic.
+
+## 7. Hosted evidence and artifact locations
+
+The current feature result is bound to
+`b9de1b3a29ae094e4c6d3895b0b642e92aa8ab42`.
+
+| Surface | Hosted evidence |
+| --- | --- |
+| Push checks | [Run 31329098122](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098122), success |
+| Release loop | [Attempt 1](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/attempts/1) and [attempt 2](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/attempts/2), both success |
+| Wheels | Each attempt: 6/6 sealed, reopened, and uploaded |
+| Images | Each attempt: 6/6 fully scanned and uploaded as compact evidence |
+| Families | 3/3, each amd64 plus arm64 |
+| Artifacts | Each attempt: 15 artifact groups; frozen download: 15 directories and 213 files |
+| Image aggregate payload | Both attempts: `sha256:dd2c17b710ddd01b7e836b1dbc25fac866e82a7512d43cbd3e734f083b8a7b37` |
+| Final aggregate payload | Both attempts: `sha256:88596b412798e34a037132320044d47283c1bfb9001eab20236f65ad44bcac1b` |
+| Publication | blocked and unattempted |
+
+The 15 artifact names follow five patterns:
+
+```text
+ucm-wheel-<six spec IDs>-<source SHA>
+ucm-chart-<source SHA>
+ucm-image-<six spec IDs>-<source SHA>
+ucm-real-images-<source SHA>
+release-loop-evidence-<source SHA>
+```
+
+They have three-day retention. Rerun artifact IDs are attempt-specific; use
+the commands in the [operator README](../.github/release/README.md#artifact-names-and-readback)
+to enumerate the current IDs and download the aggregate JSON.
+
+Current aggregate links are the [Chart](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/artifacts/9042724281),
+[image aggregate](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/artifacts/9042832261),
+and [final aggregate](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/artifacts/9042839761).
+
+The frozen same-SHA comparison passed for all canonical identities:
+
+- all six wheel bytes, inspections, seals, task records, and source/toolchain
+  records;
+- Chart tgz and result JSON;
+- all six image archive checksums, manifests, configs, layers, diff IDs,
+  compact closures, content identities, results, authorities, and recipes;
+- all three family plans, the candidate inventory, and the feature second-zero;
+- the image aggregate payload and final aggregate payload.
+
+Logs, disk telemetry, and BuildKit session metadata are diagnostics rather than
+release identities. The only field excluded from the two canonical aggregate
+envelopes was `github.run_attempt`. Both hosted attempts completed their wheel
+builds without a retry; the bounded retry's recovery behavior is established by
+the dynamic shell test, not by these runs.
+
+## 8. Loop Engineer protocol
+
+For changes to this release path:
+
+1. capture the narrow failing contract or hosted log;
+2. add or run the narrow regression check;
+3. make the smallest functional change;
+4. rerun the focused check and the complete release suite;
+5. push only the authorized fork feature branch;
+6. monitor the exact source SHA through six wheels, Chart, six images, barriers,
+   and both aggregates;
+7. reopen downloaded evidence before recording success;
+8. rerun the same SHA and strictly compare the canonical identity set;
+9. keep any unexecuted Registry, device, cluster, or publication claim pending.
+
+Useful contract commands are:
 
 ```bash
 pytest -q .github/release/tests
 pytest -q .github/release/tests/test_workflows.py
 ruff check .github/release/ucm_release .github/release/tests .github/release/docker
-ruff format --check .github/release/ucm_release .github/release/tests .github/release/docker
 black --check .github/release/ucm_release .github/release/tests .github/release/docker
 pre-commit run actionlint --all-files --hook-stage manual
 PYTHONPATH=.github/release python -m ucm_release config validate
-PYTHONPATH=.github/release python -m ucm_release core plan
+PYTHONPATH=.github/release python -m ucm_release core plan --require-publishable
+PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane feature-candidate
+PYTHONPATH=.github/release python -m ucm_release core hosted-matrix --help
 ```
 
-For the publishability guard, `core plan --require-publishable` must exit 2 while
-the checked-in identities remain unresolved. For Chart determinism, package to
-two fresh output directories, compare archive bytes and member order, and lint
-the resulting archive.
+These commands do not build release artifacts locally. The real artifact gate
+is the hosted workflow.
 
-## 8. Current verification matrix
+## 9. Historical evidence
 
-Fresh current-tree local evidence on 2026-08-08 is listed below. Hosted
-fork-candidate attempt 1 also passed, but the final same-SHA attempt-2
-comparison is still pending.
+### 9.1 Determinism failure and repair
 
-| Surface | Evidence | Status |
-| --- | --- | --- |
-| Complete compact tests | `190 passed in 55.84s` | Passed locally |
-| Workflow policy | `84 passed` | Passed locally |
-| Focused CLI/fixture/OCI/loop/tag checks | `24 passed in 1.11s` | Passed locally |
-| Ruff lint/format and Black | 16 compact Python/test/helper files | Passed locally |
-| Configuration and schemas | Both YAML files and all 3 schemas via CLI and independent `jsonschema` | Passed locally |
-| Workflow documents | 7 parsed, 27 jobs, 48 external Action uses full-SHA pinned, 6 local calls without refs | Passed locally |
-| actionlint | Pinned pre-commit hook | Passed locally |
-| Chart | CUDA/A2/A3 lint/template/package twice; identical bytes and member tree | Passed locally |
-| Chart package | SHA256 `4805117c69725d1ce093096ba6d5fcf46c4b2a7ff716544e993f5b87bedfefc6` | Passed locally |
-| Chart release tree | SHA256 `6e0ea559cc946593ef162d8ea40497c05091466a543c8b997a2ecb0da22edb6f` | Passed locally |
-| Repository Unit collection | `pynvml` missing at `test/conftest.py:14` | External dependency blocked |
+At source SHA `166e0f474a3adab88917d65b7af61ea948f7492c`, [run 31324468754](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31324468754)
+completed successfully twice, but its same-SHA identity comparison failed. The
+six wheel identities and Chart matched while all six image identities drifted,
+which changed all three family plans and both aggregate payloads. Both
+same-run second reconciles still returned zero tasks.
 
-Task 5 Round 5 produced two byte-identical current-code OCI archives with
-SHA256 `199b53854f9bee4a7d81a32d2a046d7de220356c35d900297d400fa65059731a`, but
-both builds used an already-running local builder. This proves repeatability
-for those inputs, not execution through checksum-installed Linux Buildx plus
-the authority-selected builder. Round 4 produced two byte-identical archives
-with SHA256
-`e25ce47385f701261f598453c0153e4813f912bf36a428db9d8f0a1c4044809e`
-using authority-pinned BuildKit v0.18.2, but it has a pre-round-5 implementation
-identity. The exact combined path of current final code, checksum-installed
-Linux Buildx, the authority-created builder, and authority-pinned BuildKit
-v0.18.2 then ran in the first hosted Task 7 candidate baseline in Section 9.4.
-That run still produced only a local unpublished OCI archive.
+The common nondeterministic input was the generated
+`/var/cache/ldconfig/aux-cache` in both runtime stages. Commit
+[`ea931a95c231835a4bb4af353821084af9b998e6`](https://github.com/SuperMarioYL/unified-cache-management/commit/ea931a95c231835a4bb4af353821084af9b998e6)
+removes it in the same layer as `ldconfig`. The current two-attempt result is
+the hosted closure for that repair.
 
-The final local sequence now records 190 compact tests and 84 workflow-policy
-tests, with pre-commit and actionlint green. Neither local OCI run proves a
-Registry write, native production wheel, or accelerator runtime.
+### 9.2 Fixture baseline
 
-Hosted fork-candidate execution and artifact download have now run. A protected
-production environment, all 36 native wheel builds, Registry write/readback,
-cluster install, and CUDA/A2/A3 runtime and device acceptance remain unverified
-and `external-required`. Production status remains blocked.
+The earlier fixture path remains regression history. For example,
+[Release run 31260552670](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31260552670)
+at `0ee113433b75868142d86c66ee0cda2af533cc89` built one synthetic wheel
+and one local amd64 OCI archive. Its fixture second reconcile and zero-write
+ledger passed, but it did not build the six native wheels or six real image
+members. It must not be used as the current feature result.
 
-## 9. Task 7 hosted GitHub loop
+## 10. Open items
 
-The tracked [Task 7 GitHub Loop
-plan](superpowers/plans/2026-08-08-ucm-release-slimming-loop.md) owns the hosted
-execution limits and failure classifications. The [release operator
-README](../.github/release/README.md#task-7-hosted-github-loop) is the only
-canonical executable body; it begins with `set -euo pipefail` and accepts
-`TASK7_DRY_RUN=1` to exercise all pre-push gates before deliberately refusing
-the push.
+The following remain pending or `external-required`:
 
-### 9.1 Preconditions and tool authority
+- protected production Environment and Tag authorization;
+- GHCR member/index publication and authenticated plus anonymous digest
+  readback;
+- GitHub prerelease creation, asset upload, and download/hash readback;
+- real CUDA, Ascend A2, and Ascend A3 runtime/device checks;
+- cluster install and workload acceptance;
+- formal Tag/Release publication and stable-release decision.
 
-The script binds `feature/cicd` and its exact full `HEAD`, verifies that
-`gh api user` returns `SuperMarioYL`, and accepts only the SSH or HTTPS URLs for
-the `SuperMarioYL` origin and `ModelEngine-Group` upstream repositories. It
-records the upstream `HEAD` before and after. The only push command is
-`git push origin HEAD:refs/heads/feature/cicd`.
-
-Crane is not a host prerequisite. The script downloads go-containerregistry
-v0.20.3 into its task-specific directory and selects one hard-coded official
-archive SHA256 for Darwin arm64, Darwin x86_64, Linux amd64, or Linux arm64. It
-requires `sha256sum` or `shasum -a 256`, uses the resulting absolute crane path,
-and verifies the exact `0.20.3` version before any anonymous Registry read.
-
-### 9.2 Capability and readback boundary
-
-Current probes of both owner package-list endpoints returned HTTP 403 because
-the token lacks `read:packages`; anonymous crane reads of both known target GHCR
-repositories returned `DENIED`. Each snapshot phase probes both package
-endpoints again. Success is normalized by package ID; only explicit HTTP
-403/`read:packages` errors become `UNAVAILABLE`, and other errors fail closed.
-The loop does not expand token scope, does not turn unavailable package or
-Registry reads into empty success, and does not block the authorized push solely
-because those reads are explicitly unavailable.
-
-The zero-write capability proof instead parses all four workflows and every
-job permission as exactly `contents: read`, rejects `packages: write`, login,
-Registry push, and dispatch-API commands, and later requires the runtime
-operation ledger to report `write_count=0`. The before/after comparison covers
-only fork PRs, tags, GitHub Releases, both owner package endpoint results,
-upstream `HEAD`, and known-target GHCR tags/digests when those targets are
-readable. A successful not-found response is canonical `ABSENT`;
-authentication denial is canonical `UNAVAILABLE`.
-
-### 9.3 Run discovery, rerun, and identity assertions
-
-After the exact push, the script uses `gh run list --repo "$REPOSITORY"
---commit "$SOURCE_SHA" --event push --json
-databaseId,workflowName,status,conclusion,headSha,url`. It applies local `jq`
-selection to require exactly one `Push Commit Checks` and one
-`Release UCM core artifacts` entry with the exact `headSha`. This avoids the
-invalid assumption that a newly introduced feature-branch workflow is already
-registered on the fork's default branch.
-
-Both initial attempt-1 runs must be green before the first artifact download.
-The same database IDs then receive `gh run rerun`; both must advance to attempt
-2, finish green, and supply the second artifact tree. For each downloaded
-envelope the script asserts `payload.source_sha`, `payload.repository`,
-`payload.ref`, and `payload.workflow_refs`. It compares deterministic payload,
-wheel, Chart, local OCI, and second-reconcile identities, requires the second
-reconcile to be zero, and requires publication blocked plus `write_count=0`.
-The local `oci_digest` is not Registry readback.
-
-Finally, the readable-surface snapshots must compare byte-for-byte. Failures
-are collected with `gh run view --log-failed`, job JSON, and artifacts within
-the tracked plan limits. Hosted fixture success still leaves owner package
-enumeration, GHCR readback, native wheels, Registry publication, cluster, and
-accelerator evidence `external-required`; production remains blocked.
-
-### 9.4 First hosted candidate baseline
-
-The first full hosted candidate baseline ran on 2026-08-08 at source commit
-`0ee113433b75868142d86c66ee0cda2af533cc89`.
-
-| Evidence | Observed result |
-| --- | --- |
-| Push workflow | [Push Commit Checks run 31260552571](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31260552571), attempt 1, success |
-| Release workflow | [Release UCM core artifacts run 31260552670](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31260552670), attempt 1, success |
-| Evidence file SHA256 | `33a82f806d8ec43dbe55da887371b8651454baf8d1442324de0ab5a731ef7ec6` |
-| Deterministic payload SHA256 | `02b5b2e174e6144f889a811f1571017897928546aaa3aec447e377687f04fe9f` |
-| Wheel SHA256 | `08c4aa98ebb0cc5e0816619bda78d310fc5342da7fbec3611a70b2d5be76f19b` |
-| Chart package SHA256 | `4805117c69725d1ce093096ba6d5fcf46c4b2a7ff716544e993f5b87bedfefc6` |
-| Chart release-tree SHA256 | `6e0ea559cc946593ef162d8ea40497c05091466a543c8b997a2ecb0da22edb6f` |
-| Local OCI manifest SHA256 | `7dfefdca3e4fb2f3e9fc8ca1efa55c3bbdf7ddd22a4584ec5b5a0af2afcd9a24` |
-| OCI stable-closure SHA256 | `db3e37c1967ceb17c63af196f93d19f28a4dd5f85d0d57872604142dcf779c48` |
-| Image-result SHA256 | `c7c00959d6bacd6bcdba2e284c3a2da16d2dc5bb10a4406149b2b61da53e556e` |
-| Second-reconcile SHA256 | `29b1b9a6b6b3b62edc56f162d56cbfad0b9663ae20eb35aa5bb3bfcd05df5bdf` |
-
-The Release run executed the fixture wheel, deterministic Chart, select-input,
-first reconcile, install-only image build, final reconcile, and aggregate jobs.
-Invalid, standalone, and production-only routes were skipped. The current
-checksum-verified Buildx/toolchain authority created the builder used by this
-run. The OCI result was local, unpublished, and `linux/amd64`; its eight
-base/wheel/install/pip/direct-URL/import/ABI gates passed. Runtime and device
-gates remained `external-required`.
-
-All six Loop Engineer scenarios passed. The fixture descriptor scenario bound
-two upstream platforms; that count must not be described as a multi-platform
-OCI build. The final reconcile returned `already-present`, zero tasks, and an
-empty task list. The ten-operation ledger contained only read and plan entries,
-derived `write_count=0`, and kept publication blocked and unattempted.
-
-The first hosted before/after audit was byte-identical for eight normalized
-snapshot files. Fork PRs, tags, and Releases remained empty, and upstream
-`HEAD` remained `e2b4c254801b77d4c05535a65bbc6c467b8c052b`. The two owner
-package endpoints remained HTTP 403 and both target GHCR anonymous reads
-remained `DENIED`; these are stable `UNAVAILABLE` states, not Registry
-readback evidence.
-
-This is an observed attempt-1 baseline. The final same-SHA rerun comparison is
-deliberately deferred until the documentation commit containing this baseline
-is pushed, so it is not claimed here as already complete.
+Current status: the hosted workflow has produced six same-SHA-repeatable real
+wheels and six same-SHA-repeatable real install-only image candidates as
+temporary Actions Artifacts. The full OCI tar files were verified and removed
+inside their image jobs; only compact evidence was uploaded. Repository
+contents were read-only. Registry/Tag/Release publication, upstream writes,
+runtime/device checks, and cluster acceptance have not been completed.

@@ -1,11 +1,11 @@
 # UCM Tag 自动发布设计
 
-- 状态：待用户审阅
-- 日期：2026-08-09
+- 状态：feature 真实构建与 same-SHA 双跑确定性已通过；Tag 发布仍未实现
+- 日期：2026-08-10
 - 决策：用户选择方案 A，一次发布 vLLM OpenAI、Ascend A2、Ascend A3 三个镜像族，每族同时包含 amd64 与 arm64。
 - Runner 决策：参考 vLLM Ascend 的公开 Workflow 与成功运行，首选原生 GitHub-hosted x64/ARM64；Tag lane 允许在最终 tag barrier 前写入受保护的 private staging member，跨 Job 只传 digest record，不再要求 self-hosted 持久化大型 OCI layout。
 
-待用户明确确认的发布策略：本设计建议把 `0.5.0rc1` 作为公开 prerelease，即 build/install/import/ABI 通过即可发布，release manifest 继续显示 `runtime/device: external-required`；stable 始终 blocked。若用户不接受这一策略，首版终点改为 private GHCR + draft Release，直至 CUDA/A2/A3 设备门禁通过。
+待用户明确确认的发布策略：本设计建议把 `0.5.0rc1` 作为公开 prerelease，即 build/install/import/ABI 通过即可发布，release manifest 继续显示 `runtime/device: external-required`；stable 始终 blocked。若用户不接受这一策略，首版终点改为 private GHCR + draft Release，直至 CUDA/A2/A3 设备门禁通过。当前实现只完成了 feature 分支的真实构建与 same-SHA 确定性闭环，没有登录或写入 GHCR，也没有创建 Tag 或 GitHub Release。
 
 ## 1. 目标
 
@@ -25,19 +25,26 @@
 
 ## 2. 当前基线与必须修正的差距
 
-当前四个 release Workflow 已能在 feature 分支完成 fixture wheel、本地 OCI、两次 reconcile 和只读 evidence，但它们刻意不做生产发布。Tag 在 fork 中仍走 fixture candidate；production job 会 `exit 2`。
+当前四个 release Workflow 已在 feature 分支完成精确六任务的真实 hosted 构建。`release.yaml` 中六个 builder、工具、依赖和 hosted runner 身份均已解析；`_build-wheel.yml` 从源码构建并重开六个原生 wheel，`_build-image.yml` 把同 run wheel 安装进六个固定上游 member，完整扫描本地 OCI 后只上传 compact evidence。六个 image result 都是 `real-verified-unpublished`。
 
-实施本设计时必须替换以下边界，而不是把 fixture 状态改名为 production。
+2026-08-10 的当前证据绑定 source SHA `b9de1b3a29ae094e4c6d3895b0b642e92aa8ab42`：
 
-- `_build-wheel.yml` 当前调用 `wheel fixture-build`，产物不是 `setup.py` 的原生 CMake wheel。
-- `_build-image.yml` 当前只构建固定 Python 基础镜像上的 linux/amd64 本地 OCI，并在上传 compact evidence 前删除 OCI tar。
-- 当前 36 个 wheel 声明全部因 builder、toolchain 或 runner 未解析而不可发布；Tag 发布必须显式选择本设计的六个任务，不能把 36 项整体标为 ready。
-- 当前 wheel inspector 要求 fixture marker，与真实 `setup.py` wheel 不兼容。
-- 当前 image build key 把单架构成员当成独立修订；本设计要求 amd64 与 arm64 先组成同一个 OCI index，再由这个 index 分配一个 `rN`。
-- 当前上游仓库只按 basename 判断，必须改成 exact repository allowlist，拒绝 `evil.example/.../vllm-openai` 一类同名仓库。
-- 当前没有 GHCR 登录、按 digest 推送、index 合并、公开 readback、GitHub Release draft 或 Release asset readback。
+- [Push Commit Checks run 31329098122](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098122) 成功；
+- [Release run 31329098205 attempt 1](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/attempts/1) 与 [attempt 2](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/attempts/2) 均为 `completed/success`；
+- 每次均产出 15 个 Actions Artifacts = 6 wheel + 1 Chart + 6 image compact evidence + 1 image aggregate + 1 final aggregate；冻结下载每次均为 15 个目录、213 个 artifact 文件；
+- 两次均为 6/6 wheel、6/6 image、3/3 双架构 family 通过；
+- 两次 final payload 均为 `sha256:88596b412798e34a037132320044d47283c1bfb9001eab20236f65ad44bcac1b`；image aggregate payload 均为 `sha256:dd2c17b710ddd01b7e836b1dbc25fac866e82a7512d43cbd3e734f083b8a7b37`；
+- publication 为 `{status: blocked, attempted: false}`。
 
-已通过的 fixture evidence 继续保留为候选链路回归测试，不作为真实 wheel、GHCR、GPU/NPU 或正式发布证据。
+冻结证据的严格比较已通过：六个 wheel bytes、Chart tgz/result、六个 image archive checksum、OCI manifest/config/layers/diff IDs/closure、content identity/result/authority/recipe、三个 family、candidate inventory、second-zero 与两个 aggregate payload 均完全一致。日志、磁盘 telemetry 与 BuildKit session metadata 是诊断信息，不是 release identity；两个 canonical aggregate envelope 只排除了预期不同的 `github.run_attempt`。
+
+这次闭环保留了失败链：[旧 run 31324468754](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31324468754) 在 `166e0f474a3adab88917d65b7af61ea948f7492c` 上两次 Workflow 均成功，但六个 image identity 全部漂移。共同根因是两个 runtime stage 生成的 `/var/cache/ldconfig/aux-cache`；[`ea931a95c231835a4bb4af353821084af9b998e6`](https://github.com/SuperMarioYL/unified-cache-management/commit/ea931a95c231835a4bb4af353821084af9b998e6) 在执行 `ldconfig` 的同一层删除该缓存。之后加入的 bounded wheel-build retry 只增强传输韧性；新 run 两次都没有发生 retry，retry recovery 证据来自动态 shell 测试，不能写成 hosted retry recovery。
+
+Tag 在当前 Workflow 中仍显式进入 blocked job。生产方案尚缺 GHCR 登录与 push-by-digest、三个双架构 index 合并、目标 GHCR 发布 readback、GitHub Release draft/assets/readback、受保护 Environment，以及 CUDA/A2/A3 真设备和 cluster acceptance。这些差距不能由 feature 的 `second_reconcile.task_count=0` 代替；该值只是对同 run 严格 artifact 清单构造的候选 inventory 做重算，不是目标 GHCR 发布 readback。image job 对固定上游 base descriptor 的只读校验是另一条证据链。
+
+CANN wheel closure 中的 `libascend_hal.so` 继续以结构化、已解析的 `kind=external-required` host-driver 依赖记录；它既没有被打进 wheel，也不是被策略放行的 unresolved dependency。
+
+历史 fixture evidence 继续保留为候选链路回归测试，但不再作为当前 feature 主结论，也不作为真实 wheel、GHCR、GPU/NPU 或正式发布证据。以下第 4 至第 8 节描述的是尚未落地的 Tag 生产目标，不得当作当前能力说明。
 
 ## 3. 方案选择
 
@@ -132,13 +139,13 @@ digest 更新必须作为代码审查中的显式配置变更，不能在发布�
 | CANN 9.0.0 A2 | `0.5.0rc1+cann900.a2` |
 | CANN 9.0.0 A3 | `0.5.0rc1+cann900.a3` |
 
-`setup.py` 只接受配置中声明的 local version，基础版本仍必须来自 `version.ini`。首版 wheel 面向 GitHub Release 和固定上游镜像，不宣称 manylinux；实际标签按构建结果使用 `cp312-cp312-linux_x86_64` 或 `cp312-cp312-linux_aarch64`。
+`setup.py` 只接受配置中声明的 local version，基础版本仍必须来自 `version.ini`。CUDA builder 已产出并验证 `manylinux_2_28` 标签；CANN A2/A3 仍使用 `linux` 标签。
 
 预计六个 asset：
 
 ```text
-uc_manager-0.5.0rc1+cuda130-cp312-cp312-linux_x86_64.whl
-uc_manager-0.5.0rc1+cuda130-cp312-cp312-linux_aarch64.whl
+uc_manager-0.5.0rc1+cuda130-cp312-cp312-manylinux_2_28_x86_64.whl
+uc_manager-0.5.0rc1+cuda130-cp312-cp312-manylinux_2_28_aarch64.whl
 uc_manager-0.5.0rc1+cann900.a2-cp312-cp312-linux_x86_64.whl
 uc_manager-0.5.0rc1+cann900.a2-cp312-cp312-linux_aarch64.whl
 uc_manager-0.5.0rc1+cann900.a3-cp312-cp312-linux_x86_64.whl
@@ -390,9 +397,8 @@ Container package 首次出现时可能是 private。发布流程不假设可见
 - actionlint 对所有 Workflow 通过；
 - 三个 Schema 严格校验；
 - CUDA/A2/A3 Helm lint/template/package 且双包 SHA 一致；
-- Docker 可用时至少完成一条真实 wheel 加 install-only OCI；本机 Docker 不可用时不得把 fixture 结果升级为真实构建证据；
-- 用固定 `docker.io/library/registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373` 启动 loopback-only 临时 Registry，运行与生产相同的 Buildx `type=image,push-by-digest=true,name-canonical=true` 路径；Artifact 只传 digest record，随后重开 raw manifest/config/layers/annotations 并创建双 member fixture index；
-- 本地 contract test 覆盖 digest record、staging tag、manifest/config/layer/annotation/build key 篡改与缺 member；负例不得创建 final fixture tag。测试用 `trap`/等价 finally 清理 container、network、volume 与 credential；它不登录或写入 GHCR；
+- 本机只执行合同、Schema、Chart 和静态测试，不本地构建或上传 wheel/image；真实 wheel/image 证据只接受 GitHub-hosted Workflow 的 same-run Artifact；
+- Registry 写入与 readback 测试留给后续受保护 Tag Workflow，不用本地 loopback Registry 或 fixture index 替代正式证据；
 - `git diff --check` 与精确 staging guard 通过。
 
 ### 9.3 GitHub feature candidate
@@ -406,6 +412,8 @@ Container package 首次出现时可能是 private。发布流程不假设可见
 - 同一 SHA rerun 后六个 wheel SHA、Chart SHA、六个 OCI member digest 和三个预期 index build key 完全一致；
 - 第二次 full reconcile 为零新增；
 - PR、Tag、Release、GHCR 和 upstream 均无写入。
+
+当前 run 的两个 attempt 已满足本节 feature candidate 项：六个真实 wheel、六个 install-only image、Chart、三族双架构计划、磁盘门禁、feature 内部 second-zero、same-SHA canonical identity 全量一致，以及 PR、Tag、Release、GHCR 和 upstream 零写入。唯一远端输出是正常的 Actions Artifact 上传。完整 OCI tar 在各 image job 内验证后删除，只上传 compact evidence。Actions Artifact 只有三天 retention，rerun 会更换 artifact ID，因此验收应从当前 run API 枚举 Artifact，不能把任一 attempt 的临时 ID 写成长期下载地址。两次 hosted wheel build 都在首次尝试成功，不能把动态 shell 测试覆盖的 bounded retry 写成 hosted recovery 证据。
 
 ### 9.4 首个真实 Tag 发布
 
@@ -430,7 +438,8 @@ Container package 首次出现时可能是 private。发布流程不假设可见
 
 实现完成前，下列能力保持明确状态：
 
-- hosted x64/ARM64 的真实 UCM wheel 与六 member 峰值：尚待 feature run 实测；默认使用 hosted，只有实测容量不足时才引入 larger/self-hosted fallback；
+- hosted x64/ARM64 的六个真实 UCM wheel、六个 install-only image member 与 same-SHA 双跑确定性：已验证并产出 Actions Artifacts；
+- protected Tag 生产 Workflow、GHCR push/index/readback 和 GitHub Release：尚未实现，当前 Tag route 明确 blocked；
 - CUDA/A2/A3 真设备 runtime/device 验证：`external-required`；
 - stable release：`blocked`；
 - PyPI、ModelEngine org、可变 tag alias、签名/attestation：不在首版范围；

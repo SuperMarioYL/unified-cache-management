@@ -1,552 +1,230 @@
 # Compact UCM release automation
 
-This directory contains the repository-owned release contracts and the unified
-`python -m ucm_release` implementation. The checked-in topology is deliberately
-small: four release workflows, eight Python modules, three JSON Schemas, four
-Docker files, two YAML configuration files, and the product Chart at
-`charts/ucm`.
+This directory owns the repository release contracts and the unified
+`python -m ucm_release` implementation. Real wheels and image candidates are
+built by GitHub Actions; they are not prepared or uploaded from a developer
+machine.
+
+## Current feature-candidate result
+
+The exact-six hosted path and its same-SHA determinism check completed at source
+commit [`b9de1b3a29ae094e4c6d3895b0b642e92aa8ab42`](https://github.com/SuperMarioYL/unified-cache-management/commit/b9de1b3a29ae094e4c6d3895b0b642e92aa8ab42):
+
+- [Push Commit Checks run 31329098122](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098122)
+  succeeded.
+- [Release UCM core artifacts run 31329098205, attempt 1](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/attempts/1)
+  and [attempt 2](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/attempts/2)
+  both succeeded. Each produced 15 Actions Artifacts: six real wheels, one
+  Chart, six real compact image artifacts, one three-family image aggregate,
+  and one final evidence aggregate.
+- All six wheel jobs and all six image jobs passed on native GitHub-hosted
+  `amd64` or `arm64` runners. The image aggregate contains three families, each
+  with `linux/amd64` and `linux/arm64` members.
+- Every image result is `real-verified-unpublished`. Publication is
+  `{status: blocked, attempted: false}`.
+- A frozen, downloaded comparison of all 15 artifacts passed across the two
+  attempts. The six wheel bytes, Chart package/result, six image archive
+  checksums and compact OCI identities, three family plans, candidate
+  inventory, second reconcile, image aggregate payload, and final payload are
+  exact. Only the expected `github.run_attempt` envelope field was excluded.
+
+This is real hosted build evidence, not a release. The workflows have no GHCR
+login or push, create no Git tag or GitHub Release, and do not write upstream.
+Registry publication/readback, matching CUDA/A2/A3 device execution, cluster
+acceptance, and protected Tag production remain open. Repository contents stay
+read-only; the intended remote output of this feature lane is the temporary
+Actions Artifact upload.
 
 ## Layout
 
 | Path | Role |
 | --- | --- |
-| `release.yaml` | UCM version, ordinary Python dependency, Chart, and wheel-profile declarations |
-| `compatibility.yaml` | Accepted CUDA/Ascend runtime, device, OS, CPU, ABI, and upstream-channel rules |
-| `ucm_release/` | Configuration, wheel, Chart, Registry, image, and loop implementation |
-| `schemas/` | Configuration, generated manifest, and image-result contracts |
-| `docker/` | One install-only Dockerfile and three verification helpers |
+| `release.yaml` | Version, exact six reviewed tasks across three profiles, immutable builders, upstream images, dependency locks, Chart, and runner mapping |
+| `compatibility.yaml` | Accepted CUDA/CANN, A2/A3, OS, CPU, ABI, and upstream-channel rules |
+| `ucm_release/` | Strict configuration, wheel, Chart, Registry, image, and aggregation implementation |
+| `schemas/` | Configuration, release-manifest, and image-result contracts |
+| `docker/` | Multi-stage wheel/image Dockerfile and three verification helpers |
 | `tests/` | Structural, behavioral, mutation, workflow, and loop checks |
+| `charts/ucm` | Product Helm Chart with source provenance |
 
 The four release workflows are:
 
-- `_build-wheel.yml`: validates its call before checkout and builds one
-  deterministic fixture wheel.
-- `_build-image.yml`: validates its call before checkout, creates the exact
-  seven-file install context, builds a local OCI archive, and uploads compact
-  evidence.
-- `release-vllm-images.yml`: runs Registry reconciliation, the image build, and
-  the required second zero-task reconciliation.
-- `release-ucm.yml`: packages the Chart and aggregates the wheel, Chart, image,
-  and reconciliation evidence.
+| Workflow | Current feature responsibility |
+| --- | --- |
+| `_build-wheel.yml` | Build, seal, reopen, inspect, and upload one reviewed native wheel |
+| `_build-image.yml` | Reopen the same-run wheel, verify the pinned upstream base, install UCM and locked `wrapt`, build a local OCI archive, fully scan it, delete the large archive, and upload compact evidence |
+| `release-vllm-images.yml` | Build all six image members, enforce a six-of-six barrier, form three dual-architecture candidate plans, and recompute the feature-only zero-task result |
+| `release-ucm.yml` | Project the exact six tasks, build all wheels, package the Chart, invoke the image workflow, enforce the final barrier, and upload the final aggregate |
 
-## Unified CLI
+All feature jobs use `contents: read`. A `v*` or non-fork invocation enters the
+explicit blocked job; the current implementation does not publish a Tag lane.
 
-Run commands from the repository root:
+## Exact six matrix
 
-```bash
-export PYTHONPATH=.github/release
-python -m ucm_release config validate
-python -m ucm_release core plan
-python -m ucm_release wheel fixture-build --help
-python -m ucm_release wheel inspect --help
-python -m ucm_release chart package --help
-python -m ucm_release registry scan --help
-python -m ucm_release reconcile --help
-python -m ucm_release image prepare --help
-python -m ucm_release image verify --help
-python -m ucm_release loop prepare --help
-python -m ucm_release loop complete --help
-python -m ucm_release loop aggregate --help
-```
+| Family | Task IDs | Wheel tag | Hosted runner |
+| --- | --- | --- | --- |
+| CUDA 13.0 | `cuda130-amd64`, `cuda130-arm64` | `cp312-cp312-manylinux_2_28_x86_64` / `cp312-cp312-manylinux_2_28_aarch64` | `ubuntu-24.04` / `ubuntu-24.04-arm` |
+| CANN 9.0.0 A2 | `cann900-a2-amd64`, `cann900-a2-arm64` | `cp312-cp312-linux_x86_64` / `cp312-cp312-linux_aarch64` | `ubuntu-24.04` / `ubuntu-24.04-arm` |
+| CANN 9.0.0 A3 | `cann900-a3-amd64`, `cann900-a3-arm64` | `cp312-cp312-linux_x86_64` / `cp312-cp312-linux_aarch64` | `ubuntu-24.04` / `ubuntu-24.04-arm` |
 
-`release.yaml` declares 36 production wheel specifications, but their builder,
-toolchain, package, and runner identities are unresolved, so 0 are eligible.
-The feature/fork path instead builds one deterministic fixture wheel. Fixture
-success is local, unpublished evidence; it is not a native production wheel or
-publication authority.
+The wheel versions are `0.5.0rc1+cuda130`,
+`0.5.0rc1+cann900.a2`, and `0.5.0rc1+cann900.a3`. Each wheel artifact contains
+the `.whl`, its canonical inspection and seal, source-context records, the
+resolved task/toolchain authority, disk evidence, and the native build log.
+CANN's `libascend_hal.so` record remains a structured
+`kind=external-required` host-driver dependency; it is not bundled or treated
+as an unresolved dependency.
 
-`wrapt==1.17.2` remains an ordinary `Requires-Dist` dependency. The image helper
-runs pip with dependency resolution enabled, then checks `pip check`,
-`import ucm`, and `import wrapt`.
+The image context is install-only. It contains the Dockerfile, three helpers,
+the exact UCM wheel, the architecture-specific `wrapt==1.17.2` wheel,
+`requirements.lock`, `image-recipe.json`, and `image-authority.json`; it does
+not contain the UCM source or compile UCM again. The full OCI archive is scanned
+inside its build job and then removed. The uploaded compact artifact keeps the
+index, manifest, config, descriptor/diff-ID closure, build records, and logs,
+but not the large layer blobs.
 
-## Image names and revisions
+## Artifact names and readback
 
-```text
-ghcr.io/modelengine-group/vllm-openai:<exact-upstream-tag>-ucm-<version>-rN
-ghcr.io/modelengine-group/vllm-ascend:<exact-upstream-tag>-ucm-<version>-rN
-```
+The latest successful attempt exposes these artifact groups on the release run
+page:
 
-A3 and openEuler suffixes are retained only when they are part of the exact
-upstream tag. CUDA, CANN, OS, Python, channel, and profile values never become
-UCM-added public-tag suffixes. `tag_family` is
-`(target_repository, tag_base)`: an identical build key with the same observed
-and evidenced digest schedules nothing; digest drift keeps `r1` and schedules
-`r2`.
+- `ucm-wheel-<spec-id>-<source-sha>`: six artifacts;
+- `ucm-chart-<source-sha>`: one artifact;
+- `ucm-image-<spec-id>-<source-sha>`: six artifacts;
+- `ucm-real-images-<source-sha>`: one image-family aggregate;
+- `release-loop-evidence-<source-sha>`: one final aggregate.
 
-## Fixture and production boundary
+Direct links for the latest attempt are the [Chart](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/artifacts/9042724281),
+[image aggregate](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/artifacts/9042832261),
+and [final aggregate](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/artifacts/9042839761).
+Use the API below for the six wheel and six image links because every rerun
+replaces the current artifact IDs.
 
-The fixture lane has `contents: read`, uses hosted runners, emits a zero-write
-operation ledger, and never logs in to or writes an OCI Registry. Its local OCI
-archive verifies the base descriptor chain, exact wheel bytes, normal pip
-install, direct URL, imports, ABI, manifest layers, and rootfs diff IDs.
-
-The uploaded compact OCI artifact intentionally omits the archive and layer
-blobs. The final aggregate can reopen the descriptor/config closure emitted by
-the same image job, but cannot independently decompress omitted layers.
-
-Round 5 produced two byte-identical current-code archives at SHA256
-`199b53854f9bee4a7d81a32d2a046d7de220356c35d900297d400fa65059731a`,
-but both builds used an already-running local builder. This is repeatability
-evidence for those inputs; it is not evidence that the current code ran through
-checksum-installed Linux Buildx and the authority-selected builder. Round 4
-produced two byte-identical archives at SHA256
-`e25ce47385f701261f598453c0153e4813f912bf36a428db9d8f0a1c4044809e`
-with authority-pinned BuildKit v0.18.2. That run has a pre-round-5 implementation
-identity. The exact combination of current final code, checksum-installed Linux
-Buildx, and authority-pinned BuildKit v0.18.2 is therefore `external-required`
-until the Task 7 hosted GitHub run executes it end to end.
-
-`release-vllm-images.yml` can be awakened by a `repository_dispatch` event. The
-candidate itself never calls or initiates the repository-dispatch API and has
-neither permission nor an operation that can send such an event.
-
-The following remain `external-required`: protected GitHub execution, resolved
-production wheel builders and runners, native custom-op wheels, Registry
-credentials/write/readback, CUDA and Ascend runtime/device checks, cluster
-installation, and formal publication.
-
-## Task 7 hosted GitHub loop
-
-Follow the tracked [Task 7 GitHub Loop
-plan](../../docs/superpowers/plans/2026-08-08-ucm-release-slimming-loop.md).
-The current `SuperMarioYL` token receives HTTP 403 from both owner package-list
-endpoints because it lacks `read:packages`. Each before/after phase probes both
-endpoints again: success is normalized as the actual package list, only an
-explicit HTTP 403/`read:packages` failure becomes canonical `UNAVAILABLE`, and
-any other failure stops the script. The procedure neither refreshes nor expands
-authentication. Anonymous reads of the two known target GHCR repositories
-currently return `DENIED`; the same explicit classification rule prevents an
-unavailable Registry from becoming an empty successful snapshot.
-
-The before/after diff covers the fork pull-request list, fork tags, fork GitHub
-Releases, the two package endpoints' normalized list or state, and the validated
-upstream repository `HEAD`. It also covers every tag/digest in either known
-target GHCR repository only when anonymous readback succeeds, or a canonical
-`ABSENT`/`UNAVAILABLE` state otherwise. When package or GHCR reads are
-unavailable, the no-write conclusion comes from the four workflows' exact
-`contents: read` permissions, absence of `packages: write`, Registry login, or
-push commands, and both downloaded operation ledgers having `write_count=0`.
-
-Run this one canonical script from the repository root. Set
-`TASK7_DRY_RUN=1` for the required clean-shell rehearsal; it performs every
-pre-push check and snapshot, then deliberately exits immediately before the
-only permitted push.
+Artifacts have the workflow's three-day retention. Artifact IDs are
+attempt-specific, so use the current run API instead of copying an old ID from
+a prior attempt:
 
 ```bash
 set -euo pipefail
 
-export PYTHONDONTWRITEBYTECODE=1
 readonly REPOSITORY=SuperMarioYL/unified-cache-management
-readonly EXPECTED_LOGIN=SuperMarioYL
-readonly EXPECTED_BRANCH=feature/cicd
-readonly EXPECTED_REF=refs/heads/feature/cicd
-readonly CRANE_VERSION=v0.20.3
-readonly TASK7_DRY_RUN="${TASK7_DRY_RUN:-0}"
-[[ "$TASK7_DRY_RUN" == 0 || "$TASK7_DRY_RUN" == 1 ]]
+readonly RUN_ID=31329098205
+readonly SOURCE_SHA=b9de1b3a29ae094e4c6d3895b0b642e92aa8ab42
 
-for command in curl gh git jq python tar; do
-  command -v "$command" >/dev/null
-done
+gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}" \
+  --jq '{head_sha,run_attempt,status,conclusion,html_url}'
+gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/artifacts" \
+  --jq '.artifacts[] | [.name,.digest,.expired,
+    "https://github.com/'"${REPOSITORY}"'/actions/runs/'"${RUN_ID}"'/artifacts/\(.id)"] | @tsv'
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-readonly REPO_ROOT
-cd "$REPO_ROOT"
-test "$(git branch --show-current)" = "$EXPECTED_BRANCH"
-SOURCE_SHA="$(git rev-parse --verify HEAD)"
-readonly SOURCE_SHA
-[[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-test "$(git rev-parse --verify "$EXPECTED_REF")" = "$SOURCE_SHA"
-git cat-file -e "${SOURCE_SHA}^{commit}"
-git diff --cached --quiet
-test "$(gh api user --jq .login)" = "$EXPECTED_LOGIN"
+artifact_root="$(mktemp -d)"
+gh run download "${RUN_ID}" --repo "${REPOSITORY}" \
+  --name "release-loop-evidence-${SOURCE_SHA}" --dir "${artifact_root}/final"
+gh run download "${RUN_ID}" --repo "${REPOSITORY}" \
+  --name "ucm-real-images-${SOURCE_SHA}" --dir "${artifact_root}/images"
 
-ORIGIN_FETCH_URL="$(git remote get-url origin)"
-ORIGIN_PUSH_URL="$(git remote get-url --push origin)"
-readonly ORIGIN_FETCH_URL ORIGIN_PUSH_URL
-for origin_url in "$ORIGIN_FETCH_URL" "$ORIGIN_PUSH_URL"; do
-  case "$origin_url" in
-    git@github.com:SuperMarioYL/unified-cache-management.git | \
-      https://github.com/SuperMarioYL/unified-cache-management.git) ;;
-    *) printf 'unexpected origin URL: %s\n' "$origin_url" >&2; exit 2 ;;
-  esac
-done
+final_evidence="${artifact_root}/final/release-loop-evidence.json"
+image_evidence="${artifact_root}/images/real-image-loop-evidence.json"
 
-UPSTREAM_URL="$(git remote get-url upstream)"
-readonly UPSTREAM_URL
-case "$UPSTREAM_URL" in
-  git@github.com:ModelEngine-Group/unified-cache-management.git | \
-    https://github.com/ModelEngine-Group/unified-cache-management.git) ;;
-  *) printf 'unexpected upstream URL: %s\n' "$UPSTREAM_URL" >&2; exit 2 ;;
-esac
+jq -e --arg sha "${SOURCE_SHA}" '
+  .payload.source_sha == $sha and
+  (.payload.wheels | length) == 6 and
+  (.payload.images | length) == 6 and
+  (.payload.families | length) == 3 and
+  .payload.second_reconcile.task_count == 0 and
+  .payload.publication == {status:"blocked",attempted:false}
+' "${final_evidence}" >/dev/null
 
-TASK7_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/ucm-task7.XXXXXX")"
-readonly TASK7_ROOT
-mkdir -p "$TASK7_ROOT/bin" "$TASK7_ROOT/diagnostics" \
-  "$TASK7_ROOT/anonymous-docker"
-export DOCKER_CONFIG="$TASK7_ROOT/anonymous-docker"
-CRANE=''
-
-install_crane() {
-  local os arch asset expected_sha archive actual_sha
-  os="$(uname -s)"
-  arch="$(uname -m)"
-  case "${os}:${arch}" in
-    Darwin:arm64)
-      asset=go-containerregistry_Darwin_arm64.tar.gz
-      expected_sha=7a46898cf7ba8b995ae8eed3a6c29d7038058b409d92ead456ff12b47a9dde37
-      ;;
-    Darwin:x86_64)
-      asset=go-containerregistry_Darwin_x86_64.tar.gz
-      expected_sha=03e520639a1898ceee815f88a07e41f2bd810e16d4f70506d7c399d925476bb6
-      ;;
-    Linux:x86_64 | Linux:amd64)
-      asset=go-containerregistry_Linux_x86_64.tar.gz
-      expected_sha=36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059
-      ;;
-    Linux:arm64 | Linux:aarch64)
-      asset=go-containerregistry_Linux_arm64.tar.gz
-      expected_sha=d2235f7779cd39c6e40f43701d2512c997409f629fb53e621ede0d57d3f995e2
-      ;;
-    *) printf 'unsupported crane platform: %s/%s\n' "$os" "$arch" >&2; return 2 ;;
-  esac
-  archive="$TASK7_ROOT/$asset"
-  curl --fail --location --retry 3 --show-error --silent \
-    --output "$archive" \
-    "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/${asset}"
-  if command -v sha256sum >/dev/null; then
-    actual_sha="$(sha256sum "$archive" | awk '{print $1}')"
-  elif command -v shasum >/dev/null; then
-    actual_sha="$(shasum -a 256 "$archive" | awk '{print $1}')"
-  else
-    printf 'sha256sum or shasum is required\n' >&2
-    return 2
-  fi
-  test "$actual_sha" = "$expected_sha"
-  tar -xzf "$archive" -C "$TASK7_ROOT/bin" crane
-  CRANE="$TASK7_ROOT/bin/crane"
-  [[ "$CRANE" = /* ]]
-  test -x "$CRANE"
-  test "$("$CRANE" version)" = "${CRANE_VERSION#v}"
-}
-
-verify_no_write_capability() {
-  python - "$TASK7_ROOT/static-no-write-capability.json" <<'PY'
-import json
-import pathlib
-import re
-import sys
-
-import yaml
-
-paths = [
-    pathlib.Path(".github/workflows/_build-wheel.yml"),
-    pathlib.Path(".github/workflows/_build-image.yml"),
-    pathlib.Path(".github/workflows/release-vllm-images.yml"),
-    pathlib.Path(".github/workflows/release-ucm.yml"),
-]
-for path in paths:
-    workflow = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
-    assert workflow["permissions"] == {"contents": "read"}, path
-    assert workflow["jobs"], path
-    for job_name, job in workflow["jobs"].items():
-        assert job.get("permissions") == {"contents": "read"}, (path, job_name)
-
-text = "\n".join(path.read_text(encoding="utf-8") for path in paths)
-for pattern in (
-    r"(?m)^\s*packages:\s*write\s*$",
-    r"(?m)^\s*contents:\s*write\s*$",
-    r"\b(?:docker|crane)\s+(?:login|push|copy|tag)\b",
-    r"(?<![\w-])--push(?:\s|$)",
-    r"/dispatches\b",
-):
-    assert re.search(pattern, text, re.IGNORECASE) is None, pattern
-
-result = {
-    "forbidden_commands": [],
-    "job_permission": {"contents": "read"},
-    "packages_write": False,
-    "workflow_count": len(paths),
-}
-pathlib.Path(sys.argv[1]).write_text(
-    json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n",
-    encoding="utf-8",
-)
-PY
-}
-
-snapshot_known_ghcr() {
-  local destination phase repository name tags_raw error_file status digest tag
-  destination="$1"
-  phase="$2"
-  repository="$3"
-  name="${repository##*/}"
-  error_file="$TASK7_ROOT/diagnostics/${phase}-${name}.stderr"
-  if tags_raw="$("$CRANE" ls "$repository" 2>"$error_file")"; then
-    printf '%s\n' "$tags_raw" | awk 'NF' | LC_ALL=C sort -u \
-      >"$destination/ghcr-${name}.tags"
-    printf '{"repository":"%s","state":"PRESENT"}\n' "$repository" \
-      >"$destination/ghcr-${name}.state.json"
-    : >"$destination/ghcr-${name}.digests"
-    while IFS= read -r tag; do
-      if ! digest="$("$CRANE" digest "$repository:$tag" 2>>"$error_file")"; then
-        cat "$error_file" >&2
-        return 2
-      fi
-      [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-      printf '%s %s\n' "$tag" "$digest" \
-        >>"$destination/ghcr-${name}.digests"
-    done <"$destination/ghcr-${name}.tags"
-    return 0
-  else
-    status=$?
-  fi
-  if grep -Eqi 'NAME_UNKNOWN|MANIFEST_UNKNOWN|repository.*not found|404 Not Found' \
-    "$error_file"; then
-    printf '{"repository":"%s","state":"ABSENT"}\n' "$repository" \
-      >"$destination/ghcr-${name}.state.json"
-  elif grep -Eqi 'DENIED|UNAUTHORIZED|denied:|unauthorized:|401|403' \
-    "$error_file"; then
-    printf '%s\n' \
-      "{\"external_required\":true,\"reason\":\"anonymous-read-denied\",\"repository\":\"${repository}\",\"state\":\"UNAVAILABLE\"}" \
-      >"$destination/ghcr-${name}.state.json"
-  else
-    cat "$error_file" >&2
-    return "$status"
-  fi
-}
-
-snapshot_owner_packages() {
-  local destination phase endpoint name raw_file error_file status
-  destination="$1"
-  phase="$2"
-  endpoint="$3"
-  name="$4"
-  raw_file="$TASK7_ROOT/diagnostics/${phase}-${name}.stdout"
-  error_file="$TASK7_ROOT/diagnostics/${phase}-${name}.stderr"
-  if gh api --paginate --slurp "$endpoint" >"$raw_file" 2>"$error_file"; then
-    jq -S 'flatten | sort_by(.id)' "$raw_file" \
-      >"$destination/${name}.json"
-    printf '{"endpoint":"%s","state":"PRESENT"}\n' "$endpoint" \
-      >"$destination/${name}.state.json"
-    return 0
-  else
-    status=$?
-  fi
-  if grep -Eqi 'HTTP 403|read:packages' "$error_file"; then
-    printf '%s\n' \
-      "{\"endpoint\":\"${endpoint}\",\"external_required\":true,\"reason\":\"read:packages-http-403\",\"state\":\"UNAVAILABLE\"}" \
-      >"$destination/${name}.state.json"
-    return 0
-  fi
-  cat "$error_file" >&2
-  return "$status"
-}
-
-snapshot_zero_write() {
-  local destination phase
-  destination="$1"
-  phase="$2"
-  mkdir -p "$destination"
-  gh api --paginate --slurp \
-    "repos/${REPOSITORY}/pulls?state=all&per_page=100" \
-    | jq -S 'flatten | sort_by(.number)' >"$destination/pulls.json"
-  git ls-remote --tags "$ORIGIN_PUSH_URL" | LC_ALL=C sort \
-    >"$destination/tags.txt"
-  gh api --paginate --slurp \
-    "repos/${REPOSITORY}/releases?per_page=100" \
-    | jq -S 'flatten | sort_by(.id)' >"$destination/releases.json"
-  git ls-remote "$UPSTREAM_URL" HEAD | LC_ALL=C sort \
-    >"$destination/upstream-head.txt"
-  snapshot_owner_packages "$destination" "$phase" \
-    'users/SuperMarioYL/packages?package_type=container&per_page=100' \
-    fork-owner-packages
-  snapshot_owner_packages "$destination" "$phase" \
-    'user/packages?package_type=container&per_page=100' \
-    authenticated-owner-packages
-  snapshot_known_ghcr "$destination" "$phase" \
-    ghcr.io/modelengine-group/vllm-openai
-  snapshot_known_ghcr "$destination" "$phase" \
-    ghcr.io/modelengine-group/vllm-ascend
-}
-
-discover_push_runs() {
-  local poll push_count release_count
-  for poll in {1..30}; do
-    gh run list --repo "$REPOSITORY" --commit "$SOURCE_SHA" --event push \
-      --json databaseId,workflowName,status,conclusion,headSha,url \
-      >"$TASK7_ROOT/push-runs.json"
-    push_count="$(jq --arg sha "$SOURCE_SHA" \
-      '[.[] | select(.workflowName == "Push Commit Checks" and .headSha == $sha)] | length' \
-      "$TASK7_ROOT/push-runs.json")"
-    release_count="$(jq --arg sha "$SOURCE_SHA" \
-      '[.[] | select(.workflowName == "Release UCM core artifacts" and .headSha == $sha)] | length' \
-      "$TASK7_ROOT/push-runs.json")"
-    if ((push_count > 1 || release_count > 1)); then
-      printf 'duplicate same-SHA push runs: push=%s release=%s\n' \
-        "$push_count" "$release_count" >&2
-      return 2
-    fi
-    if ((push_count == 1 && release_count == 1)); then
-      return 0
-    fi
-    sleep 10
-  done
-  printf 'required same-SHA push runs were not discovered\n' >&2
-  return 2
-}
-
-assert_green_run() {
-  local run_id workflow_name expected_attempt output
-  run_id="$1"
-  workflow_name="$2"
-  expected_attempt="$3"
-  output="$TASK7_ROOT/run-${run_id}-attempt-${expected_attempt}.json"
-  gh run view "$run_id" --repo "$REPOSITORY" \
-    --json attempt,databaseId,workflowName,status,conclusion,headSha,url \
-    >"$output"
-  jq -e --arg workflow "$workflow_name" --arg sha "$SOURCE_SHA" \
-    --argjson run_id "$run_id" --argjson attempt "$expected_attempt" '
-      .databaseId == $run_id and
-      .workflowName == $workflow and
-      .headSha == $sha and
-      .attempt == $attempt and
-      .status == "completed" and
-      .conclusion == "success" and
-      (.url | startswith("https://github.com/"))
-    ' "$output" >/dev/null
-}
-
-wait_for_attempt() {
-  local run_id expected_attempt poll actual_attempt
-  run_id="$1"
-  expected_attempt="$2"
-  for poll in {1..60}; do
-    actual_attempt="$(gh run view "$run_id" --repo "$REPOSITORY" \
-      --json attempt --jq .attempt)"
-    if ((actual_attempt == expected_attempt)); then
-      return 0
-    fi
-    if ((actual_attempt > expected_attempt)); then
-      printf 'run %s advanced past expected attempt %s\n' \
-        "$run_id" "$expected_attempt" >&2
-      return 2
-    fi
-    sleep 5
-  done
-  printf 'run %s did not reach attempt %s\n' "$run_id" "$expected_attempt" >&2
-  return 2
-}
-
-install_crane
-readonly CRANE
-verify_no_write_capability
-snapshot_zero_write "$TASK7_ROOT/before" before
-if [[ "$TASK7_DRY_RUN" == 1 ]]; then
-  printf 'TASK7_DRY_RUN=1: pre-push gates complete; refusing push; evidence=%s\n' \
-    "$TASK7_ROOT"
-  exit 0
-fi
-
-git push origin HEAD:refs/heads/feature/cicd
-
-discover_push_runs
-PUSH_RUN_ID="$(jq -er --arg sha "$SOURCE_SHA" \
-  '[.[] | select(.workflowName == "Push Commit Checks" and .headSha == $sha)][0].databaseId' \
-  "$TASK7_ROOT/push-runs.json")"
-RELEASE_RUN_ID="$(jq -er --arg sha "$SOURCE_SHA" \
-  '[.[] | select(.workflowName == "Release UCM core artifacts" and .headSha == $sha)][0].databaseId' \
-  "$TASK7_ROOT/push-runs.json")"
-readonly PUSH_RUN_ID RELEASE_RUN_ID
-[[ "$PUSH_RUN_ID" =~ ^[0-9]+$ ]]
-[[ "$RELEASE_RUN_ID" =~ ^[0-9]+$ ]]
-
-gh run watch "$PUSH_RUN_ID" --repo "$REPOSITORY" --exit-status
-gh run watch "$RELEASE_RUN_ID" --repo "$REPOSITORY" --exit-status
-assert_green_run "$PUSH_RUN_ID" "Push Commit Checks" 1
-assert_green_run "$RELEASE_RUN_ID" "Release UCM core artifacts" 1
-gh run download "$RELEASE_RUN_ID" --repo "$REPOSITORY" \
-  --dir "$TASK7_ROOT/attempt-1"
-
-gh run rerun "$PUSH_RUN_ID" --repo "$REPOSITORY"
-gh run rerun "$RELEASE_RUN_ID" --repo "$REPOSITORY"
-wait_for_attempt "$PUSH_RUN_ID" 2
-wait_for_attempt "$RELEASE_RUN_ID" 2
-gh run watch "$PUSH_RUN_ID" --repo "$REPOSITORY" --exit-status
-gh run watch "$RELEASE_RUN_ID" --repo "$REPOSITORY" --exit-status
-assert_green_run "$PUSH_RUN_ID" "Push Commit Checks" 2
-assert_green_run "$RELEASE_RUN_ID" "Release UCM core artifacts" 2
-gh run download "$RELEASE_RUN_ID" --repo "$REPOSITORY" \
-  --dir "$TASK7_ROOT/attempt-2"
-
-python - "$TASK7_ROOT" "$SOURCE_SHA" "$REPOSITORY" "$EXPECTED_REF" <<'PY'
-import json
-import pathlib
-import sys
-
-root = pathlib.Path(sys.argv[1])
-source_sha, repository, ref = sys.argv[2:]
-workflow_refs = [
-    "release-ucm.yml",
-    "_build-wheel.yml",
-    "release-vllm-images.yml",
-    "_build-image.yml",
-]
-
-def evidence(attempt):
-    paths = list((root / attempt).rglob("release-loop-evidence.json"))
-    assert len(paths) == 1, paths
-    return json.loads(paths[0].read_text(encoding="utf-8"))
-
-first = evidence("attempt-1")
-second = evidence("attempt-2")
-for item in (first, second):
-    payload = item["payload"]
-    assert payload["source_sha"] == source_sha
-    assert payload["repository"] == repository
-    assert payload["ref"] == ref
-    assert payload["workflow_refs"] == workflow_refs
-    assert payload["must_green"]["second_reconcile_zero"] is True
-    assert payload["write_audit"]["write_count"] == 0
-    assert payload["publication"] == {"status": "blocked", "attempted": False}
-
-assert first["payload_sha256"] == second["payload_sha256"]
-keys = ("wheel_sha256", "chart_sha256", "oci_digest", "second_reconcile_sha256")
-assert all(
-    first["payload"]["artifact_digests"][key]
-    == second["payload"]["artifact_digests"][key]
-    for key in keys
-)
-PY
-
-snapshot_zero_write "$TASK7_ROOT/after" after
-diff -ru "$TASK7_ROOT/before" "$TASK7_ROOT/after"
-printf 'Task 7 fixture loop complete; production remains blocked; evidence=%s\n' \
-  "$TASK7_ROOT"
+jq -e --arg sha "${SOURCE_SHA}" '
+  .payload.source_sha == $sha and
+  (.payload.wheels | length) == 6 and
+  (.payload.images | length) == 6 and
+  (.payload.families | length) == 3 and
+  .payload.second_reconcile.task_count == 0 and
+  .payload.publication == {status:"blocked",attempted:false}
+' "${image_evidence}" >/dev/null
 ```
 
-If a run fails, collect `gh run view --log-failed`, the run/job JSON, and all
-available artifacts under the plan's bounded repair loop. The `oci_digest`
-above is the verified local OCI layout identity, not GHCR readback. Production
-remains blocked. Both evidence envelopes must bind the exact
-`payload.source_sha`, `payload.repository`, `payload.ref`, and
-`payload.workflow_refs`. Owner package enumeration and GHCR readback remain
-`external-required` whenever their canonical state is `UNAVAILABLE`; native
-wheels, Registry publication, cluster installation, and accelerator evidence
-also remain `external-required`.
+Both attempts have final payload SHA256
+`sha256:88596b412798e34a037132320044d47283c1bfb9001eab20236f65ad44bcac1b`
+and image aggregate payload SHA256
+`sha256:dd2c17b710ddd01b7e836b1dbc25fac866e82a7512d43cbd3e734f083b8a7b37`.
+The Chart package SHA256 is
+`4805117c69725d1ce093096ba6d5fcf46c4b2a7ff716544e993f5b87bedfefc6`,
+and its release-tree SHA256 is
+`6e0ea559cc946593ef162d8ea40497c05091466a543c8b997a2ecb0da22edb6f`.
 
-## Loop Engineer verification
+The frozen comparison also byte-matched all six wheels and the Chart archive.
+For every image it matched the archive checksum, OCI manifest, config, layers,
+diff IDs, compact closure, content identity, result, authority, and recipe. All
+three family plans, the candidate inventory, and the zero-task second reconcile
+matched as well.
+
+## What `second_reconcile.task_count == 0` means
+
+The image aggregate first reopens the exact six same-run wheel and image
+artifacts and creates three unpublished family plans. It then places those
+plans into a deterministic feature candidate inventory and recomputes the
+strict expected task list. Zero means that this closed, exact-six inventory
+contains no missing member or family.
+
+It is not a target-GHCR query, publication digest readback, or proof that a
+public tag already exists. Image jobs do read and verify the pinned upstream
+base descriptors; no target-GHCR write or publication readback occurs.
+
+The same-SHA claim comes from the separate strict attempt-1/attempt-2 artifact
+comparison, not from the second-zero value alone.
+
+## Historical determinism failure and fix
+
+The earlier [run 31324468754](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31324468754)
+at `166e0f474a3adab88917d65b7af61ea948f7492c` remains useful negative
+evidence. Both attempts completed, and their wheels and Chart matched, but all
+six image identities drifted. The shared cause was the generated
+`/var/cache/ldconfig/aux-cache` in both runtime stages. Commit
+[`ea931a95c231835a4bb4af353821084af9b998e6`](https://github.com/SuperMarioYL/unified-cache-management/commit/ea931a95c231835a4bb4af353821084af9b998e6)
+removes that cache in the same layer that runs `ldconfig`; the new two-attempt
+comparison is the hosted proof that the image identities now repeat.
+
+The later bounded wheel-build retry improves transient transfer resilience,
+but neither attempt of run 31329098205 retried. Retry recovery is covered by a
+dynamic shell test, not by this hosted run.
+
+## Unified CLI and verification
+
+Run contract checks from the repository root:
+
+```bash
+export PYTHONPATH=.github/release
+python -m ucm_release config validate
+python -m ucm_release core tag-preflight --lane feature-candidate
+python -m ucm_release core hosted-matrix --help
+python -m ucm_release wheel context --help
+python -m ucm_release wheel inspect --help
+python -m ucm_release chart package --help
+python -m ucm_release image real-authorities --help
+python -m ucm_release image prepare-real --help
+python -m ucm_release image verify --help
+python -m ucm_release loop aggregate-real --help
+```
 
 ```bash
 pytest -q .github/release/tests
 ruff check .github/release/ucm_release .github/release/tests .github/release/docker
-ruff format --check .github/release/ucm_release .github/release/tests .github/release/docker
 black --check .github/release/ucm_release .github/release/tests .github/release/docker
 pre-commit run actionlint --all-files --hook-stage manual
-PYTHONPATH=.github/release python -m ucm_release config validate
-PYTHONPATH=.github/release python -m ucm_release core plan
 ```
 
-For every change, run the narrow failing check first, apply the smallest fix,
-rerun it, then run the complete commands above. Record only fresh successful
-results. Keep external-required work blocked until its real GitHub, Registry,
-wheel, cluster, or accelerator evidence exists.
+These commands validate contracts; they do not replace the hosted wheel/image
+jobs. Historical fixture-only runs remain useful regression baselines and are
+documented in the [technical review](../../docs/ucm-release-automation-technical-review.md#historical-fixture-baseline),
+but they are not the current feature result.
+
+## Remaining release work
+
+The feature build and same-SHA artifact comparison are complete. Production
+still requires a separately authorized protected Tag path, Registry write and
+digest readback, a GitHub prerelease and asset readback, matching CUDA/A2/A3
+runtime/device evidence, and cluster workload acceptance. Until those events
+occur, keep all six images unpublished and do not describe this feature run as
+a formal release.
