@@ -231,17 +231,17 @@ COPY install_ucm.py /usr/local/bin/install_ucm.py
 COPY inspect_runtime.py /usr/local/bin/inspect_runtime.py
 COPY ${UCM_WHEEL} /tmp/${UCM_WHEEL}
 
-RUN python /usr/local/bin/verify_base_image.py \
+RUN python3 /usr/local/bin/verify_base_image.py \
       --recipe /usr/local/share/ucm-release/image-recipe.json \
       --base-image "${BASE_IMAGE}" \
       --target-platform "${TARGETPLATFORM}" \
       --output /usr/local/share/ucm-release/base-verification.json
-RUN python /usr/local/bin/install_ucm.py \
+RUN python3 /usr/local/bin/install_ucm.py \
       --recipe /usr/local/share/ucm-release/image-recipe.json \
       --metadata /usr/local/share/ucm-release/image-metadata.json \
       --wheel "/tmp/${UCM_WHEEL}" \
       --output /usr/local/share/ucm-release/install-result.json
-RUN python /usr/local/bin/inspect_runtime.py \
+RUN python3 /usr/local/bin/inspect_runtime.py \
       --recipe /usr/local/share/ucm-release/image-recipe.json \
       --install-result /usr/local/share/ucm-release/install-result.json \
       --output /usr/local/share/ucm-release/runtime-inspection.json
@@ -281,7 +281,7 @@ COPY verify_base_image.py /usr/local/bin/verify_base_image.py
 COPY install_ucm.py /usr/local/bin/install_ucm.py
 COPY inspect_runtime.py /usr/local/bin/inspect_runtime.py
 
-RUN python /usr/local/bin/verify_base_image.py \
+RUN python3 /usr/local/bin/verify_base_image.py \
       --recipe /usr/local/share/ucm-release/image-recipe.json \
       --base-image "${BASE_IMAGE}" \
       --target-platform "${TARGETPLATFORM}" \
@@ -289,13 +289,13 @@ RUN python /usr/local/bin/verify_base_image.py \
 RUN --mount=type=bind,source=${UCM_WHEEL},target=/wheelhouse/${UCM_WHEEL},readonly \
     --mount=type=bind,source=${WRAPT_WHEEL},target=/wheelhouse/${WRAPT_WHEEL},readonly \
     --mount=type=bind,source=requirements.lock,target=/wheelhouse/requirements.lock,readonly \
-    python /usr/local/bin/install_ucm.py \
+    python3 /usr/local/bin/install_ucm.py \
       --recipe /usr/local/share/ucm-release/image-recipe.json \
       --authority /usr/local/share/ucm-release/image-authority.json \
       --wheelhouse /wheelhouse \
       --lock /wheelhouse/requirements.lock \
       --output /usr/local/share/ucm-release/install-result.json
-RUN python /usr/local/bin/inspect_runtime.py \
+RUN python3 /usr/local/bin/inspect_runtime.py \
       --recipe /usr/local/share/ucm-release/image-recipe.json \
       --install-result /usr/local/share/ucm-release/install-result.json \
       --output /usr/local/share/ucm-release/runtime-inspection.json

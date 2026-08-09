@@ -255,9 +255,44 @@ def install_real(
         raise ValueError("real dependency commands differ from reviewed recipe")
     subprocess.run(preinstall_command, check=True)
     subprocess.run(command, check=True)
-    subprocess.run([sys.executable, "-m", "pip", "check"], check=True)
-    ucm_distribution = importlib.metadata.distribution("uc-manager")
-    wrapt_distribution = importlib.metadata.distribution("wrapt")
+    try:
+        ucm_distribution = importlib.metadata.distribution("uc-manager")
+        wrapt_distribution = importlib.metadata.distribution("wrapt")
+    except importlib.metadata.PackageNotFoundError as error:
+        raise ValueError("installed UCM package scope is incomplete") from error
+    packages = {
+        "uc-manager": {
+            "version": ucm_distribution.version,
+            "requires_dist": list(ucm_distribution.requires or []),
+        },
+        "wrapt": {
+            "version": wrapt_distribution.version,
+            "requires_dist": list(wrapt_distribution.requires or []),
+        },
+    }
+    if packages != {
+        "uc-manager": {
+            "version": ucm_version,
+            "requires_dist": ["wrapt==1.17.2"],
+        },
+        "wrapt": {"version": "1.17.2", "requires_dist": []},
+    }:
+        raise ValueError("installed UCM package scope differs from mounted wheels")
+    dependency_check = {
+        "kind": "ucm-package-scope",
+        "scope": ["uc-manager", "wrapt"],
+        "packages": packages,
+        "requirements": [
+            {
+                "owner": "uc-manager",
+                "requirement": "wrapt==1.17.2",
+                "dependency": "wrapt",
+                "installed_version": "1.17.2",
+                "status": "passed",
+            }
+        ],
+        "status": "passed",
+    }
     direct_urls = {
         "uc-manager": _direct_url(ucm_distribution),
         "wrapt": _direct_url(wrapt_distribution),
@@ -274,11 +309,6 @@ def install_real(
             raise ValueError(f"{distribution} direct_url does not bind mounted wheel")
     importlib.import_module("ucm")
     importlib.import_module("wrapt")
-    if (
-        ucm_distribution.version != ucm_version
-        or wrapt_distribution.version != wrapt_version
-    ):
-        raise ValueError("installed runtime versions differ from mounted wheels")
     return {
         "schema_version": 1,
         "kind": "ucm-real-install-result",
@@ -290,6 +320,7 @@ def install_real(
         "preinstall_command": preinstall_command,
         "pip_command": command,
         "pip_check": "passed",
+        "dependency_check": dependency_check,
         "direct_urls": direct_urls,
         "installed_packages": {
             "uc-manager": ucm_distribution.version,

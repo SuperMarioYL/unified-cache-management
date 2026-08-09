@@ -10,11 +10,13 @@ import importlib
 import io
 import json
 import os
+import runpy
 import subprocess
 import sys
 import tarfile
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -96,6 +98,187 @@ def _write_fixture_wheel(tmp_path: Path, spec: dict[str, object], version: str) 
             info.external_attr = 0o644 << 16
             archive.writestr(info, content)
     return wheel_path
+
+
+def _install_module():
+    return SimpleNamespace(
+        **runpy.run_path(
+            str(DOCKER_ROOT / "install_ucm.py"),
+            run_name="ucm_release_install_test",
+        )
+    )
+
+
+def _write_metadata_wheel(
+    path: Path, *, distribution: str, version: str, requires_dist: list[str]
+) -> None:
+    metadata = [
+        "Metadata-Version: 2.1",
+        f"Name: {distribution}",
+        f"Version: {version}",
+        *(f"Requires-Dist: {requirement}" for requirement in requires_dist),
+        "",
+    ]
+    dist_info = distribution.replace("-", "_")
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(
+            f"{dist_info}-{version}.dist-info/METADATA", "\n".join(metadata)
+        )
+
+
+def _real_install_case(tmp_path: Path, profile_id: str = "cuda130-amd64"):
+    wheelhouse = tmp_path / "wheelhouse"
+    wheelhouse.mkdir()
+    version = "3.1.0"
+    ucm_path = wheelhouse / "uc_manager-3.1.0-cp312-cp312-linux_x86_64.whl"
+    wrapt_path = wheelhouse / "wrapt-1.17.2-cp312-cp312-linux_x86_64.whl"
+    _write_metadata_wheel(
+        ucm_path,
+        distribution="uc-manager",
+        version=version,
+        requires_dist=["wrapt==1.17.2"],
+    )
+    _write_metadata_wheel(
+        wrapt_path,
+        distribution="wrapt",
+        version="1.17.2",
+        requires_dist=[],
+    )
+
+    def digest(path: Path) -> str:
+        return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+    lock_path = wheelhouse / "requirements.lock"
+    ucm_sha256 = digest(ucm_path)
+    wrapt_sha256 = digest(wrapt_path)
+    lock_path.write_text(
+        f"uc-manager @ file:///wheelhouse/{ucm_path.name} --hash={ucm_sha256}\n"
+        f"wrapt @ file:///wheelhouse/{wrapt_path.name} --hash={wrapt_sha256}\n",
+        encoding="utf-8",
+    )
+    authority_payload = {
+        "kind": "ucm-real-image-source-authority",
+        "candidate_kind": "real-candidate",
+        "fixture_only": False,
+    }
+    authority_sha256 = (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(
+                authority_payload, sort_keys=True, separators=(",", ":")
+            ).encode()
+        ).hexdigest()
+    )
+    authority = {**authority_payload, "authority_sha256": authority_sha256}
+    authority_path = tmp_path / "image-authority.json"
+    authority_path.write_text(json.dumps(authority), encoding="utf-8")
+    payload = {
+        "candidate_kind": "real-candidate",
+        "profile_id": profile_id,
+        "authority_sha256": authority_sha256,
+        "wheel": {
+            "filename": ucm_path.name,
+            "sha256": ucm_sha256,
+            "version": version,
+        },
+        "wrapt_wheel": {
+            "filename": wrapt_path.name,
+            "sha256": wrapt_sha256,
+        },
+        "dependency_lock": {
+            "sha256": digest(lock_path),
+            "preinstall_command": [
+                "python",
+                "-m",
+                "pip",
+                "uninstall",
+                "--yes",
+                "uc-manager",
+                "wrapt",
+            ],
+            "pip_command": [
+                "python",
+                "-m",
+                "pip",
+                "install",
+                "--no-index",
+                "--find-links=/wheelhouse",
+                "--require-hashes",
+                "--only-binary=:all:",
+                "--no-cache-dir",
+                "--disable-pip-version-check",
+                "-r",
+                "/wheelhouse/requirements.lock",
+            ],
+        },
+    }
+    recipe = {
+        "payload": payload,
+        "payload_sha256": "sha256:"
+        + hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest(),
+    }
+    recipe_path = tmp_path / "image-recipe.json"
+    recipe_path.write_text(json.dumps(recipe), encoding="utf-8")
+
+    distributions: dict[str, SimpleNamespace] = {}
+    for name, installed_version, requires, filename, sha256 in (
+        ("uc-manager", version, ["wrapt==1.17.2"], ucm_path.name, ucm_sha256),
+        ("wrapt", "1.17.2", [], wrapt_path.name, wrapt_sha256),
+    ):
+        dist_info = tmp_path / "installed" / name
+        dist_info.mkdir(parents=True)
+        (dist_info / "direct_url.json").write_text(
+            json.dumps(
+                {
+                    "url": f"file:///wheelhouse/{filename}",
+                    "archive_info": {
+                        "hash": "sha256=" + sha256.removeprefix("sha256:")
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        distributions[name] = SimpleNamespace(
+            version=installed_version, requires=requires, _path=dist_info
+        )
+    return {
+        "recipe_path": recipe_path,
+        "authority_path": authority_path,
+        "wheelhouse": wheelhouse,
+        "lock_path": lock_path,
+        "version": version,
+        "distributions": distributions,
+    }
+
+
+def _stub_real_install_environment(
+    installer,
+    case: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    reject_global_check: bool = False,
+) -> list[list[str]]:
+    commands: list[list[str]] = []
+
+    def run(command: list[str], *, check: bool):
+        assert check is True
+        commands.append(command)
+        if reject_global_check and command[1:] == ["-m", "pip", "check"]:
+            raise subprocess.CalledProcessError(1, command, stderr="base conflict")
+        return subprocess.CompletedProcess(command, 0)
+
+    def distribution(name: str):
+        value = case["distributions"].get(name)
+        if value is None:
+            raise importlib.metadata.PackageNotFoundError(name)
+        return value
+
+    monkeypatch.setattr(installer.subprocess, "run", run)
+    monkeypatch.setattr(installer.importlib.metadata, "distribution", distribution)
+    monkeypatch.setattr(installer.importlib, "import_module", lambda _name: object())
+    return commands
 
 
 def _snapshot() -> dict[str, object]:
@@ -594,6 +777,121 @@ def test_wheel_base_caches_cuda_runtime_without_changing_runtime_stages() -> Non
     for runtime_stage in (runtime_install, runtime_real_install):
         assert runtime_stage.count("RUN ldconfig /usr/local/lib") == 1
         assert "/usr/local/cuda/lib64" not in runtime_stage
+
+
+def test_runtime_stages_invoke_all_python_helpers_through_python3() -> None:
+    """A runtime base with python3 but no bare python must reach every helper."""
+    dockerfile = (RELEASE_ROOT / "docker/Dockerfile").read_text(encoding="utf-8")
+    runtime_install = dockerfile.split(
+        "FROM ${BASE_IMAGE} AS runtime-install", maxsplit=1
+    )[1].split("FROM runtime-install AS runtime", maxsplit=1)[0]
+    runtime_real_install = dockerfile.split(
+        "FROM ${BASE_IMAGE} AS runtime-real-install", maxsplit=1
+    )[1].split("FROM runtime-real-install AS runtime-real", maxsplit=1)[0]
+
+    for runtime_stage in (runtime_install, runtime_real_install):
+        assert runtime_stage.count("python3 /usr/local/bin/") == 3
+        assert "python /usr/local/bin/" not in runtime_stage
+
+
+@pytest.mark.parametrize(
+    "profile_id", ["cuda130-amd64", "cann900-a2-amd64", "cann900-a3-arm64"]
+)
+def test_real_install_ignores_unrelated_base_dependency_conflicts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile_id: str
+) -> None:
+    """Only the offline UCM package scope, not the base image, is this gate."""
+    installer = _install_module()
+    case = _real_install_case(tmp_path, profile_id)
+    commands = _stub_real_install_environment(
+        installer, case, monkeypatch, reject_global_check=True
+    )
+
+    result = installer.install_real(
+        case["recipe_path"],
+        case["authority_path"],
+        case["wheelhouse"],
+        case["lock_path"],
+    )
+
+    assert len(commands) == 2
+    assert result["pip_check"] == "passed"
+
+
+def test_real_install_records_exact_ucm_package_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Raw evidence must say precisely which installed dependencies were checked."""
+    installer = _install_module()
+    case = _real_install_case(tmp_path)
+    _stub_real_install_environment(installer, case, monkeypatch)
+
+    result = installer.install_real(
+        case["recipe_path"],
+        case["authority_path"],
+        case["wheelhouse"],
+        case["lock_path"],
+    )
+
+    assert result["dependency_check"] == {
+        "kind": "ucm-package-scope",
+        "scope": ["uc-manager", "wrapt"],
+        "packages": {
+            "uc-manager": {
+                "version": case["version"],
+                "requires_dist": ["wrapt==1.17.2"],
+            },
+            "wrapt": {"version": "1.17.2", "requires_dist": []},
+        },
+        "requirements": [
+            {
+                "owner": "uc-manager",
+                "requirement": "wrapt==1.17.2",
+                "dependency": "wrapt",
+                "installed_version": "1.17.2",
+                "status": "passed",
+            }
+        ],
+        "status": "passed",
+    }
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing-wrapt",
+        "wrong-wrapt-version",
+        "wrong-ucm-version",
+        "ucm-requires-drift",
+        "wrapt-requires-dependency",
+    ],
+)
+def test_real_install_rejects_installed_package_scope_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    """Missing, wrong, or dependency-bearing installed packages fail closed."""
+    installer = _install_module()
+    case = _real_install_case(tmp_path)
+    distributions = case["distributions"]
+    if mutation == "missing-wrapt":
+        distributions.pop("wrapt")
+    elif mutation == "wrong-wrapt-version":
+        distributions["wrapt"].version = "1.17.1"
+    elif mutation == "wrong-ucm-version":
+        distributions["uc-manager"].version = "3.1.1"
+    elif mutation == "ucm-requires-drift":
+        distributions["uc-manager"].requires = ["wrapt>=1.17.2"]
+    else:
+        distributions["wrapt"].requires = ["typing-extensions"]
+    _stub_real_install_environment(installer, case, monkeypatch)
+
+    with pytest.raises(ValueError, match="installed UCM package scope"):
+        installer.install_real(
+            case["recipe_path"],
+            case["authority_path"],
+            case["wheelhouse"],
+            case["lock_path"],
+        )
 
 
 def test_native_build_runs_the_locked_cmake_from_cpython_scripts() -> None:
