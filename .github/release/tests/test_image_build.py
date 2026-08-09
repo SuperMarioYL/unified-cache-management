@@ -2000,6 +2000,11 @@ def test_real_dependency_lock_uses_exact_install_and_preinstall_purge(
 
 def _real_runtime_probe(image, spec_id: str = "cuda130-amd64"):
     task = _real_image_task(image, spec_id)
+    builder = task["builder"]["root"]
+    builder_coordinate = f"{builder['repository']}@{builder['manifest_digest']}"
+    runtime_coordinate = (
+        f"{task['runtime']['repository']}@{task['runtime']['manifest_digest']}"
+    )
     machine = "EM_X86_64" if task["cpu_arch"] == "amd64" else "EM_AARCH64"
     wheel_sha256 = "sha256:" + "a" * 64
     wrapt_sha256 = task["wrapt_wheel"]["sha256"]
@@ -2027,16 +2032,18 @@ def _real_runtime_probe(image, spec_id: str = "cuda130-amd64"):
         "payload": {
             "candidate_kind": "real-candidate",
             "target_platform": task["platform"],
+            "base": {"subject": runtime_coordinate},
             "wheel": {
                 "filename": "uc_manager.whl",
                 "sha256": wheel_sha256,
                 "version": task["wheel_version"],
                 "python_abi": task["python_abi"],
                 "builder_evidence": {
+                    "builder_coordinate": builder_coordinate,
                     "native_members": native_members,
                     "elf_machines": [machine],
                     "dt_needed": dt_needed,
-                    "dependency_closure": dependency_closure,
+                    "dependency_closure": copy.deepcopy(dependency_closure),
                 },
             },
             "wrapt_wheel": copy.deepcopy(task["wrapt_wheel"]),
@@ -2127,7 +2134,7 @@ def _real_runtime_probe(image, spec_id: str = "cuda130-amd64"):
             "native_members": native_members,
             "elf_machines": [machine],
             "dt_needed": dt_needed,
-            "dependency_closure": dependency_closure,
+            "dependency_closure": copy.deepcopy(dependency_closure),
             "abi": {
                 "expected_python_abi": task["python_abi"],
                 "observed_python_abi": task["python_abi"],
@@ -2140,6 +2147,195 @@ def _real_runtime_probe(image, spec_id: str = "cuda130-amd64"):
         },
     }
     return recipe, evidence
+
+
+@pytest.mark.parametrize("spec_id", ["cuda130-amd64", "cuda130-arm64"])
+def test_cross_root_runtime_closure_accepts_root_local_external_bytes(
+    spec_id: str,
+) -> None:
+    """Immutable builder/runtime roots may supply different bytes for one SONAME."""
+    *_, image = _modules()
+    recipe, evidence = _real_runtime_probe(image, spec_id)
+    runtime_resolution = next(iter(evidence["runtime"]["dependency_closure"].values()))[
+        "resolved_dependencies"
+    ][0]
+    runtime_resolution["path"] = "/usr/lib/runtime/libc.so.6"
+    runtime_resolution["sha256"] = "sha256:" + "c" * 64
+
+    assert (
+        image.verify_real_runtime_evidence(recipe, evidence)["dependency_closure"]
+        == "passed"
+    )
+
+
+def test_same_root_runtime_closure_rejects_external_byte_drift() -> None:
+    """One immutable CANN root must retain literal dependency byte identity."""
+    *_, image = _modules()
+    recipe, evidence = _real_runtime_probe(image, "cann900-a2-amd64")
+    runtime_resolution = next(iter(evidence["runtime"]["dependency_closure"].values()))[
+        "resolved_dependencies"
+    ][0]
+    runtime_resolution["path"] = "/usr/lib/runtime/libc.so.6"
+    runtime_resolution["sha256"] = "sha256:" + "c" * 64
+
+    with pytest.raises(ValueError, match="dependency closure"):
+        image.verify_real_runtime_evidence(recipe, evidence)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "member",
+        "dt-needed",
+        "unresolved",
+        "dependency",
+        "direct",
+        "kind",
+        "wheel-member",
+        "virtual",
+        "external-required",
+    ],
+)
+def test_cross_root_runtime_closure_rejects_dependency_identity_drift(
+    mutation: str,
+) -> None:
+    """Cross-root normalization must preserve every non-location closure fact."""
+    *_, image = _modules()
+    recipe, evidence = _real_runtime_probe(image)
+    expected_closure = recipe["payload"]["wheel"]["builder_evidence"][
+        "dependency_closure"
+    ]
+    runtime_closure = evidence["runtime"]["dependency_closure"]
+    member = next(iter(expected_closure))
+    expected_record = expected_closure[member]
+    runtime_record = runtime_closure[member]
+    internal_member = next(
+        iter(recipe["payload"]["wheel"]["builder_evidence"]["native_members"].values())
+    )
+    shared_resolutions = [
+        {
+            "dependency": "libucm-internal.so",
+            "direct": False,
+            "kind": "wheel-member",
+            "member": internal_member,
+            "sha256": "sha256:" + "d" * 64,
+        },
+        {
+            "dependency": "linux-vdso.so.1",
+            "direct": False,
+            "kind": "virtual",
+        },
+        {
+            "dependency": "libascend_hal.so",
+            "direct": False,
+            "kind": "external-required",
+            "provider": "host-ascend-driver",
+            "expected_mount_root": "/usr/local/Ascend/driver/lib64",
+            "relation": "transitive",
+            "required_at": "device-runtime",
+        },
+    ]
+    expected_record["resolved_dependencies"].extend(copy.deepcopy(shared_resolutions))
+    runtime_record["resolved_dependencies"].extend(copy.deepcopy(shared_resolutions))
+    recipe["payload_sha256"] = (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(
+                recipe["payload"], sort_keys=True, separators=(",", ":")
+            ).encode()
+        ).hexdigest()
+    )
+
+    if mutation == "member":
+        runtime_closure["ucm/native/unexpected.so"] = runtime_closure.pop(member)
+    elif mutation == "dt-needed":
+        runtime_record["dt_needed"] = ["libm.so.6"]
+    elif mutation == "unresolved":
+        runtime_record["unresolved_dependencies"] = ["libmissing.so"]
+    elif mutation == "dependency":
+        runtime_record["resolved_dependencies"][0]["dependency"] = "libm.so.6"
+    elif mutation == "direct":
+        runtime_record["resolved_dependencies"][0]["direct"] = False
+    elif mutation == "kind":
+        runtime_record["resolved_dependencies"][0]["kind"] = "virtual"
+    elif mutation == "wheel-member":
+        runtime_record["resolved_dependencies"][1]["sha256"] = "sha256:" + "e" * 64
+    elif mutation == "virtual":
+        runtime_record["resolved_dependencies"][2]["dependency"] = "linux-gate.so.1"
+    elif mutation == "external-required":
+        runtime_record["resolved_dependencies"][3]["provider"] = "wrong-provider"
+
+    with pytest.raises(ValueError, match="dependency closure"):
+        image.verify_real_runtime_evidence(recipe, evidence)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "record-extra",
+        "record-missing",
+        "resolution-extra",
+        "resolution-missing",
+        "relative-path",
+        "bad-digest",
+        "duplicate-resolution",
+        "direct-coverage",
+        "direct-type",
+    ],
+)
+def test_cross_root_runtime_closure_rejects_malformed_external_evidence(
+    mutation: str,
+) -> None:
+    """Normalization cannot erase malformed or ambiguous external evidence."""
+    *_, image = _modules()
+    recipe, evidence = _real_runtime_probe(image)
+    expected_record = next(
+        iter(
+            recipe["payload"]["wheel"]["builder_evidence"][
+                "dependency_closure"
+            ].values()
+        )
+    )
+    runtime_record = next(iter(evidence["runtime"]["dependency_closure"].values()))
+    for record in (expected_record, runtime_record):
+        resolution = record["resolved_dependencies"][0]
+        if mutation == "record-extra":
+            record["unexpected"] = "value"
+        elif mutation == "record-missing":
+            record.pop("unresolved_dependencies")
+        elif mutation == "resolution-extra":
+            resolution["unexpected"] = "value"
+        elif mutation == "resolution-missing":
+            resolution.pop("path")
+        elif mutation == "relative-path":
+            resolution["path"] = "usr/lib/libc.so.6"
+        elif mutation == "bad-digest":
+            resolution["sha256"] = "sha256:bad"
+        elif mutation == "duplicate-resolution":
+            record["resolved_dependencies"].append(copy.deepcopy(resolution))
+        elif mutation == "direct-coverage":
+            resolution["direct"] = False
+        elif mutation == "direct-type":
+            record["resolved_dependencies"].append(
+                {
+                    "dependency": "libtransitive.so",
+                    "direct": 0,
+                    "kind": "external",
+                    "path": "/lib/libtransitive.so",
+                    "sha256": "sha256:" + "f" * 64,
+                }
+            )
+    recipe["payload_sha256"] = (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(
+                recipe["payload"], sort_keys=True, separators=(",", ":")
+            ).encode()
+        ).hexdigest()
+    )
+
+    with pytest.raises(ValueError, match="dependency closure"):
+        image.verify_real_runtime_evidence(recipe, evidence)
 
 
 @pytest.mark.parametrize(

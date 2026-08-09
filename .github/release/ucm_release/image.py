@@ -1066,6 +1066,162 @@ def build_real_dependency_lock(
     }
 
 
+def _project_dependency_closure(
+    closure: object,
+    native_members: object,
+    dt_needed: object,
+    *,
+    normalize_external_locations: bool,
+) -> dict[str, Any]:
+    """Validate one closure and optionally omit immutable-root-local locations."""
+    if (
+        not isinstance(closure, dict)
+        or not isinstance(native_members, dict)
+        or not native_members
+        or not isinstance(dt_needed, dict)
+    ):
+        raise ValueError("dependency closure must be a non-empty object")
+    expected_members = set(native_members.values())
+    if (
+        not all(isinstance(member, str) and member for member in expected_members)
+        or set(closure) != expected_members
+        or set(dt_needed) != expected_members
+    ):
+        raise ValueError("dependency closure native member set is not exact")
+
+    projected: dict[str, Any] = {}
+    record_fields = {
+        "dt_needed",
+        "resolved_dependencies",
+        "unresolved_dependencies",
+    }
+    external_fields = {"dependency", "direct", "kind", "path", "sha256"}
+    wheel_member_fields = {
+        "dependency",
+        "direct",
+        "kind",
+        "member",
+        "sha256",
+    }
+    external_required_fields = {
+        "dependency",
+        "direct",
+        "kind",
+        "provider",
+        "expected_mount_root",
+        "relation",
+        "required_at",
+    }
+    for member in sorted(expected_members):
+        record = closure[member]
+        expected_needed = dt_needed[member]
+        if (
+            not isinstance(record, dict)
+            or set(record) != record_fields
+            or not isinstance(expected_needed, list)
+            or not all(isinstance(item, str) and item for item in expected_needed)
+            or len(expected_needed) != len(set(expected_needed))
+            or record["dt_needed"] != expected_needed
+            or record["unresolved_dependencies"] != []
+        ):
+            raise ValueError(f"dependency closure record is invalid: {member}")
+        resolutions = record["resolved_dependencies"]
+        if not isinstance(resolutions, list) or not all(
+            isinstance(resolution, dict) for resolution in resolutions
+        ):
+            raise ValueError(f"dependency closure resolutions are invalid: {member}")
+        dependencies = [resolution.get("dependency") for resolution in resolutions]
+        if not all(
+            isinstance(dependency, str) and dependency for dependency in dependencies
+        ) or len(dependencies) != len(set(dependencies)):
+            raise ValueError(f"dependency closure resolutions are not unique: {member}")
+        direct_dependencies = {
+            resolution["dependency"]
+            for resolution in resolutions
+            if resolution.get("direct") is True
+        }
+        if direct_dependencies != set(expected_needed):
+            raise ValueError(f"dependency closure direct dependencies differ: {member}")
+
+        projected_resolutions: list[dict[str, Any]] = []
+        for resolution in resolutions:
+            dependency = resolution["dependency"]
+            direct = resolution.get("direct")
+            kind = resolution.get("kind")
+            if type(direct) is not bool:
+                raise ValueError(
+                    f"dependency closure resolution direct flag is invalid: {member}"
+                )
+            if kind == "external":
+                path = resolution.get("path")
+                if (
+                    set(resolution) != external_fields
+                    or not isinstance(path, str)
+                    or not PurePosixPath(path).is_absolute()
+                    or DIGEST_RE.fullmatch(str(resolution.get("sha256"))) is None
+                ):
+                    raise ValueError(
+                        f"dependency closure external resolution is invalid: {dependency}"
+                    )
+                if normalize_external_locations:
+                    projected_resolutions.append(
+                        {
+                            "dependency": dependency,
+                            "direct": direct,
+                            "kind": kind,
+                        }
+                    )
+                else:
+                    projected_resolutions.append(copy.deepcopy(resolution))
+            elif kind == "wheel-member":
+                wheel_member = resolution.get("member")
+                if (
+                    set(resolution) != wheel_member_fields
+                    or wheel_member not in expected_members
+                    or DIGEST_RE.fullmatch(str(resolution.get("sha256"))) is None
+                ):
+                    raise ValueError(
+                        "dependency closure wheel-member resolution is invalid: "
+                        f"{dependency}"
+                    )
+                projected_resolutions.append(copy.deepcopy(resolution))
+            elif kind == "virtual":
+                if set(resolution) != {"dependency", "direct", "kind"} or (
+                    dependency != "linux-vdso.so.1"
+                ):
+                    raise ValueError(
+                        f"dependency closure virtual resolution is invalid: {dependency}"
+                    )
+                projected_resolutions.append(copy.deepcopy(resolution))
+            elif kind == "external-required":
+                mount_root = resolution.get("expected_mount_root")
+                if (
+                    set(resolution) != external_required_fields
+                    or direct is not False
+                    or not isinstance(resolution.get("provider"), str)
+                    or not resolution["provider"]
+                    or not isinstance(mount_root, str)
+                    or not PurePosixPath(mount_root).is_absolute()
+                    or resolution.get("relation") != "transitive"
+                    or resolution.get("required_at") != "device-runtime"
+                ):
+                    raise ValueError(
+                        "dependency closure external-required resolution is invalid: "
+                        f"{dependency}"
+                    )
+                projected_resolutions.append(copy.deepcopy(resolution))
+            else:
+                raise ValueError(
+                    f"dependency closure resolution kind is invalid: {dependency}"
+                )
+        projected[member] = {
+            "dt_needed": copy.deepcopy(record["dt_needed"]),
+            "resolved_dependencies": projected_resolutions,
+            "unresolved_dependencies": [],
+        }
+    return projected
+
+
 def verify_real_runtime_evidence(recipe: object, evidence: object) -> dict[str, str]:
     """Verify offline install plus installed native/ELF/closure evidence."""
     if not isinstance(recipe, dict) or set(recipe) != {"payload", "payload_sha256"}:
@@ -1168,7 +1324,32 @@ def verify_real_runtime_evidence(recipe: object, evidence: object) -> dict[str, 
         raise ValueError("installed ELF machine differs from Task 2 inspection")
     if runtime.get("dt_needed") != expected_native.get("dt_needed"):
         raise ValueError("installed ELF DT_NEEDED differs from Task 2 inspection")
-    if runtime.get("dependency_closure") != expected_native.get("dependency_closure"):
+    builder_coordinate = expected_native.get("builder_coordinate")
+    base = payload.get("base")
+    base_subject = base.get("subject") if isinstance(base, dict) else None
+    if (
+        not isinstance(builder_coordinate, str)
+        or not isinstance(base_subject, str)
+        or "@" not in builder_coordinate
+        or "@" not in base_subject
+        or DIGEST_RE.fullmatch(builder_coordinate.rsplit("@", 1)[1]) is None
+        or DIGEST_RE.fullmatch(base_subject.rsplit("@", 1)[1]) is None
+    ):
+        raise ValueError("dependency closure immutable root authority is invalid")
+    same_root = builder_coordinate == base_subject
+    expected_closure = _project_dependency_closure(
+        expected_native.get("dependency_closure"),
+        expected_native.get("native_members"),
+        expected_native.get("dt_needed"),
+        normalize_external_locations=not same_root,
+    )
+    runtime_closure = _project_dependency_closure(
+        runtime.get("dependency_closure"),
+        runtime.get("native_members"),
+        runtime.get("dt_needed"),
+        normalize_external_locations=not same_root,
+    )
+    if runtime_closure != expected_closure:
         raise ValueError("installed dependency closure differs from Task 2 inspection")
     for label in ("accelerator_runtime", "device"):
         state = runtime.get(label)
