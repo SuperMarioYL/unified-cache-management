@@ -1,9 +1,8 @@
-"""Strict configuration, version authority, and core release planning."""
+"""Strict configuration, immutable authority, and real release planning."""
 
 from __future__ import annotations
 
 import hashlib
-import itertools
 import json
 import re
 from pathlib import Path
@@ -211,178 +210,201 @@ def derive_chart_version(version: str) -> str:
     return f"{match.group(1)}-rc.{match.group(2)}"
 
 
-def _strict_keys(value: dict[str, Any], allowed: set[str], location: str) -> None:
-    extras = sorted(set(value) - allowed)
-    if extras:
+RELEASE_KEYS = {
+    "kind",
+    "schema_version",
+    "ucm_version",
+    "version_file",
+    "source",
+    "lanes",
+    "runner_map",
+    "python_runtime_dependencies",
+    "python_build_lock",
+    "wrapt_wheels",
+    "chart",
+    "wheel_profiles",
+    "image_families",
+}
+COMPATIBILITY_KEYS = {
+    "kind",
+    "schema_version",
+    "ucm_version",
+    "rules",
+    "excluded_upstream_patterns",
+}
+PROFILE_ORDER = ["cuda130", "cann900-a2", "cann900-a3"]
+ARCHITECTURE_ORDER = ["amd64", "arm64"]
+LANES = ("feature-candidate", "protected-tag")
+COMMON_NATIVE = [
+    "ucmtrans",
+    "metrics",
+    "ucmmetrics",
+    "ucmlogger",
+    "ucmnfsstore",
+    "ucmpcstore",
+    "posixstore",
+    "compressor",
+    "cachestore",
+    "emptystore",
+    "fakestore",
+    "ucmpipelinestore",
+]
+FORBIDDEN_NATIVE = [
+    "ds3fsstore",
+    "uc_hash_ext",
+    "ucm_custom_ops",
+    "hash_retrieval_backend",
+    "hamming",
+    "gsa_prefetch",
+    "kvstar_retrieve",
+    "retrieval_backend",
+    "gsa_offload_ops",
+]
+CANONICAL_RELEASE_SECTION_SHA256 = {
+    "source": "sha256:d2d52dd28fa8307c6be94b8ed9e69db7c94d8f8a634ed7dc57032dfdb13ac5b1",
+    "lanes": "sha256:8de0316a0d938870075c4865b6e9bf7beb969e3edcbbfd6a122a2862e8eeb7f1",
+    "runner_map": "sha256:9ff3e8be59d3fc512967852b3c2e26e0e5474c7cf81ca500a255f10b13b84869",
+    "python_runtime_dependencies": "sha256:a8667534906615d56bb80c5aef52014a6c099bf53b10e07305dd249dedc86b18",
+    "python_build_lock": "sha256:367531ab722e53b1b3cd6283b7385ae0073c78f51ffedf8bb8658478fc593eb0",
+    "wrapt_wheels": "sha256:2c674887f2c73e504ba0da5a83d93e2fc88391405e7ac29aa37d082e6184bfab",
+    "chart": "sha256:a4d4da0020be293876a242a22910830cc2c600d308df650837c2ae6d53b67f7f",
+    "wheel_profiles": "sha256:01e2129a06ebd5acbbd5107b7cb0490442db9d352d1716a8833b9437f496e8ac",
+    "image_families": "sha256:e7200360dda58fd1d1caeaf0eb52bc4ca33157c521ef408fbc6a06c809c5819e",
+}
+CANONICAL_COMPATIBILITY_SHA256 = (
+    "sha256:66ad8c060e79a80378ed27f29ced33af822c391da5e59da0f526613b796a23ee"
+)
+
+
+def _exact_keys(value: dict[str, Any], expected: set[str], location: str) -> None:
+    missing = sorted(expected - set(value))
+    extras = sorted(set(value) - expected)
+    if missing or extras:
         raise ValueError(
-            f"Additional properties are not allowed at {location}: {extras}"
+            f"{location} requires exact key set; missing={missing}, extra={extras}"
         )
 
 
-def _validate_release_shape(release: dict[str, Any]) -> None:
-    _strict_keys(
-        release,
-        {
-            "kind",
-            "schema_version",
-            "ucm_version",
-            "version_file",
-            "python_runtime_dependencies",
-            "chart",
-            "wheel_profiles",
-        },
-        "release.yaml",
-    )
-    if release.get("kind") != "release-config":
-        raise ValueError("release.yaml kind must be release-config")
-    if release.get("schema_version") != 1:
-        raise ValueError("release.yaml schema_version must be 1")
-    if release.get("version_file") != "version.ini":
-        raise ValueError("release.yaml version_file must be version.ini")
-    if release.get("python_runtime_dependencies") != ["wrapt==1.17.2"]:
+def _validate_canonical_authorities(
+    release: dict[str, Any], compatibility: dict[str, Any]
+) -> None:
+    for name, expected in CANONICAL_RELEASE_SECTION_SHA256.items():
+        actual = sha256_value(release[name])
+        if actual != expected:
+            raise ValueError(
+                f"canonical release authority mismatch for {name}: "
+                f"expected {expected}, got {actual}"
+            )
+    actual_compatibility = sha256_value(compatibility)
+    if actual_compatibility != CANONICAL_COMPATIBILITY_SHA256:
         raise ValueError(
-            "release.yaml must keep wrapt==1.17.2 as an ordinary dependency"
+            "canonical compatibility authority mismatch: "
+            f"expected {CANONICAL_COMPATIBILITY_SHA256}, got {actual_compatibility}"
         )
-    chart = release.get("chart")
-    if not isinstance(chart, dict):
-        raise ValueError("release.yaml chart must be a mapping")
-    _strict_keys(
-        chart,
-        {
-            "source",
-            "name",
-            "version",
-            "app_version",
-            "publication_target",
-            "validation_cases",
-        },
-        "release.yaml.chart",
-    )
-    if chart.get("source") != "charts/ucm" or chart.get("name") != "unified-cache-pd":
-        raise ValueError("release.yaml must bind the product Chart at charts/ucm")
-    if chart.get("publication_target") != "github-release":
-        raise ValueError("GitHub Release is the only Chart publication target")
-    cases = chart.get("validation_cases")
-    if not isinstance(cases, list) or len(cases) != 3:
-        raise ValueError("release.yaml must define three Chart validation cases")
-    for index, case in enumerate(cases):
-        if not isinstance(case, dict):
-            raise ValueError("Chart validation cases must be mappings")
-        _strict_keys(
-            case,
-            {"name", "values", "image_repository", "image_digest", "expected_resource"},
-            f"release.yaml.chart.validation_cases[{index}]",
+
+
+def _validate_cross_config(
+    release: dict[str, Any], compatibility: dict[str, Any]
+) -> None:
+    profiles = release["wheel_profiles"]
+    families = release["image_families"]
+    if [item["id"] for item in profiles] != PROFILE_ORDER:
+        raise ValueError(f"exact production profile set/order is {PROFILE_ORDER}")
+    if [item["id"] for item in families] != PROFILE_ORDER:
+        raise ValueError(f"exact image family set/order is {PROFILE_ORDER}")
+    if any(item["profile_id"] != item["id"] for item in families):
+        raise ValueError("each image family must bind the same-named wheel profile")
+    if any(item["cpu_arch"] != ARCHITECTURE_ORDER for item in profiles):
+        raise ValueError("every production profile requires amd64 then arm64")
+
+    coordinates = [
+        f"{family['target_repository']}:{family['target_tag']}" for family in families
+    ]
+    if len(coordinates) != len(set(coordinates)):
+        raise ValueError("public image coordinates must be unique")
+    if len({item["target_repository"] for item in families}) != 2:
+        raise ValueError(
+            "three image families must use exactly two target repositories"
         )
-    expected_cases = {
-        "cuda": ("registry.invalid/ucm/fixture-cuda", "nvidia.com/gpu"),
-        "a2": ("registry.invalid/ucm/fixture-ascend-a2", "huawei.com/Ascend910"),
-        "a3": ("registry.invalid/ucm/fixture-ascend-a3", "huawei.com/Ascend910"),
+
+    family_by_id = {item["id"]: item for item in families}
+    for profile in profiles:
+        family = family_by_id[profile["id"]]
+        expected_required = COMMON_NATIVE + (
+            [] if profile["accelerator"] == "cuda" else ["mooncakestore"]
+        )
+        expected_forbidden = (
+            ["mooncakestore"] if profile["accelerator"] == "cuda" else []
+        ) + FORBIDDEN_NATIVE
+        if profile["required_native"] != expected_required:
+            raise ValueError(f"{profile['id']} required native allowlist drifted")
+        if profile["forbidden_native"] != expected_forbidden:
+            raise ValueError(f"{profile['id']} forbidden native allowlist drifted")
+        for architecture in ARCHITECTURE_ORDER:
+            builder = profile["builders"][architecture]
+            root = builder["root"]
+            root_coordinate = f"{root['repository']}@{root['manifest_digest']}"
+            if re.fullmatch(r"[^@ ]+@sha256:[0-9a-f]{64}", root_coordinate) is None:
+                raise ValueError("builder roots must resolve to repository@sha256")
+            if profile["accelerator"] == "cuda":
+                if builder["sources"] or builder["copy_paths"]:
+                    raise ValueError("CUDA builder must be a complete pinned root")
+            else:
+                if len(builder["sources"]) != 1:
+                    raise ValueError(
+                        "Ascend builder requires one immutable Mooncake donor"
+                    )
+                donor = builder["sources"][0]
+                member = family["runtime"]["members"][architecture]
+                expected_donor = {
+                    "repository": family["runtime"]["repository"],
+                    "tag": family["runtime"]["tag"],
+                    "index_digest": family["runtime"]["index_digest"],
+                    "manifest_digest": member["manifest_digest"],
+                    "config_digest": member["config_digest"],
+                }
+                if donor != expected_donor:
+                    raise ValueError(
+                        f"{profile['id']}/{architecture} Mooncake donor/runtime drift"
+                    )
+
+    rules = compatibility["rules"]
+    rule_by_accelerator = {rule["accelerator"]: rule for rule in rules}
+    if set(rule_by_accelerator) != {"cuda", "ascend"} or len(rules) != 2:
+        raise ValueError("compatibility requires exactly CUDA and Ascend rules")
+    field_mapping = {
+        "accelerator_runtimes": "accelerator_runtime",
+        "npu_architectures": "npu_arch",
+        "operating_systems": "os",
+        "cpu_architectures": "cpu_arch",
+        "python_abis": "python_abi",
     }
-    for case in cases:
-        expected_repository, expected_resource = expected_cases.get(
-            case.get("name"), (None, None)
-        )
+    for accelerator, rule in rule_by_accelerator.items():
+        matching = [item for item in profiles if item["accelerator"] == accelerator]
+        for rule_field, profile_field in field_mapping.items():
+            expected: list[str] = []
+            for profile in matching:
+                value = profile[profile_field]
+                candidates = value if isinstance(value, list) else [value]
+                expected.extend(item for item in candidates if item not in expected)
+            if rule[rule_field] != expected:
+                raise ValueError(
+                    f"compatibility/profile drift for {accelerator}.{rule_field}: "
+                    f"expected {expected}, got {rule[rule_field]}"
+                )
+
+    cases = release["chart"]["validation_cases"]
+    if [item["name"] for item in cases] != ["cuda", "a2", "a3"]:
+        raise ValueError("Chart validation cases must be exactly cuda, a2, a3")
+    for case, family_id in zip(cases, PROFILE_ORDER, strict=True):
+        runtime = family_by_id[family_id]["runtime"]
         if (
-            case.get("image_repository") != expected_repository
-            or case.get("expected_resource") != expected_resource
+            case["image_repository"] != runtime["repository"]
+            or case["image_digest"] != runtime["index_digest"]
         ):
             raise ValueError(
-                f"Chart case {case.get('name')} does not have its exact synthetic image/resource boundary"
+                "Chart validation must use the exact final repository@sha256 runtime"
             )
-    if len({case.get("image_digest") for case in cases}) != 3:
-        raise ValueError("CUDA, A2, and A3 Chart cases require distinct image digests")
-    profiles = release.get("wheel_profiles")
-    if not isinstance(profiles, list) or len(profiles) != 6:
-        raise ValueError("release.yaml must define exactly six wheel profiles")
-    profile_keys = {
-        "id",
-        "accelerator",
-        "accelerator_runtime",
-        "npu_arch",
-        "os",
-        "cpu_arch",
-        "python_version",
-        "python_abi",
-        "binary_profile_id",
-        "validation_targets",
-        "locks",
-        "runner",
-    }
-    for index, profile in enumerate(profiles):
-        if not isinstance(profile, dict):
-            raise ValueError("wheel profiles must be mappings")
-        _strict_keys(profile, profile_keys, f"release.yaml.wheel_profiles[{index}]")
-        locks = profile.get("locks")
-        if not isinstance(locks, list) or len(locks) < 2:
-            raise ValueError(
-                "each wheel profile needs at least builder and toolchain locks"
-            )
-        for lock_index, lock in enumerate(locks):
-            if not isinstance(lock, dict):
-                raise ValueError("wheel locks must be mappings")
-            _strict_keys(
-                lock,
-                {"subject", "selector", "status", "identity"},
-                f"release.yaml.wheel_profiles[{index}].locks[{lock_index}]",
-            )
-            if lock.get("status") not in {"unresolved", "resolved"}:
-                raise ValueError("wheel lock status must be unresolved or resolved")
-        runner = profile.get("runner")
-        if not isinstance(runner, dict):
-            raise ValueError("wheel runner must be a mapping")
-        _strict_keys(
-            runner,
-            {"selector", "status", "identity"},
-            f"release.yaml.wheel_profiles[{index}].runner",
-        )
-        if runner.get("status") not in {"unresolved", "resolved"}:
-            raise ValueError("runner status must be unresolved or resolved")
-
-
-def _validate_compatibility_shape(compatibility: dict[str, Any]) -> None:
-    _strict_keys(
-        compatibility,
-        {
-            "kind",
-            "schema_version",
-            "ucm_version",
-            "rules",
-            "excluded_upstream_patterns",
-        },
-        "compatibility.yaml",
-    )
-    if compatibility.get("kind") != "compatibility-config":
-        raise ValueError("compatibility.yaml kind must be compatibility-config")
-    if compatibility.get("schema_version") != 1:
-        raise ValueError("compatibility.yaml schema_version must be 1")
-    rules = compatibility.get("rules")
-    if not isinstance(rules, list) or len(rules) != 2:
-        raise ValueError("compatibility.yaml must define exactly two accelerator rules")
-    rule_keys = {
-        "id",
-        "accelerator",
-        "accelerator_runtimes",
-        "npu_architectures",
-        "operating_systems",
-        "cpu_architectures",
-        "python_abis",
-        "upstream_channels",
-    }
-    for index, rule in enumerate(rules):
-        if not isinstance(rule, dict):
-            raise ValueError("compatibility rules must be mappings")
-        _strict_keys(rule, rule_keys, f"compatibility.yaml.rules[{index}]")
-    if compatibility.get("excluded_upstream_patterns") != [
-        "nightly",
-        "dev",
-        "custom",
-        "310p",
-        "a5",
-        "explicit-a2-suffix",
-    ]:
-        raise ValueError(
-            "compatibility exclusions must retain the reviewed fail-closed set"
-        )
 
 
 def validate_config(
@@ -391,15 +413,15 @@ def validate_config(
     schema_dir: Path = DEFAULT_SCHEMA_DIR,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     config_schema = load_json(schema_dir / "config.schema.json")
-    # Parse every shipped schema strictly so duplicate-key corruption cannot hide.
     load_json(schema_dir / "release-manifest.schema.json")
     load_json(schema_dir / "image-result.schema.json")
     release = load_yaml(release_path)
     compatibility = load_yaml(compatibility_path)
     validate_schema(release, config_schema)
     validate_schema(compatibility, config_schema)
-    _validate_release_shape(release)
-    _validate_compatibility_shape(compatibility)
+    _exact_keys(release, RELEASE_KEYS, "release.yaml")
+    _exact_keys(compatibility, COMPATIBILITY_KEYS, "compatibility.yaml")
+
     version = read_version(REPO_ROOT / release["version_file"])
     if release["ucm_version"] != version:
         raise ValueError(
@@ -410,6 +432,8 @@ def validate_config(
             "compatibility.yaml version "
             f"{compatibility['ucm_version']} does not match version.ini {version}"
         )
+    if release["source"]["release_tag"] != f"v{version}":
+        raise ValueError("release tag must be derived from version.ini")
     if release["chart"]["app_version"] != version:
         raise ValueError("release.yaml Chart app_version does not match version.ini")
     expected_chart_version = derive_chart_version(version)
@@ -424,209 +448,199 @@ def validate_config(
         raise ValueError("Chart version does not match release.yaml")
     if str(chart.get("appVersion")) != version:
         raise ValueError("Chart appVersion does not match version.ini")
-    case_names = [item["name"] for item in release["chart"]["validation_cases"]]
-    if case_names != ["cuda", "a2", "a3"]:
-        raise ValueError("Chart validation cases must be exactly cuda, a2, a3")
-    _validate_profile_semantics(release["wheel_profiles"])
-    _validate_compatibility_semantics(release["wheel_profiles"], compatibility["rules"])
+    _validate_cross_config(release, compatibility)
+    _validate_canonical_authorities(release, compatibility)
     return release, compatibility
 
 
-def _validate_profile_semantics(profiles: list[dict[str, Any]]) -> None:
-    if len({profile["id"] for profile in profiles}) != len(profiles):
-        raise ValueError("wheel profile IDs must be unique")
-    for profile in profiles:
-        abi_version = {"cp311": "3.11", "cp312": "3.12"}[profile["python_abi"]]
-        if profile["python_version"] != abi_version:
-            raise ValueError(f"Python version/ABI mismatch in {profile['id']}")
-        if profile["accelerator"] == "cuda":
-            if not profile["accelerator_runtime"].startswith("cuda-"):
-                raise ValueError(f"CUDA runtime mismatch in {profile['id']}")
-            if profile["npu_arch"] != ["na"] or profile["os"] != ["ubuntu-22.04"]:
-                raise ValueError(f"CUDA profile scope mismatch in {profile['id']}")
-        else:
-            if not profile["accelerator_runtime"].startswith("cann-"):
-                raise ValueError(f"Ascend runtime mismatch in {profile['id']}")
-            if profile["npu_arch"] != ["a2", "a3"]:
-                raise ValueError(f"Ascend accepts exactly A2 and A3 in {profile['id']}")
-        required_subjects = (
-            {"builder", "toolchain"}
-            if profile["accelerator"] == "cuda"
-            else {"builder", "toolchain", "atb", "torch-npu"}
-        )
-        lock_subjects = [lock["subject"] for lock in profile["locks"]]
-        if set(lock_subjects) != required_subjects or len(lock_subjects) != len(
-            required_subjects
-        ):
-            raise ValueError(
-                f"{profile['id']} requires exact lock subjects {sorted(required_subjects)}"
-            )
-        identity_patterns = {
-            "builder": r"^oci://[^@ ]+@sha256:[0-9a-f]{64}$",
-            "toolchain": r"^toolchain://[^@ ]+@sha256:[0-9a-f]{64}$",
-            "atb": r"^package://[^@ ]+@sha256:[0-9a-f]{64}$",
-            "torch-npu": r"^package://[^@ ]+@sha256:[0-9a-f]{64}$",
-        }
-        for lock in profile["locks"]:
-            identity = lock.get("identity")
-            if lock["status"] == "resolved" and (
-                not isinstance(identity, str)
-                or re.fullmatch(identity_patterns[lock["subject"]], identity) is None
-            ):
-                scheme = identity_patterns[lock["subject"]].split(":", 1)[0].lstrip("^")
-                raise ValueError(
-                    f"resolved {lock['subject']} lock requires immutable {scheme} identity"
-                )
-            if lock["status"] == "unresolved" and identity is not None:
-                raise ValueError(
-                    f"unresolved {lock['subject']} lock must not claim an identity"
-                )
-        runner = profile["runner"]
-        runner_identity = runner.get("identity")
-        if runner["status"] == "resolved" and (
-            not isinstance(runner_identity, str)
-            or re.fullmatch(r"^runner://[^@ ]+@sha256:[0-9a-f]{64}$", runner_identity)
-            is None
-        ):
-            raise ValueError("resolved runner requires immutable runner identity")
-        if runner["status"] == "unresolved" and runner_identity is not None:
-            raise ValueError("unresolved runner must not claim an identity")
-
-
-def _validate_compatibility_semantics(
-    profiles: list[dict[str, Any]], rules: list[dict[str, Any]]
-) -> None:
-    rule_by_accelerator = {rule["accelerator"]: rule for rule in rules}
-    if set(rule_by_accelerator) != {"cuda", "ascend"} or len(
-        rule_by_accelerator
-    ) != len(rules):
-        raise ValueError(
-            "compatibility rules must contain one CUDA and one Ascend rule"
-        )
-    field_mapping = {
-        "accelerator_runtimes": "accelerator_runtime",
-        "npu_architectures": "npu_arch",
-        "operating_systems": "os",
-        "cpu_architectures": "cpu_arch",
-        "python_abis": "python_abi",
+def _resolved_locks(
+    release: dict[str, Any], profile: dict[str, Any], architecture: str
+) -> list[dict[str, Any]]:
+    builder = profile["builders"][architecture]["root"]
+    dependency = {
+        "python_build_lock": release["python_build_lock"],
+        "wrapt_wheel": release["wrapt_wheels"][architecture],
     }
-    for accelerator, rule in rule_by_accelerator.items():
-        matching = [
-            profile for profile in profiles if profile["accelerator"] == accelerator
-        ]
-        for rule_field, profile_field in field_mapping.items():
-            expected: set[str] = set()
-            for profile in matching:
-                value = profile[profile_field]
-                expected.update(value if isinstance(value, list) else [value])
-            if set(rule[rule_field]) != expected:
-                raise ValueError(
-                    f"compatibility/profile drift for {accelerator}.{rule_field}: "
-                    f"expected {sorted(expected)}, got {sorted(rule[rule_field])}"
-                )
-
-
-def _runtime_slug(runtime: str) -> str:
-    family, version = runtime.split("-", 1)
-    return ("cu" if family == "cuda" else "cann") + version.replace(".", "")
-
-
-def _format_selector(
-    value: str, *, npu_arch: str, operating_system: str, cpu_arch: str
-) -> str:
-    return value.format(
-        npu_arch=npu_arch,
-        os=operating_system.replace("-", "").lower(),
-        cpu_arch=cpu_arch,
-    )
+    return [
+        {
+            "subject": "builder",
+            "selector": f"builder://{profile['id']}/{architecture}",
+            "status": "resolved",
+            "identity": f"oci://{builder['repository']}@{builder['manifest_digest']}",
+        },
+        {
+            "subject": "python-build",
+            "selector": f"package-lock://{profile['id']}/{architecture}",
+            "status": "resolved",
+            "identity": f"package://pypi/ucm-build@{sha256_value(dependency)}",
+        },
+    ]
 
 
 def expand_wheel_specs(release: dict[str, Any]) -> list[dict[str, Any]]:
     specs: list[dict[str, Any]] = []
-    seen: set[str] = set()
     for profile in release["wheel_profiles"]:
-        for npu_arch, operating_system, cpu_arch in itertools.product(
-            profile["npu_arch"], profile["os"], profile["cpu_arch"]
-        ):
-            parts = [
-                profile["accelerator"],
-                _runtime_slug(profile["accelerator_runtime"]),
-            ]
-            if profile["accelerator"] == "ascend":
-                parts.append(npu_arch)
-            parts.extend(
-                [
-                    operating_system.replace("-", "").replace(".", "").lower(),
-                    cpu_arch,
-                    profile["python_abi"],
-                    profile["binary_profile_id"],
-                ]
-            )
-            spec_id = "-".join(parts)
-            if spec_id in seen:
-                raise ValueError(f"duplicate wheel spec: {spec_id}")
-            seen.add(spec_id)
-            locks = [
-                {
-                    **lock,
-                    "selector": _format_selector(
-                        lock["selector"],
-                        npu_arch=npu_arch,
-                        operating_system=operating_system,
-                        cpu_arch=cpu_arch,
-                    ),
-                }
-                for lock in profile["locks"]
-            ]
-            runner = {
-                **profile["runner"],
-                "selector": _format_selector(
-                    profile["runner"]["selector"],
-                    npu_arch=npu_arch,
-                    operating_system=operating_system,
-                    cpu_arch=cpu_arch,
-                ),
-            }
-            blockers = sorted(
-                [
-                    f"unresolved-lock:{lock['subject']}:{lock['selector']}"
-                    for lock in locks
-                    if lock["status"] != "resolved" or "identity" not in lock
-                ]
-                + (
-                    [f"unresolved-runner:{runner['selector']}"]
-                    if runner["status"] != "resolved" or "identity" not in runner
-                    else []
-                )
-            )
-            targets = [
-                npu_arch if target == "npu-architecture" else target
-                for target in profile["validation_targets"]
-            ]
+        npu_arch = profile["npu_arch"][0]
+        operating_system = profile["os"][0]
+        for architecture in profile["cpu_arch"]:
             spec: dict[str, Any] = {
-                "spec_id": spec_id,
+                "spec_id": f"{profile['id']}-{architecture}",
                 "accelerator": profile["accelerator"],
                 "accelerator_runtime": profile["accelerator_runtime"],
                 "npu_arch_or_na": npu_arch,
                 "os": operating_system,
-                "cpu_arch": cpu_arch,
+                "cpu_arch": architecture,
                 "python_version": profile["python_version"],
                 "python_abi": profile["python_abi"],
                 "binary_profile_id": profile["binary_profile_id"],
-                "validation_targets": targets,
-                "locks": locks,
-                "runner": runner,
-                "build_eligible": not blockers,
-                "blocked_reasons": blockers,
+                "validation_targets": profile["validation_targets"],
+                "locks": _resolved_locks(release, profile, architecture),
+                "runner": {
+                    "selector": f"runner-map://{architecture}",
+                    "status": "resolved",
+                    "identity": (
+                        f"runner://github-hosted/{release['runner_map'][architecture]}@"
+                        f"{sha256_value({'architecture': architecture, 'label': release['runner_map'][architecture]})}"
+                    ),
+                },
+                "build_eligible": True,
+                "blocked_reasons": [],
             }
             spec["declaration_sha256"] = sha256_value(spec)
             specs.append(spec)
-    specs.sort(key=lambda item: item["spec_id"])
-    if len(specs) != 36:
-        raise ValueError(
-            f"initial release must declare exactly 36 wheel specs, found {len(specs)}"
-        )
+    expected_ids = [
+        f"{profile}-{architecture}"
+        for profile in PROFILE_ORDER
+        for architecture in ARCHITECTURE_ORDER
+    ]
+    if [item["spec_id"] for item in specs] != expected_ids:
+        raise ValueError("wheel specification order or membership is noncanonical")
     return specs
+
+
+def build_matrix(
+    lane: str,
+    release_path: Path = DEFAULT_RELEASE,
+    compatibility_path: Path = DEFAULT_COMPATIBILITY,
+    schema_dir: Path = DEFAULT_SCHEMA_DIR,
+) -> dict[str, Any]:
+    if lane not in LANES:
+        raise ValueError(f"unsupported validation lane: {lane}")
+    release, _ = validate_config(release_path, compatibility_path, schema_dir)
+    profiles = {item["id"]: item for item in release["wheel_profiles"]}
+    families = {item["profile_id"]: item for item in release["image_families"]}
+    write_authority = (
+        []
+        if lane == "feature-candidate"
+        else ["github-prerelease", "ghcr-final-index", "ghcr-private-staging"]
+    )
+    tasks: list[dict[str, Any]] = []
+    for spec in expand_wheel_specs(release):
+        architecture = spec["cpu_arch"]
+        profile_id = spec["spec_id"].removesuffix(f"-{architecture}")
+        profile = profiles[profile_id]
+        family = families[profile_id]
+        runtime_member = family["runtime"]["members"][architecture]
+        dependency_lock = {
+            "python_build_lock": release["python_build_lock"],
+            "wrapt_wheel": release["wrapt_wheels"][architecture],
+        }
+        task: dict[str, Any] = {
+            "spec_id": spec["spec_id"],
+            "profile_id": profile_id,
+            "cpu_arch": architecture,
+            "platform": f"linux/{architecture}",
+            "runner": release["runner_map"][architecture],
+            "python_abi": profile["python_abi"],
+            "wheel_version": profile["wheel_version"],
+            "builder": profile["builders"][architecture],
+            "runtime": {
+                "repository": family["runtime"]["repository"],
+                "tag": family["runtime"]["tag"],
+                "index_digest": family["runtime"]["index_digest"],
+                **runtime_member,
+            },
+            "target_repository": family["target_repository"],
+            "target_tag": family["target_tag"],
+            "required_native": profile["required_native"],
+            "forbidden_native": profile["forbidden_native"],
+            "dependency_lock_sha256": sha256_value(dependency_lock),
+            "write_authority": write_authority,
+            "build_eligible": True,
+        }
+        task["task_sha256"] = sha256_value(task)
+        tasks.append(task)
+    result: dict[str, Any] = {
+        "schema_version": 1,
+        "kind": "ucm-real-wheel-matrix",
+        "lane": lane,
+        "source_repository": release["source"]["repository"],
+        "release_tag": release["source"]["release_tag"],
+        "tasks": tasks,
+    }
+    result["matrix_sha256"] = sha256_value(result)
+    return result
+
+
+def tag_preflight(
+    *,
+    lane: str,
+    repository: str,
+    repository_owner: str,
+    ref_name: str,
+    source_sha: str,
+    default_branch: str,
+    ref_protected: bool,
+    policy: str | None = None,
+    release_path: Path = DEFAULT_RELEASE,
+    compatibility_path: Path = DEFAULT_COMPATIBILITY,
+    schema_dir: Path = DEFAULT_SCHEMA_DIR,
+) -> dict[str, Any]:
+    if lane not in LANES:
+        raise ValueError(f"unsupported validation lane: {lane}")
+    release, _ = validate_config(release_path, compatibility_path, schema_dir)
+    authority = release["source"]
+    checks = {
+        "repository": repository == authority["repository"],
+        "owner": repository_owner == authority["owner"],
+        "source_sha": re.fullmatch(r"[0-9a-f]{40}", source_sha) is not None,
+        "default_branch": default_branch == authority["default_branch"],
+        "version_file": read_version(REPO_ROOT / release["version_file"])
+        == release["ucm_version"],
+    }
+    if lane == "protected-tag":
+        checks.update(
+            {
+                "tag": ref_name == authority["release_tag"],
+                "ref_protected": ref_protected is True,
+                "release_policy": policy == authority["release_policy"],
+            }
+        )
+    elif not ref_name or ref_name == authority["release_tag"]:
+        checks["feature_ref"] = False
+    failed = sorted(name for name, passed in checks.items() if not passed)
+    if failed:
+        raise ValueError(f"release preflight failed: {failed}")
+    publication_allowed = lane == "protected-tag"
+    result: dict[str, Any] = {
+        "schema_version": 1,
+        "kind": "ucm-tag-preflight",
+        "lane": lane,
+        "repository": repository,
+        "repository_owner": repository_owner,
+        "ref_name": ref_name,
+        "source_sha": source_sha,
+        "default_branch": default_branch,
+        "checks": checks,
+        "publication_allowed": publication_allowed,
+        "write_authority": (
+            ["github-prerelease", "ghcr-final-index", "ghcr-private-staging"]
+            if publication_allowed
+            else []
+        ),
+    }
+    result["preflight_sha256"] = sha256_value(result)
+    return result
 
 
 def build_release_manifest(
@@ -638,13 +652,12 @@ def build_release_manifest(
         release_path, compatibility_path, schema_dir
     )
     specs = expand_wheel_specs(release)
-    eligible = [item for item in specs if item["build_eligible"]]
     assets = [
         {
             "id": f"wheel:{item['spec_id']}",
             "type": "wheel",
             "required": True,
-            "status": "candidate" if item["build_eligible"] else "blocked",
+            "status": "candidate",
         }
         for item in specs
     ]
@@ -656,7 +669,6 @@ def build_release_manifest(
             "status": "candidate",
         }
     )
-    blockers = sorted({reason for item in specs for reason in item["blocked_reasons"]})
     manifest = {
         "schema_version": 1,
         "kind": "ucm-core-release-manifest",
@@ -664,11 +676,11 @@ def build_release_manifest(
         "config_sha256": sha256_value(release),
         "compatibility_sha256": sha256_value(compatibility),
         "declared_wheel_count": len(specs),
-        "eligible_wheel_count": len(eligible),
+        "eligible_wheel_count": len(specs),
         "wheel_specs": specs,
-        "blockers": blockers,
+        "blockers": [],
         "publication": {"target": "github-release", "assets": assets},
-        "status": "candidate" if len(eligible) == len(specs) else "blocked",
+        "status": "candidate",
     }
     validate_schema(manifest, load_json(schema_dir / "release-manifest.schema.json"))
     return manifest

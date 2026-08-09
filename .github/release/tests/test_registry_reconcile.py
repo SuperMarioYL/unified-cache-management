@@ -47,8 +47,8 @@ def _snapshot() -> dict[str, object]:
     return {
         "schema_version": 1,
         "kind": "upstream-registry-snapshot",
-        "repository": "docker.io/vllm/vllm-ascend",
-        "upstream_tag": "v0.10.2-a3-openeuler",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "upstream_tag": "v0.22.1rc1-a3",
         "index_digest": DIGESTS["index"],
         "platforms": [
             {
@@ -126,7 +126,7 @@ def _case(tmp_path: Path) -> dict[str, object]:
         if item["accelerator"] == "ascend"
         and item["accelerator_runtime"] == "cann-9.0.0"
         and item["npu_arch_or_na"] == "a3"
-        and item["os"] == "openEuler-24.03"
+        and item["os"] == "ubuntu-22.04"
         and item["cpu_arch"] == "arm64"
         and item["python_abi"] == "cp312"
     )
@@ -210,13 +210,9 @@ def test_loop_verify_aggregates_the_six_required_fixture_scenarios(
         "fixture-candidate-full-zero-reconcile",
     ]
     assert all(item["passed"] is True for item in payload["scenarios"])
-    assert payload["scenarios"][0]["task_tags"] == [
-        "v0.10.2-a3-openeuler-ucm-0.5.0rc1-r1"
-    ]
+    assert payload["scenarios"][0]["task_tags"] == ["v0.22.1rc1-a3-ucm-0.5.0rc1-r1"]
     assert payload["scenarios"][1]["task_count"] == 0
-    assert payload["scenarios"][2]["task_tags"] == [
-        "v0.10.2-a3-openeuler-ucm-0.5.0rc1-r2"
-    ]
+    assert payload["scenarios"][2]["task_tags"] == ["v0.22.1rc1-a3-ucm-0.5.0rc1-r2"]
     assert payload["expected_blockers"]["scenario_codes"] == [
         "duplicate-conflicting-inventory",
         "missing-linux-arm64",
@@ -361,7 +357,7 @@ def test_snapshot_and_build_identity_bind_every_immutable_input(tmp_path: Path) 
     baseline = registry.build_candidate(**case, fixture_mode=True)
 
     assert baseline["target_repository"] == ("ghcr.io/modelengine-group/vllm-ascend")
-    assert baseline["tag_base"] == "v0.10.2-a3-openeuler-ucm-0.5.0rc1"
+    assert baseline["tag_base"] == "v0.22.1rc1-a3-ucm-0.5.0rc1"
     assert baseline["tag_family_sha256"].startswith("sha256:")
     assert baseline["build_key_sha256"].startswith("sha256:")
     assert baseline["build_inputs"]["upstream"]["platforms"] == _snapshot()["platforms"]

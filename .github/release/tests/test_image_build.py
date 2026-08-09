@@ -102,8 +102,8 @@ def _snapshot() -> dict[str, object]:
     return {
         "schema_version": 1,
         "kind": "upstream-registry-snapshot",
-        "repository": "docker.io/vllm/vllm-ascend",
-        "upstream_tag": "v0.10.2-a3-openeuler",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "upstream_tag": "v0.22.1rc1-a3",
         "index_digest": DIGESTS["upstream_index"],
         "platforms": [
             {
@@ -241,7 +241,7 @@ def _actual_inputs(tmp_path: Path) -> dict[str, object]:
         if item["accelerator"] == "ascend"
         and item["accelerator_runtime"] == "cann-9.0.0"
         and item["npu_arch_or_na"] == "a3"
-        and item["os"] == "openEuler-24.03"
+        and item["os"] == "ubuntu-22.04"
         and item["cpu_arch"] == "arm64"
         and item["python_abi"] == "cp312"
     )

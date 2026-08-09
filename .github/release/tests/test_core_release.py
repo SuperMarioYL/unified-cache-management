@@ -28,6 +28,22 @@ _deterministic_repack = importlib.import_module(
 derive_chart_version = importlib.import_module("ucm_release.core").derive_chart_version
 
 
+EXPECTED_TASK_IDS = [
+    "cuda130-amd64",
+    "cuda130-arm64",
+    "cann900-a2-amd64",
+    "cann900-a2-arm64",
+    "cann900-a3-amd64",
+    "cann900-a3-arm64",
+]
+
+EXPECTED_TARGETS = {
+    "ghcr.io/supermarioyl/vllm-openai:v0.21.0-ucm-0.5.0rc1-r1",
+    "ghcr.io/supermarioyl/vllm-ascend:v0.22.1rc1-ucm-0.5.0rc1-r1",
+    "ghcr.io/supermarioyl/vllm-ascend:v0.22.1rc1-a3-ucm-0.5.0rc1-r1",
+}
+
+
 def _run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     env = {**os.environ, "PYTHONPATH": PYTHONPATH}
     return subprocess.run(
@@ -40,6 +56,28 @@ def _run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _clone(value: object) -> object:
+    return json.loads(json.dumps(value))
+
+
+def _reject_config(
+    tmp_path: Path,
+    release: dict,
+    *,
+    compatibility: dict | None = None,
+) -> subprocess.CompletedProcess[str]:
+    release_path, compatibility_path = _write_configs(tmp_path, release, compatibility)
+    return _run(
+        "config",
+        "validate",
+        "--release",
+        str(release_path),
+        "--compatibility",
+        str(compatibility_path),
+        check=False,
+    )
+
+
 def _fixture_wheel(directory: Path, *, version: str = "0.5.0rc1") -> Path:
     assert version == "0.5.0rc1"
     output = directory / "fixture-only-wheel"
@@ -49,7 +87,7 @@ def _fixture_wheel(directory: Path, *, version: str = "0.5.0rc1") -> Path:
     built = builder.build_fixture_wheel(
         output,
         "0" * 40,
-        "cuda-cu129-ubuntu2204-amd64-cp312-release-default-sm75-sm80-sm86-sm89-sm90",
+        "cuda130-amd64",
     )
     return Path(built["wheel_path"])
 
@@ -73,7 +111,7 @@ def _builder_candidate_wheel(
     directory: Path,
     *,
     include_native: bool,
-    runtime: str = "cuda-12.9",
+    runtime: str = "cuda-13.0",
 ) -> Path:
     version = "0.5.0rc1"
     filename = f"uc_manager-{version}-cp312-cp312-manylinux_2_17_x86_64.whl"
@@ -91,7 +129,7 @@ def _builder_candidate_wheel(
         f"{dist_info}/ucm-build.json": json.dumps(
             {
                 "schema_version": 1,
-                "spec_id": "cuda-cu129-ubuntu2204-amd64-cp312-release-default-sm75-sm80-sm86-sm89-sm90",
+                "spec_id": "cuda130-amd64",
                 "source_commit": "d" * 40,
                 "build_context_digest": "sha256:" + "e" * 64,
                 "accelerator": "cuda",
@@ -100,7 +138,7 @@ def _builder_candidate_wheel(
                 "os": "ubuntu-22.04",
                 "cpu_arch": "amd64",
                 "python_abi": "cp312",
-                "binary_profile_id": "release-default-sm75-sm80-sm86-sm89-sm90",
+                "binary_profile_id": "release-cuda130",
             },
             sort_keys=True,
         ).encode(),
@@ -131,6 +169,7 @@ def _write_configs(
     release: dict,
     compatibility: dict | None = None,
 ) -> tuple[Path, Path]:
+    directory.mkdir(parents=True, exist_ok=True)
     release_path = directory / "release.yaml"
     compatibility_path = directory / "compatibility.yaml"
     release_path.write_text(yaml.safe_dump(release, sort_keys=False), encoding="utf-8")
@@ -148,23 +187,7 @@ def _write_configs(
 
 
 def _resolved_cuda_release() -> dict:
-    release = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
-    schemes = {"builder": "oci", "toolchain": "toolchain"}
-    for lock in release["wheel_profiles"][0]["locks"]:
-        lock.update(
-            {
-                "status": "resolved",
-                "identity": f"{schemes[lock['subject']]}://review-fixture/{lock['subject']}@sha256:"
-                + "d" * 64,
-            }
-        )
-    release["wheel_profiles"][0]["runner"].update(
-        {
-            "status": "resolved",
-            "identity": "runner://review-fixture/cuda@sha256:" + "e" * 64,
-        }
-    )
-    return release
+    return yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
 
 
 def _write_tar(path: Path, members: list[tuple[tarfile.TarInfo, bytes | None]]) -> None:
@@ -173,12 +196,232 @@ def _write_tar(path: Path, members: list[tuple[tarfile.TarInfo, bytes | None]]) 
             archive.addfile(info, io.BytesIO(data) if data is not None else None)
 
 
+def test_real_release_matrix_is_exact_immutable_and_stable() -> None:
+    first = json.loads(_run("core", "matrix", "--lane", "feature-candidate").stdout)
+    second = json.loads(_run("core", "matrix", "--lane", "feature-candidate").stdout)
+
+    assert first == second
+    assert first["kind"] == "ucm-real-wheel-matrix"
+    assert first["lane"] == "feature-candidate"
+    assert [task["spec_id"] for task in first["tasks"]] == EXPECTED_TASK_IDS
+    assert len(first["tasks"]) == 6
+    assert {task["platform"] for task in first["tasks"]} == {
+        "linux/amd64",
+        "linux/arm64",
+    }
+    assert {task["runner"] for task in first["tasks"]} == {
+        "ubuntu-24.04",
+        "ubuntu-24.04-arm",
+    }
+    assert {task["wheel_version"] for task in first["tasks"]} == {
+        "0.5.0rc1+cuda130",
+        "0.5.0rc1+cann900.a2",
+        "0.5.0rc1+cann900.a3",
+    }
+    assert {
+        f"{task['target_repository']}:{task['target_tag']}" for task in first["tasks"]
+    } == EXPECTED_TARGETS
+    assert all(task["write_authority"] == [] for task in first["tasks"])
+    assert all(task["build_eligible"] is True for task in first["tasks"])
+    assert all(task["task_sha256"].startswith("sha256:") for task in first["tasks"])
+    assert first["matrix_sha256"].startswith("sha256:")
+
+
+def test_release_config_carries_exact_builder_runtime_and_dependency_authorities() -> (
+    None
+):
+    release = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
+
+    assert [profile["id"] for profile in release["wheel_profiles"]] == [
+        "cuda130",
+        "cann900-a2",
+        "cann900-a3",
+    ]
+    assert release["runner_map"] == {
+        "amd64": "ubuntu-24.04",
+        "arm64": "ubuntu-24.04-arm",
+    }
+    assert len(release["image_families"]) == 3
+    assert (
+        len({family["target_repository"] for family in release["image_families"]}) == 2
+    )
+    assert {
+        f"{family['target_repository']}:{family['target_tag']}"
+        for family in release["image_families"]
+    } == EXPECTED_TARGETS
+
+    cuda = release["wheel_profiles"][0]
+    assert cuda["builders"]["amd64"]["root"] == {
+        "repository": "docker.io/pytorch/manylinux2_28-builder",
+        "tag": "cuda13.0",
+        "index_digest": "sha256:83d73c3fd2782b23de8a1873820236273d8a6db911aea15c017766c9a40e723c",
+        "manifest_digest": "sha256:746796491b3a375ee352c60ad1265c599bb1aa1762a0de46927e0f4139832918",
+        "config_digest": "sha256:0c34d69ef0b04dbf678564146d299bdad59f7d2b8e166b4f59df5e2fce3a34f2",
+    }
+    assert cuda["builders"]["arm64"]["root"]["manifest_digest"] == (
+        "sha256:48eb3eb1b3ab79fb30e49d3692a60dc15f05a3d1c4ba328400af5f06b2e6949c"
+    )
+    assert cuda["builders"]["amd64"]["sources"] == []
+
+    families = {family["id"]: family for family in release["image_families"]}
+    assert families["cuda130"]["runtime"]["members"]["amd64"] == {
+        "manifest_digest": "sha256:4ac9b7c6dabc3ec762c0edef4e9245abe98373844da91cc53ee42e5c58280c5b",
+        "config_digest": "sha256:2497255b1272ba3ae9581acd51349f840038f228d0709cd9f6a142d39008d290",
+    }
+    assert (
+        families["cann900-a2"]["runtime"]["members"]["arm64"]["manifest_digest"]
+        == "sha256:638fc04eaa3654fcf14688096ed4e9d88ea0d905fa8685eed4b36d5fffe8fd8d"
+    )
+    assert families["cann900-a3"]["runtime"]["index_digest"] == (
+        "sha256:e3d89f09a1c1d85f0ec6a1cc26e3c807b7bc8a7ec0f97a830dbef63ab50d8f81"
+    )
+
+    assert release["python_build_lock"]["packages"]["build"] == {
+        "version": "1.3.0",
+        "filename": "build-1.3.0-py3-none-any.whl",
+        "sha256": "sha256:7145f0b5061ba90a1500d60bd1b13ca0a8a4cebdd0cc16ed8adf1c0e739f43b4",
+    }
+    assert (
+        release["python_build_lock"]["cmake"]["artifacts"]["arm64"]["sha256"]
+        == "sha256:42d9883b8958da285d53d5f69d40d9650c2d1bcf922d82b3ebdceb2b3a7d4521"
+    )
+    assert release["wrapt_wheels"]["amd64"]["sha256"] == (
+        "sha256:bc570b5f14a79734437cb7b0500376b6b791153314986074486e0b0fa8d71d98"
+    )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("missing-profile", "exact production profile set"),
+        ("extra-profile", "array is longer than maxItems"),
+        ("swapped-architecture-digest", "canonical release authority"),
+        ("mutable-tag-only-authority", "missing required properties"),
+        ("basename-only-evil-repository", "expected one of"),
+        ("unresolved-lock", "missing required properties"),
+        ("duplicated-public-coordinate", "public image coordinates must be unique"),
+        ("caller-raw-runner", "Additional properties are not allowed"),
+    ],
+)
+def test_release_authority_mutations_fail_closed(
+    tmp_path: Path, mutation: str, message: str
+) -> None:
+    release = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
+    if mutation == "missing-profile":
+        release["wheel_profiles"].pop()
+    elif mutation == "extra-profile":
+        extra = _clone(release["wheel_profiles"][-1])
+        assert isinstance(extra, dict)
+        extra["id"] = "cann900-a5"
+        release["wheel_profiles"].append(extra)
+    elif mutation == "swapped-architecture-digest":
+        members = release["image_families"][0]["runtime"]["members"]
+        members["amd64"]["manifest_digest"], members["arm64"]["manifest_digest"] = (
+            members["arm64"]["manifest_digest"],
+            members["amd64"]["manifest_digest"],
+        )
+    elif mutation == "mutable-tag-only-authority":
+        del release["image_families"][0]["runtime"]["index_digest"]
+    elif mutation == "basename-only-evil-repository":
+        release["image_families"][1]["runtime"][
+            "repository"
+        ] = "evil.example/ascend/vllm-ascend"
+    elif mutation == "unresolved-lock":
+        del release["python_build_lock"]["packages"]["wheel"]["sha256"]
+    elif mutation == "duplicated-public-coordinate":
+        release["image_families"][2]["target_tag"] = release["image_families"][1][
+            "target_tag"
+        ]
+    elif mutation == "caller-raw-runner":
+        release["wheel_profiles"][0]["runner"] = "self-hosted"
+    rejected = _reject_config(tmp_path / mutation, release)
+    assert rejected.returncode == 2
+    assert message in rejected.stderr
+
+
+def test_tag_preflight_is_fail_closed_and_feature_has_no_write_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    feature = json.loads(
+        _run(
+            "core",
+            "tag-preflight",
+            "--lane",
+            "feature-candidate",
+            "--repository",
+            "SuperMarioYL/unified-cache-management",
+            "--repository-owner",
+            "SuperMarioYL",
+            "--ref-name",
+            "feature/cicd",
+            "--source-sha",
+            "1" * 40,
+            "--default-branch",
+            "develop",
+            "--ref-protected",
+            "false",
+        ).stdout
+    )
+    assert feature["publication_allowed"] is False
+    assert feature["write_authority"] == []
+
+    monkeypatch.setenv("UCM_RELEASE_POLICY", "owner-reviewed-v1")
+    protected = json.loads(
+        _run(
+            "core",
+            "tag-preflight",
+            "--lane",
+            "protected-tag",
+            "--repository",
+            "SuperMarioYL/unified-cache-management",
+            "--repository-owner",
+            "SuperMarioYL",
+            "--ref-name",
+            "v0.5.0rc1",
+            "--source-sha",
+            "2" * 40,
+            "--default-branch",
+            "develop",
+            "--ref-protected",
+            "true",
+        ).stdout
+    )
+    assert protected["publication_allowed"] is True
+    assert protected["write_authority"] == [
+        "github-prerelease",
+        "ghcr-final-index",
+        "ghcr-private-staging",
+    ]
+
+    rejected = _run(
+        "core",
+        "tag-preflight",
+        "--lane",
+        "protected-tag",
+        "--repository",
+        "attacker/unified-cache-management",
+        "--repository-owner",
+        "SuperMarioYL",
+        "--ref-name",
+        "v0.5.0rc1",
+        "--source-sha",
+        "2" * 40,
+        "--default-branch",
+        "develop",
+        "--ref-protected",
+        "true",
+        check=False,
+    )
+    assert rejected.returncode == 2
+    assert "repository" in rejected.stderr
+
+
 def test_config_is_strict_and_rejects_duplicate_json_keys(tmp_path: Path) -> None:
     valid = json.loads(_run("config", "validate").stdout)
     assert valid == {
         "compatibility_rules": 2,
         "schema_version": 1,
-        "wheel_profiles": 6,
+        "wheel_profiles": 3,
     }
 
     release_config = yaml.safe_load(
@@ -297,7 +540,10 @@ def test_schema_refs_enforce_required_enum_pattern_and_unique_items(
 def test_compatibility_and_profile_references_cannot_drift(tmp_path: Path) -> None:
     release = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
     compatibility = yaml.safe_load((RELEASE_ROOT / "compatibility.yaml").read_text())
-    compatibility["rules"][0]["accelerator_runtimes"] = ["cuda-12.9"]
+    compatibility["rules"][0]["accelerator_runtimes"] = [
+        "cuda-13.0",
+        "cuda-12.9",
+    ]
     release_path, compatibility_path = _write_configs(tmp_path, release, compatibility)
     drift = _run(
         "config",
@@ -312,97 +558,37 @@ def test_compatibility_and_profile_references_cannot_drift(tmp_path: Path) -> No
     assert "compatibility/profile drift" in drift.stderr
 
 
-def test_lock_subjects_and_immutable_resolution_are_fail_closed(tmp_path: Path) -> None:
-    release = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
-    release["wheel_profiles"][0]["locks"][0]["status"] = "resolved"
-    release_path, compatibility_path = _write_configs(tmp_path, release)
-    relabeled = _run(
-        "core",
-        "plan",
-        "--release",
-        str(release_path),
-        "--compatibility",
-        str(compatibility_path),
-        check=False,
+def test_all_six_specs_derive_resolved_immutable_authorities() -> None:
+    manifest = json.loads(_run("core", "plan", "--require-publishable").stdout)
+    assert manifest["eligible_wheel_count"] == 6
+    assert all(spec["build_eligible"] for spec in manifest["wheel_specs"])
+    assert all(spec["blocked_reasons"] == [] for spec in manifest["wheel_specs"])
+    assert all(
+        lock["status"] == "resolved" and "@sha256:" in lock["identity"]
+        for spec in manifest["wheel_specs"]
+        for lock in spec["locks"]
     )
-    assert relabeled.returncode == 2
-    assert "resolved builder lock requires immutable oci identity" in relabeled.stderr
-
-    release = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
-    release["wheel_profiles"][0]["locks"][0].update(
-        {
-            "status": "resolved",
-            "identity": "package://wrong-subject@sha256:" + "a" * 64,
-        }
-    )
-    release_path, compatibility_path = _write_configs(tmp_path, release)
-    wrong_subject = _run(
-        "config",
-        "validate",
-        "--release",
-        str(release_path),
-        "--compatibility",
-        str(compatibility_path),
-        check=False,
-    )
-    assert wrong_subject.returncode == 2
-    assert (
-        "resolved builder lock requires immutable oci identity" in wrong_subject.stderr
+    assert all(
+        spec["runner"]["identity"].startswith("runner://github-hosted/")
+        for spec in manifest["wheel_specs"]
     )
 
-    release = _resolved_cuda_release()
-    release_path, compatibility_path = _write_configs(tmp_path, release)
-    resolved = _run(
-        "core",
-        "plan",
-        "--release",
-        str(release_path),
-        "--compatibility",
-        str(compatibility_path),
-    )
-    assert json.loads(resolved.stdout)["eligible_wheel_count"] == 2
 
-    release = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
-    release["wheel_profiles"][2]["locks"] = [
-        lock
-        for lock in release["wheel_profiles"][2]["locks"]
-        if lock["subject"] != "atb"
-    ]
-    release_path, compatibility_path = _write_configs(tmp_path, release)
-    missing = _run(
-        "config",
-        "validate",
-        "--release",
-        str(release_path),
-        "--compatibility",
-        str(compatibility_path),
-        check=False,
-    )
-    assert missing.returncode == 2
-    assert "exact lock subjects" in missing.stderr
-    assert "atb" in missing.stderr
-
-
-def test_core_plan_keeps_all_specs_but_fails_publishable_closed(tmp_path: Path) -> None:
+def test_core_plan_contains_the_exact_six_buildable_specs(tmp_path: Path) -> None:
     output = tmp_path / "release-manifest.json"
     planned = _run("core", "plan", "--output", str(output))
     manifest = json.loads(planned.stdout)
     assert manifest == json.loads(output.read_text(encoding="utf-8"))
     assert manifest["ucm_version"] == "0.5.0rc1"
-    assert manifest["declared_wheel_count"] == 36
-    assert manifest["eligible_wheel_count"] == 0
-    assert len(manifest["wheel_specs"]) == 36
+    assert manifest["declared_wheel_count"] == 6
+    assert manifest["eligible_wheel_count"] == 6
+    assert len(manifest["wheel_specs"]) == 6
     assert {item["accelerator"] for item in manifest["wheel_specs"]} == {
         "cuda",
         "ascend",
     }
-    assert all(not item["build_eligible"] for item in manifest["wheel_specs"])
-    assert all(item["blocked_reasons"] for item in manifest["wheel_specs"])
-    assert {
-        reason.split(":", 1)[0]
-        for item in manifest["wheel_specs"]
-        for reason in item["blocked_reasons"]
-    } == {"unresolved-lock", "unresolved-runner"}
+    assert all(item["build_eligible"] for item in manifest["wheel_specs"])
+    assert all(item["blocked_reasons"] == [] for item in manifest["wheel_specs"])
     assert manifest["publication"]["target"] == "github-release"
     assert {item["type"] for item in manifest["publication"]["assets"]} == {
         "wheel",
@@ -410,9 +596,8 @@ def test_core_plan_keeps_all_specs_but_fails_publishable_closed(tmp_path: Path) 
     }
     assert "wrapt" not in json.dumps(manifest).lower()
 
-    blocked = _run("core", "plan", "--require-publishable", check=False)
-    assert blocked.returncode == 2
-    assert "0 of 36 wheel specs are eligible" in blocked.stderr
+    publishable = _run("core", "plan", "--require-publishable")
+    assert json.loads(publishable.stdout)["status"] == "candidate"
 
 
 def test_setup_chart_and_configuration_share_version_authority() -> None:
@@ -466,7 +651,7 @@ def test_wheel_inspection_binds_sha_metadata_version_and_spec(tmp_path: Path) ->
             "inspect",
             str(wheel),
             "--spec-id",
-            "cuda-cu129-ubuntu2204-amd64-cp312-release-default-sm75-sm80-sm86-sm89-sm90",
+            "cuda130-amd64",
             "--expected-sha256",
             digest,
             "--source-kind",
@@ -501,9 +686,7 @@ def test_wheel_inspection_binds_sha_metadata_version_and_spec(tmp_path: Path) ->
 def test_synthetic_wheel_is_only_an_unpublished_builder_candidate(
     tmp_path: Path,
 ) -> None:
-    spec_id = (
-        "cuda-cu129-ubuntu2204-amd64-cp312-release-default-sm75-sm80-sm86-sm89-sm90"
-    )
+    spec_id = "cuda130-amd64"
     synthetic = _builder_candidate_wheel(tmp_path, include_native=True)
     _drop_record(synthetic)
     digest = "sha256:" + hashlib.sha256(synthetic.read_bytes()).hexdigest()
@@ -524,7 +707,7 @@ def test_synthetic_wheel_is_only_an_unpublished_builder_candidate(
 
     shaped = _builder_candidate_wheel(tmp_path, include_native=True)
     shaped_digest = "sha256:" + hashlib.sha256(shaped.read_bytes()).hexdigest()
-    unresolved = _run(
+    shaped_candidate = _run(
         "wheel",
         "inspect",
         str(shaped),
@@ -534,22 +717,9 @@ def test_synthetic_wheel_is_only_an_unpublished_builder_candidate(
         shaped_digest,
         "--source-kind",
         "builder-candidate",
-        check=False,
     )
-    assert unresolved.returncode == 2
-    assert "planned spec has unresolved locks or runner" in unresolved.stderr
-
-    config_dir = tmp_path / "resolved"
-    config_dir.mkdir()
-    release_path, compatibility_path = _write_configs(
-        config_dir, _resolved_cuda_release()
-    )
-    config_args = (
-        "--release",
-        str(release_path),
-        "--compatibility",
-        str(compatibility_path),
-    )
+    assert json.loads(shaped_candidate.stdout)["status"] == "candidate-inspected"
+    config_args: tuple[str, ...] = ()
 
     synthetic = _builder_candidate_wheel(tmp_path, include_native=True)
     _drop_record(synthetic)
@@ -589,7 +759,7 @@ def test_synthetic_wheel_is_only_an_unpublished_builder_candidate(
     assert "native custom-op shared object" in missing_native.stderr
 
     wrong_binding = _builder_candidate_wheel(
-        tmp_path, include_native=True, runtime="cuda-13.0"
+        tmp_path, include_native=True, runtime="cuda-12.9"
     )
     digest = "sha256:" + hashlib.sha256(wrong_binding.read_bytes()).hexdigest()
     mismatched = _run(
@@ -644,15 +814,15 @@ def test_chart_package_runs_cuda_a2_a3_and_is_byte_deterministic(
     assert record_a["rendered_cases"] == ["cuda", "a2", "a3"]
     assert record_a["rendered_evidence"] == {
         "cuda": {
-            "image": "registry.invalid/ucm/fixture-cuda@sha256:" + "a" * 64,
+            "image": "docker.io/vllm/vllm-openai@sha256:a230095847e93bd4df9888b33dab956fa9504537b828a23657d2b26fed57b5c9",
             "resource": "nvidia.com/gpu",
         },
         "a2": {
-            "image": "registry.invalid/ucm/fixture-ascend-a2@sha256:" + "b" * 64,
+            "image": "quay.io/ascend/vllm-ascend@sha256:9008b47081282612abfe4d28069ce34436752c980fd06f7599343213205ce64d",
             "resource": "huawei.com/Ascend910",
         },
         "a3": {
-            "image": "registry.invalid/ucm/fixture-ascend-a3@sha256:" + "c" * 64,
+            "image": "quay.io/ascend/vllm-ascend@sha256:e3d89f09a1c1d85f0ec6a1cc26e3c807b7bc8a7ec0f97a830dbef63ab50d8f81",
             "resource": "huawei.com/Ascend910",
         },
     }

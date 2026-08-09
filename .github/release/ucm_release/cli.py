@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -50,6 +51,24 @@ def build_parser() -> argparse.ArgumentParser:
     _paths(plan)
     plan.add_argument("--output", type=Path)
     plan.add_argument("--require-publishable", action="store_true")
+    matrix = core_actions.add_parser("matrix")
+    matrix.add_argument(
+        "--lane", choices=("feature-candidate", "protected-tag"), required=True
+    )
+    _paths(matrix)
+    tag_preflight = core_actions.add_parser("tag-preflight")
+    tag_preflight.add_argument(
+        "--lane", choices=("feature-candidate", "protected-tag"), required=True
+    )
+    tag_preflight.add_argument("--repository", required=True)
+    tag_preflight.add_argument("--repository-owner", required=True)
+    tag_preflight.add_argument("--ref-name", required=True)
+    tag_preflight.add_argument("--source-sha", required=True)
+    tag_preflight.add_argument("--default-branch", required=True)
+    tag_preflight.add_argument(
+        "--ref-protected", choices=("true", "false"), required=True
+    )
+    _paths(tag_preflight)
 
     wheel_parser = groups.add_parser("wheel")
     wheel_actions = wheel_parser.add_subparsers(dest="action", required=True)
@@ -178,6 +197,24 @@ def main(argv: list[str] | None = None) -> int:
                 parser.error(
                     f"{result['eligible_wheel_count']} of {result['declared_wheel_count']} wheel specs are eligible"
                 )
+        elif (args.group, args.action) == ("core", "matrix"):
+            result = core.build_matrix(
+                args.lane, args.release, args.compatibility, args.schema_dir
+            )
+        elif (args.group, args.action) == ("core", "tag-preflight"):
+            result = core.tag_preflight(
+                lane=args.lane,
+                repository=args.repository,
+                repository_owner=args.repository_owner,
+                ref_name=args.ref_name,
+                source_sha=args.source_sha,
+                default_branch=args.default_branch,
+                ref_protected=args.ref_protected == "true",
+                policy=os.environ.get("UCM_RELEASE_POLICY"),
+                release_path=args.release,
+                compatibility_path=args.compatibility,
+                schema_dir=args.schema_dir,
+            )
         elif (args.group, args.action) == ("wheel", "inspect"):
             result = wheel.inspect_wheel(
                 args.wheel,

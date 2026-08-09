@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PACKAGE_DIR = REPO_ROOT / ".github" / "release" / "ucm_release"
 SCHEMA_DIR = REPO_ROOT / ".github" / "release" / "schemas"
@@ -162,3 +164,23 @@ def test_docker_layout_rejects_a_nested_duplicate_of_an_allowed_name(
 
     assert violation is not None
     assert "nested/Dockerfile" in violation
+
+
+def test_release_config_has_three_profiles_and_no_profile_runner_escape_hatch() -> None:
+    release = yaml.safe_load(
+        (REPO_ROOT / ".github" / "release" / "release.yaml").read_text(encoding="utf-8")
+    )
+
+    assert [item["id"] for item in release["wheel_profiles"]] == [
+        "cuda130",
+        "cann900-a2",
+        "cann900-a3",
+    ]
+    assert all(
+        item["cpu_arch"] == ["amd64", "arm64"] for item in release["wheel_profiles"]
+    )
+    assert all("runner" not in item for item in release["wheel_profiles"])
+    assert release["runner_map"] == {
+        "amd64": "ubuntu-24.04",
+        "arm64": "ubuntu-24.04-arm",
+    }

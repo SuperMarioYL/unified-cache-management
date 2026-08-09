@@ -4,18 +4,18 @@ ucm_version: 0.5.0rc1
 rules:
   - id: cuda-supported
     accelerator: cuda
-    accelerator_runtimes: [cuda-12.9, cuda-13.0]
+    accelerator_runtimes: [cuda-13.0]
     npu_architectures: [na]
     operating_systems: [ubuntu-22.04]
     cpu_architectures: [amd64, arm64]
     python_abis: [cp312]
-    upstream_channels: [stable, rc]
+    upstream_channels: [stable]
   - id: ascend-supported
     accelerator: ascend
-    accelerator_runtimes: [cann-8.5.1, cann-9.0.0, cann-9.0.1]
+    accelerator_runtimes: [cann-9.0.0]
     npu_architectures: [a2, a3]
-    operating_systems: [ubuntu-22.04, openEuler-24.03]
+    operating_systems: [ubuntu-22.04]
     cpu_architectures: [amd64, arm64]
-    python_abis: [cp311, cp312]
-    upstream_channels: [stable, rc]
+    python_abis: [cp312]
+    upstream_channels: [rc]
 excluded_upstream_patterns: [nightly, dev, custom, 310p, a5, explicit-a2-suffix]

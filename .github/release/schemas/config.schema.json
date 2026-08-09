@@ -6,25 +6,71 @@
     {"$ref": "#/$defs/compatibility"}
   ],
   "$defs": {
-    "lock": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "lockedWheel": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["subject", "selector", "status"],
+      "required": ["filename", "sha256"],
       "properties": {
-        "subject": {"enum": ["builder", "toolchain", "atb", "torch-npu"]},
-        "selector": {"type": "string", "minLength": 1},
-        "status": {"enum": ["unresolved", "resolved"]},
-        "identity": {"type": "string", "pattern": "^(oci|toolchain|package)://[^@ ]+@sha256:[0-9a-f]{64}$"}
+        "filename": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+\\.whl$"},
+        "sha256": {"$ref": "#/$defs/digest"}
       }
     },
-    "runner": {
+    "lockedPackage": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["selector", "status"],
+      "required": ["version", "filename", "sha256"],
       "properties": {
-        "selector": {"type": "string", "minLength": 1},
-        "status": {"enum": ["unresolved", "resolved"]},
-        "identity": {"type": "string", "pattern": "^runner://[^@ ]+@sha256:[0-9a-f]{64}$"}
+        "version": {"type": "string", "minLength": 1},
+        "filename": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+\\.whl$"},
+        "sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "buildDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag", "index_digest", "manifest_digest", "config_digest"],
+      "properties": {
+        "repository": {"type": "string", "pattern": "^(docker\\.io|quay\\.io)/[a-z0-9_.-]+/[a-z0-9_.-]+$"},
+        "tag": {"type": "string", "minLength": 1},
+        "index_digest": {"$ref": "#/$defs/digest"},
+        "manifest_digest": {"$ref": "#/$defs/digest"},
+        "config_digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "builder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "sources", "copy_paths", "preflight"],
+      "properties": {
+        "root": {"$ref": "#/$defs/buildDescriptor"},
+        "sources": {
+          "type": "array",
+          "maxItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/buildDescriptor"}
+        },
+        "copy_paths": {
+          "type": "array",
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^/[^ ]+$"}
+        },
+        "preflight": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "builders": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["amd64", "arm64"],
+      "properties": {
+        "amd64": {"$ref": "#/$defs/builder"},
+        "arm64": {"$ref": "#/$defs/builder"}
       }
     },
     "wheelProfile": {
@@ -32,37 +78,83 @@
       "additionalProperties": false,
       "required": [
         "id", "accelerator", "accelerator_runtime", "npu_arch", "os",
-        "cpu_arch", "python_version", "python_abi", "binary_profile_id",
-        "validation_targets", "locks", "runner"
+        "cpu_arch", "python_version", "python_abi", "wheel_version",
+        "binary_profile_id", "validation_targets", "required_native",
+        "forbidden_native", "builders"
       ],
       "properties": {
-        "id": {"type": "string", "minLength": 1},
+        "id": {"enum": ["cuda130", "cann900-a2", "cann900-a3"]},
         "accelerator": {"enum": ["cuda", "ascend"]},
-        "accelerator_runtime": {"type": "string", "pattern": "^(cuda|cann)-"},
+        "accelerator_runtime": {"enum": ["cuda-13.0", "cann-9.0.0"]},
         "npu_arch": {
-          "type": "array", "minItems": 1, "uniqueItems": true,
+          "type": "array", "minItems": 1, "maxItems": 1, "uniqueItems": true,
           "items": {"enum": ["na", "a2", "a3"]}
         },
         "os": {
-          "type": "array", "minItems": 1, "uniqueItems": true,
-          "items": {"enum": ["ubuntu-22.04", "openEuler-24.03"]}
+          "type": "array", "minItems": 1, "maxItems": 1, "uniqueItems": true,
+          "items": {"const": "ubuntu-22.04"}
         },
         "cpu_arch": {
-          "type": "array", "minItems": 1, "uniqueItems": true,
+          "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true,
           "items": {"enum": ["amd64", "arm64"]}
         },
-        "python_version": {"enum": ["3.11", "3.12"]},
-        "python_abi": {"enum": ["cp311", "cp312"]},
-        "binary_profile_id": {"type": "string", "minLength": 1},
+        "python_version": {"const": "3.12"},
+        "python_abi": {"const": "cp312"},
+        "wheel_version": {"type": "string", "pattern": "^0\\.5\\.0rc1\\+(cuda130|cann900\\.(a2|a3))$"},
+        "binary_profile_id": {"type": "string", "pattern": "^release-(cuda130|cann900-a[23])$"},
         "validation_targets": {
           "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"enum": ["cuda-13.0", "a2", "a3"]}
+        },
+        "required_native": {
+          "type": "array", "minItems": 12, "maxItems": 13, "uniqueItems": true,
           "items": {"type": "string", "minLength": 1}
         },
-        "locks": {
-          "type": "array", "minItems": 2, "uniqueItems": true,
-          "items": {"$ref": "#/$defs/lock"}
+        "forbidden_native": {
+          "type": "array", "minItems": 9, "maxItems": 10, "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
         },
-        "runner": {"$ref": "#/$defs/runner"}
+        "builders": {"$ref": "#/$defs/builders"}
+      }
+    },
+    "runtimeMember": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest_digest", "config_digest"],
+      "properties": {
+        "manifest_digest": {"$ref": "#/$defs/digest"},
+        "config_digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag", "index_digest", "members"],
+      "properties": {
+        "repository": {"enum": ["docker.io/vllm/vllm-openai", "quay.io/ascend/vllm-ascend"]},
+        "tag": {"enum": ["v0.21.0", "v0.22.1rc1", "v0.22.1rc1-a3"]},
+        "index_digest": {"$ref": "#/$defs/digest"},
+        "members": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["amd64", "arm64"],
+          "properties": {
+            "amd64": {"$ref": "#/$defs/runtimeMember"},
+            "arm64": {"$ref": "#/$defs/runtimeMember"}
+          }
+        }
+      }
+    },
+    "imageFamily": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "profile_id", "runtime", "target_repository", "target_tag"],
+      "properties": {
+        "id": {"enum": ["cuda130", "cann900-a2", "cann900-a3"]},
+        "profile_id": {"enum": ["cuda130", "cann900-a2", "cann900-a3"]},
+        "runtime": {"$ref": "#/$defs/runtime"},
+        "target_repository": {"enum": ["ghcr.io/supermarioyl/vllm-openai", "ghcr.io/supermarioyl/vllm-ascend"]},
+        "target_tag": {"enum": ["v0.21.0-ucm-0.5.0rc1-r1", "v0.22.1rc1-ucm-0.5.0rc1-r1", "v0.22.1rc1-a3-ucm-0.5.0rc1-r1"]}
       }
     },
     "chartCase": {
@@ -72,8 +164,8 @@
       "properties": {
         "name": {"enum": ["cuda", "a2", "a3"]},
         "values": {"type": "string", "minLength": 1},
-        "image_repository": {"type": "string", "pattern": "^registry\\.invalid/ucm/fixture-(cuda|ascend-a2|ascend-a3)$"},
-        "image_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "image_repository": {"enum": ["docker.io/vllm/vllm-openai", "quay.io/ascend/vllm-ascend"]},
+        "image_digest": {"$ref": "#/$defs/digest"},
         "expected_resource": {"enum": ["nvidia.com/gpu", "huawei.com/Ascend910"]}
       }
     },
@@ -96,20 +188,104 @@
     "release": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "schema_version", "ucm_version", "version_file", "python_runtime_dependencies", "chart", "wheel_profiles"],
+      "required": [
+        "kind", "schema_version", "ucm_version", "version_file", "source",
+        "lanes", "runner_map", "python_runtime_dependencies",
+        "python_build_lock", "wrapt_wheels", "chart", "wheel_profiles",
+        "image_families"
+      ],
       "properties": {
         "kind": {"const": "release-config"},
         "schema_version": {"type": "integer", "const": 1},
         "ucm_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+rc[0-9]+$"},
         "version_file": {"const": "version.ini"},
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "owner", "default_branch", "release_tag", "release_policy", "protected_environment"],
+          "properties": {
+            "repository": {"const": "SuperMarioYL/unified-cache-management"},
+            "owner": {"const": "SuperMarioYL"},
+            "default_branch": {"const": "develop"},
+            "release_tag": {"const": "v0.5.0rc1"},
+            "release_policy": {"const": "owner-reviewed-v1"},
+            "protected_environment": {"const": "release-production"}
+          }
+        },
+        "lanes": {
+          "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true,
+          "items": {"enum": ["feature-candidate", "protected-tag"]}
+        },
+        "runner_map": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["amd64", "arm64"],
+          "properties": {
+            "amd64": {"const": "ubuntu-24.04"},
+            "arm64": {"const": "ubuntu-24.04-arm"}
+          }
+        },
         "python_runtime_dependencies": {
           "type": "array", "minItems": 1, "maxItems": 1,
           "prefixItems": [{"const": "wrapt==1.17.2"}], "items": false
         },
+        "python_build_lock": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["install_flags", "packages", "cmake"],
+          "properties": {
+            "install_flags": {
+              "type": "array", "minItems": 4, "maxItems": 4, "uniqueItems": true,
+              "items": {"enum": ["--no-index", "--find-links", "--require-hashes", "--only-binary=:all:"]}
+            },
+            "packages": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["build", "pyproject-hooks", "packaging", "setuptools", "wheel"],
+              "properties": {
+                "build": {"$ref": "#/$defs/lockedPackage"},
+                "pyproject-hooks": {"$ref": "#/$defs/lockedPackage"},
+                "packaging": {"$ref": "#/$defs/lockedPackage"},
+                "setuptools": {"$ref": "#/$defs/lockedPackage"},
+                "wheel": {"$ref": "#/$defs/lockedPackage"}
+              }
+            },
+            "cmake": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["version", "artifacts"],
+              "properties": {
+                "version": {"const": "3.31.6"},
+                "artifacts": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["amd64", "arm64"],
+                  "properties": {
+                    "amd64": {"$ref": "#/$defs/lockedWheel"},
+                    "arm64": {"$ref": "#/$defs/lockedWheel"}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "wrapt_wheels": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["amd64", "arm64"],
+          "properties": {
+            "amd64": {"$ref": "#/$defs/lockedWheel"},
+            "arm64": {"$ref": "#/$defs/lockedWheel"}
+          }
+        },
         "chart": {"$ref": "#/$defs/chart"},
         "wheel_profiles": {
-          "type": "array", "minItems": 6, "maxItems": 6,
+          "type": "array", "minItems": 1, "maxItems": 3,
           "items": {"$ref": "#/$defs/wheelProfile"}
+        },
+        "image_families": {
+          "type": "array", "minItems": 1, "maxItems": 3,
+          "items": {"$ref": "#/$defs/imageFamily"}
         }
       }
     },
@@ -120,12 +296,12 @@
       "properties": {
         "id": {"type": "string", "minLength": 1},
         "accelerator": {"enum": ["cuda", "ascend"]},
-        "accelerator_runtimes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "accelerator_runtimes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "npu_architectures": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["na", "a2", "a3"]}},
-        "operating_systems": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["ubuntu-22.04", "openEuler-24.03"]}},
-        "cpu_architectures": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["amd64", "arm64"]}},
-        "python_abis": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["cp311", "cp312"]}},
-        "upstream_channels": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["stable", "rc"]}}
+        "operating_systems": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"const": "ubuntu-22.04"}},
+        "cpu_architectures": {"type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": {"enum": ["amd64", "arm64"]}},
+        "python_abis": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"const": "cp312"}},
+        "upstream_channels": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"enum": ["stable", "rc"]}}
       }
     },
     "compatibility": {
@@ -135,10 +311,10 @@
       "properties": {
         "kind": {"const": "compatibility-config"},
         "schema_version": {"type": "integer", "const": 1},
-        "ucm_version": {"type": "string"},
+        "ucm_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+rc[0-9]+$"},
         "rules": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/compatibilityRule"}},
         "excluded_upstream_patterns": {
-          "type": "array", "minItems": 6, "uniqueItems": true,
+          "type": "array", "minItems": 6, "maxItems": 6, "uniqueItems": true,
           "items": {"enum": ["nightly", "dev", "custom", "310p", "a5", "explicit-a2-suffix"]}
         }
       }

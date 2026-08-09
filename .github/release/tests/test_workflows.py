@@ -50,7 +50,8 @@ FORBIDDEN_STAGED_PATHS = {
     "ucm/store/compress/cc/compress_lib/tunstall_bf16.h",
     "ucm/store/compress/cc/compressor_action.cc",
 }
-FIXTURE_PROFILE = (
+FIXTURE_PROFILE = "cuda130-amd64"
+WORKFLOW_FIXTURE_PROFILE = (
     "cuda-cu129-ubuntu2204-amd64-cp312-release-default-sm75-sm80-sm86-sm89-sm90"
 )
 BUILDKIT_IMAGE = (
@@ -1077,7 +1078,7 @@ def test_reusable_workflow_inputs_outputs_and_artifacts_are_exact() -> None:
             "_build-wheel.yml",
             {
                 "SOURCE_SHA": "a" * 40,
-                "PROFILE_ID": FIXTURE_PROFILE,
+                "PROFILE_ID": WORKFLOW_FIXTURE_PROFILE,
                 "VALIDATION_LANE": "fork-candidate",
             },
             [
@@ -1951,7 +1952,7 @@ def test_fixture_wheel_cannot_be_coherently_relabelled_or_extended(
     wheel_path = Path(fixture["wheel_path"])
     inspected_profile = FIXTURE_PROFILE
     if mutation == "profile":
-        inspected_profile = FIXTURE_PROFILE.replace("cu129", "cu130")
+        inspected_profile = FIXTURE_PROFILE.replace("amd64", "arm64")
     elif mutation == "extra-member":
         marker = (
             f"SOURCE_SHA = {source_sha!r}\nPROFILE_ID = {FIXTURE_PROFILE!r}\n"
