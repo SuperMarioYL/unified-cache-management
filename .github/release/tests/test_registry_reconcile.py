@@ -913,6 +913,13 @@ def _publication_members() -> list[dict[str, object]]:
             "layers": layers,
             "readback_sha256": core.sha256_value(readback_payload),
             "visibility_evidence_sha256": f"sha256:{index + 75:064x}",
+            "collision_model": {
+                "model": "observed-state-fail-closed",
+                "in_system_serialization": "repository-concurrency",
+                "fresh_prewrite_read": True,
+                "exact_postwrite_readback": True,
+                "external_admin_atomicity": "unavailable",
+            },
             "operations": readback_operations,
         }
         payload["record_sha256"] = core.sha256_value(payload)
@@ -1507,7 +1514,6 @@ def test_write_transport_fails_closed_before_subprocess_for_nonprotected_lanes(
             parent["plans"][0],
             parent_plans=parent,
             lane=lane,
-            docker_binary=str(tmp_path / "must-not-run-docker"),
         )
 
     assert not log.exists()
@@ -1657,7 +1663,6 @@ def test_index_create_rejects_forged_parent_before_docker(
             forged["plans"][0],
             parent_plans=forged,
             lane="protected-tag",
-            docker_binary=str(docker),
         )
 
     assert not marker.exists()
@@ -1710,6 +1715,31 @@ def test_staging_tag_rereads_fresh_drift_before_mutation(
     assert not marker.exists()
 
 
+def test_staging_tag_reports_observed_state_collision_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Evidence must disclose repository serialization and unavailable global CAS."""
+    registry, _ = _modules()
+    record = _publication_members()[0]
+    crane, marker = _fresh_drift_crane(tmp_path, record["member_digest"])
+    monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: str(crane))
+    monkeypatch.setattr(
+        registry.core, "tag_preflight", lambda **_: _protected_preflight()
+    )
+
+    result = registry.apply_staging_tag(record, lane="protected-tag")
+
+    assert result["collision_model"] == {
+        "model": "observed-state-fail-closed",
+        "in_system_serialization": "repository-concurrency",
+        "fresh_prewrite_read": True,
+        "exact_postwrite_readback": True,
+        "external_admin_atomicity": "unavailable",
+    }
+    assert result["decision"] == "reuse"
+    assert not marker.exists()
+
+
 def test_index_create_rereads_fresh_drift_before_docker(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1747,13 +1777,13 @@ else:
         registry.core, "tag_preflight", lambda **_: _protected_preflight()
     )
     monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: str(crane))
+    monkeypatch.setattr(registry, "resolve_pinned_buildx", lambda: str(docker))
 
     with pytest.raises(ValueError, match="conflict|fresh|drift"):
         registry.create_index(
             plan,
             parent_plans=parent,
             lane="protected-tag",
-            docker_binary=str(docker),
         )
 
     assert not docker_marker.exists()
@@ -2061,6 +2091,13 @@ def _published_registry_evidence() -> dict[str, object]:
             ],
             "authenticated_readback_sha256": f"sha256:{position + 100:064x}",
             "anonymous_readback_sha256": f"sha256:{position + 110:064x}",
+            "collision_model": {
+                "model": "observed-state-fail-closed",
+                "in_system_serialization": "repository-concurrency",
+                "fresh_prewrite_read": True,
+                "exact_postwrite_readback": True,
+                "external_admin_atomicity": "unavailable",
+            },
             "operations": [
                 {
                     "type": "registry-index-create",
@@ -2129,6 +2166,183 @@ def test_published_registry_schema_rejects_arbitrary_record_items() -> None:
         )
 
 
+@pytest.mark.parametrize("record_kind", ["member_records", "index_records"])
+def test_published_registry_schema_rejects_exact_count_arbitrary_identities(
+    record_kind: str,
+) -> None:
+    """Exact 6/3 cardinality cannot legitimize attacker-controlled identities."""
+    sys.path.insert(0, str(RELEASE_ROOT))
+    core = importlib.import_module("ucm_release.core")
+    manifest = core.build_release_manifest()
+    evidence = _published_registry_evidence()
+    if record_kind == "member_records":
+        for position, record in enumerate(evidence[record_kind]):
+            record.update(
+                {
+                    "spec_id": f"attacker-spec-{position}",
+                    "profile_id": "attacker-profile",
+                    "family_id": "attacker-family",
+                    "target_repository": "evil.invalid/attacker/repo",
+                    "target_tag": "latest",
+                    "annotations": {},
+                    "manifest": {},
+                    "config": {},
+                }
+            )
+    else:
+        for position, record in enumerate(evidence[record_kind]):
+            record.update(
+                {
+                    "family_id": f"attacker-family-{position}",
+                    "target_repository": "evil.invalid/attacker/repo",
+                    "target_tag": "latest",
+                    "operations": [],
+                }
+            )
+    manifest["publication"]["registry"] = evidence
+
+    with pytest.raises(ValueError):
+        core.validate_schema(
+            manifest,
+            core.load_json(core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "wrong_canonical_value"),
+    [
+        ("spec_id", "cuda130-arm64"),
+        ("profile_id", "cann900-a2"),
+        ("family_id", "cann900-a2"),
+        ("platform", "linux/arm64"),
+        ("target_repository", "ghcr.io/supermarioyl/vllm-ascend"),
+        ("target_tag", "v0.22.1rc1-ucm-0.5.0rc1-r1"),
+    ],
+)
+def test_published_registry_schema_rejects_member_identity_mismatch(
+    field: str, wrong_canonical_value: str
+) -> None:
+    """Allowed identity strings cannot be recombined into a forged member."""
+    sys.path.insert(0, str(RELEASE_ROOT))
+    core = importlib.import_module("ucm_release.core")
+    manifest = core.build_release_manifest()
+    evidence = _published_registry_evidence()
+    evidence["member_records"][0][field] = wrong_canonical_value
+    manifest["publication"]["registry"] = evidence
+
+    with pytest.raises(ValueError):
+        core.validate_schema(
+            manifest,
+            core.load_json(core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"),
+        )
+
+
+@pytest.mark.parametrize(
+    ("annotation", "wrong_canonical_value"),
+    [
+        ("io.ucm.release.spec-id", "cuda130-arm64"),
+        ("io.ucm.release.family-id", "cann900-a2"),
+        ("io.ucm.release.platform", "linux/arm64"),
+    ],
+)
+def test_published_registry_schema_rejects_nested_member_identity_mismatch(
+    annotation: str, wrong_canonical_value: str
+) -> None:
+    """Nested allowed values must still agree with the member's canonical slot."""
+    sys.path.insert(0, str(RELEASE_ROOT))
+    core = importlib.import_module("ucm_release.core")
+    manifest = core.build_release_manifest()
+    evidence = _published_registry_evidence()
+    evidence["member_records"][0]["annotations"][annotation] = wrong_canonical_value
+    manifest["publication"]["registry"] = evidence
+
+    with pytest.raises(ValueError):
+        core.validate_schema(
+            manifest,
+            core.load_json(core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"),
+        )
+
+
+@pytest.mark.parametrize(
+    ("record_kind", "count"), [("member_records", 6), ("index_records", 3)]
+)
+def test_published_registry_schema_rejects_unique_objects_with_duplicate_identity(
+    record_kind: str, count: int
+) -> None:
+    """Changing hashes cannot bypass uniqueness of canonical member/family identity."""
+    sys.path.insert(0, str(RELEASE_ROOT))
+    core = importlib.import_module("ucm_release.core")
+    manifest = core.build_release_manifest()
+    evidence = _published_registry_evidence()
+    original = evidence[record_kind][0]
+    duplicates = []
+    for position in range(count):
+        duplicate = copy.deepcopy(original)
+        duplicate["record_sha256"] = f"sha256:{position + 201:064x}"
+        duplicates.append(duplicate)
+    evidence[record_kind] = duplicates
+    manifest["publication"]["registry"] = evidence
+
+    with pytest.raises(ValueError):
+        core.validate_schema(
+            manifest,
+            core.load_json(core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"),
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "layer-media-type",
+        "operation-type",
+        "operation-capability",
+        "operation-reference",
+    ],
+)
+def test_published_registry_schema_rejects_noncanonical_content_and_operation_shape(
+    mutation: str,
+) -> None:
+    """Supported blob media and typed canonical coordinates are schema boundaries."""
+    sys.path.insert(0, str(RELEASE_ROOT))
+    core = importlib.import_module("ucm_release.core")
+    manifest = core.build_release_manifest()
+    evidence = _published_registry_evidence()
+    member = evidence["member_records"][0]
+    if mutation == "layer-media-type":
+        member["layers"][0]["media_type"] = "evil/type"
+    elif mutation == "operation-type":
+        member["operations"][0]["type"] = "attacker-write"
+    elif mutation == "operation-capability":
+        member["operations"][0]["capability"] = "write"
+    else:
+        member["operations"][0]["reference"] = "evil.invalid/attacker:latest"
+    manifest["publication"]["registry"] = evidence
+
+    with pytest.raises(ValueError):
+        core.validate_schema(
+            manifest,
+            core.load_json(core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"),
+        )
+
+
+def test_published_registry_schema_accepts_index_reuse_with_empty_write_ledger() -> (
+    None
+):
+    """An exact r1 reuse emits no index write operation and remains publishable."""
+    sys.path.insert(0, str(RELEASE_ROOT))
+    core = importlib.import_module("ucm_release.core")
+    manifest = core.build_release_manifest()
+    evidence = _published_registry_evidence()
+    for record in evidence["index_records"]:
+        record["operations"] = []
+    manifest["publication"]["registry"] = evidence
+
+    core.validate_schema(
+        manifest,
+        core.load_json(core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"),
+    )
+
+
 def test_index_create_uses_exact_dry_run_bytes_and_postwrite_readback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2171,18 +2385,19 @@ def test_index_create_uses_exact_dry_run_bytes_and_postwrite_readback(
     raw = json.dumps(dry_manifest, indent=2).encode()
     expected = "sha256:" + hashlib.sha256(raw).hexdigest()
     marker = tmp_path / "written"
-    invocation_log = tmp_path / "docker-invocations.jsonl"
-    docker = tmp_path / "docker"
-    docker.write_text(
+    invocation_log = tmp_path / "buildx-invocations.jsonl"
+    buildx = tmp_path / "docker-buildx"
+    buildx.write_text(
         f"""#!/usr/bin/env python3
 import json
+import os
 from pathlib import Path
 import sys
 
 args = sys.argv[1:]
 files = [Path(args[index + 1]).read_bytes().decode() for index, value in enumerate(args) if value == "--file"]
 with Path({str(invocation_log)!r}).open("a", encoding="utf-8") as stream:
-    stream.write(json.dumps({{"args": args, "files": files}}, sort_keys=True) + "\\n")
+    stream.write(json.dumps({{"args": args, "environment": dict(os.environ), "files": files}}, sort_keys=True) + "\\n")
 if "--dry-run" in args:
     sys.stdout.buffer.write(bytes.fromhex({raw.hex()!r}) + b"\\n")
 else:
@@ -2190,7 +2405,13 @@ else:
 """,
         encoding="utf-8",
     )
-    docker.chmod(0o755)
+    buildx.chmod(0o755)
+    attacker_marker = tmp_path / "path-docker-ran"
+    attacker = tmp_path / "docker"
+    attacker.write_text(
+        f"#!/bin/sh\ntouch {attacker_marker}\nexit 91\n", encoding="utf-8"
+    )
+    attacker.chmod(0o755)
     crane = tmp_path / "crane"
     crane.write_text(
         f"""#!/usr/bin/env python3
@@ -2214,12 +2435,19 @@ else:
         registry.core, "tag_preflight", lambda **_: _protected_preflight()
     )
     monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: str(crane))
+    monkeypatch.setattr(
+        registry, "resolve_pinned_buildx", lambda: str(buildx), raising=False
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path}:/usr/bin:/bin")
+    monkeypatch.setenv("HOME", "/runner/home")
+    monkeypatch.setenv("DOCKER_CONFIG", "/runner/docker-config")
+    monkeypatch.setenv("GITHUB_TOKEN", "must-not-leak")
+    monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "must-not-leak")
 
     result = registry.create_index(
         plan,
         parent_plans=parent,
         lane="protected-tag",
-        docker_binary=str(docker),
     )
 
     assert result["index_digest"] == expected
@@ -2227,14 +2455,19 @@ else:
     assert result["postwrite_manifest_sha256"] == expected
     invocations = [json.loads(line) for line in invocation_log.read_text().splitlines()]
     assert len(invocations) == 2
+    assert invocations[0]["args"][:2] == ["imagetools", "create"]
     assert invocations[0]["files"] == [
         "ghcr.io/supermarioyl/ucm-release-staging@"
         + plan["members"][0]["member_digest"],
         "ghcr.io/supermarioyl/ucm-release-staging@"
         + plan["members"][1]["member_digest"],
     ]
+    assert "GITHUB_TOKEN" not in invocations[0]["environment"]
+    assert "ACTIONS_ID_TOKEN_REQUEST_TOKEN" not in invocations[0]["environment"]
+    assert "PATH" not in invocations[0]["environment"]
     assert "--dry-run" in invocations[0]["args"]
     assert "--dry-run" not in invocations[1]["args"]
+    assert not attacker_marker.exists()
 
 
 def test_index_rerun_defers_same_build_key_digest_to_exact_dry_run() -> None:
@@ -2501,6 +2734,134 @@ def test_registry_subprocess_environment_is_minimal_and_keeps_login_config(
     assert registry._crane(str(crane), "digest", reference) == "sha256:" + "1" * 64
     assert invocation["env"] == environment
     assert invocation["arguments"] == [str(crane), "digest", reference]
+
+
+def test_buildx_subprocess_environment_is_minimal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The direct Buildx plugin cannot inherit GitHub or Actions credentials."""
+    registry, _ = _modules()
+    environment_log = tmp_path / "buildx.environment"
+    buildx = tmp_path / "docker-buildx"
+    buildx.write_text(
+        f"#!/bin/sh\n/usr/bin/env > {environment_log}\nprintf '{{}}\\n'\n",
+        encoding="utf-8",
+    )
+    buildx.chmod(0o755)
+    values = {
+        "HOME": "/runner/home",
+        "DOCKER_CONFIG": "/runner/docker-config",
+        "SSL_CERT_FILE": "/etc/certs.pem",
+        "HTTPS_PROXY": "http://proxy.internal:8080",
+        "NO_PROXY": "127.0.0.1",
+        "GITHUB_TOKEN": "must-not-leak",
+        "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "must-not-leak",
+        "PATH": "/attacker/path",
+    }
+    for key, value in values.items():
+        monkeypatch.setenv(key, value)
+
+    assert (
+        registry._run_imagetools(str(buildx), ["imagetools", "create", "--dry-run"])
+        == b"{}\n"
+    )
+    observed = dict(
+        line.split("=", 1)
+        for line in environment_log.read_text(encoding="utf-8").splitlines()
+    )
+
+    assert observed["HOME"] == "/runner/home"
+    assert observed["DOCKER_CONFIG"] == "/runner/docker-config"
+    assert observed["SSL_CERT_FILE"] == "/etc/certs.pem"
+    assert observed["HTTPS_PROXY"] == "http://proxy.internal:8080"
+    assert observed["NO_PROXY"] == "127.0.0.1"
+    assert "GITHUB_TOKEN" not in observed
+    assert "ACTIONS_ID_TOKEN_REQUEST_TOKEN" not in observed
+    assert "PATH" not in observed
+
+
+def test_resolve_pinned_buildx_uses_image_toolchain_version_and_platform_sha(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Production resolves one fixed plugin path and verifies version plus bytes."""
+    registry, _ = _modules()
+    image = importlib.import_module("ucm_release.image")
+    plugin = tmp_path / ".docker" / "cli-plugins" / "docker-buildx"
+    plugin.parent.mkdir(parents=True)
+    plugin.write_text(
+        "#!/bin/sh\necho 'github.com/docker/buildx v0.19.2 deadbeef'\n",
+        encoding="utf-8",
+    )
+    plugin.chmod(0o755)
+    plugin_sha = "sha256:" + hashlib.sha256(plugin.read_bytes()).hexdigest()
+    authority = image.real_image_toolchain_authority()
+    authority["buildx_linux_sha256"]["amd64"] = plugin_sha
+    monkeypatch.setattr(image, "real_image_toolchain_authority", lambda: authority)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("DOCKER_CONFIG", raising=False)
+    monkeypatch.setattr(registry.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(registry.platform, "machine", lambda: "x86_64")
+
+    assert registry.resolve_pinned_buildx() == str(plugin.resolve())
+
+    execution_marker = tmp_path / "wrong-buildx-executed"
+    plugin.write_text(
+        (
+            "#!/bin/sh\n"
+            f"touch {execution_marker}\n"
+            "echo 'github.com/docker/buildx v0.19.2 deadbeef'\n"
+        ),
+        encoding="utf-8",
+    )
+    wrong = copy.deepcopy(authority)
+    wrong["buildx_linux_sha256"]["amd64"] = "sha256:" + "f" * 64
+    monkeypatch.setattr(image, "real_image_toolchain_authority", lambda: wrong)
+    with pytest.raises(ValueError, match="Buildx binary digest mismatch"):
+        registry.resolve_pinned_buildx()
+    assert not execution_marker.exists()
+
+    plugin.write_text(
+        "#!/bin/sh\necho 'github.com/docker/buildx v0.19.3 deadbeef'\n",
+        encoding="utf-8",
+    )
+    wrong_version = copy.deepcopy(authority)
+    wrong_version["buildx_linux_sha256"]["amd64"] = (
+        "sha256:" + hashlib.sha256(plugin.read_bytes()).hexdigest()
+    )
+    monkeypatch.setattr(image, "real_image_toolchain_authority", lambda: wrong_version)
+    with pytest.raises(ValueError, match="requires Buildx v0.19.2"):
+        registry.resolve_pinned_buildx()
+
+
+def test_production_index_api_rejects_caller_selected_executor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Neither Python callers nor the canonical CLI can replace Buildx."""
+    registry, _ = _modules()
+    members = _publication_members()
+    parent = registry.plan_indexes(
+        members,
+        inventory=[],
+        member_statuses={item["spec_id"]: "success" for item in members},
+        lane="protected-tag",
+    )
+    marker = tmp_path / "caller-executor-ran"
+    attacker = tmp_path / "attacker-docker"
+    attacker.write_text(f"#!/bin/sh\ntouch {marker}\nexit 99\n", encoding="utf-8")
+    attacker.chmod(0o755)
+    monkeypatch.setattr(
+        registry.core, "tag_preflight", lambda **_: _protected_preflight()
+    )
+
+    with pytest.raises(TypeError, match="docker_binary"):
+        registry.create_index(
+            parent["plans"][0],
+            parent_plans=parent,
+            lane="protected-tag",
+            docker_binary=str(attacker),
+        )
+
+    assert not marker.exists()
 
 
 def test_member_push_requires_crane_full_reference_stdout(

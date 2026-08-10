@@ -210,6 +210,7 @@ MEMBER_RECORD_KEYS = {
     "layers",
     "readback_sha256",
     "visibility_evidence_sha256",
+    "collision_model",
     "operations",
     "record_sha256",
 }
@@ -229,6 +230,17 @@ class RegistryBlocker(ValueError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+def _collision_model_evidence() -> dict[str, Any]:
+    """Describe observed-state checks without claiming unavailable Registry tag CAS."""
+    return {
+        "model": "observed-state-fail-closed",
+        "in_system_serialization": "repository-concurrency",
+        "fresh_prewrite_read": True,
+        "exact_postwrite_readback": True,
+        "external_admin_atomicity": "unavailable",
+    }
 
 
 def _exact_keys(value: dict[str, Any], expected: set[str], label: str) -> None:
@@ -451,6 +463,114 @@ def resolve_pinned_crane() -> str:
             f"crane binary digest mismatch: expected {expected}, observed {observed}"
         )
     return executable
+
+
+def _stream_file_sha256(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as stream:
+        while True:
+            chunk = stream.read(1024 * 1024)
+            if not chunk:
+                break
+            hasher.update(chunk)
+    return "sha256:" + hasher.hexdigest()
+
+
+def resolve_pinned_buildx() -> str:
+    """Resolve the reviewed standalone Buildx v0.19.2 plugin by fixed path/bytes."""
+    from . import image
+
+    authority = image.real_image_toolchain_authority()
+    if authority["buildx_version"] != "v0.19.2":
+        raise ValueError("image toolchain authority must require Buildx v0.19.2")
+    if platform.system().lower() != "linux":
+        raise ValueError("production Buildx publication requires a Linux runner")
+    architecture = {
+        "x86_64": "amd64",
+        "amd64": "amd64",
+        "aarch64": "arm64",
+        "arm64": "arm64",
+    }.get(platform.machine().lower())
+    if architecture is None:
+        raise ValueError(f"unsupported Buildx host architecture: {platform.machine()}")
+    home = os.environ.get("HOME")
+    if not home or not Path(home).is_absolute():
+        raise ValueError("production Buildx resolution requires an absolute HOME")
+    configured = Path(home) / ".docker" / "cli-plugins" / "docker-buildx"
+    try:
+        executable = configured.resolve(strict=True)
+    except OSError as error:
+        raise ValueError(
+            f"pinned Buildx plugin is unavailable: {configured}"
+        ) from error
+    if not executable.is_file() or not os.access(executable, os.X_OK):
+        raise ValueError("pinned Buildx plugin must be one executable regular file")
+    expected = authority["buildx_linux_sha256"][architecture]
+    observed = _stream_file_sha256(executable)
+    if observed != expected:
+        raise ValueError(
+            f"Buildx binary digest mismatch: expected {expected}, observed {observed}"
+        )
+    try:
+        result = subprocess.run(
+            [str(executable), "version"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=_minimal_registry_environment(),
+            check=False,
+        )
+    except OSError as error:
+        raise ValueError(f"failed to execute pinned Buildx plugin: {error}") from error
+    fields = result.stdout.strip().split()
+    if (
+        result.returncode != 0
+        or len(fields) < 2
+        or fields[0] != "github.com/docker/buildx"
+        or fields[1] != authority["buildx_version"]
+    ):
+        raise ValueError(
+            "registry index transport requires Buildx v0.19.2, got "
+            f"{result.stdout.strip()!r}"
+        )
+    return str(executable)
+
+
+def _resolve_loopback_buildx() -> str:
+    """Resolve an internally selected v0.19.2 standalone plugin for local loopback."""
+    if platform.system().lower() == "linux":
+        return resolve_pinned_buildx()
+    home = os.environ.get("HOME")
+    if not home or not Path(home).is_absolute():
+        raise ValueError("loopback Buildx resolution requires an absolute HOME")
+    configured = Path(home) / ".docker" / "cli-plugins" / "docker-buildx"
+    try:
+        executable = configured.resolve(strict=True)
+    except OSError as error:
+        raise ValueError(
+            f"loopback Buildx plugin is unavailable: {configured}"
+        ) from error
+    if not executable.is_file() or not os.access(executable, os.X_OK):
+        raise ValueError("loopback Buildx plugin must be one executable regular file")
+    result = subprocess.run(
+        [str(executable), "version"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=_minimal_registry_environment(),
+        check=False,
+    )
+    fields = result.stdout.strip().split()
+    if (
+        result.returncode != 0
+        or len(fields) < 2
+        or fields[0] != "github.com/docker/buildx"
+        or not fields[1].startswith("v0.19.2")
+    ):
+        raise ValueError(
+            "loopback contract requires a Buildx v0.19.2 standalone plugin"
+        )
+    return str(executable)
 
 
 def _crane(crane_binary: str, operation: str, reference: str) -> str:
@@ -1376,6 +1496,10 @@ def validate_member_record(record: object) -> dict[str, Any]:
             raise ValueError(f"member layer {position} content closure is invalid")
     if not isinstance(record["operations"], list):
         raise ValueError("member operations must be an array")
+    if record["collision_model"] != _collision_model_evidence():
+        raise ValueError(
+            "member collision model must disclose the Registry CAS boundary"
+        )
     for operation in record["operations"]:
         if not isinstance(operation, dict):
             raise ValueError("member operation must be an object")
@@ -2465,7 +2589,11 @@ def _apply_digest_tag(
         != digest
     ):
         raise ValueError("registry tag post-write digest readback drifted")
-    return {"decision": decision, "operations": operations}
+    return {
+        "decision": decision,
+        "collision_model": _collision_model_evidence(),
+        "operations": operations,
+    }
 
 
 def publish_member(
@@ -2592,6 +2720,7 @@ def publish_member(
         "layers": layer_records,
         "readback_sha256": readback["readback_sha256"],
         "visibility_evidence_sha256": visibility["visibility_evidence_sha256"],
+        "collision_model": copy.deepcopy(tag_result["collision_model"]),
         "operations": operations,
     }
     record = {**payload, "record_sha256": sha256_value(payload)}
@@ -2667,23 +2796,36 @@ def apply_staging_tag(
         record["member_digest"],
         record["member_digest"] if transport["decision"] == "reuse" else None,
     )
-    return {**plan, "operations": transport["operations"]}
+    return {
+        **plan,
+        "collision_model": copy.deepcopy(transport["collision_model"]),
+        "operations": transport["operations"],
+    }
 
 
-def _run_imagetools(docker_binary: str, arguments: list[str]) -> bytes:
+def _run_imagetools(
+    buildx_command: str | tuple[str, ...],
+    arguments: list[str],
+    *,
+    environment: dict[str, str] | None = None,
+) -> bytes:
+    command = (buildx_command,) if isinstance(buildx_command, str) else buildx_command
     try:
         result = subprocess.run(
-            [docker_binary, *arguments],
+            [*command, *arguments],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            env=environment or _minimal_registry_environment(),
             check=False,
         )
     except OSError as error:
-        raise ValueError(f"failed to execute docker imagetools: {error}") from error
+        raise ValueError(
+            f"failed to execute pinned Buildx imagetools: {error}"
+        ) from error
     if result.returncode != 0:
         detail = result.stderr.decode(errors="replace").strip()
         raise ValueError(
-            f"docker imagetools create failed: {detail or result.returncode}"
+            f"Buildx imagetools create failed: {detail or result.returncode}"
         )
     return result.stdout
 
@@ -2695,13 +2837,17 @@ def _create_index_transport(
     expected_manifest: dict[str, Any] | None,
     inventory_digest: str | None,
     requested_decision: str,
-    docker_binary: str,
+    buildx_command: tuple[str, ...],
     crane_binary: str,
     insecure: bool = False,
     environment: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Shared production/loopback Buildx dry-run, create, and raw readback executor."""
-    dry_stdout = _run_imagetools(docker_binary, [*common_arguments, "--dry-run"])
+    dry_stdout = _run_imagetools(
+        buildx_command,
+        [*common_arguments, "--dry-run"],
+        environment=environment,
+    )
     if not dry_stdout.endswith(b"\n") or dry_stdout[:-1].endswith(b"\n"):
         raise ValueError("docker imagetools dry-run must append exactly one LF")
     raw_manifest = dry_stdout[:-1]
@@ -2727,7 +2873,11 @@ def _create_index_transport(
         raise ValueError("fresh final r1 is missing after a caller reuse decision")
     operations: list[dict[str, str]] = []
     if decision == "create":
-        _run_imagetools(docker_binary, common_arguments)
+        _run_imagetools(
+            buildx_command,
+            common_arguments,
+            environment=environment,
+        )
         operations.append(
             {
                 "type": "registry-index-create",
@@ -2757,6 +2907,7 @@ def _create_index_transport(
         "raw_manifest": raw_manifest,
         "index_digest": expected_digest,
         "decision": decision,
+        "collision_model": _collision_model_evidence(),
         "operations": operations,
         "postwrite_manifest_sha256": "sha256:"
         + hashlib.sha256(postwrite_raw).hexdigest(),
@@ -2768,16 +2919,13 @@ def create_index(
     *,
     parent_plans: object,
     lane: str,
-    docker_binary: str = "docker",
 ) -> dict[str, Any]:
     """Create one exact r1 from Buildx dry-run bytes, then close its raw readback."""
     authority = _fresh_write_authority(lane)
     verification = verify_index(plan, parent_plans=parent_plans)
     crane_binary = resolve_pinned_crane()
+    buildx_binary = resolve_pinned_buildx()
     target = f"{plan['target_repository']}:{plan['target_tag']}"
-    executable = Path(docker_binary)
-    if executable.is_absolute() and not executable.is_file():
-        raise ValueError(f"docker executable does not exist: {docker_binary}")
     with tempfile.TemporaryDirectory(prefix="ucm-index-inputs-") as directory:
         source_files: list[Path] = []
         for position, member in enumerate(plan["members"]):
@@ -2787,7 +2935,6 @@ def create_index(
             )
             source_files.append(source)
         common_arguments = [
-            "buildx",
             "imagetools",
             "create",
             "--tag",
@@ -2827,7 +2974,7 @@ def create_index(
                 inventory_matches[0]["digest"] if inventory_matches else None
             ),
             requested_decision=plan["decision"],
-            docker_binary=docker_binary,
+            buildx_command=(buildx_binary,),
             crane_binary=crane_binary,
         )
     expected_digest = transport["index_digest"]
@@ -2859,6 +3006,7 @@ def create_index(
         "member_digests": [item["member_digest"] for item in plan["members"]],
         "authenticated_readback_sha256": authenticated["readback_sha256"],
         "anonymous_readback_sha256": anonymous["readback_sha256"],
+        "collision_model": copy.deepcopy(transport["collision_model"]),
         "operations": operations,
     }
     record = {**record_payload, "record_sha256": sha256_value(record_payload)}
@@ -2949,6 +3097,7 @@ def run_loopback_registry_contract(
         raise ValueError(
             f"loopback contract requires crane v0.20.3, got {crane_version.stdout.strip()}"
         )
+    loopback_buildx = _resolve_loopback_buildx()
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
@@ -3144,7 +3293,6 @@ def run_loopback_registry_contract(
                 )
                 source_files.append(source)
             index_arguments = [
-                "buildx",
                 "imagetools",
                 "create",
                 "--tag",
@@ -3160,7 +3308,7 @@ def run_loopback_registry_contract(
                 expected_manifest=None,
                 inventory_digest=None,
                 requested_decision="create",
-                docker_binary=docker_binary,
+                buildx_command=(loopback_buildx,),
                 crane_binary=crane_binary,
                 insecure=True,
                 environment=loopback_environment,
