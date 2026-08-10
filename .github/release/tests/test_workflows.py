@@ -3880,6 +3880,42 @@ def test_task5_public_visibility_and_release_order_are_fail_closed() -> None:
     patch_index = release_text.index("gh api --method PATCH")
     assert release_text.index("release verify-assets") < patch_index
     assert release_text.index("release plan-state", patch_index) > patch_index
+    authenticated_list_index = release_text.index(
+        ">out/authenticated-assets-pages.json"
+    )
+    assert patch_index < authenticated_list_index
+    assert authenticated_list_index < release_text.index(
+        "release refresh-assets --input out/refresh-authenticated-assets-request.json"
+    )
+    assert release_text.index(
+        "release refresh-assets --input out/refresh-authenticated-assets-request.json"
+    ) < release_text.index(
+        "release verify-assets --input out/verify-authenticated-assets-request.json"
+    )
+    request_lines = {
+        line.strip().split('open("', 1)[1].split('"', 1)[0]: line
+        for line in release_text.splitlines()
+        if "json.dump(" in line and 'open("out/' in line
+    }
+    for request_name in (
+        "out/initial-download-request.json",
+        "out/asset-plan-request.json",
+        "out/upload-prefix-request.json",
+        "out/upload-response-request.json",
+        "out/final-download-request.json",
+        "out/verify-prepublish-assets-request.json",
+        "out/refresh-assets-request.json",
+        "out/refresh-authenticated-assets-request.json",
+        "out/verify-authenticated-assets-request.json",
+    ):
+        request_line = request_lines[request_name]
+        assert '"release"' in request_line
+        assert '"source_sha"' in request_line
+    for request_name in (
+        "out/refresh-assets-request.json",
+        "out/refresh-authenticated-assets-request.json",
+    ):
+        assert '"prior_release"' in request_lines[request_name]
     for fragment in (
         "release assets-manifest",
         "release plan-state",
@@ -3909,6 +3945,14 @@ def test_task5_public_visibility_and_release_order_are_fail_closed() -> None:
     assert "environment" not in public_job
     assert "GH_TOKEN" not in "\n".join(_strings(public_job))
     assert "release publication-evidence" in "\n".join(_strings(public_job))
+    public_text = "\n".join(_strings(public_job))
+    anonymous_request_line = next(
+        line
+        for line in public_text.splitlines()
+        if 'open("out/anonymous-download-request.json"' in line
+    )
+    assert '"release"' in anonymous_request_line
+    assert '"source_sha"' in anonymous_request_line
 
 
 def test_task5_run_bound_artifact_identity_rejects_cross_attempt_reuse() -> None:
@@ -4007,13 +4051,22 @@ def test_task5_release_state_is_create_or_exact_idempotent_reuse() -> None:
         "upload_url": "https://uploads.github.com/repos/SuperMarioYL/unified-cache-management/releases/41/assets{?name,label}",
         "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/releases/41",
         "assets_url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/releases/41/assets",
+        "html_url": (
+            "https://github.com/SuperMarioYL/unified-cache-management/"
+            "releases/tag/untagged-a2d19fd21f8e2f4f9847"
+        ),
     }
     created = verify_module.plan_github_release(remote, source_sha, just_created=True)
     assert created["decision"] == "reuse-draft"
     assert created["asset_count"] == 0
+    assert created["asset_download_slug"] == "untagged-a2d19fd21f8e2f4f9847"
 
     published = copy.deepcopy(remote)
     published["draft"] = False
+    published["html_url"] = (
+        "https://github.com/SuperMarioYL/unified-cache-management/"
+        "releases/tag/v0.5.0rc1"
+    )
     assert verify_module.plan_github_release(published, source_sha)["decision"] == (
         "inspect-published-prerelease"
     )
@@ -4062,6 +4115,30 @@ def test_task5_release_state_is_create_or_exact_idempotent_reuse() -> None:
     foreign_author["author"] = {"login": "attacker[bot]", "type": "Bot"}
     with pytest.raises(ValueError, match="author"):
         verify_module.plan_github_release(foreign_author, source_sha)
+
+    for bad_html_url in (
+        "http://github.com/SuperMarioYL/unified-cache-management/releases/tag/untagged-a2d19fd21f8e2f4f9847",
+        "https://example.invalid/SuperMarioYL/unified-cache-management/releases/tag/untagged-a2d19fd21f8e2f4f9847",
+        "https://github.com/SuperMarioYL/unified-cache-management/releases/tag/untagged-a2d19fd21f8e2f4f9847?foreign=1",
+        "https://github.com/SuperMarioYL/unified-cache-management/releases/tag/untagged-a2d19fd21f8e2f4f9847#foreign",
+        "https://github.com/SuperMarioYL/unified-cache-management/releases/tag/untagged-a2d19fd21f8e2f4f9847/foreign",
+        "https://github.com/SuperMarioYL/unified-cache-management/releases/tag/v0.5.0rc1",
+    ):
+        with pytest.raises(ValueError, match="HTML transport"):
+            verify_module.plan_github_release(
+                {**remote, "html_url": bad_html_url}, source_sha
+            )
+    with pytest.raises(ValueError, match="HTML transport"):
+        verify_module.plan_github_release(
+            {
+                **published,
+                "html_url": (
+                    "https://github.com/SuperMarioYL/unified-cache-management/"
+                    "releases/tag/untagged-a2d19fd21f8e2f4f9847"
+                ),
+            },
+            source_sha,
+        )
 
 
 def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
@@ -4160,6 +4237,28 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
     assert plan["reuse_names"] == [expected["assets"][0]["name"]]
     assert len(plan["upload_names"]) == 6
 
+    draft_slug = "untagged-a2d19fd21f8e2f4f9847"
+    draft_reused = copy.deepcopy(reused)
+    draft_reused[0]["browser_download_url"] = draft_reused[0][
+        "browser_download_url"
+    ].replace("v0.5.0rc1", draft_slug)
+    draft_plan = verify_module.plan_release_assets(
+        expected,
+        draft_reused,
+        release_id=41,
+        allowed_root=asset_root,
+        asset_download_slug=draft_slug,
+    )
+    assert draft_plan["reuse_names"] == [expected["assets"][0]["name"]]
+    with pytest.raises(ValueError, match="transport"):
+        verify_module.plan_release_assets(
+            expected,
+            draft_reused,
+            release_id=41,
+            allowed_root=asset_root,
+            asset_download_slug="untagged-00000000000000000000",
+        )
+
     conflict = copy.deepcopy(reused)
     conflict[0]["download_sha256"] = "sha256:" + "e" * 64
     with pytest.raises(ValueError, match="conflict"):
@@ -4197,6 +4296,30 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
         }
         for item in reversed(full)
     ]
+    draft_raw_assets = copy.deepcopy(raw_assets[:1])
+    draft_raw_assets[0]["browser_download_url"] = draft_raw_assets[0][
+        "browser_download_url"
+    ].replace("v0.5.0rc1", draft_slug)
+    draft_download_plan = verify_module.plan_release_asset_downloads(
+        expected,
+        draft_raw_assets,
+        release_id=41,
+        allowed_root=asset_root,
+        require_complete=False,
+        asset_download_slug=draft_slug,
+    )
+    assert draft_download_plan["asset_download_slug"] == draft_slug
+    assert (
+        verify_module.record_release_upload_response(
+            expected,
+            draft_raw_assets[0],
+            expected_name=draft_raw_assets[0]["name"],
+            release_id=41,
+            allowed_root=asset_root,
+            asset_download_slug=draft_slug,
+        )["asset_download_slug"]
+        == draft_slug
+    )
     download_plan = verify_module.plan_release_asset_downloads(
         expected,
         [raw_assets[:2], raw_assets[2:]],
@@ -4235,6 +4358,65 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
         )
         == full
     )
+    draft_full = copy.deepcopy(full)
+    for item in draft_full:
+        item["browser_download_url"] = item["browser_download_url"].replace(
+            "v0.5.0rc1", draft_slug
+        )
+    assert (
+        verify_module.refresh_release_asset_metadata(
+            expected,
+            draft_full,
+            list(reversed(raw_assets)),
+            release_id=41,
+            allowed_root=asset_root,
+            prior_asset_download_slug=draft_slug,
+            asset_download_slug="v0.5.0rc1",
+        )
+        == full
+    )
+    with pytest.raises(ValueError, match="phase transition"):
+        verify_module.refresh_release_asset_metadata(
+            expected,
+            draft_full,
+            list(reversed(raw_assets)),
+            release_id=41,
+            allowed_root=asset_root,
+            prior_asset_download_slug=draft_slug,
+            asset_download_slug="untagged-00000000000000000000",
+        )
+    for field, bad in (
+        ("id", 999),
+        ("name", "foreign.whl"),
+        ("size", 999),
+        ("digest", "sha256:" + "c" * 64),
+        ("url", "https://api.github.com/foreign"),
+        ("uploader", {"login": "attacker", "type": "User"}),
+    ):
+        changed = copy.deepcopy(raw_assets)
+        changed[0][field] = bad
+        with pytest.raises(ValueError, match="asset|metadata|foreign|conflict"):
+            verify_module.refresh_release_asset_metadata(
+                expected,
+                draft_full,
+                changed,
+                release_id=41,
+                allowed_root=asset_root,
+                prior_asset_download_slug=draft_slug,
+                asset_download_slug="v0.5.0rc1",
+            )
+    changed_prior = copy.deepcopy(draft_full)
+    changed_prior[0]["download_sha256"] = "sha256:" + "f" * 64
+    with pytest.raises(ValueError, match="asset|conflict"):
+        verify_module.refresh_release_asset_metadata(
+            expected,
+            changed_prior,
+            list(reversed(raw_assets)),
+            release_id=41,
+            allowed_root=asset_root,
+            prior_asset_download_slug=draft_slug,
+            asset_download_slug="v0.5.0rc1",
+        )
     drifted_raw = copy.deepcopy(raw_assets)
     drifted_raw[0]["digest"] = "sha256:" + "c" * 64
     with pytest.raises(ValueError, match="asset|metadata|conflict"):
@@ -4554,7 +4736,12 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
         "upload_url": "https://uploads.github.com/repos/SuperMarioYL/unified-cache-management/releases/41/assets{?name,label}",
         "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/releases/41",
         "assets_url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/releases/41/assets",
+        "html_url": (
+            "https://github.com/SuperMarioYL/unified-cache-management/"
+            "releases/tag/v0.5.0rc1"
+        ),
     }
+    draft_slug = "untagged-a2d19fd21f8e2f4f9847"
 
     def remote(asset: dict[str, object], asset_id: int) -> dict[str, object]:
         return {
@@ -4578,6 +4765,11 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
         }
 
     remote_assets = [remote(asset, 600 + index) for index, asset in enumerate(assets)]
+    draft_remote_assets = copy.deepcopy(remote_assets)
+    for item in draft_remote_assets:
+        item["browser_download_url"] = item["browser_download_url"].replace(
+            "v0.5.0rc1", draft_slug
+        )
     if release_branch == "published":
         prepare_release = copy.deepcopy(published_release)
         initial_release = copy.deepcopy(published_release)
@@ -4591,6 +4783,10 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
             **copy.deepcopy(published_release),
             "draft": True,
             "assets": [],
+            "html_url": (
+                "https://github.com/SuperMarioYL/unified-cache-management/"
+                f"releases/tag/{draft_slug}"
+            ),
         }
         initial_release = copy.deepcopy(prepare_release)
         initial_assets = []
@@ -4598,28 +4794,42 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
         prepublish_release = {
             **copy.deepcopy(published_release),
             "draft": True,
+            "html_url": (
+                "https://github.com/SuperMarioYL/unified-cache-management/"
+                f"releases/tag/{draft_slug}"
+            ),
         }
     else:
         prepare_release = {
             **copy.deepcopy(published_release),
             "draft": True,
             "assets": copy.deepcopy(published_release["assets"][:3]),
+            "html_url": (
+                "https://github.com/SuperMarioYL/unified-cache-management/"
+                f"releases/tag/{draft_slug}"
+            ),
         }
         initial_release = copy.deepcopy(prepare_release)
-        initial_assets = copy.deepcopy(remote_assets[:3])
+        initial_assets = copy.deepcopy(draft_remote_assets[:3])
         prepare_initial_plan = verify_module.plan_github_release(
             prepare_release, source_sha
         )
         prepublish_release = {
             **copy.deepcopy(published_release),
             "draft": True,
+            "html_url": (
+                "https://github.com/SuperMarioYL/unified-cache-management/"
+                f"releases/tag/{draft_slug}"
+            ),
         }
+    initial_state = verify_module.plan_github_release(initial_release, source_sha)
     initial_asset_plan = verify_module.plan_release_assets(
         asset_manifest,
         initial_assets,
         release_id=41,
         allowed_root=asset_root,
         release_published=release_branch == "published",
+        asset_download_slug=initial_state["asset_download_slug"],
     )
 
     def raw_asset(item: dict[str, object]) -> dict[str, object]:
@@ -4634,7 +4844,10 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
             "uploader": copy.deepcopy(item["uploader"]),
         }
 
-    final_by_name = {item["name"]: item for item in remote_assets}
+    upload_assets = (
+        remote_assets if release_branch == "published" else draft_remote_assets
+    )
+    final_by_name = {item["name"]: item for item in upload_assets}
     current_assets = copy.deepcopy(initial_assets)
     uploaded_raw: list[dict[str, object]] = []
     upload_transcript: list[dict[str, object]] = []
@@ -4652,6 +4865,7 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
             next_name=name,
             release_id=41,
             allowed_root=asset_root,
+            asset_download_slug=initial_state["asset_download_slug"],
         )
         raw_response = raw_asset(final_by_name[name])
         response = verify_module.record_release_upload_response(
@@ -4660,6 +4874,7 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
             expected_name=name,
             release_id=41,
             allowed_root=asset_root,
+            asset_download_slug=initial_state["asset_download_slug"],
         )
         upload_transcript.append(
             {
@@ -4690,6 +4905,20 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
             }
         )
         forged_transcripts.append(forged_response)
+        forged_final_browser = copy.deepcopy(upload_transcript)
+        forged_final_browser[-1]["response"]["asset"][
+            "browser_download_url"
+        ] = "https://example.invalid/forged-final-asset"
+        forged_final_browser[-1]["response"]["response_sha256"] = (
+            verify_module.sha256_value(
+                {
+                    key: value
+                    for key, value in forged_final_browser[-1]["response"].items()
+                    if key != "response_sha256"
+                }
+            )
+        )
+        forged_transcripts.append(forged_final_browser)
     else:
         forged_transcripts = [[{}]]
     for forged_transcript in forged_transcripts:
@@ -4854,6 +5083,12 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
                 "authenticated": True,
             },
             {
+                "type": "github-release-assets-list",
+                "capability": "read",
+                "reference": api_root + "/releases/41/assets",
+                "authenticated": True,
+            },
+            {
                 "type": "github-release-tag-read",
                 "capability": "read",
                 "reference": api_root + "/releases/tags/v0.5.0rc1",
@@ -4878,6 +5113,9 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
             for item in remote_assets
         ]
     )
+    prepublish_assets = (
+        remote_assets if release_branch == "published" else draft_remote_assets
+    )
     evidence = verify_module.github_release_publication_evidence(
         protected_registry=protected,
         asset_manifest=asset_manifest,
@@ -4889,7 +5127,7 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
         initial_asset_plan=initial_asset_plan,
         upload_transcript=upload_transcript,
         prepublish_release=prepublish_release,
-        prepublish_assets=remote_assets,
+        prepublish_assets=prepublish_assets,
         authenticated_release=published_release,
         authenticated_assets=remote_assets,
         anonymous_release=copy.deepcopy(published_release),
@@ -4916,7 +5154,7 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
             initial_asset_plan=initial_asset_plan,
             upload_transcript=upload_transcript,
             prepublish_release=prepublish_release,
-            prepublish_assets=remote_assets,
+            prepublish_assets=prepublish_assets,
             authenticated_release=published_release,
             authenticated_assets=remote_assets,
             anonymous_release=published_release,
@@ -4961,7 +5199,7 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
             initial_asset_plan=initial_asset_plan,
             upload_transcript=upload_transcript,
             prepublish_release=prepublish_release,
-            prepublish_assets=remote_assets,
+            prepublish_assets=prepublish_assets,
             authenticated_release=published_release,
             authenticated_assets=remote_assets,
             anonymous_release=published_release,

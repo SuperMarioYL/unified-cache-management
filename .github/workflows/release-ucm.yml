@@ -538,7 +538,7 @@ jobs:
           PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/live-state-request.json --output out/live-state-plan.json >/dev/null
           test "$(python -c 'import json; print(json.load(open("out/live-state-plan.json"))["release_id"])')" = "${RELEASE_ID}"
           gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}/assets?per_page=100" >out/assets-pages.json
-          python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","raw_assets":"out/assets-pages.json","release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets","require_complete":False},open("out/initial-download-request.json","w"),sort_keys=True,separators=(",",":"))'
+          python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","raw_assets":"out/assets-pages.json","release":"out/live-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets","require_complete":False},open("out/initial-download-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release plan-downloads --input out/initial-download-request.json --output out/initial-download-plan.json >/dev/null
           while IFS=$'\t' read -r asset_id name; do
             gh api -H 'Accept: application/octet-stream' -H 'X-GitHub-Api-Version: 2022-11-28' \
@@ -547,7 +547,7 @@ jobs:
           printf '%s\n' '{"download_plan":"out/initial-download-plan.json","download_root":"out/downloads"}' >out/complete-initial-request.json
           PYTHONPATH=.github/release python -m ucm_release release complete-downloads --input out/complete-initial-request.json --output out/observed-assets.json >/dev/null
           published="$(python -c 'import json; print(str(not json.load(open("out/live-release.json"))["draft"]).lower())')"
-          PUBLISHED="${published}" python -c 'import json,os; p={"manifest":"out/state/assets-manifest.json","observed_assets":"out/observed-assets.json","release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets","release_published":os.environ["PUBLISHED"]=="true"}; json.dump(p,open("out/asset-plan-request.json","w"),sort_keys=True,separators=(",",":"))'
+          PUBLISHED="${published}" python -c 'import json,os; p={"manifest":"out/state/assets-manifest.json","observed_assets":"out/observed-assets.json","release":"out/live-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets","release_published":os.environ["PUBLISHED"]=="true"}; json.dump(p,open("out/asset-plan-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release plan-assets --input out/asset-plan-request.json --output out/asset-plan.json >/dev/null
           cp input/draft/initial-plan.json out/state/prepare-initial-plan.json
           cp input/draft/observed-release.json out/state/prepare-release.json
@@ -567,12 +567,12 @@ jobs:
               PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/preupload-state-request.json --output out/preupload-plan.json >/dev/null
               test "$(python -c 'import json; print(json.load(open("out/preupload-plan.json"))["decision"])')" = resume-draft
               gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}/assets?per_page=100" >out/preupload-assets-pages.json
-              NEXT_NAME="${name}" python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","initial_asset_plan":"out/asset-plan.json","uploaded_assets":"out/uploaded-assets.json","current_assets":"out/preupload-assets-pages.json","allowed_root":"out/state/release-assets","next_name":os.environ["NEXT_NAME"],"release_id":int(os.environ["RELEASE_ID"])},open("out/upload-prefix-request.json","w"),sort_keys=True,separators=(",",":"))'
+              NEXT_NAME="${name}" python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","initial_asset_plan":"out/asset-plan.json","uploaded_assets":"out/uploaded-assets.json","current_assets":"out/preupload-assets-pages.json","release":"out/preupload-release.json","source_sha":os.environ["SOURCE_SHA"],"allowed_root":"out/state/release-assets","next_name":os.environ["NEXT_NAME"],"release_id":int(os.environ["RELEASE_ID"])},open("out/upload-prefix-request.json","w"),sort_keys=True,separators=(",",":"))'
               PYTHONPATH=.github/release python -m ucm_release release verify-upload-prefix --input out/upload-prefix-request.json --output out/upload-prefix.json >/dev/null
               path="out/state/release-assets/${name}"
               encoded="$(python -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1],safe=""))' "${name}")"
               gh api --method POST -H 'Accept: application/vnd.github+json' -H 'Content-Type: application/octet-stream' -H 'X-GitHub-Api-Version: 2022-11-28' --input "${path}" "https://uploads.github.com/repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}/assets?name=${encoded}" >out/upload-response.json
-              NEXT_NAME="${name}" python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","raw_response":"out/upload-response.json","expected_name":os.environ["NEXT_NAME"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets"},open("out/upload-response-request.json","w"),sort_keys=True,separators=(",",":"))'
+              NEXT_NAME="${name}" python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","raw_response":"out/upload-response.json","release":"out/preupload-release.json","source_sha":os.environ["SOURCE_SHA"],"expected_name":os.environ["NEXT_NAME"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets"},open("out/upload-response-request.json","w"),sort_keys=True,separators=(",",":"))'
               PYTHONPATH=.github/release python -m ucm_release release record-upload-response --input out/upload-response-request.json --output out/upload-record.json >/dev/null
               NEXT_NAME="${name}" python -c 'import json,os; p=json.load(open("out/state/upload-transcript.json")); p.append({"ordinal":len(p),"name":os.environ["NEXT_NAME"],"release":json.load(open("out/preupload-release.json")),"prefix":json.load(open("out/upload-prefix.json")),"response":json.load(open("out/upload-record.json"))}); json.dump(p,open("out/state/upload-transcript.json","w"),sort_keys=True,separators=(",",":"))'
               python -c 'import json; p=json.load(open("out/uploaded-assets.json")); p.append(json.load(open("out/upload-response.json"))); json.dump(p,open("out/uploaded-assets.json","w"),sort_keys=True,separators=(",",":"))'
@@ -580,16 +580,16 @@ jobs:
           fi
           gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}/assets?per_page=100" >out/final-assets-pages.json
           rm -rf out/final-downloads && mkdir out/final-downloads
-          python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","raw_assets":"out/final-assets-pages.json","release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets","require_complete":True},open("out/final-download-request.json","w"),sort_keys=True,separators=(",",":"))'
+          python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","raw_assets":"out/final-assets-pages.json","release":"out/live-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets","require_complete":True},open("out/final-download-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release plan-downloads --input out/final-download-request.json --output out/final-download-plan.json >/dev/null
           while IFS=$'\t' read -r asset_id name; do
             gh api -H 'Accept: application/octet-stream' -H 'X-GitHub-Api-Version: 2022-11-28' \
               "repos/SuperMarioYL/unified-cache-management/releases/assets/${asset_id}" >"out/final-downloads/${name}"
           done < <(python -c 'import json; [print("{}\t{}".format(x["asset_id"],x["name"])) for x in json.load(open("out/final-download-plan.json"))["downloads"]]')
           printf '%s\n' '{"download_plan":"out/final-download-plan.json","download_root":"out/final-downloads"}' >out/complete-final-request.json
-          PYTHONPATH=.github/release python -m ucm_release release complete-downloads --input out/complete-final-request.json --output out/state/authenticated-assets.json >/dev/null
-          python -c 'import json,os; p={"manifest":"out/state/assets-manifest.json","observed_assets":"out/state/authenticated-assets.json","release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets"}; json.dump(p,open("out/verify-assets-request.json","w"),sort_keys=True,separators=(",",":"))'
-          PYTHONPATH=.github/release python -m ucm_release release verify-assets --input out/verify-assets-request.json --output out/state/authenticated-verification.json >/dev/null
+          PYTHONPATH=.github/release python -m ucm_release release complete-downloads --input out/complete-final-request.json --output out/prepublish-downloaded-assets.json >/dev/null
+          python -c 'import json,os; p={"manifest":"out/state/assets-manifest.json","observed_assets":"out/prepublish-downloaded-assets.json","release":"out/live-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets"}; json.dump(p,open("out/verify-prepublish-assets-request.json","w"),sort_keys=True,separators=(",",":"))'
+          PYTHONPATH=.github/release python -m ucm_release release verify-assets --input out/verify-prepublish-assets-request.json --output out/state/prepublish-verification.json >/dev/null
           if [[ "${published}" != true ]]; then
             git fetch --no-tags --force origin +refs/tags/v0.5.0rc1:refs/tags/v0.5.0rc1 +refs/heads/develop:refs/remotes/origin/develop
             git diff --quiet HEAD:.github/workflows origin/develop:.github/workflows
@@ -600,7 +600,7 @@ jobs:
             PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/prepublish-state-request.json --output out/prepublish-plan.json >/dev/null
             test "$(python -c 'import json; print(json.load(open("out/prepublish-plan.json"))["decision"])')" = resume-draft
             gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}/assets?per_page=100" >out/prepublish-assets-pages.json
-            python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","prior_assets":"out/state/authenticated-assets.json","raw_assets":"out/prepublish-assets-pages.json","release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets"},open("out/refresh-assets-request.json","w"),sort_keys=True,separators=(",",":"))'
+            python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","prior_assets":"out/prepublish-downloaded-assets.json","raw_assets":"out/prepublish-assets-pages.json","prior_release":"out/live-release.json","release":"out/prepublish-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets"},open("out/refresh-assets-request.json","w"),sort_keys=True,separators=(",",":"))'
             PYTHONPATH=.github/release python -m ucm_release release refresh-assets --input out/refresh-assets-request.json --output out/state/prepublish-assets.json >/dev/null
             cp out/prepublish-release.json out/state/prepublish-release.json
             printf '%s\n' '{"draft":false,"prerelease":true,"make_latest":"false"}' >out/publish-request.json
@@ -608,12 +608,17 @@ jobs:
             gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}" >out/state/authenticated-release.json
           else
             gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}" >out/state/authenticated-release.json
-            cp out/state/authenticated-release.json out/state/prepublish-release.json
-            cp out/state/authenticated-assets.json out/state/prepublish-assets.json
+            cp out/live-release.json out/state/prepublish-release.json
+            cp out/prepublish-downloaded-assets.json out/state/prepublish-assets.json
           fi
           python -c 'import json,os; p={"remote":json.load(open("out/state/authenticated-release.json")),"source_sha":os.environ["SOURCE_SHA"],"just_created":False}; json.dump(p,open("out/final-state-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/final-state-request.json --output out/state/final-state-plan.json >/dev/null
           test "$(python -c 'import json; print(json.load(open("out/state/final-state-plan.json"))["decision"])')" = inspect-published-prerelease
+          gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}/assets?per_page=100" >out/authenticated-assets-pages.json
+          python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","prior_assets":"out/state/prepublish-assets.json","raw_assets":"out/authenticated-assets-pages.json","prior_release":"out/state/prepublish-release.json","release":"out/state/authenticated-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets"},open("out/refresh-authenticated-assets-request.json","w"),sort_keys=True,separators=(",",":"))'
+          PYTHONPATH=.github/release python -m ucm_release release refresh-assets --input out/refresh-authenticated-assets-request.json --output out/state/authenticated-assets.json >/dev/null
+          python -c 'import json,os; p={"manifest":"out/state/assets-manifest.json","observed_assets":"out/state/authenticated-assets.json","release":"out/state/authenticated-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets"}; json.dump(p,open("out/verify-authenticated-assets-request.json","w"),sort_keys=True,separators=(",",":"))'
+          PYTHONPATH=.github/release python -m ucm_release release verify-assets --input out/verify-authenticated-assets-request.json --output out/state/authenticated-verification.json >/dev/null
           cp input/protected/protected-publication.json out/state/protected-publication.json
           cp input/protected/member-collection.json out/state/member-collection.json
           cp input/protected/provisional-collection.json out/state/provisional-collection.json
@@ -663,7 +668,7 @@ jobs:
           curl -fsSL --retry 3 -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "https://api.github.com/repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}/assets?per_page=100" >out/anonymous-assets-raw.json
           printf '%s\n' '{"manifest":"input/state/assets-manifest.json","allowed_root":"input/state/release-assets"}' >out/rebase-request.json
           PYTHONPATH=.github/release python -m ucm_release release rebase-manifest --input out/rebase-request.json --output out/assets-manifest.json >/dev/null
-          python -c 'import json,os; json.dump({"manifest":"out/assets-manifest.json","raw_assets":"out/anonymous-assets-raw.json","release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"input/state/release-assets","require_complete":True},open("out/anonymous-download-request.json","w"),sort_keys=True,separators=(",",":"))'
+          python -c 'import json,os; json.dump({"manifest":"out/assets-manifest.json","raw_assets":"out/anonymous-assets-raw.json","release":"out/anonymous-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"input/state/release-assets","require_complete":True},open("out/anonymous-download-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release plan-downloads --input out/anonymous-download-request.json --output out/anonymous-download-plan.json >/dev/null
           while IFS=$'\t' read -r api_url name; do
             curl -fsSL --retry 3 -H 'Accept: application/octet-stream' -H 'X-GitHub-Api-Version: 2022-11-28' \

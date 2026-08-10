@@ -1181,12 +1181,46 @@ def test_release_cli_reopens_array_output_across_command_boundary(
     )
     assert json.loads(observed_path.read_text(encoding="utf-8")) == []
 
+    authority = release_verify.github_release_authority(source_sha)
+    release_path = tmp_path / "draft-release.json"
+    _write_canonical_json(
+        release_path,
+        {
+            "id": 41,
+            "tag_name": authority["tag_name"],
+            "target_commitish": source_sha,
+            "name": authority["name"],
+            "body": authority["body"],
+            "draft": True,
+            "prerelease": True,
+            "assets": [],
+            "author": {"login": "github-actions[bot]", "type": "Bot"},
+            "upload_url": (
+                "https://uploads.github.com/repos/SuperMarioYL/"
+                "unified-cache-management/releases/41/assets{?name,label}"
+            ),
+            "url": (
+                "https://api.github.com/repos/SuperMarioYL/"
+                "unified-cache-management/releases/41"
+            ),
+            "assets_url": (
+                "https://api.github.com/repos/SuperMarioYL/"
+                "unified-cache-management/releases/41/assets"
+            ),
+            "html_url": (
+                "https://github.com/SuperMarioYL/unified-cache-management/"
+                "releases/tag/untagged-a2d19fd21f8e2f4f9847"
+            ),
+        },
+    )
     plan_request = tmp_path / "plan-request.json"
     _write_canonical_json(
         plan_request,
         {
             "manifest": str(manifest_path),
             "observed_assets": str(observed_path),
+            "release": str(release_path),
+            "source_sha": source_sha,
             "release_id": 41,
             "allowed_root": str(asset_root),
             "release_published": False,
@@ -1202,8 +1236,51 @@ def test_release_cli_reopens_array_output_across_command_boundary(
         str(plan_path),
     )
     planned = json.loads(plan_path.read_text(encoding="utf-8"))
+    assert planned["asset_download_slug"] == "untagged-a2d19fd21f8e2f4f9847"
     assert planned["reuse_names"] == []
     assert planned["upload_names"] == [asset["name"] for asset in assets]
+
+    mismatched_manifest = json.loads(json.dumps(manifest))
+    mismatched_manifest["source_sha"] = "b" * 40
+    mismatched_manifest["assets_sha256"] = release_core.sha256_value(
+        {
+            "schema_version": 1,
+            "kind": mismatched_manifest["kind"],
+            "source_sha": mismatched_manifest["source_sha"],
+            "assets": [
+                {key: value for key, value in asset.items() if key != "path"}
+                for asset in mismatched_manifest["assets"]
+            ],
+        }
+    )
+    mismatched_manifest_path = tmp_path / "mismatched-asset-manifest.json"
+    _write_canonical_json(mismatched_manifest_path, mismatched_manifest)
+    mismatched_request_path = tmp_path / "mismatched-plan-request.json"
+    _write_canonical_json(
+        mismatched_request_path,
+        {
+            "manifest": str(mismatched_manifest_path),
+            "observed_assets": str(observed_path),
+            "release": str(release_path),
+            "source_sha": source_sha,
+            "release_id": 41,
+            "allowed_root": str(asset_root),
+            "release_published": False,
+        },
+    )
+    mismatched_output = tmp_path / "mismatched-asset-plan.json"
+    mismatch = _run(
+        "release",
+        "plan-assets",
+        "--input",
+        str(mismatched_request_path),
+        "--output",
+        str(mismatched_output),
+        check=False,
+    )
+    assert mismatch.returncode == 2
+    assert "source" in mismatch.stderr
+    assert not mismatched_output.exists()
 
 
 def test_schema_validation_is_operational_for_configs_and_manifest(

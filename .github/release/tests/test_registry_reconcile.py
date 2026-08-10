@@ -4649,6 +4649,10 @@ def test_registry_aggregate_keeps_authenticated_and_anonymous_states_distinct(
             "https://api.github.com/repos/SuperMarioYL/"
             "unified-cache-management/releases/41/assets"
         ),
+        "html_url": (
+            "https://github.com/SuperMarioYL/unified-cache-management/"
+            "releases/tag/v0.5.0rc1"
+        ),
     }
     remote_assets = [
         {

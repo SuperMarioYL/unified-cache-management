@@ -230,6 +230,40 @@ def github_release_authority(source_sha: object) -> dict[str, Any]:
     }
 
 
+def _validated_release_asset_download_slug(value: object) -> str:
+    if value == "v0.5.0rc1" or (
+        isinstance(value, str) and re.fullmatch(r"untagged-[0-9a-f]{20}", value)
+    ):
+        return value
+    raise ValueError("GitHub Release asset download slug is invalid")
+
+
+def _github_release_asset_download_slug(html_url: object, *, draft: bool) -> str:
+    """Bind asset URLs to the exact live draft or published Release page."""
+    if not isinstance(html_url, str) or not isinstance(draft, bool):
+        raise ValueError("GitHub release HTML transport identity is malformed")
+    parsed = urllib.parse.urlsplit(html_url)
+    prefix = "/SuperMarioYL/unified-cache-management/releases/tag/"
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc != "github.com"
+        or not parsed.path.startswith(prefix)
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("GitHub release HTML transport identity is malformed")
+    slug = parsed.path.removeprefix(prefix)
+    try:
+        slug = _validated_release_asset_download_slug(slug)
+    except ValueError as error:
+        raise ValueError(
+            "GitHub release HTML transport identity is malformed"
+        ) from error
+    if (draft and slug == "v0.5.0rc1") or (not draft and slug != "v0.5.0rc1"):
+        raise ValueError("GitHub release HTML transport identity is malformed")
+    return slug
+
+
 def plan_github_release(
     remote: object | None,
     source_sha: object,
@@ -250,6 +284,7 @@ def plan_github_release(
             "authority": authority,
             "release_id": None,
             "upload_url": None,
+            "asset_download_slug": None,
             "asset_count": 0,
         }
         return {**payload, "plan_sha256": sha256_value(payload)}
@@ -261,6 +296,7 @@ def plan_github_release(
     api_url = remote.get("url")
     assets_url = remote.get("assets_url")
     author = remote.get("author")
+    draft = remote.get("draft")
     expected_api_url = (
         "https://api.github.com/repos/SuperMarioYL/unified-cache-management/"
         f"releases/{release_id}"
@@ -279,8 +315,12 @@ def plan_github_release(
         or api_url != expected_api_url
         or assets_url != expected_assets_url
         or upload_url != expected_upload_url
+        or not isinstance(draft, bool)
     ):
         raise ValueError("GitHub release transport identity is malformed")
+    asset_download_slug = _github_release_asset_download_slug(
+        remote.get("html_url"), draft=draft
+    )
     if (
         not isinstance(author, dict)
         or author.get("login") != "github-actions[bot]"
@@ -297,9 +337,6 @@ def plan_github_release(
         or remote.get("prerelease") is not True
     ):
         raise ValueError("GitHub release differs from exact protected authority")
-    draft = remote.get("draft")
-    if not isinstance(draft, bool):
-        raise ValueError("GitHub release draft state is malformed")
     if just_created and (not draft or assets):
         raise ValueError("a just-created GitHub release must be an empty draft")
     if just_created:
@@ -316,6 +353,7 @@ def plan_github_release(
         "release_id": release_id,
         "upload_url": expected_upload_url.removesuffix("{?name,label}"),
         "assets_url": expected_assets_url,
+        "asset_download_slug": asset_download_slug,
         "author": author["login"],
         "asset_count": len(assets),
     }
@@ -603,6 +641,7 @@ def _validate_remote_release_asset(
     *,
     expected: dict[str, Any],
     release_id: int,
+    asset_download_slug: object = "v0.5.0rc1",
 ) -> dict[str, Any]:
     required = {
         "release_id",
@@ -639,13 +678,15 @@ def _validate_remote_release_asset(
         or item["download_size"] != expected["size"]
     ):
         raise ValueError(f"GitHub Release asset conflict: {item.get('name')}")
+    asset_download_slug = _validated_release_asset_download_slug(asset_download_slug)
     expected_api_url = (
         "https://api.github.com/repos/SuperMarioYL/unified-cache-management/"
         f"releases/assets/{asset_id}"
     )
     browser = urllib.parse.urlsplit(str(item["browser_download_url"]))
     expected_prefix = (
-        "/SuperMarioYL/unified-cache-management/releases/download/v0.5.0rc1/"
+        "/SuperMarioYL/unified-cache-management/releases/download/"
+        f"{asset_download_slug}/"
     )
     if (
         item["api_url"] != expected_api_url
@@ -676,6 +717,7 @@ def plan_release_assets(
     release_id: int,
     allowed_root: Path,
     release_published: bool = False,
+    asset_download_slug: object = "v0.5.0rc1",
 ) -> dict[str, Any]:
     """Reuse exact bytes, upload only absences, and reject every foreign/conflict."""
     if (
@@ -685,6 +727,7 @@ def plan_release_assets(
         or not isinstance(release_published, bool)
     ):
         raise ValueError("release asset plan identity is invalid")
+    asset_download_slug = _validated_release_asset_download_slug(asset_download_slug)
     manifest = validate_release_asset_manifest(
         expected_manifest, allowed_root=allowed_root
     )
@@ -702,7 +745,10 @@ def plan_release_assets(
         if name in observed:
             raise ValueError(f"duplicate GitHub Release asset: {name}")
         validated = _validate_remote_release_asset(
-            item, expected=expected[name], release_id=release_id
+            item,
+            expected=expected[name],
+            release_id=release_id,
+            asset_download_slug=asset_download_slug,
         )
         if validated["asset_id"] in observed_ids:
             raise ValueError("duplicate GitHub Release asset id")
@@ -720,6 +766,7 @@ def plan_release_assets(
         "asset_count": 7,
         "release_id": release_id,
         "release_published": release_published,
+        "asset_download_slug": asset_download_slug,
         "reuse_names": [name for name in ordered_names if name in observed],
         "reuse_assets": [observed[name] for name in ordered_names if name in observed],
         "upload_names": upload_names,
@@ -733,6 +780,7 @@ def verify_release_assets(
     *,
     release_id: int,
     allowed_root: Path,
+    asset_download_slug: object = "v0.5.0rc1",
 ) -> dict[str, Any]:
     """Require exact seven API records and downloaded byte hashes before publish/reuse."""
     plan = plan_release_assets(
@@ -741,12 +789,14 @@ def verify_release_assets(
         release_id=release_id,
         allowed_root=allowed_root,
         release_published=True,
+        asset_download_slug=asset_download_slug,
     )
     payload = {
         "schema_version": 1,
         "kind": "ucm-github-release-assets-verification",
         "release_id": release_id,
         "assets_sha256": plan["assets_sha256"],
+        "asset_download_slug": plan["asset_download_slug"],
         "verified_names": copy.deepcopy(plan["reuse_names"]),
         "remote_assets_sha256": sha256_value(plan["reuse_assets"]),
     }
@@ -816,10 +866,12 @@ def plan_release_asset_downloads(
     release_id: int,
     allowed_root: Path,
     require_complete: bool,
+    asset_download_slug: object = "v0.5.0rc1",
 ) -> dict[str, Any]:
     """Validate REST metadata before downloading canonical asset names or URLs."""
     if not isinstance(require_complete, bool):
         raise ValueError("release asset download completeness is malformed")
+    asset_download_slug = _validated_release_asset_download_slug(asset_download_slug)
     manifest = validate_release_asset_manifest(
         expected_manifest, allowed_root=allowed_root
     )
@@ -854,7 +906,10 @@ def plan_release_asset_downloads(
             "download_size": expected[name]["size"],
         }
         validated = _validate_remote_release_asset(
-            candidate, expected=expected[name], release_id=release_id
+            candidate,
+            expected=expected[name],
+            release_id=release_id,
+            asset_download_slug=asset_download_slug,
         )
         if validated["asset_id"] in ids:
             raise ValueError("duplicate GitHub Release asset id")
@@ -885,6 +940,7 @@ def plan_release_asset_downloads(
         "kind": "ucm-github-release-asset-download-plan",
         "release_id": release_id,
         "assets_sha256": manifest["assets_sha256"],
+        "asset_download_slug": asset_download_slug,
         "require_complete": require_complete,
         "downloads": downloads,
     }
@@ -903,6 +959,7 @@ def complete_release_asset_downloads(
             "kind",
             "release_id",
             "assets_sha256",
+            "asset_download_slug",
             "require_complete",
             "downloads",
             "plan_sha256",
@@ -968,14 +1025,26 @@ def refresh_release_asset_metadata(
     *,
     release_id: int,
     allowed_root: Path,
+    prior_asset_download_slug: object = "v0.5.0rc1",
+    asset_download_slug: object = "v0.5.0rc1",
 ) -> list[dict[str, Any]]:
     """Bind a fresh metadata listing to the previously rehashed exact bytes."""
+    prior_asset_download_slug = _validated_release_asset_download_slug(
+        prior_asset_download_slug
+    )
+    asset_download_slug = _validated_release_asset_download_slug(asset_download_slug)
+    if prior_asset_download_slug != asset_download_slug and not (
+        prior_asset_download_slug.startswith("untagged-")
+        and asset_download_slug == "v0.5.0rc1"
+    ):
+        raise ValueError("GitHub Release asset metadata phase transition is invalid")
     prior = plan_release_assets(
         expected_manifest,
         prior_assets,
         release_id=release_id,
         allowed_root=allowed_root,
         release_published=True,
+        asset_download_slug=prior_asset_download_slug,
     )["reuse_assets"]
     plan = plan_release_asset_downloads(
         expected_manifest,
@@ -983,6 +1052,7 @@ def refresh_release_asset_metadata(
         release_id=release_id,
         allowed_root=allowed_root,
         require_complete=True,
+        asset_download_slug=asset_download_slug,
     )
     prior_by_id = {item["asset_id"]: item for item in prior}
     refreshed: list[dict[str, Any]] = []
@@ -1001,7 +1071,21 @@ def refresh_release_asset_metadata(
             "download_sha256": item["expected_sha256"],
             "download_size": item["expected_size"],
         }
-        if expected != candidate:
+        stable_expected = (
+            {
+                key: value
+                for key, value in expected.items()
+                if key != "browser_download_url"
+            }
+            if isinstance(expected, dict)
+            else None
+        )
+        stable_candidate = {
+            key: value
+            for key, value in candidate.items()
+            if key != "browser_download_url"
+        }
+        if stable_expected != stable_candidate:
             raise ValueError("prepublish GitHub Release asset metadata changed")
         refreshed.append(candidate)
     return refreshed
@@ -1031,12 +1115,15 @@ def verify_release_upload_prefix(
     next_name: object,
     release_id: int,
     allowed_root: Path,
+    asset_download_slug: object = "v0.5.0rc1",
 ) -> dict[str, Any]:
     """Fail closed if the live draft changes between planning and each upload."""
+    asset_download_slug = _validated_release_asset_download_slug(asset_download_slug)
     if (
         not isinstance(initial_asset_plan, dict)
         or initial_asset_plan.get("kind") != "ucm-github-release-asset-plan"
         or initial_asset_plan.get("release_id") != release_id
+        or initial_asset_plan.get("asset_download_slug") != asset_download_slug
         or initial_asset_plan.get("plan_sha256")
         != sha256_value(
             {
@@ -1058,6 +1145,7 @@ def verify_release_upload_prefix(
         release_id=release_id,
         allowed_root=allowed_root,
         require_complete=False,
+        asset_download_slug=asset_download_slug,
     )
     uploaded_names = [item["name"] for item in uploaded_plan["downloads"]]
     expected_uploads = initial_asset_plan["upload_names"]
@@ -1073,6 +1161,7 @@ def verify_release_upload_prefix(
         release_id=release_id,
         allowed_root=allowed_root,
         require_complete=False,
+        asset_download_slug=asset_download_slug,
     )
     current_names = [item["name"] for item in current_plan["downloads"]]
     expected_current_names = [
@@ -1122,6 +1211,7 @@ def verify_release_upload_prefix(
         "schema_version": 1,
         "kind": "ucm-github-release-upload-prefix",
         "release_id": release_id,
+        "asset_download_slug": asset_download_slug,
         "next_name": next_name,
         "completed_upload_names": uploaded_names,
         "current_asset_ids": [item["asset_id"] for item in current_plan["downloads"]],
@@ -1137,6 +1227,7 @@ def record_release_upload_response(
     expected_name: object,
     release_id: int,
     allowed_root: Path,
+    asset_download_slug: object = "v0.5.0rc1",
 ) -> dict[str, Any]:
     """Canonicalize one successful upload response before the next mutation."""
     if not isinstance(raw_response, dict) or not isinstance(expected_name, str):
@@ -1147,6 +1238,7 @@ def record_release_upload_response(
         release_id=release_id,
         allowed_root=allowed_root,
         require_complete=False,
+        asset_download_slug=asset_download_slug,
     )
     if len(plan["downloads"]) != 1 or plan["downloads"][0]["name"] != expected_name:
         raise ValueError("GitHub Release upload response differs from requested name")
@@ -1154,6 +1246,7 @@ def record_release_upload_response(
         "schema_version": 1,
         "kind": "ucm-github-release-upload-response",
         "release_id": release_id,
+        "asset_download_slug": plan["asset_download_slug"],
         "name": expected_name,
         "asset": copy.deepcopy(plan["downloads"][0]),
     }
@@ -1178,6 +1271,7 @@ def validate_release_upload_transcript(
         not isinstance(initial_asset_plan, dict)
         or initial_asset_plan.get("kind") != "ucm-github-release-asset-plan"
         or initial_asset_plan.get("release_id") != release_id
+        or not isinstance(initial_asset_plan.get("asset_download_slug"), str)
         or initial_asset_plan.get("plan_sha256")
         != sha256_value(
             {
@@ -1231,6 +1325,8 @@ def validate_release_upload_transcript(
         if (
             release_plan["decision"] != "resume-draft"
             or release_plan["release_id"] != release_id
+            or release_plan["asset_download_slug"]
+            != initial_asset_plan["asset_download_slug"]
         ):
             raise ValueError("GitHub Release changed before an asset upload")
         prefix = entry["prefix"]
@@ -1241,6 +1337,7 @@ def validate_release_upload_transcript(
                 "schema_version",
                 "kind",
                 "release_id",
+                "asset_download_slug",
                 "next_name",
                 "completed_upload_names",
                 "current_asset_ids",
@@ -1255,6 +1352,8 @@ def validate_release_upload_transcript(
                 {key: value for key, value in prefix.items() if key != "prefix_sha256"}
             )
             or prefix.get("release_id") != release_id
+            or prefix.get("asset_download_slug")
+            != initial_asset_plan["asset_download_slug"]
             or prefix.get("next_name") != expected_name
             or prefix.get("completed_upload_names") != upload_names[:ordinal]
         ):
@@ -1295,6 +1394,7 @@ def validate_release_upload_transcript(
                 "schema_version",
                 "kind",
                 "release_id",
+                "asset_download_slug",
                 "name",
                 "asset",
                 "response_sha256",
@@ -1303,6 +1403,8 @@ def validate_release_upload_transcript(
             or isinstance(response.get("schema_version"), bool)
             or response.get("kind") != "ucm-github-release-upload-response"
             or response.get("release_id") != release_id
+            or response.get("asset_download_slug")
+            != initial_asset_plan["asset_download_slug"]
             or response.get("name") != expected_name
             or response.get("response_sha256")
             != sha256_value(
@@ -1316,19 +1418,33 @@ def validate_release_upload_transcript(
         ):
             raise ValueError("GitHub Release upload response evidence is invalid")
         asset = response["asset"]
+        expected_asset = expected_by_name.get(expected_name)
+        if expected_asset is None:
+            raise ValueError("GitHub Release upload response name is invalid")
+        validated_asset = _validate_remote_release_asset(
+            {
+                "release_id": asset.get("release_id"),
+                "asset_id": asset.get("asset_id"),
+                "name": asset.get("name"),
+                "size": asset.get("size"),
+                "state": asset.get("state"),
+                "digest": asset.get("digest"),
+                "api_url": asset.get("api_url"),
+                "browser_download_url": asset.get("browser_download_url"),
+                "uploader": copy.deepcopy(asset.get("uploader")),
+                "download_sha256": asset.get("expected_sha256"),
+                "download_size": asset.get("expected_size"),
+            },
+            expected=expected_asset,
+            release_id=release_id,
+            asset_download_slug=initial_asset_plan["asset_download_slug"],
+        )
         if (
             asset.get("name") != expected_name
             or asset.get("asset_id") in uploaded_ids
             or asset.get("asset_id")
             in {item["asset_id"] for item in current_by_name.values()}
-            or as_transport(
-                {
-                    **asset,
-                    "download_sha256": asset.get("expected_sha256"),
-                    "download_size": asset.get("expected_size"),
-                }
-            )
-            != asset
+            or as_transport(validated_asset) != asset
         ):
             raise ValueError("GitHub Release upload response asset is invalid")
         uploaded_ids.add(asset["asset_id"])
@@ -1514,6 +1630,12 @@ def build_github_release_operation_ledger(
                 "type": "github-release-read",
                 "capability": "read",
                 "reference": release_url,
+                "authenticated": True,
+            },
+            {
+                "type": "github-release-assets-list",
+                "capability": "read",
+                "reference": assets_url,
                 "authenticated": True,
             },
             {
@@ -1747,6 +1869,7 @@ def github_release_publication_evidence(
     initial_state = plan_github_release(initial_release, source_sha)
     if (
         prepared_state["release_id"] != initial_state["release_id"]
+        or prepared_state["asset_download_slug"] != initial_state["asset_download_slug"]
         or (
             branch in {"create", "resume-draft"}
             and initial_state["decision"] != "resume-draft"
@@ -1764,6 +1887,7 @@ def github_release_publication_evidence(
         release_id=release_id,
         allowed_root=allowed_root,
         release_published=initial_state["decision"] == "inspect-published-prerelease",
+        asset_download_slug=initial_state["asset_download_slug"],
     )
     if initial_asset_plan != expected_initial_asset_plan:
         raise ValueError("initial GitHub Release asset plan does not reopen")
@@ -1786,6 +1910,8 @@ def github_release_publication_evidence(
     prepublish_plan = plan_github_release(prepublish_release, source_sha)
     if (
         prepublish_plan["release_id"] != release_id
+        or prepublish_plan["asset_download_slug"]
+        != initial_state["asset_download_slug"]
         or (
             initial_state["decision"] == "resume-draft"
             and prepublish_plan["decision"] != "resume-draft"
@@ -1802,6 +1928,7 @@ def github_release_publication_evidence(
         release_id=release_id,
         allowed_root=allowed_root,
         release_published=True,
+        asset_download_slug=prepublish_plan["asset_download_slug"],
     )
     auth_plan = plan_github_release(authenticated_release, source_sha)
     anon_plan = plan_github_release(anonymous_release, source_sha)
@@ -1818,12 +1945,14 @@ def github_release_publication_evidence(
         authenticated_assets,
         release_id=release_id,
         allowed_root=allowed_root,
+        asset_download_slug=auth_plan["asset_download_slug"],
     )
     anon_verification = verify_release_assets(
         manifest,
         anonymous_assets,
         release_id=release_id,
         allowed_root=allowed_root,
+        asset_download_slug=anon_plan["asset_download_slug"],
     )
     auth_assets = plan_release_assets(
         manifest,
@@ -1831,6 +1960,7 @@ def github_release_publication_evidence(
         release_id=release_id,
         allowed_root=allowed_root,
         release_published=True,
+        asset_download_slug=auth_plan["asset_download_slug"],
     )["reuse_assets"]
     anon_assets = plan_release_assets(
         manifest,
@@ -1838,12 +1968,26 @@ def github_release_publication_evidence(
         release_id=release_id,
         allowed_root=allowed_root,
         release_published=True,
+        asset_download_slug=anon_plan["asset_download_slug"],
     )["reuse_assets"]
     if auth_assets != anon_assets:
         raise ValueError(
             "anonymous GitHub Release assets differ from authenticated state"
         )
-    if prepublish_assets_plan["reuse_assets"] != auth_assets:
+
+    def stable_asset_transport(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [
+            {
+                key: copy.deepcopy(value)
+                for key, value in item.items()
+                if key != "browser_download_url"
+            }
+            for item in items
+        ]
+
+    if stable_asset_transport(prepublish_assets_plan["reuse_assets"]) != (
+        stable_asset_transport(auth_assets)
+    ):
         raise ValueError("prepublish GitHub Release assets differ from rehashed state")
     uploaded_by_name = {
         entry["name"]: entry["response"]["asset"]
@@ -1865,7 +2009,9 @@ def github_release_publication_evidence(
             if final is not None
             else None
         )
-        if uploaded != expected_uploaded:
+        if expected_uploaded is None or stable_asset_transport([uploaded]) != (
+            stable_asset_transport([expected_uploaded])
+        ):
             raise ValueError("uploaded GitHub Release asset changed before publication")
 
     def embedded_ids(remote: object, label: str) -> set[int]:

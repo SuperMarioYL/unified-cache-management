@@ -36,6 +36,39 @@ def _write(path: Path, value: object) -> None:
     path.write_bytes(core.canonical_bytes(value) + b"\n")
 
 
+def _release_asset_manifest(
+    request: dict[str, object], *, manifest_key: str = "manifest"
+) -> dict[str, object]:
+    manifest_path = request.get(manifest_key)
+    allowed_root = request.get("allowed_root")
+    source_sha = request.get("source_sha")
+    if not all(
+        isinstance(value, str) for value in (manifest_path, allowed_root, source_sha)
+    ):
+        raise ValueError("release asset manifest binding is malformed")
+    manifest = verify.validate_release_asset_manifest(
+        core.load_json(Path(manifest_path)), allowed_root=Path(allowed_root)
+    )
+    if manifest["source_sha"] != source_sha:
+        raise ValueError("release asset manifest source differs from live Release")
+    return manifest
+
+
+def _release_asset_state(
+    request: dict[str, object], *, release_key: str = "release"
+) -> dict[str, object]:
+    release_path = request.get(release_key)
+    source_sha = request.get("source_sha")
+    release_id = request.get("release_id")
+    if not isinstance(release_path, str) or not isinstance(source_sha, str):
+        raise ValueError("release asset state binding is malformed")
+    _release_asset_manifest(request)
+    state = verify.plan_github_release(core.load_json(Path(release_path)), source_sha)
+    if state["release_id"] != release_id:
+        raise ValueError("release asset state binding changed release id")
+    return state
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m ucm_release")
     groups = parser.add_subparsers(dest="group", required=True)
@@ -905,20 +938,30 @@ def main(argv: list[str] | None = None) -> int:
             if set(request) != {
                 "manifest",
                 "raw_assets",
+                "release",
+                "source_sha",
                 "release_id",
                 "allowed_root",
                 "require_complete",
             } or any(
                 not isinstance(request[key], str)
-                for key in ("manifest", "raw_assets", "allowed_root")
+                for key in (
+                    "manifest",
+                    "raw_assets",
+                    "release",
+                    "source_sha",
+                    "allowed_root",
+                )
             ):
                 raise ValueError("release plan-downloads input is malformed")
+            release_state = _release_asset_state(request)
             result = verify.plan_release_asset_downloads(
                 core.load_json(Path(request["manifest"])),
                 core.load_json_array(Path(request["raw_assets"])),
                 release_id=request["release_id"],
                 allowed_root=Path(request["allowed_root"]),
                 require_complete=request["require_complete"],
+                asset_download_slug=release_state["asset_download_slug"],
             )
             _write(args.output, result)
         elif (args.group, args.action) == ("release", "complete-downloads"):
@@ -938,19 +981,34 @@ def main(argv: list[str] | None = None) -> int:
                 "manifest",
                 "prior_assets",
                 "raw_assets",
+                "prior_release",
+                "release",
+                "source_sha",
                 "release_id",
                 "allowed_root",
             } or any(
                 not isinstance(request[key], str)
-                for key in ("manifest", "prior_assets", "raw_assets", "allowed_root")
+                for key in (
+                    "manifest",
+                    "prior_assets",
+                    "raw_assets",
+                    "prior_release",
+                    "release",
+                    "source_sha",
+                    "allowed_root",
+                )
             ):
                 raise ValueError("release refresh-assets input is malformed")
+            prior_state = _release_asset_state(request, release_key="prior_release")
+            release_state = _release_asset_state(request)
             result = verify.refresh_release_asset_metadata(
                 core.load_json(Path(request["manifest"])),
                 core.load_json_array(Path(request["prior_assets"])),
                 core.load_json_array(Path(request["raw_assets"])),
                 release_id=request["release_id"],
                 allowed_root=Path(request["allowed_root"]),
+                prior_asset_download_slug=prior_state["asset_download_slug"],
+                asset_download_slug=release_state["asset_download_slug"],
             )
             _write(args.output, result)
         elif (args.group, args.action) == ("release", "verify-upload-prefix"):
@@ -962,10 +1020,19 @@ def main(argv: list[str] | None = None) -> int:
                 "current_assets",
                 "allowed_root",
             }
-            if set(request) != path_keys | {"next_name", "release_id"} or any(
-                not isinstance(request[key], str) for key in path_keys | {"next_name"}
+            if set(request) != path_keys | {
+                "next_name",
+                "release_id",
+                "release",
+                "source_sha",
+            } or any(
+                not isinstance(request[key], str)
+                for key in path_keys | {"next_name", "release", "source_sha"}
             ):
                 raise ValueError("release verify-upload-prefix input is malformed")
+            release_state = _release_asset_state(request)
+            if release_state["decision"] != "resume-draft":
+                raise ValueError("release upload prefix requires a live draft")
             result = verify.verify_release_upload_prefix(
                 core.load_json(Path(request["manifest"])),
                 core.load_json(Path(request["initial_asset_plan"])),
@@ -974,22 +1041,32 @@ def main(argv: list[str] | None = None) -> int:
                 next_name=request["next_name"],
                 release_id=request["release_id"],
                 allowed_root=Path(request["allowed_root"]),
+                asset_download_slug=release_state["asset_download_slug"],
             )
             _write(args.output, result)
         elif (args.group, args.action) == ("release", "record-upload-response"):
             request = core.load_json(args.input)
             path_keys = {"manifest", "raw_response", "allowed_root"}
-            if set(request) != path_keys | {"expected_name", "release_id"} or any(
+            if set(request) != path_keys | {
+                "expected_name",
+                "release_id",
+                "release",
+                "source_sha",
+            } or any(
                 not isinstance(request[key], str)
-                for key in path_keys | {"expected_name"}
+                for key in path_keys | {"expected_name", "release", "source_sha"}
             ):
                 raise ValueError("release record-upload-response input is malformed")
+            release_state = _release_asset_state(request)
+            if release_state["decision"] != "resume-draft":
+                raise ValueError("release upload response requires a live draft")
             result = verify.record_release_upload_response(
                 core.load_json(Path(request["manifest"])),
                 core.load_json(Path(request["raw_response"])),
                 expected_name=request["expected_name"],
                 release_id=request["release_id"],
                 allowed_root=Path(request["allowed_root"]),
+                asset_download_slug=release_state["asset_download_slug"],
             )
             _write(args.output, result)
         elif (args.group, args.action) == ("release", "rebase-manifest"):
@@ -1018,6 +1095,9 @@ def main(argv: list[str] | None = None) -> int:
                 not isinstance(request[key], str) for key in path_keys | {"source_sha"}
             ):
                 raise ValueError("release operation-ledger input is malformed")
+            asset_manifest = _release_asset_manifest(
+                request, manifest_key="asset_manifest"
+            )
             result = verify.build_github_release_operation_ledger(
                 prepare_initial_plan=core.load_json(
                     Path(request["prepare_initial_plan"])
@@ -1028,7 +1108,7 @@ def main(argv: list[str] | None = None) -> int:
                     Path(request["authenticated_assets"])
                 ),
                 upload_transcript=verify.validate_release_upload_transcript(
-                    core.load_json(Path(request["asset_manifest"])),
+                    asset_manifest,
                     core.load_json(Path(request["initial_asset_plan"])),
                     core.load_json_array(Path(request["upload_transcript"])),
                     source_sha=request["source_sha"],
@@ -1048,6 +1128,8 @@ def main(argv: list[str] | None = None) -> int:
             base_keys = {
                 "manifest",
                 "observed_assets",
+                "release",
+                "source_sha",
                 "release_id",
                 "allowed_root",
             }
@@ -1058,14 +1140,26 @@ def main(argv: list[str] | None = None) -> int:
             )
             if set(request) != expected_keys or any(
                 not isinstance(request[key], str)
-                for key in ("manifest", "observed_assets", "allowed_root")
+                for key in (
+                    "manifest",
+                    "observed_assets",
+                    "release",
+                    "source_sha",
+                    "allowed_root",
+                )
             ):
                 raise ValueError(f"release {args.action} input fields are noncanonical")
+            release_state = _release_asset_state(request)
             kwargs = {
                 "release_id": request["release_id"],
                 "allowed_root": Path(request["allowed_root"]),
+                "asset_download_slug": release_state["asset_download_slug"],
             }
             if args.action == "plan-assets":
+                if request["release_published"] != (
+                    release_state["decision"] == "inspect-published-prerelease"
+                ):
+                    raise ValueError("release asset phase differs from live Release")
                 result = verify.plan_release_assets(
                     core.load_json(Path(request["manifest"])),
                     core.load_json_array(Path(request["observed_assets"])),
@@ -1103,9 +1197,12 @@ def main(argv: list[str] | None = None) -> int:
                 not isinstance(request[key], str) for key in path_keys
             ):
                 raise ValueError("release publication-evidence input is malformed")
+            asset_manifest = _release_asset_manifest(
+                request, manifest_key="asset_manifest"
+            )
             result = verify.github_release_publication_evidence(
                 protected_registry=core.load_json(Path(request["protected_registry"])),
-                asset_manifest=core.load_json(Path(request["asset_manifest"])),
+                asset_manifest=asset_manifest,
                 allowed_root=Path(request["allowed_root"]),
                 prepare_initial_plan=core.load_json(
                     Path(request["prepare_initial_plan"])
