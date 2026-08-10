@@ -237,15 +237,16 @@ jobs:
         run: |
           set -euo pipefail
           docker_config="${RUNNER_TEMP}/ucm-index-docker-config"
-          mkdir -p "${RUNNER_TEMP}/crane" "${docker_config}/cli-plugins"
+          buildx_binary="${RUNNER_TEMP}/docker-buildx"
+          mkdir -p "${RUNNER_TEMP}/crane" "${docker_config}" "${HOME}/.docker/cli-plugins"
           curl -fsSL --retry 3 -o "${RUNNER_TEMP}/crane.tar.gz" "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
           echo "${CRANE_LINUX_AMD64_SHA256}  ${RUNNER_TEMP}/crane.tar.gz" | sha256sum --check
           tar -xzf "${RUNNER_TEMP}/crane.tar.gz" -C "${RUNNER_TEMP}/crane" crane
-          curl -fsSL --retry 3 -o "${docker_config}/cli-plugins/docker-buildx" "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-amd64"
-          echo "${BUILDX_LINUX_AMD64_SHA256}  ${docker_config}/cli-plugins/docker-buildx" | sha256sum --check
-          chmod 0755 "${docker_config}/cli-plugins/docker-buildx"
+          curl -fsSL --retry 3 -o "${buildx_binary}" "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-amd64"
+          echo "${BUILDX_LINUX_AMD64_SHA256}  ${buildx_binary}" | sha256sum --check
+          install -m 0755 "${buildx_binary}" "${HOME}/.docker/cli-plugins/docker-buildx"
           test "$("${RUNNER_TEMP}/crane/crane" version)" = "${CRANE_VERSION#v}"
-          test "$(DOCKER_CONFIG="${docker_config}" docker buildx version | awk '{print $2}')" = "${BUILDX_VERSION}"
+          test "$("${HOME}/.docker/cli-plugins/docker-buildx" version | awk '{print $2}')" = "${BUILDX_VERSION}"
           echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
@@ -298,6 +299,7 @@ jobs:
           set -euo pipefail
           crane auth logout ghcr.io || true
           rm -rf "${DOCKER_CONFIG}"
+          rm -f "${HOME}/.docker/cli-plugins/docker-buildx"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ steps.publish.outputs.artifact }}

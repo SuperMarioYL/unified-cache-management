@@ -3771,6 +3771,20 @@ def test_task5_artifacts_are_run_bound_and_barriers_are_transitive() -> None:
         index_steps[index_mutation]["env"]["DOCKER_CONFIG"]
     )
 
+    index_install_index = next(
+        index
+        for index, step in enumerate(index_steps)
+        if step.get("name") == "Install checksum-pinned Registry tools"
+    )
+    index_install = index_steps[index_install_index]
+    index_install_command = str(index_install["run"])
+    fixed_buildx = "${HOME}/.docker/cli-plugins/docker-buildx"
+    assert index_install_index < index_auth
+    assert fixed_buildx in index_install_command
+    assert "${docker_config}/cli-plugins/docker-buildx" not in index_install_command
+    assert f'"{fixed_buildx}" version' in index_install_command
+    assert f'rm -f "{fixed_buildx}"' in str(index_steps[index_cleanup]["run"])
+
     for barrier in (
         feature_jobs["feature-barrier"],
         jobs["member-barrier"],
