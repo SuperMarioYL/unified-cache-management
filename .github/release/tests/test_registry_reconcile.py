@@ -855,12 +855,32 @@ def _publication_members() -> list[dict[str, object]]:
                 "blob_sha256": layer_digest,
             }
         ]
+        member_reference = "ghcr.io/supermarioyl/ucm-release-staging@" + digest
         readback_operations = [
+            {
+                "type": "registry-authenticated-digest-read",
+                "capability": "read",
+                "reference": member_reference,
+            },
             {
                 "type": "registry-authenticated-manifest-read",
                 "capability": "read",
-                "reference": ("ghcr.io/supermarioyl/ucm-release-staging@" + digest),
-            }
+                "reference": member_reference,
+            },
+            {
+                "type": "registry-authenticated-config-blob-read",
+                "capability": "read",
+                "reference": (
+                    "ghcr.io/supermarioyl/ucm-release-staging@" + config_digest
+                ),
+            },
+            {
+                "type": "registry-authenticated-layer-blob-read",
+                "capability": "read",
+                "reference": (
+                    "ghcr.io/supermarioyl/ucm-release-staging@" + layer_digest
+                ),
+            },
         ]
         readback_payload = {
             "schema_version": 1,
@@ -920,7 +940,17 @@ def _publication_members() -> list[dict[str, object]]:
                 "exact_postwrite_readback": True,
                 "external_admin_atomicity": "unavailable",
             },
-            "operations": readback_operations,
+            "operations": [
+                *readback_operations,
+                {
+                    "type": "registry-anonymous-visibility-read",
+                    "capability": "read",
+                    "reference": (
+                        "ghcr.io/supermarioyl/ucm-release-staging:"
+                        f"staging-{build_key.removeprefix('sha256:')}"
+                    ),
+                },
+            ],
         }
         payload["record_sha256"] = core.sha256_value(payload)
         members.append(payload)
@@ -1123,6 +1153,70 @@ def test_feature_and_protected_operation_audits_are_typed_and_allowlisted() -> N
     bad[-1]["reference"] = "ghcr.io/attacker/vllm-openai:latest"
     with pytest.raises(ValueError, match="allowlist"):
         verify.audit_operations(bad, lane="protected-tag")
+
+
+def test_extended_registry_read_operations_audit_exact_roles() -> None:
+    """Config/layer/visibility evidence has exact typed reference contracts."""
+    _, verify = _modules()
+    staging = "ghcr.io/supermarioyl/ucm-release-staging"
+    operations = [
+        {
+            "type": "registry-authenticated-config-blob-read",
+            "capability": "read",
+            "reference": f"{staging}@sha256:{'1' * 64}",
+        },
+        {
+            "type": "registry-authenticated-layer-blob-read",
+            "capability": "read",
+            "reference": f"{staging}@sha256:{'2' * 64}",
+        },
+        {
+            "type": "registry-anonymous-config-blob-read",
+            "capability": "read",
+            "reference": f"{staging}@sha256:{'3' * 64}",
+        },
+        {
+            "type": "registry-anonymous-layer-blob-read",
+            "capability": "read",
+            "reference": f"{staging}@sha256:{'4' * 64}",
+        },
+        {
+            "type": "registry-anonymous-visibility-read",
+            "capability": "read",
+            "reference": f"{staging}:staging-{'5' * 64}",
+        },
+    ]
+
+    assert verify.audit_operations(operations, lane="protected-tag") == {
+        "operation_count": 5,
+        "operation_types": [
+            "registry-anonymous-config-blob-read",
+            "registry-anonymous-layer-blob-read",
+            "registry-anonymous-visibility-read",
+            "registry-authenticated-config-blob-read",
+            "registry-authenticated-layer-blob-read",
+        ],
+        "write_capable_operations": [],
+        "write_count": 0,
+    }
+    invalid = []
+    wrong_config_reference = copy.deepcopy(operations)
+    wrong_config_reference[0]["reference"] = f"{staging}:staging-{'5' * 64}"
+    invalid.append(wrong_config_reference)
+    wrong_layer_capability = copy.deepcopy(operations)
+    wrong_layer_capability[1]["capability"] = "write"
+    invalid.append(wrong_layer_capability)
+    wrong_visibility_reference = copy.deepcopy(operations)
+    wrong_visibility_reference[-1][
+        "reference"
+    ] = "ghcr.io/supermarioyl/vllm-openai:v0.21.0-ucm-0.5.0rc1-r1"
+    invalid.append(wrong_visibility_reference)
+    duplicate = copy.deepcopy(operations)
+    duplicate.append(copy.deepcopy(duplicate[0]))
+    invalid.append(duplicate)
+    for ledger in invalid:
+        with pytest.raises(ValueError):
+            verify.audit_operations(ledger, lane="protected-tag")
 
 
 def test_registry_cli_commands_use_canonical_json_files(
@@ -1404,6 +1498,43 @@ def _valid_oci_archive(
             "size": len(layer),
             "blob_sha256": "sha256:" + layer_hex,
         }
+    ]
+    member_reference = (
+        "ghcr.io/supermarioyl/ucm-release-staging@" + updated["member_digest"]
+    )
+    updated["operations"] = [
+        {
+            "type": "registry-authenticated-digest-read",
+            "capability": "read",
+            "reference": member_reference,
+        },
+        {
+            "type": "registry-authenticated-manifest-read",
+            "capability": "read",
+            "reference": member_reference,
+        },
+        {
+            "type": "registry-authenticated-config-blob-read",
+            "capability": "read",
+            "reference": (
+                "ghcr.io/supermarioyl/ucm-release-staging@" + updated["config_digest"]
+            ),
+        },
+        {
+            "type": "registry-authenticated-layer-blob-read",
+            "capability": "read",
+            "reference": (
+                "ghcr.io/supermarioyl/ucm-release-staging@"
+                + updated["layers"][0]["digest"]
+            ),
+        },
+        {
+            "type": "registry-anonymous-visibility-read",
+            "capability": "read",
+            "reference": (
+                "ghcr.io/supermarioyl/ucm-release-staging:" + updated["staging_tag"]
+            ),
+        },
     ]
     updated["record_sha256"] = registry.sha256_value(
         {key: value for key, value in updated.items() if key != "record_sha256"}
@@ -1876,6 +2007,33 @@ def _expanded_member_and_readback() -> tuple[dict[str, object], dict[str, object
         "blob_sha256": base["config_digest"],
         "labels": config_labels,
     }
+    member_reference = (
+        "ghcr.io/supermarioyl/ucm-release-staging@" + base["member_digest"]
+    )
+    readback_operations = [
+        {
+            "type": "registry-authenticated-digest-read",
+            "capability": "read",
+            "reference": member_reference,
+        },
+        {
+            "type": "registry-authenticated-manifest-read",
+            "capability": "read",
+            "reference": member_reference,
+        },
+        {
+            "type": "registry-authenticated-config-blob-read",
+            "capability": "read",
+            "reference": (
+                "ghcr.io/supermarioyl/ucm-release-staging@" + base["config_digest"]
+            ),
+        },
+        {
+            "type": "registry-authenticated-layer-blob-read",
+            "capability": "read",
+            "reference": "ghcr.io/supermarioyl/ucm-release-staging@" + layer["digest"],
+        },
+    ]
     readback_payload = {
         "schema_version": 1,
         "kind": "ucm-registry-readback",
@@ -1888,15 +2046,7 @@ def _expanded_member_and_readback() -> tuple[dict[str, object], dict[str, object
         "layers": [layer],
         "children": [],
         "authenticated": True,
-        "operations": [
-            {
-                "type": "registry-authenticated-manifest-read",
-                "capability": "read",
-                "reference": (
-                    "ghcr.io/supermarioyl/ucm-release-staging@" + base["member_digest"]
-                ),
-            }
-        ],
+        "operations": readback_operations,
     }
     readback = {
         **readback_payload,
@@ -1916,7 +2066,16 @@ def _expanded_member_and_readback() -> tuple[dict[str, object], dict[str, object
         "config": config,
         "layers": [layer],
         "readback_sha256": readback["readback_sha256"],
-        "operations": copy.deepcopy(readback["operations"]),
+        "operations": [
+            *copy.deepcopy(readback["operations"]),
+            {
+                "type": "registry-anonymous-visibility-read",
+                "capability": "read",
+                "reference": (
+                    "ghcr.io/supermarioyl/ucm-release-staging:" + base["staging_tag"]
+                ),
+            },
+        ],
     }
     expanded = {
         **expanded_payload,
@@ -2117,6 +2276,16 @@ def _published_registry_evidence() -> dict[str, object]:
         "member_records": members,
         "index_records": indexes,
     }
+
+
+def _rehash_publication_record(record: dict[str, object]) -> None:
+    registry, _ = _modules()
+    payload = {
+        key: copy.deepcopy(value)
+        for key, value in record.items()
+        if key != "record_sha256"
+    }
+    record["record_sha256"] = registry.sha256_value(payload)
 
 
 @pytest.mark.parametrize(
@@ -2343,6 +2512,249 @@ def test_published_registry_schema_accepts_index_reuse_with_empty_write_ledger()
     )
 
 
+@pytest.mark.parametrize(
+    ("record_kind", "mutation"),
+    [
+        ("member_records", "schema-version-bool"),
+        ("member_records", "collision-flag-int"),
+        ("index_records", "schema-version-bool"),
+        ("index_records", "collision-flag-int"),
+    ],
+)
+def test_registry_schema_rejects_bool_int_equality_masquerades(
+    record_kind: str, mutation: str
+) -> None:
+    """JSON true/1 equality cannot bypass integer and boolean type identity."""
+    sys.path.insert(0, str(RELEASE_ROOT))
+    core = importlib.import_module("ucm_release.core")
+    manifest = core.build_release_manifest()
+    evidence = _published_registry_evidence()
+    record = evidence[record_kind][0]
+    if mutation == "schema-version-bool":
+        record["schema_version"] = True
+    else:
+        record["collision_model"]["fresh_prewrite_read"] = 1
+    manifest["publication"]["registry"] = evidence
+
+    with pytest.raises(ValueError):
+        core.validate_schema(
+            manifest,
+            core.load_json(core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"),
+        )
+
+
+@pytest.mark.parametrize("mutation", ["schema-version-bool", "collision-flag-int"])
+def test_member_python_validator_rejects_bool_int_equality_masquerades(
+    mutation: str,
+) -> None:
+    """Canonical member reopening applies strict Python scalar types too."""
+    registry, _ = _modules()
+    record = _publication_members()[0]
+    if mutation == "schema-version-bool":
+        record["schema_version"] = True
+    else:
+        record["collision_model"]["exact_postwrite_readback"] = 1
+    _rehash_publication_record(record)
+
+    with pytest.raises(ValueError, match="schema|collision|boolean"):
+        registry.validate_member_record(record)
+
+
+@pytest.mark.parametrize(
+    ("record_kind", "mutation"),
+    [
+        ("member_records", "index-create"),
+        ("member_records", "public-visibility"),
+        ("member_records", "duplicate"),
+        ("index_records", "member-read"),
+        ("index_records", "duplicate-create"),
+    ],
+)
+def test_registry_schema_rejects_cross_role_and_duplicate_operations(
+    record_kind: str, mutation: str
+) -> None:
+    """Member and index ledgers accept only operations belonging to their roles."""
+    sys.path.insert(0, str(RELEASE_ROOT))
+    core = importlib.import_module("ucm_release.core")
+    manifest = core.build_release_manifest()
+    evidence = _published_registry_evidence()
+    record = evidence[record_kind][0]
+    staging_digest = "ghcr.io/supermarioyl/ucm-release-staging@" + "sha256:" + "1" * 64
+    public_target = "ghcr.io/supermarioyl/vllm-ascend:" "v0.22.1rc1-a3-ucm-0.5.0rc1-r1"
+    if mutation == "index-create":
+        record["operations"] = [
+            {
+                "type": "registry-index-create",
+                "capability": "write",
+                "reference": public_target,
+            }
+        ]
+    elif mutation == "public-visibility":
+        record["operations"] = [
+            {
+                "type": "registry-anonymous-visibility-read",
+                "capability": "read",
+                "reference": public_target,
+            }
+        ]
+    elif mutation == "duplicate":
+        record["operations"] = [
+            copy.deepcopy(record["operations"][0]),
+            copy.deepcopy(record["operations"][0]),
+        ]
+    elif mutation == "member-read":
+        record["operations"] = [
+            {
+                "type": "registry-authenticated-manifest-read",
+                "capability": "read",
+                "reference": staging_digest,
+            }
+        ]
+    else:
+        record["operations"] = [
+            copy.deepcopy(record["operations"][0]),
+            copy.deepcopy(record["operations"][0]),
+        ]
+    manifest["publication"]["registry"] = evidence
+
+    with pytest.raises(ValueError):
+        core.validate_schema(
+            manifest,
+            core.load_json(core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"),
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "index-create",
+        "public-visibility",
+        "duplicate",
+        "config-wrong-reference",
+        "layer-wrong-capability",
+    ],
+)
+def test_member_python_validator_rejects_cross_role_and_duplicate_operations(
+    mutation: str,
+) -> None:
+    """Self-hashed member ledgers cannot smuggle index/public/duplicate operations."""
+    registry, _ = _modules()
+    record = _publication_members()[0]
+    public_target = "ghcr.io/supermarioyl/vllm-ascend:" "v0.22.1rc1-a3-ucm-0.5.0rc1-r1"
+    if mutation == "index-create":
+        record["operations"] = [
+            {
+                "type": "registry-index-create",
+                "capability": "write",
+                "reference": public_target,
+            }
+        ]
+    elif mutation == "public-visibility":
+        record["operations"] = [
+            {
+                "type": "registry-anonymous-visibility-read",
+                "capability": "read",
+                "reference": public_target,
+            }
+        ]
+    elif mutation == "duplicate":
+        record["operations"] = [
+            copy.deepcopy(record["operations"][0]),
+            copy.deepcopy(record["operations"][0]),
+        ]
+    elif mutation == "config-wrong-reference":
+        operation = next(
+            item
+            for item in record["operations"]
+            if item["type"] == "registry-authenticated-config-blob-read"
+        )
+        operation["reference"] = (
+            "ghcr.io/supermarioyl/ucm-release-staging@" + record["member_digest"]
+        )
+    else:
+        operation = next(
+            item
+            for item in record["operations"]
+            if item["type"] == "registry-authenticated-layer-blob-read"
+        )
+        operation["capability"] = "write"
+    _rehash_publication_record(record)
+
+    with pytest.raises(ValueError, match="operation|duplicate|reference|role"):
+        registry.validate_member_record(record)
+
+
+def test_validate_index_record_reopens_only_canonical_role_ledger(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Index evidence reopens hash, identity, booleans, and exact write role."""
+    registry, _ = _modules()
+    monkeypatch.setattr(
+        registry.core, "tag_preflight", lambda **_: _protected_preflight()
+    )
+    members = _publication_members()
+    parent_plans = registry.plan_indexes(
+        members,
+        inventory=[],
+        member_statuses={item["spec_id"]: "success" for item in members},
+        lane="protected-tag",
+    )
+    plan = parent_plans["plans"][0]
+    record = _published_registry_evidence()["index_records"][0]
+    record.update(
+        {
+            "family_id": plan["family_id"],
+            "target_repository": plan["target_repository"],
+            "target_tag": plan["target_tag"],
+            "index_build_key_sha256": plan["index_build_key_sha256"],
+            "member_digests": [item["member_digest"] for item in plan["members"]],
+            "operations": [
+                {
+                    "type": "registry-index-create",
+                    "capability": "write",
+                    "reference": (plan["target_repository"] + ":" + plan["target_tag"]),
+                }
+            ],
+        }
+    )
+    _rehash_publication_record(record)
+    assert registry.validate_index_record(record, parent_plans=parent_plans) == record
+
+    mutations = []
+    schema_bool = copy.deepcopy(record)
+    schema_bool["schema_version"] = True
+    mutations.append(schema_bool)
+    collision_int = copy.deepcopy(record)
+    collision_int["collision_model"]["fresh_prewrite_read"] = 1
+    mutations.append(collision_int)
+    member_read = copy.deepcopy(record)
+    member_read["operations"] = [
+        {
+            "type": "registry-authenticated-manifest-read",
+            "capability": "read",
+            "reference": (
+                "ghcr.io/supermarioyl/ucm-release-staging@sha256:" + "1" * 64
+            ),
+        }
+    ]
+    mutations.append(member_read)
+    duplicate = copy.deepcopy(record)
+    duplicate["operations"] = [
+        copy.deepcopy(record["operations"][0]),
+        copy.deepcopy(record["operations"][0]),
+    ]
+    mutations.append(duplicate)
+    wrong_reference = copy.deepcopy(record)
+    wrong_reference["operations"][0][
+        "reference"
+    ] = "ghcr.io/supermarioyl/vllm-openai:v0.21.0-ucm-0.5.0rc1-r1"
+    mutations.append(wrong_reference)
+    for mutation in mutations:
+        _rehash_publication_record(mutation)
+        with pytest.raises(ValueError):
+            registry.validate_index_record(mutation, parent_plans=parent_plans)
+
+
 def test_index_create_uses_exact_dry_run_bytes_and_postwrite_readback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2453,6 +2865,25 @@ else:
     assert result["index_digest"] == expected
     assert result["manifest_sha256"] == expected
     assert result["postwrite_manifest_sha256"] == expected
+    assert set(result) == registry.INDEX_RECORD_KEYS | {
+        "decision",
+        "postwrite_manifest_sha256",
+        "preflight_sha256",
+        "matrix_sha256",
+        "verification_sha256",
+    }
+    strict_record = {key: result[key] for key in registry.INDEX_RECORD_KEYS}
+    assert registry.validate_index_record(strict_record, parent_plans=parent) == (
+        strict_record
+    )
+    assert result["decision"] == "create"
+    assert result["operations"] == [
+        {
+            "type": "registry-index-create",
+            "capability": "write",
+            "reference": plan["target_repository"] + ":" + plan["target_tag"],
+        }
+    ]
     invocations = [json.loads(line) for line in invocation_log.read_text().splitlines()]
     assert len(invocations) == 2
     assert invocations[0]["args"][:2] == ["imagetools", "create"]
@@ -2505,7 +2936,7 @@ def test_publish_member_rederives_record_from_image_result_and_registry_bytes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A caller cannot supply the publication record that authorizes its own write."""
-    registry, _ = _modules()
+    registry, verify = _modules()
     image = importlib.import_module("ucm_release.image")
     archive, expected = _valid_oci_archive(tmp_path, _publication_members()[0])
     image_result = {
@@ -2608,6 +3039,20 @@ else:
         "registry-staging-tag-create",
         "registry-authenticated-config-blob-read",
         "registry-authenticated-layer-blob-read",
+    }
+    assert verify.audit_operations(record["operations"], lane="protected-tag") == {
+        "operation_count": 7,
+        "operation_types": [
+            "registry-anonymous-visibility-read",
+            "registry-authenticated-config-blob-read",
+            "registry-authenticated-digest-read",
+            "registry-authenticated-layer-blob-read",
+            "registry-authenticated-manifest-read",
+            "registry-member-push-by-digest",
+            "registry-staging-tag-create",
+        ],
+        "write_capable_operations": record["operations"][:2],
+        "write_count": 2,
     }
 
 

@@ -214,6 +214,23 @@ MEMBER_RECORD_KEYS = {
     "operations",
     "record_sha256",
 }
+INDEX_RECORD_KEYS = {
+    "schema_version",
+    "kind",
+    "status",
+    "family_id",
+    "target_repository",
+    "target_tag",
+    "index_build_key_sha256",
+    "index_digest",
+    "manifest_sha256",
+    "member_digests",
+    "authenticated_readback_sha256",
+    "anonymous_readback_sha256",
+    "collision_model",
+    "operations",
+    "record_sha256",
+}
 MEMBER_ANNOTATION_KEYS = {
     "io.ucm.release.build-key-sha256",
     "io.ucm.release.candidate-task-sha256",
@@ -241,6 +258,23 @@ def _collision_model_evidence() -> dict[str, Any]:
         "exact_postwrite_readback": True,
         "external_admin_atomicity": "unavailable",
     }
+
+
+def _validate_collision_model(value: object, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} collision model must be an object")
+    _exact_keys(value, set(_collision_model_evidence()), f"{label} collision model")
+    if (
+        value["model"] != "observed-state-fail-closed"
+        or value["in_system_serialization"] != "repository-concurrency"
+        or value["fresh_prewrite_read"] is not True
+        or value["exact_postwrite_readback"] is not True
+        or value["external_admin_atomicity"] != "unavailable"
+    ):
+        raise ValueError(
+            f"{label} collision model must disclose the Registry CAS boundary"
+        )
+    return copy.deepcopy(value)
 
 
 def _exact_keys(value: dict[str, Any], expected: set[str], label: str) -> None:
@@ -1350,14 +1384,84 @@ def _record_payload(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _validate_member_operations(record: dict[str, Any]) -> list[dict[str, str]]:
+    operations = record["operations"]
+    if not isinstance(operations, list) or not operations:
+        raise ValueError("member operations must be a non-empty array")
+    member_reference = f"{STAGING_REPOSITORY}@{record['member_digest']}"
+    staging_reference = f"{STAGING_REPOSITORY}:{record['staging_tag']}"
+    push = {
+        "type": "registry-member-push-by-digest",
+        "capability": "write",
+        "reference": member_reference,
+    }
+    tag = {
+        "type": "registry-staging-tag-create",
+        "capability": "write",
+        "reference": staging_reference,
+    }
+    suffix = [
+        {
+            "type": "registry-authenticated-digest-read",
+            "capability": "read",
+            "reference": member_reference,
+        },
+        {
+            "type": "registry-authenticated-manifest-read",
+            "capability": "read",
+            "reference": member_reference,
+        },
+        {
+            "type": "registry-authenticated-config-blob-read",
+            "capability": "read",
+            "reference": f"{STAGING_REPOSITORY}@{record['config_digest']}",
+        },
+        *[
+            {
+                "type": "registry-authenticated-layer-blob-read",
+                "capability": "read",
+                "reference": f"{STAGING_REPOSITORY}@{layer['digest']}",
+            }
+            for layer in record["layers"]
+        ],
+        {
+            "type": "registry-anonymous-visibility-read",
+            "capability": "read",
+            "reference": staging_reference,
+        },
+    ]
+    identities: set[tuple[str, str]] = set()
+    validated: list[dict[str, str]] = []
+    for operation in operations:
+        if not isinstance(operation, dict):
+            raise ValueError("member operation must be an object")
+        _exact_keys(operation, {"type", "capability", "reference"}, "member operation")
+        identity = (operation["type"], operation["reference"])
+        if identity in identities:
+            raise ValueError(f"duplicate member operation identity: {identity}")
+        identities.add(identity)
+        validated.append(copy.deepcopy(operation))
+    allowed_ledgers = [suffix, [push, *suffix], [tag, *suffix], [push, tag, *suffix]]
+    if validated not in allowed_ledgers:
+        raise ValueError(
+            "member operation role, order, capability, or reference is invalid"
+        )
+    return validated
+
+
 def validate_member_record(record: object) -> dict[str, Any]:
     """Validate a canonical publication record without changing image-result state."""
     if not isinstance(record, dict):
         raise ValueError("member publication record must be an object")
     _exact_keys(record, MEMBER_RECORD_KEYS, "member publication record")
     if (
-        record["schema_version"] != 1
-        or record["kind"] != "ucm-registry-member-publication"
+        not isinstance(record["schema_version"], int)
+        or isinstance(record["schema_version"], bool)
+        or record["schema_version"] != 1
+    ):
+        raise ValueError("member schema_version must be the exact integer 1")
+    if (
+        record["kind"] != "ucm-registry-member-publication"
         or record["status"] != "passed"
     ):
         raise ValueError("member publication record identity is invalid")
@@ -1494,20 +1598,78 @@ def validate_member_record(record: object) -> dict[str, Any]:
             or layer["size"] < 1
         ):
             raise ValueError(f"member layer {position} content closure is invalid")
-    if not isinstance(record["operations"], list):
-        raise ValueError("member operations must be an array")
-    if record["collision_model"] != _collision_model_evidence():
-        raise ValueError(
-            "member collision model must disclose the Registry CAS boundary"
-        )
-    for operation in record["operations"]:
-        if not isinstance(operation, dict):
-            raise ValueError("member operation must be an object")
-        _exact_keys(operation, {"type", "capability", "reference"}, "member operation")
-        if operation["capability"] not in {"read", "write"}:
-            raise ValueError("member operation capability is invalid")
+    _validate_collision_model(record["collision_model"], "member")
+    _validate_member_operations(record)
     if record["record_sha256"] != sha256_value(_record_payload(record)):
         raise ValueError("member publication record digest mismatch")
+    return copy.deepcopy(record)
+
+
+def validate_index_record(record: object, *, parent_plans: object) -> dict[str, Any]:
+    """Reopen one index publication against its exact canonical parent plan."""
+    if not isinstance(record, dict):
+        raise ValueError("index publication record must be an object")
+    _exact_keys(record, INDEX_RECORD_KEYS, "index publication record")
+    if (
+        not isinstance(record["schema_version"], int)
+        or isinstance(record["schema_version"], bool)
+        or record["schema_version"] != 1
+    ):
+        raise ValueError("index schema_version must be the exact integer 1")
+    if (
+        record["kind"] != "ucm-registry-index-publication"
+        or record["status"] != "passed"
+    ):
+        raise ValueError("index publication record identity is invalid")
+    parent = _validate_parent_plans(parent_plans)
+    matching = [
+        plan for plan in parent["plans"] if plan["family_id"] == record["family_id"]
+    ]
+    if len(matching) != 1:
+        raise ValueError("index publication family does not resolve in parent plans")
+    plan = matching[0]
+    if (
+        record["target_repository"] != plan["target_repository"]
+        or record["target_tag"] != plan["target_tag"]
+        or record["index_build_key_sha256"] != plan["index_build_key_sha256"]
+        or record["member_digests"]
+        != [member["member_digest"] for member in plan["members"]]
+    ):
+        raise ValueError("index publication differs from its canonical parent plan")
+    for field in (
+        "index_build_key_sha256",
+        "index_digest",
+        "manifest_sha256",
+        "authenticated_readback_sha256",
+        "anonymous_readback_sha256",
+        "record_sha256",
+    ):
+        _digest(record[field], f"index {field}")
+    if record["manifest_sha256"] != record["index_digest"]:
+        raise ValueError("index manifest digest differs from the published index")
+    if (
+        not isinstance(record["member_digests"], list)
+        or len(record["member_digests"]) != 2
+    ):
+        raise ValueError("index publication requires two ordered unique members")
+    for digest in record["member_digests"]:
+        _digest(digest, "index member")
+    if len(set(record["member_digests"])) != 2:
+        raise ValueError("index publication requires two ordered unique members")
+    _validate_collision_model(record["collision_model"], "index")
+    operations = record["operations"]
+    target = f"{record['target_repository']}:{record['target_tag']}"
+    create_operation = {
+        "type": "registry-index-create",
+        "capability": "write",
+        "reference": target,
+    }
+    if operations not in ([], [create_operation]):
+        raise ValueError("index operation role must be reuse or one canonical create")
+    if plan["decision"] == "reuse" and operations:
+        raise ValueError("a reuse parent plan cannot claim an index create")
+    if record["record_sha256"] != sha256_value(_record_payload(record)):
+        raise ValueError("index publication record digest mismatch")
     return copy.deepcopy(record)
 
 
@@ -3010,6 +3172,7 @@ def create_index(
         "operations": operations,
     }
     record = {**record_payload, "record_sha256": sha256_value(record_payload)}
+    validate_index_record(record, parent_plans=parent_plans)
     return {
         **verification,
         **record,

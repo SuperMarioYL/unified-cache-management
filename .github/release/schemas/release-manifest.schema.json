@@ -3,18 +3,8 @@
   "$id": "https://modelengine-group.example/ucm/release-manifest.schema.json",
   "$defs": {
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-    "registryOperation": {
+    "registryMemberOperation": {
       "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type", "capability", "reference"],
-          "properties": {
-            "type": {"enum": ["registry-authenticated-digest-read", "registry-authenticated-manifest-read", "registry-authenticated-config-blob-read", "registry-authenticated-layer-blob-read", "registry-anonymous-digest-read", "registry-anonymous-manifest-read", "registry-anonymous-config-blob-read", "registry-anonymous-layer-blob-read", "registry-anonymous-visibility-read"]},
-            "capability": {"const": "read"},
-            "reference": {"type": "string", "pattern": "^ghcr\\.io/supermarioyl/(?:ucm-release-staging|vllm-openai|vllm-ascend)(?:@sha256:[0-9a-f]{64}|:(?:staging-[0-9a-f]{64}|v0\\.21\\.0-ucm-0\\.5\\.0rc1-r1|v0\\.22\\.1rc1-ucm-0\\.5\\.0rc1-r1|v0\\.22\\.1rc1-a3-ucm-0\\.5\\.0rc1-r1))$"}
-          }
-        },
         {
           "type": "object",
           "additionalProperties": false,
@@ -40,12 +30,62 @@
           "additionalProperties": false,
           "required": ["type", "capability", "reference"],
           "properties": {
-            "type": {"const": "registry-index-create"},
-            "capability": {"const": "write"},
-            "reference": {"type": "string", "pattern": "^ghcr\\.io/supermarioyl/(?:vllm-openai:v0\\.21\\.0-ucm-0\\.5\\.0rc1-r1|vllm-ascend:v0\\.22\\.1rc1(?:-a3)?-ucm-0\\.5\\.0rc1-r1)$"}
+            "type": {"const": "registry-authenticated-digest-read"},
+            "capability": {"const": "read"},
+            "reference": {"type": "string", "pattern": "^ghcr\\.io/supermarioyl/ucm-release-staging@sha256:[0-9a-f]{64}$"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "capability", "reference"],
+          "properties": {
+            "type": {"const": "registry-authenticated-manifest-read"},
+            "capability": {"const": "read"},
+            "reference": {"type": "string", "pattern": "^ghcr\\.io/supermarioyl/ucm-release-staging@sha256:[0-9a-f]{64}$"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "capability", "reference"],
+          "properties": {
+            "type": {"const": "registry-authenticated-config-blob-read"},
+            "capability": {"const": "read"},
+            "reference": {"type": "string", "pattern": "^ghcr\\.io/supermarioyl/ucm-release-staging@sha256:[0-9a-f]{64}$"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "capability", "reference"],
+          "properties": {
+            "type": {"const": "registry-authenticated-layer-blob-read"},
+            "capability": {"const": "read"},
+            "reference": {"type": "string", "pattern": "^ghcr\\.io/supermarioyl/ucm-release-staging@sha256:[0-9a-f]{64}$"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "capability", "reference"],
+          "properties": {
+            "type": {"const": "registry-anonymous-visibility-read"},
+            "capability": {"const": "read"},
+            "reference": {"type": "string", "pattern": "^ghcr\\.io/supermarioyl/ucm-release-staging:staging-[0-9a-f]{64}$"}
           }
         }
       ]
+    },
+    "registryIndexOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "capability", "reference"],
+      "properties": {
+        "type": {"const": "registry-index-create"},
+        "capability": {"const": "write"},
+        "reference": {"type": "string", "pattern": "^ghcr\\.io/supermarioyl/(?:vllm-openai:v0\\.21\\.0-ucm-0\\.5\\.0rc1-r1|vllm-ascend:v0\\.22\\.1rc1(?:-a3)?-ucm-0\\.5\\.0rc1-r1)$"}
+      }
     },
     "registryCollisionModel": {
       "type": "object",
@@ -54,8 +94,8 @@
       "properties": {
         "model": {"const": "observed-state-fail-closed"},
         "in_system_serialization": {"const": "repository-concurrency"},
-        "fresh_prewrite_read": {"const": true},
-        "exact_postwrite_readback": {"const": true},
+        "fresh_prewrite_read": {"type": "boolean", "const": true},
+        "exact_postwrite_readback": {"type": "boolean", "const": true},
         "external_admin_atomicity": {"const": "unavailable"}
       }
     },
@@ -130,7 +170,7 @@
       "additionalProperties": false,
       "required": ["schema_version", "kind", "status", "spec_id", "profile_id", "family_id", "platform", "target_repository", "target_tag", "staging_repository", "staging_visibility", "staging_tag", "candidate_task_sha256", "publication_task_sha256", "build_key_sha256", "wheel_sha256", "member_digest", "member_size", "config_digest", "annotations", "source_sha", "image_result_sha256", "recipe_sha256", "content_identity_sha256", "manifest", "config", "layers", "readback_sha256", "visibility_evidence_sha256", "collision_model", "operations", "record_sha256"],
       "properties": {
-        "schema_version": {"const": 1},
+        "schema_version": {"type": "integer", "const": 1},
         "kind": {"const": "ucm-registry-member-publication"},
         "status": {"const": "passed"},
         "spec_id": {"enum": ["cuda130-amd64", "cuda130-arm64", "cann900-a2-amd64", "cann900-a2-arm64", "cann900-a3-amd64", "cann900-a3-arm64"]},
@@ -160,7 +200,7 @@
         "readback_sha256": {"$ref": "#/$defs/digest"},
         "visibility_evidence_sha256": {"$ref": "#/$defs/digest"},
         "collision_model": {"$ref": "#/$defs/registryCollisionModel"},
-        "operations": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/registryOperation"}},
+        "operations": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/registryMemberOperation"}},
         "record_sha256": {"$ref": "#/$defs/digest"}
       }
     },
@@ -169,7 +209,7 @@
       "additionalProperties": false,
       "required": ["schema_version", "kind", "status", "family_id", "target_repository", "target_tag", "index_build_key_sha256", "index_digest", "manifest_sha256", "member_digests", "authenticated_readback_sha256", "anonymous_readback_sha256", "collision_model", "operations", "record_sha256"],
       "properties": {
-        "schema_version": {"const": 1},
+        "schema_version": {"type": "integer", "const": 1},
         "kind": {"const": "ucm-registry-index-publication"},
         "status": {"const": "passed"},
         "family_id": {"enum": ["cuda130", "cann900-a2", "cann900-a3"]},
@@ -182,7 +222,7 @@
         "authenticated_readback_sha256": {"$ref": "#/$defs/digest"},
         "anonymous_readback_sha256": {"$ref": "#/$defs/digest"},
         "collision_model": {"$ref": "#/$defs/registryCollisionModel"},
-        "operations": {"type": "array", "items": {"$ref": "#/$defs/registryOperation"}},
+        "operations": {"type": "array", "maxItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/registryIndexOperation"}},
         "record_sha256": {"$ref": "#/$defs/digest"}
       }
     },

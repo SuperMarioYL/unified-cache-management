@@ -52,10 +52,24 @@ OPERATION_CONTRACTS = MappingProxyType(
         "registry-member-push-by-digest": ("write", "staging-digest"),
         "registry-staging-tag-create": ("write", "staging-tag"),
         "registry-index-create": ("write", "public-target"),
-        "registry-authenticated-digest-read": ("read", "registry-read-tag"),
+        "registry-authenticated-digest-read": (
+            "read",
+            "registry-read-tag-or-digest",
+        ),
         "registry-authenticated-manifest-read": ("read", "registry-read-digest"),
+        "registry-authenticated-config-blob-read": (
+            "read",
+            "registry-read-digest",
+        ),
+        "registry-authenticated-layer-blob-read": (
+            "read",
+            "registry-read-digest",
+        ),
         "registry-anonymous-digest-read": ("read", "registry-read-tag"),
         "registry-anonymous-manifest-read": ("read", "registry-read-digest"),
+        "registry-anonymous-config-blob-read": ("read", "registry-read-digest"),
+        "registry-anonymous-layer-blob-read": ("read", "registry-read-digest"),
+        "registry-anonymous-visibility-read": ("read", "staging-tag"),
     }
 )
 KNOWN_WRITE_OPERATION_TYPES = frozenset(
@@ -1231,7 +1245,7 @@ def _validate_operation_reference(reference_kind: str, reference: object) -> Non
             f"{item['target_repository']}:{item['target_tag']}"
             for item in canonical_registry_contract()["indexes"]
         }
-    elif reference_kind == "registry-read-tag":
+    elif reference_kind in {"registry-read-tag", "registry-read-tag-or-digest"}:
         public_tags = {
             f"{item['target_repository']}:{item['target_tag']}"
             for item in canonical_registry_contract()["indexes"]
@@ -1242,6 +1256,20 @@ def _validate_operation_reference(reference_kind: str, reference: object) -> Non
             and re.fullmatch(r"[0-9a-f]{64}", reference.removeprefix(staging_prefix))
             is not None
         )
+        if not valid and reference_kind == "registry-read-tag-or-digest":
+            repository, separator, digest = reference.rpartition("@")
+            valid = (
+                separator == "@"
+                and repository
+                in {
+                    STAGING_REPOSITORY,
+                    *{
+                        item["target_repository"]
+                        for item in canonical_registry_contract()["indexes"]
+                    },
+                }
+                and DIGEST_RE.fullmatch(digest) is not None
+            )
     elif reference_kind == "registry-read-digest":
         repository, separator, digest = reference.rpartition("@")
         valid = (
