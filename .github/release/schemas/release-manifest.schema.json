@@ -2,6 +2,19 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://modelengine-group.example/ucm/release-manifest.schema.json",
   "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "registryPublication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "candidate_task_sha256", "publication_task_sha256", "member_records", "index_records"],
+      "properties": {
+        "status": {"enum": ["candidate", "published", "blocked"]},
+        "candidate_task_sha256": {"$ref": "#/$defs/digest"},
+        "publication_task_sha256": {"$ref": "#/$defs/digest"},
+        "member_records": {"type": "array", "maxItems": 6, "items": {"type": "object"}},
+        "index_records": {"type": "array", "maxItems": 3, "items": {"type": "object"}}
+      }
+    },
     "externalRequiredDependency": {
       "type": "object",
       "additionalProperties": false,
@@ -64,6 +77,7 @@
       "required": ["target", "assets"],
       "properties": {
         "target": {"const": "github-release"},
+        "registry": {"$ref": "#/$defs/registryPublication"},
         "assets": {
           "type": "array",
           "minItems": 2,

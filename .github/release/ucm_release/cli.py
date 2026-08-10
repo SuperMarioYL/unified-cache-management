@@ -136,6 +136,16 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--tag", required=True)
     scan.add_argument("--fixture", type=Path)
     scan.add_argument("--crane", default="crane")
+    for action in (
+        "inventory",
+        "verify-member",
+        "plan-index",
+        "verify-index",
+        "audit-operations",
+    ):
+        command = registry_actions.add_parser(action)
+        command.add_argument("--input", type=Path, required=True)
+        command.add_argument("--output", type=Path, required=True)
 
     reconcile_parser = groups.add_parser("reconcile")
     reconcile_parser.set_defaults(action=None)
@@ -383,6 +393,61 @@ def main(argv: list[str] | None = None) -> int:
                 fixture=fixture,
                 crane_binary=args.crane,
             )
+        elif (args.group, args.action) == ("registry", "inventory"):
+            request = core.load_json(args.input)
+            if set(request) - {"crane"}:
+                raise ValueError("inventory input accepts only optional crane")
+            result = registry.inventory_registry(
+                crane_binary=request.get("crane", "crane")
+            )
+            _write(args.output, result)
+        elif (args.group, args.action) == ("registry", "verify-member"):
+            request = core.load_json(args.input)
+            if set(request) != {"member"}:
+                raise ValueError("verify-member input requires exactly member")
+            result = registry.validate_member_record(request["member"])
+            _write(args.output, result)
+        elif (args.group, args.action) == ("registry", "plan-index"):
+            request = core.load_json(args.input)
+            if not {"lane", "members", "inventory"} <= set(request) or set(request) - {
+                "lane",
+                "members",
+                "inventory",
+                "member_statuses",
+            }:
+                raise ValueError(
+                    "plan-index input requires lane/members/inventory and optional member_statuses"
+                )
+            result = registry.plan_indexes(
+                request["members"],
+                request["inventory"],
+                member_statuses=request.get("member_statuses"),
+                lane=request["lane"],
+            )
+            _write(args.output, result)
+        elif (args.group, args.action) == ("registry", "verify-index"):
+            request = core.load_json(args.input)
+            if "plan" not in request or set(request) - {"plan", "observed"}:
+                raise ValueError(
+                    "verify-index input requires plan and optional observed"
+                )
+            result = registry.verify_index(request["plan"], request.get("observed"))
+            _write(args.output, result)
+        elif (args.group, args.action) == ("registry", "audit-operations"):
+            request = core.load_json(args.input)
+            if set(request) != {"lane", "operations"}:
+                raise ValueError(
+                    "audit-operations input requires exactly lane and operations"
+                )
+            audit = verify.audit_operations(request["operations"], lane=request["lane"])
+            payload = {
+                "schema_version": 1,
+                "kind": "ucm-registry-operation-audit",
+                "lane": request["lane"],
+                **audit,
+            }
+            result = {**payload, "audit_sha256": core.sha256_value(payload)}
+            _write(args.output, result)
         elif args.group == "reconcile":
             request = core.load_json(args.input)
             if set(request) != {"candidate", "inventory"}:

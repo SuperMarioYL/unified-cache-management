@@ -10,6 +10,7 @@ import importlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -348,6 +349,18 @@ def test_upstream_parser_rejects_noncanonical_and_excluded_tags(
 
     with pytest.raises(ValueError):
         registry.parse_upstream_tag(product, tag)
+
+
+def test_registry_scan_rejects_same_product_name_on_an_unreviewed_host() -> None:
+    """A matching final path segment cannot widen the exact upstream allowlist."""
+    registry, _ = _modules()
+
+    with pytest.raises(ValueError, match="exact upstream repository"):
+        registry.scan_registry(
+            "evil.example/vllm/vllm-openai",
+            "v0.10.2",
+            fixture={**_snapshot(), "repository": "evil.example/vllm/vllm-openai"},
+        )
 
 
 def test_snapshot_and_build_identity_bind_every_immutable_input(tmp_path: Path) -> None:
@@ -794,3 +807,474 @@ def test_operation_ledger_accepts_only_exact_producer_operations(
         "write_capable_operations": [],
         "write_count": 0,
     }
+
+
+def _publication_members() -> list[dict[str, object]]:
+    sys.path.insert(0, str(RELEASE_ROOT))
+    core = importlib.import_module("ucm_release.core")
+    candidate = core.build_matrix("feature-candidate")
+    protected = core.build_matrix("protected-tag")
+    protected_by_spec = {item["spec_id"]: item for item in protected["tasks"]}
+    members: list[dict[str, object]] = []
+    for index, task in enumerate(candidate["tasks"], start=1):
+        digest = f"sha256:{index:064x}"
+        config_digest = f"sha256:{index + 10:064x}"
+        build_key = f"sha256:{index + 20:064x}"
+        payload = {
+            "schema_version": 1,
+            "kind": "ucm-registry-member-publication",
+            "status": "passed",
+            "spec_id": task["spec_id"],
+            "profile_id": task["profile_id"],
+            "family_id": task["profile_id"],
+            "platform": task["platform"],
+            "target_repository": task["target_repository"],
+            "target_tag": task["target_tag"],
+            "staging_repository": "ghcr.io/supermarioyl/ucm-release-staging",
+            "staging_visibility": "private",
+            "staging_tag": f"staging-{build_key.removeprefix('sha256:')}",
+            "candidate_task_sha256": task["task_sha256"],
+            "publication_task_sha256": protected_by_spec[task["spec_id"]][
+                "task_sha256"
+            ],
+            "build_key_sha256": build_key,
+            "wheel_sha256": f"sha256:{index + 30:064x}",
+            "member_digest": digest,
+            "member_size": 1000 + index,
+            "config_digest": config_digest,
+            "annotations": {
+                "io.ucm.release.build-key-sha256": build_key,
+                "io.ucm.release.candidate-task-sha256": task["task_sha256"],
+                "io.ucm.release.family-id": task["profile_id"],
+                "io.ucm.release.platform": task["platform"],
+                "io.ucm.release.spec-id": task["spec_id"],
+                "io.ucm.release.wheel-sha256": f"sha256:{index + 30:064x}",
+            },
+        }
+        payload["record_sha256"] = core.sha256_value(payload)
+        members.append(payload)
+    return members
+
+
+def _protected_preflight() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "kind": "ucm-tag-preflight",
+        "lane": "protected-tag",
+        "source_sha": "a" * 40,
+        "publication_allowed": True,
+        "write_authority": [
+            "github-prerelease",
+            "ghcr-final-index",
+            "ghcr-private-staging",
+        ],
+    }
+
+
+def test_canonical_registry_contract_has_six_members_and_three_exact_r1_targets() -> (
+    None
+):
+    """Production coordinates come from the reviewed matrices, never legacy constants."""
+    registry, _ = _modules()
+
+    contract = registry.canonical_registry_contract()
+
+    assert contract["staging_repository"] == (
+        "ghcr.io/supermarioyl/ucm-release-staging"
+    )
+    assert [item["spec_id"] for item in contract["members"]] == [
+        "cuda130-amd64",
+        "cuda130-arm64",
+        "cann900-a2-amd64",
+        "cann900-a2-arm64",
+        "cann900-a3-amd64",
+        "cann900-a3-arm64",
+    ]
+    assert [item["platform"] for item in contract["members"]] == [
+        "linux/amd64",
+        "linux/arm64",
+        "linux/amd64",
+        "linux/arm64",
+        "linux/amd64",
+        "linux/arm64",
+    ]
+    assert [
+        (item["target_repository"], item["target_tag"]) for item in contract["indexes"]
+    ] == [
+        (
+            "ghcr.io/supermarioyl/vllm-ascend",
+            "v0.22.1rc1-a3-ucm-0.5.0rc1-r1",
+        ),
+        (
+            "ghcr.io/supermarioyl/vllm-ascend",
+            "v0.22.1rc1-ucm-0.5.0rc1-r1",
+        ),
+        (
+            "ghcr.io/supermarioyl/vllm-openai",
+            "v0.21.0-ucm-0.5.0rc1-r1",
+        ),
+    ]
+    assert all(
+        item["candidate_task_sha256"] != item["publication_task_sha256"]
+        for item in contract["members"]
+    )
+
+
+def test_staging_tag_and_exact_r1_reconciliation_are_collision_safe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Absent creates, identity reuses, and same-name drift cannot retag or roll r2."""
+    registry, _ = _modules()
+    members = _publication_members()
+    monkeypatch.setattr(
+        registry.core, "tag_preflight", lambda **_: _protected_preflight()
+    )
+
+    build_key = members[0]["build_key_sha256"]
+    digest = members[0]["member_digest"]
+    assert registry.plan_staging_tag(build_key, digest, None)["decision"] == "create"
+    assert registry.plan_staging_tag(build_key, digest, digest)["decision"] == "reuse"
+    with pytest.raises(ValueError, match="staging tag collision"):
+        registry.plan_staging_tag(build_key, digest, DIGESTS["observed_drift"])
+    public_staging = copy.deepcopy(members[0])
+    public_staging["staging_visibility"] = "public"
+    public_staging["record_sha256"] = registry.sha256_value(
+        {key: value for key, value in public_staging.items() if key != "record_sha256"}
+    )
+    with pytest.raises(ValueError, match="private staging"):
+        registry.validate_member_record(public_staging)
+
+    absent = registry.plan_indexes(members, inventory=[])
+    same_inventory = [
+        {
+            "repository": item["target_repository"],
+            "tag": item["target_tag"],
+            "digest": plan["expected_index_digest"],
+            "build_key_sha256": plan["index_build_key_sha256"],
+        }
+        for item, plan in zip(absent["plans"], absent["plans"], strict=True)
+    ]
+    reused = registry.plan_indexes(members, inventory=same_inventory)
+    assert [item["decision"] for item in absent["plans"]] == [
+        "create",
+        "create",
+        "create",
+    ]
+    assert [item["decision"] for item in reused["plans"]] == [
+        "reuse",
+        "reuse",
+        "reuse",
+    ]
+    assert [item["members"][0]["platform"] for item in absent["plans"]] == [
+        "linux/amd64",
+        "linux/amd64",
+        "linux/amd64",
+    ]
+    assert [item["members"][1]["platform"] for item in absent["plans"]] == [
+        "linux/arm64",
+        "linux/arm64",
+        "linux/arm64",
+    ]
+    conflict = copy.deepcopy(same_inventory)
+    conflict[0]["digest"] = DIGESTS["observed_drift"]
+    with pytest.raises(ValueError, match="r1 conflict"):
+        registry.plan_indexes(members, inventory=conflict)
+    with pytest.raises(ValueError, match="feature-candidate.*write-capable"):
+        registry.plan_indexes(members, inventory=[], lane="feature-candidate")
+
+
+@pytest.mark.parametrize("status", ["failed", "cancelled", "skipped", "missing"])
+def test_exact_six_barrier_emits_zero_index_writes_for_any_unsuccessful_member(
+    monkeypatch: pytest.MonkeyPatch, status: str
+) -> None:
+    """No partial family can open any of the three final-index write gates."""
+    registry, _ = _modules()
+    members = _publication_members()
+    monkeypatch.setattr(
+        registry.core, "tag_preflight", lambda **_: _protected_preflight()
+    )
+    statuses = {item["spec_id"]: "success" for item in members}
+    statuses[members[2]["spec_id"]] = status
+
+    with pytest.raises(ValueError, match="six-member barrier") as blocked:
+        registry.plan_indexes(members, inventory=[], member_statuses=statuses)
+
+    assert getattr(blocked.value, "operations", []) == []
+
+
+def test_feature_and_protected_operation_audits_are_typed_and_allowlisted() -> None:
+    """Feature rejects every write type; protected accepts only exact coordinates."""
+    _, verify = _modules()
+    staging = "ghcr.io/supermarioyl/ucm-release-staging"
+    member_digest = "sha256:" + "1" * 64
+    protected_operations = [
+        {
+            "type": "registry-member-push-by-digest",
+            "capability": "write",
+            "reference": f"{staging}@{member_digest}",
+        },
+        {
+            "type": "registry-staging-tag-create",
+            "capability": "write",
+            "reference": f"{staging}:staging-{'2' * 64}",
+        },
+        {
+            "type": "registry-index-create",
+            "capability": "write",
+            "reference": (
+                "ghcr.io/supermarioyl/vllm-openai:" "v0.21.0-ucm-0.5.0rc1-r1"
+            ),
+        },
+    ]
+
+    with pytest.raises(ValueError, match="feature-candidate.*write"):
+        verify.audit_operations(protected_operations, lane="feature-candidate")
+    protected = verify.audit_operations(protected_operations, lane="protected-tag")
+    assert protected == {
+        "operation_count": 3,
+        "operation_types": [
+            "registry-index-create",
+            "registry-member-push-by-digest",
+            "registry-staging-tag-create",
+        ],
+        "write_capable_operations": protected_operations,
+        "write_count": 3,
+    }
+    bad = copy.deepcopy(protected_operations)
+    bad[-1]["reference"] = "ghcr.io/attacker/vllm-openai:latest"
+    with pytest.raises(ValueError, match="allowlist"):
+        verify.audit_operations(bad, lane="protected-tag")
+
+
+def test_registry_cli_commands_use_canonical_json_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every Task 4 command has deterministic file input and file output."""
+    registry, _ = _modules()
+    monkeypatch.setattr(
+        registry.core, "tag_preflight", lambda **_: _protected_preflight()
+    )
+    crane, transport_log = _fake_registry_tool(tmp_path)
+    monkeypatch.setenv("UCM_TRANSPORT_LOG", str(transport_log))
+    members = _publication_members()
+    requests = {
+        "inventory": {"crane": str(crane)},
+        "verify-member": {"member": members[0]},
+        "plan-index": {
+            "lane": "protected-tag",
+            "members": members,
+            "inventory": [],
+        },
+        "verify-index": {
+            "plan": registry.plan_indexes(members, inventory=[])["plans"][0]
+        },
+        "audit-operations": {"lane": "feature-candidate", "operations": []},
+    }
+    for action, request in requests.items():
+        input_path = tmp_path / f"{action}.input.json"
+        output_path = tmp_path / f"{action}.output.json"
+        input_path.write_bytes(
+            json.dumps(request, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+        )
+        result = _cli(
+            "registry",
+            action,
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+        )
+        assert output_path.read_text(encoding="utf-8") == result.stdout
+        assert json.loads(result.stdout)["kind"].startswith("ucm-registry-")
+
+
+def test_release_manifest_schema_accepts_optional_registry_publication() -> None:
+    """Publication evidence is separate from still-unpublished image results."""
+    sys.path.insert(0, str(RELEASE_ROOT))
+    core = importlib.import_module("ucm_release.core")
+    manifest = core.build_release_manifest()
+    manifest["publication"]["registry"] = {
+        "status": "candidate",
+        "candidate_task_sha256": "sha256:" + "1" * 64,
+        "publication_task_sha256": "sha256:" + "2" * 64,
+        "member_records": [],
+        "index_records": [],
+    }
+
+    core.validate_schema(
+        manifest,
+        core.load_json(core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"),
+    )
+
+
+def _fake_registry_tool(tmp_path: Path) -> tuple[Path, Path]:
+    tool = tmp_path / "crane-v0.20.3"
+    log = tmp_path / "transport.log"
+    tool.write_text(
+        """#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+import sys
+
+operation = sys.argv[1]
+reference = sys.argv[2]
+with Path(os.environ["UCM_TRANSPORT_LOG"]).open("a", encoding="utf-8") as stream:
+    stream.write(json.dumps({"args": sys.argv[1:], "docker_config": os.environ.get("DOCKER_CONFIG")}, sort_keys=True) + "\\n")
+if os.environ.get("UCM_EXPECT_EMPTY_AUTH") == "1":
+    config = Path(os.environ["DOCKER_CONFIG"]) / "config.json"
+    if config.read_bytes() != b'{"auths":{}}\\n':
+        raise SystemExit(78)
+    if os.environ["DOCKER_CONFIG"] == os.environ.get("UCM_CALLER_DOCKER_CONFIG"):
+        raise SystemExit(79)
+if operation == "digest":
+    if reference.endswith("v0.21.0-ucm-0.5.0rc1-r1") or "staging-" in reference:
+        print("sha256:" + "9" * 64)
+    else:
+        print("MANIFEST_UNKNOWN", file=sys.stderr)
+        raise SystemExit(1)
+elif operation == "manifest":
+    print(json.dumps({
+        "schemaVersion": 2,
+        "mediaType": "application/vnd.oci.image.index.v1+json",
+        "annotations": {"io.ucm.release.index-build-key-sha256": "sha256:" + "8" * 64},
+        "manifests": []
+    }, sort_keys=True, separators=(",", ":")))
+elif operation == "push":
+    print(sys.argv[3].rsplit("@", 1)[-1])
+elif operation == "tag":
+    print("tagged")
+else:
+    raise SystemExit(77)
+""",
+        encoding="utf-8",
+    )
+    tool.chmod(0o755)
+    return tool, log
+
+
+def test_inventory_and_anonymous_readback_use_real_subprocess_transport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Anonymous reads get a fresh empty auth config and inventory records absence."""
+    registry, verify = _modules()
+    crane, log = _fake_registry_tool(tmp_path)
+    caller_config = tmp_path / "caller-docker-config"
+    caller_config.mkdir()
+    (caller_config / "config.json").write_text(
+        '{"auths":{"secret.example":{"auth":"do-not-use"}}}\n', encoding="utf-8"
+    )
+    monkeypatch.setenv("DOCKER_CONFIG", str(caller_config))
+    monkeypatch.setenv("UCM_CALLER_DOCKER_CONFIG", str(caller_config))
+    monkeypatch.setenv("UCM_TRANSPORT_LOG", str(log))
+
+    inventory = registry.inventory_registry(crane_binary=str(crane))
+    assert [(item["repository"], item["tag"]) for item in inventory["entries"]] == [
+        (
+            "ghcr.io/supermarioyl/vllm-openai",
+            "v0.21.0-ucm-0.5.0rc1-r1",
+        )
+    ]
+    assert len(inventory["absent"]) == 2
+    assert verify.audit_operations(inventory["operations"])["write_count"] == 0
+
+    monkeypatch.setenv("UCM_EXPECT_EMPTY_AUTH", "1")
+    readback = registry.readback_reference(
+        "ghcr.io/supermarioyl/vllm-openai:v0.21.0-ucm-0.5.0rc1-r1",
+        crane_binary=str(crane),
+        anonymous=True,
+    )
+    assert readback["digest"] == "sha256:" + "9" * 64
+    assert readback["authenticated"] is False
+    events = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    anonymous_configs = [
+        item["docker_config"]
+        for item in events[-2:]
+        if item["docker_config"] != str(caller_config)
+    ]
+    assert len(set(anonymous_configs)) == 1
+    assert not Path(anonymous_configs[0]).exists()
+
+
+@pytest.mark.parametrize("lane", ["feature-candidate", "manual", "head-marker"])
+def test_write_transport_fails_closed_before_subprocess_for_nonprotected_lanes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lane: str
+) -> None:
+    """A caller label cannot reach push/tag/index transport outside protected Tag."""
+    registry, _ = _modules()
+    crane, log = _fake_registry_tool(tmp_path)
+    monkeypatch.setenv("UCM_TRANSPORT_LOG", str(log))
+    archive = tmp_path / "member.tar"
+    archive.write_bytes(b"tiny scratch archive")
+
+    with pytest.raises(ValueError, match="protected-tag"):
+        registry.push_member_by_digest(
+            archive,
+            _publication_members()[0],
+            lane=lane,
+            crane_binary=str(crane),
+        )
+
+    assert not log.exists()
+
+
+def test_protected_write_transport_rechecks_authority_and_exact_coordinates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each write reloads protected preflight/matrix and returns a typed ledger."""
+    registry, verify = _modules()
+    crane, log = _fake_registry_tool(tmp_path)
+    monkeypatch.setenv("UCM_TRANSPORT_LOG", str(log))
+    calls = {"preflight": 0, "matrix": 0}
+    real_matrix = registry.core.build_matrix
+
+    def preflight(**_: object) -> dict[str, object]:
+        calls["preflight"] += 1
+        return _protected_preflight()
+
+    def matrix(lane: str) -> dict[str, object]:
+        calls["matrix"] += 1
+        return real_matrix(lane)
+
+    monkeypatch.setattr(registry.core, "tag_preflight", preflight)
+    monkeypatch.setattr(registry.core, "build_matrix", matrix)
+    archive = tmp_path / "member.tar"
+    archive.write_bytes(b"tiny scratch archive")
+    result = registry.push_member_by_digest(
+        archive,
+        _publication_members()[0],
+        lane="protected-tag",
+        crane_binary=str(crane),
+    )
+
+    assert calls["preflight"] == 1
+    assert calls["matrix"] >= 1
+    assert result["digest"] == _publication_members()[0]["member_digest"]
+    assert (
+        verify.audit_operations(result["operations"], lane="protected-tag")[
+            "write_count"
+        ]
+        == 1
+    )
+    assert len(log.read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_loopback_registry_contract_uses_tiny_scratch_manifests_only() -> None:
+    """The disposable publisher never needs a UCM wheel or image build."""
+    registry, _ = _modules()
+    docker = shutil.which("docker")
+    crane = shutil.which("crane")
+    if docker is None or crane is None:
+        pytest.skip(
+            f"loopback prerequisites unavailable: docker={docker}, crane={crane}"
+        )
+
+    result = registry.run_loopback_registry_contract(
+        docker_binary=docker,
+        crane_binary=crane,
+    )
+
+    assert result["status"] == "passed"
+    assert result["member_count"] == 2
+    assert result["negative_mutation"] == "blocked"
+    assert all("ghcr.io" not in item["reference"] for item in result["operations"])

@@ -20,9 +20,11 @@ from .core import (
     validate_config,
 )
 from .registry import (
+    STAGING_REPOSITORY,
     TARGET_REPOSITORIES,
     RegistryBlocker,
     build_candidate,
+    canonical_registry_contract,
     inventory_digest,
     parse_upstream_tag,
     reconcile,
@@ -47,6 +49,13 @@ OPERATION_CONTRACTS = MappingProxyType(
         "crane-manifest": ("read", "upstream-digest"),
         "registry-inventory-read": ("read", "digest"),
         "build-plan": ("plan", "target-tag"),
+        "registry-member-push-by-digest": ("write", "staging-digest"),
+        "registry-staging-tag-create": ("write", "staging-tag"),
+        "registry-index-create": ("write", "public-target"),
+        "registry-authenticated-digest-read": ("read", "registry-read-tag"),
+        "registry-authenticated-manifest-read": ("read", "registry-read-digest"),
+        "registry-anonymous-digest-read": ("read", "registry-read-tag"),
+        "registry-anonymous-manifest-read": ("read", "registry-read-digest"),
     }
 )
 KNOWN_WRITE_OPERATION_TYPES = frozenset(
@@ -57,6 +66,9 @@ KNOWN_WRITE_OPERATION_TYPES = frozenset(
         "crane-push",
         "crane-copy",
         "crane-tag",
+        "registry-member-push-by-digest",
+        "registry-staging-tag-create",
+        "registry-index-create",
     }
 )
 WORKFLOW_REFS = [
@@ -1200,20 +1212,73 @@ def _validate_operation_reference(reference_kind: str, reference: object) -> Non
                 validate_public_tag(reference.removeprefix(matching[0] + ":"))
             except ValueError:
                 valid = False
+    elif reference_kind == "staging-digest":
+        repository, separator, digest = reference.rpartition("@")
+        valid = (
+            separator == "@"
+            and repository == STAGING_REPOSITORY
+            and DIGEST_RE.fullmatch(digest) is not None
+        )
+    elif reference_kind == "staging-tag":
+        prefix = STAGING_REPOSITORY + ":staging-"
+        valid = (
+            reference.startswith(prefix)
+            and re.fullmatch(r"[0-9a-f]{64}", reference.removeprefix(prefix))
+            is not None
+        )
+    elif reference_kind == "public-target":
+        valid = reference in {
+            f"{item['target_repository']}:{item['target_tag']}"
+            for item in canonical_registry_contract()["indexes"]
+        }
+    elif reference_kind == "registry-read-tag":
+        public_tags = {
+            f"{item['target_repository']}:{item['target_tag']}"
+            for item in canonical_registry_contract()["indexes"]
+        }
+        staging_prefix = STAGING_REPOSITORY + ":staging-"
+        valid = reference in public_tags or (
+            reference.startswith(staging_prefix)
+            and re.fullmatch(r"[0-9a-f]{64}", reference.removeprefix(staging_prefix))
+            is not None
+        )
+    elif reference_kind == "registry-read-digest":
+        repository, separator, digest = reference.rpartition("@")
+        valid = (
+            separator == "@"
+            and repository
+            in {
+                STAGING_REPOSITORY,
+                *{
+                    item["target_repository"]
+                    for item in canonical_registry_contract()["indexes"]
+                },
+            }
+            and DIGEST_RE.fullmatch(digest) is not None
+        )
     else:  # pragma: no cover - immutable mapping owns this branch.
         raise ValueError(f"unknown operation reference contract: {reference_kind}")
     if not valid:
+        if reference_kind in {"staging-digest", "staging-tag", "public-target"}:
+            raise ValueError(
+                f"operation reference is outside the exact allowlist: {reference}"
+            )
         raise ValueError(
             f"operation has malformed reference for {reference_kind}: {reference}"
         )
 
 
-def audit_operations(operations: list[dict[str, Any]]) -> dict[str, Any]:
+def audit_operations(
+    operations: list[dict[str, Any]], *, lane: str | None = None
+) -> dict[str, Any]:
     """Derive zero-write evidence from emitted operation ledgers."""
     if not isinstance(operations, list):
         raise ValueError("operation ledger must be an array")
+    if lane not in {None, "feature-candidate", "protected-tag"}:
+        raise ValueError(f"unknown operation audit lane: {lane}")
     operation_types: set[str] = set()
     identities: set[tuple[str, str]] = set()
+    write_capable_operations: list[dict[str, Any]] = []
     for operation in operations:
         if not isinstance(operation, dict) or set(operation) != {
             "type",
@@ -1224,7 +1289,14 @@ def audit_operations(operations: list[dict[str, Any]]) -> dict[str, Any]:
                 "malformed ledger entry: expected exactly type/capability/reference"
             )
         operation_type = operation["type"]
-        if operation_type in KNOWN_WRITE_OPERATION_TYPES:
+        if operation_type in KNOWN_WRITE_OPERATION_TYPES and lane in {
+            None,
+            "feature-candidate",
+        }:
+            if lane == "feature-candidate":
+                raise ValueError(
+                    f"feature-candidate rejects write-capable operation: {operation_type}"
+                )
             raise ValueError(
                 f"write-capable operation type is forbidden: {operation_type}"
             )
@@ -1237,6 +1309,8 @@ def audit_operations(operations: list[dict[str, Any]]) -> dict[str, Any]:
                 f"expected {expected_capability}, got {operation['capability']}"
             )
         _validate_operation_reference(reference_kind, operation["reference"])
+        if operation_type in KNOWN_WRITE_OPERATION_TYPES:
+            write_capable_operations.append(copy.deepcopy(operation))
         identity = (operation_type, operation["reference"])
         if identity in identities:
             raise ValueError(f"duplicate operation identity: {identity}")
@@ -1245,8 +1319,8 @@ def audit_operations(operations: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "operation_count": len(operations),
         "operation_types": sorted(operation_types),
-        "write_capable_operations": [],
-        "write_count": 0,
+        "write_capable_operations": write_capable_operations,
+        "write_count": len(write_capable_operations),
     }
 
 
