@@ -1,0 +1,389 @@
+name: Publish six canonical UCM vLLM protected images
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        type: string
+        required: true
+    outputs:
+      authenticated_artifact:
+        description: Protected six-member and three-index authenticated evidence
+        value: ${{ jobs.authenticated-readback.outputs.authenticated_artifact }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      source_sha: ${{ steps.plan.outputs.source_sha }}
+      protected: ${{ steps.plan.outputs.protected }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - name: Install compact release runtime dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - id: plan
+        name: Fail closed and project the exact six protected members
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${SOURCE_SHA}" = "${GITHUB_SHA}"
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          if [[ "${EVENT_NAME}" != push || \
+                "${REPOSITORY}" != SuperMarioYL/unified-cache-management || \
+                "${REF}" != refs/tags/v0.5.0rc1 || \
+                "${REF_PROTECTED}" != true ]]; then
+            echo "protected image invocation is outside exact authority" >&2
+            exit 2
+          fi
+          source_date_epoch="$(git show -s --format=%ct "${SOURCE_SHA}")"
+          PYTHONPATH=.github/release python -m ucm_release core hosted-matrix \
+            --source-sha "${SOURCE_SHA}" --source-date-epoch "${source_date_epoch}" \
+            --output hosted-matrix.json >/dev/null
+          {
+            echo "matrix=$(python -c 'import json; print(json.dumps(json.load(open("hosted-matrix.json"))["github_matrix"],separators=(",",":")))')"
+            echo "source_sha=${SOURCE_SHA}"
+            echo "protected=true"
+          } >>"${GITHUB_OUTPUT}"
+
+  build-images-protected:
+    needs: plan
+    if: >-
+      ${{
+        !cancelled() && needs.plan.result == 'success' &&
+        github.event_name == 'push' &&
+        github.repository == 'SuperMarioYL/unified-cache-management' &&
+        github.ref == 'refs/tags/v0.5.0rc1' && github.ref_protected == true &&
+        needs.plan.outputs.protected == 'true'
+      }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/_publish-image-member.yml
+    with:
+      source_sha: ${{ needs.plan.outputs.source_sha }}
+      spec_id: ${{ matrix.spec_id }}
+
+  member-barrier:
+    needs: [plan, build-images-protected]
+    if: ${{ always() && needs.plan.outputs.protected == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Block skipped cancelled or failed member publication
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          MEMBERS_RESULT: ${{ needs.build-images-protected.result }}
+        run: |
+          set -euo pipefail
+          for result in "${PLAN_RESULT}" "${MEMBERS_RESULT}"; do
+            case "${result}" in
+              success) ;;
+              skipped|failure|cancelled) echo "protected member result=${result}" >&2; exit 2 ;;
+              *) echo "unknown protected member result=${result}" >&2; exit 2 ;;
+            esac
+          done
+
+  aggregate-members:
+    needs: [plan, build-images-protected, member-barrier]
+    if: >-
+      ${{
+        !cancelled() && needs.plan.outputs.protected == 'true' &&
+        needs.plan.result == 'success' &&
+        needs.build-images-protected.result == 'success' &&
+        needs.member-barrier.result == 'success'
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      parent_artifact: ${{ steps.plan-indexes.outputs.parent_artifact }}
+    env:
+      CRANE_VERSION: v0.20.3
+      CRANE_LINUX_AMD64_SHA256: 36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - name: Install checksum-pinned crane
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/crane.tar.gz" \
+            "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
+          echo "${CRANE_LINUX_AMD64_SHA256}  ${RUNNER_TEMP}/crane.tar.gz" | sha256sum --check
+          tar -xzf "${RUNNER_TEMP}/crane.tar.gz" -C "${RUNNER_TEMP}/crane" crane
+          test "$("${RUNNER_TEMP}/crane/crane" version)" = "${CRANE_VERSION#v}"
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - name: Authenticate exact Registry inventory read
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${GITHUB_TOKEN}" | crane auth login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: ucm-member-*-${{ needs.plan.outputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: input/members
+      - id: plan-indexes
+        env:
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p out/parent/member-records
+          python -c 'import json,os; json.dump({"root":"input/members","output_dir":"out/parent/member-records","source_sha":os.environ["SOURCE_SHA"],"run":{"run_id":os.environ["GITHUB_RUN_ID"],"run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"])}},open("out/member-collection-request.json","w"),sort_keys=True,separators=(",",":"))'
+          PYTHONPATH=.github/release python -m ucm_release artifact collect-members --input out/member-collection-request.json --output out/member-collection.json >/dev/null
+          python -c 'import json; p=json.load(open("out/member-collection.json")); records=[json.load(open(x)) for x in p["member_records"]]; json.dump({"lane":"protected-tag","members":records,"member_statuses":{x["spec_id"]:"success" for x in records}},open("out/plan-request.json","w"),sort_keys=True,separators=(",",":"))'
+          printf '{}\n' >out/inventory-request.json
+          PYTHONPATH=.github/release python -m ucm_release registry inventory --input out/inventory-request.json --output out/inventory.json >/dev/null
+          PYTHONPATH=.github/release python -m ucm_release registry plan-index --input out/plan-request.json --output out/parent/parent-plans.json >/dev/null
+          cp out/inventory.json out/parent/inventory.json
+          cp out/member-collection.json out/parent/member-collection.json
+          logical="ucm-index-parent-${SOURCE_SHA}"
+          physical="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(*sys.argv[1:3], int(sys.argv[3])))' "${logical}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
+          echo "parent_artifact=${physical}" >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.plan-indexes.outputs.parent_artifact }}
+          path: out/parent/
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+
+  publish-indexes:
+    needs: [plan, aggregate-members]
+    if: >-
+      ${{
+        !cancelled() && needs.aggregate-members.result == 'success' &&
+        github.event_name == 'push' &&
+        github.repository == 'SuperMarioYL/unified-cache-management' &&
+        github.ref == 'refs/tags/v0.5.0rc1' && github.ref_protected == true
+      }}
+    strategy:
+      fail-fast: false
+      matrix:
+        family_id: [cann900-a3, cann900-a2, cuda130]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    environment: release-production
+    env:
+      CRANE_VERSION: v0.20.3
+      CRANE_LINUX_AMD64_SHA256: 36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059
+      BUILDX_VERSION: v0.19.2
+      BUILDX_LINUX_AMD64_SHA256: a5ff61c0b6d2c8ee20964a9d6dac7a7a6383c4a4a0ee8d354e983917578306ea
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - name: Reject missing policy before Registry authentication
+        env:
+          UCM_RELEASE_POLICY: ${{ vars.UCM_RELEASE_POLICY }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --force origin +refs/tags/v0.5.0rc1:refs/tags/v0.5.0rc1 +refs/heads/develop:refs/remotes/origin/develop
+          test "$(git rev-parse HEAD:.github/workflows)" = "$(git rev-parse origin/develop:.github/workflows)"
+          test "$(git rev-parse HEAD:.github/release)" = "$(git rev-parse origin/develop:.github/release)"
+          PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag >index-preflight.json
+      - name: Install checksum-pinned Registry tools
+        run: |
+          set -euo pipefail
+          docker_config="${RUNNER_TEMP}/ucm-index-docker-config"
+          mkdir -p "${RUNNER_TEMP}/crane" "${docker_config}/cli-plugins"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/crane.tar.gz" "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
+          echo "${CRANE_LINUX_AMD64_SHA256}  ${RUNNER_TEMP}/crane.tar.gz" | sha256sum --check
+          tar -xzf "${RUNNER_TEMP}/crane.tar.gz" -C "${RUNNER_TEMP}/crane" crane
+          curl -fsSL --retry 3 -o "${docker_config}/cli-plugins/docker-buildx" "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-amd64"
+          echo "${BUILDX_LINUX_AMD64_SHA256}  ${docker_config}/cli-plugins/docker-buildx" | sha256sum --check
+          chmod 0755 "${docker_config}/cli-plugins/docker-buildx"
+          test "$("${RUNNER_TEMP}/crane/crane" version)" = "${CRANE_VERSION#v}"
+          test "$(DOCKER_CONFIG="${docker_config}" docker buildx version | awk '{print $2}')" = "${BUILDX_VERSION}"
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.aggregate-members.outputs.parent_artifact }}
+          path: input/parent
+      - name: Reopen exact current-attempt parent before authentication
+        env:
+          PARENT_ARTIFACT: ${{ needs.aggregate-members.outputs.parent_artifact }}
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python -c 'import json,os; json.dump({"parent_plans":"input/parent/parent-plans.json","parent_artifact":os.environ["PARENT_ARTIFACT"],"source_sha":os.environ["SOURCE_SHA"],"run":{"run_id":os.environ["GITHUB_RUN_ID"],"run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"])}},open("out/parent-validation-request.json","w"),sort_keys=True,separators=(",",":"))'
+          PYTHONPATH=.github/release python -m ucm_release artifact validate-index-parent --input out/parent-validation-request.json --output out/parent-validation.json >/dev/null
+      - name: Authenticate GHCR publisher
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/ucm-index-docker-config
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${DOCKER_CONFIG}"
+          printf '%s' "${GITHUB_TOKEN}" | crane auth login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+      - id: publish
+        name: Fresh preflight then prepare one authenticated index
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/ucm-index-docker-config
+          UCM_RELEASE_POLICY: ${{ vars.UCM_RELEASE_POLICY }}
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+          FAMILY_ID: ${{ matrix.family_id }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --force origin +refs/tags/v0.5.0rc1:refs/tags/v0.5.0rc1 +refs/heads/develop:refs/remotes/origin/develop
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git rev-parse HEAD:.github/workflows)" = "$(git rev-parse origin/develop:.github/workflows)"
+          test "$(git rev-parse HEAD:.github/release)" = "$(git rev-parse origin/develop:.github/release)"
+          mkdir -p out/provisional
+          PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag >out/provisional/preflight.json
+          python -c 'import json,sys; json.dump({"lane":"protected-tag","parent_plans":"input/parent/parent-plans.json","family_id":sys.argv[1]},open("out/request.json","w"),sort_keys=True,separators=(",",":"))' "${FAMILY_ID}"
+          PYTHONPATH=.github/release python -m ucm_release registry prepare-index --input out/request.json --output out/provisional/provisional.json >/dev/null
+          logical="ucm-index-provisional-${FAMILY_ID}-${SOURCE_SHA}"
+          physical="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(*sys.argv[1:3], int(sys.argv[3])))' "${logical}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
+          echo "artifact=${physical}" >>"${GITHUB_OUTPUT}"
+      - name: Remove Registry credentials before evidence upload
+        if: ${{ always() }}
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/ucm-index-docker-config
+        run: |
+          set -euo pipefail
+          crane auth logout ghcr.io || true
+          rm -rf "${DOCKER_CONFIG}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.publish.outputs.artifact }}
+          path: out/provisional/
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+
+  index-barrier:
+    needs: [plan, aggregate-members, publish-indexes]
+    if: ${{ always() && needs.plan.outputs.protected == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Require exact three successful authenticated index preparations
+        env:
+          MEMBERS_RESULT: ${{ needs.aggregate-members.result }}
+          INDEXES_RESULT: ${{ needs.publish-indexes.result }}
+        run: |
+          set -euo pipefail
+          for result in "${MEMBERS_RESULT}" "${INDEXES_RESULT}"; do
+            case "${result}" in
+              success) ;;
+              skipped|failure|cancelled) echo "protected index result=${result}" >&2; exit 2 ;;
+              *) echo "unknown protected index result=${result}" >&2; exit 2 ;;
+            esac
+          done
+
+  authenticated-readback:
+    needs: [plan, aggregate-members, publish-indexes, index-barrier]
+    if: >-
+      ${{
+        !cancelled() && needs.plan.outputs.protected == 'true' &&
+        needs.aggregate-members.result == 'success' &&
+        needs.publish-indexes.result == 'success' &&
+        needs.index-barrier.result == 'success'
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      authenticated_artifact: ${{ steps.aggregate.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.aggregate-members.outputs.parent_artifact }}
+          path: input/parent
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: ucm-index-provisional-*-${{ needs.plan.outputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: input/provisionals
+      - id: aggregate
+        env:
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p out/evidence/member-records out/evidence/provisionals
+          cp input/parent/parent-plans.json out/evidence/parent-plans.json
+          cp input/parent/member-collection.json out/evidence/member-collection.json
+          cp input/parent/member-records/*.json out/evidence/member-records/
+          python -c 'import json,os; json.dump({"root":"input/provisionals","output_dir":"out/evidence/provisionals","source_sha":os.environ["SOURCE_SHA"],"parent_plans":"out/evidence/parent-plans.json","run":{"run_id":os.environ["GITHUB_RUN_ID"],"run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"])}},open("out/provisional-collection-request.json","w"),sort_keys=True,separators=(",",":"))'
+          PYTHONPATH=.github/release python -m ucm_release artifact collect-provisionals --input out/provisional-collection-request.json --output out/provisional-collection.json >/dev/null
+          cp out/provisional-collection.json out/evidence/provisional-collection.json
+          python -c 'import glob,json,os; p=json.load(open("out/provisional-collection.json")); json.dump({"member_records":sorted(glob.glob("out/evidence/member-records/*.json")),"member_collection":"out/evidence/member-collection.json","provisional_indexes":p["provisional_indexes"],"provisional_collection":"out/evidence/provisional-collection.json","parent_plans":"out/evidence/parent-plans.json","source_sha":os.environ["SOURCE_SHA"],"run":{"run_id":os.environ["GITHUB_RUN_ID"],"run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"])}},open("out/request.json","w"),sort_keys=True,separators=(",",":"))'
+          PYTHONPATH=.github/release python -m ucm_release registry aggregate-authenticated --input out/request.json --output out/evidence/authenticated-publication.json >/dev/null
+          logical="ucm-registry-authenticated-${SOURCE_SHA}"
+          physical="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(*sys.argv[1:3], int(sys.argv[3])))' "${logical}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
+          echo "artifact=${physical}" >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.aggregate.outputs.artifact }}
+          path: out/evidence/
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90

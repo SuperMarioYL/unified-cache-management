@@ -205,10 +205,9 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: ./.github/workflows/release-vllm-images.yml
+    uses: ./.github/workflows/release-vllm-images-protected.yml
     with:
       source_sha: ${{ needs.plan.outputs.source_sha }}
-      deliver_full_oci: false
 
   feature-barrier:
     needs: [plan, build-wheels-feature, package-chart, reconcile-images-feature]
@@ -369,7 +368,7 @@ jobs:
             git fetch --no-tags --force origin +refs/tags/v0.5.0rc1:refs/tags/v0.5.0rc1 +refs/heads/develop:refs/remotes/origin/develop
             git diff --quiet HEAD:.github/workflows origin/develop:.github/workflows
             git diff --quiet HEAD:.github/release origin/develop:.github/release
-            test "$(git rev-parse HEAD)" = "$(git rev-parse origin/develop^{commit})"
+            test "$(git rev-parse HEAD)" = "$(git rev-parse refs/remotes/origin/develop)"
             PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag >/dev/null
             gh api --method POST \
               -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \

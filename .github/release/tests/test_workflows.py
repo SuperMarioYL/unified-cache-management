@@ -24,8 +24,10 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 EXPECTED_RELEASE_WORKFLOWS = {
     "_build-image.yml",
+    "_publish-image-member.yml",
     "_build-wheel.yml",
     "release-ucm.yml",
+    "release-vllm-images-protected.yml",
     "release-vllm-images.yml",
 }
 ALLOWED_NON_RELEASE_WORKFLOWS = {
@@ -1717,7 +1719,7 @@ def test_fork_isolation_allows_a_read_only_reusable_build() -> None:
     assert _fork_isolation_violations(documents) == []
 
 
-def test_release_workflow_topology_runs_the_four_files_at_the_pushed_sha() -> None:
+def test_release_workflow_topology_runs_split_files_at_the_pushed_sha() -> None:
     """The feature push must reach six wheels, Chart, six images, and aggregate."""
     entry = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
     triggers = _trigger(entry)
@@ -1737,6 +1739,7 @@ def test_release_workflow_topology_runs_the_four_files_at_the_pushed_sha() -> No
     }
     assert local_calls == {
         "./.github/workflows/_build-wheel.yml",
+        "./.github/workflows/release-vllm-images-protected.yml",
         "./.github/workflows/release-vllm-images.yml",
     }
     assert all("@" not in reference for reference in local_calls)
@@ -1762,14 +1765,19 @@ def test_release_workflow_topology_runs_the_four_files_at_the_pushed_sha() -> No
     assert image_jobs["build-images-feature"]["uses"] == (
         "./.github/workflows/_build-image.yml"
     )
-    assert image_jobs["build-images-protected"]["uses"] == (
-        "./.github/workflows/_build-image.yml"
-    )
     assert set(image_jobs["aggregate-feature"]["needs"]) == {
         "plan",
         "build-images-feature",
         "feature-barrier",
     }
+    protected_release = _load_workflow(
+        WORKFLOW_DIR / "release-vllm-images-protected.yml"
+    )
+    assert _jobs(protected_release)["build-images-protected"]["uses"] == (
+        "./.github/workflows/_publish-image-member.yml"
+    )
+    publisher = _load_workflow(WORKFLOW_DIR / "_publish-image-member.yml")
+    assert _jobs(publisher)["build"]["uses"] == ("./.github/workflows/_build-image.yml")
 
 
 def test_reusable_workflow_inputs_outputs_and_artifacts_are_exact() -> None:
@@ -1948,7 +1956,7 @@ def test_reusable_entry_contracts_reject_empty_partial_and_illegal_calls() -> No
     contract = next(
         step
         for step in _steps(_jobs(images)["plan"])
-        if step.get("name") == "Fail closed and project the exact six members"
+        if step.get("name") == "Fail closed and project the exact six feature members"
     )
     assert "inputs.source_sha" in str(contract["env"]["SOURCE_SHA"])
     assert "exit 2" in str(contract["run"])
@@ -2320,7 +2328,7 @@ def test_every_hosted_cli_job_installs_the_locked_runtime_dependencies_first() -
     expected_jobs = {
         ("_build-wheel.yml", "build"),
         ("_build-image.yml", "build"),
-        ("_build-image.yml", "publish-member"),
+        ("_publish-image-member.yml", "publish-member"),
         ("release-ucm.yml", "plan"),
         ("release-ucm.yml", "package-chart"),
         ("release-ucm.yml", "aggregate-evidence"),
@@ -2330,9 +2338,10 @@ def test_every_hosted_cli_job_installs_the_locked_runtime_dependencies_first() -
         ("release-ucm.yml", "anonymous-release-readback"),
         ("release-vllm-images.yml", "plan"),
         ("release-vllm-images.yml", "aggregate-feature"),
-        ("release-vllm-images.yml", "aggregate-members"),
-        ("release-vllm-images.yml", "publish-indexes"),
-        ("release-vllm-images.yml", "authenticated-readback"),
+        ("release-vllm-images-protected.yml", "plan"),
+        ("release-vllm-images-protected.yml", "aggregate-members"),
+        ("release-vllm-images-protected.yml", "publish-indexes"),
+        ("release-vllm-images-protected.yml", "authenticated-readback"),
     }
     observed_jobs: set[tuple[str, str]] = set()
     for filename in EXPECTED_RELEASE_WORKFLOWS:
@@ -2362,19 +2371,30 @@ def test_every_hosted_cli_job_installs_the_locked_runtime_dependencies_first() -
     assert observed_jobs == expected_jobs
 
 
-def test_reusable_image_router_binds_input_source_and_protected_caller_authority() -> (
-    None
-):
-    """The callable source is explicit; only the exact protected event gains writes."""
-    document = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
-    jobs = _jobs(document)
-    assert set(_trigger(document)) == {"workflow_call"}
-    assert set(_trigger(document)["workflow_call"]["inputs"]) == {
+def test_reusable_image_routers_split_feature_and_protected_authority() -> None:
+    """The callable source is explicit and feature cannot inherit protected jobs."""
+    feature = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
+    feature_jobs = _jobs(feature)
+    assert set(_trigger(feature)) == {"workflow_call"}
+    assert set(_trigger(feature)["workflow_call"]["inputs"]) == {
         "source_sha",
         "deliver_full_oci",
     }
-    plan_text = "\n".join(_strings(jobs["plan"]))
-    assert "inputs.source_sha" in plan_text
+    feature_plan = "\n".join(_strings(feature_jobs["plan"]))
+    assert "inputs.source_sha" in feature_plan
+    for authority in (
+        "github.event_name",
+        "github.repository",
+        "github.ref",
+        "refs/heads/feature/",
+    ):
+        assert authority in feature_plan
+    assert "github.ref_protected" not in feature_plan
+    assert "standalone-wheel" not in feature_jobs
+
+    protected = _load_workflow(WORKFLOW_DIR / "release-vllm-images-protected.yml")
+    assert set(_trigger(protected)["workflow_call"]["inputs"]) == {"source_sha"}
+    protected_plan = "\n".join(_strings(_jobs(protected)["plan"]))
     for authority in (
         "github.event_name",
         "github.repository",
@@ -2382,21 +2402,20 @@ def test_reusable_image_router_binds_input_source_and_protected_caller_authority
         "github.ref_protected",
         "refs/tags/v0.5.0rc1",
     ):
-        assert authority in plan_text
-    assert set(_trigger(document)["workflow_call"]["inputs"]) == {
-        "source_sha",
-        "deliver_full_oci",
-    }
-    assert "standalone-wheel" not in jobs
+        assert authority in protected_plan
 
 
 def test_callable_image_chain_overrides_skipped_standalone_ancestor() -> None:
     """Every image aggregate dependency has explicit success and cancellation gates."""
-    document = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
-    jobs = _jobs(document)
+    feature_jobs = _jobs(_load_workflow(WORKFLOW_DIR / "release-vllm-images.yml"))
+    protected_jobs = _jobs(
+        _load_workflow(WORKFLOW_DIR / "release-vllm-images-protected.yml")
+    )
     dependencies = {
         "build-images-feature": ["plan"],
         "aggregate-feature": ["plan", "build-images-feature", "feature-barrier"],
+    }
+    protected_dependencies = {
         "build-images-protected": ["plan"],
         "aggregate-members": [
             "plan",
@@ -2410,7 +2429,12 @@ def test_callable_image_chain_overrides_skipped_standalone_ancestor() -> None:
         ],
     }
     for job_name, direct_needs in dependencies.items():
-        condition = str(jobs[job_name]["if"])
+        condition = str(feature_jobs[job_name]["if"])
+        assert "!cancelled()" in condition, job_name
+        for dependency in direct_needs:
+            assert f"needs.{dependency}.result == 'success'" in condition
+    for job_name, direct_needs in protected_dependencies.items():
+        condition = str(protected_jobs[job_name]["if"])
         assert "!cancelled()" in condition, job_name
         for dependency in direct_needs:
             assert f"needs.{dependency}.result == 'success'" in condition
@@ -2418,25 +2442,31 @@ def test_callable_image_chain_overrides_skipped_standalone_ancestor() -> None:
 
 def test_callable_image_chain_fails_closed_for_direct_needs_and_cancellation() -> None:
     """The always barrier converts failed, skipped, or cancelled matrix state to failure."""
-    document = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
-    jobs = _jobs(document)
-    for barrier_name, expected_needs, result_names in (
+    feature_jobs = _jobs(_load_workflow(WORKFLOW_DIR / "release-vllm-images.yml"))
+    protected_jobs = _jobs(
+        _load_workflow(WORKFLOW_DIR / "release-vllm-images-protected.yml")
+    )
+    barriers = (
         (
+            feature_jobs,
             "feature-barrier",
             {"plan", "build-images-feature"},
             {"PLAN_RESULT", "IMAGE_RESULT"},
         ),
         (
+            protected_jobs,
             "member-barrier",
             {"plan", "build-images-protected"},
             {"PLAN_RESULT", "MEMBERS_RESULT"},
         ),
         (
+            protected_jobs,
             "index-barrier",
             {"plan", "aggregate-members", "publish-indexes"},
             {"MEMBERS_RESULT", "INDEXES_RESULT"},
         ),
-    ):
+    )
+    for jobs, barrier_name, expected_needs, result_names in barriers:
         barrier = jobs[barrier_name]
         assert set(barrier["needs"]) == expected_needs
         assert "always()" in str(barrier["if"])
@@ -2454,7 +2484,8 @@ def test_multi_output_steps_use_one_grouped_github_output_append() -> None:
         ("_build-image.yml", "build", "task"): 3,
         ("_build-image.yml", "build", "result"): 2,
         ("release-ucm.yml", "plan", "plan"): 5,
-        ("release-vllm-images.yml", "plan", "plan"): 4,
+        ("release-vllm-images.yml", "plan", "plan"): 3,
+        ("release-vllm-images-protected.yml", "plan", "plan"): 3,
     }
     for (filename, job_name, step_id), output_count in targets.items():
         document = _load_workflow(WORKFLOW_DIR / filename)
@@ -2544,8 +2575,8 @@ def test_production_and_unsupported_callable_lanes_fail_closed() -> None:
         if "environment" in job
     }
     assert environments == {
-        ("_build-image.yml", "publish-member"),
-        ("release-vllm-images.yml", "publish-indexes"),
+        ("_publish-image-member.yml", "publish-member"),
+        ("release-vllm-images-protected.yml", "publish-indexes"),
         ("release-ucm.yml", "prepare-release-draft"),
         ("release-ucm.yml", "publish-release"),
     }
@@ -2558,19 +2589,19 @@ def test_production_and_unsupported_callable_lanes_fail_closed() -> None:
 def test_changed_workflows_pin_actions_and_keep_fork_jobs_read_only() -> None:
     """Actions are immutable; only the exact protected call chain gains writes."""
     permission_exceptions = {
-        ("_build-image.yml", "publish-member"): {
+        ("_publish-image-member.yml", "publish-member"): {
             "contents": "read",
             "packages": "write",
         },
-        ("release-vllm-images.yml", "build-images-protected"): {
+        ("release-vllm-images-protected.yml", "build-images-protected"): {
             "contents": "read",
             "packages": "write",
         },
-        ("release-vllm-images.yml", "aggregate-members"): {
+        ("release-vllm-images-protected.yml", "aggregate-members"): {
             "contents": "read",
             "packages": "read",
         },
-        ("release-vllm-images.yml", "publish-indexes"): {
+        ("release-vllm-images-protected.yml", "publish-indexes"): {
             "contents": "read",
             "packages": "write",
         },
@@ -3500,7 +3531,8 @@ def test_task5_protected_route_has_static_permission_and_environment_boundaries(
         assert fragment in protected_call_if
 
     image = _load_workflow(WORKFLOW_DIR / "_build-image.yml")
-    publisher = _jobs(image)["publish-member"]
+    publisher_workflow = _load_workflow(WORKFLOW_DIR / "_publish-image-member.yml")
+    publisher = _jobs(publisher_workflow)["publish-member"]
     assert publisher["permissions"] == {"contents": "read", "packages": "write"}
     assert publisher["environment"] == "release-production"
     assert "UCM_RELEASE_POLICY" not in publisher.get("env", {})
@@ -3598,6 +3630,70 @@ def test_task5_protected_route_has_static_permission_and_environment_boundaries(
         assert forbidden not in all_text
 
 
+def test_feature_reusable_call_graph_never_requests_package_authority() -> None:
+    """GitHub validates nested reusable permissions before evaluating job conditions."""
+    entry = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
+    feature_call = _jobs(entry)["reconcile-images-feature"]
+    assert feature_call["permissions"] == {"contents": "read"}
+    pending = [str(feature_call["uses"]).removeprefix("./.github/workflows/")]
+    visited: set[str] = set()
+    while pending:
+        filename = pending.pop()
+        if filename in visited:
+            continue
+        visited.add(filename)
+        document = _load_workflow(WORKFLOW_DIR / filename)
+        assert document["permissions"] == {"contents": "read"}
+        for job_name, job in _jobs(document).items():
+            assert "packages" not in job.get("permissions", {}), (
+                filename,
+                job_name,
+                "feature nested reusable call requests package authority",
+            )
+            uses = str(job.get("uses", ""))
+            if uses.startswith("./.github/workflows/"):
+                pending.append(uses.removeprefix("./.github/workflows/"))
+    assert visited == {"release-vllm-images.yml", "_build-image.yml"}
+
+
+def test_protected_reusable_call_graph_is_split_from_feature_authority() -> None:
+    """Every write-capable reusable edge is reachable only from the protected caller."""
+    entry_jobs = _jobs(_load_workflow(WORKFLOW_DIR / "release-ucm.yml"))
+    assert entry_jobs["reconcile-images-feature"]["uses"] == (
+        "./.github/workflows/release-vllm-images.yml"
+    )
+    assert entry_jobs["reconcile-images-protected"]["uses"] == (
+        "./.github/workflows/release-vllm-images-protected.yml"
+    )
+    protected = _load_workflow(WORKFLOW_DIR / "release-vllm-images-protected.yml")
+    protected_build = _jobs(protected)["build-images-protected"]
+    assert protected_build["permissions"] == {
+        "contents": "read",
+        "packages": "write",
+    }
+    assert protected_build["uses"] == ("./.github/workflows/_publish-image-member.yml")
+    publisher = _load_workflow(WORKFLOW_DIR / "_publish-image-member.yml")
+    publisher_jobs = _jobs(publisher)
+    assert publisher_jobs["build"]["permissions"] == {"contents": "read"}
+    assert publisher_jobs["build"]["uses"] == ("./.github/workflows/_build-image.yml")
+    assert publisher_jobs["publish-member"]["permissions"] == {
+        "contents": "read",
+        "packages": "write",
+    }
+    assert publisher_jobs["publish-member"]["environment"] == "release-production"
+
+
+def test_hosted_shellcheck_false_positives_are_narrowly_resolved() -> None:
+    """The hosted actionlint shellcheck binary must accept protected workflow scripts."""
+    image = _load_workflow(WORKFLOW_DIR / "_publish-image-member.yml")
+    member = _jobs(image)["publish-member"]
+    member_run = "\n".join(str(step.get("run", "")) for step in _steps(member))
+    assert 'schema["$defs"]' in member_run
+    assert "# shellcheck disable=SC2016" in member_run
+    entry_text = (WORKFLOW_DIR / "release-ucm.yml").read_text(encoding="utf-8")
+    assert "origin/develop^{commit}" not in entry_text
+
+
 def test_task5_artifacts_are_run_bound_and_barriers_are_transitive() -> None:
     """A stale artifact or skipped/cancelled matrix cannot open an index write gate."""
     for filename in ("_build-wheel.yml", "_build-image.yml"):
@@ -3607,10 +3703,14 @@ def test_task5_artifacts_are_run_bound_and_barriers_are_transitive() -> None:
         assert "run_bound_artifact_name" in text
 
     images = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
-    jobs = _jobs(images)
-    assert jobs["build-images-feature"]["strategy"]["fail-fast"] is False
+    feature_jobs = _jobs(images)
+    protected_images = _load_workflow(
+        WORKFLOW_DIR / "release-vllm-images-protected.yml"
+    )
+    jobs = _jobs(protected_images)
+    assert feature_jobs["build-images-feature"]["strategy"]["fail-fast"] is False
     assert jobs["build-images-protected"]["strategy"]["fail-fast"] is False
-    assert jobs["build-images-feature"]["permissions"] == {"contents": "read"}
+    assert feature_jobs["build-images-feature"]["permissions"] == {"contents": "read"}
     assert jobs["build-images-protected"]["permissions"] == {
         "contents": "read",
         "packages": "write",
@@ -3671,8 +3771,12 @@ def test_task5_artifacts_are_run_bound_and_barriers_are_transitive() -> None:
         index_steps[index_mutation]["env"]["DOCKER_CONFIG"]
     )
 
-    for barrier_name in ("feature-barrier", "member-barrier", "index-barrier"):
-        barrier_text = "\n".join(_strings(jobs[barrier_name]))
+    for barrier in (
+        feature_jobs["feature-barrier"],
+        jobs["member-barrier"],
+        jobs["index-barrier"],
+    ):
+        barrier_text = "\n".join(_strings(barrier))
         for status in ("success", "skipped", "failure", "cancelled"):
             assert status in barrier_text
 
@@ -3697,7 +3801,7 @@ def test_task5_artifacts_are_run_bound_and_barriers_are_transitive() -> None:
             for dependency in direct_needs - {"plan"}:
                 assert f"needs.{dependency}.result == 'success'" in condition
 
-    workflow_text = "\n".join(_strings(images))
+    workflow_text = "\n".join(_strings(protected_images))
     for required in (
         "run-${{ github.run_id }}-attempt-${{ github.run_attempt }}",
         "artifact collect-members",
@@ -3711,14 +3815,14 @@ def test_task5_artifacts_are_run_bound_and_barriers_are_transitive() -> None:
     ):
         assert required in workflow_text
     assert "registry audit-operations" in "\n".join(
-        _strings(_load_workflow(WORKFLOW_DIR / "_build-image.yml"))
+        _strings(_load_workflow(WORKFLOW_DIR / "_publish-image-member.yml"))
     )
     assert "registry verify-index" not in workflow_text
 
 
 def test_task5_public_visibility_and_release_order_are_fail_closed() -> None:
     """Anonymous package closure and seven rehashed assets precede prerelease publish."""
-    images = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
+    images = _load_workflow(WORKFLOW_DIR / "release-vllm-images-protected.yml")
     jobs = _jobs(images)
     assert jobs["authenticated-readback"]["permissions"] == {"contents": "read"}
     entry = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
