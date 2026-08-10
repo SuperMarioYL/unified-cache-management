@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -140,9 +141,46 @@ def build_parser() -> argparse.ArgumentParser:
         "verify-member",
         "plan-index",
         "verify-index",
+        "prepare-index",
+        "finalize-index",
+        "aggregate-authenticated",
+        "aggregate-protected",
         "audit-operations",
     ):
         command = registry_actions.add_parser(action)
+        command.add_argument("--input", type=Path, required=True)
+        command.add_argument("--output", type=Path, required=True)
+
+    artifact_parser = groups.add_parser("artifact")
+    artifact_actions = artifact_parser.add_subparsers(dest="action", required=True)
+    for action in (
+        "validate-image-bridge",
+        "validate-index-parent",
+        "collect-members",
+        "collect-provisionals",
+    ):
+        command = artifact_actions.add_parser(action)
+        command.add_argument("--input", type=Path, required=True)
+        command.add_argument("--output", type=Path, required=True)
+
+    release_parser = groups.add_parser("release")
+    release_actions = release_parser.add_subparsers(dest="action", required=True)
+    for action in (
+        "assets-manifest",
+        "plan-state",
+        "plan-assets",
+        "verify-assets",
+        "select-pages",
+        "plan-downloads",
+        "complete-downloads",
+        "refresh-assets",
+        "verify-upload-prefix",
+        "record-upload-response",
+        "rebase-manifest",
+        "operation-ledger",
+        "publication-evidence",
+    ):
+        command = release_actions.add_parser(action)
         command.add_argument("--input", type=Path, required=True)
         command.add_argument("--output", type=Path, required=True)
 
@@ -450,6 +488,99 @@ def main(argv: list[str] | None = None) -> int:
                 matches[0], parent_plans=parent, lane=request["lane"]
             )
             _write(args.output, result)
+        elif (args.group, args.action) == ("registry", "prepare-index"):
+            request = core.load_json(args.input)
+            if set(request) != {"lane", "parent_plans", "family_id"}:
+                raise ValueError(
+                    "prepare-index input requires lane/parent_plans/family_id"
+                )
+            parent = request["parent_plans"]
+            if not isinstance(parent, dict) or not isinstance(
+                parent.get("plans"), list
+            ):
+                raise ValueError("prepare-index parent_plans is malformed")
+            matches = [
+                item
+                for item in parent["plans"]
+                if isinstance(item, dict)
+                and item.get("family_id") == request["family_id"]
+            ]
+            if len(matches) != 1:
+                raise ValueError("prepare-index family does not resolve exactly once")
+            result = registry.prepare_index(
+                matches[0], parent_plans=parent, lane=request["lane"]
+            )
+            _write(args.output, result)
+        elif (args.group, args.action) == ("registry", "finalize-index"):
+            request = core.load_json(args.input)
+            if set(request) != {"parent_plans", "provisional"} or not all(
+                isinstance(request[key], str) for key in ("parent_plans", "provisional")
+            ):
+                raise ValueError(
+                    "finalize-index input requires exact parent/provisional paths"
+                )
+            result = registry.finalize_index(
+                core.load_json(Path(request["provisional"])),
+                parent_plans=core.load_json(Path(request["parent_plans"])),
+            )
+            _write(args.output, result)
+        elif (args.group, args.action) in {
+            ("registry", "aggregate-authenticated"),
+            ("registry", "aggregate-protected"),
+        }:
+            request = core.load_json(args.input)
+            record_key = (
+                "provisional_indexes"
+                if args.action == "aggregate-authenticated"
+                else "finalized_indexes"
+            )
+            if set(request) != {
+                "member_records",
+                "member_collection",
+                record_key,
+                "provisional_collection",
+                "parent_plans",
+                "source_sha",
+                "run",
+            }:
+                raise ValueError("registry aggregation input fields are noncanonical")
+            if (
+                not isinstance(request["member_records"], list)
+                or not isinstance(request[record_key], list)
+                or any(
+                    not isinstance(path, str)
+                    for path in [
+                        *request["member_records"],
+                        *request[record_key],
+                    ]
+                )
+                or not isinstance(request["parent_plans"], str)
+                or not isinstance(request["member_collection"], str)
+                or not isinstance(request["provisional_collection"], str)
+            ):
+                raise ValueError("registry aggregation paths are malformed")
+            kwargs = {
+                "member_records": [
+                    core.load_json(Path(path)) for path in request["member_records"]
+                ],
+                "member_collection": core.load_json(Path(request["member_collection"])),
+                record_key: [
+                    core.load_json(Path(path)) for path in request[record_key]
+                ],
+                "provisional_collection": core.load_json(
+                    Path(request["provisional_collection"])
+                ),
+                "parent_plans": core.load_json(Path(request["parent_plans"])),
+                "source_sha": request["source_sha"],
+                "run": request["run"],
+            }
+            function = (
+                verify.authenticated_registry_publication_evidence
+                if args.action == "aggregate-authenticated"
+                else verify.protected_registry_publication_evidence
+            )
+            result = function(**kwargs)
+            _write(args.output, result)
         elif (args.group, args.action) == ("registry", "audit-operations"):
             request = core.load_json(args.input)
             if set(request) != {"lane", "operations"}:
@@ -464,6 +595,546 @@ def main(argv: list[str] | None = None) -> int:
                 **audit,
             }
             result = {**payload, "audit_sha256": core.sha256_value(payload)}
+            _write(args.output, result)
+        elif (args.group, args.action) == ("artifact", "validate-image-bridge"):
+            request = core.load_json(args.input)
+            if set(request) != {
+                "source_sha",
+                "spec_id",
+                "oci_artifact",
+                "image_artifact",
+                "hosted_task",
+                "run",
+            } or any(
+                not isinstance(request[key], str)
+                for key in (
+                    "source_sha",
+                    "spec_id",
+                    "oci_artifact",
+                    "image_artifact",
+                    "hosted_task",
+                )
+            ):
+                raise ValueError("image bridge artifact input is malformed")
+            task = core.load_json(Path(request["hosted_task"]))
+            if (
+                not isinstance(task, dict)
+                or task.get("source_sha") != request["source_sha"]
+                or task.get("spec_id") != request["spec_id"]
+                or not isinstance(task.get("source_date_epoch"), int)
+                or isinstance(task.get("source_date_epoch"), bool)
+            ):
+                raise ValueError("image bridge hosted task is malformed")
+            expected = verify.hosted_build_matrix(
+                request["source_sha"], task["source_date_epoch"]
+            )
+            matches = [
+                item
+                for item in expected["tasks"]
+                if item["spec_id"] == request["spec_id"]
+            ]
+            if len(matches) != 1 or task != matches[0]:
+                raise ValueError("image bridge hosted task differs from authority")
+            result = {
+                "oci_artifact": verify.validate_run_bound_artifact_name(
+                    request["oci_artifact"],
+                    f"ucm-internal-oci-{request['spec_id']}-{request['source_sha']}",
+                    request["run"],
+                ),
+                "image_artifact": verify.validate_run_bound_artifact_name(
+                    request["image_artifact"], task["image_artifact"], request["run"]
+                ),
+            }
+            _write(args.output, result)
+        elif (args.group, args.action) == ("artifact", "validate-index-parent"):
+            request = core.load_json(args.input)
+            if set(request) != {
+                "parent_plans",
+                "parent_artifact",
+                "source_sha",
+                "run",
+            } or any(
+                not isinstance(request[key], str)
+                for key in ("parent_plans", "parent_artifact", "source_sha")
+            ):
+                raise ValueError("index parent artifact input is malformed")
+            artifact = verify.validate_run_bound_artifact_name(
+                request["parent_artifact"],
+                f"ucm-index-parent-{request['source_sha']}",
+                request["run"],
+            )
+            parent = registry.validate_index_plans(
+                core.load_json(Path(request["parent_plans"]))
+            )
+            if parent["source_sha"] != request["source_sha"]:
+                raise ValueError("index parent source differs from protected tag")
+            result = {
+                "schema_version": 1,
+                "kind": "ucm-index-parent-artifact-validation",
+                "parent_artifact": artifact,
+                "source_sha": request["source_sha"],
+                "plans_sha256": parent["plans_sha256"],
+            }
+            _write(args.output, result)
+        elif (args.group, args.action) == ("artifact", "collect-members"):
+            request = core.load_json(args.input)
+            if set(request) != {"root", "output_dir", "source_sha", "run"} or any(
+                not isinstance(request[key], str)
+                for key in ("root", "output_dir", "source_sha")
+            ):
+                raise ValueError("member artifact collection input is malformed")
+            specs = [
+                item["spec_id"]
+                for item in registry.canonical_registry_contract()["members"]
+            ]
+            logical = [f"ucm-member-{spec}-{request['source_sha']}" for spec in specs]
+            directories = verify.resolve_run_bound_artifact_directories(
+                Path(request["root"]), logical, run=request["run"], label="member"
+            )
+            output_dir = _empty_output_dir(Path(request["output_dir"]))
+            paths: list[str] = []
+            preflight_sha256s: dict[str, str] = {}
+            for spec, name in zip(specs, logical, strict=True):
+                directory = directories[name]
+                expected_files = {
+                    "member-record.json",
+                    "member-audit.json",
+                    "member-preflight.json",
+                    "member-mutation-preflight.json",
+                }
+                if {path.name for path in directory.iterdir()} != expected_files:
+                    raise ValueError("member artifact file set is noncanonical")
+                source = directory / "member-record.json"
+                record = registry.validate_member_record(core.load_json(source))
+                if record["spec_id"] != spec:
+                    raise ValueError("member artifact/spec mismatch")
+                early_preflight = core.load_json(directory / "member-preflight.json")
+                mutation_preflight = core.load_json(
+                    directory / "member-mutation-preflight.json"
+                )
+                for preflight in (early_preflight, mutation_preflight):
+                    if (
+                        preflight.get("schema_version") != 1
+                        or isinstance(preflight.get("schema_version"), bool)
+                        or preflight.get("kind") != "ucm-tag-preflight"
+                        or preflight.get("lane") != "protected-tag"
+                        or preflight.get("source_sha") != request["source_sha"]
+                        or preflight.get("publication_allowed") is not True
+                        or preflight.get("write_authority")
+                        != [
+                            "github-prerelease",
+                            "ghcr-final-index",
+                            "ghcr-private-staging",
+                        ]
+                        or not isinstance(preflight.get("checks"), dict)
+                        or not preflight["checks"]
+                        or any(
+                            value is not True for value in preflight["checks"].values()
+                        )
+                        or preflight.get("preflight_sha256")
+                        != core.sha256_value(
+                            {
+                                key: value
+                                for key, value in preflight.items()
+                                if key != "preflight_sha256"
+                            }
+                        )
+                    ):
+                        raise ValueError("member protected preflight is invalid")
+                if early_preflight != mutation_preflight:
+                    raise ValueError("member mutation preflight changed unexpectedly")
+                target = output_dir / f"{spec}.json"
+                shutil.copyfile(source, target)
+                paths.append(str(target))
+                preflight_sha256s[spec] = mutation_preflight["preflight_sha256"]
+            result = {
+                "schema_version": 1,
+                "kind": "ucm-member-artifact-collection",
+                "source_sha": request["source_sha"],
+                "member_records": paths,
+                "member_record_sha256s": {
+                    spec: registry.validate_member_record(
+                        core.load_json(output_dir / f"{spec}.json")
+                    )["record_sha256"]
+                    for spec in specs
+                },
+                "member_preflight_sha256s": preflight_sha256s,
+            }
+            result["collection_sha256"] = core.sha256_value(
+                {key: value for key, value in result.items() if key != "member_records"}
+            )
+            _write(args.output, result)
+        elif (args.group, args.action) == ("artifact", "collect-provisionals"):
+            request = core.load_json(args.input)
+            if set(request) != {
+                "root",
+                "output_dir",
+                "source_sha",
+                "parent_plans",
+                "run",
+            } or any(
+                not isinstance(request[key], str)
+                for key in ("root", "output_dir", "source_sha", "parent_plans")
+            ):
+                raise ValueError("provisional artifact collection input is malformed")
+            families = [
+                item["family_id"]
+                for item in registry.canonical_registry_contract()["indexes"]
+            ]
+            logical = [
+                f"ucm-index-provisional-{family}-{request['source_sha']}"
+                for family in families
+            ]
+            directories = verify.resolve_run_bound_artifact_directories(
+                Path(request["root"]),
+                logical,
+                run=request["run"],
+                label="provisional index",
+            )
+            parent = core.load_json(Path(request["parent_plans"]))
+            output_dir = _empty_output_dir(Path(request["output_dir"]))
+            paths: list[str] = []
+            provisional_sha256s: dict[str, str] = {}
+            preflight_sha256s: dict[str, str] = {}
+            for family, name in zip(families, logical, strict=True):
+                directory = directories[name]
+                if {path.name for path in directory.iterdir()} != {
+                    "provisional.json",
+                    "preflight.json",
+                }:
+                    raise ValueError("provisional artifact file set is noncanonical")
+                source = directory / "provisional.json"
+                provisional = registry.validate_provisional_index(
+                    core.load_json(source), parent_plans=parent
+                )
+                if provisional["family_id"] != family:
+                    raise ValueError("provisional artifact/family mismatch")
+                preflight = core.load_json(directory / "preflight.json")
+                if (
+                    preflight.get("schema_version") != 1
+                    or isinstance(preflight.get("schema_version"), bool)
+                    or preflight.get("kind") != "ucm-tag-preflight"
+                    or preflight.get("lane") != "protected-tag"
+                    or preflight.get("source_sha") != request["source_sha"]
+                    or preflight.get("publication_allowed") is not True
+                    or preflight.get("preflight_sha256")
+                    != provisional["preflight_sha256"]
+                    or preflight.get("preflight_sha256")
+                    != core.sha256_value(
+                        {
+                            key: value
+                            for key, value in preflight.items()
+                            if key != "preflight_sha256"
+                        }
+                    )
+                ):
+                    raise ValueError("provisional protected preflight is invalid")
+                target = output_dir / f"{family}.json"
+                shutil.copyfile(source, target)
+                paths.append(str(target))
+                provisional_sha256s[family] = provisional["provisional_sha256"]
+                preflight_sha256s[family] = preflight["preflight_sha256"]
+            result = {
+                "schema_version": 1,
+                "kind": "ucm-provisional-artifact-collection",
+                "source_sha": request["source_sha"],
+                "parent_plans_sha256": parent["plans_sha256"],
+                "provisional_indexes": paths,
+                "provisional_sha256s": provisional_sha256s,
+                "provisional_preflight_sha256s": preflight_sha256s,
+            }
+            result["collection_sha256"] = core.sha256_value(
+                {
+                    key: value
+                    for key, value in result.items()
+                    if key != "provisional_indexes"
+                }
+            )
+            _write(args.output, result)
+        elif (args.group, args.action) == ("release", "assets-manifest"):
+            request = core.load_json(args.input)
+            if set(request) != {
+                "wheel_dir",
+                "chart_result",
+                "chart_package",
+                "output_dir",
+                "source_sha",
+                "run",
+            } or any(
+                not isinstance(request[key], str)
+                for key in (
+                    "wheel_dir",
+                    "chart_result",
+                    "chart_package",
+                    "output_dir",
+                    "source_sha",
+                )
+            ):
+                raise ValueError("release assets-manifest input is malformed")
+            result = verify.build_release_asset_manifest(
+                wheel_dir=Path(request["wheel_dir"]),
+                chart_result_path=Path(request["chart_result"]),
+                chart_package_path=Path(request["chart_package"]),
+                output_dir=Path(request["output_dir"]),
+                source_sha=request["source_sha"],
+                run=request["run"],
+            )
+            _write(args.output, result)
+        elif (args.group, args.action) == ("release", "plan-state"):
+            request = core.load_json(args.input)
+            if set(request) != {"remote", "source_sha", "just_created"}:
+                raise ValueError("release plan-state input fields are noncanonical")
+            result = verify.plan_github_release(
+                request["remote"],
+                request["source_sha"],
+                just_created=request["just_created"],
+            )
+            _write(args.output, result)
+        elif (args.group, args.action) == ("release", "select-pages"):
+            request = core.load_json(args.input)
+            if set(request) != {"pages", "source_sha"} or not all(
+                isinstance(request[key], str) for key in request
+            ):
+                raise ValueError("release select-pages input is malformed")
+            result = verify.select_github_release_pages(
+                core.load_json_array(Path(request["pages"])), request["source_sha"]
+            )
+            _write(args.output, result)
+        elif (args.group, args.action) == ("release", "plan-downloads"):
+            request = core.load_json(args.input)
+            if set(request) != {
+                "manifest",
+                "raw_assets",
+                "release_id",
+                "allowed_root",
+                "require_complete",
+            } or any(
+                not isinstance(request[key], str)
+                for key in ("manifest", "raw_assets", "allowed_root")
+            ):
+                raise ValueError("release plan-downloads input is malformed")
+            result = verify.plan_release_asset_downloads(
+                core.load_json(Path(request["manifest"])),
+                core.load_json_array(Path(request["raw_assets"])),
+                release_id=request["release_id"],
+                allowed_root=Path(request["allowed_root"]),
+                require_complete=request["require_complete"],
+            )
+            _write(args.output, result)
+        elif (args.group, args.action) == ("release", "complete-downloads"):
+            request = core.load_json(args.input)
+            if set(request) != {"download_plan", "download_root"} or any(
+                not isinstance(request[key], str) for key in request
+            ):
+                raise ValueError("release complete-downloads input is malformed")
+            result = verify.complete_release_asset_downloads(
+                core.load_json(Path(request["download_plan"])),
+                Path(request["download_root"]),
+            )
+            _write(args.output, result)
+        elif (args.group, args.action) == ("release", "refresh-assets"):
+            request = core.load_json(args.input)
+            if set(request) != {
+                "manifest",
+                "prior_assets",
+                "raw_assets",
+                "release_id",
+                "allowed_root",
+            } or any(
+                not isinstance(request[key], str)
+                for key in ("manifest", "prior_assets", "raw_assets", "allowed_root")
+            ):
+                raise ValueError("release refresh-assets input is malformed")
+            result = verify.refresh_release_asset_metadata(
+                core.load_json(Path(request["manifest"])),
+                core.load_json_array(Path(request["prior_assets"])),
+                core.load_json_array(Path(request["raw_assets"])),
+                release_id=request["release_id"],
+                allowed_root=Path(request["allowed_root"]),
+            )
+            _write(args.output, result)
+        elif (args.group, args.action) == ("release", "verify-upload-prefix"):
+            request = core.load_json(args.input)
+            path_keys = {
+                "manifest",
+                "initial_asset_plan",
+                "uploaded_assets",
+                "current_assets",
+                "allowed_root",
+            }
+            if set(request) != path_keys | {"next_name", "release_id"} or any(
+                not isinstance(request[key], str) for key in path_keys | {"next_name"}
+            ):
+                raise ValueError("release verify-upload-prefix input is malformed")
+            result = verify.verify_release_upload_prefix(
+                core.load_json(Path(request["manifest"])),
+                core.load_json(Path(request["initial_asset_plan"])),
+                core.load_json_array(Path(request["uploaded_assets"])),
+                core.load_json_array(Path(request["current_assets"])),
+                next_name=request["next_name"],
+                release_id=request["release_id"],
+                allowed_root=Path(request["allowed_root"]),
+            )
+            _write(args.output, result)
+        elif (args.group, args.action) == ("release", "record-upload-response"):
+            request = core.load_json(args.input)
+            path_keys = {"manifest", "raw_response", "allowed_root"}
+            if set(request) != path_keys | {"expected_name", "release_id"} or any(
+                not isinstance(request[key], str)
+                for key in path_keys | {"expected_name"}
+            ):
+                raise ValueError("release record-upload-response input is malformed")
+            result = verify.record_release_upload_response(
+                core.load_json(Path(request["manifest"])),
+                core.load_json(Path(request["raw_response"])),
+                expected_name=request["expected_name"],
+                release_id=request["release_id"],
+                allowed_root=Path(request["allowed_root"]),
+            )
+            _write(args.output, result)
+        elif (args.group, args.action) == ("release", "rebase-manifest"):
+            request = core.load_json(args.input)
+            if set(request) != {"manifest", "allowed_root"} or any(
+                not isinstance(request[key], str) for key in request
+            ):
+                raise ValueError("release rebase-manifest input is malformed")
+            result = verify.rebase_release_asset_manifest(
+                core.load_json(Path(request["manifest"])),
+                allowed_root=Path(request["allowed_root"]),
+            )
+            _write(args.output, result)
+        elif (args.group, args.action) == ("release", "operation-ledger"):
+            request = core.load_json(args.input)
+            path_keys = {
+                "prepare_initial_plan",
+                "initial_release",
+                "initial_asset_plan",
+                "authenticated_assets",
+                "asset_manifest",
+                "upload_transcript",
+                "allowed_root",
+            }
+            if set(request) != path_keys | {"source_sha"} or any(
+                not isinstance(request[key], str) for key in path_keys | {"source_sha"}
+            ):
+                raise ValueError("release operation-ledger input is malformed")
+            result = verify.build_github_release_operation_ledger(
+                prepare_initial_plan=core.load_json(
+                    Path(request["prepare_initial_plan"])
+                ),
+                initial_release=core.load_json(Path(request["initial_release"])),
+                initial_asset_plan=core.load_json(Path(request["initial_asset_plan"])),
+                authenticated_assets=core.load_json_array(
+                    Path(request["authenticated_assets"])
+                ),
+                upload_transcript=verify.validate_release_upload_transcript(
+                    core.load_json(Path(request["asset_manifest"])),
+                    core.load_json(Path(request["initial_asset_plan"])),
+                    core.load_json_array(Path(request["upload_transcript"])),
+                    source_sha=request["source_sha"],
+                    release_id=core.load_json(Path(request["initial_asset_plan"]))[
+                        "release_id"
+                    ],
+                    allowed_root=Path(request["allowed_root"]),
+                ),
+                source_sha=request["source_sha"],
+            )
+            _write(args.output, result)
+        elif (args.group, args.action) in {
+            ("release", "plan-assets"),
+            ("release", "verify-assets"),
+        }:
+            request = core.load_json(args.input)
+            base_keys = {
+                "manifest",
+                "observed_assets",
+                "release_id",
+                "allowed_root",
+            }
+            expected_keys = (
+                base_keys | {"release_published"}
+                if args.action == "plan-assets"
+                else base_keys
+            )
+            if set(request) != expected_keys or any(
+                not isinstance(request[key], str)
+                for key in ("manifest", "observed_assets", "allowed_root")
+            ):
+                raise ValueError(f"release {args.action} input fields are noncanonical")
+            kwargs = {
+                "release_id": request["release_id"],
+                "allowed_root": Path(request["allowed_root"]),
+            }
+            if args.action == "plan-assets":
+                result = verify.plan_release_assets(
+                    core.load_json(Path(request["manifest"])),
+                    core.load_json_array(Path(request["observed_assets"])),
+                    release_published=request["release_published"],
+                    **kwargs,
+                )
+            else:
+                result = verify.verify_release_assets(
+                    core.load_json(Path(request["manifest"])),
+                    core.load_json_array(Path(request["observed_assets"])),
+                    **kwargs,
+                )
+            _write(args.output, result)
+        elif (args.group, args.action) == ("release", "publication-evidence"):
+            request = core.load_json(args.input)
+            path_keys = {
+                "protected_registry",
+                "asset_manifest",
+                "allowed_root",
+                "prepare_initial_plan",
+                "prepare_release",
+                "initial_release",
+                "initial_assets",
+                "initial_asset_plan",
+                "upload_transcript",
+                "prepublish_release",
+                "prepublish_assets",
+                "authenticated_release",
+                "authenticated_assets",
+                "anonymous_release",
+                "anonymous_assets",
+                "operations",
+            }
+            if set(request) != path_keys | {"source_sha", "run"} or any(
+                not isinstance(request[key], str) for key in path_keys
+            ):
+                raise ValueError("release publication-evidence input is malformed")
+            result = verify.github_release_publication_evidence(
+                protected_registry=core.load_json(Path(request["protected_registry"])),
+                asset_manifest=core.load_json(Path(request["asset_manifest"])),
+                allowed_root=Path(request["allowed_root"]),
+                prepare_initial_plan=core.load_json(
+                    Path(request["prepare_initial_plan"])
+                ),
+                prepare_release=core.load_json(Path(request["prepare_release"])),
+                initial_release=core.load_json(Path(request["initial_release"])),
+                initial_assets=core.load_json_array(Path(request["initial_assets"])),
+                initial_asset_plan=core.load_json(Path(request["initial_asset_plan"])),
+                upload_transcript=core.load_json_array(
+                    Path(request["upload_transcript"])
+                ),
+                prepublish_release=core.load_json(Path(request["prepublish_release"])),
+                prepublish_assets=core.load_json_array(
+                    Path(request["prepublish_assets"])
+                ),
+                authenticated_release=core.load_json(
+                    Path(request["authenticated_release"])
+                ),
+                authenticated_assets=core.load_json_array(
+                    Path(request["authenticated_assets"])
+                ),
+                anonymous_release=core.load_json(Path(request["anonymous_release"])),
+                anonymous_assets=core.load_json_array(
+                    Path(request["anonymous_assets"])
+                ),
+                operations=core.load_json_array(Path(request["operations"])),
+                source_sha=request["source_sha"],
+                run=request["run"],
+            )
             _write(args.output, result)
         elif args.group == "reconcile":
             request = core.load_json(args.input)

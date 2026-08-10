@@ -30,6 +30,7 @@ _deterministic_repack = importlib.import_module(
     "ucm_release.chart"
 )._deterministic_repack
 release_core = importlib.import_module("ucm_release.core")
+release_verify = importlib.import_module("ucm_release.verify")
 release_wheel = importlib.import_module("ucm_release.wheel")
 derive_chart_version = release_core.derive_chart_version
 
@@ -234,6 +235,7 @@ def _protected_tag_repository(
     environment = {
         "GITHUB_ACTIONS": "true",
         "GITHUB_ACTOR": "SuperMarioYL",
+        "GITHUB_TRIGGERING_ACTOR": "SuperMarioYL",
         "GITHUB_EVENT_NAME": "push",
         "GITHUB_EVENT_PATH": str(event_path),
         "GITHUB_REF": "refs/tags/v0.5.0rc1",
@@ -975,6 +977,20 @@ def test_tag_preflight_rejects_wrong_actor_even_when_event_agrees(
         _run_protected_tag_preflight(monkeypatch, repository, environment)
 
 
+def test_tag_preflight_rejects_foreign_or_missing_triggering_actor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rerun initiator must have the same exact owner authority as the actor."""
+    repository, environment, _, _, _ = _protected_tag_repository(tmp_path)
+    environment["GITHUB_TRIGGERING_ACTOR"] = "attacker"
+    with pytest.raises(ValueError, match="triggering_actor"):
+        _run_protected_tag_preflight(monkeypatch, repository, environment)
+    environment.pop("GITHUB_TRIGGERING_ACTOR")
+    monkeypatch.delenv("GITHUB_TRIGGERING_ACTOR", raising=False)
+    with pytest.raises(ValueError, match="triggering_actor"):
+        _run_protected_tag_preflight(monkeypatch, repository, environment)
+
+
 def test_tag_preflight_rejects_tag_commit_different_from_checked_head(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1058,6 +1074,136 @@ def test_config_is_strict_and_rejects_duplicate_json_keys(tmp_path: Path) -> Non
     )
     assert duplicate.returncode == 2
     assert "duplicate JSON key" in duplicate.stderr
+
+
+def test_json_array_loader_preserves_duplicate_key_rejection(tmp_path: Path) -> None:
+    """REST arrays stay type-explicit without weakening duplicate-key parsing."""
+    valid = tmp_path / "valid-array.json"
+    valid.write_text('[{"id":1}]\n', encoding="utf-8")
+    assert release_core.load_json_array(valid) == [{"id": 1}]
+    with pytest.raises(ValueError, match="JSON object"):
+        release_core.load_json(valid)
+
+    duplicate = tmp_path / "duplicate-array.json"
+    duplicate.write_text('[{"id":1,"id":2}]\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate JSON key"):
+        release_core.load_json_array(duplicate)
+
+
+def test_release_cli_reopens_array_output_across_command_boundary(
+    tmp_path: Path,
+) -> None:
+    """A CLI-produced JSON array remains consumable by the next strict CLI step."""
+    source_sha = "a" * 40
+    asset_root = tmp_path / "release-assets"
+    asset_root.mkdir()
+    assets: list[dict[str, object]] = []
+    for task in release_core.build_matrix("protected-tag")["tasks"]:
+        architecture = "x86_64" if task["cpu_arch"] == "amd64" else "aarch64"
+        name = (
+            f"uc_manager-{task['wheel_version']}-{task['python_abi']}-"
+            f"{task['python_abi']}-{task['wheel_platform']}_{architecture}.whl"
+        )
+        path = asset_root / name
+        path.write_bytes(task["spec_id"].encode())
+        assets.append(
+            {
+                "spec_id": task["spec_id"],
+                "profile_id": task["profile_id"],
+                "platform": task["platform"],
+                "name": name,
+                "sha256": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(),
+                "size": path.stat().st_size,
+                "type": "wheel",
+                "path": str(path),
+            }
+        )
+    chart = asset_root / "unified-cache-pd-0.5.0-rc.1.tgz"
+    chart.write_bytes(b"chart")
+    assets.append(
+        {
+            "spec_id": "helm-chart",
+            "profile_id": None,
+            "platform": None,
+            "name": chart.name,
+            "sha256": "sha256:" + hashlib.sha256(chart.read_bytes()).hexdigest(),
+            "size": chart.stat().st_size,
+            "type": "helm-chart",
+            "path": str(chart),
+        }
+    )
+    manifest = {
+        "schema_version": 1,
+        "kind": "ucm-github-release-assets",
+        "source_sha": source_sha,
+        "assets": assets,
+    }
+    manifest["assets_sha256"] = release_core.sha256_value(
+        {
+            "schema_version": 1,
+            "kind": manifest["kind"],
+            "source_sha": source_sha,
+            "assets": [
+                {key: value for key, value in asset.items() if key != "path"}
+                for asset in assets
+            ],
+        }
+    )
+    manifest_path = tmp_path / "asset-manifest.json"
+    _write_canonical_json(manifest_path, manifest)
+    download_plan = release_verify.plan_release_asset_downloads(
+        manifest,
+        [],
+        release_id=41,
+        allowed_root=asset_root,
+        require_complete=False,
+    )
+    download_plan_path = tmp_path / "download-plan.json"
+    _write_canonical_json(download_plan_path, download_plan)
+    download_root = tmp_path / "downloads"
+    download_root.mkdir()
+    complete_request = tmp_path / "complete-request.json"
+    _write_canonical_json(
+        complete_request,
+        {
+            "download_plan": str(download_plan_path),
+            "download_root": str(download_root),
+        },
+    )
+    observed_path = tmp_path / "observed-assets.json"
+    _run(
+        "release",
+        "complete-downloads",
+        "--input",
+        str(complete_request),
+        "--output",
+        str(observed_path),
+    )
+    assert json.loads(observed_path.read_text(encoding="utf-8")) == []
+
+    plan_request = tmp_path / "plan-request.json"
+    _write_canonical_json(
+        plan_request,
+        {
+            "manifest": str(manifest_path),
+            "observed_assets": str(observed_path),
+            "release_id": 41,
+            "allowed_root": str(asset_root),
+            "release_published": False,
+        },
+    )
+    plan_path = tmp_path / "asset-plan.json"
+    _run(
+        "release",
+        "plan-assets",
+        "--input",
+        str(plan_request),
+        "--output",
+        str(plan_path),
+    )
+    planned = json.loads(plan_path.read_text(encoding="utf-8"))
+    assert planned["reuse_names"] == []
+    assert planned["upload_names"] == [asset["name"] for asset in assets]
 
 
 def test_schema_validation_is_operational_for_configs_and_manifest(

@@ -828,6 +828,21 @@ def test_runtime_stages_remove_ldconfig_aux_cache_in_the_same_layer() -> None:
         assert "RUN rm -f /var/cache/ldconfig/aux-cache" not in runtime_stage
 
 
+def test_real_runtime_oci_labels_bind_the_canonical_source_repository() -> None:
+    """GHCR package linkage is part of the immutable real-member identity."""
+    dockerfile = (RELEASE_ROOT / "docker/Dockerfile").read_text(encoding="utf-8")
+    runtime_real_install = dockerfile.split(
+        "FROM ${BASE_IMAGE} AS runtime-real-install", maxsplit=1
+    )[1].split("FROM runtime-real-install AS runtime-real", maxsplit=1)[0]
+
+    assert (
+        runtime_real_install.count(
+            'org.opencontainers.image.source="https://github.com/SuperMarioYL/unified-cache-management"'
+        )
+        == 1
+    )
+
+
 def test_runtime_stages_invoke_all_python_helpers_through_python3() -> None:
     """A runtime base with python3 but no bare python must reach every helper."""
     dockerfile = (RELEASE_ROOT / "docker/Dockerfile").read_text(encoding="utf-8")
@@ -2451,6 +2466,9 @@ def test_real_content_identity_rejects_mutable_or_missing_oci_authority() -> Non
         },
         "labels": {
             "base.label": "preserved",
+            "org.opencontainers.image.source": (
+                "https://github.com/SuperMarioYL/unified-cache-management"
+            ),
             "org.opencontainers.image.revision": "1" * 40,
             "io.ucm.release.source-tree": "2" * 40,
             "io.ucm.release.source-context-sha256": "sha256:" + "3" * 64,
@@ -2466,6 +2484,9 @@ def test_real_content_identity_rejects_mutable_or_missing_oci_authority() -> Non
         ],
     }
     first = image.real_content_identity(recipe, closure)
+    assert first["labels"]["org.opencontainers.image.source"] == (
+        "https://github.com/SuperMarioYL/unified-cache-management"
+    )
     changed_envelope = copy.deepcopy(closure)
     changed_envelope["run_id"] = "different-run"
     changed_envelope["signature"] = "different-signature"

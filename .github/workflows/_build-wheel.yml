@@ -106,7 +106,8 @@ jobs:
           PYTHONPATH=.github/release python -m ucm_release wheel context \
             --source-sha "${SOURCE_SHA}" \
             --output-dir out/source-context >out/source-context-result.json
-          wheel_artifact="$(python -c 'import json; print(json.load(open("out/hosted-task.json"))["wheel_artifact"])')"
+          logical_artifact="$(python -c 'import json; print(json.load(open("out/hosted-task.json"))["wheel_artifact"])')"
+          wheel_artifact="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(sys.argv[1], sys.argv[2], int(sys.argv[3])))' "${logical_artifact}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
           echo "wheel_artifact=${wheel_artifact}" >>"${GITHUB_OUTPUT}"
       - name: Install checksum-pinned Buildx
         env:
@@ -229,4 +230,5 @@ jobs:
           name: ${{ steps.task.outputs.wheel_artifact }}
           path: out/wheel-artifact/
           if-no-files-found: error
-          retention-days: 3
+          overwrite: false
+          retention-days: ${{ github.event_name == 'push' && github.repository == 'SuperMarioYL/unified-cache-management' && github.ref == 'refs/tags/v0.5.0rc1' && github.ref_protected == true && 90 || 3 }}

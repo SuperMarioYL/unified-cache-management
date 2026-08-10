@@ -267,7 +267,8 @@ ARG LD_LIBRARY_PATH
 ENV LD_LIBRARY_PATH="/usr/local/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 RUN ldconfig /usr/local/lib && rm -f /var/cache/ldconfig/aux-cache
 
-LABEL org.opencontainers.image.revision="${UCM_SOURCE_SHA}" \
+LABEL org.opencontainers.image.source="https://github.com/SuperMarioYL/unified-cache-management" \
+      org.opencontainers.image.revision="${UCM_SOURCE_SHA}" \
       io.ucm.release.source-tree="${UCM_SOURCE_TREE}" \
       io.ucm.release.source-context-sha256="${UCM_SOURCE_CONTEXT_SHA256}" \
       io.ucm.release.task-sha256="${UCM_TASK_SHA256}" \

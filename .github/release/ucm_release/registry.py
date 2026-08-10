@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import copy
 import contextlib
+import copy
 import hashlib
 import json
 import os
@@ -12,15 +12,14 @@ import re
 import shutil
 import socket
 import subprocess
-import tempfile
 import tarfile
+import tempfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from pathlib import Path
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from . import core
@@ -205,10 +204,12 @@ MEMBER_RECORD_KEYS = {
     "image_result_sha256",
     "recipe_sha256",
     "content_identity_sha256",
+    "content_identity",
     "manifest",
     "config",
     "layers",
     "readback_sha256",
+    "prewrite_visibility_evidence_sha256",
     "visibility_evidence_sha256",
     "collision_model",
     "operations",
@@ -218,6 +219,7 @@ INDEX_RECORD_KEYS = {
     "schema_version",
     "kind",
     "status",
+    "source_sha",
     "family_id",
     "target_repository",
     "target_tag",
@@ -226,7 +228,9 @@ INDEX_RECORD_KEYS = {
     "manifest_sha256",
     "member_digests",
     "authenticated_readback_sha256",
+    "authenticated_closure_sha256",
     "anonymous_readback_sha256",
+    "anonymous_closure_sha256",
     "collision_model",
     "operations",
     "record_sha256",
@@ -239,6 +243,29 @@ MEMBER_ANNOTATION_KEYS = {
     "io.ucm.release.spec-id",
     "io.ucm.release.wheel-sha256",
 }
+CONTENT_IDENTITY_KEYS = {
+    "manifest_digest",
+    "config_digest",
+    "layers",
+    "diff_ids",
+    "annotations",
+    "labels",
+    "created",
+    "history",
+    "source",
+    "task_sha256",
+    "build_key_sha256",
+    "wheel_sha256",
+    "recipe_sha256",
+    "content_identity_sha256",
+}
+CONTENT_IDENTITY_SOURCE_KEYS = {
+    "commit",
+    "tree",
+    "archive_sha256",
+    "context_sha256",
+}
+SOURCE_REPOSITORY_URL = "https://github.com/SuperMarioYL/unified-cache-management"
 
 
 class RegistryBlocker(ValueError):
@@ -1400,6 +1427,16 @@ def _validate_member_operations(record: dict[str, Any]) -> list[dict[str, str]]:
         "capability": "write",
         "reference": staging_reference,
     }
+    prewrite = {
+        "type": "registry-anonymous-prewrite-visibility-read",
+        "capability": "read",
+        "reference": staging_reference,
+    }
+    authenticated_prewrite = {
+        "type": "registry-authenticated-staging-prewrite-read",
+        "capability": "read",
+        "reference": staging_reference,
+    }
     suffix = [
         {
             "type": "registry-authenticated-digest-read",
@@ -1441,12 +1478,106 @@ def _validate_member_operations(record: dict[str, Any]) -> list[dict[str, str]]:
             raise ValueError(f"duplicate member operation identity: {identity}")
         identities.add(identity)
         validated.append(copy.deepcopy(operation))
-    allowed_ledgers = [suffix, [push, *suffix], [tag, *suffix], [push, tag, *suffix]]
+    allowed_ledgers = [
+        [prewrite, authenticated_prewrite, *suffix],
+        [prewrite, authenticated_prewrite, push, *suffix],
+        [prewrite, authenticated_prewrite, tag, *suffix],
+        [prewrite, authenticated_prewrite, push, tag, *suffix],
+    ]
     if validated not in allowed_ledgers:
         raise ValueError(
             "member operation role, order, capability, or reference is invalid"
         )
     return validated
+
+
+def _validate_member_content_identity(record: dict[str, Any]) -> dict[str, Any]:
+    identity = record["content_identity"]
+    if not isinstance(identity, dict):
+        raise ValueError("member content identity must be an object")
+    _exact_keys(identity, CONTENT_IDENTITY_KEYS, "member content identity")
+    stable = {
+        key: copy.deepcopy(value)
+        for key, value in identity.items()
+        if key != "content_identity_sha256"
+    }
+    if (
+        identity["content_identity_sha256"] != sha256_value(stable)
+        or record["content_identity_sha256"] != identity["content_identity_sha256"]
+    ):
+        raise ValueError("member content identity digest mismatch")
+    source = identity["source"]
+    if not isinstance(source, dict):
+        raise ValueError("member content identity source must be an object")
+    _exact_keys(source, CONTENT_IDENTITY_SOURCE_KEYS, "member content identity source")
+    if (
+        source["commit"] != record["source_sha"]
+        or re.fullmatch(r"[0-9a-f]{40}", source["tree"]) is None
+    ):
+        raise ValueError("member content identity source differs from publication")
+    _digest(source["archive_sha256"], "member source archive")
+    _digest(source["context_sha256"], "member source context")
+    if (
+        identity["manifest_digest"] != record["member_digest"]
+        or identity["config_digest"] != record["config_digest"]
+        or identity["annotations"] != record["manifest"]["annotations"]
+        or identity["labels"] != record["config"]["labels"]
+        or identity["task_sha256"] != record["candidate_task_sha256"]
+        or identity["build_key_sha256"] != record["build_key_sha256"]
+        or identity["wheel_sha256"] != record["wheel_sha256"]
+        or identity["recipe_sha256"] != record["recipe_sha256"]
+    ):
+        raise ValueError("member content identity differs from OCI publication")
+    expected_layers = [
+        {
+            "mediaType": layer["media_type"],
+            "digest": layer["digest"],
+            "size": layer["size"],
+        }
+        for layer in record["layers"]
+    ]
+    if identity["layers"] != expected_layers:
+        raise ValueError("member content identity layer descriptors differ")
+    diff_ids = identity["diff_ids"]
+    if not isinstance(diff_ids, list) or len(diff_ids) != len(expected_layers):
+        raise ValueError("member content identity diff-id closure is invalid")
+    for position, diff_id in enumerate(diff_ids):
+        _digest(diff_id, f"member content identity diff-id {position}")
+    labels = identity["labels"]
+    if (
+        not isinstance(labels, dict)
+        or not labels
+        or any(
+            not isinstance(key, str) or not key or not isinstance(value, str)
+            for key, value in labels.items()
+        )
+    ):
+        raise ValueError("member content identity labels are invalid")
+    expected_release_labels = {
+        "org.opencontainers.image.source": SOURCE_REPOSITORY_URL,
+        "org.opencontainers.image.revision": record["source_sha"],
+        "io.ucm.release.source-tree": source["tree"],
+        "io.ucm.release.source-context-sha256": source["context_sha256"],
+        "io.ucm.release.task-sha256": record["candidate_task_sha256"],
+        "io.ucm.release.build-key-sha256": record["build_key_sha256"],
+        "io.ucm.release.wheel-sha256": record["wheel_sha256"],
+        "io.ucm.release.recipe-sha256": record["recipe_sha256"],
+    }
+    if any(labels.get(key) != value for key, value in expected_release_labels.items()):
+        raise ValueError("member content identity release labels are invalid")
+    if (
+        not isinstance(identity["created"], str)
+        or re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z",
+            identity["created"],
+        )
+        is None
+        or not isinstance(identity["history"], list)
+        or not identity["history"]
+        or any(not isinstance(item, dict) for item in identity["history"])
+    ):
+        raise ValueError("member content identity created/history is invalid")
+    return copy.deepcopy(identity)
 
 
 def validate_member_record(record: object) -> dict[str, Any]:
@@ -1500,10 +1631,16 @@ def validate_member_record(record: object) -> dict[str, Any]:
         "recipe_sha256",
         "content_identity_sha256",
         "readback_sha256",
+        "prewrite_visibility_evidence_sha256",
         "visibility_evidence_sha256",
         "record_sha256",
     ):
         _digest(record[field], f"member {field}")
+    if (
+        record["prewrite_visibility_evidence_sha256"]
+        == record["visibility_evidence_sha256"]
+    ):
+        raise ValueError("member prewrite/postwrite visibility evidence must differ")
     if (
         not isinstance(record["source_sha"], str)
         or re.fullmatch(r"[0-9a-f]{40}", record["source_sha"]) is None
@@ -1570,12 +1707,6 @@ def validate_member_record(record: object) -> dict[str, Any]:
         or not isinstance(config["size"], int)
         or isinstance(config["size"], bool)
         or config["size"] < 1
-        or config["labels"]
-        != {
-            "io.ucm.release.build-key-sha256": record["build_key_sha256"],
-            "io.ucm.release.task-sha256": record["candidate_task_sha256"],
-            "io.ucm.release.wheel-sha256": record["wheel_sha256"],
-        }
     ):
         raise ValueError("member config does not close over build/task/wheel identity")
     if not isinstance(layers, list) or not layers:
@@ -1598,6 +1729,7 @@ def validate_member_record(record: object) -> dict[str, Any]:
             or layer["size"] < 1
         ):
             raise ValueError(f"member layer {position} content closure is invalid")
+    _validate_member_content_identity(record)
     _validate_collision_model(record["collision_model"], "member")
     _validate_member_operations(record)
     if record["record_sha256"] != sha256_value(_record_payload(record)):
@@ -1629,19 +1761,24 @@ def validate_index_record(record: object, *, parent_plans: object) -> dict[str, 
         raise ValueError("index publication family does not resolve in parent plans")
     plan = matching[0]
     if (
-        record["target_repository"] != plan["target_repository"]
+        record["source_sha"] != plan["source_sha"]
+        or record["target_repository"] != plan["target_repository"]
         or record["target_tag"] != plan["target_tag"]
         or record["index_build_key_sha256"] != plan["index_build_key_sha256"]
         or record["member_digests"]
         != [member["member_digest"] for member in plan["members"]]
     ):
         raise ValueError("index publication differs from its canonical parent plan")
+    if re.fullmatch(r"[0-9a-f]{40}", record["source_sha"]) is None:
+        raise ValueError("index source SHA is invalid")
     for field in (
         "index_build_key_sha256",
         "index_digest",
         "manifest_sha256",
         "authenticated_readback_sha256",
+        "authenticated_closure_sha256",
         "anonymous_readback_sha256",
+        "anonymous_closure_sha256",
         "record_sha256",
     ):
         _digest(record[field], f"index {field}")
@@ -1777,8 +1914,18 @@ def _index_manifest(
     target_tag: str,
     members: list[dict[str, Any]],
 ) -> tuple[dict[str, Any], str, str]:
+    source_shas = {item.get("source_sha") for item in members}
+    if len(source_shas) != 1:
+        raise ValueError("index members must have one exact source SHA")
+    source_sha = next(iter(source_shas))
+    if (
+        not isinstance(source_sha, str)
+        or re.fullmatch(r"[0-9a-f]{40}", source_sha) is None
+    ):
+        raise ValueError("index member source SHA is invalid")
     identity = {
         "schema_version": 1,
+        "source_sha": source_sha,
         "family_id": family_id,
         "target_repository": target_repository,
         "target_tag": target_tag,
@@ -1815,8 +1962,10 @@ def _index_manifest(
             for item in members
         ],
         "annotations": {
+            "org.opencontainers.image.source": SOURCE_REPOSITORY_URL,
             "io.ucm.release.family-id": family_id,
             "io.ucm.release.index-build-key-sha256": index_build_key,
+            "io.ucm.release.source-sha": source_sha,
         },
     }
     return (
@@ -1839,6 +1988,10 @@ def plan_indexes(
     if len(member_records) != 6:
         raise BarrierBlocker("six-member barrier requires exactly six records")
     records = [validate_member_record(item) for item in member_records]
+    source_shas = {item["source_sha"] for item in records}
+    if len(source_shas) != 1:
+        raise BarrierBlocker("six-member barrier requires one exact source SHA")
+    source_sha = next(iter(source_shas))
     by_spec: dict[str, dict[str, Any]] = {}
     for record in records:
         if record["spec_id"] in by_spec:
@@ -1913,6 +2066,7 @@ def plan_indexes(
             {
                 "schema_version": 1,
                 "kind": "ucm-registry-index-plan",
+                "source_sha": source_sha,
                 "family_id": authority["family_id"],
                 "target_repository": authority["target_repository"],
                 "target_tag": authority["target_tag"],
@@ -1926,6 +2080,7 @@ def plan_indexes(
     payload = {
         "schema_version": 1,
         "kind": "ucm-registry-index-plans",
+        "source_sha": source_sha,
         "member_records": [by_spec[spec_id] for spec_id in CANONICAL_MEMBER_SPEC_IDS],
         "member_statuses": {
             spec_id: member_statuses[spec_id] for spec_id in CANONICAL_MEMBER_SPEC_IDS
@@ -1947,6 +2102,7 @@ def _validate_parent_plans(parent_plans: object) -> dict[str, Any]:
         {
             "schema_version",
             "kind",
+            "source_sha",
             "member_records",
             "member_statuses",
             "inventory",
@@ -1976,6 +2132,11 @@ def _validate_parent_plans(parent_plans: object) -> dict[str, Any]:
     return copy.deepcopy(parent_plans)
 
 
+def validate_index_plans(parent_plans: object) -> dict[str, Any]:
+    """Publicly reopen the exact six-member/three-family index parent envelope."""
+    return _validate_parent_plans(parent_plans)
+
+
 def verify_index(
     plan: object,
     *,
@@ -1988,6 +2149,7 @@ def verify_index(
     required = {
         "schema_version",
         "kind",
+        "source_sha",
         "family_id",
         "target_repository",
         "target_tag",
@@ -2013,7 +2175,8 @@ def verify_index(
         raise ValueError("index family is outside canonical authority")
     authority = authorities[0]
     if (
-        plan["target_repository"] != authority["target_repository"]
+        plan["source_sha"] != parent["source_sha"]
+        or plan["target_repository"] != authority["target_repository"]
         or plan["target_tag"] != authority["target_tag"]
         or [item["spec_id"] for item in plan["members"]] != authority["member_spec_ids"]
         or plan["decision"] not in {"create", "reuse"}
@@ -2038,6 +2201,7 @@ def verify_index(
     payload = {
         "schema_version": 1,
         "kind": "ucm-registry-index-verification",
+        "source_sha": plan["source_sha"],
         "family_id": plan["family_id"],
         "target_repository": plan["target_repository"],
         "target_tag": plan["target_tag"],
@@ -2452,8 +2616,12 @@ def readback_reference(
         return read(environment)
 
 
-def verify_private_staging(reference: object) -> dict[str, Any]:
+def verify_private_staging(
+    reference: object, *, phase: str = "postwrite"
+) -> dict[str, Any]:
     """Prove private visibility only from a typed anonymous authorization denial."""
+    if phase not in {"prewrite", "postwrite"}:
+        raise ValueError("private staging visibility phase is noncanonical")
     canonical_reference = _registry_reference(reference)
     if not canonical_reference.startswith(STAGING_REPOSITORY + ":staging-"):
         raise ValueError("private visibility evidence requires an exact staging tag")
@@ -2470,18 +2638,38 @@ def verify_private_staging(reference: object) -> dict[str, Any]:
         )
     if result.returncode == 0:
         raise ValueError("staging reference is anonymously public")
-    detail = (result.stderr + "\n" + result.stdout).lower()
-    denial_markers = (
-        "unauthorized",
-        "authentication required",
-        "denied",
-        "status code 401",
-        " 401 ",
+    detail = result.stderr + "\n" + result.stdout
+    line_code_denial = any(
+        re.search(pattern, detail, flags=re.IGNORECASE | re.MULTILINE) is not None
+        for pattern in (
+            r"^\s*UNAUTHORIZED\s*:",
+            r"^\s*DENIED\s*:",
+        )
     )
-    if not any(marker in detail for marker in denial_markers):
+    staging_path = STAGING_REPOSITORY.removeprefix("ghcr.io/")
+    token_scope = urllib.parse.quote(f"repository:{staging_path}:pull", safe="")
+    exact_token_url = f"https://ghcr.io/token?scope={token_scope}&service=ghcr.io"
+    staging_tag = canonical_reference.removeprefix(STAGING_REPOSITORY + ":")
+    exact_manifest_url = f"https://ghcr.io/v2/{staging_path}/manifests/{staging_tag}"
+    ghcr_token_denial = any(
+        exact_token_url in line
+        and re.search(r":\s*(?:UNAUTHORIZED|DENIED)\s*:", line) is not None
+        for line in detail.splitlines()
+    )
+    ghcr_manifest_denial = any(
+        exact_manifest_url in line
+        and re.search(r":\s*(?:UNAUTHORIZED|DENIED)\s*:", line) is not None
+        for line in detail.splitlines()
+    )
+    typed_denial = line_code_denial or ghcr_token_denial or ghcr_manifest_denial
+    if not typed_denial:
         raise ValueError("anonymous read failed without an authorization denial")
     operation = {
-        "type": "registry-anonymous-visibility-read",
+        "type": (
+            "registry-anonymous-prewrite-visibility-read"
+            if phase == "prewrite"
+            else "registry-anonymous-visibility-read"
+        ),
         "capability": "read",
         "reference": canonical_reference,
     }
@@ -2489,6 +2677,9 @@ def verify_private_staging(reference: object) -> dict[str, Any]:
         "schema_version": 1,
         "kind": "ucm-registry-private-visibility-evidence",
         "status": "anonymous-denied",
+        "phase": phase,
+        "returncode": result.returncode,
+        "stdout_sha256": "sha256:" + hashlib.sha256(result.stdout.encode()).hexdigest(),
         "stderr_sha256": "sha256:" + hashlib.sha256(result.stderr.encode()).hexdigest(),
         "operation": operation,
     }
@@ -2758,6 +2949,111 @@ def _apply_digest_tag(
     }
 
 
+def _validate_image_result_content_identity(result: dict[str, Any]) -> dict[str, Any]:
+    identity = result.get("content_identity")
+    if not isinstance(identity, dict):
+        raise ValueError("image result content identity must be an object")
+    _exact_keys(identity, CONTENT_IDENTITY_KEYS, "image result content identity")
+    stable = {
+        key: copy.deepcopy(value)
+        for key, value in identity.items()
+        if key != "content_identity_sha256"
+    }
+    if (
+        identity["content_identity_sha256"] != sha256_value(stable)
+        or result.get("content_identity_sha256") != identity["content_identity_sha256"]
+    ):
+        raise ValueError("image result content identity digest mismatch")
+    source = identity.get("source")
+    result_source = result.get("source")
+    if not isinstance(source, dict) or not isinstance(result_source, dict):
+        raise ValueError("image result content identity source is missing")
+    _exact_keys(source, CONTENT_IDENTITY_SOURCE_KEYS, "image result content source")
+    if any(
+        result_source.get(key) != source[key] for key in CONTENT_IDENTITY_SOURCE_KEYS
+    ):
+        raise ValueError("image result content identity source differs from result")
+    expected_values = {
+        "task_sha256": result.get("task_key"),
+        "build_key_sha256": result.get("build_key_sha256"),
+        "wheel_sha256": result.get("wheel", {}).get("sha256"),
+        "recipe_sha256": result.get("recipe_sha256"),
+    }
+    if any(identity.get(key) != value for key, value in expected_values.items()):
+        raise ValueError("image result content identity task/build closure differs")
+    if identity.get("manifest_digest") != result.get("oci", {}).get("digest"):
+        raise ValueError("image result content identity manifest differs")
+    expected_annotations = {
+        "io.ucm.release.recipe-sha256": result.get("recipe_sha256"),
+        "io.ucm.release.task-sha256": result.get("task_key"),
+    }
+    if identity.get("annotations") != expected_annotations:
+        raise ValueError("image result content identity annotations differ")
+    labels = identity.get("labels")
+    expected_labels = {
+        "org.opencontainers.image.source": SOURCE_REPOSITORY_URL,
+        "org.opencontainers.image.revision": source["commit"],
+        "io.ucm.release.source-tree": source["tree"],
+        "io.ucm.release.source-context-sha256": source["context_sha256"],
+        "io.ucm.release.task-sha256": result.get("task_key"),
+        "io.ucm.release.build-key-sha256": result.get("build_key_sha256"),
+        "io.ucm.release.wheel-sha256": result.get("wheel", {}).get("sha256"),
+        "io.ucm.release.recipe-sha256": result.get("recipe_sha256"),
+    }
+    if (
+        not isinstance(labels, dict)
+        or any(labels.get(key) != value for key, value in expected_labels.items())
+        or any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in labels.items()
+        )
+    ):
+        raise ValueError("image result content identity labels differ")
+    layers = identity.get("layers")
+    diff_ids = identity.get("diff_ids")
+    if (
+        not isinstance(layers, list)
+        or not layers
+        or not isinstance(diff_ids, list)
+        or len(diff_ids) != len(layers)
+    ):
+        raise ValueError("image result content identity layer closure is invalid")
+    for position, (layer, diff_id) in enumerate(zip(layers, diff_ids, strict=True)):
+        if not isinstance(layer, dict) or set(layer) != {
+            "mediaType",
+            "digest",
+            "size",
+        }:
+            raise ValueError(
+                f"image result content identity layer {position} is invalid"
+            )
+        _digest(layer["digest"], f"image result content layer {position}")
+        _digest(diff_id, f"image result content diff-id {position}")
+        if (
+            not isinstance(layer["mediaType"], str)
+            or not layer["mediaType"].startswith("application/vnd.")
+            or not isinstance(layer["size"], int)
+            or isinstance(layer["size"], bool)
+            or layer["size"] < 1
+        ):
+            raise ValueError(
+                f"image result content identity layer {position} is invalid"
+            )
+    if (
+        not isinstance(identity.get("created"), str)
+        or re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z",
+            identity["created"],
+        )
+        is None
+        or not isinstance(identity.get("history"), list)
+        or not identity["history"]
+        or any(not isinstance(item, dict) for item in identity["history"])
+    ):
+        raise ValueError("image result content identity history is invalid")
+    return copy.deepcopy(identity)
+
+
 def publish_member(
     archive_path: Path,
     *,
@@ -2765,7 +3061,7 @@ def publish_member(
     lane: str,
 ) -> dict[str, Any]:
     """Publish one real candidate and derive its record only from trusted readback."""
-    _fresh_write_authority(lane)
+    write_authority = _fresh_write_authority(lane)
     from . import image
 
     result = image.validate_image_result(image_result)
@@ -2787,13 +3083,18 @@ def publish_member(
     }
     if any(authority[key] != value for key, value in expected_authority.items()):
         raise ValueError("image result differs from canonical member authority")
+    if result.get("source", {}).get("commit") != write_authority["preflight"].get(
+        "source_sha"
+    ):
+        raise ValueError("member source differs from live protected tag")
+    identity = _validate_image_result_content_identity(result)
     crane_binary = resolve_pinned_crane()
-    operations: list[dict[str, str]] = []
+    staging_tag = "staging-" + result["build_key_sha256"].removeprefix("sha256:")
+    staging_reference = f"{STAGING_REPOSITORY}:{staging_tag}"
     with materialize_oci_layout(archive_path) as materialized:
         descriptor = materialized["index"]["manifests"][0]
         manifest = materialized["manifest"]
         config = materialized["config"]
-        identity = result.get("content_identity")
         expected_layers = manifest.get("layers")
         if (
             not isinstance(identity, dict)
@@ -2802,11 +3103,38 @@ def publish_member(
             or materialized["config_digest"] != identity.get("config_digest")
             or manifest.get("annotations", {}) != identity.get("annotations")
             or config.get("config", {}).get("Labels", {}) != identity.get("labels")
+            or config.get("rootfs", {}).get("diff_ids") != identity.get("diff_ids")
+            or config.get("created") != identity.get("created")
+            or config.get("history") != identity.get("history")
             or expected_layers != identity.get("layers")
         ):
             raise ValueError(
                 "Buildx OCI bytes differ from image-result content identity"
             )
+        prewrite_visibility = verify_private_staging(
+            staging_reference, phase="prewrite"
+        )
+        operations: list[dict[str, str]] = [
+            copy.deepcopy(prewrite_visibility["operation"]),
+            {
+                "type": "registry-authenticated-staging-prewrite-read",
+                "capability": "read",
+                "reference": staging_reference,
+            },
+        ]
+        observed_staging_digest = _fresh_transport_digest(
+            staging_reference, crane_binary
+        )
+        staging_plan = plan_staging_tag(
+            result["build_key_sha256"],
+            result["oci"]["digest"],
+            observed_staging_digest,
+        )
+        core.require_default_head_for_create(
+            write_authority["preflight"],
+            staging_plan["decision"],
+            resource=staging_reference,
+        )
         push_result = _push_materialized_member(
             materialized,
             repository=STAGING_REPOSITORY,
@@ -2838,7 +3166,6 @@ def publish_member(
             for item in expected_layers
         ]
 
-    staging_tag = "staging-" + result["build_key_sha256"].removeprefix("sha256:")
     tag_result = _apply_digest_tag(
         repository=STAGING_REPOSITORY,
         digest=result["oci"]["digest"],
@@ -2849,7 +3176,7 @@ def publish_member(
     digest_reference = f"{STAGING_REPOSITORY}@{result['oci']['digest']}"
     readback = readback_reference(digest_reference)
     operations.extend(copy.deepcopy(readback["operations"]))
-    visibility = verify_private_staging(f"{STAGING_REPOSITORY}:{staging_tag}")
+    visibility = verify_private_staging(staging_reference)
     operations.append(copy.deepcopy(visibility["operation"]))
     annotations = {
         "io.ucm.release.build-key-sha256": result["build_key_sha256"],
@@ -2877,10 +3204,14 @@ def publish_member(
         "image_result_sha256": result["result_sha256"],
         "recipe_sha256": result["recipe_sha256"],
         "content_identity_sha256": result["content_identity_sha256"],
+        "content_identity": copy.deepcopy(result["content_identity"]),
         "manifest": manifest_record,
         "config": config_record,
         "layers": layer_records,
         "readback_sha256": readback["readback_sha256"],
+        "prewrite_visibility_evidence_sha256": prewrite_visibility[
+            "visibility_evidence_sha256"
+        ],
         "visibility_evidence_sha256": visibility["visibility_evidence_sha256"],
         "collision_model": copy.deepcopy(tag_result["collision_model"]),
         "operations": operations,
@@ -3076,15 +3407,288 @@ def _create_index_transport(
     }
 
 
-def create_index(
+PROVISIONAL_INDEX_KEYS = {
+    "schema_version",
+    "kind",
+    "status",
+    "source_sha",
+    "family_id",
+    "target_repository",
+    "target_tag",
+    "index_build_key_sha256",
+    "index_digest",
+    "manifest_sha256",
+    "member_digests",
+    "authenticated_readback",
+    "authenticated_closure",
+    "collision_model",
+    "operations",
+    "decision",
+    "postwrite_manifest_sha256",
+    "preflight_sha256",
+    "matrix_sha256",
+    "verification_sha256",
+    "parent_plans_sha256",
+    "provisional_sha256",
+}
+INDEX_READBACK_KEYS = {
+    "schema_version",
+    "kind",
+    "reference",
+    "digest",
+    "manifest",
+    "config",
+    "layers",
+    "children",
+    "authenticated",
+    "operations",
+    "readback_sha256",
+}
+INDEX_READBACK_MANIFEST_KEYS = {
+    "media_type",
+    "digest",
+    "size",
+    "annotations",
+}
+FINALIZED_INDEX_KEYS = {
+    "schema_version",
+    "kind",
+    "status",
+    "family_id",
+    "record",
+    "provisional",
+    "provisional_sha256",
+    "authenticated_readback",
+    "anonymous_readback",
+    "anonymous_closure",
+    "operation_audit",
+    "finalization_sha256",
+}
+
+
+def _validate_prepared_index_readback(
+    readback: object,
+    *,
+    plan: dict[str, Any],
+    expected_digest: str,
+    authenticated: bool,
+) -> dict[str, Any]:
+    """Reopen one exact final-index read without trusting caller coordinates."""
+    from . import verify
+
+    if not isinstance(readback, dict):
+        raise ValueError("prepared index readback must be an object")
+    _exact_keys(readback, INDEX_READBACK_KEYS, "prepared index readback")
+    expected_reference = f"{plan['target_repository']}:{plan['target_tag']}"
+    expected_manifest = plan["index_manifest"]
+    manifest = readback["manifest"]
+    if not isinstance(manifest, dict):
+        raise ValueError("prepared index readback manifest must be an object")
+    _exact_keys(
+        manifest,
+        INDEX_READBACK_MANIFEST_KEYS,
+        "prepared index readback manifest",
+    )
+    mode = "authenticated" if authenticated else "anonymous"
+    expected_operations = [
+        {
+            "type": f"registry-{mode}-digest-read",
+            "capability": "read",
+            "reference": expected_reference,
+        },
+        {
+            "type": f"registry-{mode}-manifest-read",
+            "capability": "read",
+            "reference": f"{plan['target_repository']}@{expected_digest}",
+        },
+    ]
+    if (
+        not isinstance(readback["schema_version"], int)
+        or isinstance(readback["schema_version"], bool)
+        or readback["schema_version"] != 1
+        or readback["kind"] != "ucm-registry-readback"
+        or readback["reference"] != expected_reference
+        or readback["digest"] != expected_digest
+        or not isinstance(readback["authenticated"], bool)
+        or readback["authenticated"] is not authenticated
+        or readback["config"] is not None
+        or readback["layers"] != []
+        or readback["children"] != expected_manifest["manifests"]
+        or manifest["media_type"] != expected_manifest["mediaType"]
+        or manifest["digest"] != expected_digest
+        or not isinstance(manifest["size"], int)
+        or isinstance(manifest["size"], bool)
+        or manifest["size"] < 1
+        or manifest["annotations"] != expected_manifest["annotations"]
+        or readback["operations"] != expected_operations
+    ):
+        raise ValueError(f"prepared index {mode} readback differs from parent intent")
+    payload = {
+        key: copy.deepcopy(value)
+        for key, value in readback.items()
+        if key != "readback_sha256"
+    }
+    if readback.get("readback_sha256") != sha256_value(payload):
+        raise ValueError("prepared index readback hash mismatch")
+    verify.audit_operations(readback["operations"], lane="protected-tag")
+    return copy.deepcopy(readback)
+
+
+INDEX_CLOSURE_KEYS = {
+    "schema_version",
+    "kind",
+    "source_sha",
+    "family_id",
+    "reference",
+    "member_digests",
+    "authenticated",
+    "tool",
+    "command",
+    "returncode",
+    "stdout_sha256",
+    "stderr_sha256",
+    "operation",
+    "validation_sha256",
+}
+
+
+def _validate_index_closure_evidence(
+    evidence: object,
+    *,
+    plan: dict[str, Any],
+    index_digest: str,
+    authenticated: bool,
+) -> dict[str, Any]:
+    """Reopen a pinned recursive validation of final-repository child closure."""
+    from . import verify
+
+    if not isinstance(evidence, dict):
+        raise ValueError("index remote validation evidence must be an object")
+    _exact_keys(evidence, INDEX_CLOSURE_KEYS, "index remote validation evidence")
+    mode = "authenticated" if authenticated else "anonymous"
+    reference = f"{plan['target_repository']}@{index_digest}"
+    operation = {
+        "type": f"registry-{mode}-recursive-validate",
+        "capability": "read",
+        "reference": reference,
+    }
+    if (
+        not isinstance(evidence["schema_version"], int)
+        or isinstance(evidence["schema_version"], bool)
+        or evidence["schema_version"] != 1
+        or evidence["kind"] != "ucm-registry-index-remote-validation"
+        or evidence["source_sha"] != plan["source_sha"]
+        or evidence["family_id"] != plan["family_id"]
+        or evidence["reference"] != reference
+        or evidence["member_digests"]
+        != [item["member_digest"] for item in plan["members"]]
+        or not isinstance(evidence["authenticated"], bool)
+        or evidence["authenticated"] is not authenticated
+        or evidence["tool"] != {"name": "crane", "version": CRANE_VERSION}
+        or evidence["command"] != ["validate", "--remote", reference, "--fast"]
+        or not isinstance(evidence["returncode"], int)
+        or isinstance(evidence["returncode"], bool)
+        or evidence["returncode"] != 0
+        or evidence["operation"] != operation
+    ):
+        raise ValueError("index remote validation differs from parent authority")
+    _digest(evidence["stdout_sha256"], "index validation stdout")
+    _digest(evidence["stderr_sha256"], "index validation stderr")
+    verify.audit_operations([operation], lane="protected-tag")
+    payload = {
+        key: copy.deepcopy(value)
+        for key, value in evidence.items()
+        if key != "validation_sha256"
+    }
+    if evidence["validation_sha256"] != sha256_value(payload):
+        raise ValueError("index remote validation hash mismatch")
+    return copy.deepcopy(evidence)
+
+
+def _validate_remote_index_closure(
+    plan: dict[str, Any],
+    *,
+    index_digest: str,
+    anonymous: bool = False,
+) -> dict[str, Any]:
+    """Run pinned crane recursive fast validation without downloading layer bodies."""
+    crane_binary = resolve_pinned_crane()
+    reference = f"{plan['target_repository']}@{index_digest}"
+    command = ["validate", "--remote", reference, "--fast"]
+
+    def execute(environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        try:
+            return _run_registry_tool(
+                crane_binary,
+                command,
+                environment=environment,
+            )
+        except ValueError as error:
+            raise ValueError(
+                "final repository recursive child manifest validation failed"
+            ) from error
+
+    if anonymous:
+        with tempfile.TemporaryDirectory(
+            prefix="ucm-anonymous-docker-config-"
+        ) as directory:
+            (Path(directory) / "config.json").write_bytes(b'{"auths":{}}\n')
+            result = execute(_minimal_registry_environment(docker_config=directory))
+    else:
+        result = execute(_minimal_registry_environment())
+    mode = "anonymous" if anonymous else "authenticated"
+    operation = {
+        "type": f"registry-{mode}-recursive-validate",
+        "capability": "read",
+        "reference": reference,
+    }
+    payload = {
+        "schema_version": 1,
+        "kind": "ucm-registry-index-remote-validation",
+        "source_sha": plan["source_sha"],
+        "family_id": plan["family_id"],
+        "reference": reference,
+        "member_digests": [item["member_digest"] for item in plan["members"]],
+        "authenticated": not anonymous,
+        "tool": {"name": "crane", "version": CRANE_VERSION},
+        "command": command,
+        "returncode": result.returncode,
+        "stdout_sha256": "sha256:" + hashlib.sha256(result.stdout.encode()).hexdigest(),
+        "stderr_sha256": "sha256:" + hashlib.sha256(result.stderr.encode()).hexdigest(),
+        "operation": operation,
+    }
+    evidence = {**payload, "validation_sha256": sha256_value(payload)}
+    return _validate_index_closure_evidence(
+        evidence,
+        plan=plan,
+        index_digest=index_digest,
+        authenticated=not anonymous,
+    )
+
+
+def prepare_index(
     plan: object,
     *,
     parent_plans: object,
     lane: str,
 ) -> dict[str, Any]:
-    """Create one exact r1 from Buildx dry-run bytes, then close its raw readback."""
+    """Create/reuse one r1 and close authenticated state, deferring anonymity."""
     authority = _fresh_write_authority(lane)
     verification = verify_index(plan, parent_plans=parent_plans)
+    parent = _validate_parent_plans(parent_plans)
+    matches = [
+        item for item in parent["plans"] if item["family_id"] == plan["family_id"]
+    ]
+    if len(matches) != 1 or matches[0] != plan:
+        raise ValueError("prepared index plan is not the exact parent plan")
+    plan = matches[0]
+    if authority["preflight"].get("source_sha") != plan["source_sha"]:
+        raise ValueError("prepared index source differs from live protected tag")
+    core.require_default_head_for_create(
+        authority["preflight"],
+        plan["decision"],
+        resource=f"{plan['target_repository']}:{plan['target_tag']}",
+    )
     crane_binary = resolve_pinned_crane()
     buildx_binary = resolve_pinned_buildx()
     target = f"{plan['target_repository']}:{plan['target_tag']}"
@@ -3102,12 +3706,16 @@ def create_index(
             "--tag",
             target,
             "--annotation",
+            "index:org.opencontainers.image.source=" + SOURCE_REPOSITORY_URL,
+            "--annotation",
             f"index:io.ucm.release.family-id={plan['family_id']}",
             "--annotation",
             (
                 "index:io.ucm.release.index-build-key-sha256="
                 + plan["index_build_key_sha256"]
             ),
+            "--annotation",
+            "index:io.ucm.release.source-sha=" + plan["source_sha"],
         ]
         for member, source in zip(plan["members"], source_files, strict=True):
             scope = f"manifest-descriptor[{member['platform']}]"
@@ -3144,21 +3752,25 @@ def create_index(
     operations = transport["operations"]
     decision = transport["decision"]
     authenticated = readback_reference(target)
-    anonymous = readback_reference(target, anonymous=True)
-    if (
-        authenticated["digest"] != expected_digest
-        or anonymous["digest"] != expected_digest
-        or authenticated["manifest"] != anonymous["manifest"]
-        or authenticated["children"] != rendered["manifests"]
-        or anonymous["children"] != rendered["manifests"]
-    ):
-        raise ValueError(
-            "final index authenticated/anonymous closure differs from dry-run"
-        )
-    record_payload = {
+    if rendered != plan["index_manifest"]:
+        raise ValueError("prepared index transport differs from parent intent")
+    authenticated = _validate_prepared_index_readback(
+        authenticated,
+        plan=plan,
+        expected_digest=expected_digest,
+        authenticated=True,
+    )
+    authenticated_closure = _validate_remote_index_closure(
+        plan, index_digest=expected_digest
+    )
+    preflight_sha256 = authority["preflight"].get("preflight_sha256") or sha256_value(
+        authority["preflight"]
+    )
+    provisional_payload = {
         "schema_version": 1,
-        "kind": "ucm-registry-index-publication",
-        "status": "passed",
+        "kind": "ucm-registry-index-provisional",
+        "status": "authenticated-passed",
+        "source_sha": plan["source_sha"],
         "family_id": plan["family_id"],
         "target_repository": plan["target_repository"],
         "target_tag": plan["target_tag"],
@@ -3166,20 +3778,328 @@ def create_index(
         "index_digest": expected_digest,
         "manifest_sha256": expected_digest,
         "member_digests": [item["member_digest"] for item in plan["members"]],
-        "authenticated_readback_sha256": authenticated["readback_sha256"],
-        "anonymous_readback_sha256": anonymous["readback_sha256"],
+        "authenticated_readback": authenticated,
+        "authenticated_closure": authenticated_closure,
         "collision_model": copy.deepcopy(transport["collision_model"]),
         "operations": operations,
-    }
-    record = {**record_payload, "record_sha256": sha256_value(record_payload)}
-    validate_index_record(record, parent_plans=parent_plans)
-    return {
-        **verification,
-        **record,
         "decision": decision,
         "postwrite_manifest_sha256": transport["postwrite_manifest_sha256"],
-        "preflight_sha256": authority["preflight"].get("preflight_sha256"),
+        "preflight_sha256": preflight_sha256,
         "matrix_sha256": authority["matrix"]["matrix_sha256"],
+        "verification_sha256": verification["verification_sha256"],
+        "parent_plans_sha256": parent["plans_sha256"],
+    }
+    provisional = {
+        **provisional_payload,
+        "provisional_sha256": sha256_value(provisional_payload),
+    }
+    return validate_provisional_index(provisional, parent_plans=parent)
+
+
+def validate_provisional_index(
+    provisional: object, *, parent_plans: object
+) -> dict[str, Any]:
+    """Validate the strict authenticated envelope without treating it as final."""
+    if not isinstance(provisional, dict):
+        raise ValueError("provisional index must be an object")
+    _exact_keys(provisional, PROVISIONAL_INDEX_KEYS, "provisional index")
+    if (
+        not isinstance(provisional["schema_version"], int)
+        or isinstance(provisional["schema_version"], bool)
+        or provisional["schema_version"] != 1
+        or provisional["kind"] != "ucm-registry-index-provisional"
+        or provisional["status"] != "authenticated-passed"
+    ):
+        raise ValueError("provisional index identity is invalid")
+    parent = _validate_parent_plans(parent_plans)
+    if provisional["parent_plans_sha256"] != parent["plans_sha256"]:
+        raise ValueError("provisional index parent hash mismatch")
+    matches = [
+        item
+        for item in parent["plans"]
+        if item["family_id"] == provisional["family_id"]
+    ]
+    if len(matches) != 1:
+        raise ValueError("provisional index family is not parent-bound")
+    plan = matches[0]
+    expected_fields = {
+        "source_sha": plan["source_sha"],
+        "target_repository": plan["target_repository"],
+        "target_tag": plan["target_tag"],
+        "index_build_key_sha256": plan["index_build_key_sha256"],
+        "member_digests": [item["member_digest"] for item in plan["members"]],
+    }
+    if any(provisional[key] != value for key, value in expected_fields.items()):
+        raise ValueError("provisional index differs from its exact parent plan")
+    for field in (
+        "index_digest",
+        "manifest_sha256",
+        "postwrite_manifest_sha256",
+        "preflight_sha256",
+        "matrix_sha256",
+        "verification_sha256",
+        "parent_plans_sha256",
+        "provisional_sha256",
+    ):
+        _digest(provisional[field], f"provisional index {field}")
+    if not (
+        provisional["manifest_sha256"]
+        == provisional["postwrite_manifest_sha256"]
+        == provisional["index_digest"]
+    ):
+        raise ValueError("provisional index manifest hashes disagree")
+    if (
+        provisional["verification_sha256"]
+        != verify_index(plan, parent_plans=parent)["verification_sha256"]
+    ):
+        raise ValueError("provisional index verification hash mismatch")
+    if (
+        provisional["matrix_sha256"]
+        != core.build_matrix("protected-tag")["matrix_sha256"]
+    ):
+        raise ValueError("provisional index matrix hash mismatch")
+    _validate_collision_model(provisional["collision_model"], "provisional index")
+    decision = provisional["decision"]
+    target = f"{plan['target_repository']}:{plan['target_tag']}"
+    expected_operations = (
+        [
+            {
+                "type": "registry-index-create",
+                "capability": "write",
+                "reference": target,
+            }
+        ]
+        if decision == "create"
+        else []
+    )
+    if (
+        decision not in {"create", "reuse"}
+        or (plan["decision"] == "reuse" and decision != "reuse")
+        or provisional["operations"] != expected_operations
+    ):
+        raise ValueError("provisional index decision/operations are invalid")
+    _validate_prepared_index_readback(
+        provisional["authenticated_readback"],
+        plan=plan,
+        expected_digest=provisional["index_digest"],
+        authenticated=True,
+    )
+    _validate_index_closure_evidence(
+        provisional["authenticated_closure"],
+        plan=plan,
+        index_digest=provisional["index_digest"],
+        authenticated=True,
+    )
+    payload = {
+        key: copy.deepcopy(value)
+        for key, value in provisional.items()
+        if key != "provisional_sha256"
+    }
+    if provisional["provisional_sha256"] != sha256_value(payload):
+        raise ValueError("provisional index hash mismatch")
+    return copy.deepcopy(provisional)
+
+
+def finalize_index(provisional: object, *, parent_plans: object) -> dict[str, Any]:
+    """Perform deferred anonymous closure and retain reopenable final evidence."""
+    from . import verify
+
+    parent = _validate_parent_plans(parent_plans)
+    prepared = validate_provisional_index(provisional, parent_plans=parent)
+    plan = next(
+        item for item in parent["plans"] if item["family_id"] == prepared["family_id"]
+    )
+    target = f"{plan['target_repository']}:{plan['target_tag']}"
+    anonymous = readback_reference(target, anonymous=True)
+    anonymous = _validate_prepared_index_readback(
+        anonymous,
+        plan=plan,
+        expected_digest=prepared["index_digest"],
+        authenticated=False,
+    )
+    anonymous_closure = _validate_remote_index_closure(
+        plan, index_digest=prepared["index_digest"], anonymous=True
+    )
+    authenticated = prepared["authenticated_readback"]
+    authenticated_closure = prepared["authenticated_closure"]
+    if (
+        anonymous["manifest"] != authenticated["manifest"]
+        or anonymous["children"] != authenticated["children"]
+    ):
+        raise ValueError("anonymous index closure differs from authenticated bytes")
+    record_payload = {
+        "schema_version": 1,
+        "kind": "ucm-registry-index-publication",
+        "status": "passed",
+        "source_sha": plan["source_sha"],
+        "family_id": plan["family_id"],
+        "target_repository": plan["target_repository"],
+        "target_tag": plan["target_tag"],
+        "index_build_key_sha256": plan["index_build_key_sha256"],
+        "index_digest": prepared["index_digest"],
+        "manifest_sha256": prepared["manifest_sha256"],
+        "member_digests": copy.deepcopy(prepared["member_digests"]),
+        "authenticated_readback_sha256": authenticated["readback_sha256"],
+        "authenticated_closure_sha256": authenticated_closure["validation_sha256"],
+        "anonymous_readback_sha256": anonymous["readback_sha256"],
+        "anonymous_closure_sha256": anonymous_closure["validation_sha256"],
+        "collision_model": copy.deepcopy(prepared["collision_model"]),
+        "operations": copy.deepcopy(prepared["operations"]),
+    }
+    record = {**record_payload, "record_sha256": sha256_value(record_payload)}
+    record = validate_index_record(record, parent_plans=parent)
+    finalization_payload = {
+        "schema_version": 1,
+        "kind": "ucm-registry-index-finalization",
+        "status": "anonymous-passed",
+        "family_id": plan["family_id"],
+        "record": record,
+        "provisional": copy.deepcopy(prepared),
+        "provisional_sha256": prepared["provisional_sha256"],
+        "authenticated_readback": copy.deepcopy(authenticated),
+        "anonymous_readback": copy.deepcopy(anonymous),
+        "anonymous_closure": copy.deepcopy(anonymous_closure),
+        "operation_audit": {
+            "publication": verify.audit_operations(
+                prepared["operations"], lane="protected-tag"
+            ),
+            "authenticated": verify.audit_operations(
+                authenticated["operations"], lane="protected-tag"
+            ),
+            "anonymous": verify.audit_operations(
+                anonymous["operations"], lane="protected-tag"
+            ),
+            "authenticated_closure": verify.audit_operations(
+                [authenticated_closure["operation"]], lane="protected-tag"
+            ),
+            "anonymous_closure": verify.audit_operations(
+                [anonymous_closure["operation"]], lane="protected-tag"
+            ),
+        },
+    }
+    finalized = {
+        **finalization_payload,
+        "finalization_sha256": sha256_value(finalization_payload),
+    }
+    return validate_finalized_index(finalized, parent_plans=parent)
+
+
+def validate_finalized_index(
+    finalized: object, *, parent_plans: object
+) -> dict[str, Any]:
+    """Reopen one anonymous finalization envelope against its parent/provisional."""
+    from . import verify
+
+    if not isinstance(finalized, dict):
+        raise ValueError("finalized index must be an object")
+    _exact_keys(finalized, FINALIZED_INDEX_KEYS, "finalized index")
+    if (
+        not isinstance(finalized["schema_version"], int)
+        or isinstance(finalized["schema_version"], bool)
+        or finalized["schema_version"] != 1
+        or finalized["kind"] != "ucm-registry-index-finalization"
+        or finalized["status"] != "anonymous-passed"
+    ):
+        raise ValueError("finalized index identity is invalid")
+    parent = _validate_parent_plans(parent_plans)
+    record = validate_index_record(finalized["record"], parent_plans=parent)
+    provisional = validate_provisional_index(
+        finalized["provisional"], parent_plans=parent
+    )
+    if finalized["family_id"] != record["family_id"]:
+        raise ValueError("finalized index family differs from record")
+    if (
+        finalized["provisional_sha256"] != provisional["provisional_sha256"]
+        or provisional["family_id"] != record["family_id"]
+        or provisional["index_digest"] != record["index_digest"]
+        or provisional["member_digests"] != record["member_digests"]
+        or provisional["operations"] != record["operations"]
+    ):
+        raise ValueError("finalized index differs from strict provisional")
+    plan = next(
+        item for item in parent["plans"] if item["family_id"] == record["family_id"]
+    )
+    authenticated = _validate_prepared_index_readback(
+        finalized["authenticated_readback"],
+        plan=plan,
+        expected_digest=record["index_digest"],
+        authenticated=True,
+    )
+    anonymous = _validate_prepared_index_readback(
+        finalized["anonymous_readback"],
+        plan=plan,
+        expected_digest=record["index_digest"],
+        authenticated=False,
+    )
+    authenticated_closure = _validate_index_closure_evidence(
+        provisional["authenticated_closure"],
+        plan=plan,
+        index_digest=record["index_digest"],
+        authenticated=True,
+    )
+    anonymous_closure = _validate_index_closure_evidence(
+        finalized["anonymous_closure"],
+        plan=plan,
+        index_digest=record["index_digest"],
+        authenticated=False,
+    )
+    if (
+        authenticated != provisional["authenticated_readback"]
+        or authenticated["manifest"] != anonymous["manifest"]
+        or authenticated["children"] != anonymous["children"]
+        or authenticated["readback_sha256"] != record["authenticated_readback_sha256"]
+        or anonymous["readback_sha256"] != record["anonymous_readback_sha256"]
+        or authenticated_closure["validation_sha256"]
+        != record["authenticated_closure_sha256"]
+        or anonymous_closure["validation_sha256"] != record["anonymous_closure_sha256"]
+    ):
+        raise ValueError("finalized index readback closure mismatch")
+    expected_audit = {
+        "publication": verify.audit_operations(
+            record["operations"], lane="protected-tag"
+        ),
+        "authenticated": verify.audit_operations(
+            authenticated["operations"], lane="protected-tag"
+        ),
+        "anonymous": verify.audit_operations(
+            anonymous["operations"], lane="protected-tag"
+        ),
+        "authenticated_closure": verify.audit_operations(
+            [authenticated_closure["operation"]], lane="protected-tag"
+        ),
+        "anonymous_closure": verify.audit_operations(
+            [anonymous_closure["operation"]], lane="protected-tag"
+        ),
+    }
+    if finalized["operation_audit"] != expected_audit:
+        raise ValueError("finalized index operation audit mismatch")
+    payload = {
+        key: copy.deepcopy(value)
+        for key, value in finalized.items()
+        if key != "finalization_sha256"
+    }
+    if finalized["finalization_sha256"] != sha256_value(payload):
+        raise ValueError("finalized index hash mismatch")
+    return copy.deepcopy(finalized)
+
+
+def create_index(
+    plan: object,
+    *,
+    parent_plans: object,
+    lane: str,
+) -> dict[str, Any]:
+    """Compatibility wrapper: prepare then immediately close anonymous readback."""
+    provisional = prepare_index(plan, parent_plans=parent_plans, lane=lane)
+    finalized = finalize_index(provisional, parent_plans=parent_plans)
+    record = finalized["record"]
+    return {
+        **record,
+        "decision": provisional["decision"],
+        "postwrite_manifest_sha256": provisional["postwrite_manifest_sha256"],
+        "preflight_sha256": provisional["preflight_sha256"],
+        "matrix_sha256": provisional["matrix_sha256"],
+        "verification_sha256": provisional["verification_sha256"],
     }
 
 
@@ -3332,10 +4252,14 @@ def run_loopback_registry_contract(
                 )
             time.sleep(0.2)
 
-        repository = "ucm-contract/scratch"
-        local_repository = f"{registry_host}/{repository}"
+        staging_repository = "ucm-contract/staging"
+        final_repository = "ucm-contract/final"
+        local_staging_repository = f"{registry_host}/{staging_repository}"
+        local_final_repository = f"{registry_host}/{final_repository}"
         descriptors: list[dict[str, Any]] = []
+        member_closures: list[dict[str, Any]] = []
         registry_member_closure_count = 0
+        final_repository_child_closure_count = 0
         with tempfile.TemporaryDirectory(prefix="ucm-loopback-oci-") as scratch:
             scratch_root = Path(scratch)
             for architecture in ("amd64", "arm64"):
@@ -3402,14 +4326,14 @@ def run_loopback_registry_contract(
                 with materialize_oci_layout(archive) as materialized:
                     push = _push_materialized_member(
                         materialized,
-                        repository=local_repository,
+                        repository=local_staging_repository,
                         crane_binary=crane_binary,
                         insecure=True,
                         environment=loopback_environment,
                     )
                     operations.extend(push["operations"])
                 tag = _apply_digest_tag(
-                    repository=local_repository,
+                    repository=local_staging_repository,
                     digest=manifest_digest,
                     tag=f"member-{architecture}",
                     crane_binary=crane_binary,
@@ -3419,7 +4343,11 @@ def run_loopback_registry_contract(
                 operations.extend(tag["operations"])
                 manifest_read = _run_registry_tool_bytes(
                     crane_binary,
-                    ["manifest", "--insecure", f"{local_repository}@{manifest_digest}"],
+                    [
+                        "manifest",
+                        "--insecure",
+                        f"{local_staging_repository}@{manifest_digest}",
+                    ],
                     environment=loopback_environment,
                 )
                 if manifest_read != manifest_raw:
@@ -3427,7 +4355,7 @@ def run_loopback_registry_contract(
                 config_closure, config_read = _descriptor_closure(
                     manifest["config"],
                     label="loopback registry config",
-                    repository=local_repository,
+                    repository=local_staging_repository,
                     crane_binary=crane_binary,
                     environment=loopback_environment,
                     retain_raw=True,
@@ -3437,7 +4365,7 @@ def run_loopback_registry_contract(
                 layer_closure, _ = _descriptor_closure(
                     manifest["layers"][0],
                     label="loopback registry layer",
-                    repository=local_repository,
+                    repository=local_staging_repository,
                     crane_binary=crane_binary,
                     environment=loopback_environment,
                     retain_raw=False,
@@ -3446,13 +4374,33 @@ def run_loopback_registry_contract(
                     raise ValueError("loopback registry layer closure differs")
                 registry_member_closure_count += 1
                 descriptors.append(descriptor)
+                member_closures.append(
+                    {
+                        "manifest_raw": manifest_raw,
+                        "manifest": manifest,
+                        "config_raw": config,
+                        "layer_raw": layer,
+                    }
+                )
 
-            index_reference = f"{local_repository}:r1"
+            index_reference = f"{local_final_repository}:r1"
             source_files: list[Path] = []
             for position, descriptor in enumerate(descriptors):
+                if (
+                    _fresh_transport_digest(
+                        f"{local_final_repository}@{descriptor['digest']}",
+                        crane_binary,
+                        insecure=True,
+                        environment=loopback_environment,
+                    )
+                    is not None
+                ):
+                    raise ValueError(
+                        "loopback final child unexpectedly existed before index create"
+                    )
                 source = scratch_root / f"index-source-{position}"
                 source.write_bytes(
-                    f"{local_repository}@{descriptor['digest']}".encode()
+                    f"{local_staging_repository}@{descriptor['digest']}".encode()
                 )
                 source_files.append(source)
             index_arguments = [
@@ -3479,12 +4427,61 @@ def run_loopback_registry_contract(
             index_raw = index_transport["raw_manifest"]
             index_digest = index_transport["index_digest"]
             operations.extend(index_transport["operations"])
+            for descriptor, closure in zip(descriptors, member_closures, strict=True):
+                final_child = f"{local_final_repository}@{descriptor['digest']}"
+                final_manifest = _run_registry_tool_bytes(
+                    crane_binary,
+                    ["manifest", "--insecure", final_child],
+                    environment=loopback_environment,
+                )
+                if final_manifest != closure["manifest_raw"]:
+                    raise ValueError("loopback cross-repository child manifest differs")
+                config_closure, config_read = _descriptor_closure(
+                    closure["manifest"]["config"],
+                    label="loopback final repository config",
+                    repository=local_final_repository,
+                    crane_binary=crane_binary,
+                    environment=loopback_environment,
+                    retain_raw=True,
+                )
+                if (
+                    config_read != closure["config_raw"]
+                    or config_closure["digest"]
+                    != closure["manifest"]["config"]["digest"]
+                ):
+                    raise ValueError("loopback cross-repository config closure differs")
+                layer_closure, layer_read = _descriptor_closure(
+                    closure["manifest"]["layers"][0],
+                    label="loopback final repository layer",
+                    repository=local_final_repository,
+                    crane_binary=crane_binary,
+                    environment=loopback_environment,
+                    retain_raw=True,
+                )
+                if (
+                    layer_read != closure["layer_raw"]
+                    or layer_closure["digest"]
+                    != closure["manifest"]["layers"][0]["digest"]
+                ):
+                    raise ValueError("loopback cross-repository layer closure differs")
+                final_repository_child_closure_count += 1
+            _run_registry_tool(
+                crane_binary,
+                [
+                    "validate",
+                    "--remote",
+                    f"{local_final_repository}@{index_digest}",
+                    "--fast",
+                    "--insecure",
+                ],
+                environment=loopback_environment,
+            )
         operations.extend(
             [
                 {
                     "type": "loopback-index-read",
                     "capability": "read",
-                    "reference": (f"{registry_host}/{repository}@{index_digest}"),
+                    "reference": (f"{local_final_repository}@{index_digest}"),
                 },
             ]
         )
@@ -3495,7 +4492,7 @@ def run_loopback_registry_contract(
             _loopback_request(
                 base_url,
                 "PUT",
-                f"/v2/{repository}/manifests/{index_digest}",
+                f"/v2/{final_repository}/manifests/{index_digest}",
                 data=canonical_bytes(mutated),
                 content_type=mutated["mediaType"],
             )
@@ -3512,6 +4509,16 @@ def run_loopback_registry_contract(
             "crane_version": "v0.20.3",
             "member_count": 2,
             "registry_member_closure_count": registry_member_closure_count,
+            "final_repository_child_closure_count": (
+                final_repository_child_closure_count
+            ),
+            "final_child_references": [
+                f"{local_final_repository}@{item['digest']}" for item in descriptors
+            ],
+            "final_child_closure_sha256": sha256_value(
+                [f"{local_final_repository}@{item['digest']}" for item in descriptors]
+            ),
+            "cross_repository_copy": True,
             "index_digest": index_digest,
             "negative_mutation": negative_mutation,
             "operations": operations,

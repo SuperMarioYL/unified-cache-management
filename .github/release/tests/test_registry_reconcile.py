@@ -824,9 +824,11 @@ def _publication_members() -> list[dict[str, object]]:
         build_key = f"sha256:{index + 20:064x}"
         wheel_digest = f"sha256:{index + 30:064x}"
         recipe_digest = f"sha256:{index + 40:064x}"
-        content_digest = f"sha256:{index + 50:064x}"
         image_result_digest = f"sha256:{index + 60:064x}"
         layer_digest = f"sha256:{index + 70:064x}"
+        source_tree = f"{index + 80:040x}"
+        source_archive_digest = f"sha256:{index + 90:064x}"
+        source_context_digest = f"sha256:{index + 100:064x}"
         manifest = {
             "media_type": "application/vnd.oci.image.manifest.v1+json",
             "digest": digest,
@@ -836,16 +838,25 @@ def _publication_members() -> list[dict[str, object]]:
                 "io.ucm.release.task-sha256": task["task_sha256"],
             },
         }
+        config_labels = {
+            "base.label": f"preserved-{index}",
+            "org.opencontainers.image.source": (
+                "https://github.com/SuperMarioYL/unified-cache-management"
+            ),
+            "org.opencontainers.image.revision": "a" * 40,
+            "io.ucm.release.source-tree": source_tree,
+            "io.ucm.release.source-context-sha256": source_context_digest,
+            "io.ucm.release.task-sha256": task["task_sha256"],
+            "io.ucm.release.build-key-sha256": build_key,
+            "io.ucm.release.wheel-sha256": wheel_digest,
+            "io.ucm.release.recipe-sha256": recipe_digest,
+        }
         config = {
             "media_type": "application/vnd.oci.image.config.v1+json",
             "digest": config_digest,
             "size": 200 + index,
             "blob_sha256": config_digest,
-            "labels": {
-                "io.ucm.release.build-key-sha256": build_key,
-                "io.ucm.release.task-sha256": task["task_sha256"],
-                "io.ucm.release.wheel-sha256": wheel_digest,
-            },
+            "labels": config_labels,
         }
         layers = [
             {
@@ -855,6 +866,45 @@ def _publication_members() -> list[dict[str, object]]:
                 "blob_sha256": layer_digest,
             }
         ]
+        content_identity_payload = {
+            "manifest_digest": digest,
+            "config_digest": config_digest,
+            "layers": [
+                {
+                    "mediaType": layers[0]["media_type"],
+                    "digest": layer_digest,
+                    "size": layers[0]["size"],
+                }
+            ],
+            "diff_ids": [f"sha256:{index + 110:064x}"],
+            "annotations": copy.deepcopy(manifest["annotations"]),
+            "labels": copy.deepcopy(config_labels),
+            "created": "2026-08-09T00:00:00Z",
+            "history": [
+                {
+                    "created": "2025-01-01T00:00:00Z",
+                    "created_by": "base-layer",
+                },
+                {
+                    "created": "2026-08-09T00:00:00Z",
+                    "created_by": "ucm-install-only-v1",
+                },
+            ],
+            "source": {
+                "commit": "a" * 40,
+                "tree": source_tree,
+                "archive_sha256": source_archive_digest,
+                "context_sha256": source_context_digest,
+            },
+            "task_sha256": task["task_sha256"],
+            "build_key_sha256": build_key,
+            "wheel_sha256": wheel_digest,
+            "recipe_sha256": recipe_digest,
+        }
+        content_identity = {
+            **content_identity_payload,
+            "content_identity_sha256": core.sha256_value(content_identity_payload),
+        }
         member_reference = "ghcr.io/supermarioyl/ucm-release-staging@" + digest
         readback_operations = [
             {
@@ -927,11 +977,13 @@ def _publication_members() -> list[dict[str, object]]:
             "source_sha": "a" * 40,
             "image_result_sha256": image_result_digest,
             "recipe_sha256": recipe_digest,
-            "content_identity_sha256": content_digest,
+            "content_identity_sha256": content_identity["content_identity_sha256"],
+            "content_identity": content_identity,
             "manifest": manifest,
             "config": config,
             "layers": layers,
             "readback_sha256": core.sha256_value(readback_payload),
+            "prewrite_visibility_evidence_sha256": f"sha256:{index + 73:064x}",
             "visibility_evidence_sha256": f"sha256:{index + 75:064x}",
             "collision_model": {
                 "model": "observed-state-fail-closed",
@@ -941,6 +993,22 @@ def _publication_members() -> list[dict[str, object]]:
                 "external_admin_atomicity": "unavailable",
             },
             "operations": [
+                {
+                    "type": "registry-anonymous-prewrite-visibility-read",
+                    "capability": "read",
+                    "reference": (
+                        "ghcr.io/supermarioyl/ucm-release-staging:"
+                        f"staging-{build_key.removeprefix('sha256:')}"
+                    ),
+                },
+                {
+                    "type": "registry-authenticated-staging-prewrite-read",
+                    "capability": "read",
+                    "reference": (
+                        "ghcr.io/supermarioyl/ucm-release-staging:"
+                        f"staging-{build_key.removeprefix('sha256:')}"
+                    ),
+                },
                 *readback_operations,
                 {
                     "type": "registry-anonymous-visibility-read",
@@ -963,6 +1031,7 @@ def _protected_preflight() -> dict[str, object]:
         "kind": "ucm-tag-preflight",
         "lane": "protected-tag",
         "source_sha": "a" * 40,
+        "default_branch_sha": "a" * 40,
         "publication_allowed": True,
         "write_authority": [
             "github-prerelease",
@@ -970,6 +1039,129 @@ def _protected_preflight() -> dict[str, object]:
             "ghcr-private-staging",
         ],
     }
+
+
+def _index_closure_evidence(
+    registry: object,
+    plan: dict[str, object],
+    digest: str,
+    *,
+    authenticated: bool,
+) -> dict[str, object]:
+    mode = "authenticated" if authenticated else "anonymous"
+    reference = str(plan["target_repository"]) + "@" + digest
+    operation = {
+        "type": f"registry-{mode}-recursive-validate",
+        "capability": "read",
+        "reference": reference,
+    }
+    payload = {
+        "schema_version": 1,
+        "kind": "ucm-registry-index-remote-validation",
+        "source_sha": plan["source_sha"],
+        "family_id": plan["family_id"],
+        "reference": reference,
+        "member_digests": [item["member_digest"] for item in plan["members"]],
+        "authenticated": authenticated,
+        "tool": {"name": "crane", "version": "0.20.3"},
+        "command": ["validate", "--remote", reference, "--fast"],
+        "returncode": 0,
+        "stdout_sha256": "sha256:" + "1" * 64,
+        "stderr_sha256": "sha256:" + "2" * 64,
+        "operation": operation,
+    }
+    return {**payload, "validation_sha256": registry.sha256_value(payload)}
+
+
+def _index_readback_evidence(
+    registry: object,
+    plan: dict[str, object],
+    digest: str,
+    *,
+    authenticated: bool,
+) -> dict[str, object]:
+    mode = "authenticated" if authenticated else "anonymous"
+    tag_reference = plan["target_repository"] + ":" + plan["target_tag"]
+    digest_reference = plan["target_repository"] + "@" + digest
+    payload = {
+        "schema_version": 1,
+        "kind": "ucm-registry-readback",
+        "reference": tag_reference,
+        "digest": digest,
+        "manifest": {
+            "media_type": "application/vnd.oci.image.index.v1+json",
+            "digest": digest,
+            "size": 123,
+            "annotations": copy.deepcopy(plan["index_manifest"]["annotations"]),
+        },
+        "config": None,
+        "layers": [],
+        "children": copy.deepcopy(plan["index_manifest"]["manifests"]),
+        "authenticated": authenticated,
+        "operations": [
+            {
+                "type": f"registry-{mode}-digest-read",
+                "capability": "read",
+                "reference": tag_reference,
+            },
+            {
+                "type": f"registry-{mode}-manifest-read",
+                "capability": "read",
+                "reference": digest_reference,
+            },
+        ],
+    }
+    return {**payload, "readback_sha256": registry.sha256_value(payload)}
+
+
+def _provisional_index_evidence(
+    registry: object,
+    parent: dict[str, object],
+    plan: dict[str, object],
+) -> dict[str, object]:
+    digest = plan["expected_index_digest"]
+    target = plan["target_repository"] + ":" + plan["target_tag"]
+    operations = (
+        [{"type": "registry-index-create", "capability": "write", "reference": target}]
+        if plan["decision"] == "create"
+        else []
+    )
+    payload = {
+        "schema_version": 1,
+        "kind": "ucm-registry-index-provisional",
+        "status": "authenticated-passed",
+        "source_sha": plan["source_sha"],
+        "family_id": plan["family_id"],
+        "target_repository": plan["target_repository"],
+        "target_tag": plan["target_tag"],
+        "index_build_key_sha256": plan["index_build_key_sha256"],
+        "index_digest": digest,
+        "manifest_sha256": digest,
+        "member_digests": [item["member_digest"] for item in plan["members"]],
+        "authenticated_readback": _index_readback_evidence(
+            registry, plan, digest, authenticated=True
+        ),
+        "authenticated_closure": _index_closure_evidence(
+            registry, plan, digest, authenticated=True
+        ),
+        "collision_model": {
+            "model": "observed-state-fail-closed",
+            "in_system_serialization": "repository-concurrency",
+            "fresh_prewrite_read": True,
+            "exact_postwrite_readback": True,
+            "external_admin_atomicity": "unavailable",
+        },
+        "operations": operations,
+        "decision": plan["decision"],
+        "postwrite_manifest_sha256": digest,
+        "preflight_sha256": "sha256:" + "a" * 64,
+        "matrix_sha256": registry.core.build_matrix("protected-tag")["matrix_sha256"],
+        "verification_sha256": registry.verify_index(plan, parent_plans=parent)[
+            "verification_sha256"
+        ],
+        "parent_plans_sha256": parent["plans_sha256"],
+    }
+    return {**payload, "provisional_sha256": registry.sha256_value(payload)}
 
 
 def test_canonical_registry_contract_has_six_members_and_three_exact_r1_targets() -> (
@@ -1030,6 +1222,7 @@ def test_staging_tag_and_exact_r1_reconciliation_are_collision_safe(
     monkeypatch.setattr(
         registry.core, "tag_preflight", lambda **_: _protected_preflight()
     )
+
     build_key = members[0]["build_key_sha256"]
     digest = members[0]["member_digest"]
     assert registry.plan_staging_tag(build_key, digest, None)["decision"] == "create"
@@ -1068,6 +1261,11 @@ def test_staging_tag_and_exact_r1_reconciliation_are_collision_safe(
         "reuse",
         "reuse",
     ]
+    assert all(
+        item["index_manifest"]["annotations"]["org.opencontainers.image.source"]
+        == "https://github.com/SuperMarioYL/unified-cache-management"
+        for item in absent["plans"]
+    )
     assert [item["members"][0]["platform"] for item in absent["plans"]] == [
         "linux/amd64",
         "linux/amd64",
@@ -1224,7 +1422,7 @@ def test_registry_cli_commands_use_canonical_json_files(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Five file commands cover Task 5 without caller-selected executables."""
+    """File commands split authenticated prepare from anonymous finalization."""
     registry, _ = _modules()
     cli = importlib.import_module("ucm_release.cli")
     members = _publication_members()
@@ -1273,8 +1471,35 @@ def test_registry_cli_commands_use_canonical_json_files(
             "schema_version": 1,
             "kind": "ucm-registry-index-publication",
             "status": "passed",
+            "source_sha": "a" * 40,
             "record_sha256": "sha256:" + "3" * 64,
         },
+    )
+    monkeypatch.setattr(
+        registry,
+        "prepare_index",
+        lambda plan, *, parent_plans, lane: {
+            "schema_version": 1,
+            "kind": "ucm-registry-index-provisional",
+            "status": "authenticated-passed",
+            "provisional_sha256": "sha256:" + "4" * 64,
+        },
+    )
+    monkeypatch.setattr(
+        registry,
+        "finalize_index",
+        lambda provisional, *, parent_plans: {
+            "schema_version": 1,
+            "kind": "ucm-registry-index-finalization",
+            "status": "anonymous-passed",
+            "finalization_sha256": "sha256:" + "5" * 64,
+        },
+    )
+    parent_path = tmp_path / "parent-plans.json"
+    provisional_path = tmp_path / "index-provisional.json"
+    parent_path.write_bytes(registry.canonical_bytes(parent) + b"\n")
+    provisional_path.write_text(
+        '{"kind":"ucm-registry-index-provisional"}\n', encoding="utf-8"
     )
     requests = {
         "inventory": {},
@@ -1292,6 +1517,15 @@ def test_registry_cli_commands_use_canonical_json_files(
             "lane": "protected-tag",
             "parent_plans": parent,
             "family_id": parent["plans"][0]["family_id"],
+        },
+        "prepare-index": {
+            "lane": "protected-tag",
+            "parent_plans": parent,
+            "family_id": parent["plans"][0]["family_id"],
+        },
+        "finalize-index": {
+            "parent_plans": str(parent_path),
+            "provisional": str(provisional_path),
         },
         "audit-operations": {"lane": "feature-candidate", "operations": []},
     }
@@ -1413,8 +1647,13 @@ def _valid_oci_archive(
         {
             "architecture": record["platform"].split("/", 1)[1],
             "os": "linux",
+            "created": record["content_identity"]["created"],
             "config": {"Labels": record["config"]["labels"]},
-            "rootfs": {"type": "layers", "diff_ids": []},
+            "rootfs": {
+                "type": "layers",
+                "diff_ids": record["content_identity"]["diff_ids"],
+            },
+            "history": record["content_identity"]["history"],
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -1499,10 +1738,48 @@ def _valid_oci_archive(
             "blob_sha256": "sha256:" + layer_hex,
         }
     ]
+    updated["content_identity"]["manifest_digest"] = updated["member_digest"]
+    updated["content_identity"]["config_digest"] = updated["config_digest"]
+    updated["content_identity"]["annotations"] = copy.deepcopy(
+        updated["manifest"]["annotations"]
+    )
+    updated["content_identity"]["labels"] = copy.deepcopy(updated["config"]["labels"])
+    updated["content_identity"]["layers"] = [
+        {
+            "mediaType": updated["layers"][0]["media_type"],
+            "digest": updated["layers"][0]["digest"],
+            "size": updated["layers"][0]["size"],
+        }
+    ]
+    identity_payload = {
+        key: value
+        for key, value in updated["content_identity"].items()
+        if key != "content_identity_sha256"
+    }
+    updated["content_identity"]["content_identity_sha256"] = registry.sha256_value(
+        identity_payload
+    )
+    updated["content_identity_sha256"] = updated["content_identity"][
+        "content_identity_sha256"
+    ]
     member_reference = (
         "ghcr.io/supermarioyl/ucm-release-staging@" + updated["member_digest"]
     )
     updated["operations"] = [
+        {
+            "type": "registry-anonymous-prewrite-visibility-read",
+            "capability": "read",
+            "reference": (
+                "ghcr.io/supermarioyl/ucm-release-staging:" + updated["staging_tag"]
+            ),
+        },
+        {
+            "type": "registry-authenticated-staging-prewrite-read",
+            "capability": "read",
+            "reference": (
+                "ghcr.io/supermarioyl/ucm-release-staging:" + updated["staging_tag"]
+            ),
+        },
         {
             "type": "registry-authenticated-digest-read",
             "capability": "read",
@@ -1710,6 +1987,8 @@ def test_loopback_registry_contract_uses_tiny_scratch_manifests_only() -> None:
     assert result["status"] == "passed"
     assert result["member_count"] == 2
     assert result["registry_member_closure_count"] == 2
+    assert result["final_repository_child_closure_count"] == 2
+    assert result["cross_repository_copy"] is True
     assert result["negative_mutation"] == "blocked"
     assert all("ghcr.io" not in item["reference"] for item in result["operations"])
 
@@ -1926,6 +2205,8 @@ def test_real_buildx_oci_layout_is_materialized_as_a_crane_directory(
 ) -> None:
     """Production accepts Buildx OCI output without pretending it is Docker-save."""
     registry, _ = _modules()
+    image = importlib.import_module("ucm_release.image")
+    buildkit_image = image.real_image_authorities()[0]["toolchain"]["buildkit_image"]
     docker = shutil.which("docker")
     if docker is None:
         pytest.skip("docker is unavailable for the real Buildx OCI transport test")
@@ -1941,26 +2222,79 @@ def test_real_buildx_oci_layout_is_materialized_as_a_crane_directory(
         encoding="utf-8",
     )
     archive = tmp_path / "member.oci.tar"
-    built = subprocess.run(
+    builder = "ucm-transport-" + hashlib.sha256(str(tmp_path).encode()).hexdigest()[:12]
+    absent = subprocess.run(
+        [docker, "buildx", "inspect", builder],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    assert absent.returncode != 0, "test builder must not preexist"
+    created = subprocess.run(
         [
             docker,
             "buildx",
-            "build",
-            "--builder",
-            "bison-builder",
-            "--platform",
-            "linux/arm64",
-            "--provenance=false",
-            "--sbom=false",
-            "--output",
-            f"type=oci,dest={archive}",
-            str(context),
+            "create",
+            "--name",
+            builder,
+            "--driver",
+            "docker-container",
+            "--driver-opt",
+            f"image={buildkit_image}",
+            "--use",
         ],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=False,
     )
+    assert created.returncode == 0, created.stderr
+    try:
+        bootstrapped = None
+        bootstrap_logs: list[str] = []
+        for _attempt in range(3):
+            bootstrapped = subprocess.run(
+                [docker, "buildx", "inspect", builder, "--bootstrap"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            bootstrap_logs.append(bootstrapped.stdout + bootstrapped.stderr)
+            if bootstrapped.returncode == 0:
+                break
+        assert bootstrapped is not None and bootstrapped.returncode == 0, "\n".join(
+            bootstrap_logs
+        )
+        built = subprocess.run(
+            [
+                docker,
+                "buildx",
+                "build",
+                "--builder",
+                builder,
+                "--platform",
+                "linux/arm64",
+                "--provenance=false",
+                "--sbom=false",
+                "--output",
+                f"type=oci,dest={archive}",
+                str(context),
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    finally:
+        subprocess.run(
+            [docker, "buildx", "rm", "--force", builder],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
     assert built.returncode == 0, built.stderr
     with tarfile.open(archive) as bundle:
         assert "index.json" in bundle.getnames()
@@ -1979,15 +2313,8 @@ def test_real_buildx_oci_layout_is_materialized_as_a_crane_directory(
 def _expanded_member_and_readback() -> tuple[dict[str, object], dict[str, object]]:
     registry, _ = _modules()
     base = _publication_members()[0]
-    manifest_annotations = {
-        "io.ucm.release.recipe-sha256": "sha256:" + "4" * 64,
-        "io.ucm.release.task-sha256": base["candidate_task_sha256"],
-    }
-    config_labels = {
-        "io.ucm.release.build-key-sha256": base["build_key_sha256"],
-        "io.ucm.release.wheel-sha256": base["wheel_sha256"],
-        "io.ucm.release.task-sha256": base["candidate_task_sha256"],
-    }
+    manifest_annotations = copy.deepcopy(base["manifest"]["annotations"])
+    config_labels = copy.deepcopy(base["config"]["labels"])
     layer = {
         "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
         "digest": "sha256:" + "5" * 64,
@@ -2052,21 +2379,56 @@ def _expanded_member_and_readback() -> tuple[dict[str, object], dict[str, object
         **readback_payload,
         "readback_sha256": registry.sha256_value(readback_payload),
     }
+    content_identity = copy.deepcopy(base["content_identity"])
+    content_identity.update(
+        {
+            "manifest_digest": manifest["digest"],
+            "config_digest": config["digest"],
+            "annotations": copy.deepcopy(manifest_annotations),
+            "labels": copy.deepcopy(config_labels),
+            "layers": [
+                {
+                    "mediaType": layer["media_type"],
+                    "digest": layer["digest"],
+                    "size": layer["size"],
+                }
+            ],
+        }
+    )
+    content_identity["content_identity_sha256"] = registry.sha256_value(
+        {
+            key: value
+            for key, value in content_identity.items()
+            if key != "content_identity_sha256"
+        }
+    )
     expanded_payload = {
         **{
             key: copy.deepcopy(value)
             for key, value in base.items()
             if key != "record_sha256"
         },
-        "source_sha": "a" * 40,
-        "image_result_sha256": "sha256:" + "2" * 64,
-        "recipe_sha256": "sha256:" + "4" * 64,
-        "content_identity_sha256": "sha256:" + "3" * 64,
+        "content_identity_sha256": content_identity["content_identity_sha256"],
+        "content_identity": content_identity,
         "manifest": manifest,
         "config": config,
         "layers": [layer],
         "readback_sha256": readback["readback_sha256"],
         "operations": [
+            {
+                "type": "registry-anonymous-prewrite-visibility-read",
+                "capability": "read",
+                "reference": (
+                    "ghcr.io/supermarioyl/ucm-release-staging:" + base["staging_tag"]
+                ),
+            },
+            {
+                "type": "registry-authenticated-staging-prewrite-read",
+                "capability": "read",
+                "reference": (
+                    "ghcr.io/supermarioyl/ucm-release-staging:" + base["staging_tag"]
+                ),
+            },
             *copy.deepcopy(readback["operations"]),
             {
                 "type": "registry-anonymous-visibility-read",
@@ -2237,6 +2599,7 @@ def _published_registry_evidence() -> dict[str, object]:
             "schema_version": 1,
             "kind": "ucm-registry-index-publication",
             "status": "passed",
+            "source_sha": "a" * 40,
             "family_id": authority["family_id"],
             "target_repository": authority["target_repository"],
             "target_tag": authority["target_tag"],
@@ -2249,7 +2612,9 @@ def _published_registry_evidence() -> dict[str, object]:
                 if item["family_id"] == authority["family_id"]
             ],
             "authenticated_readback_sha256": f"sha256:{position + 100:064x}",
+            "authenticated_closure_sha256": f"sha256:{position + 105:064x}",
             "anonymous_readback_sha256": f"sha256:{position + 110:064x}",
+            "anonymous_closure_sha256": f"sha256:{position + 115:064x}",
             "collision_model": {
                 "model": "observed-state-fail-closed",
                 "in_system_serialization": "repository-concurrency",
@@ -2560,6 +2925,50 @@ def test_member_python_validator_rejects_bool_int_equality_masquerades(
         registry.validate_member_record(record)
 
 
+def test_member_record_binds_full_real_content_identity_and_source_labels() -> None:
+    """Inherited labels survive, while every canonical release label is authoritative."""
+    registry, _ = _modules()
+    record = _publication_members()[0]
+
+    assert record["config"]["labels"]["base.label"] == "preserved-1"
+    assert record["config"]["labels"] == record["content_identity"]["labels"]
+    assert registry.validate_member_record(record) == record
+
+    for label, forged_value in (
+        ("org.opencontainers.image.source", "https://example.invalid/attacker"),
+        ("org.opencontainers.image.revision", "b" * 40),
+        ("io.ucm.release.source-tree", "c" * 40),
+        ("io.ucm.release.source-context-sha256", "sha256:" + "d" * 64),
+        ("io.ucm.release.task-sha256", "sha256:" + "e" * 64),
+        ("io.ucm.release.build-key-sha256", "sha256:" + "f" * 64),
+        ("io.ucm.release.wheel-sha256", "sha256:" + "0" * 64),
+        ("io.ucm.release.recipe-sha256", "sha256:" + "1" * 64),
+    ):
+        forged = copy.deepcopy(record)
+        forged["config"]["labels"][label] = forged_value
+        forged["content_identity"]["labels"][label] = forged_value
+        identity_payload = {
+            key: value
+            for key, value in forged["content_identity"].items()
+            if key != "content_identity_sha256"
+        }
+        forged["content_identity"]["content_identity_sha256"] = registry.sha256_value(
+            identity_payload
+        )
+        forged["content_identity_sha256"] = forged["content_identity"][
+            "content_identity_sha256"
+        ]
+        _rehash_publication_record(forged)
+        with pytest.raises(ValueError, match="content|label|source|identity"):
+            registry.validate_member_record(forged)
+
+    inherited_drift = copy.deepcopy(record)
+    inherited_drift["config"]["labels"]["base.label"] = "changed-after-build"
+    _rehash_publication_record(inherited_drift)
+    with pytest.raises(ValueError, match="content|label|identity"):
+        registry.validate_member_record(inherited_drift)
+
+
 @pytest.mark.parametrize(
     ("record_kind", "mutation"),
     [
@@ -2790,8 +3199,12 @@ def test_index_create_uses_exact_dry_run_bytes_and_postwrite_readback(
         "mediaType": "application/vnd.oci.image.index.v1+json",
         "manifests": descriptors,
         "annotations": {
+            "org.opencontainers.image.source": (
+                "https://github.com/SuperMarioYL/unified-cache-management"
+            ),
             "io.ucm.release.family-id": plan["family_id"],
             "io.ucm.release.index-build-key-sha256": plan["index_build_key_sha256"],
+            "io.ucm.release.source-sha": plan["source_sha"],
         },
     }
     raw = json.dumps(dry_manifest, indent=2).encode()
@@ -2837,6 +3250,8 @@ if sys.argv[1] == "digest":
     print({expected!r})
 elif sys.argv[1] == "manifest":
     sys.stdout.buffer.write(bytes.fromhex({raw.hex()!r}))
+elif sys.argv[1] == "validate":
+    pass
 else:
     raise SystemExit(77)
 """,
@@ -2901,6 +3316,563 @@ else:
     assert not attacker_marker.exists()
 
 
+def test_index_prepare_defers_anonymous_readback_until_strict_finalize(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The empty draft can be created between authenticated prepare and anonymous close."""
+    registry, verify = _modules()
+    members = _publication_members()
+    parent = registry.plan_indexes(
+        members,
+        inventory=[],
+        member_statuses={item["spec_id"]: "success" for item in members},
+        lane="protected-tag",
+    )
+    plan = parent["plans"][0]
+    target = plan["target_repository"] + ":" + plan["target_tag"]
+    digest = plan["expected_index_digest"]
+    collision_model = {
+        "model": "observed-state-fail-closed",
+        "in_system_serialization": "repository-concurrency",
+        "fresh_prewrite_read": True,
+        "exact_postwrite_readback": True,
+        "external_admin_atomicity": "unavailable",
+    }
+    create_operation = {
+        "type": "registry-index-create",
+        "capability": "write",
+        "reference": target,
+    }
+    monkeypatch.setattr(
+        registry.core, "tag_preflight", lambda **_: _protected_preflight()
+    )
+    monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: "/pinned/crane")
+    monkeypatch.setattr(registry, "resolve_pinned_buildx", lambda: "/pinned/buildx")
+    monkeypatch.setattr(
+        registry,
+        "_create_index_transport",
+        lambda **_: {
+            "rendered": copy.deepcopy(plan["index_manifest"]),
+            "raw_manifest": registry.canonical_bytes(plan["index_manifest"]),
+            "index_digest": digest,
+            "decision": "create",
+            "collision_model": collision_model,
+            "operations": [create_operation],
+            "postwrite_manifest_sha256": digest,
+        },
+    )
+    calls: list[bool] = []
+
+    def fake_readback(reference: str, *, anonymous: bool = False) -> dict[str, object]:
+        calls.append(anonymous)
+        prefix = "registry-anonymous" if anonymous else "registry-authenticated"
+        operations = [
+            {
+                "type": f"{prefix}-digest-read",
+                "capability": "read",
+                "reference": target,
+            },
+            {
+                "type": f"{prefix}-manifest-read",
+                "capability": "read",
+                "reference": plan["target_repository"] + "@" + digest,
+            },
+        ]
+        payload = {
+            "schema_version": 1,
+            "kind": "ucm-registry-readback",
+            "reference": reference,
+            "digest": digest,
+            "manifest": {
+                "media_type": "application/vnd.oci.image.index.v1+json",
+                "digest": digest,
+                "size": len(registry.canonical_bytes(plan["index_manifest"])),
+                "annotations": copy.deepcopy(plan["index_manifest"]["annotations"]),
+            },
+            "config": None,
+            "layers": [],
+            "children": copy.deepcopy(plan["index_manifest"]["manifests"]),
+            "authenticated": not anonymous,
+            "operations": operations,
+        }
+        return {**payload, "readback_sha256": registry.sha256_value(payload)}
+
+    monkeypatch.setattr(registry, "readback_reference", fake_readback)
+    closure_calls: list[bool] = []
+
+    def fake_closure(
+        closure_plan: dict[str, object],
+        *,
+        index_digest: str,
+        anonymous: bool = False,
+    ) -> dict[str, object]:
+        closure_calls.append(anonymous)
+        mode = "anonymous" if anonymous else "authenticated"
+        reference = closure_plan["target_repository"] + "@" + index_digest
+        operation = {
+            "type": f"registry-{mode}-recursive-validate",
+            "capability": "read",
+            "reference": reference,
+        }
+        payload = {
+            "schema_version": 1,
+            "kind": "ucm-registry-index-remote-validation",
+            "source_sha": closure_plan["source_sha"],
+            "family_id": closure_plan["family_id"],
+            "reference": reference,
+            "member_digests": [
+                item["member_digest"] for item in closure_plan["members"]
+            ],
+            "authenticated": not anonymous,
+            "tool": {"name": "crane", "version": "0.20.3"},
+            "command": ["validate", "--remote", reference, "--fast"],
+            "returncode": 0,
+            "stdout_sha256": "sha256:" + "1" * 64,
+            "stderr_sha256": "sha256:" + "2" * 64,
+            "operation": operation,
+        }
+        return {
+            **payload,
+            "validation_sha256": registry.sha256_value(payload),
+        }
+
+    monkeypatch.setattr(
+        registry, "_validate_remote_index_closure", fake_closure, raising=False
+    )
+
+    provisional = registry.prepare_index(
+        plan, parent_plans=parent, lane="protected-tag"
+    )
+
+    assert calls == [False]
+    assert closure_calls == [False]
+    assert provisional["kind"] == "ucm-registry-index-provisional"
+    assert "anonymous_readback_sha256" not in provisional
+    assert (
+        registry.validate_provisional_index(provisional, parent_plans=parent)
+        == provisional
+    )
+    assert (
+        verify.audit_operations(provisional["operations"], lane="protected-tag")[
+            "write_count"
+        ]
+        == 1
+    )
+
+    finalized = registry.finalize_index(provisional, parent_plans=parent)
+    final = finalized["record"]
+
+    assert calls == [False, True]
+    assert closure_calls == [False, True]
+    assert finalized["provisional"] == provisional
+    assert finalized["provisional_sha256"] == provisional["provisional_sha256"]
+    assert finalized["authenticated_readback"] == provisional["authenticated_readback"]
+    assert finalized["anonymous_readback"]["authenticated"] is False
+    assert finalized["anonymous_closure"]["authenticated"] is False
+    assert finalized["operation_audit"]["anonymous"]["write_count"] == 0
+    assert set(final) == registry.INDEX_RECORD_KEYS
+    assert final["anonymous_readback_sha256"] != final["authenticated_readback_sha256"]
+    assert registry.validate_index_record(final, parent_plans=parent) == final
+    assert final["source_sha"] == "a" * 40
+    forged_finalized = copy.deepcopy(finalized)
+    forged_finalized["provisional"]["preflight_sha256"] = "sha256:" + "f" * 64
+    forged_finalized["finalization_sha256"] = registry.sha256_value(
+        {
+            key: value
+            for key, value in forged_finalized.items()
+            if key != "finalization_sha256"
+        }
+    )
+    with pytest.raises(ValueError):
+        registry.validate_finalized_index(forged_finalized, parent_plans=parent)
+
+
+def test_index_plans_reject_mixed_sources_and_writer_rechecks_live_tag_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No final r1 transport may begin for mixed or stale protected sources."""
+    registry, _ = _modules()
+    mixed = _publication_members()
+    mixed[0]["source_sha"] = "b" * 40
+    mixed[0]["record_sha256"] = registry.sha256_value(
+        {key: value for key, value in mixed[0].items() if key != "record_sha256"}
+    )
+    with pytest.raises(ValueError, match="source"):
+        registry.plan_indexes(
+            mixed,
+            inventory=[],
+            member_statuses={item["spec_id"]: "success" for item in mixed},
+            lane="protected-tag",
+        )
+
+    members = _publication_members()
+    parent = registry.plan_indexes(
+        members,
+        inventory=[],
+        member_statuses={item["spec_id"]: "success" for item in members},
+        lane="protected-tag",
+    )
+    stale_preflight = _protected_preflight()
+    stale_preflight["source_sha"] = "b" * 40
+    monkeypatch.setattr(registry.core, "tag_preflight", lambda **_: stale_preflight)
+    called = False
+
+    def transport(**_kwargs: object) -> dict[str, object]:
+        nonlocal called
+        called = True
+        raise AssertionError("transport must not run for a stale tag source")
+
+    monkeypatch.setattr(registry, "_create_index_transport", transport)
+    with pytest.raises(ValueError, match="source"):
+        registry.prepare_index(
+            parent["plans"][0], parent_plans=parent, lane="protected-tag"
+        )
+    assert called is False
+
+    head_mismatch = _protected_preflight()
+    head_mismatch["default_branch_sha"] = "b" * 40
+    monkeypatch.setattr(registry.core, "tag_preflight", lambda **_: head_mismatch)
+    with pytest.raises(ValueError, match="default branch|first publication"):
+        registry.prepare_index(
+            parent["plans"][0], parent_plans=parent, lane="protected-tag"
+        )
+    assert called is False
+
+
+def test_index_prepare_fails_when_child_manifest_is_missing_from_final_repository(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An index descriptor alone cannot prove its child is pullable cross-repository."""
+    registry, _ = _modules()
+    members = _publication_members()
+    parent = registry.plan_indexes(
+        members,
+        inventory=[],
+        member_statuses={item["spec_id"]: "success" for item in members},
+        lane="protected-tag",
+    )
+    plan = parent["plans"][0]
+    digest = plan["expected_index_digest"]
+    target = plan["target_repository"] + ":" + plan["target_tag"]
+    monkeypatch.setattr(
+        registry.core, "tag_preflight", lambda **_: _protected_preflight()
+    )
+    monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: "/pinned/crane")
+    monkeypatch.setattr(registry, "resolve_pinned_buildx", lambda: "/pinned/buildx")
+    monkeypatch.setattr(
+        registry,
+        "_create_index_transport",
+        lambda **_: {
+            "rendered": copy.deepcopy(plan["index_manifest"]),
+            "raw_manifest": registry.canonical_bytes(plan["index_manifest"]),
+            "index_digest": digest,
+            "decision": "create",
+            "collision_model": {
+                "model": "observed-state-fail-closed",
+                "in_system_serialization": "repository-concurrency",
+                "fresh_prewrite_read": True,
+                "exact_postwrite_readback": True,
+                "external_admin_atomicity": "unavailable",
+            },
+            "operations": [
+                {
+                    "type": "registry-index-create",
+                    "capability": "write",
+                    "reference": target,
+                }
+            ],
+            "postwrite_manifest_sha256": digest,
+        },
+    )
+    index_payload = {
+        "schema_version": 1,
+        "kind": "ucm-registry-readback",
+        "reference": target,
+        "digest": digest,
+        "manifest": {
+            "media_type": "application/vnd.oci.image.index.v1+json",
+            "digest": digest,
+            "size": 1,
+            "annotations": copy.deepcopy(plan["index_manifest"]["annotations"]),
+        },
+        "config": None,
+        "layers": [],
+        "children": copy.deepcopy(plan["index_manifest"]["manifests"]),
+        "authenticated": True,
+        "operations": [
+            {
+                "type": "registry-authenticated-digest-read",
+                "capability": "read",
+                "reference": target,
+            },
+            {
+                "type": "registry-authenticated-manifest-read",
+                "capability": "read",
+                "reference": plan["target_repository"] + "@" + digest,
+            },
+        ],
+    }
+    monkeypatch.setattr(
+        registry,
+        "readback_reference",
+        lambda *_args, **_kwargs: {
+            **index_payload,
+            "readback_sha256": registry.sha256_value(index_payload),
+        },
+    )
+    monkeypatch.setattr(
+        registry,
+        "_validate_remote_index_closure",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ValueError("final repository child manifest is missing")
+        ),
+        raising=False,
+    )
+    with pytest.raises(ValueError, match="child manifest"):
+        registry.prepare_index(plan, parent_plans=parent, lane="protected-tag")
+
+
+def test_index_provisional_cannot_forge_parent_or_finalize_with_authenticated_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Finalize derives the target from the parent and requires an anonymous readback."""
+    registry, _ = _modules()
+    members = _publication_members()
+    parent = registry.plan_indexes(
+        members,
+        inventory=[],
+        member_statuses={item["spec_id"]: "success" for item in members},
+        lane="protected-tag",
+    )
+    plan = parent["plans"][0]
+    target = plan["target_repository"] + ":" + plan["target_tag"]
+    digest = plan["expected_index_digest"]
+    authenticated_payload = {
+        "schema_version": 1,
+        "kind": "ucm-registry-readback",
+        "reference": target,
+        "digest": digest,
+        "manifest": {
+            "media_type": "application/vnd.oci.image.index.v1+json",
+            "digest": digest,
+            "size": 1,
+            "annotations": copy.deepcopy(plan["index_manifest"]["annotations"]),
+        },
+        "config": None,
+        "layers": [],
+        "children": copy.deepcopy(plan["index_manifest"]["manifests"]),
+        "authenticated": True,
+        "operations": [
+            {
+                "type": "registry-authenticated-digest-read",
+                "capability": "read",
+                "reference": target,
+            },
+            {
+                "type": "registry-authenticated-manifest-read",
+                "capability": "read",
+                "reference": plan["target_repository"] + "@" + digest,
+            },
+        ],
+    }
+    authenticated = {
+        **authenticated_payload,
+        "readback_sha256": registry.sha256_value(authenticated_payload),
+    }
+    provisional_payload = {
+        "schema_version": 1,
+        "kind": "ucm-registry-index-provisional",
+        "status": "authenticated-passed",
+        "source_sha": plan["source_sha"],
+        "family_id": plan["family_id"],
+        "target_repository": plan["target_repository"],
+        "target_tag": plan["target_tag"],
+        "index_build_key_sha256": plan["index_build_key_sha256"],
+        "index_digest": digest,
+        "manifest_sha256": digest,
+        "member_digests": [item["member_digest"] for item in plan["members"]],
+        "authenticated_readback": authenticated,
+        "authenticated_closure": _index_closure_evidence(
+            registry, plan, digest, authenticated=True
+        ),
+        "collision_model": {
+            "model": "observed-state-fail-closed",
+            "in_system_serialization": "repository-concurrency",
+            "fresh_prewrite_read": True,
+            "exact_postwrite_readback": True,
+            "external_admin_atomicity": "unavailable",
+        },
+        "operations": [
+            {
+                "type": "registry-index-create",
+                "capability": "write",
+                "reference": target,
+            }
+        ],
+        "decision": "create",
+        "postwrite_manifest_sha256": digest,
+        "preflight_sha256": "sha256:" + "a" * 64,
+        "matrix_sha256": registry.core.build_matrix("protected-tag")["matrix_sha256"],
+        "verification_sha256": registry.verify_index(plan, parent_plans=parent)[
+            "verification_sha256"
+        ],
+        "parent_plans_sha256": parent["plans_sha256"],
+    }
+    provisional = {
+        **provisional_payload,
+        "provisional_sha256": registry.sha256_value(provisional_payload),
+    }
+    assert (
+        registry.validate_provisional_index(provisional, parent_plans=parent)
+        == provisional
+    )
+
+    forged = copy.deepcopy(provisional)
+    forged["target_tag"] = "attacker"
+    forged["provisional_sha256"] = registry.sha256_value(
+        {key: value for key, value in forged.items() if key != "provisional_sha256"}
+    )
+    with pytest.raises(ValueError):
+        registry.validate_provisional_index(forged, parent_plans=parent)
+
+    monkeypatch.setattr(
+        registry, "readback_reference", lambda *_args, **_kwargs: authenticated
+    )
+    with pytest.raises(ValueError, match="anonymous"):
+        registry.finalize_index(provisional, parent_plans=parent)
+
+
+def test_provisional_and_finalized_index_readbacks_are_strict_and_mode_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cross-job evidence rejects loose types, extra keys, and mixed auth ledgers."""
+    registry, _ = _modules()
+    members = _publication_members()
+    parent = registry.plan_indexes(
+        members,
+        inventory=[],
+        member_statuses={item["spec_id"]: "success" for item in members},
+        lane="protected-tag",
+    )
+    plan = parent["plans"][0]
+    target = plan["target_repository"] + ":" + plan["target_tag"]
+    digest = plan["expected_index_digest"]
+
+    def readback(*, authenticated: bool) -> dict[str, object]:
+        mode = "authenticated" if authenticated else "anonymous"
+        payload = {
+            "schema_version": 1,
+            "kind": "ucm-registry-readback",
+            "reference": target,
+            "digest": digest,
+            "manifest": {
+                "media_type": "application/vnd.oci.image.index.v1+json",
+                "digest": digest,
+                "size": 123,
+                "annotations": copy.deepcopy(plan["index_manifest"]["annotations"]),
+            },
+            "config": None,
+            "layers": [],
+            "children": copy.deepcopy(plan["index_manifest"]["manifests"]),
+            "authenticated": authenticated,
+            "operations": [
+                {
+                    "type": f"registry-{mode}-digest-read",
+                    "capability": "read",
+                    "reference": target,
+                },
+                {
+                    "type": f"registry-{mode}-manifest-read",
+                    "capability": "read",
+                    "reference": plan["target_repository"] + "@" + digest,
+                },
+            ],
+        }
+        return {**payload, "readback_sha256": registry.sha256_value(payload)}
+
+    auth = readback(authenticated=True)
+    provisional_payload = {
+        "schema_version": 1,
+        "kind": "ucm-registry-index-provisional",
+        "status": "authenticated-passed",
+        "source_sha": plan["source_sha"],
+        "family_id": plan["family_id"],
+        "target_repository": plan["target_repository"],
+        "target_tag": plan["target_tag"],
+        "index_build_key_sha256": plan["index_build_key_sha256"],
+        "index_digest": digest,
+        "manifest_sha256": digest,
+        "member_digests": [item["member_digest"] for item in plan["members"]],
+        "authenticated_readback": auth,
+        "authenticated_closure": _index_closure_evidence(
+            registry, plan, digest, authenticated=True
+        ),
+        "collision_model": {
+            "model": "observed-state-fail-closed",
+            "in_system_serialization": "repository-concurrency",
+            "fresh_prewrite_read": True,
+            "exact_postwrite_readback": True,
+            "external_admin_atomicity": "unavailable",
+        },
+        "operations": [
+            {
+                "type": "registry-index-create",
+                "capability": "write",
+                "reference": target,
+            }
+        ],
+        "decision": "create",
+        "postwrite_manifest_sha256": digest,
+        "preflight_sha256": "sha256:" + "a" * 64,
+        "matrix_sha256": registry.core.build_matrix("protected-tag")["matrix_sha256"],
+        "verification_sha256": registry.verify_index(plan, parent_plans=parent)[
+            "verification_sha256"
+        ],
+        "parent_plans_sha256": parent["plans_sha256"],
+    }
+    provisional = {
+        **provisional_payload,
+        "provisional_sha256": registry.sha256_value(provisional_payload),
+    }
+    assert (
+        registry.validate_provisional_index(provisional, parent_plans=parent)
+        == provisional
+    )
+
+    for mutate in (
+        lambda value: value.update(schema_version=True),
+        lambda value: value["authenticated_readback"].update(extra="forged"),
+        lambda value: value["authenticated_readback"].update(authenticated=1),
+        lambda value: value["authenticated_readback"]["manifest"].update(
+            extra="forged"
+        ),
+    ):
+        forged = copy.deepcopy(provisional)
+        mutate(forged)
+        readback_payload = forged["authenticated_readback"]
+        readback_payload["readback_sha256"] = registry.sha256_value(
+            {
+                key: item
+                for key, item in readback_payload.items()
+                if key != "readback_sha256"
+            }
+        )
+        forged["provisional_sha256"] = registry.sha256_value(
+            {key: item for key, item in forged.items() if key != "provisional_sha256"}
+        )
+        with pytest.raises(ValueError):
+            registry.validate_provisional_index(forged, parent_plans=parent)
+
+    mixed = readback(authenticated=False)
+    mixed["operations"] = copy.deepcopy(auth["operations"])
+    mixed["readback_sha256"] = registry.sha256_value(
+        {key: item for key, item in mixed.items() if key != "readback_sha256"}
+    )
+    monkeypatch.setattr(registry, "readback_reference", lambda *_args, **_kwargs: mixed)
+    with pytest.raises(ValueError):
+        registry.finalize_index(provisional, parent_plans=parent)
+
+
 def test_index_rerun_defers_same_build_key_digest_to_exact_dry_run() -> None:
     """Buildx formatting may change bytes without changing parsed index intent."""
     registry, _ = _modules()
@@ -2932,6 +3904,306 @@ def test_index_rerun_defers_same_build_key_digest_to_exact_dry_run() -> None:
     assert rerun["plans"][0]["decision"] == "reuse"
 
 
+def test_registry_aggregate_keeps_authenticated_and_anonymous_states_distinct(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Authenticated provisional evidence cannot claim final public publication."""
+    registry, verify = _modules()
+    members = _publication_members()
+    parent = registry.plan_indexes(
+        members,
+        inventory=[],
+        member_statuses={item["spec_id"]: "success" for item in members},
+        lane="protected-tag",
+    )
+    provisionals = [
+        _provisional_index_evidence(registry, parent, plan) for plan in parent["plans"]
+    ]
+    member_collection = {
+        "schema_version": 1,
+        "kind": "ucm-member-artifact-collection",
+        "source_sha": "a" * 40,
+        "member_records": [
+            f"out/member-records/{item['spec_id']}.json" for item in members
+        ],
+        "member_record_sha256s": {
+            item["spec_id"]: item["record_sha256"] for item in members
+        },
+        "member_preflight_sha256s": {
+            item["spec_id"]: "sha256:" + "e" * 64 for item in members
+        },
+    }
+    member_collection["collection_sha256"] = verify.sha256_value(
+        {
+            key: value
+            for key, value in member_collection.items()
+            if key != "member_records"
+        }
+    )
+    provisional_collection = {
+        "schema_version": 1,
+        "kind": "ucm-provisional-artifact-collection",
+        "source_sha": "a" * 40,
+        "parent_plans_sha256": parent["plans_sha256"],
+        "provisional_indexes": [
+            f"out/provisionals/{item['family_id']}.json" for item in provisionals
+        ],
+        "provisional_sha256s": {
+            item["family_id"]: item["provisional_sha256"] for item in provisionals
+        },
+        "provisional_preflight_sha256s": {
+            item["family_id"]: item["preflight_sha256"] for item in provisionals
+        },
+    }
+    provisional_collection["collection_sha256"] = verify.sha256_value(
+        {
+            key: value
+            for key, value in provisional_collection.items()
+            if key != "provisional_indexes"
+        }
+    )
+
+    authenticated = verify.authenticated_registry_publication_evidence(
+        member_records=members,
+        member_collection=member_collection,
+        provisional_indexes=provisionals,
+        provisional_collection=provisional_collection,
+        parent_plans=parent,
+        source_sha="a" * 40,
+        run={"run_id": "123", "run_attempt": 4},
+    )
+
+    assert authenticated["payload"]["kind"] == (
+        "ucm-authenticated-registry-publication-payload"
+    )
+    assert authenticated["payload"]["publication"] == {
+        "registry": "authenticated-passed",
+        "anonymous": "pending",
+        "github_release": "pending",
+    }
+    assert "release_manifest_sha256" not in authenticated["payload"]
+    assert authenticated["payload"]["member_records"] == parent["member_records"]
+    assert authenticated["payload"]["provisional_indexes"] == provisionals
+
+    plans_by_reference = {
+        plan["target_repository"] + ":" + plan["target_tag"]: plan
+        for plan in parent["plans"]
+    }
+
+    def anonymous_readback(
+        reference: str, *, anonymous: bool = False
+    ) -> dict[str, object]:
+        assert anonymous is True
+        plan = plans_by_reference[reference]
+        return _index_readback_evidence(
+            registry,
+            plan,
+            plan["expected_index_digest"],
+            authenticated=False,
+        )
+
+    def anonymous_closure(
+        plan: dict[str, object],
+        *,
+        index_digest: str,
+        anonymous: bool = False,
+    ) -> dict[str, object]:
+        assert anonymous is True
+        return _index_closure_evidence(
+            registry, plan, index_digest, authenticated=False
+        )
+
+    monkeypatch.setattr(registry, "readback_reference", anonymous_readback)
+    monkeypatch.setattr(registry, "_validate_remote_index_closure", anonymous_closure)
+    finalized = [
+        registry.finalize_index(provisional, parent_plans=parent)
+        for provisional in provisionals
+    ]
+    published = verify.protected_registry_publication_evidence(
+        member_records=members,
+        member_collection=member_collection,
+        finalized_indexes=finalized,
+        provisional_collection=provisional_collection,
+        parent_plans=parent,
+        source_sha="a" * 40,
+        run={"run_id": "123", "run_attempt": 4},
+    )
+
+    assert published["payload"]["publication"] == {
+        "registry": "published",
+        "anonymous": "passed",
+        "github_release": "pending",
+    }
+    assert published["payload"]["release_manifest_sha256"].startswith("sha256:")
+    assert published["payload"]["member_records"] == parent["member_records"]
+    assert published["payload"]["finalized_indexes"] == finalized
+    assert len(published["payload"]["index_records"]) == 3
+    assert (
+        verify.authenticated_registry_publication_evidence(
+            member_records=authenticated["payload"]["member_records"],
+            member_collection=authenticated["payload"]["member_collection"],
+            provisional_indexes=authenticated["payload"]["provisional_indexes"],
+            provisional_collection=authenticated["payload"]["provisional_collection"],
+            parent_plans=authenticated["payload"]["parent_plans"],
+            source_sha="a" * 40,
+            run={"run_id": "123", "run_attempt": 4},
+        )
+        == authenticated
+    )
+    assert (
+        verify.protected_registry_publication_evidence(
+            member_records=published["payload"]["member_records"],
+            member_collection=published["payload"]["member_collection"],
+            finalized_indexes=published["payload"]["finalized_indexes"],
+            provisional_collection=published["payload"]["provisional_collection"],
+            parent_plans=published["payload"]["parent_plans"],
+            source_sha="a" * 40,
+            run={"run_id": "123", "run_attempt": 4},
+        )
+        == published
+    )
+
+    asset_root = tmp_path / "release-assets"
+    asset_root.mkdir()
+    assets: list[dict[str, object]] = []
+    for authority in verify._canonical_release_asset_authorities():
+        path = asset_root / authority["name"]
+        path.write_bytes(str(authority["spec_id"]).encode())
+        assets.append(
+            {
+                **copy.deepcopy(authority),
+                "sha256": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(),
+                "size": path.stat().st_size,
+                "path": str(path),
+            }
+        )
+    asset_manifest = {
+        "schema_version": 1,
+        "kind": "ucm-github-release-assets",
+        "source_sha": "a" * 40,
+        "assets": assets,
+    }
+    asset_manifest["assets_sha256"] = verify.sha256_value(
+        {
+            **asset_manifest,
+            "assets": [
+                {key: value for key, value in asset.items() if key != "path"}
+                for asset in assets
+            ],
+        }
+    )
+    authority = verify.github_release_authority("a" * 40)
+    release = {
+        "id": 41,
+        "tag_name": authority["tag_name"],
+        "target_commitish": "develop",
+        "name": authority["name"],
+        "body": authority["body"],
+        "draft": False,
+        "prerelease": True,
+        "assets": [{"id": 600 + index} for index in range(7)],
+        "author": {"login": "github-actions[bot]", "type": "Bot"},
+        "upload_url": (
+            "https://uploads.github.com/repos/SuperMarioYL/"
+            "unified-cache-management/releases/41/assets{?name,label}"
+        ),
+        "url": (
+            "https://api.github.com/repos/SuperMarioYL/"
+            "unified-cache-management/releases/41"
+        ),
+        "assets_url": (
+            "https://api.github.com/repos/SuperMarioYL/"
+            "unified-cache-management/releases/41/assets"
+        ),
+    }
+    remote_assets = [
+        {
+            "release_id": 41,
+            "asset_id": 600 + index,
+            "name": asset["name"],
+            "size": asset["size"],
+            "state": "uploaded",
+            "digest": asset["sha256"],
+            "api_url": (
+                "https://api.github.com/repos/SuperMarioYL/"
+                f"unified-cache-management/releases/assets/{600 + index}"
+            ),
+            "browser_download_url": (
+                "https://github.com/SuperMarioYL/unified-cache-management/"
+                f"releases/download/v0.5.0rc1/{asset['name']}"
+            ),
+            "uploader": {"login": "github-actions[bot]", "type": "Bot"},
+            "download_sha256": asset["sha256"],
+            "download_size": asset["size"],
+        }
+        for index, asset in enumerate(assets)
+    ]
+    release_plan = verify.plan_github_release(release, "a" * 40)
+    asset_plan = verify.plan_release_assets(
+        asset_manifest,
+        remote_assets,
+        release_id=41,
+        allowed_root=asset_root,
+        release_published=True,
+    )
+    operations = verify.build_github_release_operation_ledger(
+        prepare_initial_plan=release_plan,
+        initial_release=release,
+        initial_asset_plan=asset_plan,
+        authenticated_assets=remote_assets,
+        upload_transcript=[],
+        source_sha="a" * 40,
+    )
+    github = verify.github_release_publication_evidence(
+        protected_registry=published,
+        asset_manifest=asset_manifest,
+        allowed_root=asset_root,
+        prepare_initial_plan=release_plan,
+        prepare_release=release,
+        initial_release=release,
+        initial_assets=remote_assets,
+        initial_asset_plan=asset_plan,
+        upload_transcript=[],
+        prepublish_release=release,
+        prepublish_assets=remote_assets,
+        authenticated_release=release,
+        authenticated_assets=remote_assets,
+        anonymous_release=release,
+        anonymous_assets=remote_assets,
+        operations=operations,
+        source_sha="a" * 40,
+        run={"run_id": "123", "run_attempt": 4},
+    )
+    assert (
+        github["payload"]["protected_registry_payload_sha256"]
+        == published["payload_sha256"]
+    )
+    assert github["payload"]["publication"] == "published-prerelease"
+
+    split_brain_members = copy.deepcopy(members)
+    split_brain_members[0]["image_result_sha256"] = "sha256:" + "f" * 64
+    _rehash_publication_record(split_brain_members[0])
+    with pytest.raises(ValueError, match="parent|member"):
+        verify.authenticated_registry_publication_evidence(
+            member_records=split_brain_members,
+            member_collection=member_collection,
+            provisional_indexes=provisionals,
+            provisional_collection=provisional_collection,
+            parent_plans=parent,
+            source_sha="a" * 40,
+        )
+    with pytest.raises(ValueError, match="final|provisional|index"):
+        verify.protected_registry_publication_evidence(
+            member_records=members,
+            member_collection=member_collection,
+            finalized_indexes=provisionals,
+            provisional_collection=provisional_collection,
+            parent_plans=parent,
+            source_sha="a" * 40,
+        )
+
+
 def test_publish_member_rederives_record_from_image_result_and_registry_bytes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2953,23 +4225,14 @@ def test_publish_member_rederives_record_from_image_result_and_registry_bytes(
         "recipe_sha256": expected["recipe_sha256"],
         "content_identity_sha256": expected["content_identity_sha256"],
         "result_sha256": expected["image_result_sha256"],
-        "source": {"commit": expected["source_sha"]},
+        "source": {
+            **copy.deepcopy(expected["content_identity"]["source"]),
+            "task_sha256": expected["candidate_task_sha256"],
+            "wheel_build_key": "sha256:" + "e" * 64,
+        },
         "wheel": {"sha256": expected["wheel_sha256"]},
         "oci": {"digest": expected["member_digest"], "published": False},
-        "content_identity": {
-            "manifest_digest": expected["member_digest"],
-            "config_digest": expected["config_digest"],
-            "annotations": expected["manifest"]["annotations"],
-            "labels": expected["config"]["labels"],
-            "layers": [
-                {
-                    "mediaType": item["media_type"],
-                    "digest": item["digest"],
-                    "size": item["size"],
-                }
-                for item in expected["layers"]
-            ],
-        },
+        "content_identity": copy.deepcopy(expected["content_identity"]),
     }
     monkeypatch.setattr(
         image, "validate_image_result", lambda value: copy.deepcopy(value)
@@ -2989,6 +4252,7 @@ def test_publish_member_rederives_record_from_image_result_and_registry_bytes(
         layer_raw = layer_path.read_bytes()
     content_marker = tmp_path / "content"
     tag_marker = tmp_path / "tag"
+    invocation_log = tmp_path / "crane-invocations.log"
     crane = tmp_path / "crane"
     crane.write_text(
         f"""#!/usr/bin/env python3
@@ -2997,8 +4261,10 @@ import os
 import sys
 op = sys.argv[1]
 ref = sys.argv[-1]
+with Path({str(invocation_log)!r}).open("a", encoding="utf-8") as stream:
+    stream.write(f"{{bool(os.environ.get('DOCKER_CONFIG'))}}:{{op}}:{{ref}}\\n")
 if op == "digest":
-    if os.environ.get("DOCKER_CONFIG"):
+    if os.environ.get("DOCKER_CONFIG") and os.environ.get("DOCKER_CONFIG") != "/runner/docker-config":
         print("UNAUTHORIZED: authentication required", file=sys.stderr)
         raise SystemExit(1)
     marker = Path({str(content_marker)!r}) if "@" in ref else Path({str(tag_marker)!r})
@@ -3027,12 +4293,81 @@ else:
         registry.core, "tag_preflight", lambda **_: _protected_preflight()
     )
 
+    ancestor_preflight = _protected_preflight()
+    ancestor_preflight["default_branch_sha"] = "b" * 40
+    monkeypatch.setattr(registry.core, "tag_preflight", lambda **_: ancestor_preflight)
+    with pytest.raises(ValueError, match="default branch|first publication"):
+        registry.publish_member(
+            archive, image_result=image_result, lane="protected-tag"
+        )
+    assert not any(
+        marker in invocation_log.read_text(encoding="utf-8")
+        for marker in (":push:", ":tag:")
+    )
+    invocation_log.unlink()
+    monkeypatch.setattr(
+        registry.core, "tag_preflight", lambda **_: _protected_preflight()
+    )
+
+    stale = copy.deepcopy(image_result)
+    stale["source"]["commit"] = "b" * 40
+    with pytest.raises(ValueError, match="source"):
+        registry.publish_member(archive, image_result=stale, lane="protected-tag")
+    assert not invocation_log.exists()
+
+    forged_identity = copy.deepcopy(image_result)
+    forged_identity["content_identity"]["task_sha256"] = "sha256:" + "f" * 64
+    identity_payload = {
+        key: value
+        for key, value in forged_identity["content_identity"].items()
+        if key != "content_identity_sha256"
+    }
+    forged_identity["content_identity"]["content_identity_sha256"] = (
+        registry.sha256_value(identity_payload)
+    )
+    forged_identity["content_identity_sha256"] = forged_identity["content_identity"][
+        "content_identity_sha256"
+    ]
+    with pytest.raises(ValueError, match="content identity|task"):
+        registry.publish_member(
+            archive, image_result=forged_identity, lane="protected-tag"
+        )
+    assert not invocation_log.exists()
+
+    for mutation in ("diff_ids", "created", "history"):
+        forged_config_closure = copy.deepcopy(image_result)
+        identity = forged_config_closure["content_identity"]
+        if mutation == "diff_ids":
+            identity["diff_ids"][0] = "sha256:" + "d" * 64
+        elif mutation == "created":
+            identity["created"] = "2026-08-10T00:00:00Z"
+        else:
+            identity["history"][-1]["created_by"] = "forged-install-command"
+        identity["content_identity_sha256"] = registry.sha256_value(
+            {
+                key: value
+                for key, value in identity.items()
+                if key != "content_identity_sha256"
+            }
+        )
+        forged_config_closure["content_identity_sha256"] = identity[
+            "content_identity_sha256"
+        ]
+        with pytest.raises(ValueError, match="content identity|Buildx OCI"):
+            registry.publish_member(
+                archive,
+                image_result=forged_config_closure,
+                lane="protected-tag",
+            )
+        assert not invocation_log.exists()
+
     record = registry.publish_member(
         archive, image_result=image_result, lane="protected-tag"
     )
 
     assert record["member_digest"] == expected["member_digest"]
     assert record["image_result_sha256"] == expected["image_result_sha256"]
+    assert record["prewrite_visibility_evidence_sha256"].startswith("sha256:")
     assert registry.validate_member_record(record) == record
     assert {item["type"] for item in record["operations"]} >= {
         "registry-member-push-by-digest",
@@ -3041,19 +4376,134 @@ else:
         "registry-authenticated-layer-blob-read",
     }
     assert verify.audit_operations(record["operations"], lane="protected-tag") == {
-        "operation_count": 7,
+        "operation_count": 9,
         "operation_types": [
+            "registry-anonymous-prewrite-visibility-read",
             "registry-anonymous-visibility-read",
             "registry-authenticated-config-blob-read",
             "registry-authenticated-digest-read",
             "registry-authenticated-layer-blob-read",
             "registry-authenticated-manifest-read",
+            "registry-authenticated-staging-prewrite-read",
             "registry-member-push-by-digest",
             "registry-staging-tag-create",
         ],
-        "write_capable_operations": record["operations"][:2],
+        "write_capable_operations": record["operations"][2:4],
         "write_count": 2,
     }
+    staging_reference = "ghcr.io/supermarioyl/ucm-release-staging:staging-" + expected[
+        "build_key_sha256"
+    ].removeprefix("sha256:")
+    assert invocation_log.read_text(encoding="utf-8").splitlines()[0] == (
+        "True:digest:" + staging_reference
+    )
+
+
+def test_member_tag_collision_fails_before_any_digest_push(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pre-existing staging tag with different bytes cannot leave an orphan push."""
+    registry, _ = _modules()
+    image = importlib.import_module("ucm_release.image")
+    archive, expected = _valid_oci_archive(tmp_path, _publication_members()[0])
+    image_result = {
+        "candidate_kind": "real-candidate",
+        "unpublished": True,
+        "spec_id": expected["spec_id"],
+        "profile_id": expected["profile_id"],
+        "family_id": expected["family_id"],
+        "target_platform": expected["platform"],
+        "target_repository": expected["target_repository"],
+        "target_tag": expected["target_tag"],
+        "task_key": expected["candidate_task_sha256"],
+        "build_key_sha256": expected["build_key_sha256"],
+        "recipe_sha256": expected["recipe_sha256"],
+        "content_identity_sha256": expected["content_identity_sha256"],
+        "result_sha256": expected["image_result_sha256"],
+        "source": {
+            **copy.deepcopy(expected["content_identity"]["source"]),
+            "task_sha256": expected["candidate_task_sha256"],
+            "wheel_build_key": "sha256:" + "e" * 64,
+        },
+        "wheel": {"sha256": expected["wheel_sha256"]},
+        "oci": {"digest": expected["member_digest"], "published": False},
+        "content_identity": copy.deepcopy(expected["content_identity"]),
+    }
+    monkeypatch.setattr(
+        image, "validate_image_result", lambda value: copy.deepcopy(value)
+    )
+    monkeypatch.setattr(
+        registry.core, "tag_preflight", lambda **_: _protected_preflight()
+    )
+    monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: "/pinned/crane")
+
+    def visibility(reference: str, *, phase: str = "postwrite") -> dict[str, object]:
+        operation = {
+            "type": (
+                "registry-anonymous-prewrite-visibility-read"
+                if phase == "prewrite"
+                else "registry-anonymous-visibility-read"
+            ),
+            "capability": "read",
+            "reference": reference,
+        }
+        payload = {
+            "schema_version": 1,
+            "kind": "ucm-registry-private-visibility-evidence",
+            "status": "anonymous-denied",
+            "phase": phase,
+            "returncode": 1,
+            "stdout_sha256": "sha256:" + "1" * 64,
+            "stderr_sha256": "sha256:" + "2" * 64,
+            "operation": operation,
+        }
+        return {
+            **payload,
+            "visibility_evidence_sha256": registry.sha256_value(payload),
+        }
+
+    monkeypatch.setattr(registry, "verify_private_staging", visibility)
+    staging_reference = (
+        registry.STAGING_REPOSITORY
+        + ":staging-"
+        + expected["build_key_sha256"].removeprefix("sha256:")
+    )
+
+    def fresh(reference: str, *_args: object, **_kwargs: object) -> str | None:
+        if reference == staging_reference:
+            return "sha256:" + "f" * 64
+        return None
+
+    monkeypatch.setattr(registry, "_fresh_transport_digest", fresh)
+    pushed: list[str] = []
+
+    def push(*_args: object, **_kwargs: object) -> dict[str, object]:
+        pushed.append("push")
+        return {
+            "decision": "create",
+            "digest": expected["member_digest"],
+            "operations": [],
+        }
+
+    monkeypatch.setattr(registry, "_push_materialized_member", push)
+
+    with pytest.raises(ValueError, match="tag collision"):
+        registry.publish_member(
+            archive, image_result=image_result, lane="protected-tag"
+        )
+    assert pushed == []
+
+
+def test_member_prewrite_and_postwrite_visibility_evidence_must_be_distinct() -> None:
+    """A record cannot collapse the two sides of the private staging write gate."""
+    registry, _ = _modules()
+    record = _publication_members()[0]
+    record["visibility_evidence_sha256"] = record["prewrite_visibility_evidence_sha256"]
+    record["record_sha256"] = registry.sha256_value(
+        {key: value for key, value in record.items() if key != "record_sha256"}
+    )
+    with pytest.raises(ValueError, match="visibility"):
+        registry.validate_member_record(record)
 
 
 def test_materialize_oci_hashes_large_layers_without_read_bytes(
@@ -3092,7 +4542,18 @@ def test_materialize_oci_rejects_duplicate_archive_paths(tmp_path: Path) -> None
 
 @pytest.mark.parametrize(
     ("mode", "accepted"),
-    [("unauthorized", True), ("network", False), ("public", False)],
+    [
+        ("unauthorized", True),
+        ("ghcr-token-denied", True),
+        ("ghcr-manifest-denied", True),
+        ("network", False),
+        ("permission", False),
+        ("http403", False),
+        ("proxy403", False),
+        ("bareauth", False),
+        ("missing", False),
+        ("public", False),
+    ],
 )
 def test_private_staging_requires_typed_anonymous_denial(
     tmp_path: Path,
@@ -3109,8 +4570,36 @@ if [ {mode!r} = unauthorized ]; then
   echo 'UNAUTHORIZED: authentication required' >&2
   exit 1
 fi
+if [ {mode!r} = ghcr-token-denied ]; then
+  echo 'Error: GET https://ghcr.io/token?scope=repository%3Asupermarioyl%2Fucm-release-staging%3Apull&service=ghcr.io: DENIED: requested access to the resource is denied' >&2
+  exit 1
+fi
+if [ {mode!r} = ghcr-manifest-denied ]; then
+  echo 'Error: fetching manifest: GET https://ghcr.io/v2/supermarioyl/ucm-release-staging/manifests/staging-{'2' * 64}: UNAUTHORIZED: authentication required' >&2
+  exit 1
+fi
 if [ {mode!r} = network ]; then
   echo 'dial tcp: network is unreachable' >&2
+  exit 1
+fi
+if [ {mode!r} = permission ]; then
+  echo 'dial tcp: connect: permission denied' >&2
+  exit 1
+fi
+if [ {mode!r} = http403 ]; then
+  echo 'HTTP/1.1 403 Forbidden' >&2
+  exit 1
+fi
+if [ {mode!r} = proxy403 ]; then
+  echo 'proxy CONNECT ghcr.io:443: status code 403' >&2
+  exit 1
+fi
+if [ {mode!r} = bareauth ]; then
+  echo 'authentication required' >&2
+  exit 1
+fi
+if [ {mode!r} = missing ]; then
+  echo 'MANIFEST_UNKNOWN' >&2
   exit 1
 fi
 echo 'sha256:{'1' * 64}'
@@ -3124,11 +4613,18 @@ echo 'sha256:{'1' * 64}'
     if accepted:
         evidence = registry.verify_private_staging(reference)
         assert evidence["status"] == "anonymous-denied"
+        assert evidence["returncode"] == 1
+        assert evidence["stdout_sha256"].startswith("sha256:")
+        assert evidence["stderr_sha256"].startswith("sha256:")
         assert evidence["operation"] == {
             "type": "registry-anonymous-visibility-read",
             "capability": "read",
             "reference": reference,
         }
+        prewrite = registry.verify_private_staging(reference, phase="prewrite")
+        assert prewrite["operation"]["type"] == (
+            "registry-anonymous-prewrite-visibility-read"
+        )
     else:
         with pytest.raises(ValueError, match="public|anonymous|network|denial"):
             registry.verify_private_staging(reference)

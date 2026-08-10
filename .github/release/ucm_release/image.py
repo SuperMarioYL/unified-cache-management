@@ -1419,6 +1419,9 @@ def real_content_identity(recipe: object, closure: object) -> dict[str, Any]:
     expected_labels = copy.deepcopy(base_labels)
     expected_labels.update(
         {
+            "org.opencontainers.image.source": (
+                "https://github.com/SuperMarioYL/unified-cache-management"
+            ),
             "org.opencontainers.image.revision": source.get("commit"),
             "io.ucm.release.source-tree": source.get("tree"),
             "io.ucm.release.source-context-sha256": source.get("context_sha256"),

@@ -47,7 +47,9 @@ def load_yaml(path: Path) -> dict[str, Any]:
     return value
 
 
-def load_json(path: Path) -> dict[str, Any]:
+def load_json_value(path: Path) -> Any:
+    """Load any JSON value while rejecting duplicate keys at every object level."""
+
     def unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
         for key, value in pairs:
@@ -56,9 +58,20 @@ def load_json(path: Path) -> dict[str, Any]:
             result[key] = value
         return result
 
-    value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_pairs)
+    return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_pairs)
+
+
+def load_json(path: Path) -> dict[str, Any]:
+    value = load_json_value(path)
     if not isinstance(value, dict):
         raise ValueError(f"{path} must contain a JSON object")
+    return value
+
+
+def load_json_array(path: Path) -> list[Any]:
+    value = load_json_value(path)
+    if not isinstance(value, list):
+        raise ValueError(f"{path} must contain a JSON array")
     return value
 
 
@@ -716,6 +729,7 @@ def tag_preflight(
         "GITHUB_REPOSITORY",
         "GITHUB_REPOSITORY_OWNER",
         "GITHUB_SHA",
+        "GITHUB_TRIGGERING_ACTOR",
         "UCM_RELEASE_POLICY",
     )
     context = {name: os.environ.get(name, "") for name in context_names}
@@ -781,6 +795,7 @@ def tag_preflight(
         ),
         "source_sha": source_commit_sha == source_sha,
         "tag_commit": tag_commit_sha == source_sha,
+        "triggering_actor": context["GITHUB_TRIGGERING_ACTOR"] == authority["owner"],
         "version_file": version_matches,
     }
     failed = sorted(name for name, passed in checks.items() if not passed)
@@ -793,6 +808,7 @@ def tag_preflight(
         "repository": context["GITHUB_REPOSITORY"],
         "repository_owner": context["GITHUB_REPOSITORY_OWNER"],
         "actor": context["GITHUB_ACTOR"],
+        "triggering_actor": context["GITHUB_TRIGGERING_ACTOR"],
         "ref": context["GITHUB_REF"],
         "ref_type": context["GITHUB_REF_TYPE"],
         "ref_name": context["GITHUB_REF_NAME"],
@@ -813,6 +829,33 @@ def tag_preflight(
     }
     result["preflight_sha256"] = sha256_value(result)
     return result
+
+
+def require_default_head_for_create(
+    preflight: object, decision: object, *, resource: str
+) -> None:
+    """Allow durable reuse from an ancestor, but only create from current develop."""
+    if (
+        decision not in {"create", "reuse"}
+        or not isinstance(resource, str)
+        or not resource
+    ):
+        raise ValueError("first publication decision is malformed")
+    if not isinstance(preflight, dict):
+        raise ValueError("first publication preflight is malformed")
+    source_sha = preflight.get("source_sha")
+    default_branch_sha = preflight.get("default_branch_sha")
+    if (
+        not isinstance(source_sha, str)
+        or re.fullmatch(r"[0-9a-f]{40}", source_sha) is None
+        or not isinstance(default_branch_sha, str)
+        or re.fullmatch(r"[0-9a-f]{40}", default_branch_sha) is None
+    ):
+        raise ValueError("first publication source authority is malformed")
+    if decision == "create" and source_sha != default_branch_sha:
+        raise ValueError(
+            f"first publication of {resource} requires the protected tag at default branch HEAD"
+        )
 
 
 def build_release_manifest(
