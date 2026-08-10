@@ -3,19 +3,24 @@
 from __future__ import annotations
 
 import copy
+import contextlib
 import hashlib
 import json
 import os
+import platform
 import re
+import shutil
 import socket
 import subprocess
 import tempfile
+import tarfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any
 
 from . import core
@@ -152,6 +157,21 @@ OCI_MANIFEST_MEDIA_TYPES = {
     "application/vnd.docker.distribution.manifest.v2+json",
 }
 STAGING_REPOSITORY = "ghcr.io/supermarioyl/ucm-release-staging"
+CRANE_VERSION = "0.20.3"
+CRANE_BINARY_SHA256 = {
+    (
+        "linux",
+        "x86_64",
+    ): "sha256:675f3b2f1696c1f6bc55b1ef535163364119776999f3d1471e4558ed35bab548",
+    (
+        "linux",
+        "aarch64",
+    ): "sha256:34bdb2ae7a56139c69cf745ab5cad3d7368e69896d8980e7bcf1ca194854a2ef",
+    (
+        "darwin",
+        "arm64",
+    ): "sha256:d34f51061a226d1b183480cc7fdc1f7ec410676445cbb2432d89900ac2eb1cb3",
+}
 CANONICAL_MEMBER_SPEC_IDS = [
     "cuda130-amd64",
     "cuda130-arm64",
@@ -181,6 +201,16 @@ MEMBER_RECORD_KEYS = {
     "member_size",
     "config_digest",
     "annotations",
+    "source_sha",
+    "image_result_sha256",
+    "recipe_sha256",
+    "content_identity_sha256",
+    "manifest",
+    "config",
+    "layers",
+    "readback_sha256",
+    "visibility_evidence_sha256",
+    "operations",
     "record_sha256",
 }
 MEMBER_ANNOTATION_KEYS = {
@@ -278,16 +308,18 @@ def validate_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("snapshot platforms must be an array")
     normalized: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
-    for index, platform in enumerate(platforms):
-        if not isinstance(platform, dict):
+    for index, platform_entry in enumerate(platforms):
+        if not isinstance(platform_entry, dict):
             raise ValueError(f"snapshot platform {index} must be an object")
-        _exact_keys(platform, PLATFORM_KEYS, f"snapshot platform {index}")
-        if platform["os"] not in {"linux"} or platform["architecture"] not in {
+        _exact_keys(platform_entry, PLATFORM_KEYS, f"snapshot platform {index}")
+        if platform_entry["os"] not in {"linux"} or platform_entry[
+            "architecture"
+        ] not in {
             "amd64",
             "arm64",
         }:
             raise ValueError("snapshot platform must be linux/amd64 or linux/arm64")
-        identity = (platform["os"], platform["architecture"])
+        identity = (platform_entry["os"], platform_entry["architecture"])
         if identity in seen:
             raise ValueError(
                 f"duplicate snapshot platform: {identity[0]}/{identity[1]}"
@@ -295,13 +327,13 @@ def validate_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         seen.add(identity)
         normalized.append(
             {
-                "os": platform["os"],
-                "architecture": platform["architecture"],
+                "os": platform_entry["os"],
+                "architecture": platform_entry["architecture"],
                 "manifest_digest": _digest(
-                    platform["manifest_digest"], f"{identity} manifest"
+                    platform_entry["manifest_digest"], f"{identity} manifest"
                 ),
                 "config_digest": _digest(
-                    platform["config_digest"], f"{identity} config"
+                    platform_entry["config_digest"], f"{identity} config"
                 ),
             }
         )
@@ -361,6 +393,66 @@ def _crane_binary(value: str) -> str:
     return value
 
 
+def _host_platform_key() -> tuple[str, str]:
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    machine = {"amd64": "x86_64", "arm64": "aarch64"}.get(machine, machine)
+    if system == "darwin" and machine == "aarch64":
+        machine = "arm64"
+    return system, machine
+
+
+def _minimal_registry_environment(
+    *, docker_config: str | None = None
+) -> dict[str, str]:
+    environment: dict[str, str] = {}
+    selected_config = docker_config or os.environ.get("DOCKER_CONFIG")
+    if selected_config:
+        environment["DOCKER_CONFIG"] = selected_config
+    for key in (
+        "HOME",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy",
+    ):
+        if key in os.environ:
+            environment[key] = os.environ[key]
+    return environment
+
+
+def resolve_pinned_crane() -> str:
+    """Resolve the reviewed crane release and reject path/version byte drift."""
+    located = shutil.which("crane")
+    if located is None:
+        raise ValueError("pinned crane v0.20.3 is not installed on PATH")
+    executable = str(Path(located).resolve())
+    result = subprocess.run(
+        [executable, "version"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=_minimal_registry_environment(),
+        check=False,
+    )
+    version = result.stdout.strip()
+    if result.returncode != 0 or version not in {CRANE_VERSION, "v" + CRANE_VERSION}:
+        raise ValueError(f"registry transport requires crane v0.20.3, got {version!r}")
+    expected = CRANE_BINARY_SHA256.get(_host_platform_key())
+    if expected is None:
+        raise ValueError(f"unsupported crane host platform: {_host_platform_key()}")
+    observed = "sha256:" + hashlib.sha256(Path(executable).read_bytes()).hexdigest()
+    if observed != expected:
+        raise ValueError(
+            f"crane binary digest mismatch: expected {expected}, observed {observed}"
+        )
+    return executable
+
+
 def _crane(crane_binary: str, operation: str, reference: str) -> str:
     if operation not in {"digest", "manifest"}:
         raise ValueError(
@@ -372,6 +464,7 @@ def _crane(crane_binary: str, operation: str, reference: str) -> str:
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            env=_minimal_registry_environment(),
             check=False,
         )
     except OSError as error:
@@ -387,7 +480,6 @@ def scan_registry(
     upstream_tag: str,
     *,
     fixture: dict[str, Any] | None = None,
-    crane_binary: str = "crane",
 ) -> dict[str, Any]:
     """Read and validate an upstream multi-platform snapshot without registry writes."""
     repository = _repository(repository)
@@ -415,6 +507,7 @@ def scan_registry(
                 }
             ],
         }
+    crane_binary = resolve_pinned_crane()
     operations = [
         {
             "type": "crane-digest",
@@ -1179,9 +1272,19 @@ def validate_member_record(record: object) -> dict[str, Any]:
         "wheel_sha256",
         "member_digest",
         "config_digest",
+        "image_result_sha256",
+        "recipe_sha256",
+        "content_identity_sha256",
+        "readback_sha256",
+        "visibility_evidence_sha256",
         "record_sha256",
     ):
         _digest(record[field], f"member {field}")
+    if (
+        not isinstance(record["source_sha"], str)
+        or re.fullmatch(r"[0-9a-f]{40}", record["source_sha"]) is None
+    ):
+        raise ValueError("member source_sha must be one exact lowercase commit SHA")
     if (
         not isinstance(record["member_size"], int)
         or isinstance(record["member_size"], bool)
@@ -1205,9 +1308,144 @@ def validate_member_record(record: object) -> dict[str, Any]:
     }
     if annotations != expected_annotations:
         raise ValueError("member annotations do not close over build identity")
+    manifest = record["manifest"]
+    config = record["config"]
+    layers = record["layers"]
+    if not isinstance(manifest, dict) or set(manifest) != {
+        "media_type",
+        "digest",
+        "size",
+        "annotations",
+    }:
+        raise ValueError("member manifest closure is malformed")
+    if (
+        manifest["media_type"] not in OCI_MANIFEST_MEDIA_TYPES
+        or _digest(manifest["digest"], "member manifest digest")
+        != record["member_digest"]
+        or manifest["size"] != record["member_size"]
+        or manifest["annotations"]
+        != {
+            "io.ucm.release.recipe-sha256": record["recipe_sha256"],
+            "io.ucm.release.task-sha256": record["candidate_task_sha256"],
+        }
+    ):
+        raise ValueError("member manifest does not close over recipe/task identity")
+    if not isinstance(config, dict) or set(config) != {
+        "media_type",
+        "digest",
+        "size",
+        "blob_sha256",
+        "labels",
+    }:
+        raise ValueError("member config closure is malformed")
+    if (
+        config["media_type"] != "application/vnd.oci.image.config.v1+json"
+        or _digest(config["digest"], "member config digest") != record["config_digest"]
+        or _digest(config["blob_sha256"], "member config blob")
+        != record["config_digest"]
+        or not isinstance(config["size"], int)
+        or isinstance(config["size"], bool)
+        or config["size"] < 1
+        or config["labels"]
+        != {
+            "io.ucm.release.build-key-sha256": record["build_key_sha256"],
+            "io.ucm.release.task-sha256": record["candidate_task_sha256"],
+            "io.ucm.release.wheel-sha256": record["wheel_sha256"],
+        }
+    ):
+        raise ValueError("member config does not close over build/task/wheel identity")
+    if not isinstance(layers, list) or not layers:
+        raise ValueError("member publication requires at least one content layer")
+    for position, layer in enumerate(layers):
+        if not isinstance(layer, dict) or set(layer) != {
+            "media_type",
+            "digest",
+            "size",
+            "blob_sha256",
+        }:
+            raise ValueError(f"member layer {position} closure is malformed")
+        if (
+            not isinstance(layer["media_type"], str)
+            or not layer["media_type"].startswith("application/vnd.")
+            or _digest(layer["digest"], f"member layer {position}")
+            != _digest(layer["blob_sha256"], f"member layer {position} blob")
+            or not isinstance(layer["size"], int)
+            or isinstance(layer["size"], bool)
+            or layer["size"] < 1
+        ):
+            raise ValueError(f"member layer {position} content closure is invalid")
+    if not isinstance(record["operations"], list):
+        raise ValueError("member operations must be an array")
+    for operation in record["operations"]:
+        if not isinstance(operation, dict):
+            raise ValueError("member operation must be an object")
+        _exact_keys(operation, {"type", "capability", "reference"}, "member operation")
+        if operation["capability"] not in {"read", "write"}:
+            raise ValueError("member operation capability is invalid")
     if record["record_sha256"] != sha256_value(_record_payload(record)):
         raise ValueError("member publication record digest mismatch")
     return copy.deepcopy(record)
+
+
+def verify_member_readback(member_record: object, readback: object) -> dict[str, Any]:
+    """Close a member publication over exact manifest, config and layer bytes."""
+    record = validate_member_record(member_record)
+    if not isinstance(readback, dict):
+        raise ValueError("member readback must be an object")
+    _exact_keys(
+        readback,
+        {
+            "schema_version",
+            "kind",
+            "reference",
+            "digest",
+            "manifest",
+            "config",
+            "layers",
+            "children",
+            "authenticated",
+            "operations",
+            "readback_sha256",
+        },
+        "member readback",
+    )
+    payload = {
+        key: copy.deepcopy(value)
+        for key, value in readback.items()
+        if key != "readback_sha256"
+    }
+    if readback["readback_sha256"] != sha256_value(payload):
+        raise ValueError("member readback digest mismatch")
+    expected_reference = f"{STAGING_REPOSITORY}@{record['member_digest']}"
+    if (
+        readback["schema_version"] != 1
+        or readback["kind"] != "ucm-registry-readback"
+        or readback["reference"] != expected_reference
+        or readback["digest"] != record["member_digest"]
+        or readback["authenticated"] is not True
+        or readback["children"] != []
+        or readback["manifest"] != record["manifest"]
+        or readback["config"] != record["config"]
+        or readback["layers"] != record["layers"]
+        or any(
+            operation not in record["operations"]
+            for operation in readback["operations"]
+        )
+        or readback["readback_sha256"] != record["readback_sha256"]
+    ):
+        raise ValueError("member readback differs from publication content closure")
+    return copy.deepcopy(record)
+
+
+def _member_authority(spec_id: str) -> dict[str, Any]:
+    matches = [
+        item
+        for item in canonical_registry_contract()["members"]
+        if item["spec_id"] == spec_id
+    ]
+    if len(matches) != 1:
+        raise ValueError("member spec does not resolve in canonical registry authority")
+    return matches[0]
 
 
 def plan_staging_tag(
@@ -1306,7 +1544,7 @@ def plan_indexes(
     member_records: object,
     inventory: object,
     *,
-    member_statuses: object | None = None,
+    member_statuses: object,
     lane: str | None = None,
 ) -> dict[str, Any]:
     """Plan all three exact r1 indexes after one indivisible six-member barrier."""
@@ -1322,20 +1560,17 @@ def plan_indexes(
         by_spec[record["spec_id"]] = record
     if set(by_spec) != set(CANONICAL_MEMBER_SPEC_IDS):
         raise BarrierBlocker("six-member barrier has missing or invented members")
-    if member_statuses is not None:
-        if not isinstance(member_statuses, dict) or set(member_statuses) != set(
-            CANONICAL_MEMBER_SPEC_IDS
-        ):
-            raise BarrierBlocker("six-member barrier statuses are incomplete")
-        failed = sorted(
-            spec_id
-            for spec_id, status in member_statuses.items()
-            if status != "success"
+    if not isinstance(member_statuses, dict) or set(member_statuses) != set(
+        CANONICAL_MEMBER_SPEC_IDS
+    ):
+        raise BarrierBlocker("six-member barrier statuses are incomplete")
+    failed = sorted(
+        spec_id for spec_id, status in member_statuses.items() if status != "success"
+    )
+    if failed:
+        raise BarrierBlocker(
+            f"six-member barrier blocked by unsuccessful members: {failed}"
         )
-        if failed:
-            raise BarrierBlocker(
-                f"six-member barrier blocked by unsuccessful members: {failed}"
-            )
     if not isinstance(inventory, list) or any(
         not isinstance(item, dict) for item in inventory
     ):
@@ -1382,10 +1617,7 @@ def plan_indexes(
                     "reference": f"{coordinate[0]}:{coordinate[1]}",
                 }
             )
-        elif (
-            observed["digest"] == expected_digest
-            and observed["build_key_sha256"] == index_build_key
-        ):
+        elif observed["build_key_sha256"] == index_build_key:
             decision = "reuse"
         else:
             raise ValueError(
@@ -1408,6 +1640,11 @@ def plan_indexes(
     payload = {
         "schema_version": 1,
         "kind": "ucm-registry-index-plans",
+        "member_records": [by_spec[spec_id] for spec_id in CANONICAL_MEMBER_SPEC_IDS],
+        "member_statuses": {
+            spec_id: member_statuses[spec_id] for spec_id in CANONICAL_MEMBER_SPEC_IDS
+        },
+        "inventory": copy.deepcopy(inventory),
         "plans": plans,
         "operations": operations,
     }
@@ -1416,7 +1653,49 @@ def plan_indexes(
     return {**payload, "plans_sha256": sha256_value(payload)}
 
 
-def verify_index(plan: object, observed: object | None = None) -> dict[str, Any]:
+def _validate_parent_plans(parent_plans: object) -> dict[str, Any]:
+    if not isinstance(parent_plans, dict):
+        raise ValueError("index parent plans must be an object")
+    _exact_keys(
+        parent_plans,
+        {
+            "schema_version",
+            "kind",
+            "member_records",
+            "member_statuses",
+            "inventory",
+            "plans",
+            "operations",
+            "plans_sha256",
+        },
+        "index parent plans",
+    )
+    payload = {
+        key: copy.deepcopy(value)
+        for key, value in parent_plans.items()
+        if key != "plans_sha256"
+    }
+    if parent_plans["plans_sha256"] != sha256_value(payload):
+        raise ValueError("index parent plans digest mismatch")
+    rederived = plan_indexes(
+        parent_plans["member_records"],
+        parent_plans["inventory"],
+        member_statuses=parent_plans["member_statuses"],
+        lane="protected-tag",
+    )
+    if parent_plans != rederived:
+        raise ValueError(
+            "index parent plans differ from canonical six-member authority"
+        )
+    return copy.deepcopy(parent_plans)
+
+
+def verify_index(
+    plan: object,
+    *,
+    parent_plans: object,
+    observed: object | None = None,
+) -> dict[str, Any]:
     """Verify one canonical r1 plan and optional readback record."""
     if not isinstance(plan, dict) or plan.get("kind") != "ucm-registry-index-plan":
         raise ValueError("index plan identity is invalid")
@@ -1433,6 +1712,27 @@ def verify_index(plan: object, observed: object | None = None) -> dict[str, Any]
         "decision",
     }
     _exact_keys(plan, required, "index plan")
+    parent = _validate_parent_plans(parent_plans)
+    matching_parent_plans = [
+        item for item in parent["plans"] if item["family_id"] == plan["family_id"]
+    ]
+    if len(matching_parent_plans) != 1 or matching_parent_plans[0] != plan:
+        raise ValueError("index plan is not the exact canonical parent plan")
+    authorities = [
+        item
+        for item in canonical_registry_contract()["indexes"]
+        if item["family_id"] == plan["family_id"]
+    ]
+    if len(authorities) != 1:
+        raise ValueError("index family is outside canonical authority")
+    authority = authorities[0]
+    if (
+        plan["target_repository"] != authority["target_repository"]
+        or plan["target_tag"] != authority["target_tag"]
+        or [item["spec_id"] for item in plan["members"]] != authority["member_spec_ids"]
+        or plan["decision"] not in {"create", "reuse"}
+    ):
+        raise ValueError("index plan coordinate or decision differs from authority")
     members = [validate_member_record(item) for item in plan["members"]]
     manifest, build_key, digest = _index_manifest(
         plan["family_id"], plan["target_repository"], plan["target_tag"], members
@@ -1502,7 +1802,11 @@ def _run_registry_tool(
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            env=environment,
+            env=(
+                environment
+                if environment is not None
+                else _minimal_registry_environment()
+            ),
             check=False,
         )
     except OSError as error:
@@ -1511,6 +1815,107 @@ def _run_registry_tool(
         detail = result.stderr.strip() or f"exit {result.returncode}"
         raise ValueError(f"registry tool {' '.join(arguments[:1])} failed: {detail}")
     return result
+
+
+def _run_registry_tool_bytes(
+    binary: str,
+    arguments: list[str],
+    *,
+    environment: dict[str, str] | None = None,
+) -> bytes:
+    try:
+        result = subprocess.run(
+            [binary, *arguments],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=environment or _minimal_registry_environment(),
+            check=False,
+        )
+    except OSError as error:
+        raise ValueError(f"failed to execute pinned registry tool: {error}") from error
+    if result.returncode != 0:
+        detail = result.stderr.decode(errors="replace").strip() or str(
+            result.returncode
+        )
+        raise ValueError(f"registry tool {arguments[0]} failed: {detail}")
+    return result.stdout
+
+
+def _reference_repository(reference: str) -> str:
+    if "@" in reference:
+        return reference.rsplit("@", 1)[0]
+    slash = reference.rfind("/")
+    colon = reference.rfind(":")
+    return reference[:colon] if colon > slash else reference
+
+
+def _descriptor_closure(
+    descriptor: object,
+    *,
+    label: str,
+    repository: str,
+    crane_binary: str,
+    environment: dict[str, str] | None,
+    retain_raw: bool,
+) -> tuple[dict[str, Any], bytes | None]:
+    if not isinstance(descriptor, dict):
+        raise ValueError(f"{label} descriptor must be an object")
+    media_type = descriptor.get("mediaType")
+    digest = _digest(descriptor.get("digest"), f"{label} digest")
+    size = descriptor.get("size")
+    if (
+        not isinstance(media_type, str)
+        or not isinstance(size, int)
+        or isinstance(size, bool)
+        or size < 1
+    ):
+        raise ValueError(f"{label} descriptor is malformed")
+    reference = f"{repository}@{digest}"
+    raw: bytes | None
+    if retain_raw:
+        raw = _run_registry_tool_bytes(
+            crane_binary, ["blob", reference], environment=environment
+        )
+        observed_size = len(raw)
+        observed = "sha256:" + hashlib.sha256(raw).hexdigest()
+    else:
+        raw = None
+        hasher = hashlib.sha256()
+        observed_size = 0
+        with tempfile.TemporaryFile() as error_stream:
+            try:
+                process = subprocess.Popen(
+                    [crane_binary, "blob", reference],
+                    stdout=subprocess.PIPE,
+                    stderr=error_stream,
+                    env=environment or _minimal_registry_environment(),
+                )
+            except OSError as error:
+                raise ValueError(
+                    f"failed to execute pinned registry tool: {error}"
+                ) from error
+            assert process.stdout is not None
+            with process.stdout:
+                while True:
+                    chunk = process.stdout.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    observed_size += len(chunk)
+                    hasher.update(chunk)
+            returncode = process.wait()
+            if returncode != 0:
+                error_stream.seek(0)
+                detail = error_stream.read(8192).decode(errors="replace").strip()
+                raise ValueError(f"registry tool blob failed: {detail or returncode}")
+        observed = "sha256:" + hasher.hexdigest()
+    if observed != digest or observed_size != size:
+        raise ValueError(f"{label} blob bytes differ from descriptor")
+    return {
+        "media_type": media_type,
+        "digest": digest,
+        "size": observed_size,
+        "blob_sha256": observed,
+    }, raw
 
 
 def _missing_manifest(result: subprocess.CompletedProcess[str]) -> bool:
@@ -1523,8 +1928,46 @@ def _missing_manifest(result: subprocess.CompletedProcess[str]) -> bool:
     )
 
 
-def inventory_registry(*, crane_binary: str = "crane") -> dict[str, Any]:
+def _fresh_digest(reference: str, crane_binary: str) -> str | None:
+    result = _run_registry_tool(crane_binary, ["digest", reference], missing_ok=True)
+    if result.returncode == 0:
+        return _digest(result.stdout.strip(), "fresh registry tag")
+    if _missing_manifest(result):
+        return None
+    detail = result.stderr.strip() or str(result.returncode)
+    raise ValueError(f"fresh Registry read failed for {reference}: {detail}")
+
+
+def _transport_arguments(
+    operation: str, *arguments: str, insecure: bool = False
+) -> list[str]:
+    return [operation, *(["--insecure"] if insecure else []), *arguments]
+
+
+def _fresh_transport_digest(
+    reference: str,
+    crane_binary: str,
+    *,
+    insecure: bool = False,
+    environment: dict[str, str] | None = None,
+) -> str | None:
+    result = _run_registry_tool(
+        crane_binary,
+        _transport_arguments("digest", reference, insecure=insecure),
+        environment=environment,
+        missing_ok=True,
+    )
+    if result.returncode == 0:
+        return _digest(result.stdout.strip(), "fresh registry transport")
+    if _missing_manifest(result):
+        return None
+    detail = result.stderr.strip() or str(result.returncode)
+    raise ValueError(f"fresh Registry read failed for {reference}: {detail}")
+
+
+def inventory_registry() -> dict[str, Any]:
     """Read the three exact public r1 coordinates without inventing local state."""
+    executable = resolve_pinned_crane()
     entries: list[dict[str, Any]] = []
     absent: list[dict[str, str]] = []
     operations: list[dict[str, str]] = []
@@ -1538,7 +1981,7 @@ def inventory_registry(*, crane_binary: str = "crane") -> dict[str, Any]:
             }
         )
         digest_result = _run_registry_tool(
-            crane_binary, ["digest", reference], missing_ok=True
+            executable, ["digest", reference], missing_ok=True
         )
         if digest_result.returncode != 0:
             if not _missing_manifest(digest_result):
@@ -1560,9 +2003,7 @@ def inventory_registry(*, crane_binary: str = "crane") -> dict[str, Any]:
                 "reference": digest_reference,
             }
         )
-        manifest_result = _run_registry_tool(
-            crane_binary, ["manifest", digest_reference]
-        )
+        manifest_result = _run_registry_tool(executable, ["manifest", digest_reference])
         manifest = _unique_json(manifest_result.stdout, "inventory index manifest")
         annotations = manifest.get("annotations")
         if not isinstance(annotations, dict):
@@ -1592,26 +2033,101 @@ def inventory_registry(*, crane_binary: str = "crane") -> dict[str, Any]:
 def readback_reference(
     reference: object,
     *,
-    crane_binary: str = "crane",
     anonymous: bool = False,
 ) -> dict[str, Any]:
-    """Read digest and manifest, isolating anonymous auth in a fresh empty config."""
+    """Read manifest/config/layer bytes with isolated anonymous credentials."""
     canonical_reference = _registry_reference(reference)
+    executable = resolve_pinned_crane()
 
     def read(environment: dict[str, str] | None) -> dict[str, Any]:
         prefix = "registry-anonymous" if anonymous else "registry-authenticated"
         digest_result = _run_registry_tool(
-            crane_binary, ["digest", canonical_reference], environment=environment
+            executable, ["digest", canonical_reference], environment=environment
         )
         digest = _digest(digest_result.stdout.strip(), "registry readback")
-        repository = canonical_reference.rsplit("@", 1)[0].rsplit(":", 1)[0]
+        repository = _reference_repository(canonical_reference)
         digest_reference = f"{repository}@{digest}"
-        manifest_result = _run_registry_tool(
-            crane_binary,
+        manifest_raw = _run_registry_tool_bytes(
+            executable,
             ["manifest", digest_reference],
             environment=environment,
         )
-        manifest = _unique_json(manifest_result.stdout, "registry readback manifest")
+        if "sha256:" + hashlib.sha256(manifest_raw).hexdigest() != digest:
+            raise ValueError("registry manifest raw bytes differ from resolved digest")
+        manifest_json = _unique_json(
+            manifest_raw.decode("utf-8"), "registry readback manifest"
+        )
+        media_type = manifest_json.get("mediaType")
+        manifest = {
+            "media_type": media_type,
+            "digest": digest,
+            "size": len(manifest_raw),
+            "annotations": copy.deepcopy(manifest_json.get("annotations", {})),
+        }
+        config: dict[str, Any] | None = None
+        layers: list[dict[str, Any]] = []
+        children: list[dict[str, Any]] = []
+        closure_operations: list[dict[str, str]] = []
+        if media_type in OCI_MANIFEST_MEDIA_TYPES:
+            config, config_raw = _descriptor_closure(
+                manifest_json.get("config"),
+                label="registry config",
+                repository=repository,
+                crane_binary=executable,
+                environment=environment,
+                retain_raw=True,
+            )
+            assert config_raw is not None
+            config_json = _unique_json(
+                config_raw.decode("utf-8"), "registry config blob"
+            )
+            image_config = config_json.get("config", {})
+            labels = (
+                image_config.get("Labels", {}) if isinstance(image_config, dict) else {}
+            )
+            if not isinstance(labels, dict) or any(
+                not isinstance(key, str) or not isinstance(value, str)
+                for key, value in labels.items()
+            ):
+                raise ValueError("registry config labels must be a string map")
+            config["labels"] = copy.deepcopy(labels)
+            closure_operations.append(
+                {
+                    "type": f"{prefix}-config-blob-read",
+                    "capability": "read",
+                    "reference": f"{repository}@{config['digest']}",
+                }
+            )
+            layer_descriptors = manifest_json.get("layers")
+            if not isinstance(layer_descriptors, list):
+                raise ValueError("registry member manifest lacks layers")
+            for position, descriptor in enumerate(layer_descriptors):
+                closure, _ = _descriptor_closure(
+                    descriptor,
+                    label=f"registry layer {position}",
+                    repository=repository,
+                    crane_binary=executable,
+                    environment=environment,
+                    retain_raw=False,
+                )
+                layers.append(closure)
+                closure_operations.append(
+                    {
+                        "type": f"{prefix}-layer-blob-read",
+                        "capability": "read",
+                        "reference": f"{repository}@{closure['digest']}",
+                    }
+                )
+        elif media_type in OCI_INDEX_MEDIA_TYPES:
+            descriptors = manifest_json.get("manifests")
+            if not isinstance(descriptors, list):
+                raise ValueError("registry index lacks manifests")
+            for descriptor in descriptors:
+                if not isinstance(descriptor, dict):
+                    raise ValueError("registry index child descriptor is malformed")
+                children.append(copy.deepcopy(descriptor))
+        else:
+            raise ValueError("registry readback media type is unsupported")
         operations = [
             {
                 "type": f"{prefix}-digest-read",
@@ -1623,6 +2139,7 @@ def readback_reference(
                 "capability": "read",
                 "reference": digest_reference,
             },
+            *closure_operations,
         ]
         payload = {
             "schema_version": 1,
@@ -1630,21 +2147,66 @@ def readback_reference(
             "reference": canonical_reference,
             "digest": digest,
             "manifest": manifest,
+            "config": config,
+            "layers": layers,
+            "children": children,
             "authenticated": not anonymous,
             "operations": operations,
         }
         return {**payload, "readback_sha256": sha256_value(payload)}
 
     if not anonymous:
-        return read(None)
+        return read(_minimal_registry_environment())
     with tempfile.TemporaryDirectory(
         prefix="ucm-anonymous-docker-config-"
     ) as directory:
         config = Path(directory) / "config.json"
         config.write_bytes(b'{"auths":{}}\n')
-        environment = os.environ.copy()
-        environment["DOCKER_CONFIG"] = directory
+        environment = _minimal_registry_environment(docker_config=directory)
         return read(environment)
+
+
+def verify_private_staging(reference: object) -> dict[str, Any]:
+    """Prove private visibility only from a typed anonymous authorization denial."""
+    canonical_reference = _registry_reference(reference)
+    if not canonical_reference.startswith(STAGING_REPOSITORY + ":staging-"):
+        raise ValueError("private visibility evidence requires an exact staging tag")
+    executable = resolve_pinned_crane()
+    with tempfile.TemporaryDirectory(
+        prefix="ucm-anonymous-docker-config-"
+    ) as directory:
+        (Path(directory) / "config.json").write_bytes(b'{"auths":{}}\n')
+        result = _run_registry_tool(
+            executable,
+            ["digest", canonical_reference],
+            environment=_minimal_registry_environment(docker_config=directory),
+            missing_ok=True,
+        )
+    if result.returncode == 0:
+        raise ValueError("staging reference is anonymously public")
+    detail = (result.stderr + "\n" + result.stdout).lower()
+    denial_markers = (
+        "unauthorized",
+        "authentication required",
+        "denied",
+        "status code 401",
+        " 401 ",
+    )
+    if not any(marker in detail for marker in denial_markers):
+        raise ValueError("anonymous read failed without an authorization denial")
+    operation = {
+        "type": "registry-anonymous-visibility-read",
+        "capability": "read",
+        "reference": canonical_reference,
+    }
+    payload = {
+        "schema_version": 1,
+        "kind": "ucm-registry-private-visibility-evidence",
+        "status": "anonymous-denied",
+        "stderr_sha256": "sha256:" + hashlib.sha256(result.stderr.encode()).hexdigest(),
+        "operation": operation,
+    }
+    return {**payload, "visibility_evidence_sha256": sha256_value(payload)}
 
 
 def _fresh_write_authority(lane: object) -> dict[str, Any]:
@@ -1675,106 +2237,443 @@ def _fresh_write_authority(lane: object) -> dict[str, Any]:
     return {"preflight": preflight, "matrix": matrix}
 
 
+def _oci_blob(
+    layout_dir: Path,
+    descriptor: object,
+    label: str,
+    *,
+    retain_raw: bool,
+) -> tuple[bytes | None, str]:
+    if not isinstance(descriptor, dict) or set(descriptor) - {
+        "mediaType",
+        "digest",
+        "size",
+        "annotations",
+        "platform",
+    }:
+        raise ValueError(f"{label} descriptor is malformed")
+    digest = _digest(descriptor.get("digest"), f"{label} digest")
+    size = descriptor.get("size")
+    if not isinstance(size, int) or isinstance(size, bool) or size < 1:
+        raise ValueError(f"{label} descriptor size is invalid")
+    algorithm, encoded = digest.split(":", 1)
+    path = layout_dir / "blobs" / algorithm / encoded
+    if not path.is_file() or path.is_symlink():
+        raise ValueError(f"{label} blob is missing from OCI layout")
+    hasher = hashlib.sha256()
+    observed_size = 0
+    retained = bytearray() if retain_raw else None
+    with path.open("rb") as stream:
+        while True:
+            chunk = stream.read(1024 * 1024)
+            if not chunk:
+                break
+            observed_size += len(chunk)
+            hasher.update(chunk)
+            if retained is not None:
+                retained.extend(chunk)
+    actual = "sha256:" + hasher.hexdigest()
+    if observed_size != size or actual != digest:
+        raise ValueError(f"{label} blob bytes differ from descriptor")
+    return bytes(retained) if retained is not None else None, digest
+
+
+@contextlib.contextmanager
+def materialize_oci_layout(archive_path: Path):
+    """Safely reopen one Buildx OCI-layout tar as the directory crane expects."""
+    archive = Path(archive_path)
+    if not archive.is_file() or archive.is_symlink():
+        raise ValueError("Buildx OCI archive must be one regular file")
+    with tempfile.TemporaryDirectory(prefix="ucm-oci-layout-") as directory:
+        root = Path(directory)
+        try:
+            bundle = tarfile.open(archive, mode="r:*")
+        except (OSError, tarfile.TarError) as error:
+            raise ValueError(f"Buildx OCI archive is unreadable: {error}") from error
+        with bundle:
+            seen: set[str] = set()
+            for member in bundle.getmembers():
+                name = PurePosixPath(member.name)
+                if (
+                    not member.name
+                    or member.name.startswith("/")
+                    or "\\" in member.name
+                    or any(part in {"", ".", ".."} for part in name.parts)
+                    or member.issym()
+                    or member.islnk()
+                    or member.isdev()
+                    or getattr(member, "sparse", None)
+                ):
+                    raise ValueError(
+                        f"Buildx OCI archive contains unsafe member {member.name!r}"
+                    )
+                canonical_name = name.as_posix()
+                if canonical_name in seen:
+                    raise ValueError(
+                        f"Buildx OCI archive contains duplicate path {canonical_name!r}"
+                    )
+                seen.add(canonical_name)
+                target = root.joinpath(*name.parts)
+                if member.isdir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+                if not member.isfile():
+                    raise ValueError(
+                        f"Buildx OCI archive member is not a regular file: {member.name}"
+                    )
+                target.parent.mkdir(parents=True, exist_ok=True)
+                source = bundle.extractfile(member)
+                if source is None:
+                    raise ValueError(f"cannot read OCI archive member {member.name}")
+                with source, target.open("xb") as stream:
+                    while True:
+                        chunk = source.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        stream.write(chunk)
+        layout = _unique_json(
+            (root / "oci-layout").read_text(encoding="utf-8"), "OCI layout marker"
+        )
+        if layout != {"imageLayoutVersion": "1.0.0"}:
+            raise ValueError("Buildx OCI layout marker is noncanonical")
+        index = _unique_json(
+            (root / "index.json").read_text(encoding="utf-8"), "OCI layout index"
+        )
+        descriptors = index.get("manifests")
+        if not isinstance(descriptors, list) or len(descriptors) != 1:
+            raise ValueError("member OCI layout must contain exactly one manifest")
+        manifest_raw, manifest_digest = _oci_blob(
+            root, descriptors[0], "OCI member manifest", retain_raw=True
+        )
+        assert manifest_raw is not None
+        manifest = _unique_json(manifest_raw.decode("utf-8"), "OCI member manifest")
+        if manifest.get("mediaType") not in OCI_MANIFEST_MEDIA_TYPES:
+            raise ValueError("OCI member has an unsupported manifest media type")
+        config_raw, config_digest = _oci_blob(
+            root, manifest.get("config"), "OCI member config", retain_raw=True
+        )
+        assert config_raw is not None
+        config = _unique_json(config_raw.decode("utf-8"), "OCI member config")
+        layers = manifest.get("layers")
+        if not isinstance(layers, list):
+            raise ValueError("OCI member layers must be an array")
+        for position, descriptor in enumerate(layers):
+            _oci_blob(
+                root,
+                descriptor,
+                f"OCI member layer {position}",
+                retain_raw=False,
+            )
+        yield {
+            "layout_dir": root,
+            "index": index,
+            "manifest": manifest,
+            "manifest_digest": manifest_digest,
+            "config": config,
+            "config_digest": config_digest,
+            "layers": copy.deepcopy(layers),
+        }
+
+
+def _push_materialized_member(
+    materialized: dict[str, Any],
+    *,
+    repository: str,
+    crane_binary: str,
+    insecure: bool = False,
+    environment: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Shared production/loopback OCI-layout-directory push executor."""
+    digest = materialized["manifest_digest"]
+    target = f"{repository}@{digest}"
+    observed = _fresh_transport_digest(
+        target, crane_binary, insecure=insecure, environment=environment
+    )
+    decision = "reuse" if observed == digest else "create"
+    if observed is not None and observed != digest:
+        raise ValueError("digest coordinate returned impossible content drift")
+    operations: list[dict[str, str]] = []
+    if decision == "create":
+        push_result = _run_registry_tool(
+            crane_binary,
+            _transport_arguments(
+                "push",
+                str(materialized["layout_dir"]),
+                target,
+                insecure=insecure,
+            ),
+            environment=environment,
+        )
+        if push_result.stdout.strip() != target:
+            raise ValueError(
+                "crane push stdout did not report the exact full reference coordinate"
+            )
+        operations.append(
+            {
+                "type": "registry-member-push-by-digest",
+                "capability": "write",
+                "reference": target,
+            }
+        )
+    if (
+        _fresh_transport_digest(
+            target, crane_binary, insecure=insecure, environment=environment
+        )
+        != digest
+    ):
+        raise ValueError("member push post-write digest readback drifted")
+    return {"decision": decision, "digest": digest, "operations": operations}
+
+
+def _apply_digest_tag(
+    *,
+    repository: str,
+    digest: str,
+    tag: str,
+    crane_binary: str,
+    insecure: bool = False,
+    environment: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Shared production/loopback fresh create-or-reuse tag executor."""
+    reference = f"{repository}:{tag}"
+    observed = _fresh_transport_digest(
+        reference, crane_binary, insecure=insecure, environment=environment
+    )
+    if observed is not None and observed != digest:
+        raise ValueError(f"registry tag collision for {reference}")
+    operations: list[dict[str, str]] = []
+    decision = "reuse" if observed == digest else "create"
+    if decision == "create":
+        _run_registry_tool(
+            crane_binary,
+            _transport_arguments(
+                "tag", f"{repository}@{digest}", tag, insecure=insecure
+            ),
+            environment=environment,
+        )
+        operations.append(
+            {
+                "type": "registry-staging-tag-create",
+                "capability": "write",
+                "reference": reference,
+            }
+        )
+    if (
+        _fresh_transport_digest(
+            reference, crane_binary, insecure=insecure, environment=environment
+        )
+        != digest
+    ):
+        raise ValueError("registry tag post-write digest readback drifted")
+    return {"decision": decision, "operations": operations}
+
+
+def publish_member(
+    archive_path: Path,
+    *,
+    image_result: object,
+    lane: str,
+) -> dict[str, Any]:
+    """Publish one real candidate and derive its record only from trusted readback."""
+    _fresh_write_authority(lane)
+    from . import image
+
+    result = image.validate_image_result(image_result)
+    if (
+        result.get("candidate_kind") != "real-candidate"
+        or result.get("unpublished") is not True
+        or result.get("oci", {}).get("published") is not False
+    ):
+        raise ValueError("member publication requires a real unpublished image result")
+    authority = _member_authority(result.get("spec_id"))
+    expected_authority = {
+        "spec_id": result.get("spec_id"),
+        "profile_id": result.get("profile_id"),
+        "family_id": result.get("family_id"),
+        "platform": result.get("target_platform"),
+        "target_repository": result.get("target_repository"),
+        "target_tag": result.get("target_tag"),
+        "candidate_task_sha256": result.get("task_key"),
+    }
+    if any(authority[key] != value for key, value in expected_authority.items()):
+        raise ValueError("image result differs from canonical member authority")
+    crane_binary = resolve_pinned_crane()
+    operations: list[dict[str, str]] = []
+    with materialize_oci_layout(archive_path) as materialized:
+        descriptor = materialized["index"]["manifests"][0]
+        manifest = materialized["manifest"]
+        config = materialized["config"]
+        identity = result.get("content_identity")
+        expected_layers = manifest.get("layers")
+        if (
+            not isinstance(identity, dict)
+            or materialized["manifest_digest"] != result.get("oci", {}).get("digest")
+            or materialized["manifest_digest"] != identity.get("manifest_digest")
+            or materialized["config_digest"] != identity.get("config_digest")
+            or manifest.get("annotations", {}) != identity.get("annotations")
+            or config.get("config", {}).get("Labels", {}) != identity.get("labels")
+            or expected_layers != identity.get("layers")
+        ):
+            raise ValueError(
+                "Buildx OCI bytes differ from image-result content identity"
+            )
+        push_result = _push_materialized_member(
+            materialized,
+            repository=STAGING_REPOSITORY,
+            crane_binary=crane_binary,
+        )
+        operations.extend(push_result["operations"])
+        member_size = descriptor["size"]
+        manifest_record = {
+            "media_type": manifest["mediaType"],
+            "digest": materialized["manifest_digest"],
+            "size": member_size,
+            "annotations": copy.deepcopy(manifest.get("annotations", {})),
+        }
+        config_descriptor = manifest["config"]
+        config_record = {
+            "media_type": config_descriptor["mediaType"],
+            "digest": materialized["config_digest"],
+            "size": config_descriptor["size"],
+            "blob_sha256": materialized["config_digest"],
+            "labels": copy.deepcopy(config.get("config", {}).get("Labels", {})),
+        }
+        layer_records = [
+            {
+                "media_type": item["mediaType"],
+                "digest": item["digest"],
+                "size": item["size"],
+                "blob_sha256": item["digest"],
+            }
+            for item in expected_layers
+        ]
+
+    staging_tag = "staging-" + result["build_key_sha256"].removeprefix("sha256:")
+    tag_result = _apply_digest_tag(
+        repository=STAGING_REPOSITORY,
+        digest=result["oci"]["digest"],
+        tag=staging_tag,
+        crane_binary=crane_binary,
+    )
+    operations.extend(tag_result["operations"])
+    digest_reference = f"{STAGING_REPOSITORY}@{result['oci']['digest']}"
+    readback = readback_reference(digest_reference)
+    operations.extend(copy.deepcopy(readback["operations"]))
+    visibility = verify_private_staging(f"{STAGING_REPOSITORY}:{staging_tag}")
+    operations.append(copy.deepcopy(visibility["operation"]))
+    annotations = {
+        "io.ucm.release.build-key-sha256": result["build_key_sha256"],
+        "io.ucm.release.candidate-task-sha256": result["task_key"],
+        "io.ucm.release.family-id": authority["family_id"],
+        "io.ucm.release.platform": authority["platform"],
+        "io.ucm.release.spec-id": authority["spec_id"],
+        "io.ucm.release.wheel-sha256": result["wheel"]["sha256"],
+    }
+    payload = {
+        "schema_version": 1,
+        "kind": "ucm-registry-member-publication",
+        "status": "passed",
+        **copy.deepcopy(authority),
+        "staging_repository": STAGING_REPOSITORY,
+        "staging_visibility": "private",
+        "staging_tag": staging_tag,
+        "build_key_sha256": result["build_key_sha256"],
+        "wheel_sha256": result["wheel"]["sha256"],
+        "member_digest": result["oci"]["digest"],
+        "member_size": member_size,
+        "config_digest": materialized["config_digest"],
+        "annotations": annotations,
+        "source_sha": result["source"]["commit"],
+        "image_result_sha256": result["result_sha256"],
+        "recipe_sha256": result["recipe_sha256"],
+        "content_identity_sha256": result["content_identity_sha256"],
+        "manifest": manifest_record,
+        "config": config_record,
+        "layers": layer_records,
+        "readback_sha256": readback["readback_sha256"],
+        "visibility_evidence_sha256": visibility["visibility_evidence_sha256"],
+        "operations": operations,
+    }
+    record = {**payload, "record_sha256": sha256_value(payload)}
+    verify_member_readback(record, readback)
+    return record
+
+
 def push_member_by_digest(
     archive_path: Path,
     member_record: object,
     *,
     lane: str,
-    crane_binary: str = "crane",
 ) -> dict[str, Any]:
-    """Push one canonical archive only to the staging content digest."""
+    """Push one safely reopened Buildx OCI layout to the staging content digest."""
     authority = _fresh_write_authority(lane)
+    crane_binary = resolve_pinned_crane()
     record = validate_member_record(member_record)
-    archive = Path(archive_path)
-    if not archive.is_file() or archive.is_symlink():
-        raise ValueError("member archive must be one regular local file")
-    target = f"{STAGING_REPOSITORY}@{record['member_digest']}"
-    result = _run_registry_tool(crane_binary, ["push", str(archive), target])
-    observed = _digest(result.stdout.strip(), "pushed member")
-    if observed != record["member_digest"]:
-        raise ValueError(
-            f"push-by-digest returned {observed}, expected {record['member_digest']}"
+    with materialize_oci_layout(archive_path) as materialized:
+        descriptor = materialized["index"]["manifests"][0]
+        if (
+            materialized["manifest_digest"] != record["member_digest"]
+            or descriptor.get("size") != record["member_size"]
+            or materialized["config_digest"] != record["config_digest"]
+            or materialized["manifest"].get("annotations")
+            != record["manifest"]["annotations"]
+            or materialized["config"].get("config", {}).get("Labels", {})
+            != record["config"]["labels"]
+            or materialized["manifest"].get("layers")
+            != [
+                {
+                    "mediaType": item["media_type"],
+                    "digest": item["digest"],
+                    "size": item["size"],
+                }
+                for item in record["layers"]
+            ]
+        ):
+            raise ValueError("Buildx OCI layout differs from member publication record")
+        push = _push_materialized_member(
+            materialized,
+            repository=STAGING_REPOSITORY,
+            crane_binary=crane_binary,
         )
-    operation = {
-        "type": "registry-member-push-by-digest",
-        "capability": "write",
-        "reference": target,
-    }
     payload = {
         "schema_version": 1,
         "kind": "ucm-registry-member-push",
-        "digest": observed,
+        "digest": push["digest"],
         "record_sha256": record["record_sha256"],
         "preflight_sha256": authority["preflight"].get("preflight_sha256"),
         "matrix_sha256": authority["matrix"]["matrix_sha256"],
-        "operations": [operation],
+        "operations": push["operations"],
     }
     return {**payload, "push_sha256": sha256_value(payload)}
 
 
 def apply_staging_tag(
     member_record: object,
-    observed_digest: object | None,
     *,
     lane: str,
-    crane_binary: str = "crane",
 ) -> dict[str, Any]:
     """Create a GC tag only when absent; identity is a read-only reuse."""
-    record = validate_member_record(member_record)
-    plan = plan_staging_tag(
-        record["build_key_sha256"], record["member_digest"], observed_digest
-    )
-    operations: list[dict[str, str]] = []
-    if plan["decision"] == "create":
-        _fresh_write_authority(lane)
-        source = f"{STAGING_REPOSITORY}@{record['member_digest']}"
-        _run_registry_tool(crane_binary, ["tag", source, plan["tag"]])
-        operations.append(
-            {
-                "type": "registry-staging-tag-create",
-                "capability": "write",
-                "reference": f"{STAGING_REPOSITORY}:{plan['tag']}",
-            }
-        )
-    return {**plan, "operations": operations}
-
-
-def create_index(
-    plan: object,
-    *,
-    lane: str,
-    docker_binary: str = "docker",
-) -> dict[str, Any]:
-    """Create one exact r1 with imagetools only after fresh protected authority."""
-    verification = verify_index(plan)
-    if plan["decision"] == "reuse":
-        return {**verification, "decision": "reuse", "operations": []}
     _fresh_write_authority(lane)
-    executable = Path(docker_binary)
-    if executable.is_absolute() and not executable.is_file():
-        raise ValueError(f"docker executable does not exist: {docker_binary}")
-    target = f"{plan['target_repository']}:{plan['target_tag']}"
-    members = [
-        f"{STAGING_REPOSITORY}@{item['member_digest']}" for item in plan["members"]
-    ]
-    arguments = [
-        docker_binary,
-        "buildx",
-        "imagetools",
-        "create",
-        "--tag",
-        target,
-        "--annotation",
-        (
-            "index:io.ucm.release.index-build-key-sha256="
-            + plan["index_build_key_sha256"]
-        ),
-        *members,
-    ]
+    crane_binary = resolve_pinned_crane()
+    record = validate_member_record(member_record)
+    transport = _apply_digest_tag(
+        repository=STAGING_REPOSITORY,
+        digest=record["member_digest"],
+        tag=record["staging_tag"],
+        crane_binary=crane_binary,
+    )
+    plan = plan_staging_tag(
+        record["build_key_sha256"],
+        record["member_digest"],
+        record["member_digest"] if transport["decision"] == "reuse" else None,
+    )
+    return {**plan, "operations": transport["operations"]}
+
+
+def _run_imagetools(docker_binary: str, arguments: list[str]) -> bytes:
     try:
         result = subprocess.run(
-            arguments,
-            text=True,
+            [docker_binary, *arguments],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=False,
@@ -1782,15 +2681,195 @@ def create_index(
     except OSError as error:
         raise ValueError(f"failed to execute docker imagetools: {error}") from error
     if result.returncode != 0:
+        detail = result.stderr.decode(errors="replace").strip()
         raise ValueError(
-            f"docker imagetools create failed: {result.stderr.strip() or result.returncode}"
+            f"docker imagetools create failed: {detail or result.returncode}"
         )
-    operation = {
-        "type": "registry-index-create",
-        "capability": "write",
-        "reference": target,
+    return result.stdout
+
+
+def _create_index_transport(
+    *,
+    common_arguments: list[str],
+    target: str,
+    expected_manifest: dict[str, Any] | None,
+    inventory_digest: str | None,
+    requested_decision: str,
+    docker_binary: str,
+    crane_binary: str,
+    insecure: bool = False,
+    environment: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Shared production/loopback Buildx dry-run, create, and raw readback executor."""
+    dry_stdout = _run_imagetools(docker_binary, [*common_arguments, "--dry-run"])
+    if not dry_stdout.endswith(b"\n") or dry_stdout[:-1].endswith(b"\n"):
+        raise ValueError("docker imagetools dry-run must append exactly one LF")
+    raw_manifest = dry_stdout[:-1]
+    rendered = _unique_json(
+        raw_manifest.decode("utf-8"), "docker imagetools dry-run manifest"
+    )
+    if expected_manifest is not None and rendered != expected_manifest:
+        raise ValueError("docker imagetools dry-run differs from exact index intent")
+    expected_digest = "sha256:" + hashlib.sha256(raw_manifest).hexdigest()
+    if inventory_digest is not None and inventory_digest != expected_digest:
+        raise ValueError(
+            f"r1 conflict for {target}; inventory bytes differ from Buildx dry-run"
+        )
+    fresh_digest = _fresh_transport_digest(
+        target, crane_binary, insecure=insecure, environment=environment
+    )
+    if fresh_digest is not None and fresh_digest != expected_digest:
+        raise ValueError(
+            f"fresh final r1 conflict for {target}: observed {fresh_digest}"
+        )
+    decision = "reuse" if fresh_digest == expected_digest else "create"
+    if requested_decision == "reuse" and decision != "reuse":
+        raise ValueError("fresh final r1 is missing after a caller reuse decision")
+    operations: list[dict[str, str]] = []
+    if decision == "create":
+        _run_imagetools(docker_binary, common_arguments)
+        operations.append(
+            {
+                "type": "registry-index-create",
+                "capability": "write",
+                "reference": target,
+            }
+        )
+    if (
+        _fresh_transport_digest(
+            target, crane_binary, insecure=insecure, environment=environment
+        )
+        != expected_digest
+    ):
+        raise ValueError("final index post-write digest readback drifted")
+    repository = _reference_repository(target)
+    postwrite_raw = _run_registry_tool_bytes(
+        crane_binary,
+        _transport_arguments(
+            "manifest", f"{repository}@{expected_digest}", insecure=insecure
+        ),
+        environment=environment,
+    )
+    if postwrite_raw != raw_manifest:
+        raise ValueError("final index post-write manifest bytes differ from dry-run")
+    return {
+        "rendered": rendered,
+        "raw_manifest": raw_manifest,
+        "index_digest": expected_digest,
+        "decision": decision,
+        "operations": operations,
+        "postwrite_manifest_sha256": "sha256:"
+        + hashlib.sha256(postwrite_raw).hexdigest(),
     }
-    return {**verification, "decision": "create", "operations": [operation]}
+
+
+def create_index(
+    plan: object,
+    *,
+    parent_plans: object,
+    lane: str,
+    docker_binary: str = "docker",
+) -> dict[str, Any]:
+    """Create one exact r1 from Buildx dry-run bytes, then close its raw readback."""
+    authority = _fresh_write_authority(lane)
+    verification = verify_index(plan, parent_plans=parent_plans)
+    crane_binary = resolve_pinned_crane()
+    target = f"{plan['target_repository']}:{plan['target_tag']}"
+    executable = Path(docker_binary)
+    if executable.is_absolute() and not executable.is_file():
+        raise ValueError(f"docker executable does not exist: {docker_binary}")
+    with tempfile.TemporaryDirectory(prefix="ucm-index-inputs-") as directory:
+        source_files: list[Path] = []
+        for position, member in enumerate(plan["members"]):
+            source = Path(directory) / f"{position}-{member['platform'].split('/')[-1]}"
+            source.write_bytes(
+                f"{STAGING_REPOSITORY}@{member['member_digest']}".encode("utf-8")
+            )
+            source_files.append(source)
+        common_arguments = [
+            "buildx",
+            "imagetools",
+            "create",
+            "--tag",
+            target,
+            "--annotation",
+            f"index:io.ucm.release.family-id={plan['family_id']}",
+            "--annotation",
+            (
+                "index:io.ucm.release.index-build-key-sha256="
+                + plan["index_build_key_sha256"]
+            ),
+        ]
+        for member, source in zip(plan["members"], source_files, strict=True):
+            scope = f"manifest-descriptor[{member['platform']}]"
+            common_arguments.extend(
+                [
+                    "--annotation",
+                    f"{scope}:io.ucm.release.build-key-sha256={member['build_key_sha256']}",
+                    "--annotation",
+                    f"{scope}:io.ucm.release.spec-id={member['spec_id']}",
+                    "--file",
+                    str(source),
+                ]
+            )
+
+        inventory_matches = [
+            item
+            for item in parent_plans["inventory"]
+            if item["repository"] == plan["target_repository"]
+            and item["tag"] == plan["target_tag"]
+        ]
+        transport = _create_index_transport(
+            common_arguments=common_arguments,
+            target=target,
+            expected_manifest=plan["index_manifest"],
+            inventory_digest=(
+                inventory_matches[0]["digest"] if inventory_matches else None
+            ),
+            requested_decision=plan["decision"],
+            docker_binary=docker_binary,
+            crane_binary=crane_binary,
+        )
+    expected_digest = transport["index_digest"]
+    rendered = transport["rendered"]
+    operations = transport["operations"]
+    decision = transport["decision"]
+    authenticated = readback_reference(target)
+    anonymous = readback_reference(target, anonymous=True)
+    if (
+        authenticated["digest"] != expected_digest
+        or anonymous["digest"] != expected_digest
+        or authenticated["manifest"] != anonymous["manifest"]
+        or authenticated["children"] != rendered["manifests"]
+        or anonymous["children"] != rendered["manifests"]
+    ):
+        raise ValueError(
+            "final index authenticated/anonymous closure differs from dry-run"
+        )
+    record_payload = {
+        "schema_version": 1,
+        "kind": "ucm-registry-index-publication",
+        "status": "passed",
+        "family_id": plan["family_id"],
+        "target_repository": plan["target_repository"],
+        "target_tag": plan["target_tag"],
+        "index_build_key_sha256": plan["index_build_key_sha256"],
+        "index_digest": expected_digest,
+        "manifest_sha256": expected_digest,
+        "member_digests": [item["member_digest"] for item in plan["members"]],
+        "authenticated_readback_sha256": authenticated["readback_sha256"],
+        "anonymous_readback_sha256": anonymous["readback_sha256"],
+        "operations": operations,
+    }
+    record = {**record_payload, "record_sha256": sha256_value(record_payload)}
+    return {
+        **verification,
+        **record,
+        "decision": decision,
+        "postwrite_manifest_sha256": transport["postwrite_manifest_sha256"],
+        "preflight_sha256": authority["preflight"].get("preflight_sha256"),
+        "matrix_sha256": authority["matrix"]["matrix_sha256"],
+    }
 
 
 def _loopback_request(
@@ -1880,6 +2959,11 @@ def run_loopback_registry_contract(
     base_url = f"http://127.0.0.1:{port}"
     registry_host = f"127.0.0.1:{port}"
     operations: list[dict[str, str]] = []
+    loopback_auth = tempfile.TemporaryDirectory(prefix="ucm-loopback-docker-config-")
+    (Path(loopback_auth.name) / "config.json").write_bytes(b'{"auths":{}}\n')
+    loopback_environment = _minimal_registry_environment(
+        docker_config=loopback_auth.name
+    )
     created_network = False
     created_volume = False
     created_container = False
@@ -1937,113 +3021,155 @@ def run_loopback_registry_contract(
             time.sleep(0.2)
 
         repository = "ucm-contract/scratch"
+        local_repository = f"{registry_host}/{repository}"
         descriptors: list[dict[str, Any]] = []
-        for architecture in ("amd64", "arm64"):
-            config = canonical_bytes(
-                {
-                    "architecture": architecture,
-                    "os": "linux",
-                    "rootfs": {"type": "layers", "diff_ids": []},
-                    "config": {},
+        registry_member_closure_count = 0
+        with tempfile.TemporaryDirectory(prefix="ucm-loopback-oci-") as scratch:
+            scratch_root = Path(scratch)
+            for architecture in ("amd64", "arm64"):
+                layout = scratch_root / architecture
+                blobs = layout / "blobs" / "sha256"
+                blobs.mkdir(parents=True)
+                layer = f"tiny loopback {architecture} layer\n".encode()
+                layer_digest = "sha256:" + hashlib.sha256(layer).hexdigest()
+                (blobs / layer_digest.split(":", 1)[1]).write_bytes(layer)
+                config = canonical_bytes(
+                    {
+                        "architecture": architecture,
+                        "os": "linux",
+                        "rootfs": {"type": "layers", "diff_ids": [layer_digest]},
+                        "config": {},
+                    }
+                )
+                config_digest = "sha256:" + hashlib.sha256(config).hexdigest()
+                (blobs / config_digest.split(":", 1)[1]).write_bytes(config)
+                manifest = {
+                    "schemaVersion": 2,
+                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                    "config": {
+                        "mediaType": "application/vnd.oci.image.config.v1+json",
+                        "digest": config_digest,
+                        "size": len(config),
+                    },
+                    "layers": [
+                        {
+                            "mediaType": "application/vnd.oci.image.layer.v1.tar",
+                            "digest": layer_digest,
+                            "size": len(layer),
+                        }
+                    ],
+                    "annotations": {"io.ucm.release.loopback": architecture},
                 }
-            )
-            config_digest = _loopback_upload_blob(base_url, repository, config)
-            manifest = {
-                "schemaVersion": 2,
-                "mediaType": "application/vnd.oci.image.manifest.v1+json",
-                "config": {
-                    "mediaType": "application/vnd.oci.image.config.v1+json",
-                    "digest": config_digest,
-                    "size": len(config),
-                },
-                "layers": [],
-                "annotations": {
-                    "io.ucm.release.loopback": architecture,
-                },
-            }
-            manifest_digest = (
-                "sha256:" + hashlib.sha256(canonical_bytes(manifest)).hexdigest()
-            )
-            observed_digest, manifest_size = _loopback_push_manifest(
-                base_url, repository, manifest_digest, manifest
-            )
-            if observed_digest != manifest_digest:
-                raise ValueError("loopback member digest drifted during push")
-            reference = f"{registry_host}/{repository}@{manifest_digest}"
-            operations.append(
-                {
-                    "type": "loopback-member-push-by-digest",
-                    "capability": "write",
-                    "reference": reference,
-                }
-            )
-            manifest_read = _run_registry_tool(
-                crane_binary, ["manifest", "--insecure", reference]
-            )
-            if _unique_json(manifest_read.stdout, "loopback member") != manifest:
-                raise ValueError("loopback member manifest readback differs")
-            operations.append(
-                {
-                    "type": "loopback-manifest-read",
-                    "capability": "read",
-                    "reference": reference,
-                }
-            )
-            blob_read = _run_registry_tool(
-                crane_binary,
-                [
-                    "blob",
-                    "--insecure",
-                    f"{registry_host}/{repository}@{config_digest}",
-                ],
-            )
-            if blob_read.stdout.encode() != config:
-                raise ValueError("loopback config blob readback differs")
-            operations.append(
-                {
-                    "type": "loopback-config-read",
-                    "capability": "read",
-                    "reference": (f"{registry_host}/{repository}@{config_digest}"),
-                }
-            )
-            descriptors.append(
-                {
+                manifest_raw = canonical_bytes(manifest)
+                manifest_digest = "sha256:" + hashlib.sha256(manifest_raw).hexdigest()
+                (blobs / manifest_digest.split(":", 1)[1]).write_bytes(manifest_raw)
+                descriptor = {
                     "mediaType": "application/vnd.oci.image.manifest.v1+json",
                     "digest": manifest_digest,
-                    "size": manifest_size,
+                    "size": len(manifest_raw),
                     "platform": {"os": "linux", "architecture": architecture},
                 }
+                (layout / "oci-layout").write_bytes(b'{"imageLayoutVersion":"1.0.0"}')
+                (layout / "index.json").write_bytes(
+                    canonical_bytes(
+                        {
+                            "schemaVersion": 2,
+                            "mediaType": "application/vnd.oci.image.index.v1+json",
+                            "manifests": [descriptor],
+                        }
+                    )
+                )
+                archive = scratch_root / f"{architecture}.oci.tar"
+                with tarfile.open(archive, "w") as bundle:
+                    for path in sorted(layout.rglob("*")):
+                        bundle.add(
+                            path,
+                            arcname=path.relative_to(layout).as_posix(),
+                            recursive=False,
+                        )
+                with materialize_oci_layout(archive) as materialized:
+                    push = _push_materialized_member(
+                        materialized,
+                        repository=local_repository,
+                        crane_binary=crane_binary,
+                        insecure=True,
+                        environment=loopback_environment,
+                    )
+                    operations.extend(push["operations"])
+                tag = _apply_digest_tag(
+                    repository=local_repository,
+                    digest=manifest_digest,
+                    tag=f"member-{architecture}",
+                    crane_binary=crane_binary,
+                    insecure=True,
+                    environment=loopback_environment,
+                )
+                operations.extend(tag["operations"])
+                manifest_read = _run_registry_tool_bytes(
+                    crane_binary,
+                    ["manifest", "--insecure", f"{local_repository}@{manifest_digest}"],
+                    environment=loopback_environment,
+                )
+                if manifest_read != manifest_raw:
+                    raise ValueError("loopback member manifest readback differs")
+                config_closure, config_read = _descriptor_closure(
+                    manifest["config"],
+                    label="loopback registry config",
+                    repository=local_repository,
+                    crane_binary=crane_binary,
+                    environment=loopback_environment,
+                    retain_raw=True,
+                )
+                if config_read != config or config_closure["digest"] != config_digest:
+                    raise ValueError("loopback registry config closure differs")
+                layer_closure, _ = _descriptor_closure(
+                    manifest["layers"][0],
+                    label="loopback registry layer",
+                    repository=local_repository,
+                    crane_binary=crane_binary,
+                    environment=loopback_environment,
+                    retain_raw=False,
+                )
+                if layer_closure["digest"] != layer_digest:
+                    raise ValueError("loopback registry layer closure differs")
+                registry_member_closure_count += 1
+                descriptors.append(descriptor)
+
+            index_reference = f"{local_repository}:r1"
+            source_files: list[Path] = []
+            for position, descriptor in enumerate(descriptors):
+                source = scratch_root / f"index-source-{position}"
+                source.write_bytes(
+                    f"{local_repository}@{descriptor['digest']}".encode()
+                )
+                source_files.append(source)
+            index_arguments = [
+                "buildx",
+                "imagetools",
+                "create",
+                "--tag",
+                index_reference,
+                "--annotation",
+                "index:io.ucm.release.loopback=dual-arch",
+            ]
+            for source in source_files:
+                index_arguments.extend(["--file", str(source)])
+            index_transport = _create_index_transport(
+                common_arguments=index_arguments,
+                target=index_reference,
+                expected_manifest=None,
+                inventory_digest=None,
+                requested_decision="create",
+                docker_binary=docker_binary,
+                crane_binary=crane_binary,
+                insecure=True,
+                environment=loopback_environment,
             )
-        index = {
-            "schemaVersion": 2,
-            "mediaType": "application/vnd.oci.image.index.v1+json",
-            "manifests": descriptors,
-            "annotations": {"io.ucm.release.loopback": "dual-arch"},
-        }
-        index_digest, _ = _loopback_push_manifest(base_url, repository, "r1", index)
-        index_reference = f"{registry_host}/{repository}:r1"
-        digest_read = _run_registry_tool(
-            crane_binary, ["digest", "--insecure", index_reference]
-        )
-        if digest_read.stdout.strip() != index_digest:
-            raise ValueError("loopback index digest readback differs")
-        index_read = _run_registry_tool(
-            crane_binary,
-            [
-                "manifest",
-                "--insecure",
-                f"{registry_host}/{repository}@{index_digest}",
-            ],
-        )
-        if _unique_json(index_read.stdout, "loopback index") != index:
-            raise ValueError("loopback index readback differs")
+            index_raw = index_transport["raw_manifest"]
+            index_digest = index_transport["index_digest"]
+            operations.extend(index_transport["operations"])
         operations.extend(
             [
-                {
-                    "type": "loopback-index-create",
-                    "capability": "write",
-                    "reference": index_reference,
-                },
                 {
                     "type": "loopback-index-read",
                     "capability": "read",
@@ -2051,6 +3177,7 @@ def run_loopback_registry_contract(
                 },
             ]
         )
+        index = _unique_json(index_raw.decode(), "loopback index")
         mutated = copy.deepcopy(index)
         mutated["annotations"]["io.ucm.release.loopback"] = "mutated"
         try:
@@ -2073,6 +3200,7 @@ def run_loopback_registry_contract(
             "registry_image": registry_image,
             "crane_version": "v0.20.3",
             "member_count": 2,
+            "registry_member_closure_count": registry_member_closure_count,
             "index_digest": index_digest,
             "negative_mutation": negative_mutation,
             "operations": operations,
@@ -2091,6 +3219,7 @@ def run_loopback_registry_contract(
             result = docker("network", "rm", network, check=False)
             if result.returncode != 0:
                 cleanup_errors.append(result.stderr.strip() or "network cleanup")
+        loopback_auth.cleanup()
     if cleanup_errors:
         raise ValueError(f"loopback cleanup failed: {cleanup_errors}")
     return {**payload, "contract_sha256": sha256_value(payload)}

@@ -135,7 +135,6 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--repository", required=True)
     scan.add_argument("--tag", required=True)
     scan.add_argument("--fixture", type=Path)
-    scan.add_argument("--crane", default="crane")
     for action in (
         "inventory",
         "verify-member",
@@ -391,47 +390,65 @@ def main(argv: list[str] | None = None) -> int:
                 args.repository,
                 args.tag,
                 fixture=fixture,
-                crane_binary=args.crane,
             )
         elif (args.group, args.action) == ("registry", "inventory"):
             request = core.load_json(args.input)
-            if set(request) - {"crane"}:
-                raise ValueError("inventory input accepts only optional crane")
-            result = registry.inventory_registry(
-                crane_binary=request.get("crane", "crane")
-            )
+            if request != {}:
+                raise ValueError("inventory input must be an empty object")
+            result = registry.inventory_registry()
             _write(args.output, result)
         elif (args.group, args.action) == ("registry", "verify-member"):
             request = core.load_json(args.input)
-            if set(request) != {"member"}:
-                raise ValueError("verify-member input requires exactly member")
-            result = registry.validate_member_record(request["member"])
+            if set(request) != {"lane", "image_result", "oci_archive"}:
+                raise ValueError(
+                    "verify-member input requires lane/image_result/oci_archive"
+                )
+            if not isinstance(request["image_result"], str) or not isinstance(
+                request["oci_archive"], str
+            ):
+                raise ValueError("verify-member paths must be strings")
+            result = registry.publish_member(
+                Path(request["oci_archive"]),
+                image_result=core.load_json(Path(request["image_result"])),
+                lane=request["lane"],
+            )
             _write(args.output, result)
         elif (args.group, args.action) == ("registry", "plan-index"):
             request = core.load_json(args.input)
-            if not {"lane", "members", "inventory"} <= set(request) or set(request) - {
-                "lane",
-                "members",
-                "inventory",
-                "member_statuses",
-            }:
+            if set(request) != {"lane", "members", "member_statuses"}:
                 raise ValueError(
-                    "plan-index input requires lane/members/inventory and optional member_statuses"
+                    "plan-index input requires lane/members/member_statuses"
                 )
+            inventory = registry.inventory_registry()
             result = registry.plan_indexes(
                 request["members"],
-                request["inventory"],
-                member_statuses=request.get("member_statuses"),
+                inventory["entries"],
+                member_statuses=request["member_statuses"],
                 lane=request["lane"],
             )
             _write(args.output, result)
         elif (args.group, args.action) == ("registry", "verify-index"):
             request = core.load_json(args.input)
-            if "plan" not in request or set(request) - {"plan", "observed"}:
+            if set(request) != {"lane", "parent_plans", "family_id"}:
                 raise ValueError(
-                    "verify-index input requires plan and optional observed"
+                    "verify-index input requires lane/parent_plans/family_id"
                 )
-            result = registry.verify_index(request["plan"], request.get("observed"))
+            parent = request["parent_plans"]
+            if not isinstance(parent, dict) or not isinstance(
+                parent.get("plans"), list
+            ):
+                raise ValueError("verify-index parent_plans is malformed")
+            matches = [
+                item
+                for item in parent["plans"]
+                if isinstance(item, dict)
+                and item.get("family_id") == request["family_id"]
+            ]
+            if len(matches) != 1:
+                raise ValueError("verify-index family does not resolve exactly once")
+            result = registry.create_index(
+                matches[0], parent_plans=parent, lane=request["lane"]
+            )
             _write(args.output, result)
         elif (args.group, args.action) == ("registry", "audit-operations"):
             request = core.load_json(args.input)
