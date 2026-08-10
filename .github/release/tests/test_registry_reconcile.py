@@ -1076,6 +1076,65 @@ def test_protected_member_workflow_executes_postpublish_record_audit(
     ) == {"lane": "protected-tag", "operations": member["operations"]}
 
 
+def test_protected_index_workflow_embeds_reopened_parent_plan(
+    tmp_path: Path,
+) -> None:
+    """The hosted index request must carry the validated parent object, not its path."""
+    registry, _ = _modules()
+    members = _publication_members()
+    parent = registry.plan_indexes(
+        members,
+        inventory=[],
+        member_statuses={member["spec_id"]: "success" for member in members},
+        lane="protected-tag",
+    )
+    workflow = registry.core.load_yaml(
+        REPO_ROOT / ".github" / "workflows" / "release-vllm-images-protected.yml"
+    )
+    publish_step = next(
+        step
+        for step in workflow["jobs"]["publish-indexes"]["steps"]
+        if step.get("id") == "publish"
+    )
+    request_command = next(
+        line.strip()
+        for line in publish_step["run"].splitlines()
+        if 'open("out/request.json"' in line
+    )
+
+    parent_path = tmp_path / "input" / "parent" / "parent-plans.json"
+    parent_path.parent.mkdir(parents=True)
+    parent_path.write_bytes(registry.canonical_bytes(parent) + b"\n")
+    (tmp_path / "out").mkdir()
+    release_link = tmp_path / ".github" / "release"
+    release_link.parent.mkdir(parents=True)
+    release_link.symlink_to(RELEASE_ROOT, target_is_directory=True)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "python").symlink_to(PYTHON)
+    family_id = parent["plans"][0]["family_id"]
+
+    result = subprocess.run(
+        ["bash", "-c", request_command],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "FAMILY_ID": family_id,
+            "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert registry.core.load_json(tmp_path / "out" / "request.json") == {
+        "lane": "protected-tag",
+        "parent_plans": parent,
+        "family_id": family_id,
+    }
+
+
 def _protected_preflight() -> dict[str, object]:
     return {
         "schema_version": 1,

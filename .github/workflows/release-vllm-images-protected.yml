@@ -285,7 +285,7 @@ jobs:
           test "$(git rev-parse HEAD:.github/release)" = "$(git rev-parse origin/develop:.github/release)"
           mkdir -p out/provisional
           PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag >out/provisional/preflight.json
-          python -c 'import json,sys; json.dump({"lane":"protected-tag","parent_plans":"input/parent/parent-plans.json","family_id":sys.argv[1]},open("out/request.json","w"),sort_keys=True,separators=(",",":"))' "${FAMILY_ID}"
+          PYTHONPATH=.github/release python -c 'import json,sys; from pathlib import Path; from ucm_release import core; json.dump({"lane":"protected-tag","parent_plans":core.load_json(Path("input/parent/parent-plans.json")),"family_id":sys.argv[1]},open("out/request.json","w"),sort_keys=True,separators=(",",":"))' "${FAMILY_ID}"
           PYTHONPATH=.github/release python -m ucm_release registry prepare-index --input out/request.json --output out/provisional/provisional.json >/dev/null
           logical="ucm-index-provisional-${FAMILY_ID}-${SOURCE_SHA}"
           physical="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(*sys.argv[1:3], int(sys.argv[3])))' "${logical}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
