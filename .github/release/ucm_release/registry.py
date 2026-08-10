@@ -158,6 +158,14 @@ OCI_MANIFEST_MEDIA_TYPES = {
 }
 STAGING_REPOSITORY = "ghcr.io/supermarioyl/ucm-release-staging"
 CRANE_VERSION = "0.20.3"
+SECONDARY_RATE_LIMIT_BACKOFF_SECONDS = (60.0, 120.0, 240.0)
+IDEMPOTENT_REGISTRY_READ_OPERATIONS = frozenset(
+    {"blob", "digest", "manifest", "validate"}
+)
+SECONDARY_RATE_LIMIT_MARKERS = (
+    "you have exceeded a secondary rate limit",
+    "you have triggered an abuse detection mechanism",
+)
 CRANE_BINARY_SHA256 = {
     (
         "linux",
@@ -2315,6 +2323,13 @@ def _registry_reference(value: object) -> str:
     raise ValueError(f"registry reference is outside the exact allowlist: {value}")
 
 
+def _is_retryable_secondary_limit(arguments: list[str], detail: str) -> bool:
+    if not arguments or arguments[0] not in IDEMPOTENT_REGISTRY_READ_OPERATIONS:
+        return False
+    normalized = " ".join(detail.casefold().split())
+    return any(marker in normalized for marker in SECONDARY_RATE_LIMIT_MARKERS)
+
+
 def _run_registry_tool(
     binary: str,
     arguments: list[str],
@@ -2323,25 +2338,39 @@ def _run_registry_tool(
     missing_ok: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     executable = _crane_binary(binary)
-    try:
-        result = subprocess.run(
-            [executable, *arguments],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=(
-                environment
-                if environment is not None
-                else _minimal_registry_environment()
-            ),
-            check=False,
+    for retry_index in range(len(SECONDARY_RATE_LIMIT_BACKOFF_SECONDS) + 1):
+        try:
+            result = subprocess.run(
+                [executable, *arguments],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=(
+                    environment
+                    if environment is not None
+                    else _minimal_registry_environment()
+                ),
+                check=False,
+            )
+        except OSError as error:
+            raise ValueError(
+                f"failed to execute pinned registry tool: {error}"
+            ) from error
+        if result.returncode == 0:
+            return result
+        retryable = _is_retryable_secondary_limit(
+            arguments, result.stderr + "\n" + result.stdout
         )
-    except OSError as error:
-        raise ValueError(f"failed to execute pinned registry tool: {error}") from error
-    if result.returncode != 0 and not missing_ok:
+        if retryable and retry_index < len(SECONDARY_RATE_LIMIT_BACKOFF_SECONDS):
+            time.sleep(SECONDARY_RATE_LIMIT_BACKOFF_SECONDS[retry_index])
+            continue
         detail = result.stderr.strip() or f"exit {result.returncode}"
-        raise ValueError(f"registry tool {' '.join(arguments[:1])} failed: {detail}")
-    return result
+        if retryable or not missing_ok:
+            raise ValueError(
+                f"registry tool {' '.join(arguments[:1])} failed: {detail}"
+            )
+        return result
+    raise AssertionError("registry read retry loop exhausted without a result")
 
 
 def _run_registry_tool_bytes(
@@ -2350,22 +2379,34 @@ def _run_registry_tool_bytes(
     *,
     environment: dict[str, str] | None = None,
 ) -> bytes:
-    try:
-        result = subprocess.run(
-            [binary, *arguments],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=environment or _minimal_registry_environment(),
-            check=False,
+    for retry_index in range(len(SECONDARY_RATE_LIMIT_BACKOFF_SECONDS) + 1):
+        try:
+            result = subprocess.run(
+                [binary, *arguments],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=environment or _minimal_registry_environment(),
+                check=False,
+            )
+        except OSError as error:
+            raise ValueError(
+                f"failed to execute pinned registry tool: {error}"
+            ) from error
+        if result.returncode == 0:
+            return result.stdout
+        decoded_stderr = result.stderr.decode(errors="replace")
+        decoded_stdout = result.stdout.decode(errors="replace")
+        retryable = _is_retryable_secondary_limit(
+            arguments, decoded_stderr + "\n" + decoded_stdout
         )
-    except OSError as error:
-        raise ValueError(f"failed to execute pinned registry tool: {error}") from error
-    if result.returncode != 0:
+        if retryable and retry_index < len(SECONDARY_RATE_LIMIT_BACKOFF_SECONDS):
+            time.sleep(SECONDARY_RATE_LIMIT_BACKOFF_SECONDS[retry_index])
+            continue
         detail = result.stderr.decode(errors="replace").strip() or str(
             result.returncode
         )
         raise ValueError(f"registry tool {arguments[0]} failed: {detail}")
-    return result.stdout
+    raise AssertionError("registry byte-read retry loop exhausted without a result")
 
 
 def _reference_repository(reference: str) -> str:
@@ -2409,34 +2450,43 @@ def _descriptor_closure(
         observed = "sha256:" + hashlib.sha256(raw).hexdigest()
     else:
         raw = None
-        hasher = hashlib.sha256()
-        observed_size = 0
-        with tempfile.TemporaryFile() as error_stream:
-            try:
-                process = subprocess.Popen(
-                    [crane_binary, "blob", reference],
-                    stdout=subprocess.PIPE,
-                    stderr=error_stream,
-                    env=environment or _minimal_registry_environment(),
-                )
-            except OSError as error:
-                raise ValueError(
-                    f"failed to execute pinned registry tool: {error}"
-                ) from error
-            assert process.stdout is not None
-            with process.stdout:
-                while True:
-                    chunk = process.stdout.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    observed_size += len(chunk)
-                    hasher.update(chunk)
-            returncode = process.wait()
-            if returncode != 0:
+        arguments = ["blob", reference]
+        for retry_index in range(len(SECONDARY_RATE_LIMIT_BACKOFF_SECONDS) + 1):
+            hasher = hashlib.sha256()
+            observed_size = 0
+            with tempfile.TemporaryFile() as error_stream:
+                try:
+                    process = subprocess.Popen(
+                        [crane_binary, *arguments],
+                        stdout=subprocess.PIPE,
+                        stderr=error_stream,
+                        env=environment or _minimal_registry_environment(),
+                    )
+                except OSError as error:
+                    raise ValueError(
+                        f"failed to execute pinned registry tool: {error}"
+                    ) from error
+                assert process.stdout is not None
+                with process.stdout:
+                    while True:
+                        chunk = process.stdout.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        observed_size += len(chunk)
+                        hasher.update(chunk)
+                returncode = process.wait()
                 error_stream.seek(0)
                 detail = error_stream.read(8192).decode(errors="replace").strip()
-                raise ValueError(f"registry tool blob failed: {detail or returncode}")
-        observed = "sha256:" + hasher.hexdigest()
+            if returncode == 0:
+                observed = "sha256:" + hasher.hexdigest()
+                break
+            retryable = _is_retryable_secondary_limit(arguments, detail)
+            if retryable and retry_index < len(SECONDARY_RATE_LIMIT_BACKOFF_SECONDS):
+                time.sleep(SECONDARY_RATE_LIMIT_BACKOFF_SECONDS[retry_index])
+                continue
+            raise ValueError(f"registry tool blob failed: {detail or returncode}")
+        else:
+            raise AssertionError("registry blob retry loop exhausted without a result")
     if observed != digest or observed_size != size:
         raise ValueError(f"{label} blob bytes differ from descriptor")
     closure = {

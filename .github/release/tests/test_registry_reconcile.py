@@ -2870,6 +2870,257 @@ else:
     ]
 
 
+SECONDARY_RATE_LIMIT_ERRORS = [
+    (
+        "DENIED: permission_denied: Error from intermediary with HTTP status code "
+        '403 "Forbidden" - with-body: {"documentation_url":'
+        '"https://docs.github.com/free-pro-team@latest/rest/overview/'
+        'rate-limits-for-the-rest-api#about-secondary-rate-limits",'
+        '"message":"You have exceeded a secondary rate limit. Please wait a few '
+        'minutes before you try again."}'
+    ),
+    (
+        "You have triggered an abuse detection mechanism. Please wait a few "
+        "minutes before you try again."
+    ),
+]
+
+
+def _flaky_read_crane(
+    tmp_path: Path,
+    *,
+    operation: str,
+    error: str,
+    failures: int,
+) -> tuple[Path, Path, bytes]:
+    crane = tmp_path / f"crane-{operation}"
+    attempts = tmp_path / f"{operation}-attempts"
+    payload = {
+        "digest": ("sha256:" + "a" * 64 + "\n").encode(),
+        "manifest": b'{"schemaVersion":2}',
+        "blob": b"complete-registry-blob",
+        "push": b"unused-mutating-output",
+        "tag": b"unused-mutating-output",
+    }[operation]
+    crane.write_text(
+        f"""#!/usr/bin/env python3
+from pathlib import Path
+import sys
+
+attempts = Path({str(attempts)!r})
+count = int(attempts.read_text(encoding="utf-8")) + 1 if attempts.exists() else 1
+attempts.write_text(str(count), encoding="utf-8")
+if sys.argv[1] != {operation!r}:
+    raise SystemExit(77)
+if count <= {failures}:
+    sys.stdout.buffer.write(b"partial-failed-attempt")
+    print({error!r}, file=sys.stderr)
+    raise SystemExit(1)
+sys.stdout.buffer.write(bytes.fromhex({payload.hex()!r}))
+""",
+        encoding="utf-8",
+    )
+    crane.chmod(0o755)
+    return crane, attempts, payload
+
+
+@pytest.mark.parametrize("error", SECONDARY_RATE_LIMIT_ERRORS)
+@pytest.mark.parametrize(
+    "transport", ["text-digest", "bytes-manifest", "bytes-blob", "stream-blob"]
+)
+def test_registry_reads_retry_only_explicit_github_secondary_limits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error: str,
+    transport: str,
+) -> None:
+    """Every read transport retries GitHub's explicit secondary-limit signal."""
+    registry, _ = _modules()
+    operation = {
+        "text-digest": "digest",
+        "bytes-manifest": "manifest",
+        "bytes-blob": "blob",
+        "stream-blob": "blob",
+    }[transport]
+    crane, attempts, payload = _flaky_read_crane(
+        tmp_path, operation=operation, error=error, failures=1
+    )
+    sleeps: list[float] = []
+    monkeypatch.setattr(registry.time, "sleep", sleeps.append)
+    reference = registry.STAGING_REPOSITORY + "@sha256:" + "b" * 64
+
+    if transport == "text-digest":
+        result = registry._run_registry_tool(
+            str(crane), ["digest", reference], missing_ok=True
+        )
+        assert result.stdout == payload.decode()
+    elif transport in {"bytes-manifest", "bytes-blob"}:
+        assert (
+            registry._run_registry_tool_bytes(str(crane), [operation, reference])
+            == payload
+        )
+    else:
+        digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+        closure, raw = registry._descriptor_closure(
+            {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": digest,
+                "size": len(payload),
+            },
+            label="registry layer",
+            repository=registry.STAGING_REPOSITORY,
+            crane_binary=str(crane),
+            environment=None,
+            retain_raw=False,
+        )
+        assert closure["blob_sha256"] == digest
+        assert raw is None
+
+    assert attempts.read_text(encoding="utf-8") == "2"
+    assert sleeps == [60.0]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        "DENIED: denied",
+        "UNAUTHORIZED: authentication required",
+        (
+            "DENIED: permission_denied: Error from intermediary with HTTP status "
+            'code 403 "Forbidden"'
+        ),
+        "proxy CONNECT returned HTTP 403 Forbidden",
+    ],
+)
+@pytest.mark.parametrize("transport", ["text", "bytes", "stream"])
+def test_registry_reads_do_not_retry_authorization_or_generic_403_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error: str,
+    transport: str,
+) -> None:
+    """A2-amd64's plain token denial and proxy failures remain immediate errors."""
+    registry, _ = _modules()
+    operation = "digest" if transport == "text" else "blob"
+    crane, attempts, payload = _flaky_read_crane(
+        tmp_path, operation=operation, error=error, failures=99
+    )
+    sleeps: list[float] = []
+    monkeypatch.setattr(registry.time, "sleep", sleeps.append)
+    reference = registry.STAGING_REPOSITORY + ":staging-" + "c" * 64
+
+    if transport == "text":
+        with pytest.raises(ValueError, match="fresh Registry read failed"):
+            registry._fresh_transport_digest(reference, str(crane))
+    elif transport == "bytes":
+        with pytest.raises(ValueError, match="registry tool blob failed"):
+            registry._run_registry_tool_bytes(str(crane), ["blob", reference])
+    else:
+        digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+        with pytest.raises(ValueError, match="registry tool blob failed"):
+            registry._descriptor_closure(
+                {
+                    "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                    "digest": digest,
+                    "size": len(payload),
+                },
+                label="registry layer",
+                repository=registry.STAGING_REPOSITORY,
+                crane_binary=str(crane),
+                environment=None,
+                retain_raw=False,
+            )
+
+    assert attempts.read_text(encoding="utf-8") == "1"
+    assert sleeps == []
+
+
+@pytest.mark.parametrize("operation", ["push", "tag"])
+def test_registry_mutations_never_retry_even_explicit_secondary_limits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    """Ambiguous push/tag outcomes never gain an automatic second side effect."""
+    registry, _ = _modules()
+    crane, attempts, _ = _flaky_read_crane(
+        tmp_path,
+        operation=operation,
+        error=SECONDARY_RATE_LIMIT_ERRORS[0],
+        failures=99,
+    )
+    sleeps: list[float] = []
+    monkeypatch.setattr(registry.time, "sleep", sleeps.append)
+
+    with pytest.raises(ValueError, match=f"registry tool {operation} failed"):
+        registry._run_registry_tool(
+            str(crane),
+            [operation, str(tmp_path / "source"), registry.STAGING_REPOSITORY],
+        )
+
+    assert attempts.read_text(encoding="utf-8") == "1"
+    assert sleeps == []
+
+
+def test_registry_secondary_limit_exhaustion_is_never_missing_or_private(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """missing_ok cannot turn a rate-limit DENIED into absence/privacy evidence."""
+    registry, _ = _modules()
+    crane, attempts, _ = _flaky_read_crane(
+        tmp_path,
+        operation="digest",
+        error=SECONDARY_RATE_LIMIT_ERRORS[0],
+        failures=99,
+    )
+    sleeps: list[float] = []
+    monkeypatch.setattr(registry.time, "sleep", sleeps.append)
+    reference = registry.STAGING_REPOSITORY + ":staging-" + "d" * 64
+
+    with pytest.raises(ValueError) as failure:
+        registry._run_registry_tool(str(crane), ["digest", reference], missing_ok=True)
+
+    assert str(failure.value) == (
+        "registry tool digest failed: " + SECONDARY_RATE_LIMIT_ERRORS[0]
+    )
+    assert attempts.read_text(encoding="utf-8") == "4"
+    assert sleeps == [60.0, 120.0, 240.0]
+
+
+def test_registry_secondary_limit_retry_is_bounded_and_discards_partial_blob(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Persistent throttling stops after two retries without mixing partial bytes."""
+    registry, _ = _modules()
+    crane, attempts, payload = _flaky_read_crane(
+        tmp_path,
+        operation="blob",
+        error=SECONDARY_RATE_LIMIT_ERRORS[0],
+        failures=99,
+    )
+    sleeps: list[float] = []
+    monkeypatch.setattr(registry.time, "sleep", sleeps.append)
+    digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+
+    with pytest.raises(ValueError, match="secondary rate limit") as failure:
+        registry._descriptor_closure(
+            {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": digest,
+                "size": len(payload),
+            },
+            label="registry layer",
+            repository=registry.STAGING_REPOSITORY,
+            crane_binary=str(crane),
+            environment=None,
+            retain_raw=False,
+        )
+
+    assert str(failure.value) == (
+        "registry tool blob failed: " + SECONDARY_RATE_LIMIT_ERRORS[0]
+    )
+    assert attempts.read_text(encoding="utf-8") == "4"
+    assert sleeps == [60.0, 120.0, 240.0]
+
+
 def _published_registry_evidence() -> dict[str, object]:
     registry, _ = _modules()
     members = _publication_members()
