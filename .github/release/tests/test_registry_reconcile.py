@@ -1025,6 +1025,57 @@ def _publication_members() -> list[dict[str, object]]:
     return members
 
 
+def test_protected_member_workflow_executes_postpublish_record_audit(
+    tmp_path: Path,
+) -> None:
+    """The hosted member bridge must reopen its JSON record through a Path."""
+    registry, _ = _modules()
+    workflow = registry.core.load_yaml(
+        REPO_ROOT / ".github" / "workflows" / "_publish-image-member.yml"
+    )
+    record_step = next(
+        step
+        for step in workflow["jobs"]["publish-member"]["steps"]
+        if step.get("id") == "record"
+    )
+    audit_command = next(
+        line.strip()
+        for line in record_step["run"].splitlines()
+        if "registry.validate_member_record" in line
+    )
+
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    member = _publication_members()[0]
+    (out_dir / "member-record.json").write_text(
+        json.dumps(member, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    release_link = tmp_path / ".github" / "release"
+    release_link.parent.mkdir(parents=True)
+    release_link.symlink_to(RELEASE_ROOT, target_is_directory=True)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "python").symlink_to(PYTHON)
+
+    result = subprocess.run(
+        ["bash", "-c", audit_command],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(
+        (out_dir / "member-audit-request.json").read_text(encoding="utf-8")
+    ) == {"lane": "protected-tag", "operations": member["operations"]}
+
+
 def _protected_preflight() -> dict[str, object]:
     return {
         "schema_version": 1,

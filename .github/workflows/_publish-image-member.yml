@@ -172,7 +172,7 @@ jobs:
           PYTHONPATH=.github/release python -m ucm_release registry verify-member \
             --input out/member-request.json --output out/member-record.json >/dev/null
           # shellcheck disable=SC2016
-          PYTHONPATH=.github/release python -c 'import json; from ucm_release import core,registry; record=core.load_json("out/member-record.json"); registry.validate_member_record(record); schema=core.load_json(core.DEFAULT_SCHEMA_DIR/"release-manifest.schema.json"); core.validate_schema(record,schema["$defs"]["registryMemberRecord"],root=schema); open("out/member-audit-request.json","w").write(json.dumps({"lane":"protected-tag","operations":record["operations"]},sort_keys=True,separators=(",",":"))+"\n")'
+          PYTHONPATH=.github/release python -c 'import json; from pathlib import Path; from ucm_release import core,registry; record=core.load_json(Path("out/member-record.json")); registry.validate_member_record(record); schema=core.load_json(core.DEFAULT_SCHEMA_DIR/"release-manifest.schema.json"); core.validate_schema(record,schema["$defs"]["registryMemberRecord"],root=schema); open("out/member-audit-request.json","w").write(json.dumps({"lane":"protected-tag","operations":record["operations"]},sort_keys=True,separators=(",",":"))+"\n")'
           PYTHONPATH=.github/release python -m ucm_release registry audit-operations \
             --input out/member-audit-request.json --output out/member-audit.json >/dev/null
           member_artifact="ucm-member-${SPEC_ID}-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
