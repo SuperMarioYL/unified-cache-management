@@ -23,6 +23,64 @@
         "size": {"type": "integer", "minimum": 1},
         "raw": {"type": "string", "minLength": 1}
       }
+    },
+    "buildkit_layer_annotations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["buildkit/rewritten-timestamp"],
+      "properties": {
+        "buildkit/rewritten-timestamp": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)$"}
+      }
+    },
+    "content_identity_layer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mediaType", "digest", "size"],
+      "properties": {
+        "mediaType": {"type": "string", "pattern": "^application/vnd\\."},
+        "digest": {"$ref": "#/$defs/digest"},
+        "size": {"type": "integer", "minimum": 1},
+        "annotations": {"$ref": "#/$defs/buildkit_layer_annotations"}
+      }
+    },
+    "content_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest_digest", "config_digest", "layers", "diff_ids", "annotations", "labels", "created", "history", "source", "task_sha256", "build_key_sha256", "wheel_sha256", "recipe_sha256", "content_identity_sha256"],
+      "properties": {
+        "manifest_digest": {"$ref": "#/$defs/digest"},
+        "config_digest": {"$ref": "#/$defs/digest"},
+        "layers": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/content_identity_layer"}},
+        "diff_ids": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/digest"}},
+        "annotations": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["io.ucm.release.recipe-sha256", "io.ucm.release.task-sha256"],
+          "properties": {
+            "io.ucm.release.recipe-sha256": {"$ref": "#/$defs/digest"},
+            "io.ucm.release.task-sha256": {"$ref": "#/$defs/digest"}
+          }
+        },
+        "labels": {"type": "object"},
+        "created": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+        "history": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["commit", "tree", "archive_sha256", "context_sha256"],
+          "properties": {
+            "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+            "tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+            "archive_sha256": {"$ref": "#/$defs/digest"},
+            "context_sha256": {"$ref": "#/$defs/digest"}
+          }
+        },
+        "task_sha256": {"$ref": "#/$defs/digest"},
+        "build_key_sha256": {"$ref": "#/$defs/digest"},
+        "wheel_sha256": {"$ref": "#/$defs/digest"},
+        "recipe_sha256": {"$ref": "#/$defs/digest"},
+        "content_identity_sha256": {"$ref": "#/$defs/digest"}
+      }
     }
   },
   "type": "object",
@@ -220,7 +278,7 @@
     },
     "dependency_lock": {"type": "object"},
     "toolchain": {"type": "object"},
-    "content_identity": {"type": "object"},
+    "content_identity": {"$ref": "#/$defs/content_identity"},
     "oci": {
       "type": "object",
       "additionalProperties": false,

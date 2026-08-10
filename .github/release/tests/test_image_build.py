@@ -2458,7 +2458,16 @@ def test_real_content_identity_rejects_mutable_or_missing_oci_authority() -> Non
     closure = {
         "manifest_digest": "sha256:" + "6" * 64,
         "config_digest": "sha256:" + "7" * 64,
-        "layers": [{"digest": "sha256:" + "8" * 64, "size": 123}],
+        "layers": [
+            {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:" + "8" * 64,
+                "size": 123,
+                "annotations": {
+                    "buildkit/rewritten-timestamp": str(epoch),
+                },
+            }
+        ],
         "diff_ids": ["sha256:" + "9" * 64],
         "annotations": {
             "io.ucm.release.recipe-sha256": recipe["payload_sha256"],
@@ -2487,6 +2496,9 @@ def test_real_content_identity_rejects_mutable_or_missing_oci_authority() -> Non
     assert first["labels"]["org.opencontainers.image.source"] == (
         "https://github.com/SuperMarioYL/unified-cache-management"
     )
+    assert first["layers"][0]["annotations"] == {
+        "buildkit/rewritten-timestamp": "1700000000"
+    }
     changed_envelope = copy.deepcopy(closure)
     changed_envelope["run_id"] = "different-run"
     changed_envelope["signature"] = "different-signature"

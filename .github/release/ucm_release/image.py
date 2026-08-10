@@ -1468,6 +1468,9 @@ def real_content_identity(recipe: object, closure: object) -> dict[str, Any]:
     for position, (layer, diff_id) in enumerate(zip(layers, diff_ids, strict=True)):
         if not isinstance(layer, dict):
             raise ValueError(f"real OCI layer {position} is invalid")
+        registry._validate_layer_descriptor_annotations(
+            layer, created=created, label=f"real OCI layer {position}"
+        )
         _digest(layer.get("digest"), f"real OCI layer {position}")
         if not isinstance(layer.get("size"), int) or layer["size"] < 1:
             raise ValueError(f"real OCI layer {position} size is invalid")
@@ -2386,6 +2389,19 @@ def validate_image_result(
             or result["oci"]["published"] is not False
         ):
             raise ValueError("real image result content identity is invalid")
+        layers = content.get("layers")
+        if not isinstance(layers, list) or not layers:
+            raise ValueError("real image result content identity layers are invalid")
+        for position, layer in enumerate(layers):
+            if not isinstance(layer, dict):
+                raise ValueError(
+                    f"real image result content identity layer {position} is invalid"
+                )
+            registry._validate_layer_descriptor_annotations(
+                layer,
+                created=content.get("created"),
+                label=f"real image result content identity layer {position}",
+            )
         return copy.deepcopy(result)
     target_platform = result["target_platform"]
     base_record = {

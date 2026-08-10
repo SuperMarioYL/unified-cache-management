@@ -1663,6 +1663,14 @@ def _valid_oci_archive(
     layer = b"tiny canonical member layer"
     layer_hex = hashlib.sha256(layer).hexdigest()
     (blobs / layer_hex).write_bytes(layer)
+    source_layer = record["content_identity"]["layers"][0]
+    manifest_layer = {
+        "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+        "digest": "sha256:" + layer_hex,
+        "size": len(layer),
+    }
+    if "annotations" in source_layer:
+        manifest_layer["annotations"] = copy.deepcopy(source_layer["annotations"])
     manifest = {
         "schemaVersion": 2,
         "mediaType": "application/vnd.oci.image.manifest.v1+json",
@@ -1671,13 +1679,7 @@ def _valid_oci_archive(
             "digest": "sha256:" + config_hex,
             "size": len(config),
         },
-        "layers": [
-            {
-                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
-                "digest": "sha256:" + layer_hex,
-                "size": len(layer),
-            }
-        ],
+        "layers": [manifest_layer],
         "annotations": copy.deepcopy(record["manifest"]["annotations"]),
     }
     manifest_raw = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
@@ -1730,27 +1732,22 @@ def _valid_oci_archive(
         "blob_sha256": updated["config_digest"],
         "labels": copy.deepcopy(record["config"]["labels"]),
     }
-    updated["layers"] = [
-        {
-            "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
-            "digest": "sha256:" + layer_hex,
-            "size": len(layer),
-            "blob_sha256": "sha256:" + layer_hex,
-        }
-    ]
+    layer_record = {
+        "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+        "digest": "sha256:" + layer_hex,
+        "size": len(layer),
+        "blob_sha256": "sha256:" + layer_hex,
+    }
+    if "annotations" in manifest_layer:
+        layer_record["annotations"] = copy.deepcopy(manifest_layer["annotations"])
+    updated["layers"] = [layer_record]
     updated["content_identity"]["manifest_digest"] = updated["member_digest"]
     updated["content_identity"]["config_digest"] = updated["config_digest"]
     updated["content_identity"]["annotations"] = copy.deepcopy(
         updated["manifest"]["annotations"]
     )
     updated["content_identity"]["labels"] = copy.deepcopy(updated["config"]["labels"])
-    updated["content_identity"]["layers"] = [
-        {
-            "mediaType": updated["layers"][0]["media_type"],
-            "digest": updated["layers"][0]["digest"],
-            "size": updated["layers"][0]["size"],
-        }
-    ]
+    updated["content_identity"]["layers"] = [copy.deepcopy(manifest_layer)]
     identity_payload = {
         key: value
         for key, value in updated["content_identity"].items()
@@ -1817,6 +1814,46 @@ def _valid_oci_archive(
         {key: value for key, value in updated.items() if key != "record_sha256"}
     )
     return archive, updated
+
+
+def _member_with_buildkit_rewritten_timestamp() -> dict[str, object]:
+    """Project the descriptor annotation emitted by BuildKit v0.19.2."""
+    registry, _ = _modules()
+    record = copy.deepcopy(_publication_members()[0])
+    identity = record["content_identity"]
+    identity["created"] = "2026-08-10T09:22:50Z"
+    identity["history"][-1]["created"] = identity["created"]
+    identity["layers"][0]["annotations"] = {
+        "buildkit/rewritten-timestamp": "1786353770"
+    }
+    identity["content_identity_sha256"] = registry.sha256_value(
+        {
+            key: value
+            for key, value in identity.items()
+            if key != "content_identity_sha256"
+        }
+    )
+    record["content_identity_sha256"] = identity["content_identity_sha256"]
+    record["record_sha256"] = registry.sha256_value(
+        {key: value for key, value in record.items() if key != "record_sha256"}
+    )
+    return record
+
+
+def _rehash_member_content_identity(record: dict[str, object]) -> None:
+    registry, _ = _modules()
+    identity = record["content_identity"]
+    identity["content_identity_sha256"] = registry.sha256_value(
+        {
+            key: value
+            for key, value in identity.items()
+            if key != "content_identity_sha256"
+        }
+    )
+    record["content_identity_sha256"] = identity["content_identity_sha256"]
+    record["record_sha256"] = registry.sha256_value(
+        {key: value for key, value in record.items() if key != "record_sha256"}
+    )
 
 
 def test_inventory_and_anonymous_readback_use_real_subprocess_transport(
@@ -1967,6 +2004,141 @@ def test_protected_write_transport_rechecks_authority_and_exact_coordinates(
     events = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
     assert [item["args"][0] for item in events] == ["digest", "push", "digest"]
     assert Path(events[1]["args"][1]).name.startswith("ucm-oci-layout-")
+
+
+def test_buildkit_rewritten_timestamp_annotation_survives_member_push_projection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The exact BuildKit timestamp descriptor remains byte-bound through push."""
+    registry, _ = _modules()
+    crane, log = _fake_registry_tool(tmp_path)
+    monkeypatch.setenv("UCM_TRANSPORT_LOG", str(log))
+    monkeypatch.setattr(
+        registry.core, "tag_preflight", lambda **_: _protected_preflight()
+    )
+    monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: str(crane))
+    archive, member = _valid_oci_archive(
+        tmp_path, _member_with_buildkit_rewritten_timestamp()
+    )
+    release_schema = registry.load_json(
+        registry.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"
+    )
+    registry.validate_schema(
+        member,
+        {
+            "$schema": release_schema["$schema"],
+            "$defs": release_schema["$defs"],
+            "$ref": "#/$defs/registryMemberRecord",
+        },
+    )
+
+    result = registry.push_member_by_digest(
+        archive,
+        member,
+        lane="protected-tag",
+    )
+
+    expected_annotations = {"buildkit/rewritten-timestamp": "1786353770"}
+    assert member["content_identity"]["layers"][0]["annotations"] == (
+        expected_annotations
+    )
+    assert member["layers"][0]["annotations"] == expected_annotations
+    assert result["digest"] == member["member_digest"]
+    assert [
+        json.loads(line)["args"][0]
+        for line in log.read_text(encoding="utf-8").splitlines()
+    ] == ["digest", "push", "digest"]
+
+
+def test_annotated_registry_readback_preserves_exact_member_layer_descriptor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Authenticated readback retains the producer annotation for exact reopen."""
+    registry, _ = _modules()
+    archive, member = _valid_oci_archive(
+        tmp_path, _member_with_buildkit_rewritten_timestamp()
+    )
+    with registry.materialize_oci_layout(archive) as materialized:
+        manifest_raw = json.dumps(
+            materialized["manifest"], sort_keys=True, separators=(",", ":")
+        ).encode()
+        config_raw = json.dumps(
+            materialized["config"], sort_keys=True, separators=(",", ":")
+        ).encode()
+        layer_raw = (
+            materialized["layout_dir"]
+            / "blobs"
+            / "sha256"
+            / member["layers"][0]["digest"].removeprefix("sha256:")
+        ).read_bytes()
+    crane = tmp_path / "crane"
+    crane.write_text(
+        f"""#!/usr/bin/env python3
+import sys
+operation = sys.argv[1]
+reference = sys.argv[-1]
+if operation == "digest":
+    print({member['member_digest']!r})
+elif operation == "manifest":
+    sys.stdout.buffer.write(bytes.fromhex({manifest_raw.hex()!r}))
+elif operation == "blob":
+    raw = bytes.fromhex({config_raw.hex()!r}) if reference.endswith({member['config_digest']!r}) else bytes.fromhex({layer_raw.hex()!r})
+    sys.stdout.buffer.write(raw)
+else:
+    raise SystemExit(77)
+""",
+        encoding="utf-8",
+    )
+    crane.chmod(0o755)
+    monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: str(crane))
+
+    reference = registry.STAGING_REPOSITORY + "@" + member["member_digest"]
+    readback = registry.readback_reference(reference)
+    member["readback_sha256"] = readback["readback_sha256"]
+    _rehash_publication_record(member)
+
+    assert readback["layers"][0]["annotations"] == {
+        "buildkit/rewritten-timestamp": "1786353770"
+    }
+    assert registry.verify_member_readback(member, readback) == member
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("unknown-descriptor-key", "descriptor fields"),
+        ("unknown-annotation", "descriptor annotations"),
+        ("non-string", "rewritten timestamp annotation"),
+        ("non-decimal", "rewritten timestamp annotation"),
+        ("created-mismatch", "differs from created"),
+    ],
+)
+def test_buildkit_rewritten_timestamp_annotation_rejects_noncanonical_variants(
+    mutation: str, message: str
+) -> None:
+    """Only the one exact decimal annotation matching config.created is accepted."""
+    registry, _ = _modules()
+    member = _member_with_buildkit_rewritten_timestamp()
+    identity_layer = member["content_identity"]["layers"][0]
+    record_layer = member["layers"][0]
+    if mutation == "unknown-descriptor-key":
+        identity_layer["urls"] = ["https://example.invalid/layer"]
+    elif mutation == "unknown-annotation":
+        identity_layer["annotations"]["buildkit/unknown"] = "1786353770"
+        record_layer["annotations"] = copy.deepcopy(identity_layer["annotations"])
+    elif mutation == "non-string":
+        identity_layer["annotations"]["buildkit/rewritten-timestamp"] = 1786353770
+        record_layer["annotations"] = copy.deepcopy(identity_layer["annotations"])
+    elif mutation == "non-decimal":
+        identity_layer["annotations"]["buildkit/rewritten-timestamp"] = "0x6a78b5aa"
+        record_layer["annotations"] = copy.deepcopy(identity_layer["annotations"])
+    else:
+        identity_layer["annotations"]["buildkit/rewritten-timestamp"] = "1786353771"
+        record_layer["annotations"] = copy.deepcopy(identity_layer["annotations"])
+    _rehash_member_content_identity(member)
+
+    with pytest.raises(ValueError, match=message):
+        registry.validate_member_record(member)
 
 
 def test_loopback_registry_contract_uses_tiny_scratch_manifests_only() -> None:
@@ -4210,7 +4382,9 @@ def test_publish_member_rederives_record_from_image_result_and_registry_bytes(
     """A caller cannot supply the publication record that authorizes its own write."""
     registry, verify = _modules()
     image = importlib.import_module("ucm_release.image")
-    archive, expected = _valid_oci_archive(tmp_path, _publication_members()[0])
+    archive, expected = _valid_oci_archive(
+        tmp_path, _member_with_buildkit_rewritten_timestamp()
+    )
     image_result = {
         "candidate_kind": "real-candidate",
         "unpublished": True,
@@ -4367,6 +4541,9 @@ else:
 
     assert record["member_digest"] == expected["member_digest"]
     assert record["image_result_sha256"] == expected["image_result_sha256"]
+    assert record["layers"][0]["annotations"] == {
+        "buildkit/rewritten-timestamp": "1786353770"
+    }
     assert record["prewrite_visibility_evidence_sha256"].startswith("sha256:")
     assert registry.validate_member_record(record) == record
     assert {item["type"] for item in record["operations"]} >= {

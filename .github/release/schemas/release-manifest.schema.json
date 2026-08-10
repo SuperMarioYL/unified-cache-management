@@ -119,6 +119,14 @@
         "external_admin_atomicity": {"const": "unavailable"}
       }
     },
+    "buildkitLayerAnnotations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["buildkit/rewritten-timestamp"],
+      "properties": {
+        "buildkit/rewritten-timestamp": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)$"}
+      }
+    },
     "registryLayer": {
       "type": "object",
       "additionalProperties": false,
@@ -127,7 +135,8 @@
         "media_type": {"enum": ["application/vnd.oci.image.layer.v1.tar", "application/vnd.oci.image.layer.v1.tar+gzip", "application/vnd.docker.image.rootfs.diff.tar.gzip"]},
         "digest": {"$ref": "#/$defs/digest"},
         "size": {"type": "integer", "minimum": 1},
-        "blob_sha256": {"$ref": "#/$defs/digest"}
+        "blob_sha256": {"$ref": "#/$defs/digest"},
+        "annotations": {"$ref": "#/$defs/buildkitLayerAnnotations"}
       }
     },
     "registryMemberAnnotations": {
@@ -184,7 +193,8 @@
             "properties": {
               "mediaType": {"type": "string", "pattern": "^application/vnd\\."},
               "digest": {"$ref": "#/$defs/digest"},
-              "size": {"type": "integer", "minimum": 1}
+              "size": {"type": "integer", "minimum": 1},
+              "annotations": {"$ref": "#/$defs/buildkitLayerAnnotations"}
             }
           }
         },

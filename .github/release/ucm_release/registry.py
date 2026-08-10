@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import datetime as dt
 import hashlib
 import json
 import os
@@ -265,6 +266,8 @@ CONTENT_IDENTITY_SOURCE_KEYS = {
     "archive_sha256",
     "context_sha256",
 }
+CONTENT_IDENTITY_LAYER_KEYS = {"mediaType", "digest", "size"}
+BUILDKIT_REWRITTEN_TIMESTAMP_ANNOTATION = "buildkit/rewritten-timestamp"
 SOURCE_REPOSITORY_URL = "https://github.com/SuperMarioYL/unified-cache-management"
 
 
@@ -274,6 +277,49 @@ class RegistryBlocker(ValueError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+def _created_epoch(value: object, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", value
+        )
+        is None
+    ):
+        raise ValueError(f"{label} created timestamp is invalid")
+    try:
+        parsed = dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=dt.timezone.utc
+        )
+    except ValueError as error:
+        raise ValueError(f"{label} created timestamp is invalid") from error
+    return str(int(parsed.timestamp()))
+
+
+def _validate_layer_descriptor_annotations(
+    descriptor: dict[str, Any], *, created: object, label: str
+) -> dict[str, str] | None:
+    """Validate the pinned release producer contract, not generic OCI metadata."""
+    allowed_keys = CONTENT_IDENTITY_LAYER_KEYS | {"annotations"}
+    if set(descriptor) not in (CONTENT_IDENTITY_LAYER_KEYS, allowed_keys):
+        raise ValueError(f"{label} descriptor fields are invalid")
+    if "annotations" not in descriptor:
+        return None
+    annotations = descriptor["annotations"]
+    if not isinstance(annotations, dict) or set(annotations) != {
+        BUILDKIT_REWRITTEN_TIMESTAMP_ANNOTATION
+    }:
+        raise ValueError(f"{label} descriptor annotations are invalid")
+    timestamp = annotations[BUILDKIT_REWRITTEN_TIMESTAMP_ANNOTATION]
+    if (
+        not isinstance(timestamp, str)
+        or re.fullmatch(r"(?:0|[1-9][0-9]*)", timestamp) is None
+    ):
+        raise ValueError(f"{label} rewritten timestamp annotation is invalid")
+    if timestamp != _created_epoch(created, label):
+        raise ValueError(f"{label} rewritten timestamp differs from created")
+    return copy.deepcopy(annotations)
 
 
 def _collision_model_evidence() -> dict[str, Any]:
@@ -1528,14 +1574,34 @@ def _validate_member_content_identity(record: dict[str, Any]) -> dict[str, Any]:
         or identity["recipe_sha256"] != record["recipe_sha256"]
     ):
         raise ValueError("member content identity differs from OCI publication")
-    expected_layers = [
-        {
+    identity_layers = identity["layers"]
+    if not isinstance(identity_layers, list) or not identity_layers:
+        raise ValueError("member content identity layer descriptors are invalid")
+    for position, layer in enumerate(identity_layers):
+        if not isinstance(layer, dict):
+            raise ValueError(
+                f"member content identity layer {position} descriptor is invalid"
+            )
+        _validate_layer_descriptor_annotations(
+            layer,
+            created=identity["created"],
+            label=f"member content identity layer {position}",
+        )
+    expected_layers = []
+    for position, layer in enumerate(record["layers"]):
+        projected = {
             "mediaType": layer["media_type"],
             "digest": layer["digest"],
             "size": layer["size"],
         }
-        for layer in record["layers"]
-    ]
+        if "annotations" in layer:
+            projected["annotations"] = copy.deepcopy(layer["annotations"])
+        _validate_layer_descriptor_annotations(
+            projected,
+            created=identity["created"],
+            label=f"member content identity layer {position}",
+        )
+        expected_layers.append(projected)
     if identity["layers"] != expected_layers:
         raise ValueError("member content identity layer descriptors differ")
     diff_ids = identity["diff_ids"]
@@ -1565,14 +1631,9 @@ def _validate_member_content_identity(record: dict[str, Any]) -> dict[str, Any]:
     }
     if any(labels.get(key) != value for key, value in expected_release_labels.items()):
         raise ValueError("member content identity release labels are invalid")
+    _created_epoch(identity["created"], "member content identity")
     if (
-        not isinstance(identity["created"], str)
-        or re.fullmatch(
-            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z",
-            identity["created"],
-        )
-        is None
-        or not isinstance(identity["history"], list)
+        not isinstance(identity["history"], list)
         or not identity["history"]
         or any(not isinstance(item, dict) for item in identity["history"])
     ):
@@ -1712,12 +1773,16 @@ def validate_member_record(record: object) -> dict[str, Any]:
     if not isinstance(layers, list) or not layers:
         raise ValueError("member publication requires at least one content layer")
     for position, layer in enumerate(layers):
-        if not isinstance(layer, dict) or set(layer) != {
+        allowed_layer_keys = {
             "media_type",
             "digest",
             "size",
             "blob_sha256",
-        }:
+        }
+        if not isinstance(layer, dict) or set(layer) not in (
+            allowed_layer_keys,
+            allowed_layer_keys | {"annotations"},
+        ):
             raise ValueError(f"member layer {position} closure is malformed")
         if (
             not isinstance(layer["media_type"], str)
@@ -1729,6 +1794,18 @@ def validate_member_record(record: object) -> dict[str, Any]:
             or layer["size"] < 1
         ):
             raise ValueError(f"member layer {position} content closure is invalid")
+        projected = {
+            "mediaType": layer["media_type"],
+            "digest": layer["digest"],
+            "size": layer["size"],
+        }
+        if "annotations" in layer:
+            projected["annotations"] = copy.deepcopy(layer["annotations"])
+        _validate_layer_descriptor_annotations(
+            projected,
+            created=record["content_identity"]["created"],
+            label=f"member layer {position}",
+        )
     _validate_member_content_identity(record)
     _validate_collision_model(record["collision_model"], "member")
     _validate_member_operations(record)
@@ -2307,6 +2384,8 @@ def _descriptor_closure(
     crane_binary: str,
     environment: dict[str, str] | None,
     retain_raw: bool,
+    project_layer_annotations: bool = False,
+    created: object | None = None,
 ) -> tuple[dict[str, Any], bytes | None]:
     if not isinstance(descriptor, dict):
         raise ValueError(f"{label} descriptor must be an object")
@@ -2360,12 +2439,19 @@ def _descriptor_closure(
         observed = "sha256:" + hasher.hexdigest()
     if observed != digest or observed_size != size:
         raise ValueError(f"{label} blob bytes differ from descriptor")
-    return {
+    closure = {
         "media_type": media_type,
         "digest": digest,
         "size": observed_size,
         "blob_sha256": observed,
-    }, raw
+    }
+    if project_layer_annotations:
+        annotations = _validate_layer_descriptor_annotations(
+            descriptor, created=created, label=label
+        )
+        if annotations is not None:
+            closure["annotations"] = annotations
+    return closure, raw
 
 
 def _missing_manifest(result: subprocess.CompletedProcess[str]) -> bool:
@@ -2559,6 +2645,8 @@ def readback_reference(
                     crane_binary=executable,
                     environment=environment,
                     retain_raw=False,
+                    project_layer_annotations=True,
+                    created=config_json.get("created"),
                 )
                 layers.append(closure)
                 closure_operations.append(
@@ -3019,14 +3107,15 @@ def _validate_image_result_content_identity(result: dict[str, Any]) -> dict[str,
     ):
         raise ValueError("image result content identity layer closure is invalid")
     for position, (layer, diff_id) in enumerate(zip(layers, diff_ids, strict=True)):
-        if not isinstance(layer, dict) or set(layer) != {
-            "mediaType",
-            "digest",
-            "size",
-        }:
+        if not isinstance(layer, dict):
             raise ValueError(
                 f"image result content identity layer {position} is invalid"
             )
+        _validate_layer_descriptor_annotations(
+            layer,
+            created=identity.get("created"),
+            label=f"image result content identity layer {position}",
+        )
         _digest(layer["digest"], f"image result content layer {position}")
         _digest(diff_id, f"image result content diff-id {position}")
         if (
@@ -3039,14 +3128,9 @@ def _validate_image_result_content_identity(result: dict[str, Any]) -> dict[str,
             raise ValueError(
                 f"image result content identity layer {position} is invalid"
             )
+    _created_epoch(identity.get("created"), "image result content identity")
     if (
-        not isinstance(identity.get("created"), str)
-        or re.fullmatch(
-            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z",
-            identity["created"],
-        )
-        is None
-        or not isinstance(identity.get("history"), list)
+        not isinstance(identity.get("history"), list)
         or not identity["history"]
         or any(not isinstance(item, dict) for item in identity["history"])
     ):
@@ -3156,15 +3240,17 @@ def publish_member(
             "blob_sha256": materialized["config_digest"],
             "labels": copy.deepcopy(config.get("config", {}).get("Labels", {})),
         }
-        layer_records = [
-            {
+        layer_records = []
+        for item in expected_layers:
+            layer_record = {
                 "media_type": item["mediaType"],
                 "digest": item["digest"],
                 "size": item["size"],
                 "blob_sha256": item["digest"],
             }
-            for item in expected_layers
-        ]
+            if "annotations" in item:
+                layer_record["annotations"] = copy.deepcopy(item["annotations"])
+            layer_records.append(layer_record)
 
     tag_result = _apply_digest_tag(
         repository=STAGING_REPOSITORY,
@@ -3247,6 +3333,11 @@ def push_member_by_digest(
                     "mediaType": item["media_type"],
                     "digest": item["digest"],
                     "size": item["size"],
+                    **(
+                        {"annotations": copy.deepcopy(item["annotations"])}
+                        if "annotations" in item
+                        else {}
+                    ),
                 }
                 for item in record["layers"]
             ]
