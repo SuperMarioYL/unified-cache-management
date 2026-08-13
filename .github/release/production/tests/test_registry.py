@@ -173,6 +173,14 @@ class FakeRegistry:
         digest = descriptor["digest"]
         repository = self.repository(target)
         source_blobs = layout / "blobs" / "sha256"
+        if index:
+            index_manifest = json.loads(
+                (source_blobs / digest.removeprefix("sha256:")).read_text()
+            )
+            for child in index_manifest["manifests"]:
+                child_path = source_blobs / child["digest"].removeprefix("sha256:")
+                if not child_path.is_file():
+                    raise ProductionError("index layout is missing a child manifest")
         for path in source_blobs.iterdir():
             self.blobs[f"{repository}@sha256:{path.name}"] = path.read_bytes()
         self.manifests[f"{repository}@{digest}"] = self.blobs[f"{repository}@{digest}"]
@@ -411,6 +419,42 @@ def test_index_rejects_duplicate_or_wrong_family_members(tmp_path: Path) -> None
                 tag="v0.6.0rc1",
                 source_sha=SOURCE,
                 members=(record, record),
+                visibility="public",
+            ),
+            transport,
+        )
+
+
+def test_index_rejects_child_manifest_different_from_member_evidence(
+    tmp_path: Path,
+) -> None:
+    transport = FakeRegistry()
+    amd64 = _member_request(tmp_path / "amd64")
+    arm_layout, arm_closure = _layout(tmp_path / "arm64", "cuda130-arm64")
+    arm64 = MemberPublishRequest(
+        stage="rc",
+        spec_id="cuda130-arm64",
+        repository=amd64.repository,
+        tag="v0.6.0rc1-arm64",
+        layout=arm_layout,
+        closure=arm_closure,
+        visibility="public",
+    )
+    amd64_record = publish_member(amd64, transport)
+    arm64_record = publish_member(arm64, transport)
+    amd64_record["authenticated_readback"]["manifest"]["annotations"][
+        "org.opencontainers.image.version"
+    ] = "tampered"
+
+    with pytest.raises(ProductionError, match="authenticated member evidence"):
+        publish_index(
+            IndexPublishRequest(
+                stage="rc",
+                profile_id="cuda130",
+                repository=amd64.repository,
+                tag="v0.6.0rc1",
+                source_sha=SOURCE,
+                members=(amd64_record, arm64_record),
                 visibility="public",
             ),
             transport,
