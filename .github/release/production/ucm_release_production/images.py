@@ -151,18 +151,24 @@ def _safe_extract(archive_path: Path, destination: Path) -> None:
             names: set[str] = set()
             for member in archive.getmembers():
                 path = Path(member.name)
+                canonical_name = path.as_posix()
                 if (
-                    not member.isfile()
-                    or member.issym()
+                    member.issym()
                     or member.islnk()
                     or path.is_absolute()
                     or ".." in path.parts
-                    or member.name in names
+                    or canonical_name in {"", "."}
+                    or canonical_name in names
                     or any(ord(char) < 32 or ord(char) == 127 for char in member.name)
                 ):
                     raise ProductionError("OCI archive contains an unsafe member")
-                names.add(member.name)
+                names.add(canonical_name)
                 target = destination / member.name
+                if member.isdir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+                if not member.isfile():
+                    raise ProductionError("OCI archive contains an unsafe member")
                 target.parent.mkdir(parents=True, exist_ok=True)
                 stream = archive.extractfile(member)
                 if stream is None:

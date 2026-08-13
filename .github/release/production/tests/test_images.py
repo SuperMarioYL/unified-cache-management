@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import io
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -9,7 +11,11 @@ import pytest
 from ucm_release_production.build import project_build_task
 from ucm_release_production.common import ProductionError, sha256_envelope
 from ucm_release_production.config import load_config
-from ucm_release_production.images import image_recipe, prepare_image_context
+from ucm_release_production.images import (
+    extract_oci_archive,
+    image_recipe,
+    prepare_image_context,
+)
 from ucm_release_production.tags import intent_document, parse_tag
 
 from conftest import PRODUCTION_ROOT
@@ -25,6 +31,25 @@ def test_production_image_dockerfile_starts_cleanup_as_a_new_instruction() -> No
     )
 
     assert "\nPY\nRUN rm -rf /wheelhouse\n" in dockerfile
+
+
+def test_extract_oci_archive_accepts_buildkit_directory_members(tmp_path: Path) -> None:
+    archive_path = tmp_path / "image.oci"
+    blob_name = "blobs/sha256/" + "1" * 64
+    blob = b"sealed-oci-blob"
+    with tarfile.open(archive_path, "w:") as archive:
+        for name in ("blobs", "blobs/sha256"):
+            member = tarfile.TarInfo(name)
+            member.type = tarfile.DIRTYPE
+            archive.addfile(member)
+        member = tarfile.TarInfo(blob_name)
+        member.size = len(blob)
+        archive.addfile(member, io.BytesIO(blob))
+
+    output = tmp_path / "layout"
+    extract_oci_archive(archive_path, output)
+
+    assert (output / blob_name).read_bytes() == blob
 
 
 def _source() -> dict[str, object]:
