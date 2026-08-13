@@ -539,7 +539,7 @@ jobs:
             --output out/channels.json
           PYTHONPATH=control/.github/release/production python -m ucm_release_production evidence assemble \
             --identity input/preflight/trusted-identity.json \
-            --candidate input/preflight/verified-envelope.json \
+            --candidate input/preflight/reopened/verified-envelope.json \
             --environment input/release/environment.json --channels out/channels.json \
             --output out/evidence.json
           PYTHONPATH=control/.github/release/production python -m ucm_release_production evidence summary \
