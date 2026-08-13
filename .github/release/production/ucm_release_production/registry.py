@@ -143,12 +143,15 @@ def _descriptor(
     label: str,
     media_types: set[str] | None = None,
     require_platform: bool = False,
+    allow_annotations: bool = False,
 ) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ProductionError(f"{label} descriptor must be an object")
-    allowed = {"mediaType", "digest", "size"} | (
-        {"platform", "annotations"} if require_platform else set()
-    )
+    allowed = {"mediaType", "digest", "size"}
+    if require_platform:
+        allowed.add("platform")
+    if require_platform or allow_annotations:
+        allowed.add("annotations")
     if set(value) - allowed or not {"mediaType", "digest", "size"} <= set(value):
         raise ProductionError(f"{label} descriptor fields are invalid")
     media_type = value["mediaType"]
@@ -168,6 +171,7 @@ def _descriptor(
             "arm64",
         }:
             raise ProductionError(f"{label} descriptor platform is invalid")
+    if require_platform or allow_annotations:
         annotations = value.get("annotations")
         if annotations is not None and (
             not isinstance(annotations, dict)
@@ -260,7 +264,11 @@ def _single_readback(
             raise ProductionError("OCI manifest must contain non-empty layers")
         layers: list[dict[str, Any]] = []
         for position, value in enumerate(layer_values):
-            layer = _descriptor(value, label=f"registry layer {position}")
+            layer = _descriptor(
+                value,
+                label=f"registry layer {position}",
+                allow_annotations=True,
+            )
             if not (
                 layer["mediaType"].startswith(_OCI_LAYER_PREFIX)
                 or layer["mediaType"] == _HELM_LAYER
@@ -442,7 +450,11 @@ def _validate_member_layout(request: MemberPublishRequest) -> dict[str, Any]:
         raise ProductionError("member manifest layers are invalid")
     layers: list[dict[str, Any]] = []
     for position, value in enumerate(layer_values):
-        layer = _descriptor(value, label=f"member layer {position}")
+        layer = _descriptor(
+            value,
+            label=f"member layer {position}",
+            allow_annotations=True,
+        )
         if not layer["mediaType"].startswith(_OCI_LAYER_PREFIX):
             raise ProductionError("member layer media type is invalid")
         _layout_blob(root, layer, f"member layer {position}")
