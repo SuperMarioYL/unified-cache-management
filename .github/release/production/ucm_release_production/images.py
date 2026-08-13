@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import shutil
 import tarfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -289,6 +290,15 @@ def inspect_oci_layout(
         raise ProductionError("OCI config labels differ from production recipe")
     layers_value = manifest.get("layers")
     diff_ids = config.get("rootfs", {}).get("diff_ids")
+    created = config.get("created")
+    try:
+        created_epoch = int(
+            datetime.strptime(created, "%Y-%m-%dT%H:%M:%SZ")
+            .replace(tzinfo=timezone.utc)
+            .timestamp()
+        )
+    except (TypeError, ValueError, OverflowError):
+        raise ProductionError("OCI config created time is invalid") from None
     if (
         not isinstance(layers_value, list)
         or not layers_value
@@ -304,7 +314,7 @@ def inspect_oci_layout(
         annotations = descriptor.pop("annotations", None)
         diff_id = require_sha256_digest(diff_ids[position], f"OCI diff-ID {position}")
         if annotations is not None and annotations != {
-            "containerd.io/uncompressed": diff_id
+            "buildkit/rewritten-timestamp": str(created_epoch)
         }:
             raise ProductionError("OCI layer annotations differ from config diff-ID")
         raw = _blob(root, descriptor, f"OCI layer {position}")

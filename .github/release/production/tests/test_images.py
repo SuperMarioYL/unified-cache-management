@@ -58,7 +58,7 @@ def test_extract_oci_archive_accepts_buildkit_directory_members(tmp_path: Path) 
     assert (output / blob_name).read_bytes() == blob
 
 
-def test_inspect_oci_layout_accepts_buildkit_uncompressed_layer_annotation(
+def test_inspect_oci_layout_accepts_buildkit_rewritten_timestamp_annotation(
     tmp_path: Path,
 ) -> None:
     config = load_config(CONFIG)
@@ -69,7 +69,9 @@ def test_inspect_oci_layout_accepts_buildkit_uncompressed_layer_annotation(
     layer = b"production-layer"
     layer_digest = "sha256:" + hashlib.sha256(layer).hexdigest()
     diff_id = "sha256:" + "7" * 64
+    source_date_epoch = 1786633566
     image_config = {
+        "created": "2026-08-13T15:06:06Z",
         "rootfs": {"type": "layers", "diff_ids": [diff_id]},
         "config": {
             "Labels": {
@@ -97,7 +99,7 @@ def test_inspect_oci_layout_accepts_buildkit_uncompressed_layer_annotation(
                 "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
                 "digest": layer_digest,
                 "size": len(layer),
-                "annotations": {"containerd.io/uncompressed": diff_id},
+                "annotations": {"buildkit/rewritten-timestamp": str(source_date_epoch)},
             }
         ],
         "annotations": {
