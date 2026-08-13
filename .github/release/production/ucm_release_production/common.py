@@ -106,6 +106,13 @@ def require_lower_commit_sha(value: object, label: str) -> str:
     return value
 
 
+def require_sha256_digest(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value.startswith("sha256:"):
+        raise ProductionError(f"{label} must be sha256:<64 lowercase hex>")
+    require_lower_sha256(value.removeprefix("sha256:"), label)
+    return value
+
+
 def require_posix_path(value: object, label: str) -> str:
     path = require_string(value, label)
     if "\\" in path or path.startswith("/") or path.endswith("/"):

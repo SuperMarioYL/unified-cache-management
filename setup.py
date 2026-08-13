@@ -71,7 +71,7 @@ def _release_authority() -> dict[str, object]:
         authority = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise RuntimeError(f"release authority is invalid JSON: {error}") from error
-    fields = {
+    common_fields = {
         "schema_version",
         "kind",
         "spec_id",
@@ -92,7 +92,17 @@ def _release_authority() -> dict[str, object]:
         "forbidden_native",
         "build_context_sha256",
     }
-    if not isinstance(authority, dict) or set(authority) != fields:
+    if not isinstance(authority, dict):
+        raise RuntimeError("release authority must be a JSON object")
+    schema_version = authority.get("schema_version")
+    if type(schema_version) is not int or schema_version not in {1, 2}:
+        raise RuntimeError("release authority schema_version must be 1 or 2")
+    fields = (
+        common_fields
+        if schema_version == 1
+        else common_fields | {"distribution", "base_version", "stage"}
+    )
+    if set(authority) != fields:
         raise RuntimeError("release authority fields are not exact")
     canonical = json.dumps(
         authority, sort_keys=True, separators=(",", ":"), ensure_ascii=False
@@ -100,8 +110,7 @@ def _release_authority() -> dict[str, object]:
     if raw != canonical + b"\n":
         raise RuntimeError("release authority is noncanonical")
     if (
-        authority["schema_version"] != 1
-        or authority["kind"] != "ucm-native-build-authority"
+        authority["kind"] != "ucm-native-build-authority"
         or re.fullmatch(r"[0-9a-f]{40}", str(authority["source_sha"])) is None
         or re.fullmatch(r"[0-9a-f]{40}", str(authority["source_tree"])) is None
         or re.fullmatch(r"sha256:[0-9a-f]{64}", str(authority["source_archive_sha256"]))
@@ -132,6 +141,25 @@ def _release_authority() -> dict[str, object]:
         )
     ):
         raise RuntimeError("release authority tool wheel evidence is invalid")
+    if schema_version == 2:
+        distributions = {
+            "cuda130": "uc-manager-cuda",
+            "cann900-a2": "uc-manager-cann-a2",
+            "cann900-a3": "uc-manager-cann-a3",
+        }
+        profile = authority["profile_id"]
+        if (
+            profile not in distributions
+            or authority["distribution"] != distributions[profile]
+            or re.fullmatch(
+                r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)",
+                str(authority["base_version"]),
+                re.ASCII,
+            )
+            is None
+            or authority["stage"] not in {"draft", "rc", "stable", "hotfix"}
+        ):
+            raise RuntimeError("release authority production distribution is invalid")
     return authority
 
 
@@ -159,13 +187,44 @@ def _release_settings() -> dict[str, object] | None:
         raise RuntimeError(
             f"PLATFORM={PLATFORM!r} is inconsistent with release profile {profile!r}"
         )
-    expected_suffix = profile.replace("-a", ".a")
     source_version = get_source_version()
-    if version != f"{source_version}+{expected_suffix}":
-        raise RuntimeError(
-            f"release version {version!r} is inconsistent with {source_version!r} "
-            f"and profile {profile!r}"
-        )
+    if authority["schema_version"] == 1:
+        if os.getenv("UCM_RELEASE_DISTRIBUTION") is not None:
+            raise RuntimeError(
+                "UCM_RELEASE_DISTRIBUTION is not valid for schema-v1 authority"
+            )
+        distribution = "uc-manager"
+        expected_suffix = profile.replace("-a", ".a")
+        if version != f"{source_version}+{expected_suffix}":
+            raise RuntimeError(
+                f"release version {version!r} is inconsistent with "
+                f"{source_version!r} and profile {profile!r}"
+            )
+    else:
+        distribution = _required_release_value("UCM_RELEASE_DISTRIBUTION")
+        if distribution != authority["distribution"]:
+            raise RuntimeError(
+                "release distribution differs from reviewed build authority"
+            )
+        base_version = str(authority["base_version"])
+        if source_version != base_version:
+            raise RuntimeError(
+                "production base_version differs from version.ini source authority"
+            )
+        escaped = re.escape(base_version)
+        stage_patterns = {
+            "draft": rf"{escaped}\.dev[1-9][0-9]*",
+            "rc": rf"{escaped}rc[1-9][0-9]*",
+            "stable": escaped,
+            "hotfix": escaped,
+        }
+        if (
+            re.fullmatch(stage_patterns[str(authority["stage"])], version, re.ASCII)
+            is None
+        ):
+            raise RuntimeError(
+                "production release version is inconsistent with stage and base version"
+            )
     if re.fullmatch(r"[0-9a-f]{40}", source_sha) is None:
         raise RuntimeError("UCM_RELEASE_SOURCE_SHA must be a full lowercase Git commit")
     if re.fullmatch(r"sha256:[0-9a-f]{64}", build_key) is None:
@@ -206,6 +265,13 @@ def _release_settings() -> dict[str, object] | None:
         "required targets": (required, authority["required_native"]),
         "forbidden targets": (forbidden, authority["forbidden_native"]),
     }
+    if authority["schema_version"] == 2:
+        authority_values.update(
+            {
+                "distribution": (distribution, authority["distribution"]),
+                "base version": (source_version, authority["base_version"]),
+            }
+        )
     mismatches = [
         name
         for name, (actual, expected) in authority_values.items()
@@ -230,6 +296,9 @@ def _release_settings() -> dict[str, object] | None:
         "architecture": architecture,
         "spec_id": f"{profile}-{architecture}",
         "build_context_sha256": authority["build_context_sha256"],
+        "distribution": distribution,
+        "authority_schema_version": authority["schema_version"],
+        "stage": authority.get("stage"),
     }
 
 
@@ -240,6 +309,12 @@ def get_release_version() -> str:
     if RELEASE_SETTINGS is not None:
         return str(RELEASE_SETTINGS["version"])
     return get_source_version()
+
+
+def get_release_distribution() -> str:
+    if RELEASE_SETTINGS is not None:
+        return str(RELEASE_SETTINGS["distribution"])
+    return "uc-manager"
 
 
 def get_abi_flag_from_env() -> str:
@@ -474,7 +549,7 @@ def inject_pth():
 
 
 setup(
-    name="uc-manager",
+    name=get_release_distribution(),
     version=get_release_version(),
     description="Unified Cache Management",
     author="Unified Cache Team",
