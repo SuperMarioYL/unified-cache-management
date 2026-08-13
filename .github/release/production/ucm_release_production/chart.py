@@ -78,8 +78,20 @@ def package_chart(
     output_dir = Path(output_dir)
     if not chart_dir.is_dir() or chart_dir.is_symlink():
         raise ProductionError("Chart source must be a real directory")
-    _run(["helm", "lint", str(chart_dir)])
-    _run(["helm", "template", "ucm-production", str(chart_dir)])
+    validation_values = chart_dir / "models" / "cuda" / "values-qwen3-0p6b-1e1.yaml"
+    if not validation_values.is_file() or validation_values.is_symlink():
+        raise ProductionError("Chart validation values must be a real file")
+    validation_args = ["--values", str(validation_values)]
+    _run(["helm", "lint", str(chart_dir), *validation_args])
+    _run(
+        [
+            "helm",
+            "template",
+            "ucm-production",
+            str(chart_dir),
+            *validation_args,
+        ]
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     filename = f"unified-cache-pd-{chart_version}.tgz"
     destination = output_dir / filename
@@ -98,7 +110,7 @@ def package_chart(
             ]
         )
         _repack(Path(temporary) / filename, destination)
-    _run(["helm", "lint", str(destination)])
+    _run(["helm", "lint", str(destination), *validation_args])
     record = sha256_envelope(
         {
             "kind": "ucm-production-chart-record",
