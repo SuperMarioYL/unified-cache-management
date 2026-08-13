@@ -45,6 +45,9 @@
     "environment_status": {"enum": ["passed", "waived-for-preview"]},
     "asset_count": {"const": 11},
     "assets": {"type": "array", "minItems": 11, "maxItems": 11, "items": {"type": "object"}},
+    "distribution": {"enum": ["uc-manager-cuda", "uc-manager-cann-a2", "uc-manager-cann-a3"]},
+    "filename": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+\\.whl$"},
+    "source_reference": {"type": "string", "pattern": "^ghcr\\.io/.+@sha256:[0-9a-f]{64}$"},
     "authenticated_readback": {"type": "object"},
     "anonymous_readback": {"type": "object"},
     "operations": {"type": "array", "items": {"type": "object"}},
@@ -75,6 +78,14 @@
         "required": ["repository", "release_id", "release_state", "tag_name", "source_sha", "candidate_sha256", "environment_status", "asset_count", "assets"],
         "properties": {"repository": {"pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$"}}
       }
+    },
+    {
+      "if": {"properties": {"channel": {"const": "pypi"}}, "required": ["channel"]},
+      "then": {"required": ["distribution", "version", "filename", "file_sha256"]}
+    },
+    {
+      "if": {"properties": {"channel": {"const": "docker-hub"}}, "required": ["channel"]},
+      "then": {"required": ["profile_id", "source_reference", "manifest_digest"]}
     }
   ],
   "$defs": {

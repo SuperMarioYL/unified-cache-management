@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import copy
 
 import pytest
 
@@ -79,6 +80,31 @@ def test_config_has_exact_product_and_profile_closure() -> None:
     assert config["channels"]["draft"]["image_visibility"] == "private"
     assert config["channels"]["rc"]["image_visibility"] == "public"
     assert config["external_channels"] == {"docker_hub": False, "pypi": False}
+
+
+def test_config_accepts_only_explicit_external_channel_coordinates() -> None:
+    config = copy.deepcopy(load_config(CONFIG))
+    config["external_channels"] = {
+        "pypi": {
+            "repository": "https://upload.pypi.org/legacy/",
+            "trusted_publisher": "github-oidc",
+        },
+        "docker_hub": {
+            "namespace": "explicit-owner",
+            "repositories": {
+                "cuda130": "ucm-cuda",
+                "cann900-a2": "ucm-cann-a2",
+                "cann900-a3": "ucm-cann-a3",
+            },
+        },
+    }
+
+    from ucm_release_production.config import validate_config
+
+    assert validate_config(config)["external_channels"] == config["external_channels"]
+    config["external_channels"]["docker_hub"]["namespace"] = "CurrentOwner"
+    with pytest.raises(ProductionError, match="namespace"):
+        validate_config(config)
 
 
 @pytest.mark.parametrize(

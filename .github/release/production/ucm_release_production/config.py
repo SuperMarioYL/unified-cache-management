@@ -198,6 +198,46 @@ def _validate_channels(config: dict[str, Any]) -> None:
             raise ProductionError(f"channels.{name}.environment_test is invalid")
 
 
+def _validate_external_channels(config: dict[str, Any]) -> None:
+    external = _object(config["external_channels"], "external_channels")
+    require_exact_keys(external, {"docker_hub", "pypi"}, "external_channels")
+    pypi = external["pypi"]
+    if pypi is not False:
+        item = _object(pypi, "external_channels.pypi")
+        require_exact_keys(
+            item,
+            {"repository", "trusted_publisher"},
+            "external_channels.pypi",
+        )
+        if item != {
+            "repository": "https://upload.pypi.org/legacy/",
+            "trusted_publisher": "github-oidc",
+        }:
+            raise ProductionError("PyPI external channel must use GitHub OIDC")
+    docker = external["docker_hub"]
+    if docker is not False:
+        item = _object(docker, "external_channels.docker_hub")
+        require_exact_keys(
+            item,
+            {"namespace", "repositories"},
+            "external_channels.docker_hub",
+        )
+        namespace = require_string(item["namespace"], "Docker Hub namespace")
+        if re.fullmatch(r"[a-z0-9]+(?:[._-][a-z0-9]+)*", namespace, re.ASCII) is None:
+            raise ProductionError("Docker Hub namespace is invalid")
+        repositories = _object(
+            item["repositories"], "external_channels.docker_hub.repositories"
+        )
+        require_exact_keys(repositories, set(_PROFILE_IDS), "Docker Hub repositories")
+        expected = {
+            "cuda130": "ucm-cuda",
+            "cann900-a2": "ucm-cann-a2",
+            "cann900-a3": "ucm-cann-a3",
+        }
+        if repositories != expected:
+            raise ProductionError("Docker Hub repository mapping is invalid")
+
+
 def validate_config(value: object) -> dict[str, Any]:
     config = _object(value, "production release config")
     require_exact_keys(config, _CONFIG_KEYS, "production release config")
@@ -218,12 +258,7 @@ def validate_config(value: object) -> dict[str, Any]:
     require_exact_keys(retention, {"candidate", "evidence"}, "retention_days")
     if any(type(value) is not int or value < 1 for value in retention.values()):
         raise ProductionError("retention_days values must be positive integers")
-    external = _object(config["external_channels"], "external_channels")
-    require_exact_keys(external, {"docker_hub", "pypi"}, "external_channels")
-    if external != {"docker_hub": False, "pypi": False}:
-        raise ProductionError(
-            "external channels are disabled for the first release line"
-        )
+    _validate_external_channels(config)
     toolchain = _object(config["toolchain"], "toolchain")
     require_exact_keys(
         toolchain,
