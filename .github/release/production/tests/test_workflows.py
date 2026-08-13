@@ -66,6 +66,11 @@ def test_candidate_is_tag_only_read_only_and_has_one_aggregate_artifact() -> Non
     assert route_steps[0]["name"] == "Strictly parse production Tag before checkout"
     assert "tag parse" in route_steps[0]["run"]
     assert not any("uses" in step for step in route_steps[:1])
+    identity = next(step for step in route_steps if step.get("id") == "identity")
+    assert identity["env"]["DEFAULT_BRANCH"] == (
+        "${{ github.event.repository.default_branch }}"
+    )
+    assert identity["env"]["GH_TOKEN"] == "${{ github.token }}"
 
     wheels = workflow["jobs"]["wheels"]
     images = workflow["jobs"]["images"]
