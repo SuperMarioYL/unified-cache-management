@@ -761,7 +761,10 @@ def _index_members(request: IndexPublishRequest) -> list[dict[str, Any]]:
 
 
 def _materialize_index(
-    root: Path, request: IndexPublishRequest, members: list[dict[str, Any]]
+    root: Path,
+    request: IndexPublishRequest,
+    members: list[dict[str, Any]],
+    transport: RegistryTransport,
 ) -> tuple[str, bytes, list[dict[str, Any]]]:
     descriptors = [
         {
@@ -790,6 +793,26 @@ def _materialize_index(
     blobs = root / "blobs" / "sha256"
     blobs.mkdir(parents=True)
     (root / "oci-layout").write_bytes(b'{"imageLayoutVersion":"1.0.0"}\n')
+    for position, (item, descriptor) in enumerate(zip(members, descriptors)):
+        child_raw = _bounded(
+            transport.manifest(
+                f"{request.repository}@{descriptor['digest']}", anonymous=False
+            ),
+            f"index child {position}",
+            _MAX_JSON,
+        )
+        _verify_bytes(child_raw, descriptor, f"index child {position}")
+        child_manifest = _json_object(child_raw, f"index child {position}")
+        readback = item.get("authenticated_readback")
+        if (
+            not isinstance(readback, dict)
+            or child_manifest != readback.get("manifest")
+            or child_manifest.get("mediaType") != _OCI_MANIFEST
+        ):
+            raise ProductionError(
+                f"index child {position} differs from authenticated member evidence"
+            )
+        (blobs / descriptor["digest"].removeprefix("sha256:")).write_bytes(child_raw)
     (blobs / digest.removeprefix("sha256:")).write_bytes(raw)
     index = {
         "schemaVersion": 2,
@@ -815,7 +838,9 @@ def publish_index(
     operations: list[dict[str, str]] = []
     with tempfile.TemporaryDirectory(prefix="ucm-production-index-") as directory:
         root = Path(directory)
-        digest, _raw, descriptors = _materialize_index(root, request, members)
+        digest, _raw, descriptors = _materialize_index(
+            root, request, members, transport
+        )
         observed = transport.digest(request.tagged_reference)
         if observed is not None and observed != digest:
             raise ProductionError(
