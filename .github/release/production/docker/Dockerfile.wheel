@@ -148,6 +148,26 @@ case "${PLATFORM}" in
 esac
 EOF
 
+RUN UCM_AUTHORITY_FILE=/tmp/build-authority.json UCM_PROJECT_FILE=/workspace/ucm/pyproject.toml ucm-python - <<'PY'
+import json
+import os
+import re
+from pathlib import Path
+
+authority = json.loads(Path(os.environ["UCM_AUTHORITY_FILE"]).read_bytes())
+distribution = authority.get("distribution")
+allowed = {"uc-manager-cuda", "uc-manager-cann-a2", "uc-manager-cann-a3"}
+if distribution not in allowed:
+    raise SystemExit("production distribution is not approved")
+project_path = Path(os.environ["UCM_PROJECT_FILE"])
+project = project_path.read_text(encoding="utf-8")
+pattern = r'(?m)^(name = )"uc-manager"$'
+project, count = re.subn(pattern, rf'\1"{distribution}"', project)
+if count != 1:
+    raise SystemExit("pyproject production name source is not exact")
+project_path.write_text(project, encoding="utf-8")
+PY
+
 RUN PATH="$(ucm-python -c 'import sysconfig; print(sysconfig.get_path("scripts"))'):${PATH}" \
     UCM_RELEASE_BUILD=1 \
     PLATFORM="${PLATFORM}" \

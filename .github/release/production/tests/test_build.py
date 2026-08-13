@@ -4,6 +4,10 @@ import csv
 import base64
 import hashlib
 import io
+import json
+import os
+import subprocess
+import sys
 import zipfile
 from pathlib import Path
 
@@ -22,10 +26,79 @@ from ucm_release_production.common import (
 from ucm_release_production.config import load_config
 from ucm_release_production.tags import parse_tag
 
-from conftest import PRODUCTION_ROOT
+from conftest import PRODUCTION_ROOT, REPO_ROOT
 
 CONFIG = PRODUCTION_ROOT / "production-release.json"
 SOURCE_SHA = "1" * 40
+
+
+def _project_name_projection() -> str:
+    source = (
+        REPO_ROOT / ".github" / "release" / "production" / "docker" / "Dockerfile.wheel"
+    ).read_text(encoding="utf-8")
+    marker = (
+        "RUN UCM_AUTHORITY_FILE=/tmp/build-authority.json "
+        "UCM_PROJECT_FILE=/workspace/ucm/pyproject.toml ucm-python - <<'PY'\n"
+    )
+    assert source.count(marker) == 1
+    body, separator, _ = source.partition(marker)[2].partition("\nPY\n")
+    assert separator
+    return body
+
+
+@pytest.mark.parametrize(
+    "distribution",
+    ["uc-manager-cuda", "uc-manager-cann-a2", "uc-manager-cann-a3"],
+)
+def test_production_dockerfile_projects_authorized_pep621_name(
+    tmp_path: Path, distribution: str
+) -> None:
+    authority = tmp_path / "authority.json"
+    project = tmp_path / "pyproject.toml"
+    authority.write_text(json.dumps({"distribution": distribution}), encoding="utf-8")
+    project.write_text('[project]\nname = "uc-manager"\n', encoding="utf-8")
+    env = {
+        **os.environ,
+        "UCM_AUTHORITY_FILE": str(authority),
+        "UCM_PROJECT_FILE": str(project),
+    }
+
+    result = subprocess.run(
+        [sys.executable, "-c", _project_name_projection()],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert project.read_text(encoding="utf-8") == (
+        f'[project]\nname = "{distribution}"\n'
+    )
+
+
+def test_production_dockerfile_rejects_unapproved_pep621_name(tmp_path: Path) -> None:
+    authority = tmp_path / "authority.json"
+    project = tmp_path / "pyproject.toml"
+    authority.write_text(
+        json.dumps({"distribution": "uc-manager-unknown"}), encoding="utf-8"
+    )
+    project.write_text('[project]\nname = "uc-manager"\n', encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, "-c", _project_name_projection()],
+        env={
+            **os.environ,
+            "UCM_AUTHORITY_FILE": str(authority),
+            "UCM_PROJECT_FILE": str(project),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "distribution" in result.stderr
 
 
 def _source(stage: str, tag_name: str, branch: str) -> dict[str, object]:
