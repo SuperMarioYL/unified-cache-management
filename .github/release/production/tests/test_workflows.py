@@ -133,6 +133,15 @@ def test_candidate_reusables_have_closed_inputs_and_cache_only_intermediates() -
             for step in job["steps"]
         )
 
+    image_build = next(
+        step
+        for step in image["jobs"]["build"]["steps"]
+        if step.get("name") == "Build and inspect production OCI member"
+    )
+    assert image_build["env"]["SOURCE_DATE_EPOCH"] == (
+        "${{ inputs.source_date_epoch }}"
+    )
+
 
 def test_controller_has_only_successful_candidate_workflow_run_route() -> None:
     workflow = _workflow("production-release-controller.yml")

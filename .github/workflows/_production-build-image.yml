@@ -166,6 +166,7 @@ jobs:
       - name: Build and inspect production OCI member
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_DATE_EPOCH: ${{ inputs.source_date_epoch }}
           SPEC_ID: ${{ inputs.spec_id }}
         shell: bash
         run: |
