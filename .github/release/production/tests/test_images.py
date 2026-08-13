@@ -19,6 +19,14 @@ CONFIG = PRODUCTION_ROOT / "production-release.json"
 SOURCE = "1" * 40
 
 
+def test_production_image_dockerfile_starts_cleanup_as_a_new_instruction() -> None:
+    dockerfile = (PRODUCTION_ROOT / "docker" / "Dockerfile.image").read_text(
+        encoding="utf-8"
+    )
+
+    assert "\nPY\nRUN rm -rf /wheelhouse\n" in dockerfile
+
+
 def _source() -> dict[str, object]:
     return sha256_envelope(
         {

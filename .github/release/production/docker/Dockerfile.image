@@ -53,4 +53,4 @@ for forbidden in {'uc-manager', 'uc-manager-cuda', 'uc-manager-cann-a2', 'uc-man
 importlib.import_module('ucm')
 importlib.import_module('wrapt')
 PY
-    rm -rf /wheelhouse
+RUN rm -rf /wheelhouse
