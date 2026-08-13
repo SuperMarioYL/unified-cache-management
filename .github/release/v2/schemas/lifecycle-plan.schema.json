@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/ucm/release/v2/lifecycle-plan.schema.json",
+  "title": "UCM read-only lifecycle plan",
+  "x-ucm-validation": {
+    "schema_scope": "strict-structural-and-stage-local",
+    "required_command": "python3 -m ucm_release_v2 lifecycle validate",
+    "cross_field_invariants": [
+      "canonical-self-digest",
+      "configured-repository-and-product-closure",
+      "source-sha-version-binding",
+      "release-intent-source-and-version-binding"
+    ]
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["channel", "gates", "kind", "mode", "operations", "products", "ref", "repository", "repository_role", "retention_days", "schema_version", "sha256", "source_sha", "stage", "trigger", "version"],
+  "properties": {
+    "channel": {"enum": ["pr", "develop", "nightly", "draft", "rc", "stable", "hotfix"]},
+    "gates": {"$ref": "#/$defs/gates"},
+    "kind": {"const": "lifecycle-plan"},
+    "mode": {"const": "dry-run"},
+    "operations": {"$ref": "#/$defs/operations"},
+    "products": {"$ref": "#/$defs/products"},
+    "ref": {"type": "string", "pattern": "^refs/(?:heads/[A-Za-z0-9._-]+|pull/[1-9][0-9]*/(?:head|merge))$"},
+    "release_intent": {"$ref": "#/$defs/release_intent"},
+    "repository": {"type": "string", "pattern": "^[^/]+/[^/]+$"},
+    "repository_role": {"enum": ["production", "validation"]},
+    "retention_days": {"enum": [7, 14, 30, null]},
+    "schema_version": {"const": 2},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "stage": {"enum": ["pr", "develop", "nightly", "draft", "rc", "stable", "hotfix"]},
+    "trigger": {"enum": ["pull_request", "push", "schedule", "workflow_dispatch"]},
+    "version": {"type": "string"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"stage": {"enum": ["pr", "develop", "nightly"]}}},
+      "then": {"not": {"required": ["release_intent"]}}
+    },
+    {
+      "if": {"properties": {"stage": {"const": "pr"}}},
+      "then": {"properties": {"channel": {"const": "pr"}, "trigger": {"const": "pull_request"}, "ref": {"pattern": "^refs/pull/[1-9][0-9]*/(?:head|merge)$"}, "repository_role": {"const": "validation"}, "retention_days": {"const": 7}, "version": {"pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+\\.dev0\\+pr\\.[1-9][0-9]*\\.g\\.[0-9a-f]{12}$"}}}
+    },
+    {
+      "if": {"properties": {"stage": {"const": "develop"}}},
+      "then": {"properties": {"channel": {"const": "develop"}, "trigger": {"const": "push"}, "ref": {"const": "refs/heads/develop"}, "repository_role": {"const": "validation"}, "retention_days": {"const": 14}, "version": {"pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+\\.dev[1-9][0-9]*\\+develop\\.g\\.[0-9a-f]{12}$"}}}
+    },
+    {
+      "if": {"properties": {"stage": {"const": "nightly"}}},
+      "then": {"properties": {"channel": {"const": "nightly"}, "trigger": {"const": "schedule"}, "ref": {"const": "refs/heads/develop"}, "repository_role": {"const": "validation"}, "retention_days": {"const": 14}, "version": {"pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+\\.dev[0-9]{8}\\+nightly\\.g\\.[0-9a-f]{12}$"}}}
+    },
+    {
+      "if": {"properties": {"stage": {"const": "draft"}}},
+      "then": {"required": ["release_intent"], "properties": {"channel": {"const": "draft"}, "trigger": {"const": "workflow_dispatch"}, "ref": {"const": "refs/heads/main"}, "repository_role": {"const": "production"}, "retention_days": {"const": 30}, "version": {"pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+rc[1-9][0-9]*\\.dev0\\+draft\\.g\\.[0-9a-f]{12}$"}, "release_intent": {"$ref": "#/$defs/draft_intent"}}}
+    },
+    {
+      "if": {"properties": {"stage": {"const": "rc"}}},
+      "then": {"required": ["release_intent"], "properties": {"channel": {"const": "rc"}, "trigger": {"const": "workflow_dispatch"}, "ref": {"const": "refs/heads/main"}, "repository_role": {"const": "production"}, "retention_days": {"const": null}, "version": {"pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+rc[1-9][0-9]*$"}, "release_intent": {"$ref": "#/$defs/rc_intent"}}}
+    },
+    {
+      "if": {"properties": {"stage": {"const": "stable"}}},
+      "then": {"required": ["release_intent"], "properties": {"channel": {"const": "stable"}, "trigger": {"const": "workflow_dispatch"}, "ref": {"const": "refs/heads/main"}, "repository_role": {"const": "production"}, "retention_days": {"const": null}, "version": {"pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "release_intent": {"$ref": "#/$defs/stable_intent"}}}
+    },
+    {
+      "if": {"properties": {"stage": {"const": "hotfix"}}},
+      "then": {"required": ["release_intent"], "properties": {"channel": {"const": "hotfix"}, "trigger": {"const": "workflow_dispatch"}, "ref": {"const": "refs/heads/main"}, "repository_role": {"const": "production"}, "retention_days": {"const": null}, "version": {"pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "release_intent": {"$ref": "#/$defs/hotfix_intent"}}}
+    }
+  ],
+  "$defs": {
+    "gates": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {"type": "object", "additionalProperties": false, "required": ["name", "status"], "properties": {"name": {"const": "source-sha"}, "status": {"const": "passed"}}},
+        {"type": "object", "additionalProperties": false, "required": ["name", "reason", "status"], "properties": {"name": {"const": "publication"}, "reason": {"const": "dry-run does not publish"}, "status": {"const": "blocked"}}}
+      ],
+      "items": false
+    },
+    "operations": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {"type": "object", "additionalProperties": false, "required": ["action", "executed"], "properties": {"action": {"const": "build-preview"}, "executed": {"const": false}}},
+        {"type": "object", "additionalProperties": false, "required": ["action", "executed"], "properties": {"action": {"const": "publish-preview"}, "executed": {"const": false}}}
+      ],
+      "items": false
+    },
+    "product_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:rc[1-9][0-9]*)?(?:\\.dev(?:0|[1-9][0-9]*)\\+(?:pr\\.[1-9][0-9]*|develop|nightly|draft)\\.g\\.[0-9a-f]{12})?$"},
+    "products": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "uniqueItems": true,
+      "prefixItems": [
+        {"$ref": "#/$defs/chart_product"},
+        {"$ref": "#/$defs/image_cann_a2"},
+        {"$ref": "#/$defs/image_cann_a3"},
+        {"$ref": "#/$defs/image_cuda"},
+        {"$ref": "#/$defs/wheel_cann_a2"},
+        {"$ref": "#/$defs/wheel_cann_a3"},
+        {"$ref": "#/$defs/wheel_cuda"}
+      ],
+      "items": false
+    },
+    "chart_product": {"type": "object", "additionalProperties": false, "required": ["coordinate", "kind", "name"], "properties": {"kind": {"const": "chart"}, "name": {"const": "unified-cache-pd"}, "coordinate": {"type": "string", "pattern": "^unified-cache-pd@[0-9]+\\.[0-9]+\\.[0-9]+(?:rc[1-9][0-9]*)?(?:\\.dev(?:0|[1-9][0-9]*)\\+(?:pr\\.[1-9][0-9]*|develop|nightly|draft)\\.g\\.[0-9a-f]{12})?$"}}},
+    "image_cann_a2": {"$ref": "#/$defs/image_product", "properties": {"name": {"const": "cann-a2"}, "coordinate": {"pattern": "^ghcr\\.io/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/ucm-cann-a2:[0-9]+\\.[0-9]+\\.[0-9]+(?:rc[1-9][0-9]*)?(?:\\.dev(?:0|[1-9][0-9]*)\\+(?:pr\\.[1-9][0-9]*|develop|nightly|draft)\\.g\\.[0-9a-f]{12})?$"}}},
+    "image_cann_a3": {"$ref": "#/$defs/image_product", "properties": {"name": {"const": "cann-a3"}, "coordinate": {"pattern": "^ghcr\\.io/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/ucm-cann-a3:[0-9]+\\.[0-9]+\\.[0-9]+(?:rc[1-9][0-9]*)?(?:\\.dev(?:0|[1-9][0-9]*)\\+(?:pr\\.[1-9][0-9]*|develop|nightly|draft)\\.g\\.[0-9a-f]{12})?$"}}},
+    "image_cuda": {"$ref": "#/$defs/image_product", "properties": {"name": {"const": "cuda"}, "coordinate": {"pattern": "^ghcr\\.io/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/ucm-cuda:[0-9]+\\.[0-9]+\\.[0-9]+(?:rc[1-9][0-9]*)?(?:\\.dev(?:0|[1-9][0-9]*)\\+(?:pr\\.[1-9][0-9]*|develop|nightly|draft)\\.g\\.[0-9a-f]{12})?$"}}},
+    "image_product": {"type": "object", "additionalProperties": false, "required": ["coordinate", "kind", "name"], "properties": {"kind": {"const": "image"}, "name": {"enum": ["cann-a2", "cann-a3", "cuda"]}, "coordinate": {"type": "string"}}},
+    "wheel_cann_a2": {"$ref": "#/$defs/wheel_product", "properties": {"name": {"const": "uc-manager-cann-a2"}, "coordinate": {"pattern": "^uc-manager-cann-a2==[0-9]+\\.[0-9]+\\.[0-9]+(?:rc[1-9][0-9]*)?(?:\\.dev(?:0|[1-9][0-9]*)\\+(?:pr\\.[1-9][0-9]*|develop|nightly|draft)\\.g\\.[0-9a-f]{12})?$"}}},
+    "wheel_cann_a3": {"$ref": "#/$defs/wheel_product", "properties": {"name": {"const": "uc-manager-cann-a3"}, "coordinate": {"pattern": "^uc-manager-cann-a3==[0-9]+\\.[0-9]+\\.[0-9]+(?:rc[1-9][0-9]*)?(?:\\.dev(?:0|[1-9][0-9]*)\\+(?:pr\\.[1-9][0-9]*|develop|nightly|draft)\\.g\\.[0-9a-f]{12})?$"}}},
+    "wheel_cuda": {"$ref": "#/$defs/wheel_product", "properties": {"name": {"const": "uc-manager-cuda"}, "coordinate": {"pattern": "^uc-manager-cuda==[0-9]+\\.[0-9]+\\.[0-9]+(?:rc[1-9][0-9]*)?(?:\\.dev(?:0|[1-9][0-9]*)\\+(?:pr\\.[1-9][0-9]*|develop|nightly|draft)\\.g\\.[0-9a-f]{12})?$"}}},
+    "wheel_product": {"type": "object", "additionalProperties": false, "required": ["coordinate", "kind", "name"], "properties": {"kind": {"const": "wheel"}, "name": {"enum": ["uc-manager-cann-a2", "uc-manager-cann-a3", "uc-manager-cuda"]}, "coordinate": {"type": "string"}}},
+    "release_intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "version", "source_sha"],
+      "properties": {
+        "stage": {"enum": ["draft", "rc", "stable", "hotfix"]},
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:rc[1-9][0-9]*)?$"},
+        "source_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+      },
+      "allOf": [
+        {"if": {"properties": {"stage": {"enum": ["draft", "rc"]}}}, "then": {"properties": {"version": {"pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+rc[1-9][0-9]*$"}}}},
+        {"if": {"properties": {"stage": {"enum": ["stable", "hotfix"]}}}, "then": {"properties": {"version": {"pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}}}}
+      ]
+    },
+    "draft_intent": {
+      "allOf": [
+        {"$ref": "#/$defs/release_intent"},
+        {"properties": {"stage": {"const": "draft"}}}
+      ]
+    },
+    "rc_intent": {
+      "allOf": [
+        {"$ref": "#/$defs/release_intent"},
+        {"properties": {"stage": {"const": "rc"}}}
+      ]
+    },
+    "stable_intent": {
+      "allOf": [
+        {"$ref": "#/$defs/release_intent"},
+        {"properties": {"stage": {"const": "stable"}}}
+      ]
+    },
+    "hotfix_intent": {
+      "allOf": [
+        {"$ref": "#/$defs/release_intent"},
+        {"properties": {"stage": {"const": "hotfix"}}}
+      ]
+    }
+  }
+}

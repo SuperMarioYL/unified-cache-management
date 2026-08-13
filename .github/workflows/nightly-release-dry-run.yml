@@ -1,0 +1,162 @@
+name: Nightly release dry-run v2
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-release-dry-run-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  nightly-preview:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout immutable trusted default-branch control revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Validate trusted control and derive configured identities
+        id: identity
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PYTHONPATH: .github/release/v2
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p preview
+          PYTHONPATH=.github/release/v2 python -m ucm_release_v2 config validate \
+            > preview/config.json
+          python - <<'PY'
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          from ucm_release_v2.github_readonly import (
+              ReadOnlyGitHubError,
+              validate_control_identity,
+          )
+
+          config = json.loads(Path("preview/config.json").read_text(encoding="utf-8"))
+          configured_main = config["repository_policy"]["default_branch"]
+          if configured_main != config["branches"]["main"]:
+              raise SystemExit("repository policy default branch disagrees with main")
+          try:
+              validate_control_identity(
+                  configured_main=configured_main,
+                  event_default_branch=os.environ["DEFAULT_BRANCH"],
+                  event_ref_name=os.environ["REF_NAME"],
+              )
+          except ReadOnlyGitHubError as error:
+              raise SystemExit(str(error)) from error
+          develop_branch = config["branches"]["develop"]
+          if develop_branch != "develop":
+              raise SystemExit("nightly read-only endpoint requires configured develop")
+          utc_date = datetime.now(timezone.utc).date().isoformat()
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"develop_branch={develop_branch}\n")
+              output.write(f"utc_date={utc_date}\n")
+          PY
+
+      - name: Fetch first develop ref observation with read-only GET
+        env:
+          DEVELOP_BRANCH: ${{ steps.identity.outputs.develop_branch }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          curl --request GET --fail --silent --show-error --retry 3 \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${REPOSITORY}/git/ref/heads/${DEVELOP_BRANCH}" \
+            --output preview/develop-ref-first.json
+
+      - name: Fetch second develop ref observation with read-only GET
+        env:
+          DEVELOP_BRANCH: ${{ steps.identity.outputs.develop_branch }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          curl --request GET --fail --silent --show-error --retry 3 \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${REPOSITORY}/git/ref/heads/${DEVELOP_BRANCH}" \
+            --output preview/develop-ref-second.json
+
+      - name: Validate stable develop source observations
+        id: develop
+        env:
+          DEVELOP_BRANCH: ${{ steps.identity.outputs.develop_branch }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=.github/release/v2 python -m ucm_release_v2.github_readonly \
+            --first preview/develop-ref-first.json \
+            --second preview/develop-ref-second.json \
+            --branch "$DEVELOP_BRANCH" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Generate and validate Nightly lifecycle preview
+        env:
+          DEVELOP_BRANCH: ${{ steps.identity.outputs.develop_branch }}
+          RUN_NUMBER: ${{ github.run_number }}
+          SOURCE_SHA: ${{ steps.develop.outputs.source_sha }}
+          UTC_DATE: ${{ steps.identity.outputs.utc_date }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=.github/release/v2 python -m ucm_release_v2 lifecycle plan \
+            --stage nightly \
+            --trigger schedule \
+            --ref "refs/heads/$DEVELOP_BRANCH" \
+            --source-sha "$SOURCE_SHA" \
+            --repository-role validation \
+            --run-number "$RUN_NUMBER" \
+            --date "$UTC_DATE" \
+            --output preview/lifecycle-plan.json
+          PYTHONPATH=.github/release/v2 python -m ucm_release_v2 lifecycle validate \
+            --plan preview/lifecycle-plan.json \
+            > preview/lifecycle-plan-validation.json
+
+      - name: Write Nightly preview summary
+        env:
+          SOURCE_SHA: ${{ steps.develop.outputs.source_sha }}
+          UTC_DATE: ${{ steps.identity.outputs.utc_date }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          plan = json.loads(Path("preview/lifecycle-plan.json").read_text(encoding="utf-8"))
+          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(
+              "## Nightly release dry-run v2\n\n"
+              f"- UTC date: `{os.environ['UTC_DATE']}`\n"
+              f"- source SHA: `{os.environ['SOURCE_SHA']}`\n"
+              f"- plan digest: `{plan['sha256']}`\n"
+              "- publication: blocked (dry-run)\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload Nightly preview
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nightly-release-dry-run-${{ steps.identity.outputs.utc_date }}-${{ github.run_number }}-${{ steps.develop.outputs.source_sha }}
+          path: preview/
+          retention-days: 14
+          if-no-files-found: error

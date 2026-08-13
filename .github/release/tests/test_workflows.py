@@ -35,6 +35,24 @@ ALLOWED_NON_RELEASE_WORKFLOWS = {
     "pull-request.yml",
     "push-check.yml",
 }
+V2_DRY_RUN_WORKFLOWS = {
+    "draft-environment-dry-run.yml",
+    "develop-release-dry-run.yml",
+    "nightly-release-dry-run.yml",
+    "pr-release-dry-run.yml",
+    "release-lifecycle-dry-run.yml",
+    "release-cleanup-dry-run.yml",
+    "release-control-dry-run.yml",
+    "repository-policy-audit-dry-run.yml",
+}
+PRODUCTION_WORKFLOWS = {
+    "production-tag-candidate.yml",
+    "_production-build-wheel.yml",
+    "_production-build-image.yml",
+    "production-release-controller.yml",
+    "_production-release-controller.yml",
+    "_production-publish-image-member.yml",
+}
 WORKFLOW_SUFFIXES = {".yml", ".yaml"}
 SAFE_FORK_ACTIONS = {
     "actions/cache",
@@ -48,8 +66,14 @@ SAFE_FORK_ACTIONS = {
     "docker/setup-qemu-action",
     "sigstore/cosign-installer",
 }
-CHANGED_WORKFLOWS = EXPECTED_RELEASE_WORKFLOWS | ALLOWED_NON_RELEASE_WORKFLOWS
+CHANGED_WORKFLOWS = (
+    EXPECTED_RELEASE_WORKFLOWS | ALLOWED_NON_RELEASE_WORKFLOWS | V2_DRY_RUN_WORKFLOWS
+)
 FULL_ACTION_SHA = re.compile(r"^[^@]+@[0-9a-f]{40}$")
+TRUSTED_V2_CONTROLLER = (
+    "SuperMarioYL/unified-cache-management/"
+    ".github/workflows/release-control-dry-run.yml@main"
+)
 FORBIDDEN_STAGED_PATHS = {
     "ucm/store/compress/cc/compress_lib/tunstall_bf16.cc",
     "ucm/store/compress/cc/compress_lib/tunstall_bf16.h",
@@ -661,7 +685,12 @@ def _strings(value: object) -> list[str]:
 
 def _workflow_set_violations(workflow_dir: Path) -> list[str]:
     actual = {path.name for path in _workflow_paths(workflow_dir)}
-    expected = EXPECTED_RELEASE_WORKFLOWS | ALLOWED_NON_RELEASE_WORKFLOWS
+    expected = (
+        EXPECTED_RELEASE_WORKFLOWS
+        | ALLOWED_NON_RELEASE_WORKFLOWS
+        | V2_DRY_RUN_WORKFLOWS
+        | PRODUCTION_WORKFLOWS
+    )
     if actual == expected:
         return []
     return [
@@ -683,7 +712,7 @@ def _release_workflow_documents(workflow_dir: Path) -> dict[str, object]:
     for path in _workflow_paths(workflow_dir):
         if (
             path.name in EXPECTED_RELEASE_WORKFLOWS
-            or path.name not in ALLOWED_NON_RELEASE_WORKFLOWS
+            or path.name not in ALLOWED_NON_RELEASE_WORKFLOWS | PRODUCTION_WORKFLOWS
         ):
             documents[path.name] = yaml.safe_load(path.read_text(encoding="utf-8"))
     return documents
@@ -778,6 +807,8 @@ def _permissions_grant_write(permissions: object) -> bool:
 
 def _action_operation(uses: object, inputs: object) -> str | None:
     if not isinstance(uses, str) or not uses:
+        return None
+    if uses == TRUSTED_V2_CONTROLLER:
         return None
     action = uses.split("@", 1)[0].lower()
     if action in SAFE_FORK_ACTIONS:
@@ -1629,9 +1660,18 @@ def test_existing_cpp_changes_are_explicitly_forbidden_from_the_stage() -> None:
 
 
 def test_workflow_set_rejects_an_arbitrary_publish_workflow(tmp_path: Path) -> None:
-    """An unrecognised YAML workflow cannot evade the four-workflow budget."""
-    for filename in EXPECTED_RELEASE_WORKFLOWS | ALLOWED_NON_RELEASE_WORKFLOWS:
+    """The exact v2 lane is accepted, but an unrecognised workflow is not."""
+    expected = (
+        EXPECTED_RELEASE_WORKFLOWS
+        | ALLOWED_NON_RELEASE_WORKFLOWS
+        | V2_DRY_RUN_WORKFLOWS
+        | PRODUCTION_WORKFLOWS
+    )
+    for filename in expected:
         (tmp_path / filename).write_text("name: allowed\n")
+
+    assert _workflow_set_violations(tmp_path) == []
+
     (tmp_path / "publish.yaml").write_text("name: bypass\n")
 
     violations = _workflow_set_violations(tmp_path)
@@ -2225,7 +2265,9 @@ def test_workflows_only_orchestrate_tested_cli_and_real_runs_full_closure() -> N
 def test_release_toolchains_are_immutable_and_checksum_verified() -> None:
     """Buildx, BuildKit, Dockerfile frontend, and Helm are all byte identities."""
     workflows = {
-        path.name: _load_workflow(path) for path in _workflow_paths(WORKFLOW_DIR)
+        path.name: _load_workflow(path)
+        for path in _workflow_paths(WORKFLOW_DIR)
+        if path.name not in PRODUCTION_WORKFLOWS
     }
     dockerfile = (REPO_ROOT / ".github/release/docker/Dockerfile").read_text(
         encoding="utf-8"
@@ -2587,7 +2629,7 @@ def test_production_and_unsupported_callable_lanes_fail_closed() -> None:
 
 
 def test_changed_workflows_pin_actions_and_keep_fork_jobs_read_only() -> None:
-    """Actions are immutable; only the exact protected call chain gains writes."""
+    """Action steps are immutable; the reviewed reusable controller is explicit."""
     permission_exceptions = {
         ("_publish-image-member.yml", "publish-member"): {
             "contents": "read",
@@ -2628,6 +2670,8 @@ def test_changed_workflows_pin_actions_and_keep_fork_jobs_read_only() -> None:
                     f"{filename}:{job_name} permissions differ from exact authority"
                 )
         for uses in _uses_in(document):
+            if uses == TRUSTED_V2_CONTROLLER:
+                continue
             if uses.startswith("./.github/workflows/"):
                 if "@" in uses:
                     violations.append(

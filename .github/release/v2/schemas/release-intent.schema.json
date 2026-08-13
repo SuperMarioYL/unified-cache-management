@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/ucm/release/v2/release-intent.schema.json",
+  "title": "UCM release intent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["stage", "version", "source_sha"],
+  "properties": {
+    "stage": {"enum": ["draft", "rc", "stable", "hotfix"]},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:rc[1-9][0-9]*)?$"},
+    "source_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+  },
+  "allOf": [
+    {"if": {"properties": {"stage": {"enum": ["draft", "rc"]}}}, "then": {"properties": {"version": {"pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+rc[1-9][0-9]*$"}}}},
+    {"if": {"properties": {"stage": {"enum": ["stable", "hotfix"]}}}, "then": {"properties": {"version": {"pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}}}}
+  ]
+}

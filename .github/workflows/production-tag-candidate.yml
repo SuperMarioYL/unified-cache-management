@@ -1,0 +1,405 @@
+name: UCM Production Tag Candidate
+
+on:
+  push:
+    tags:
+      - "draft/v*"
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-candidate-${{ github.repository_id }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  route:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      tag_name: ${{ steps.route.outputs.tag_name }}
+      source_sha: ${{ steps.route.outputs.source_sha }}
+      source_identity_b64: ${{ steps.identity.outputs.source_identity_b64 }}
+      tag_intent_b64: ${{ steps.identity.outputs.tag_intent_b64 }}
+      artifact_name: ${{ steps.identity.outputs.artifact_name }}
+      control_sha: ${{ steps.identity.outputs.control_sha }}
+      workflow_id: ${{ steps.identity.outputs.workflow_id }}
+      source_date_epoch: ${{ steps.identity.outputs.source_date_epoch }}
+    steps:
+      - id: route
+        name: Strictly parse production Tag before checkout
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+          REF: ${{ github.ref }}
+          SOURCE_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${REF}" == "refs/tags/${TAG_NAME}" ]]
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${REPOSITORY_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+          python - "${TAG_NAME}" <<'PY'
+          import re
+          import sys
+          tag = sys.argv[1]
+          number = r"(?:0|[1-9][0-9]*)"
+          positive = r"[1-9][0-9]*"
+          patterns = (
+              rf"draft/v{number}\.{number}\.{number}-{positive}",
+              rf"v{number}\.{number}\.{number}rc{positive}",
+              rf"v{number}\.{number}\.{number}",
+          )
+          if not any(re.fullmatch(pattern, tag, re.ASCII) for pattern in patterns):
+              raise SystemExit("invalid production Tag")
+          PY
+          # tag parse is repeated by the file-oriented production CLI after checkout.
+          workflow_suffix="/.github/workflows/production-tag-candidate.yml@refs/tags/${TAG_NAME}"
+          [[ "${WORKFLOW_REF}" == "${REPOSITORY}${workflow_suffix}" ]]
+          echo "tag_name=${TAG_NAME}" >>"${GITHUB_OUTPUT}"
+          echo "source_sha=${SOURCE_SHA}" >>"${GITHUB_OUTPUT}"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - id: identity
+        name: Close annotated Tag and release branch identity
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          PYTHONPATH=.github/release/production python -m ucm_release_production tag parse \
+            --config .github/release/production/production-release.json \
+            --tag "${TAG_NAME}" --output out/tag-intent.json
+          release_branch="$(python -c 'import json; print(json.load(open("out/tag-intent.json"))["release_branch"])')"
+          [[ "${release_branch}" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$ ]]
+          [[ "${release_branch}" != refs/* && "${release_branch}" != *..* && "${release_branch}" != *//* && "${release_branch}" != *@\{* ]]
+          git fetch --no-tags --depth=1 origin \
+            "+refs/heads/${release_branch}:refs/remotes/origin/${release_branch}" \
+            "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          workflow_id="$(curl --request GET --fail --silent --show-error --retry 3 --max-redirs 0 \
+            --header 'Accept: application/vnd.github+json' \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${REPOSITORY}/actions/workflows/production-tag-candidate.yml" \
+            | python -c 'import json,sys; d=json.load(sys.stdin); assert d["path"]==".github/workflows/production-tag-candidate.yml" and d["name"]=="UCM Production Tag Candidate" and d["state"]=="active" and type(d["id"]) is int and d["id"]>0; print(d["id"])')"
+          lineage_args=()
+          stage="$(python -c 'import json; print(json.load(open("out/tag-intent.json"))["stage"])')"
+          if [[ "${stage}" != draft ]]; then
+            PYTHONPATH=.github/release/production python -m ucm_release_production tag resolve-lineage \
+              --config .github/release/production/production-release.json \
+              --intent out/tag-intent.json --repository "${REPOSITORY}" \
+              --source-sha "${GITHUB_SHA}" --repository-root . --output out/lineage.json
+            lineage_args=(--lineage out/lineage.json)
+          fi
+          PYTHONPATH=.github/release/production python -m ucm_release_production tag snapshot-local \
+            --config .github/release/production/production-release.json \
+            --intent out/tag-intent.json --repository-root . \
+            --repository "${REPOSITORY}" --repository-id "${REPOSITORY_ID}" \
+            --default-branch "${DEFAULT_BRANCH}" "${lineage_args[@]}" \
+            --output out/ref-snapshot.json
+          PYTHONPATH=.github/release/production python -m ucm_release_production tag verify-refs \
+            --config .github/release/production/production-release.json \
+            --intent out/tag-intent.json --snapshot out/ref-snapshot.json \
+            --output out/source-identity.json
+          source_identity_b64="$(base64 <out/source-identity.json | tr -d '\n')"
+          tag_intent_b64="$(base64 <out/tag-intent.json | tr -d '\n')"
+          tag_object_sha="$(python -c 'import json; print(json.load(open("out/source-identity.json"))["tag_object_sha"])')"
+          source_sha="$(python -c 'import json; print(json.load(open("out/source-identity.json"))["source_commit_sha"])')"
+          artifact="ucm-production-candidate-${REPOSITORY_ID}-${tag_object_sha}-${source_sha}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          control_sha="$(python -c 'import json; print(json.load(open("out/source-identity.json"))["control_sha"])')"
+          source_date_epoch="$(git show -s --format=%ct "${source_sha}")"
+          {
+            echo "source_identity_b64=${source_identity_b64}"
+            echo "tag_intent_b64=${tag_intent_b64}"
+            echo "artifact_name=${artifact}"
+            echo "control_sha=${control_sha}"
+            echo "workflow_id=${workflow_id}"
+            echo "source_date_epoch=${source_date_epoch}"
+          } >>"${GITHUB_OUTPUT}"
+  wheels:
+    needs: route
+    strategy:
+      fail-fast: false
+      matrix:
+        spec_id:
+          - cuda130-amd64
+          - cuda130-arm64
+          - cann900-a2-amd64
+          - cann900-a2-arm64
+          - cann900-a3-amd64
+          - cann900-a3-arm64
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_production-build-wheel.yml
+    with:
+      source_sha: ${{ needs.route.outputs.source_sha }}
+      tag_name: ${{ needs.route.outputs.tag_name }}
+      spec_id: ${{ matrix.spec_id }}
+      candidate_run_id: ${{ github.run_id }}
+      candidate_run_attempt: ${{ github.run_attempt }}
+      source_identity_b64: ${{ needs.route.outputs.source_identity_b64 }}
+      control_sha: ${{ needs.route.outputs.control_sha }}
+      cache_namespace: candidate
+
+  images:
+    needs: [route, wheels]
+    strategy:
+      fail-fast: false
+      matrix:
+        spec_id:
+          - cuda130-amd64
+          - cuda130-arm64
+          - cann900-a2-amd64
+          - cann900-a2-arm64
+          - cann900-a3-amd64
+          - cann900-a3-arm64
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_production-build-image.yml
+    with:
+      source_sha: ${{ needs.route.outputs.source_sha }}
+      tag_name: ${{ needs.route.outputs.tag_name }}
+      spec_id: ${{ matrix.spec_id }}
+      candidate_run_id: ${{ github.run_id }}
+      candidate_run_attempt: ${{ github.run_attempt }}
+      source_identity_b64: ${{ needs.route.outputs.source_identity_b64 }}
+      source_date_epoch: ${{ needs.route.outputs.source_date_epoch }}
+      control_sha: ${{ needs.route.outputs.control_sha }}
+
+  chart:
+    needs: route
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.route.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4
+        with:
+          version: v3.15.3
+      - name: Package production-versioned Chart
+        env:
+          TAG_INTENT_B64: ${{ needs.route.outputs.tag_intent_b64 }}
+          SOURCE_SHA: ${{ needs.route.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          printf '%s' "${TAG_INTENT_B64}" | base64 --decode >out/tag-intent.json
+          PYTHONPATH=.github/release/production python -m ucm_release_production chart package \
+            --config .github/release/production/production-release.json \
+            --intent out/tag-intent.json --chart-dir charts/ucm \
+            --source-sha "${SOURCE_SHA}" --output-dir out/chart
+      - name: Save exact Chart in same-run cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p cache/candidate
+          mv out/chart cache/candidate/chart
+      - name: Seal Chart cache entry
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: cache/candidate/chart
+          key: production-candidate-chart-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.route.outputs.control_sha }}-${{ needs.route.outputs.source_sha }}
+          enableCrossOsArchive: false
+
+  aggregate:
+    needs: [route, wheels, images, chart]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.route.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - name: Restore CUDA amd64 wheel
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: cache/candidate/wheels/cuda130-amd64
+          key: production-candidate-wheel-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.route.outputs.control_sha }}-${{ needs.route.outputs.source_sha }}-cuda130-amd64
+          enableCrossOsArchive: false
+          fail-on-cache-miss: true
+      - name: Restore CUDA arm64 wheel
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: cache/candidate/wheels/cuda130-arm64
+          key: production-candidate-wheel-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.route.outputs.control_sha }}-${{ needs.route.outputs.source_sha }}-cuda130-arm64
+          enableCrossOsArchive: false
+          fail-on-cache-miss: true
+      - name: Restore CANN A2 amd64 wheel
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: cache/candidate/wheels/cann900-a2-amd64
+          key: production-candidate-wheel-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.route.outputs.control_sha }}-${{ needs.route.outputs.source_sha }}-cann900-a2-amd64
+          enableCrossOsArchive: false
+          fail-on-cache-miss: true
+      - name: Restore CANN A2 arm64 wheel
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: cache/candidate/wheels/cann900-a2-arm64
+          key: production-candidate-wheel-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.route.outputs.control_sha }}-${{ needs.route.outputs.source_sha }}-cann900-a2-arm64
+          enableCrossOsArchive: false
+          fail-on-cache-miss: true
+      - name: Restore CANN A3 amd64 wheel
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: cache/candidate/wheels/cann900-a3-amd64
+          key: production-candidate-wheel-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.route.outputs.control_sha }}-${{ needs.route.outputs.source_sha }}-cann900-a3-amd64
+          enableCrossOsArchive: false
+          fail-on-cache-miss: true
+      - name: Restore CANN A3 arm64 wheel
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: cache/candidate/wheels/cann900-a3-arm64
+          key: production-candidate-wheel-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.route.outputs.control_sha }}-${{ needs.route.outputs.source_sha }}-cann900-a3-arm64
+          enableCrossOsArchive: false
+          fail-on-cache-miss: true
+      - name: Restore CUDA amd64 image closure
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: cache/candidate/images/cuda130-amd64
+          key: production-candidate-image-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.route.outputs.control_sha }}-${{ needs.route.outputs.source_sha }}-cuda130-amd64
+          enableCrossOsArchive: false
+          fail-on-cache-miss: true
+      - name: Restore CUDA arm64 image closure
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: cache/candidate/images/cuda130-arm64
+          key: production-candidate-image-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.route.outputs.control_sha }}-${{ needs.route.outputs.source_sha }}-cuda130-arm64
+          enableCrossOsArchive: false
+          fail-on-cache-miss: true
+      - name: Restore CANN A2 amd64 image closure
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: cache/candidate/images/cann900-a2-amd64
+          key: production-candidate-image-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.route.outputs.control_sha }}-${{ needs.route.outputs.source_sha }}-cann900-a2-amd64
+          enableCrossOsArchive: false
+          fail-on-cache-miss: true
+      - name: Restore CANN A2 arm64 image closure
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: cache/candidate/images/cann900-a2-arm64
+          key: production-candidate-image-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.route.outputs.control_sha }}-${{ needs.route.outputs.source_sha }}-cann900-a2-arm64
+          enableCrossOsArchive: false
+          fail-on-cache-miss: true
+      - name: Restore CANN A3 amd64 image closure
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: cache/candidate/images/cann900-a3-amd64
+          key: production-candidate-image-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.route.outputs.control_sha }}-${{ needs.route.outputs.source_sha }}-cann900-a3-amd64
+          enableCrossOsArchive: false
+          fail-on-cache-miss: true
+      - name: Restore CANN A3 arm64 image closure
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: cache/candidate/images/cann900-a3-arm64
+          key: production-candidate-image-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.route.outputs.control_sha }}-${{ needs.route.outputs.source_sha }}-cann900-a3-arm64
+          enableCrossOsArchive: false
+          fail-on-cache-miss: true
+      - name: Restore production Chart
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: cache/candidate/chart
+          key: production-candidate-chart-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.route.outputs.control_sha }}-${{ needs.route.outputs.source_sha }}
+          enableCrossOsArchive: false
+          fail-on-cache-miss: true
+      - name: Assemble and seal exact candidate tree
+        env:
+          SOURCE_IDENTITY_B64: ${{ needs.route.outputs.source_identity_b64 }}
+          TAG_INTENT_B64: ${{ needs.route.outputs.tag_intent_b64 }}
+          SOURCE_SHA: ${{ needs.route.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out candidate/wheels candidate/images candidate/indexes
+          printf '%s' "${SOURCE_IDENTITY_B64}" | base64 --decode >candidate/source-identity.json
+          printf '%s' "${TAG_INTENT_B64}" | base64 --decode >out/tag-intent.json
+          for spec in cuda130-amd64 cuda130-arm64 cann900-a2-amd64 cann900-a2-arm64 cann900-a3-amd64 cann900-a3-arm64; do
+            mkdir -p "candidate/wheels/${spec}" "candidate/images/${spec}"
+            cp cache/candidate/wheels/${spec}/record.json "candidate/wheels/${spec}/record.json"
+            cp cache/candidate/wheels/${spec}/uc_manager_*.whl "candidate/wheels/${spec}/"
+            cp cache/candidate/images/${spec}/closure.json "candidate/images/${spec}/closure.json"
+          done
+          cp -R cache/candidate/chart candidate/chart
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+          sys.path.insert(0, '.github/release/production')
+          from ucm_release_production.common import sha256_envelope, write_json
+          intent = json.load(open('out/tag-intent.json'))
+          for profile in ('cuda130', 'cann900-a2', 'cann900-a3'):
+              members = []
+              for arch in ('amd64', 'arm64'):
+                  record = json.load(open(f'candidate/images/{profile}-{arch}/closure.json'))
+                  members.append({
+                      'spec_id': record['spec_id'],
+                      'platform': record['platform'],
+                      'manifest_digest': record['manifest_digest'],
+                  })
+              path = Path(f'candidate/indexes/{profile}/index.json')
+              path.parent.mkdir(parents=True)
+              write_json(path, sha256_envelope({
+                  'kind': 'ucm-production-image-index-identity',
+                  'schema_version': 1,
+                  'profile_id': profile,
+                  'image_tag': intent['image_tag'],
+                  'members': members,
+              }), 'candidate index')
+          PY
+          PYTHONPATH=.github/release/production python -m ucm_release_production candidate run \
+            --source candidate/source-identity.json \
+            --workflow-id "${{ needs.route.outputs.workflow_id }}" --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --source-date-epoch "${{ needs.route.outputs.source_date_epoch }}" \
+            --output out/candidate-run.json
+          PYTHONPATH=.github/release/production python -m ucm_release_production candidate seal \
+            --root candidate --intent out/tag-intent.json --run out/candidate-run.json \
+            --output out/candidate-envelope.json
+          PYTHONPATH=.github/release/production python -m ucm_release_production candidate pack \
+            --root candidate --envelope out/candidate-envelope.json \
+            --output out/candidate.zip
+      - name: Upload the only candidate Artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ needs.route.outputs.artifact_name }}
+          path: |
+            out/candidate.zip
+            out/candidate-envelope.json
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: false
+          retention-days: 7

@@ -1,0 +1,30 @@
+name: Release cleanup dry-run v2
+
+on:
+  workflow_dispatch:
+    inputs:
+      inventory_json:
+        description: Strict offline cleanup inventory JSON
+        required: true
+        type: string
+      as_of:
+        description: Canonical RFC3339 UTC retention boundary
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-cleanup-dry-run-${{ github.run_id }}-${{ github.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  invoke-trusted-main-controller:
+    permissions:
+      contents: read
+    uses: SuperMarioYL/unified-cache-management/.github/workflows/release-control-dry-run.yml@main
+    with:
+      operation: cleanup
+      as_of: ${{ inputs.as_of }}
+      inventory_json: ${{ inputs.inventory_json }}

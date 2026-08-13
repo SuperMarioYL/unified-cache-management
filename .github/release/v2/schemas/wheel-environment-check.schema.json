@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/ucm/release/v2/wheel-environment-check.schema.json",
+  "title": "UCM Wheel environment check",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["installed", "kind", "mode", "schema_version", "status"],
+  "properties": {
+    "installed": {"type": "array", "minItems": 0, "maxItems": 1, "items": {"$ref": "#/$defs/distribution"}},
+    "kind": {"const": "wheel-environment-check"},
+    "mode": {"const": "dry-run"},
+    "schema_version": {"const": 2},
+    "status": {"enum": ["absent", "compatible"]}
+  },
+  "$defs": {
+    "distribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"enum": ["uc-manager-cuda", "uc-manager-cann-a2", "uc-manager-cann-a3"]},
+        "version": {"type": "string", "minLength": 1}
+      }
+    }
+  },
+  "allOf": [
+    {"if": {"properties": {"status": {"const": "absent"}}, "required": ["status"]}, "then": {"properties": {"installed": {"maxItems": 0}}}},
+    {"if": {"properties": {"status": {"const": "compatible"}}, "required": ["status"]}, "then": {"properties": {"installed": {"minItems": 1, "maxItems": 1}}}}
+  ]
+}
