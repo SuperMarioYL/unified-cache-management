@@ -45,6 +45,14 @@ V2_DRY_RUN_WORKFLOWS = {
     "release-control-dry-run.yml",
     "repository-policy-audit-dry-run.yml",
 }
+PRODUCTION_WORKFLOWS = {
+    "production-tag-candidate.yml",
+    "_production-build-wheel.yml",
+    "_production-build-image.yml",
+    "production-release-controller.yml",
+    "_production-release-controller.yml",
+    "_production-publish-image-member.yml",
+}
 WORKFLOW_SUFFIXES = {".yml", ".yaml"}
 SAFE_FORK_ACTIONS = {
     "actions/cache",
@@ -681,6 +689,7 @@ def _workflow_set_violations(workflow_dir: Path) -> list[str]:
         EXPECTED_RELEASE_WORKFLOWS
         | ALLOWED_NON_RELEASE_WORKFLOWS
         | V2_DRY_RUN_WORKFLOWS
+        | PRODUCTION_WORKFLOWS
     )
     if actual == expected:
         return []
@@ -703,7 +712,7 @@ def _release_workflow_documents(workflow_dir: Path) -> dict[str, object]:
     for path in _workflow_paths(workflow_dir):
         if (
             path.name in EXPECTED_RELEASE_WORKFLOWS
-            or path.name not in ALLOWED_NON_RELEASE_WORKFLOWS
+            or path.name not in ALLOWED_NON_RELEASE_WORKFLOWS | PRODUCTION_WORKFLOWS
         ):
             documents[path.name] = yaml.safe_load(path.read_text(encoding="utf-8"))
     return documents
@@ -1656,6 +1665,7 @@ def test_workflow_set_rejects_an_arbitrary_publish_workflow(tmp_path: Path) -> N
         EXPECTED_RELEASE_WORKFLOWS
         | ALLOWED_NON_RELEASE_WORKFLOWS
         | V2_DRY_RUN_WORKFLOWS
+        | PRODUCTION_WORKFLOWS
     )
     for filename in expected:
         (tmp_path / filename).write_text("name: allowed\n")
@@ -2255,7 +2265,9 @@ def test_workflows_only_orchestrate_tested_cli_and_real_runs_full_closure() -> N
 def test_release_toolchains_are_immutable_and_checksum_verified() -> None:
     """Buildx, BuildKit, Dockerfile frontend, and Helm are all byte identities."""
     workflows = {
-        path.name: _load_workflow(path) for path in _workflow_paths(WORKFLOW_DIR)
+        path.name: _load_workflow(path)
+        for path in _workflow_paths(WORKFLOW_DIR)
+        if path.name not in PRODUCTION_WORKFLOWS
     }
     dockerfile = (REPO_ROOT / ".github/release/docker/Dockerfile").read_text(
         encoding="utf-8"

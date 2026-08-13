@@ -256,6 +256,29 @@ def test_member_absent_create_and_public_readback(tmp_path: Path) -> None:
     assert [item[0] for item in transport.operations].count("tag") == 1
 
 
+def test_command_transport_preserves_only_explicit_registry_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DOCKER_CONFIG", "/tmp/ucm-registry-auth")
+    monkeypatch.setenv("UNRELATED_SECRET", "must-not-be-forwarded")
+    captured: dict[str, str] = {}
+
+    def subprocess_run(*args: object, **kwargs: object) -> object:
+        captured.update(kwargs["env"])  # type: ignore[index]
+
+        class Result:
+            returncode = 0
+            stdout = b"sha256:" + b"1" * 64 + b"\n"
+            stderr = b""
+
+        return Result()
+
+    monkeypatch.setattr("subprocess.run", subprocess_run)
+    CommandRegistryTransport().digest("ghcr.io/octocat/ucm-cuda:v0.6.0rc1")
+    assert captured["DOCKER_CONFIG"] == "/tmp/ucm-registry-auth"
+    assert "UNRELATED_SECRET" not in captured
+
+
 def test_member_identical_rerun_reuses_without_write(tmp_path: Path) -> None:
     transport = FakeRegistry()
     request = _member_request(tmp_path)

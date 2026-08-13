@@ -8,6 +8,7 @@ import email.parser
 import hashlib
 import io
 import re
+import subprocess
 import struct
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -73,6 +74,318 @@ _SOURCE_IDENTITY_KEYS = {
     "sha256",
 }
 _WHEEL_PATH = re.compile(r"[A-Za-z0-9_.+\-]+\.whl", re.ASCII)
+
+
+def prepare_source_context(
+    repository: Path, source_sha: str, output_dir: Path
+) -> dict[str, Any]:
+    """Export one exact Git commit without importing control code from that commit."""
+
+    repository = Path(repository).resolve()
+    output_dir = Path(output_dir)
+    require_lower_commit_sha(source_sha, "source context commit")
+    if (
+        not (repository / ".git").exists()
+        and not subprocess.run(
+            ["git", "-C", str(repository), "rev-parse", "--git-dir"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode
+        == 0
+    ):
+        raise ProductionError("source repository is not a Git checkout")
+    if output_dir.exists() and any(output_dir.iterdir()):
+        raise ProductionError("source context output directory must be empty")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    def git(*args: str, text: bool = True) -> str | bytes:
+        completed = subprocess.run(
+            ["git", "-C", str(repository), *args],
+            text=text,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if completed.returncode:
+            raise ProductionError("Git source context command failed")
+        return completed.stdout
+
+    object_type = str(git("cat-file", "-t", source_sha)).strip()
+    if object_type != "commit":
+        raise ProductionError("source context identity must be a commit")
+    tree = str(git("rev-parse", f"{source_sha}^{{tree}}")).strip()
+    require_lower_commit_sha(tree, "source context tree")
+    commit = git("cat-file", "commit", source_sha, text=False)
+    archive = git("archive", "--format=tar", source_sha, text=False)
+    assert isinstance(commit, bytes) and isinstance(archive, bytes)
+    commit_path = output_dir / "source-commit.payload"
+    archive_path = output_dir / "ucm-source.tar"
+    commit_path.write_bytes(commit)
+    archive_path.write_bytes(archive)
+    manifest = {
+        "kind": "ucm-production-source-context",
+        "schema_version": 1,
+        "source_sha": source_sha,
+        "source_tree": tree,
+        "source_commit_sha256": "sha256:" + hashlib.sha256(commit).hexdigest(),
+        "source_archive_sha256": "sha256:" + hashlib.sha256(archive).hexdigest(),
+    }
+    manifest["build_context_sha256"] = (
+        "sha256:"
+        + hashlib.sha256(
+            b"ucm-production-source-context-v1\0"
+            + canonical_bytes(manifest)
+            + b"\0"
+            + commit
+            + b"\0"
+            + archive
+        ).hexdigest()
+    )
+    (output_dir / "source-context.json").write_bytes(canonical_bytes(manifest) + b"\n")
+    return manifest
+
+
+def tool_wheel_authority(config: dict[str, Any], architecture: str) -> dict[str, str]:
+    """Project the exact seven build-tool wheel filenames and digests."""
+
+    config = validate_config(config)
+    if architecture not in _ARCHITECTURES:
+        raise ProductionError("tool wheel architecture is invalid")
+    result: dict[str, str] = {}
+    for item in config["toolchain"]["python_build"].values():
+        result[item["filename"]] = "sha256:" + item["sha256"]
+    for name in ("pyyaml", "cmake"):
+        item = config["toolchain"][name][architecture]
+        result[item["filename"]] = "sha256:" + item["sha256"]
+    if len(result) != 7:
+        raise ProductionError(
+            "production tool wheel authority must contain seven files"
+        )
+    return dict(sorted(result.items()))
+
+
+def docker_build_projection(
+    config: dict[str, Any], task: dict[str, Any], context: dict[str, Any], epoch: int
+) -> dict[str, Any]:
+    """Project only fixed Docker target/build arguments for one native wheel."""
+
+    config = validate_config(config)
+    if type(epoch) is not int or not 315532800 <= epoch <= 4354819199:
+        raise ProductionError("source epoch is outside the canonical ZIP range")
+    architecture = task["cpu_arch"]
+    tools = tool_wheel_authority(config, architecture)
+    authority = authority_from_task(
+        task,
+        source_tree=context["source_tree"],
+        source_archive_sha256=context["source_archive_sha256"],
+        source_date_epoch=epoch,
+        build_context_sha256=context["build_context_sha256"],
+        tool_wheels=tools,
+    )
+    platform_arg = {
+        "cuda130": "cuda",
+        "cann900-a2": "ascend",
+        "cann900-a3": "ascend-a3",
+    }[task["profile_id"]]
+    build_args: dict[str, str] = {
+        "SOURCE_DATE_EPOCH": str(epoch),
+        "UCM_BUILDER_IMAGE": (
+            f"{task['builder']['repository']}@{task['builder']['manifest_digest']}"
+        ),
+        "PLATFORM": platform_arg,
+        "UCM_RELEASE_PROFILE": task["profile_id"],
+        "UCM_RELEASE_DISTRIBUTION": task["distribution"],
+        "UCM_RELEASE_SOURCE_SHA": task["source_sha"],
+        "UCM_RELEASE_VERSION": task["wheel_version"],
+        "UCM_RELEASE_BUILD_KEY": "sha256:" + task["sha256"],
+        "UCM_RELEASE_REQUIRED_TARGETS": ",".join(task["required_native"]),
+        "UCM_RELEASE_FORBIDDEN_TARGETS": ",".join(task["forbidden_native"]),
+    }
+    prefixes = {
+        "build": "BUILD",
+        "pyproject-hooks": "PYPROJECT_HOOKS",
+        "packaging": "PACKAGING",
+        "setuptools": "SETUPTOOLS",
+        "wheel": "WHEEL",
+    }
+    for name, prefix in prefixes.items():
+        item = config["toolchain"]["python_build"][name]
+        build_args[f"{prefix}_VERSION"] = item["version"]
+        build_args[f"{prefix}_FILENAME"] = item["filename"]
+        build_args[f"{prefix}_SHA256"] = "sha256:" + item["sha256"]
+    for name, prefix in (("pyyaml", "PYYAML"), ("cmake", "CMAKE")):
+        group = config["toolchain"][name]
+        item = group[architecture]
+        build_args[f"{prefix}_VERSION"] = group["version"]
+        build_args[f"{prefix}_FILENAME"] = item["filename"]
+        build_args[f"{prefix}_SHA256"] = "sha256:" + item["sha256"]
+    return {
+        "docker_target": "production-wheel",
+        "platform": task["platform"],
+        "runner": task["runner"],
+        "build_args": dict(sorted(build_args.items())),
+        "authority": authority,
+    }
+
+
+_NATIVE_DIRECTORIES = {
+    "ucmtrans": "ucm/shared/trans",
+    "metrics": "ucm/shared/metrics",
+    "ucmmetrics": "ucm/shared/metrics",
+    "ucmlogger": "ucm/shared/infra",
+    "ucmnfsstore": "ucm/store/nfsstore",
+    "ucmpcstore": "ucm/store/pcstore",
+    "posixstore": "ucm/store/posix",
+    "compressor": "ucm/store/compress",
+    "cachestore": "ucm/store/cache",
+    "emptystore": "ucm/store/empty",
+    "fakestore": "ucm/store/fake",
+    "ucmpipelinestore": "ucm/store/pipeline",
+    "mooncakestore": "ucm/store/mooncakestore",
+    "ds3fsstore": "ucm/store/ds3fs",
+}
+_SHARED_LIBRARIES = {
+    "metrics",
+    "posixstore",
+    "compressor",
+    "cachestore",
+    "emptystore",
+    "fakestore",
+    "mooncakestore",
+    "ds3fsstore",
+}
+
+
+def _native_component(name: str, task: dict[str, Any]) -> str | None:
+    basename = PurePosixPath(name).name
+    for component in (*task["required_native"], *task["forbidden_native"]):
+        if component not in _NATIVE_DIRECTORIES:
+            continue
+        if not name.startswith(_NATIVE_DIRECTORIES[component] + "/"):
+            continue
+        if component in _SHARED_LIBRARIES:
+            expected = f"lib{component}.so"
+            if basename == expected:
+                return component
+        elif re.fullmatch(
+            rf"{re.escape(component)}\.cpython-312-[A-Za-z0-9_-]+\.so", basename
+        ):
+            return component
+    return None
+
+
+def _verify_task_native_members(
+    entries: dict[str, bytes], task: dict[str, Any]
+) -> None:
+    observed: dict[str, str] = {}
+    expected_machine = {"amd64": 62, "arm64": 183}[task["cpu_arch"]]
+    for name, raw in entries.items():
+        if not name.endswith(".so"):
+            continue
+        if len(raw) < 20 or raw[:6] != b"\x7fELF\x02\x01":
+            raise ProductionError(f"wheel native member is not ELF64: {name}")
+        if struct.unpack_from("<H", raw, 18)[0] != expected_machine:
+            raise ProductionError(f"wheel native member architecture differs: {name}")
+        component = _native_component(name, task)
+        if component is None or component in observed:
+            raise ProductionError(f"wheel native component is not exact: {name}")
+        observed[component] = name
+    required = set(task["required_native"])
+    forbidden = set(task["forbidden_native"])
+    if set(observed) != required or set(observed) & forbidden:
+        raise ProductionError("wheel required/forbidden native closure differs")
+
+
+def seal_built_wheel(
+    raw_wheel: Path,
+    output_dir: Path,
+    task: dict[str, Any],
+    authority: dict[str, Any],
+) -> dict[str, Any]:
+    """Canonicalize one native wheel and bind its schema-v2 build authority."""
+
+    raw_wheel = Path(raw_wheel)
+    output_dir = Path(output_dir)
+    if not raw_wheel.is_file() or raw_wheel.is_symlink():
+        raise ProductionError("raw production wheel must be one regular file")
+    if authority.get("schema_version") != 2 or authority.get("task_sha256") != (
+        "sha256:" + task["sha256"]
+    ):
+        raise ProductionError("production build authority differs from task")
+    try:
+        with zipfile.ZipFile(raw_wheel) as archive:
+            metadata, record_name, _ = _metadata(archive)
+            _record(archive, record_name)
+            entries = {
+                item.filename: archive.read(item.filename)
+                for item in archive.infolist()
+                if not item.is_dir() and item.filename != record_name
+            }
+    except zipfile.BadZipFile:
+        raise ProductionError("raw production wheel is not a ZIP archive") from None
+    if (
+        metadata.get("Name") != task["distribution"]
+        or metadata.get("Version") != task["wheel_version"]
+        or metadata.get_all("Requires-Dist", []) != ["wrapt==1.17.2"]
+    ):
+        raise ProductionError("raw production wheel metadata differs from task")
+    _verify_task_native_members(entries, task)
+    dist_info = PurePosixPath(record_name).parent.as_posix()
+    authority_name = f"{dist_info}/ucm-production-build-authority.json"
+    if authority_name in entries:
+        raise ProductionError("raw production wheel already contains authority")
+    entries[authority_name] = canonical_bytes(authority) + b"\n"
+    record_rows: list[list[str]] = []
+    for name in sorted(entries):
+        raw = entries[name]
+        digest = base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).rstrip(b"=")
+        record_rows.append([name, "sha256=" + digest.decode(), str(len(raw))])
+    record_rows.append([record_name, "", ""])
+    buffer = io.StringIO(newline="")
+    csv.writer(buffer, lineterminator="\n").writerows(record_rows)
+    entries[record_name] = buffer.getvalue().encode()
+
+    epoch = authority["source_date_epoch"]
+    import time
+
+    timestamp_values = list(time.gmtime(epoch)[:6])
+    timestamp_values[5] -= timestamp_values[5] % 2
+    timestamp = tuple(timestamp_values)
+    architecture = {"amd64": "x86_64", "arm64": "aarch64"}[task["cpu_arch"]]
+    filename = (
+        f"{task['distribution'].replace('-', '_')}-{task['wheel_version']}-"
+        f"cp312-cp312-{task['wheel_platform']}_{architecture}.whl"
+    )
+    if output_dir.exists() and any(output_dir.iterdir()):
+        raise ProductionError("production wheel output directory must be empty")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output = output_dir / filename
+    with zipfile.ZipFile(
+        output, "x", compression=zipfile.ZIP_DEFLATED, compresslevel=9
+    ) as archive:
+        for name in sorted(entries):
+            info = zipfile.ZipInfo(name, date_time=timestamp)
+            info.create_system = 3
+            info.external_attr = 0o644 << 16
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, entries[name])
+    inspected = _inspect_wheel(output, task)
+    record = sha256_envelope(
+        {
+            "kind": "ucm-production-wheel-record",
+            "schema_version": 1,
+            "spec_id": task["spec_id"],
+            "distribution": task["distribution"],
+            "version": task["wheel_version"],
+            "filename": filename,
+            "file_sha256": inspected["sha256"],
+            "task_sha256": "sha256:" + task["sha256"],
+            "source_sha": task["source_sha"],
+        }
+    )
+    (output_dir / "record.json").write_bytes(canonical_bytes(record) + b"\n")
+    return record
 
 
 def _profile(config: dict[str, Any], profile_id: str) -> dict[str, Any]:

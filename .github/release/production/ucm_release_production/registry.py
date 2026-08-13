@@ -1021,7 +1021,15 @@ class CommandRegistryTransport:
         environment = {
             key: value
             for key, value in os.environ.items()
-            if key in {"HOME", "PATH", "SSL_CERT_DIR", "SSL_CERT_FILE", "TMPDIR"}
+            if key
+            in {
+                "DOCKER_CONFIG",
+                "HOME",
+                "PATH",
+                "SSL_CERT_DIR",
+                "SSL_CERT_FILE",
+                "TMPDIR",
+            }
         }
         if anonymous:
             with tempfile.TemporaryDirectory(

@@ -336,6 +336,22 @@ class GitHubReleaseClient:
                 return result
         raise ProductionError("GitHub Release listing exceeds ten pages")
 
+    def list_releases(self, *, anonymous: bool = False) -> list[dict[str, Any]]:
+        """List the bounded current-repository Release inventory."""
+
+        result: list[dict[str, Any]] = []
+        for page in range(1, 11):
+            url = self._api_url("/releases") + f"?per_page=100&page={page}"
+            value = self._request("GET", url, expect={200}, anonymous=anonymous)
+            if not isinstance(value, list) or any(
+                not isinstance(item, dict) for item in value
+            ):
+                raise ProductionError("GitHub Release listing is malformed")
+            result.extend(dict(item) for item in value)
+            if len(value) < 100:
+                return result
+        raise ProductionError("GitHub Release listing exceeds ten pages")
+
     def create_release(self, payload: dict[str, Any]) -> dict[str, Any]:
         raw = canonical_bytes(payload)
         value = self._request(

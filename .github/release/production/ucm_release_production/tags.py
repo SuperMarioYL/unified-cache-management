@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
+import subprocess
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from .common import (
@@ -251,6 +255,124 @@ def _lineage(
         if prior_source == source_sha:
             raise ProductionError("Hotfix lineage must use a different source commit")
     return lineage
+
+
+def inspect_local_ref_snapshot(
+    repository_root: Path,
+    intent: TagIntent,
+    *,
+    repository: str,
+    repository_id: int,
+    default_branch: str,
+    lineage: object = None,
+) -> dict[str, Any]:
+    """Read an annotated Tag and both branch heads from a fetch-depth zero checkout."""
+
+    root = Path(repository_root).resolve()
+    if _REPOSITORY.fullmatch(repository) is None:
+        raise ProductionError("local snapshot repository must be owner/name")
+    if type(repository_id) is not int or repository_id < 1:
+        raise ProductionError("local snapshot repository_id must be positive")
+    default_branch = _branch(default_branch, "local snapshot default branch")
+
+    def git(*arguments: str, raw: bool = False) -> str | bytes:
+        completed = subprocess.run(
+            ["git", "-C", str(root), *arguments],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=not raw,
+            check=False,
+        )
+        if completed.returncode:
+            raise ProductionError("local Git ref snapshot command failed")
+        return completed.stdout if raw else str(completed.stdout).strip()
+
+    tag_ref = f"refs/tags/{intent.tag_name}"
+    tag_object_sha = str(git("rev-parse", f"{tag_ref}^{{tag}}"))
+    require_lower_commit_sha(tag_object_sha, "local annotated Tag object")
+    source_sha = str(git("rev-parse", f"{tag_ref}^{{commit}}"))
+    require_lower_commit_sha(source_sha, "local annotated Tag commit")
+    raw_object = git("cat-file", "tag", tag_object_sha, raw=True)
+    assert isinstance(raw_object, bytes)
+    header, separator, message = raw_object.partition(b"\n\n")
+    if not separator or b"\x00" in raw_object or b"\r" in raw_object:
+        raise ProductionError("annotated Tag object payload is malformed")
+    headers: dict[str, str] = {}
+    for raw_line in header.split(b"\n"):
+        try:
+            line = raw_line.decode("utf-8")
+        except UnicodeDecodeError:
+            raise ProductionError("annotated Tag headers must be UTF-8") from None
+        key, split, value = line.partition(" ")
+        if not split or key in headers:
+            raise ProductionError("annotated Tag headers are malformed")
+        headers[key] = value
+    if set(headers) != {"object", "type", "tag", "tagger"}:
+        raise ProductionError("annotated Tag headers are not exact")
+    if (
+        headers["object"] != source_sha
+        or headers["type"] != "commit"
+        or headers["tag"] != intent.tag_name
+    ):
+        raise ProductionError("annotated Tag payload differs from requested Tag")
+    tagger_match = re.fullmatch(r"(.+) ([0-9]+) ([+-][0-9]{4})", headers["tagger"])
+    if tagger_match is None:
+        raise ProductionError("annotated Tag tagger line is malformed")
+    tagger, epoch_text, _offset = tagger_match.groups()
+    if any(ord(char) < 32 or ord(char) == 127 for char in tagger):
+        raise ProductionError("annotated Tag tagger identity is malformed")
+    tagged_at = datetime.fromtimestamp(int(epoch_text), tz=UTC).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+
+    def branch_head(branch: str) -> str:
+        candidates = (f"refs/remotes/origin/{branch}", f"refs/heads/{branch}")
+        values = []
+        for candidate in candidates:
+            completed = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "--verify", candidate],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            if completed.returncode == 0:
+                values.append(completed.stdout.strip())
+        if not values or len(set(values)) != 1:
+            raise ProductionError("local branch identity is absent or ambiguous")
+        return require_lower_commit_sha(values[0], "local branch head")
+
+    source_head = branch_head(intent.release_branch)
+    control_head = branch_head(default_branch)
+    tag_ref_read = {"object_type": "tag", "object_sha": tag_object_sha}
+    tag_object_read = {
+        "tag_object_sha": tag_object_sha,
+        "target_type": "commit",
+        "peeled_commit_sha": source_sha,
+        "tagger": tagger,
+        "tagged_at": tagged_at,
+        "message_sha256": hashlib.sha256(message).hexdigest(),
+    }
+    return {
+        "kind": "ucm-production-ref-snapshot",
+        "schema_version": 1,
+        "repository": repository,
+        "repository_id": repository_id,
+        "tag": {
+            "name": intent.tag_name,
+            "ref_reads": [tag_ref_read, dict(tag_ref_read)],
+            "object_reads": [tag_object_read, dict(tag_object_read)],
+        },
+        "source_branch": {
+            "name": intent.release_branch,
+            "head_reads": [source_head, source_head],
+        },
+        "control": {
+            "default_branch": default_branch,
+            "head_reads": [control_head, control_head],
+        },
+        "lineage": lineage,
+    }
 
 
 def verify_ref_snapshot(intent: TagIntent, snapshot: object) -> dict[str, Any]:

@@ -301,7 +301,10 @@ def read_trusted_identity(
             reference, {"path", "sha", "ref"}, "candidate referenced workflow"
         )
         observed_references.add((reference["path"], reference["sha"], reference["ref"]))
-    if observed_references != expected_references:
+    if (
+        len(references) != len(observed_references)
+        or observed_references != expected_references
+    ):
         raise ProductionError("candidate referenced workflow identity differs")
 
     branch_path = f"/repos/{repository}/git/ref/heads/{default_branch}"
@@ -309,6 +312,39 @@ def read_trusted_identity(
     second_branch = _branch_sha(client.request_json("GET", branch_path), default_branch)
     if first_branch != second_branch:
         raise ProductionError("default branch double-read values do not match")
+    tag_ref_path = f"/repos/{repository}/git/ref/tags/{tag_name}"
+    tag_ref_first = _object(
+        client.request_json("GET", tag_ref_path), "candidate Tag ref"
+    )
+    tag_ref_second = _object(
+        client.request_json("GET", tag_ref_path), "candidate Tag ref"
+    )
+    if (
+        tag_ref_first != tag_ref_second
+        or tag_ref_first.get("ref") != f"refs/tags/{tag_name}"
+    ):
+        raise ProductionError("candidate Tag ref double-read values do not match")
+    tag_target = _object(tag_ref_first.get("object"), "candidate Tag ref target")
+    tag_object_sha_from_ref = require_lower_commit_sha(
+        tag_target.get("sha"), "candidate Tag object SHA"
+    )
+    if tag_target.get("type") != "tag":
+        raise ProductionError("candidate Tag must be an annotated tag object")
+    tag_object_path = f"/repos/{repository}/git/tags/{tag_object_sha_from_ref}"
+    tag_object_first = _object(
+        client.request_json("GET", tag_object_path), "candidate annotated Tag"
+    )
+    tag_object_second = _object(
+        client.request_json("GET", tag_object_path), "candidate annotated Tag"
+    )
+    if (
+        tag_object_first != tag_object_second
+        or tag_object_first.get("sha") != tag_object_sha_from_ref
+    ):
+        raise ProductionError("candidate annotated Tag double-read values do not match")
+    peeled = _object(tag_object_first.get("object"), "candidate annotated Tag target")
+    if peeled.get("type") != "commit" or peeled.get("sha") != source_sha:
+        raise ProductionError("candidate annotated Tag target differs from run source")
 
     artifacts_response = _object(
         client.request_json(
@@ -330,13 +366,14 @@ def read_trusted_identity(
         raise ProductionError("candidate artifact name is not identity-bound")
     (
         artifact_repository_id,
-        tag_object_sha,
+        artifact_tag_object_sha,
         artifact_source,
         artifact_run,
         artifact_attempt,
     ) = match.groups()
     if (
         int(artifact_repository_id) != repository_id
+        or artifact_tag_object_sha != tag_object_sha_from_ref
         or artifact_source != source_sha
         or int(artifact_run) != run_id
         or int(artifact_attempt) != run_attempt
@@ -372,7 +409,7 @@ def read_trusted_identity(
             "run_attempt": run_attempt,
             "source_sha": source_sha,
             "tag_name": tag_name,
-            "tag_object_sha": tag_object_sha,
+            "tag_object_sha": tag_object_sha_from_ref,
             "referenced_workflows": sorted(
                 [
                     {"path": path, "sha": sha, "ref": ref}

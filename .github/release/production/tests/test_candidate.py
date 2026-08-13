@@ -134,6 +134,7 @@ def _run() -> dict[str, object]:
             "event": "push",
             "run_id": RUN_ID,
             "run_attempt": ATTEMPT,
+            "source_date_epoch": 1786608000,
             "head_sha": SOURCE,
             "tag_name": "v0.6.0rc1",
             "artifact_name": (
@@ -217,8 +218,10 @@ def _candidate_root(tmp_path: Path) -> Path:
                     "recipe_sha256": "sha256:"
                     + hashlib.sha256(f"recipe:{spec_id}".encode()).hexdigest(),
                     "manifest_digest": manifest,
+                    "manifest_size": 321,
                     "config_digest": "sha256:"
                     + hashlib.sha256(f"config:{spec_id}".encode()).hexdigest(),
+                    "config_size": 123,
                     "layers": [
                         {
                             "digest": "sha256:"

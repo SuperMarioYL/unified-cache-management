@@ -77,6 +77,15 @@ def _responses() -> dict[str, list[tuple[int, dict[str, str], bytes]]]:
         "state": "active",
     }
     branch = {"ref": "refs/heads/develop", "object": {"type": "commit", "sha": CONTROL}}
+    tag_ref = {
+        "ref": "refs/tags/v0.6.0rc1",
+        "object": {"type": "tag", "sha": "3" * 40},
+    }
+    tag_object = {
+        "sha": "3" * 40,
+        "tag": "v0.6.0rc1",
+        "object": {"type": "commit", "sha": SOURCE},
+    }
     artifacts = {
         "total_count": 1,
         "artifacts": [
@@ -103,6 +112,14 @@ def _responses() -> dict[str, list[tuple[int, dict[str, str], bytes]]]:
         _url(f"/repos/{REPOSITORY}/git/ref/heads/develop"): [
             _json(branch),
             _json(branch),
+        ],
+        _url(f"/repos/{REPOSITORY}/git/ref/tags/v0.6.0rc1"): [
+            _json(tag_ref),
+            _json(tag_ref),
+        ],
+        _url(f"/repos/{REPOSITORY}/git/tags/{'3' * 40}"): [
+            _json(tag_object),
+            _json(tag_object),
         ],
         _url(f"/repos/{REPOSITORY}/actions/runs/{RUN_ID}/artifacts?per_page=100"): [
             _json(artifacts)

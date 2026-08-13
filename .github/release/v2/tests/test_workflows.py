@@ -25,6 +25,14 @@ TASK_7_WORKFLOWS = [
     "release-cleanup-dry-run.yml",
     "repository-policy-audit-dry-run.yml",
 ]
+PRODUCTION_WORKFLOW_NAMES = [
+    "production-tag-candidate.yml",
+    "_production-build-wheel.yml",
+    "_production-build-image.yml",
+    "production-release-controller.yml",
+    "_production-release-controller.yml",
+    "_production-publish-image-member.yml",
+]
 PIN = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")
 
 
@@ -101,6 +109,18 @@ def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         check=False,
     )
+
+
+def test_production_workflows_are_explicitly_outside_the_v2_dry_run_policy() -> None:
+    """Production writes have their own closed policy and cannot expand v2 scope."""
+    dry_run_names = {
+        *WORKFLOW_NAMES,
+        RELEASE_LIFECYCLE_WORKFLOW,
+        RELEASE_CONTROL_WORKFLOW,
+        *TASK_7_WORKFLOWS,
+    }
+    assert dry_run_names.isdisjoint(PRODUCTION_WORKFLOW_NAMES)
+    assert all((WORKFLOW_ROOT / name).is_file() for name in PRODUCTION_WORKFLOW_NAMES)
 
 
 def test_lifecycle_validate_cli_reopens_the_generated_plan(tmp_path: Path) -> None:

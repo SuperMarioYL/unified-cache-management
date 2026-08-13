@@ -64,6 +64,7 @@ _RUN_KEYS = {
     "event",
     "run_id",
     "run_attempt",
+    "source_date_epoch",
     "head_sha",
     "tag_name",
     "artifact_name",
@@ -122,7 +123,9 @@ _IMAGE_MEMBER_KEYS = {
     "wheel_sha256",
     "recipe_sha256",
     "manifest_digest",
+    "manifest_size",
     "config_digest",
+    "config_size",
     "layers",
     "annotations",
     "sha256",
@@ -213,6 +216,11 @@ def _validate_run(value: object) -> dict[str, Any]:
     _positive_int(run["workflow_id"], "candidate run workflow_id")
     _positive_int(run["run_id"], "candidate run run_id")
     _positive_int(run["run_attempt"], "candidate run run_attempt")
+    if (
+        type(run["source_date_epoch"]) is not int
+        or not 315532800 <= run["source_date_epoch"] <= 4354819199
+    ):
+        raise ProductionError("candidate run source_date_epoch is invalid")
     if run["workflow_path"] != ".github/workflows/production-tag-candidate.yml":
         raise ProductionError("candidate run workflow path is invalid")
     if run["event"] != "push":
@@ -221,6 +229,56 @@ def _validate_run(value: object) -> dict[str, Any]:
     require_string(run["tag_name"], "candidate run tag_name")
     require_string(run["artifact_name"], "candidate run artifact_name")
     return run
+
+
+def candidate_run_document(
+    *,
+    repository: str,
+    repository_id: int,
+    workflow_id: int,
+    run_id: int,
+    run_attempt: int,
+    source_sha: str,
+    tag_name: str,
+    tag_object_sha: str,
+    source_date_epoch: int,
+) -> dict[str, Any]:
+    """Build the only candidate run projection accepted by the aggregate sealer."""
+
+    require_string(repository, "candidate run repository")
+    _positive_int(repository_id, "candidate run repository_id")
+    _positive_int(workflow_id, "candidate run workflow_id")
+    _positive_int(run_id, "candidate run run_id")
+    _positive_int(run_attempt, "candidate run run_attempt")
+    require_lower_commit_sha(source_sha, "candidate run source SHA")
+    require_lower_commit_sha(tag_object_sha, "candidate run Tag object SHA")
+    require_string(tag_name, "candidate run Tag")
+    if (
+        type(source_date_epoch) is not int
+        or not 315532800 <= source_date_epoch <= 4354819199
+    ):
+        raise ProductionError("candidate run source_date_epoch is invalid")
+    artifact_name = (
+        f"ucm-production-candidate-{repository_id}-{tag_object_sha}-"
+        f"{source_sha}-{run_id}-{run_attempt}"
+    )
+    return sha256_envelope(
+        {
+            "kind": "ucm-production-candidate-run",
+            "schema_version": 1,
+            "repository": repository,
+            "repository_id": repository_id,
+            "workflow_id": workflow_id,
+            "workflow_path": ".github/workflows/production-tag-candidate.yml",
+            "event": "push",
+            "run_id": run_id,
+            "run_attempt": run_attempt,
+            "source_date_epoch": source_date_epoch,
+            "head_sha": source_sha,
+            "tag_name": tag_name,
+            "artifact_name": artifact_name,
+        }
+    )
 
 
 def _validate_source(value: object) -> dict[str, Any]:
@@ -420,6 +478,8 @@ def _validate_image_members(
             "config_digest",
         ):
             _digest(record[key], f"image member {key}")
+        _positive_int(record["manifest_size"], "image manifest size")
+        _positive_int(record["config_size"], "image config size")
         layers = _validate_layers(record["layers"], spec_id)
         annotations = _object(record["annotations"], "image annotations")
         require_exact_keys(
@@ -438,7 +498,9 @@ def _validate_image_members(
                 "profile_id": _profile(spec_id),
                 "platform": record["platform"],
                 "manifest_digest": record["manifest_digest"],
+                "manifest_size": record["manifest_size"],
                 "config_digest": record["config_digest"],
+                "config_size": record["config_size"],
                 "layers": layers,
                 "recipe_sha256": record["recipe_sha256"],
                 "path": relative,
@@ -562,6 +624,9 @@ def seal_candidate(
             "tag_name": intent["tag_name"],
             "tag_object_sha": source["tag_object_sha"],
             "source_sha": source_sha,
+            # This is the candidate's declared control snapshot. A write-capable
+            # controller must never trust it; GitHub API identity supplies the
+            # current default-branch control SHA independently.
             "control_sha": source["control_sha"],
             "run_id": run["run_id"],
             "run_attempt": run["run_attempt"],
