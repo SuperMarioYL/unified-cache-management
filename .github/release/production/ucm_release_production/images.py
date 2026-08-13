@@ -300,15 +300,20 @@ def inspect_oci_layout(
     for position, item in enumerate(layers_value):
         if not isinstance(item, dict):
             raise ProductionError("OCI layer descriptor is invalid")
-        raw = _blob(root, item, f"OCI layer {position}")
-        if not item["mediaType"].startswith(_LAYER_PREFIX):
+        descriptor = dict(item)
+        annotations = descriptor.pop("annotations", None)
+        diff_id = require_sha256_digest(diff_ids[position], f"OCI diff-ID {position}")
+        if annotations is not None and annotations != {
+            "containerd.io/uncompressed": diff_id
+        }:
+            raise ProductionError("OCI layer annotations differ from config diff-ID")
+        raw = _blob(root, descriptor, f"OCI layer {position}")
+        if not descriptor["mediaType"].startswith(_LAYER_PREFIX):
             raise ProductionError("OCI layer media type differs")
         layers.append(
             {
                 "digest": _digest(raw),
-                "diff_id": require_sha256_digest(
-                    diff_ids[position], f"OCI diff-ID {position}"
-                ),
+                "diff_id": diff_id,
                 "size": len(raw),
             }
         )
