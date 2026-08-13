@@ -225,6 +225,27 @@ def test_reusable_controller_separates_read_only_rebuild_from_environment_writes
     }
 
 
+def test_final_evidence_reopens_the_preserved_preflight_artifact_paths() -> None:
+    workflow = _workflow("_production-release-controller.yml")
+    jobs = workflow["jobs"]
+    preflight_upload = next(
+        step
+        for step in jobs["preflight"]["steps"]
+        if step.get("name") == "Upload trusted preflight bridge"
+    )
+    evidence_assemble = next(
+        step
+        for step in jobs["evidence"]["steps"]
+        if step.get("name") == "Assemble canonical production evidence"
+    )
+
+    assert "out/reopened/verified-envelope.json" in preflight_upload["with"]["path"]
+    assert (
+        "--candidate input/preflight/reopened/verified-envelope.json"
+        in evidence_assemble["run"]
+    )
+
+
 def test_every_action_is_immutable_or_a_local_reusable_workflow() -> None:
     for name in PRODUCTION_WORKFLOWS:
         workflow = _workflow(name)
