@@ -3,17 +3,23 @@ from __future__ import annotations
 import copy
 import hashlib
 import io
+import json
 import tarfile
 from pathlib import Path
 
 import pytest
 
 from ucm_release_production.build import project_build_task
-from ucm_release_production.common import ProductionError, sha256_envelope
+from ucm_release_production.common import (
+    ProductionError,
+    canonical_bytes,
+    sha256_envelope,
+)
 from ucm_release_production.config import load_config
 from ucm_release_production.images import (
     extract_oci_archive,
     image_recipe,
+    inspect_oci_layout,
     prepare_image_context,
 )
 from ucm_release_production.tags import intent_document, parse_tag
@@ -50,6 +56,87 @@ def test_extract_oci_archive_accepts_buildkit_directory_members(tmp_path: Path) 
     extract_oci_archive(archive_path, output)
 
     assert (output / blob_name).read_bytes() == blob
+
+
+def test_inspect_oci_layout_accepts_buildkit_uncompressed_layer_annotation(
+    tmp_path: Path,
+) -> None:
+    config = load_config(CONFIG)
+    intent = parse_tag("v0.6.0rc1", config)
+    task = project_build_task(config, intent, _source(), "cuda130-amd64")
+    recipe = image_recipe(task, intent.image_tag)
+    wheel_sha256 = "sha256:" + "6" * 64
+    layer = b"production-layer"
+    layer_digest = "sha256:" + hashlib.sha256(layer).hexdigest()
+    diff_id = "sha256:" + "7" * 64
+    image_config = {
+        "rootfs": {"type": "layers", "diff_ids": [diff_id]},
+        "config": {
+            "Labels": {
+                "org.opencontainers.image.revision": recipe["source_sha"],
+                "org.opencontainers.image.version": recipe["image_tag"],
+                "io.ucm.release.spec-id": recipe["spec_id"],
+                "io.ucm.release.task-sha256": recipe["task_sha256"],
+                "io.ucm.release.wheel-sha256": wheel_sha256,
+                "io.ucm.release.recipe-sha256": "sha256:" + recipe["sha256"],
+            }
+        },
+    }
+    config_raw = canonical_bytes(image_config)
+    config_digest = "sha256:" + hashlib.sha256(config_raw).hexdigest()
+    manifest = {
+        "schemaVersion": 2,
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "config": {
+            "mediaType": "application/vnd.oci.image.config.v1+json",
+            "digest": config_digest,
+            "size": len(config_raw),
+        },
+        "layers": [
+            {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": layer_digest,
+                "size": len(layer),
+                "annotations": {"containerd.io/uncompressed": diff_id},
+            }
+        ],
+        "annotations": {
+            "org.opencontainers.image.revision": recipe["source_sha"],
+            "org.opencontainers.image.version": recipe["image_tag"],
+        },
+    }
+    manifest_raw = canonical_bytes(manifest)
+    manifest_digest = "sha256:" + hashlib.sha256(manifest_raw).hexdigest()
+    index = {
+        "schemaVersion": 2,
+        "mediaType": "application/vnd.oci.image.index.v1+json",
+        "manifests": [
+            {
+                "mediaType": manifest["mediaType"],
+                "digest": manifest_digest,
+                "size": len(manifest_raw),
+                "platform": {"os": "linux", "architecture": "amd64"},
+            }
+        ],
+    }
+    blobs = tmp_path / "layout" / "blobs" / "sha256"
+    blobs.mkdir(parents=True)
+    (tmp_path / "layout" / "oci-layout").write_text(
+        '{"imageLayoutVersion":"1.0.0"}\n', encoding="utf-8"
+    )
+    (tmp_path / "layout" / "index.json").write_text(json.dumps(index), encoding="utf-8")
+    for digest, raw in (
+        (layer_digest, layer),
+        (config_digest, config_raw),
+        (manifest_digest, manifest_raw),
+    ):
+        (blobs / digest.removeprefix("sha256:")).write_bytes(raw)
+
+    closure = inspect_oci_layout(tmp_path / "layout", recipe, wheel_sha256=wheel_sha256)
+
+    assert closure["layers"] == [
+        {"digest": layer_digest, "diff_id": diff_id, "size": len(layer)}
+    ]
 
 
 def _source() -> dict[str, object]:
