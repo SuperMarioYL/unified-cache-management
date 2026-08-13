@@ -16,7 +16,13 @@
     "decision": {"enum": ["create", "reuse", "blocked"]},
     "spec_id": {"enum": ["cuda130-amd64", "cuda130-arm64", "cann900-a2-amd64", "cann900-a2-arm64", "cann900-a3-amd64", "cann900-a3-arm64"]},
     "profile_id": {"enum": ["cuda130", "cann900-a2", "cann900-a3"]},
-    "repository": {"type": "string", "pattern": "^ghcr\\.io/[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+$"},
+    "repository": {
+      "type": "string",
+      "anyOf": [
+        {"pattern": "^ghcr\\.io/[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+$"},
+        {"pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$"}
+      ]
+    },
     "platform": {"enum": ["linux/amd64", "linux/arm64"]},
     "source_sha": {"$ref": "#/$defs/commit"},
     "manifest_digest": {"$ref": "#/$defs/digest"},
@@ -32,6 +38,13 @@
     "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-rc\\.[1-9][0-9]*)?$"},
     "file_sha256": {"$ref": "#/$defs/digest"},
     "layer_digest": {"$ref": "#/$defs/digest"},
+    "release_id": {"type": "integer", "minimum": 1},
+    "release_state": {"enum": ["draft", "prerelease", "release"]},
+    "tag_name": {"type": "string", "minLength": 1},
+    "candidate_sha256": {"$ref": "#/$defs/sha256"},
+    "environment_status": {"enum": ["passed", "waived-for-preview"]},
+    "asset_count": {"const": 11},
+    "assets": {"type": "array", "minItems": 11, "maxItems": 11, "items": {"type": "object"}},
     "authenticated_readback": {"type": "object"},
     "anonymous_readback": {"type": "object"},
     "operations": {"type": "array", "items": {"type": "object"}},
@@ -40,15 +53,28 @@
   "allOf": [
     {
       "if": {"properties": {"channel": {"const": "ghcr-member"}}, "required": ["channel"]},
-      "then": {"required": ["spec_id", "repository", "platform", "source_sha", "manifest_digest", "manifest_size", "config_digest", "config_size", "layers", "annotations"]}
+      "then": {
+        "required": ["spec_id", "repository", "platform", "source_sha", "manifest_digest", "manifest_size", "config_digest", "config_size", "layers", "annotations"],
+        "properties": {"repository": {"pattern": "^ghcr\\.io/"}}
+      }
     },
     {
       "if": {"properties": {"channel": {"const": "ghcr-index"}}, "required": ["channel"]},
-      "then": {"required": ["profile_id", "repository", "source_sha", "index_digest", "members", "index_descriptors"]}
+      "then": {
+        "required": ["profile_id", "repository", "source_sha", "index_digest", "members", "index_descriptors"],
+        "properties": {"repository": {"pattern": "^ghcr\\.io/"}}
+      }
     },
     {
       "if": {"properties": {"channel": {"const": "chart-oci"}}, "required": ["channel"]},
       "then": {"required": ["name", "version", "file_sha256"]}
+    },
+    {
+      "if": {"properties": {"channel": {"const": "github-release"}}, "required": ["channel"]},
+      "then": {
+        "required": ["repository", "release_id", "release_state", "tag_name", "source_sha", "candidate_sha256", "environment_status", "asset_count", "assets"],
+        "properties": {"repository": {"pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$"}}
+      }
     }
   ],
   "$defs": {
