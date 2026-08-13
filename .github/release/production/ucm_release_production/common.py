@@ -57,6 +57,14 @@ def load_json(path: Path, label: str) -> Any:
         raise ProductionError(f"cannot read {label}: {error}") from None
     if raw.startswith(b"\xef\xbb\xbf"):
         raise ProductionError(f"{label} must not contain a UTF-8 BOM")
+    return decode_json(raw, label)
+
+
+def decode_json(raw: bytes, label: str) -> Any:
+    """Decode strict UTF-8 JSON bytes without duplicate keys or non-finite values."""
+
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raise ProductionError(f"{label} must not contain a UTF-8 BOM")
     try:
         text = raw.decode("utf-8", errors="strict")
     except UnicodeDecodeError:
