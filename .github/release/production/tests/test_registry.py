@@ -69,6 +69,9 @@ def _layout(
                 "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
                 "digest": layer_digest,
                 "size": len(layer_raw),
+                "annotations": {
+                    "buildkit/rewritten-timestamp": "1786634616",
+                },
             }
         ],
         "annotations": annotations,
