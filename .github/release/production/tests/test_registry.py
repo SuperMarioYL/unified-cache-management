@@ -168,22 +168,26 @@ class FakeRegistry:
 
     def push_layout(self, layout: Path, target: str, *, index: bool = False) -> None:
         self.operations.append(("push-index" if index else "push", target, False))
-        index_value = json.loads((layout / "index.json").read_text())
-        descriptor = index_value["manifests"][0]
-        digest = descriptor["digest"]
         repository = self.repository(target)
         source_blobs = layout / "blobs" / "sha256"
         if index:
-            index_manifest = json.loads(
-                (source_blobs / digest.removeprefix("sha256:")).read_text()
-            )
+            manifest_raw = (layout / "index.json").read_bytes()
+            digest = _digest(manifest_raw)
+            if target != f"{repository}@{digest}":
+                raise ProductionError("index payload digest does not match target")
+            index_manifest = json.loads(manifest_raw)
             for child in index_manifest["manifests"]:
                 child_path = source_blobs / child["digest"].removeprefix("sha256:")
                 if not child_path.is_file():
                     raise ProductionError("index layout is missing a child manifest")
+        else:
+            index_value = json.loads((layout / "index.json").read_text())
+            descriptor = index_value["manifests"][0]
+            digest = descriptor["digest"]
+            manifest_raw = (source_blobs / digest.removeprefix("sha256:")).read_bytes()
         for path in source_blobs.iterdir():
             self.blobs[f"{repository}@sha256:{path.name}"] = path.read_bytes()
-        self.manifests[f"{repository}@{digest}"] = self.blobs[f"{repository}@{digest}"]
+        self.manifests[f"{repository}@{digest}"] = manifest_raw
         if self.lose_after_push:
             self.lose_after_push = False
             raise RegistryResponseLost("push response lost")

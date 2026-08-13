@@ -814,18 +814,7 @@ def _materialize_index(
             )
         (blobs / descriptor["digest"].removeprefix("sha256:")).write_bytes(child_raw)
     (blobs / digest.removeprefix("sha256:")).write_bytes(raw)
-    index = {
-        "schemaVersion": 2,
-        "mediaType": _OCI_INDEX,
-        "manifests": [
-            {
-                "mediaType": _OCI_INDEX,
-                "digest": digest,
-                "size": len(raw),
-            }
-        ],
-    }
-    (root / "index.json").write_bytes(canonical_bytes(index) + b"\n")
+    (root / "index.json").write_bytes(raw)
     return digest, raw, descriptors
 
 
