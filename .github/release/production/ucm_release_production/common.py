@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 _LOWER_SHA256 = re.compile(r"[0-9a-f]{64}", re.ASCII)
+_LOWER_COMMIT_SHA = re.compile(r"[0-9a-f]{40}", re.ASCII)
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]", re.ASCII)
 
 
@@ -99,6 +100,12 @@ def require_lower_sha256(value: object, label: str) -> str:
     return value
 
 
+def require_lower_commit_sha(value: object, label: str) -> str:
+    if not isinstance(value, str) or _LOWER_COMMIT_SHA.fullmatch(value) is None:
+        raise ProductionError(f"{label} must be a full lowercase 40-hex commit SHA")
+    return value
+
+
 def require_posix_path(value: object, label: str) -> str:
     path = require_string(value, label)
     if "\\" in path or path.startswith("/") or path.endswith("/"):
@@ -121,6 +128,17 @@ def sha256_envelope(value: Mapping[str, Any]) -> dict[str, Any]:
         raise ProductionError("unsigned envelope must not contain sha256")
     document["sha256"] = hashlib.sha256(canonical_bytes(document)).hexdigest()
     return document
+
+
+def write_json(path: Path, value: object, label: str) -> None:
+    """Create a canonical JSON output without overwriting an existing file."""
+
+    try:
+        with path.open("xb") as stream:
+            stream.write(canonical_bytes(value))
+            stream.write(b"\n")
+    except OSError as error:
+        raise ProductionError(f"cannot create {label}: {error}") from None
 
 
 def verify_envelope(
