@@ -9,7 +9,7 @@
 
 ## 1. 目标与非目标
 
-本设计把现有只读发布生命周期控制面与已经通过 GitHub Hosted Actions 验证的真实 wheel、Chart、双架构镜像构建能力，组合为一套可在 fork 和主仓库复用的完整生产发布 Workflow。首轮在 `SuperMarioYL/unified-cache-management` 真实创建 GHCR 包与 GitHub Draft/Pre-release，并对远端产物做回读校验。实施前先通过受保护 PR 把 `version.ini` 与受信生产配置从历史 `0.5.0rc1` 切换为 `0.6.0`；发布运行不得临时修改版本文件。
+本设计把现有只读发布生命周期控制面与已经通过 GitHub Hosted Actions 验证的真实 wheel、Chart、双架构镜像构建能力，组合为一套可在 fork 和主仓库复用的完整生产发布 Workflow。首轮在 `SuperMarioYL/unified-cache-management` 真实创建 GHCR 包与 GitHub Draft/Pre-release，并对远端产物做回读校验。默认分支先通过受保护 PR 合入通用生产控制代码和 `0.6` 发布线配置；随后从该提交创建 `0.6.0-release`，再通过发布分支上的受保护提交把 `version.ini` 从历史 `0.5.0rc1` 切换为 `0.6.0`。发布运行不得临时修改版本文件，默认分支上的冻结旧链也不会因新发布线而失效。
 
 完整实现覆盖 Draft、RC、Stable 和 Hotfix：
 
