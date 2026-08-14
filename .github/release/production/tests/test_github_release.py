@@ -6,11 +6,14 @@ from typing import Any
 
 import pytest
 from jsonschema import Draft202012Validator
-
-from ucm_release_production.common import ProductionError, sha256_envelope
+from ucm_release_production.common import (
+    ProductionError,
+    canonical_bytes,
+    sha256_envelope,
+)
 from ucm_release_production.github_release import (
-    GitHubReleaseClient,
     GitHubNotFound,
+    GitHubReleaseClient,
     GitHubReleasePlan,
     GitHubResponseLost,
     ReleaseAsset,
@@ -19,7 +22,6 @@ from ucm_release_production.github_release import (
     readback_release,
     upload_assets,
 )
-from ucm_release_production.common import canonical_bytes
 
 REPOSITORY = "OctoCat/unified-cache-management"
 SOURCE = "1" * 40
@@ -53,7 +55,14 @@ def _channels(stage: str, *, complete: bool = True) -> tuple[dict[str, Any], ...
                 }
             )
         )
-    for profile_id in ("cuda130", "cann900-a2", "cann900-a3"):
+    image_tag = "draft-v0.6.0-1" if stage == "draft" else "v0.6.0rc1"
+    suffix = "-private" if stage == "draft" else ""
+    for profile_id, image_name, digest_character in (
+        ("cuda130", "ucm-cuda", "a"),
+        ("cann900-a2", "ucm-cann-a2", "b"),
+        ("cann900-a3", "ucm-cann-a3", "c"),
+    ):
+        repository = f"ghcr.io/octocat/{image_name}{suffix}"
         records.append(
             sha256_envelope(
                 {
@@ -63,6 +72,10 @@ def _channels(stage: str, *, complete: bool = True) -> tuple[dict[str, Any], ...
                     "stage": stage,
                     "status": "complete",
                     "profile_id": profile_id,
+                    "repository": repository,
+                    "reference": f"{repository}:{image_tag}",
+                    "index_digest": "sha256:" + digest_character * 64,
+                    "source_sha": SOURCE,
                 }
             )
         )
@@ -98,15 +111,7 @@ def _plan(
                 f"uc_manager_{profile}-{version}-cp312-cp312-{platform}_{arch}.whl"
             )
     chart_version = "0.6.0-rc.1" if stage == "rc" else "0.6.0-draft.1"
-    names.extend(
-        [
-            f"unified-cache-pd-{chart_version}.tgz",
-            "SHA256SUMS",
-            "ucm-production-manifest.json",
-            "ucm-production-sbom.json",
-            "ucm-production-environment.json",
-        ]
-    )
+    names.append(f"unified-cache-pd-{chart_version}.tgz")
     assets: list[ReleaseAsset] = []
     for position, name in enumerate(names):
         path = tmp_path / name
@@ -261,6 +266,47 @@ def test_absent_release_is_created_as_draft_and_resumes_exactly(tmp_path: Path) 
     assert sum(action == "create-release" for action, _ in client.operations) == 1
 
 
+def test_release_description_has_copyable_tag_and_digest_image_pulls(
+    tmp_path: Path,
+) -> None:
+    client = FakeReleaseClient()
+
+    prepared = prepare_release(_plan(tmp_path, stage="draft"), client)
+
+    assert (
+        """Pull images from GHCR:
+
+```bash
+docker pull ghcr.io/octocat/ucm-cuda-private:draft-v0.6.0-1
+docker pull ghcr.io/octocat/ucm-cann-a2-private:draft-v0.6.0-1
+docker pull ghcr.io/octocat/ucm-cann-a3-private:draft-v0.6.0-1
+```
+
+Immutable image references:
+
+```bash
+docker pull ghcr.io/octocat/ucm-cuda-private@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+docker pull ghcr.io/octocat/ucm-cann-a2-private@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+docker pull ghcr.io/octocat/ucm-cann-a3-private@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+```"""
+        in prepared["release"]["body"]
+    )
+
+
+def test_release_description_carries_versioned_lineage_marker(tmp_path: Path) -> None:
+    client = FakeReleaseClient()
+
+    prepared = prepare_release(_plan(tmp_path, stage="draft"), client)
+
+    assert (
+        '<!-- ucm-production-lineage-v1 {"candidate_sha256":"'
+        + "2" * 64
+        + '","environment_status":"waived-for-preview","source_sha":"'
+        + SOURCE
+        + '"} -->'
+    ) in prepared["release"]["body"]
+
+
 def test_prepare_recovers_exact_create_response_loss(tmp_path: Path) -> None:
     client = FakeReleaseClient()
     client.lose_create = True
@@ -333,7 +379,7 @@ def test_uploads_exact_assets_and_identical_rerun_is_read_only(tmp_path: Path) -
     before = list(client.operations)
     second = upload_assets(plan, client)
 
-    assert len(first["assets"]) == 11
+    assert len(first["assets"]) == 7
     assert [item["name"] for item in first["assets"]] == [
         asset.name for asset in plan.assets
     ]
@@ -386,8 +432,8 @@ def test_upload_response_loss_and_partial_publication_resume(tmp_path: Path) -> 
     assert len(client2.releases[0]["assets"]) == 3
     client2.fail_upload_name = None
     resumed = upload_assets(plan, client2)
-    assert len(resumed["assets"]) == 11
-    assert len({item["name"] for item in resumed["assets"]}) == 11
+    assert len(resumed["assets"]) == 7
+    assert len({item["name"] for item in resumed["assets"]}) == 7
 
 
 def test_rc_finalizes_only_after_channels_and_assets_then_anonymous_readback(
@@ -402,7 +448,7 @@ def test_rc_finalizes_only_after_channels_and_assets_then_anonymous_readback(
     assert record["status"] == "complete"
     assert record["release_state"] == "prerelease"
     assert record["visibility"] == "public"
-    assert record["asset_count"] == 11
+    assert record["asset_count"] == 7
     assert all(item["anonymous_sha256"] == item["digest"] for item in record["assets"])
     schema = __import__("json").loads(
         (

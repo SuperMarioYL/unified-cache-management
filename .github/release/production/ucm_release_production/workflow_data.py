@@ -8,16 +8,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .common import (
-    ProductionError,
-    load_json,
-    sha256_envelope,
-    verify_envelope,
-    write_json,
-)
+from .common import ProductionError, load_json, verify_envelope, write_json
 from .config import derive_repository, validate_config
 from .tags import reopen_intent
-
 
 _SPECS = (
     "cuda130-amd64",
@@ -195,7 +188,7 @@ def release_request(
     assets_dir: Path,
     output: Path,
 ) -> dict[str, Any]:
-    """Build the exact GitHub Release request and deterministic support assets."""
+    """Build the exact GitHub Release request from user-facing delivery assets."""
 
     candidate = _candidate(candidate_value)
     environment = verify_envelope(
@@ -221,49 +214,6 @@ def release_request(
     if _digest(chart_target) != candidate["chart"]["file_sha256"]:
         raise ProductionError("release Chart asset digest differs")
     asset_paths.append(chart_target)
-    write_json(
-        assets_dir / "ucm-production-manifest.json",
-        candidate,
-        "production manifest asset",
-    )
-    write_json(
-        assets_dir / "ucm-production-sbom.json",
-        sha256_envelope(
-            {
-                "kind": "ucm-production-dependency-evidence",
-                "schema_version": 1,
-                "source_sha": candidate["source_sha"],
-                "wheels": [
-                    {
-                        "spec_id": item["spec_id"],
-                        "distribution": item["distribution"],
-                        "file_sha256": item["file_sha256"],
-                    }
-                    for item in candidate["wheels"]
-                ],
-            }
-        ),
-        "production dependency evidence",
-    )
-    write_json(
-        assets_dir / "ucm-production-environment.json",
-        environment,
-        "production Environment asset",
-    )
-    support = [
-        assets_dir / "ucm-production-manifest.json",
-        assets_dir / "ucm-production-sbom.json",
-        assets_dir / "ucm-production-environment.json",
-    ]
-    checks = sorted([*asset_paths, *support], key=lambda path: path.name)
-    (assets_dir / "SHA256SUMS").write_text(
-        "".join(
-            f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n"
-            for path in checks
-        ),
-        encoding="ascii",
-    )
-    asset_paths.extend([assets_dir / "SHA256SUMS", *support])
     records = []
     for path in sorted(Path(channel_root).rglob("*.json")):
         record = load_json(path, "production channel record")
