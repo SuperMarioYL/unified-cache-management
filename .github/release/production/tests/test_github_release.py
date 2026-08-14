@@ -6,11 +6,14 @@ from typing import Any
 
 import pytest
 from jsonschema import Draft202012Validator
-
-from ucm_release_production.common import ProductionError, sha256_envelope
+from ucm_release_production.common import (
+    ProductionError,
+    canonical_bytes,
+    sha256_envelope,
+)
 from ucm_release_production.github_release import (
-    GitHubReleaseClient,
     GitHubNotFound,
+    GitHubReleaseClient,
     GitHubReleasePlan,
     GitHubResponseLost,
     ReleaseAsset,
@@ -19,7 +22,6 @@ from ucm_release_production.github_release import (
     readback_release,
     upload_assets,
 )
-from ucm_release_production.common import canonical_bytes
 
 REPOSITORY = "OctoCat/unified-cache-management"
 SOURCE = "1" * 40

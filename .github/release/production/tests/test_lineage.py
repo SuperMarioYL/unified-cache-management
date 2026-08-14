@@ -5,7 +5,6 @@ from typing import Any
 from ucm_release_production.lineage import resolve_release_lineage
 from ucm_release_production.tags import TagIntent
 
-
 SOURCE = "1" * 40
 CANDIDATE = "2" * 64
 

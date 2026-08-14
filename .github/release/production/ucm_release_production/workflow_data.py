@@ -8,15 +8,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .common import (
-    ProductionError,
-    load_json,
-    verify_envelope,
-    write_json,
-)
+from .common import ProductionError, load_json, verify_envelope, write_json
 from .config import derive_repository, validate_config
 from .tags import reopen_intent
-
 
 _SPECS = (
     "cuda130-amd64",

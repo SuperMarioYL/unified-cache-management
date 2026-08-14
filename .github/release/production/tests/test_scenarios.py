@@ -5,11 +5,18 @@ import shutil
 from pathlib import Path
 
 import pytest
-
-from ucm_release_production.candidate import (
-    compare_trusted_rebuild,
-    reopen_candidate,
-)
+from conftest import PRODUCTION_ROOT
+from test_candidate import _archive as candidate_archive
+from test_candidate import _expected as candidate_expected
+from test_external import _enabled as external_enabled_config
+from test_external import _environment as external_environment
+from test_github_release import FakeReleaseClient
+from test_github_release import _plan as github_release_plan
+from test_reconcile import _candidate as publication_candidate
+from test_registry import FakeRegistry
+from test_registry import _member_request as member_request
+from test_tags import _snapshot as ref_snapshot
+from ucm_release_production.candidate import compare_trusted_rebuild, reopen_candidate
 from ucm_release_production.common import ProductionError
 from ucm_release_production.external import (
     ExternalCredentials,
@@ -26,19 +33,6 @@ from ucm_release_production.registry import (
     publish_member,
 )
 from ucm_release_production.tags import parse_tag, verify_ref_snapshot
-
-from test_candidate import _archive as candidate_archive
-from test_candidate import _expected as candidate_expected
-from test_external import _enabled as external_enabled_config
-from test_external import _environment as external_environment
-from test_github_release import FakeReleaseClient
-from test_github_release import _plan as github_release_plan
-from test_reconcile import _candidate as publication_candidate
-from test_registry import FakeRegistry
-from test_registry import _member_request as member_request
-from test_tags import _snapshot as ref_snapshot
-
-from conftest import PRODUCTION_ROOT
 
 CONFIG = PRODUCTION_ROOT / "production-release.json"
 REPOSITORY = "OctoCat/unified-cache-management"

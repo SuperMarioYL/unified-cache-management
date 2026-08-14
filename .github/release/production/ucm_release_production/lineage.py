@@ -16,11 +16,7 @@ from .common import (
     require_lower_commit_sha,
     require_lower_sha256,
 )
-from .github_release import (
-    GitHubNotFound,
-    GitHubReleaseClient,
-    delivery_asset_names,
-)
+from .github_release import GitHubNotFound, GitHubReleaseClient, delivery_asset_names
 from .tags import TagIntent
 
 _DRAFT = re.compile(

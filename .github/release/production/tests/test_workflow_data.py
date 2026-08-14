@@ -3,11 +3,10 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+from conftest import PRODUCTION_ROOT
 from ucm_release_production.common import sha256_envelope
 from ucm_release_production.config import load_config
 from ucm_release_production.workflow_data import candidate_outputs, release_request
-
-from conftest import PRODUCTION_ROOT
 
 
 def _candidate(root: Path) -> dict[str, object]:
