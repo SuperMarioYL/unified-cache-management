@@ -12,10 +12,15 @@ from .common import (
     ProductionError,
     canonical_bytes,
     decode_json,
+    require_exact_keys,
     require_lower_commit_sha,
-    verify_envelope,
+    require_lower_sha256,
 )
-from .github_release import GitHubReleaseClient, GitHubNotFound
+from .github_release import (
+    GitHubNotFound,
+    GitHubReleaseClient,
+    delivery_asset_names,
+)
 from .tags import TagIntent
 
 _DRAFT = re.compile(
@@ -26,8 +31,10 @@ _RC = re.compile(
     r"v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)rc(?P<number>[1-9][0-9]*)",
     re.ASCII,
 )
-_MANIFEST = "ucm-production-manifest.json"
-_ENVIRONMENT = "ucm-production-environment.json"
+_DIGEST = re.compile(r"sha256:[0-9a-f]{64}", re.ASCII)
+_LINEAGE_MARKER = re.compile(
+    r"<!-- ucm-production-lineage-v1 (\{[^\r\n]*\}) -->", re.ASCII
+)
 
 
 def _object(value: object, label: str) -> dict[str, Any]:
@@ -43,36 +50,62 @@ def _positive(value: object, label: str) -> int:
 
 
 def _release_assets(
-    client: GitHubReleaseClient, release: dict[str, Any]
-) -> tuple[dict[str, Any], dict[str, Any]]:
+    client: GitHubReleaseClient,
+    release: dict[str, Any],
+    *,
+    expected_stage: str,
+    expected_version: str,
+    tag_name: str,
+) -> dict[str, dict[str, Any]]:
     release_id = _positive(release.get("id"), "lineage Release id")
     values = client.list_release_assets(release_id)
-    if not isinstance(values, list) or len(values) != 11:
-        raise ProductionError("lineage Release must contain exactly eleven assets")
+    if not isinstance(values, list) or len(values) != 7:
+        raise ProductionError("lineage Release must contain exactly seven assets")
     by_name: dict[str, dict[str, Any]] = {}
     for value in values:
         item = _object(value, "lineage Release asset")
         name = item.get("name")
         if not isinstance(name, str) or name in by_name:
             raise ProductionError("lineage Release asset names are invalid")
-        by_name[name] = item
-    if _MANIFEST not in by_name or _ENVIRONMENT not in by_name:
-        raise ProductionError("lineage Release support assets are missing")
-    return by_name[_MANIFEST], by_name[_ENVIRONMENT]
+        digest = item.get("digest")
+        if not isinstance(digest, str) or _DIGEST.fullmatch(digest) is None:
+            raise ProductionError("lineage Release asset digest is invalid")
+        by_name[name] = {
+            "id": _positive(item.get("id"), "lineage Release asset id"),
+            "size": _positive(item.get("size"), "lineage Release asset size"),
+            "digest": digest,
+        }
+    expected = set(delivery_asset_names(expected_stage, tag_name, expected_version))
+    if set(by_name) != expected:
+        raise ProductionError("lineage Release delivery asset set differs")
+    return by_name
 
 
-def _asset_json(
-    client: GitHubReleaseClient, asset: dict[str, Any], label: str
-) -> dict[str, Any]:
-    raw = client.download_release_asset(asset)
-    value = _object(decode_json(raw, label), label)
-    digest = "sha256:" + hashlib.sha256(raw).hexdigest()
-    remote_digest = asset.get("digest")
-    if remote_digest is not None and remote_digest != digest:
-        raise ProductionError(f"{label} digest differs from GitHub")
-    if asset.get("size") != len(raw):
-        raise ProductionError(f"{label} size differs from GitHub")
-    return value
+def _release_marker(release: dict[str, Any], source_sha: str) -> dict[str, Any]:
+    body = release.get("body")
+    if not isinstance(body, str):
+        raise ProductionError("lineage Release body is missing")
+    matches = _LINEAGE_MARKER.findall(body)
+    if len(matches) != 1:
+        raise ProductionError("lineage Release marker is not unique")
+    marker = _object(
+        decode_json(matches[0].encode("ascii"), "lineage Release marker"),
+        "lineage Release marker",
+    )
+    require_exact_keys(
+        marker,
+        {"candidate_sha256", "environment_status", "source_sha"},
+        "lineage Release marker",
+    )
+    if (
+        require_lower_commit_sha(marker["source_sha"], "lineage marker source")
+        != source_sha
+    ):
+        raise ProductionError("lineage Release marker source differs")
+    require_lower_sha256(marker["candidate_sha256"], "lineage candidate SHA256")
+    if marker["environment_status"] not in {"passed", "waived-for-preview"}:
+        raise ProductionError("lineage Release environment status is invalid")
+    return marker
 
 
 def _candidate_release(
@@ -94,34 +127,23 @@ def _candidate_release(
         raise ProductionError("lineage Release state differs")
     if release.get("target_commitish") != source_sha:
         raise ProductionError("lineage Release source commit differs")
-    manifest_asset, environment_asset = _release_assets(client, release)
-    manifest = verify_envelope(
-        _asset_json(client, manifest_asset, "lineage production manifest"),
-        kind="ucm-production-candidate-envelope",
-        schema_version=1,
+    assets = _release_assets(
+        client,
+        release,
+        expected_stage=expected_stage,
+        expected_version=expected_version,
+        tag_name=tag_name,
     )
-    environment = verify_envelope(
-        _asset_json(client, environment_asset, "lineage environment evidence"),
-        kind="ucm-production-environment-evidence",
-        schema_version=1,
-    )
-    if (
-        manifest.get("stage") != expected_stage
-        or manifest.get("tag_name") != tag_name
-        or manifest.get("source_sha") != source_sha
-        or manifest.get("repository") != client.repository
-        or environment.get("source_sha") != source_sha
-        or environment.get("status") not in {"passed", "waived-for-preview"}
-    ):
-        raise ProductionError("lineage Release asset identities differ")
+    marker = _release_marker(release, source_sha)
     return {
         "release_id": _positive(release.get("id"), "lineage Release id"),
         "stage": expected_stage,
         "version": expected_version,
         "tag_name": tag_name,
         "source_commit_sha": source_sha,
-        "candidate_sha256": manifest["sha256"],
-        "environment_sha256": environment["sha256"],
+        "candidate_sha256": marker["candidate_sha256"],
+        "environment_status": marker["environment_status"],
+        "asset_closure_sha256": hashlib.sha256(canonical_bytes(assets)).hexdigest(),
     }
 
 
@@ -215,29 +237,20 @@ def resolve_release_lineage(
         repository_root, prior_source, source_sha
     ):
         raise ProductionError("hotfix source does not descend from previous Stable")
-    manifest_asset, environment_asset = _release_assets(client, release)
-    manifest = verify_envelope(
-        _asset_json(client, manifest_asset, "previous Stable manifest"),
-        kind="ucm-production-candidate-envelope",
-        schema_version=1,
+    assets = _release_assets(
+        client,
+        release,
+        expected_stage="stable",
+        expected_version=previous_version,
+        tag_name=previous_tag,
     )
-    environment = verify_envelope(
-        _asset_json(client, environment_asset, "previous Stable environment"),
-        kind="ucm-production-environment-evidence",
-        schema_version=1,
-    )
-    if (
-        manifest.get("stage") != "stable"
-        or manifest.get("tag_name") != previous_tag
-        or manifest.get("source_sha") != prior_source
-        or environment.get("status") != "passed"
-        or environment.get("source_sha") != prior_source
-    ):
-        raise ProductionError("previous Stable evidence differs")
+    marker = _release_marker(release, prior_source)
+    if marker["environment_status"] != "passed":
+        raise ProductionError("previous Stable environment did not pass")
     evidence = {
         "release_id": _positive(release.get("id"), "previous Stable Release id"),
-        "candidate_sha256": manifest["sha256"],
-        "environment_sha256": environment["sha256"],
+        "candidate_sha256": marker["candidate_sha256"],
+        "asset_closure_sha256": hashlib.sha256(canonical_bytes(assets)).hexdigest(),
     }
     return {
         "accepted": True,

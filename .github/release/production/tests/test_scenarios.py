@@ -149,8 +149,8 @@ def test_partial_release_upload_recovers_without_overwrite(tmp_path: Path) -> No
     assert uploaded_before == 4
     assert record["status"] == "complete"
     assert record["release_state"] == "prerelease"
-    assert len(client.releases[0]["assets"]) == 11
-    assert len({asset["name"] for asset in client.releases[0]["assets"]}) == 11
+    assert len(client.releases[0]["assets"]) == 7
+    assert len({asset["name"] for asset in client.releases[0]["assets"]}) == 7
 
 
 def test_remote_identity_conflict_blocks_every_planned_write() -> None:

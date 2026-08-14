@@ -36,12 +36,11 @@ _ASSET_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,255}", re.ASCII)
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}", re.ASCII)
 _STAGES = {"draft", "rc", "stable", "hotfix"}
 _MAX_ASSET_BYTES = 4 * 1024 * 1024 * 1024
-_SUPPORT_ASSETS = {
-    "SHA256SUMS",
-    "ucm-production-manifest.json",
-    "ucm-production-sbom.json",
-    "ucm-production-environment.json",
-}
+_IMAGE_PROFILES = (
+    ("cuda130", "CUDA", "ucm-cuda"),
+    ("cann900-a2", "CANN A2", "ucm-cann-a2"),
+    ("cann900-a3", "CANN A3", "ucm-cann-a3"),
+)
 
 
 def _release_versions(stage: str, tag_name: str, version: str) -> tuple[str, str]:
@@ -63,10 +62,10 @@ def _release_versions(stage: str, tag_name: str, version: str) -> tuple[str, str
     return version, version
 
 
-def _expected_asset_names(plan: GitHubReleasePlan) -> tuple[str, ...]:
-    wheel_version, chart_version = _release_versions(
-        plan.stage, plan.tag_name, plan.version
-    )
+def delivery_asset_names(stage: str, tag_name: str, version: str) -> tuple[str, ...]:
+    """Return the canonical six Wheel and one Chart Release asset names."""
+
+    wheel_version, chart_version = _release_versions(stage, tag_name, version)
     profiles = (
         ("uc_manager_cuda", "manylinux_2_28"),
         ("uc_manager_cann_a2", "linux"),
@@ -80,11 +79,11 @@ def _expected_asset_names(plan: GitHubReleasePlan) -> tuple[str, ...]:
     return (
         *wheels,
         f"unified-cache-pd-{chart_version}.tgz",
-        "SHA256SUMS",
-        "ucm-production-manifest.json",
-        "ucm-production-sbom.json",
-        "ucm-production-environment.json",
     )
+
+
+def _expected_asset_names(plan: GitHubReleasePlan) -> tuple[str, ...]:
+    return delivery_asset_names(plan.stage, plan.tag_name, plan.version)
 
 
 class GitHubNotFound(ProductionError):
@@ -544,14 +543,14 @@ class GitHubReleasePlan:
         )
         if self.environment_status not in allowed_environment:
             raise ProductionError("GitHub Release environment status is invalid")
-        if not isinstance(self.assets, tuple) or len(self.assets) != 11:
-            raise ProductionError("GitHub Release requires exactly eleven assets")
+        if not isinstance(self.assets, tuple) or len(self.assets) != 7:
+            raise ProductionError("GitHub Release requires exactly seven assets")
         for asset in self.assets:
             if not isinstance(asset, ReleaseAsset):
                 raise ProductionError("GitHub Release assets must be sealed records")
             asset.verify()
         names = tuple(asset.name for asset in self.assets)
-        if names != _expected_asset_names(self) or not _SUPPORT_ASSETS <= set(names):
+        if names != _expected_asset_names(self):
             raise ProductionError("GitHub Release asset set is not canonical")
         if not isinstance(self.channel_records, tuple):
             raise ProductionError("GitHub Release channel records must be a tuple")
@@ -562,9 +561,15 @@ class GitHubReleasePlan:
 
 
 def _authority(plan: GitHubReleasePlan) -> dict[str, Any]:
+    images = _image_pull_references(plan)
     owner = plan.repository.split("/", 1)[0].lower()
-    image_tag = plan.tag_name.replace("/", "-")
-    suffix = "-private" if plan.stage == "draft" else ""
+    lineage_marker = canonical_bytes(
+        {
+            "candidate_sha256": plan.candidate_sha256,
+            "environment_status": plan.environment_status,
+            "source_sha": plan.source_sha,
+        }
+    ).decode("ascii")
     lines = [
         f"UCM production {plan.stage} release for {plan.tag_name}.",
         "",
@@ -573,9 +578,18 @@ def _authority(plan: GitHubReleasePlan) -> dict[str, Any]:
         f"Environment test: {plan.environment_status}",
         "",
         "Wheel assets: six backend and architecture specific distributions.",
-        f"CUDA image: ghcr.io/{owner}/ucm-cuda{suffix}:{image_tag}",
-        f"CANN A2 image: ghcr.io/{owner}/ucm-cann-a2{suffix}:{image_tag}",
-        f"CANN A3 image: ghcr.io/{owner}/ucm-cann-a3{suffix}:{image_tag}",
+        "",
+        "Pull images from GHCR:",
+        "",
+        "```bash",
+        *(f"docker pull {reference}" for _, reference, _ in images),
+        "```",
+        "",
+        "Immutable image references:",
+        "",
+        "```bash",
+        *(f"docker pull {digest_reference}" for _, _, digest_reference in images),
+        "```",
     ]
     if plan.stage != "draft":
         _, chart_version = _release_versions(plan.stage, plan.tag_name, plan.version)
@@ -586,6 +600,8 @@ def _authority(plan: GitHubReleasePlan) -> dict[str, Any]:
         [
             "",
             "Hardware and Kubernetes cluster acceptance are not claimed by this release.",
+            "",
+            f"<!-- ucm-production-lineage-v1 {lineage_marker} -->",
         ]
     )
     return {
@@ -597,6 +613,50 @@ def _authority(plan: GitHubReleasePlan) -> dict[str, Any]:
         "prerelease": False,
         "make_latest": "false",
     }
+
+
+def _image_pull_references(
+    plan: GitHubReleasePlan,
+) -> tuple[tuple[str, str, str], ...]:
+    owner = plan.repository.split("/", 1)[0].lower()
+    image_tag = plan.tag_name.replace("/", "-")
+    suffix = "-private" if plan.stage == "draft" else ""
+    observed: dict[str, tuple[str, str, str]] = {}
+    expected_profiles = {profile_id for profile_id, _, _ in _IMAGE_PROFILES}
+    for record_value in plan.channel_records:
+        record = verify_envelope(
+            record_value,
+            kind="ucm-production-channel-record",
+            schema_version=1,
+        )
+        if record.get("channel") != "ghcr-index":
+            continue
+        profile_id = require_string(record.get("profile_id"), "index profile")
+        if profile_id not in expected_profiles or profile_id in observed:
+            raise ProductionError("GitHub Release image index records differ")
+        if (
+            record.get("stage") != plan.stage
+            or record.get("status") != "complete"
+            or record.get("source_sha") != plan.source_sha
+        ):
+            raise ProductionError("GitHub Release image index is incomplete")
+        _, label, basename = next(
+            item for item in _IMAGE_PROFILES if item[0] == profile_id
+        )
+        repository = f"ghcr.io/{owner}/{basename}{suffix}"
+        reference = f"{repository}:{image_tag}"
+        digest = record.get("index_digest")
+        if (
+            record.get("repository") != repository
+            or record.get("reference") != reference
+            or not isinstance(digest, str)
+            or _DIGEST.fullmatch(digest) is None
+        ):
+            raise ProductionError("GitHub Release image reference differs")
+        observed[profile_id] = (label, reference, f"{repository}@{digest}")
+    if set(observed) != expected_profiles:
+        raise ProductionError("GitHub Release image index closure differs")
+    return tuple(observed[profile_id] for profile_id, _, _ in _IMAGE_PROFILES)
 
 
 def _positive(value: object, label: str) -> int:

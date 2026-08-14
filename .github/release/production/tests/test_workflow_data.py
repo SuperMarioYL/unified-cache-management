@@ -73,7 +73,9 @@ def test_workflow_candidate_outputs_are_closed_scalars(tmp_path: Path) -> None:
     assert outputs["stage"] == "rc"
 
 
-def test_release_request_materializes_exact_eleven_assets(tmp_path: Path) -> None:
+def test_release_request_materializes_only_seven_delivery_assets(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "candidate"
     candidate = _candidate(root)
     environment = sha256_envelope(
@@ -97,13 +99,20 @@ def test_release_request_materializes_exact_eleven_assets(tmp_path: Path) -> Non
         tmp_path / "release-request.json",
     )
 
-    assert len(result["assets"]) == 11
-    assert [Path(path).name for path in result["assets"]][-4:] == [
-        "SHA256SUMS",
-        "ucm-production-manifest.json",
-        "ucm-production-sbom.json",
-        "ucm-production-environment.json",
+    asset_names = [Path(path).name for path in result["assets"]]
+    assert len(asset_names) == 7
+    assert asset_names == [
+        "uc_manager_cuda-0.6.0rc1-cp312-cp312-manylinux_2_28_x86_64.whl",
+        "uc_manager_cuda-0.6.0rc1-cp312-cp312-manylinux_2_28_aarch64.whl",
+        "uc_manager_cann_a2-0.6.0rc1-cp312-cp312-linux_x86_64.whl",
+        "uc_manager_cann_a2-0.6.0rc1-cp312-cp312-linux_aarch64.whl",
+        "uc_manager_cann_a3-0.6.0rc1-cp312-cp312-linux_x86_64.whl",
+        "uc_manager_cann_a3-0.6.0rc1-cp312-cp312-linux_aarch64.whl",
+        "unified-cache-pd-0.6.0-rc.1.tgz",
     ]
+    assert sorted(path.name for path in (tmp_path / "assets").iterdir()) == sorted(
+        asset_names
+    )
     assert (
         load_config(PRODUCTION_ROOT / "production-release.json")["base_version"]
         == "0.6.0"
