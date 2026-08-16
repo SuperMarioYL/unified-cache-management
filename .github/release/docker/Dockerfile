@@ -10,92 +10,64 @@ ARG UCM_BUILDER_IMAGE
 ARG SOURCE_DATE_EPOCH
 ARG TARGETARCH
 ARG PLATFORM
+ARG UCM_RELEASE_TASK_ID
+ARG UCM_RELEASE_SPEC_ID
 ARG UCM_RELEASE_PROFILE
 ARG UCM_RELEASE_SOURCE_SHA
 ARG UCM_RELEASE_VERSION
 ARG UCM_RELEASE_BUILD_KEY
+ARG UCM_RELEASE_PYTHON_VERSION
+ARG UCM_RELEASE_PYTHON_ABI
+ARG UCM_RELEASE_WHEEL_PLATFORM
+ARG UCM_RELEASE_BUILD_SETTINGS
+ARG UCM_RUNTIME_PATCH_MANIFEST_SHA256
 ARG UCM_RELEASE_REQUIRED_TARGETS
 ARG UCM_RELEASE_FORBIDDEN_TARGETS
-ARG BUILD_VERSION
-ARG BUILD_FILENAME
-ARG BUILD_SHA256
-ARG PYPROJECT_HOOKS_VERSION
-ARG PYPROJECT_HOOKS_FILENAME
-ARG PYPROJECT_HOOKS_SHA256
-ARG PACKAGING_VERSION
-ARG PACKAGING_FILENAME
-ARG PACKAGING_SHA256
-ARG SETUPTOOLS_VERSION
-ARG SETUPTOOLS_FILENAME
-ARG SETUPTOOLS_SHA256
-ARG WHEEL_VERSION
-ARG WHEEL_FILENAME
-ARG WHEEL_SHA256
-ARG PYYAML_VERSION
-ARG PYYAML_FILENAME
-ARG PYYAML_SHA256
-ARG CMAKE_VERSION
-ARG CMAKE_FILENAME
-ARG CMAKE_SHA256
 
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 ENV TZ=UTC PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_DEFAULT_TIMEOUT=30 PIP_RETRIES=2 \
     PYTHONDONTWRITEBYTECODE=1
 ARG LD_LIBRARY_PATH
 ENV LD_LIBRARY_PATH="/usr/local/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-RUN if [[ "${PLATFORM}" == "cuda" ]]; then \
-      test -f /usr/local/cuda/lib64/libcudart.so.13; \
-      ldconfig /usr/local/lib /usr/local/cuda/lib64; \
-    else \
-      ldconfig /usr/local/lib; \
-    fi
 
-RUN if [[ -x /opt/python/cp312-cp312/bin/python ]]; then \
-      ln -s /opt/python/cp312-cp312/bin/python /usr/local/bin/ucm-python; \
-    elif command -v python3.12 >/dev/null; then \
-      ln -s "$(command -v python3.12)" /usr/local/bin/ucm-python; \
-    elif command -v python3 >/dev/null && [[ "$(python3 -c 'import sys; print(sys.version_info[:2])')" == "(3, 12)" ]]; then \
+RUN python_candidate="/opt/python/${UCM_RELEASE_PYTHON_ABI}-${UCM_RELEASE_PYTHON_ABI}/bin/python"; \
+    if [[ -x "${python_candidate}" ]]; then \
+      ln -s "${python_candidate}" /usr/local/bin/ucm-python; \
+    elif command -v "python${UCM_RELEASE_PYTHON_VERSION}" >/dev/null; then \
+      ln -s "$(command -v "python${UCM_RELEASE_PYTHON_VERSION}")" /usr/local/bin/ucm-python; \
+    elif command -v python3 >/dev/null && \
+         [[ "$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" == "${UCM_RELEASE_PYTHON_VERSION}" ]]; then \
       ln -s "$(command -v python3)" /usr/local/bin/ucm-python; \
     else \
-      echo 'immutable builder lacks CPython 3.12' >&2; exit 1; \
+      echo "immutable builder lacks ${UCM_RELEASE_PYTHON_ABI}" >&2; exit 1; \
     fi
 
-RUN <<EOF
-test "${UCM_BUILDER_IMAGE}" != "${UCM_BUILDER_IMAGE%@sha256:*}"
-mkdir -p /wheelhouse
-ucm-python -m pip download --dest /wheelhouse --no-deps --only-binary=:all: \
-  "build==${BUILD_VERSION}" \
-  "pyproject-hooks==${PYPROJECT_HOOKS_VERSION}" \
-  "packaging==${PACKAGING_VERSION}" \
-  "setuptools==${SETUPTOOLS_VERSION}" \
-  "wheel==${WHEEL_VERSION}" \
-  "PyYAML==${PYYAML_VERSION}" \
-  "cmake==${CMAKE_VERSION}"
-check_wheel() {
-  local filename="$1" expected="${2#sha256:}" actual
-  test -f "/wheelhouse/${filename}"
-  actual="$(sha256sum "/wheelhouse/${filename}" | cut -d' ' -f1)"
-  test "${actual}" = "${expected}"
+COPY wheel-task.json /tmp/wheel-task.json
+COPY build-wheels /wheelhouse
+COPY build-requirements.lock /tmp/build-requirements.lock
+RUN ucm-python - <<'PY'
+import hashlib, json, pathlib
+task = json.loads(pathlib.Path('/tmp/wheel-task.json').read_text())
+records = task['dependency_lock']['build_tools']
+wheelhouse = pathlib.Path('/wheelhouse')
+assert records and records == sorted(records, key=lambda item: item['name'])
+assert {path.name for path in wheelhouse.iterdir()} == {
+    record['filename'] for record in records
 }
-check_wheel "${BUILD_FILENAME}" "${BUILD_SHA256}"
-check_wheel "${PYPROJECT_HOOKS_FILENAME}" "${PYPROJECT_HOOKS_SHA256}"
-check_wheel "${PACKAGING_FILENAME}" "${PACKAGING_SHA256}"
-check_wheel "${SETUPTOOLS_FILENAME}" "${SETUPTOOLS_SHA256}"
-check_wheel "${WHEEL_FILENAME}" "${WHEEL_SHA256}"
-check_wheel "${PYYAML_FILENAME}" "${PYYAML_SHA256}"
-check_wheel "${CMAKE_FILENAME}" "${CMAKE_SHA256}"
-cat > /tmp/requirements.lock <<LOCK
-build==${BUILD_VERSION} --hash=${BUILD_SHA256}
-pyproject-hooks==${PYPROJECT_HOOKS_VERSION} --hash=${PYPROJECT_HOOKS_SHA256}
-packaging==${PACKAGING_VERSION} --hash=${PACKAGING_SHA256}
-setuptools==${SETUPTOOLS_VERSION} --hash=${SETUPTOOLS_SHA256}
-wheel==${WHEEL_VERSION} --hash=${WHEEL_SHA256}
-PyYAML==${PYYAML_VERSION} --hash=${PYYAML_SHA256}
-cmake==${CMAKE_VERSION} --hash=${CMAKE_SHA256}
-LOCK
-ucm-python -m pip install --no-index --find-links=/wheelhouse --require-hashes \
-  --only-binary=:all: -r /tmp/requirements.lock
-EOF
+expected_lock = ''.join(
+    f"{record['name']} @ file:///wheelhouse/{record['filename']} "
+    f"--hash={record['sha256']}\n"
+    for record in records
+)
+assert pathlib.Path('/tmp/build-requirements.lock').read_text() == expected_lock
+for record in records:
+    path = wheelhouse / record['filename']
+    assert path.is_file() and not path.is_symlink()
+    assert 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest() == record['sha256']
+PY
+RUN test "${UCM_BUILDER_IMAGE}" != "${UCM_BUILDER_IMAGE%@sha256:*}" && \
+    ucm-python -m pip install --no-index --find-links=/wheelhouse \
+      --require-hashes --only-binary=:all: -r /tmp/build-requirements.lock
 
 WORKDIR /workspace/ucm
 COPY ucm-source.tar /tmp/ucm-source.tar
@@ -119,49 +91,36 @@ FROM wheel-base AS wheel-build
 RUN <<'EOF'
 test -n "${TARGETARCH}"
 test -n "${PLATFORM}"
+test -n "${UCM_RELEASE_TASK_ID}"
+test -n "${UCM_RELEASE_SPEC_ID}"
 test -n "${UCM_RELEASE_PROFILE}"
 test -n "${UCM_RELEASE_SOURCE_SHA}"
 test -n "${UCM_RELEASE_VERSION}"
 test -n "${UCM_RELEASE_BUILD_KEY}"
+test -n "${UCM_RELEASE_PYTHON_VERSION}"
+test -n "${UCM_RELEASE_PYTHON_ABI}"
+test -n "${UCM_RELEASE_WHEEL_PLATFORM}"
+test -n "${UCM_RELEASE_BUILD_SETTINGS}"
+test -n "${UCM_RUNTIME_PATCH_MANIFEST_SHA256}"
 test -n "${UCM_RELEASE_REQUIRED_TARGETS}"
 test -n "${UCM_RELEASE_FORBIDDEN_TARGETS}"
-test "$(ucm-python -c 'import sysconfig; print(sysconfig.get_config_var("SOABI").split("-")[0])')" = cpython
-test "$(ucm-python -c 'import sys; print(f"cp{sys.version_info.major}{sys.version_info.minor}")')" = cp312
 locked_cmake="$(ucm-python -c 'import sysconfig; print(sysconfig.get_path("scripts"))')/cmake"
 test -x "${locked_cmake}"
-test "$("${locked_cmake}" --version | awk 'NR == 1 {print $3}')" = "${CMAKE_VERSION}"
-command -v git
-command -v g++
-command -v make
-command -v readelf
+export PATH="$(ucm-python -c 'import sysconfig; print(sysconfig.get_path("scripts"))'):${PATH}"
 case "${TARGETARCH}:$(uname -m)" in
   amd64:x86_64|arm64:aarch64) ;;
   *) echo "TARGETARCH does not match native immutable root" >&2; exit 1 ;;
 esac
-case "${PLATFORM}" in
-  cuda)
-    command -v nvcc
-    nvcc --version | grep -F 'release 13.0, V13.0.88'
-    test -f /usr/local/cuda/include/cuda.h
-    ;;
-  ascend|ascend-a3)
-    test -f /usr/local/Ascend/ascend-toolkit/latest/include/acl/acl.h
-    test -f /usr/local/Ascend/ascend-toolkit/latest/lib64/libascendcl.so
-    test -d /vllm-workspace/Mooncake/mooncake-store/include
-    test -f /usr/local/include/transfer_engine.h
-    test -f /usr/local/lib/libmooncake_store.so
-    PYTHONPATH=/workspace/ucm/.github/release ucm-python -m ucm_release \
-      wheel preflight-dependencies \
-      --binary /usr/local/lib/libmooncake_store.so \
-      --spec-id "${UCM_RELEASE_PROFILE}-${TARGETARCH}"
-    ;;
-  *) echo "unsupported release PLATFORM=${PLATFORM}" >&2; exit 1 ;;
-esac
+PYTHONPATH=/workspace/ucm/.github/release ucm-python -m ucm_release \
+  wheel check-environment \
+  --task /tmp/wheel-task.json \
+  --python-executable /usr/local/bin/ucm-python \
+  >/tmp/builder-environment-check.json
 EOF
 
 RUN PYTHONPATH=/workspace/ucm/.github/release \
     ucm-python -m ucm_release wheel authority \
-      --spec-id "${UCM_RELEASE_PROFILE}-${TARGETARCH}" \
+      --spec-id "${UCM_RELEASE_SPEC_ID}" \
       --source-sha "${UCM_RELEASE_SOURCE_SHA}" \
       --source-date-epoch "${SOURCE_DATE_EPOCH}" \
       --builder-coordinate "${UCM_BUILDER_IMAGE}" \
@@ -170,15 +129,23 @@ RUN PYTHONPATH=/workspace/ucm/.github/release \
       --source-commit-payload /tmp/source-commit.payload \
       --source-manifest /tmp/source-context.json \
       --source-root /workspace/ucm \
+      --task-file /tmp/wheel-task.json \
       --output /tmp/build-authority.json
 
 RUN PATH="$(ucm-python -c 'import sysconfig; print(sysconfig.get_path("scripts"))'):${PATH}" \
     UCM_RELEASE_BUILD=1 \
     PLATFORM="${PLATFORM}" \
+    UCM_RELEASE_TASK_ID="${UCM_RELEASE_TASK_ID}" \
+    UCM_RELEASE_SPEC_ID="${UCM_RELEASE_SPEC_ID}" \
     UCM_RELEASE_PROFILE="${UCM_RELEASE_PROFILE}" \
     UCM_RELEASE_SOURCE_SHA="${UCM_RELEASE_SOURCE_SHA}" \
     UCM_RELEASE_VERSION="${UCM_RELEASE_VERSION}" \
     UCM_RELEASE_BUILD_KEY="${UCM_RELEASE_BUILD_KEY}" \
+    UCM_RELEASE_PYTHON_VERSION="${UCM_RELEASE_PYTHON_VERSION}" \
+    UCM_RELEASE_PYTHON_ABI="${UCM_RELEASE_PYTHON_ABI}" \
+    UCM_RELEASE_WHEEL_PLATFORM="${UCM_RELEASE_WHEEL_PLATFORM}" \
+    UCM_RELEASE_BUILD_SETTINGS="${UCM_RELEASE_BUILD_SETTINGS}" \
+    UCM_RUNTIME_PATCH_MANIFEST_SHA256="${UCM_RUNTIME_PATCH_MANIFEST_SHA256}" \
     UCM_RELEASE_REQUIRED_TARGETS="${UCM_RELEASE_REQUIRED_TARGETS}" \
     UCM_RELEASE_FORBIDDEN_TARGETS="${UCM_RELEASE_FORBIDDEN_TARGETS}" \
     UCM_RELEASE_AUTHORITY_FILE=/tmp/build-authority.json \
@@ -187,31 +154,24 @@ RUN PATH="$(ucm-python -c 'import sysconfig; print(sysconfig.get_path("scripts")
 
 RUN PYTHONPATH=/workspace/ucm/.github/release \
     ucm-python -m ucm_release wheel closure /tmp/raw-wheel/*.whl \
-      --spec-id "${UCM_RELEASE_PROFILE}-${TARGETARCH}" \
+      --spec-id "${UCM_RELEASE_SPEC_ID}" \
       --authority-file /tmp/build-authority.json \
+      --task-file /tmp/wheel-task.json \
       --output /tmp/dependency-closure.json
 
 RUN PYTHONPATH=/workspace/ucm/.github/release \
     ucm-python -m ucm_release wheel seal /tmp/raw-wheel/*.whl \
-      --spec-id "${UCM_RELEASE_PROFILE}-${TARGETARCH}" \
+      --spec-id "${UCM_RELEASE_SPEC_ID}" \
       --source-sha "${UCM_RELEASE_SOURCE_SHA}" \
       --build-key "${UCM_RELEASE_BUILD_KEY}" \
       --source-date-epoch "${SOURCE_DATE_EPOCH}" \
       --authority-file /tmp/build-authority.json \
       --dependency-closure /tmp/dependency-closure.json \
+      --task-file /tmp/wheel-task.json \
       --output-dir /out
 
-FROM wheel-build AS wheel-cuda-build
-RUN test "${PLATFORM}" = cuda
-
-FROM scratch AS wheel-cuda
-COPY --from=wheel-cuda-build /out /
-
-FROM wheel-build AS wheel-ascend-build
-RUN test "${PLATFORM}" = ascend -o "${PLATFORM}" = ascend-a3
-
-FROM scratch AS wheel-ascend
-COPY --from=wheel-ascend-build /out /
+FROM scratch AS wheel
+COPY --from=wheel-build /out /
 
 FROM ${BASE_IMAGE} AS runtime-install
 
@@ -254,20 +214,22 @@ ARG BASE_IMAGE
 ARG SOURCE_DATE_EPOCH
 ARG TARGETPLATFORM
 ARG UCM_WHEEL
-ARG WRAPT_WHEEL
 ARG UCM_SOURCE_SHA
+ARG UCM_SOURCE_REPOSITORY_URL
 ARG UCM_SOURCE_TREE
 ARG UCM_SOURCE_CONTEXT_SHA256
 ARG UCM_TASK_SHA256
 ARG UCM_BUILD_KEY_SHA256
 ARG UCM_WHEEL_SHA256
 ARG UCM_RECIPE_SHA256
+ARG UCM_RUNTIME_PATCH_VARIANTS
 
 ARG LD_LIBRARY_PATH
 ENV LD_LIBRARY_PATH="/usr/local/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+ENV UCM_RUNTIME_PATCH_VARIANTS="${UCM_RUNTIME_PATCH_VARIANTS}"
 RUN ldconfig /usr/local/lib && rm -f /var/cache/ldconfig/aux-cache
 
-LABEL org.opencontainers.image.source="https://github.com/SuperMarioYL/unified-cache-management" \
+LABEL org.opencontainers.image.source="${UCM_SOURCE_REPOSITORY_URL}" \
       org.opencontainers.image.revision="${UCM_SOURCE_SHA}" \
       io.ucm.release.source-tree="${UCM_SOURCE_TREE}" \
       io.ucm.release.source-context-sha256="${UCM_SOURCE_CONTEXT_SHA256}" \
@@ -287,9 +249,7 @@ RUN python3 /usr/local/bin/verify_base_image.py \
       --base-image "${BASE_IMAGE}" \
       --target-platform "${TARGETPLATFORM}" \
       --output /usr/local/share/ucm-release/base-verification.json
-RUN --mount=type=bind,source=${UCM_WHEEL},target=/wheelhouse/${UCM_WHEEL},readonly \
-    --mount=type=bind,source=${WRAPT_WHEEL},target=/wheelhouse/${WRAPT_WHEEL},readonly \
-    --mount=type=bind,source=requirements.lock,target=/wheelhouse/requirements.lock,readonly \
+RUN --mount=type=bind,target=/wheelhouse,readonly \
     python3 /usr/local/bin/install_ucm.py \
       --recipe /usr/local/share/ucm-release/image-recipe.json \
       --authority /usr/local/share/ucm-release/image-authority.json \

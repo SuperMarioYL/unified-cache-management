@@ -23,6 +23,9 @@ import uuid
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from packaging.specifiers import SpecifierSet
+from packaging.version import InvalidVersion, Version
+
 from . import core
 from .core import (
     DEFAULT_SCHEMA_DIR,
@@ -38,11 +41,112 @@ OCI_TAG_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}")
 REPOSITORY_RE = re.compile(
     r"[a-z0-9]+(?:[._:-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+"
 )
-TARGET_REPOSITORIES = {
+RESOLVED_TASK_FIELDS = {
+    "wheel": {
+        "task_id",
+        "spec_id",
+        "profile_id",
+        "accelerator",
+        "accelerator_runtime",
+        "npu_arch_or_na",
+        "os",
+        "cpu_arch",
+        "python_version",
+        "python_abi",
+        "wheel_version",
+        "wheel_platform",
+        "binary_profile_id",
+        "validation_targets",
+        "required_native",
+        "forbidden_native",
+        "allowed_dt_needed",
+        "external_required_dependencies",
+        "declaration_sha256",
+        "runner",
+        "platform",
+        "builder",
+        "builder_sha256",
+        "build",
+        "dependency_lock_sha256",
+        "dependency_lock",
+        "runtime_requirements",
+        "runtime_patch_manifest",
+        "runtime_patch_manifest_sha256",
+        "write_authority",
+        "build_eligible",
+        "artifact_name",
+        "task_sha256",
+    },
+    "image": {
+        "task_id",
+        "family_task_id",
+        "wheel_task_id",
+        "spec_id",
+        "profile_id",
+        "compatibility_rule_id",
+        "runtime_patch_rule_id",
+        "runtime_patch_product",
+        "runtime_patch_strategy",
+        "runtime_patch_variants",
+        "runner",
+        "cpu_arch",
+        "platform",
+        "builder",
+        "builder_sha256",
+        "build",
+        "runtime",
+        "runtime_sha256",
+        "target_repository",
+        "target_tag",
+        "python_abi",
+        "python_version",
+        "wheel_version",
+        "wheel_platform",
+        "required_native",
+        "forbidden_native",
+        "allowed_dt_needed",
+        "external_required_dependencies",
+        "dependency_lock_sha256",
+        "dependency_lock",
+        "runtime_requirements",
+        "runtime_patch_manifest_sha256",
+        "write_authority",
+        "build_eligible",
+        "artifact_name",
+        "wheel_artifact_name",
+        "task_sha256",
+    },
+    "family": {
+        "task_id",
+        "product_id",
+        "control_task_id",
+        "control_arch",
+        "control_runner",
+        "runner",
+        "cpu_arch",
+        "platform",
+        "builder",
+        "builder_sha256",
+        "runtime",
+        "runtime_sha256",
+        "snapshot_sha256",
+        "target_repository",
+        "target_tag",
+        "image_task_ids",
+        "wheel_task_ids",
+        "member_set_sha256",
+        "write_authority",
+        "artifact_name",
+        "task_sha256",
+    },
+}
+# Legacy Task 3 regression authority. Production resolution starts at
+# ``resolve_catalog`` and must never consume these concrete fixture coordinates.
+FIXTURE_TARGET_REPOSITORIES = {
     "vllm-openai": "ghcr.io/modelengine-group/vllm-openai",
     "vllm-ascend": "ghcr.io/modelengine-group/vllm-ascend",
 }
-UPSTREAM_REPOSITORIES = {
+FIXTURE_UPSTREAM_REPOSITORIES = {
     "vllm-openai": "docker.io/vllm/vllm-openai",
     "vllm-ascend": "quay.io/ascend/vllm-ascend",
 }
@@ -140,6 +244,9 @@ WHEEL_RECORD_KEYS_BY_SOURCE = {
 }
 COMPATIBILITY_RULE_KEYS = {
     "id",
+    "upstream_products",
+    "version_specifier",
+    "variants",
     "accelerator",
     "accelerator_runtimes",
     "npu_architectures",
@@ -156,11 +263,11 @@ OCI_MANIFEST_MEDIA_TYPES = {
     "application/vnd.oci.image.manifest.v1+json",
     "application/vnd.docker.distribution.manifest.v2+json",
 }
-STAGING_REPOSITORY = "ghcr.io/supermarioyl/ucm-release-staging"
+FIXTURE_STAGING_REPOSITORY = "ghcr.io/supermarioyl/ucm-release-staging"
 CRANE_VERSION = "0.20.3"
 SECONDARY_RATE_LIMIT_BACKOFF_SECONDS = (60.0, 120.0, 240.0)
 IDEMPOTENT_REGISTRY_READ_OPERATIONS = frozenset(
-    {"blob", "digest", "manifest", "validate"}
+    {"blob", "digest", "ls", "manifest", "validate"}
 )
 SECONDARY_RATE_LIMIT_MARKERS = (
     "you have exceeded a secondary rate limit",
@@ -180,14 +287,6 @@ CRANE_BINARY_SHA256 = {
         "arm64",
     ): "sha256:d34f51061a226d1b183480cc7fdc1f7ec410676445cbb2432d89900ac2eb1cb3",
 }
-CANONICAL_MEMBER_SPEC_IDS = [
-    "cuda130-amd64",
-    "cuda130-arm64",
-    "cann900-a2-amd64",
-    "cann900-a2-arm64",
-    "cann900-a3-amd64",
-    "cann900-a3-arm64",
-]
 MEMBER_RECORD_KEYS = {
     "schema_version",
     "kind",
@@ -269,6 +368,8 @@ CONTENT_IDENTITY_KEYS = {
     "content_identity_sha256",
 }
 CONTENT_IDENTITY_SOURCE_KEYS = {
+    "repository",
+    "repository_url",
     "commit",
     "tree",
     "archive_sha256",
@@ -276,7 +377,6 @@ CONTENT_IDENTITY_SOURCE_KEYS = {
 }
 CONTENT_IDENTITY_LAYER_KEYS = {"mediaType", "digest", "size"}
 BUILDKIT_REWRITTEN_TIMESTAMP_ANNOTATION = "buildkit/rewritten-timestamp"
-SOURCE_REPOSITORY_URL = "https://github.com/SuperMarioYL/unified-cache-management"
 
 
 class RegistryBlocker(ValueError):
@@ -382,16 +482,16 @@ def _repository(value: object) -> str:
     return value
 
 
-def _product_for_repository(repository: str) -> str:
+def _fixture_product_for_repository(repository: str) -> str:
     product = repository.rsplit("/", 1)[-1]
-    if UPSTREAM_REPOSITORIES.get(product) != repository:
+    if FIXTURE_UPSTREAM_REPOSITORIES.get(product) != repository:
         raise ValueError(f"unsupported exact upstream repository: {repository}")
     return product
 
 
-def parse_upstream_tag(product: str, tag: str) -> dict[str, str]:
+def parse_fixture_upstream_tag(product: str, tag: str) -> dict[str, str]:
     """Parse only canonical stable/RC tags and the supported Ascend suffixes."""
-    if product not in TARGET_REPOSITORIES or not isinstance(tag, str):
+    if product not in FIXTURE_TARGET_REPOSITORIES or not isinstance(tag, str):
         raise ValueError("product must be vllm-openai or vllm-ascend")
     if product == "vllm-openai":
         match = re.fullmatch(f"({VERSION})", tag)
@@ -413,11 +513,11 @@ def parse_upstream_tag(product: str, tag: str) -> dict[str, str]:
         "channel": "rc" if "rc" in version else "stable",
         "npu_arch": npu_arch,
         "operating_system": operating_system,
-        "target_repository": TARGET_REPOSITORIES[product],
+        "target_repository": FIXTURE_TARGET_REPOSITORIES[product],
     }
 
 
-def validate_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+def validate_fixture_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     """Require one immutable index with exact linux/amd64 and linux/arm64 chains."""
     if not isinstance(snapshot, dict):
         raise ValueError("registry snapshot must be an object")
@@ -428,7 +528,9 @@ def validate_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     ):
         raise ValueError("registry snapshot identity must be schema version 1")
     repository = _repository(snapshot["repository"])
-    parse_upstream_tag(_product_for_repository(repository), snapshot["upstream_tag"])
+    parse_fixture_upstream_tag(
+        _fixture_product_for_repository(repository), snapshot["upstream_tag"]
+    )
     index_digest = _digest(snapshot["index_digest"], "snapshot index")
     platforms = snapshot["platforms"]
     if not isinstance(platforms, list):
@@ -522,10 +624,12 @@ def _crane_binary(value: str) -> str:
 
 def _host_platform_key() -> tuple[str, str]:
     system = platform.system().lower()
-    machine = platform.machine().lower()
-    machine = {"amd64": "x86_64", "arm64": "aarch64"}.get(machine, machine)
-    if system == "darwin" and machine == "aarch64":
-        machine = "arm64"
+    cpu_authority = core.host_cpu_toolchain_authority(platform.machine())
+    machine = (
+        "arm64"
+        if system == "darwin" and cpu_authority.cpu_arch == "arm64"
+        else cpu_authority.wheel_arch
+    )
     return system, machine
 
 
@@ -600,14 +704,7 @@ def resolve_pinned_buildx() -> str:
         raise ValueError("image toolchain authority must require Buildx v0.19.2")
     if platform.system().lower() != "linux":
         raise ValueError("production Buildx publication requires a Linux runner")
-    architecture = {
-        "x86_64": "amd64",
-        "amd64": "amd64",
-        "aarch64": "arm64",
-        "arm64": "arm64",
-    }.get(platform.machine().lower())
-    if architecture is None:
-        raise ValueError(f"unsupported Buildx host architecture: {platform.machine()}")
+    architecture = core.host_cpu_toolchain_authority(platform.machine()).cpu_arch
     home = os.environ.get("HOME")
     if not home or not Path(home).is_absolute():
         raise ValueError("production Buildx resolution requires an absolute HOME")
@@ -710,104 +807,188 @@ def _crane(crane_binary: str, operation: str, reference: str) -> str:
     return result.stdout.strip()
 
 
-def scan_registry(
+def enumerate_repository_tags(
+    repository: str,
+    *,
+    fixture: dict[str, Any] | None = None,
+    max_tags: int,
+) -> dict[str, Any]:
+    """Enumerate one complete repository tag set through the pinned read transport."""
+    repository = _repository(repository)
+    if not isinstance(max_tags, int) or isinstance(max_tags, bool) or max_tags < 1:
+        raise ValueError("max_tags must be a positive integer")
+    operations: list[dict[str, Any]] = []
+    tags: list[str] = []
+    if fixture is not None:
+        if not isinstance(fixture, dict) or set(fixture) not in (
+            {"pages", "snapshots"},
+            {"pages", "snapshots", "list_error"},
+        ):
+            raise ValueError("registry enumeration fixture fields are noncanonical")
+        if "list_error" in fixture:
+            detail = fixture["list_error"]
+            if not isinstance(detail, str) or not detail:
+                raise ValueError("registry fixture list_error must be non-empty")
+            raise ValueError(f"fixture tag listing failed: {detail}")
+        pages = fixture["pages"]
+        if not isinstance(pages, list) or not pages:
+            raise ValueError("registry enumeration fixture requires complete pages")
+        for page_index, page in enumerate(pages, start=1):
+            if not isinstance(page, dict) or set(page) != {"tags", "next_page"}:
+                raise ValueError(f"registry fixture page {page_index} is malformed")
+            page_tags = page["tags"]
+            if not isinstance(page_tags, list) or any(
+                not isinstance(tag, str) or OCI_TAG_RE.fullmatch(tag) is None
+                for tag in page_tags
+            ):
+                raise ValueError(
+                    f"registry fixture page {page_index} tags are malformed"
+                )
+            expected_next = (
+                None if page_index == len(pages) else f"page-{page_index + 1}"
+            )
+            if page["next_page"] != expected_next:
+                raise ValueError(
+                    "registry enumeration fixture pagination is incomplete"
+                )
+            tags.extend(page_tags)
+            operations.append(
+                {
+                    "type": "fixture-tag-page-read",
+                    "capability": "read",
+                    "reference": repository,
+                    "page": page_index,
+                }
+            )
+    else:
+        crane_binary = resolve_pinned_crane()
+        result = _run_registry_tool(crane_binary, ["ls", repository])
+        tags = result.stdout.splitlines()
+        if any(OCI_TAG_RE.fullmatch(tag) is None for tag in tags):
+            raise ValueError("crane ls returned a malformed OCI tag")
+        operations.append(
+            {
+                "type": "crane-tag-list",
+                "capability": "read",
+                "reference": repository,
+            }
+        )
+    normalized = sorted(set(tags))
+    if len(normalized) > max_tags:
+        raise ValueError(
+            f"registry tag limit max_tags={max_tags} exceeded by exact set of "
+            f"{len(normalized)}"
+        )
+    return {
+        "schema_version": 1,
+        "kind": "registry-tag-list",
+        "repository": repository,
+        "tags": normalized,
+        "operations": operations,
+    }
+
+
+def resolve_repository_tag(
     repository: str,
     upstream_tag: str,
     *,
+    required_architectures: list[str],
     fixture: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Read and validate an upstream multi-platform snapshot without registry writes."""
+    """Resolve one configured tag to an exact index/member/config digest chain."""
     repository = _repository(repository)
-    parse_upstream_tag(_product_for_repository(repository), upstream_tag)
+    if not isinstance(upstream_tag, str) or OCI_TAG_RE.fullmatch(upstream_tag) is None:
+        raise ValueError("upstream tag must use canonical OCI tag syntax")
+    if (
+        not isinstance(required_architectures, list)
+        or not 1 <= len(required_architectures) <= 64
+        or any(
+            not isinstance(item, str)
+            or re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", item) is None
+            for item in required_architectures
+        )
+        or len(required_architectures) != len(set(required_architectures))
+    ):
+        raise ValueError("required architectures must be a bounded unique array")
+    operations: list[dict[str, Any]] = []
     tagged_reference = f"{repository}:{upstream_tag}"
     if fixture is not None:
-        snapshot = validate_snapshot(fixture)
-        if (
-            snapshot["repository"] != repository
-            or snapshot["upstream_tag"] != upstream_tag
-        ):
-            raise ValueError(
-                "fixture snapshot repository/tag does not match the exact request"
-            )
-        return {
-            "schema_version": 1,
-            "kind": "registry-scan-result",
-            "fixture_only": True,
-            "snapshot": snapshot,
-            "operations": [
-                {
-                    "type": "fixture-read",
-                    "capability": "read",
-                    "reference": tagged_reference,
-                }
-            ],
-        }
-    crane_binary = resolve_pinned_crane()
-    operations = [
-        {
-            "type": "crane-digest",
-            "capability": "read",
-            "reference": tagged_reference,
-        }
-    ]
-    index_digest = _digest(
-        _crane(crane_binary, "digest", tagged_reference), "crane index"
-    )
-    index_reference = f"{repository}@{index_digest}"
-    operations.append(
-        {
-            "type": "crane-manifest",
-            "capability": "read",
-            "reference": index_reference,
-        }
-    )
-    index = _unique_json(
-        _crane(crane_binary, "manifest", index_reference), "crane index"
-    )
-    if index.get("mediaType") not in OCI_INDEX_MEDIA_TYPES:
-        raise ValueError("resolved index digest did not return an OCI/Docker index")
-    descriptors = index.get("manifests")
-    if not isinstance(descriptors, list):
-        raise ValueError("crane index must contain a manifests array")
-    platforms: list[dict[str, str]] = []
-    for descriptor in descriptors:
-        if not isinstance(descriptor, dict) or not isinstance(
-            descriptor.get("platform"), dict
-        ):
-            raise ValueError("crane index descriptors require a platform object")
-        platform = descriptor["platform"]
-        if descriptor.get("mediaType") not in OCI_MANIFEST_MEDIA_TYPES:
-            raise ValueError("index platform descriptor is not an OCI/Docker manifest")
-        manifest_digest = _digest(descriptor.get("digest"), "platform manifest")
-        child_reference = f"{repository}@{manifest_digest}"
+        raw_snapshot = copy.deepcopy(fixture)
+        operations.append(
+            {
+                "type": "fixture-snapshot-read",
+                "capability": "read",
+                "reference": tagged_reference,
+            }
+        )
+    else:
+        crane_binary = resolve_pinned_crane()
+        operations.append(
+            {
+                "type": "crane-digest",
+                "capability": "read",
+                "reference": tagged_reference,
+            }
+        )
+        digest_result = _run_registry_tool(crane_binary, ["digest", tagged_reference])
+        index_digest = _digest(digest_result.stdout.strip(), "crane index")
+        index_reference = f"{repository}@{index_digest}"
         operations.append(
             {
                 "type": "crane-manifest",
                 "capability": "read",
-                "reference": child_reference,
+                "reference": index_reference,
             }
         )
-        child = _unique_json(
-            _crane(crane_binary, "manifest", child_reference),
-            f"platform manifest {manifest_digest}",
-        )
-        if child.get("mediaType") != descriptor.get("mediaType"):
-            raise ValueError(
-                "platform manifest media type does not match index descriptor"
+        index_result = _run_registry_tool(crane_binary, ["manifest", index_reference])
+        index = _unique_json(index_result.stdout, "crane index")
+        if index.get("mediaType") not in OCI_INDEX_MEDIA_TYPES:
+            raise ValueError("resolved index digest did not return an OCI/Docker index")
+        descriptors = index.get("manifests")
+        if not isinstance(descriptors, list):
+            raise ValueError("crane index must contain a manifests array")
+        platforms: list[dict[str, Any]] = []
+        for descriptor in descriptors:
+            if not isinstance(descriptor, dict) or not isinstance(
+                descriptor.get("platform"), dict
+            ):
+                raise ValueError("crane index descriptors require a platform object")
+            if descriptor.get("mediaType") not in OCI_MANIFEST_MEDIA_TYPES:
+                raise ValueError(
+                    "index platform descriptor is not an OCI/Docker manifest"
+                )
+            platform_value = descriptor["platform"]
+            manifest_digest = _digest(descriptor.get("digest"), "platform manifest")
+            child_reference = f"{repository}@{manifest_digest}"
+            operations.append(
+                {
+                    "type": "crane-manifest",
+                    "capability": "read",
+                    "reference": child_reference,
+                }
             )
-        config = child.get("config")
-        if not isinstance(config, dict):
-            raise ValueError("platform manifest requires a config descriptor")
-        platforms.append(
-            {
-                "os": platform.get("os"),
-                "architecture": platform.get("architecture"),
-                "manifest_digest": manifest_digest,
-                "config_digest": _digest(config.get("digest"), "platform config"),
-            }
-        )
-    snapshot = validate_snapshot(
-        {
+            child_result = _run_registry_tool(
+                crane_binary, ["manifest", child_reference]
+            )
+            child = _unique_json(
+                child_result.stdout, f"platform manifest {manifest_digest}"
+            )
+            if child.get("mediaType") != descriptor.get("mediaType"):
+                raise ValueError(
+                    "platform manifest media type does not match index descriptor"
+                )
+            config = child.get("config")
+            if not isinstance(config, dict):
+                raise ValueError("platform manifest requires a config descriptor")
+            platforms.append(
+                {
+                    "os": platform_value.get("os"),
+                    "architecture": platform_value.get("architecture"),
+                    "manifest_digest": manifest_digest,
+                    "config_digest": _digest(config.get("digest"), "platform config"),
+                }
+            )
+        raw_snapshot = {
             "schema_version": 1,
             "kind": "upstream-registry-snapshot",
             "repository": repository,
@@ -815,13 +996,125 @@ def scan_registry(
             "index_digest": index_digest,
             "platforms": platforms,
         }
-    )
+    if not isinstance(raw_snapshot, dict):
+        raise ValueError("registry snapshot must be an object")
+    _exact_keys(raw_snapshot, SNAPSHOT_KEYS, "registry snapshot")
+    if (
+        raw_snapshot["schema_version"] != 1
+        or raw_snapshot["kind"] != "upstream-registry-snapshot"
+        or raw_snapshot["repository"] != repository
+        or raw_snapshot["upstream_tag"] != upstream_tag
+    ):
+        raise ValueError("registry snapshot identity differs from exact request")
+    index_digest = _digest(raw_snapshot["index_digest"], "snapshot index")
+    platform_values = raw_snapshot["platforms"]
+    if not isinstance(platform_values, list):
+        raise ValueError("snapshot platforms must be an array")
+    members: dict[str, dict[str, str]] = {}
+    digest_chain = [index_digest]
+    for index, member in enumerate(platform_values):
+        if not isinstance(member, dict):
+            raise ValueError(f"snapshot platform {index} must be an object")
+        _exact_keys(member, PLATFORM_KEYS, f"snapshot platform {index}")
+        architecture = member["architecture"]
+        if member["os"] != "linux" or architecture not in required_architectures:
+            raise ValueError("snapshot contains an unselected platform")
+        if architecture in members:
+            raise ValueError(f"duplicate snapshot platform: linux/{architecture}")
+        manifest_digest = _digest(
+            member["manifest_digest"], f"linux/{architecture} manifest"
+        )
+        config_digest = _digest(member["config_digest"], f"linux/{architecture} config")
+        digest_chain.extend((manifest_digest, config_digest))
+        members[architecture] = {
+            "manifest_digest": manifest_digest,
+            "config_digest": config_digest,
+        }
+    missing = sorted(set(required_architectures) - set(members))
+    if missing:
+        raise RegistryBlocker(
+            f"missing-linux-{missing[0]}",
+            f"snapshot is missing required linux architectures: {missing}",
+        )
+    if len(digest_chain) != len(set(digest_chain)):
+        raise ValueError("snapshot digest chain contains duplicate mutable identities")
     return {
         "schema_version": 1,
         "kind": "registry-scan-result",
-        "fixture_only": False,
-        "snapshot": snapshot,
+        "fixture_only": fixture is not None,
+        "snapshot": {
+            "repository": repository,
+            "tag": upstream_tag,
+            "index_digest": index_digest,
+            "members": {key: members[key] for key in sorted(members)},
+        },
         "operations": operations,
+    }
+
+
+def read_repository_tag_digest(
+    repository: str,
+    upstream_tag: str,
+    *,
+    fixture: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Perform a fresh read of one mutable tag for protected drift verification."""
+    repository = _repository(repository)
+    if not isinstance(upstream_tag, str) or OCI_TAG_RE.fullmatch(upstream_tag) is None:
+        raise ValueError("upstream tag must use canonical OCI tag syntax")
+    reference = f"{repository}:{upstream_tag}"
+    if fixture is not None:
+        if (
+            not isinstance(fixture, dict)
+            or fixture.get("repository") != repository
+            or fixture.get("upstream_tag") != upstream_tag
+        ):
+            raise ValueError("fresh digest fixture differs from exact request")
+        digest = _digest(fixture.get("index_digest"), "fresh fixture tag")
+        operation_type = "fixture-fresh-digest-read"
+    else:
+        crane_binary = resolve_pinned_crane()
+        result = _run_registry_tool(crane_binary, ["digest", reference])
+        digest = _digest(result.stdout.strip(), "fresh Registry tag")
+        operation_type = "crane-fresh-digest-read"
+    return {
+        "repository": repository,
+        "tag": upstream_tag,
+        "index_digest": digest,
+        "operation": {
+            "type": operation_type,
+            "capability": "read",
+            "reference": reference,
+        },
+    }
+
+
+def scan_fixture_registry(
+    repository: str,
+    upstream_tag: str,
+    *,
+    fixture: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate one legacy Task 3 snapshot fixture without Registry access."""
+    repository = _repository(repository)
+    parse_fixture_upstream_tag(
+        _fixture_product_for_repository(repository), upstream_tag
+    )
+    snapshot = validate_fixture_snapshot(fixture)
+    if snapshot["repository"] != repository or snapshot["upstream_tag"] != upstream_tag:
+        raise ValueError("fixture snapshot repository/tag does not match the request")
+    return {
+        "schema_version": 1,
+        "kind": "registry-scan-result",
+        "fixture_only": True,
+        "snapshot": snapshot,
+        "operations": [
+            {
+                "type": "fixture-read",
+                "capability": "read",
+                "reference": f"{repository}:{upstream_tag}",
+            }
+        ],
     }
 
 
@@ -836,7 +1129,7 @@ def validate_public_tag(tag: object) -> str:
     return tag
 
 
-def _validate_release_manifest(release_manifest: dict[str, Any]) -> None:
+def _validate_fixture_release_manifest(release_manifest: dict[str, Any]) -> None:
     try:
         validate_schema(
             release_manifest,
@@ -880,18 +1173,19 @@ def _validate_release_manifest(release_manifest: dict[str, Any]) -> None:
         raise ValueError("release manifest wheel assets do not match operational specs")
 
 
-def _select_wheel(
+def _select_fixture_wheel(
     release_manifest: dict[str, Any],
     wheel_records: list[dict[str, Any]],
     spec_id: str,
     fixture_mode: bool,
+    catalog: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if not fixture_mode:
         raise RegistryBlocker(
             "production-wheel-unpublished",
             "production wheel is unpublished; Task 2 emits no production publication",
         )
-    _validate_release_manifest(release_manifest)
+    _validate_fixture_release_manifest(release_manifest)
     specs = [
         item
         for item in release_manifest.get("wheel_specs", [])
@@ -943,7 +1237,7 @@ def _select_wheel(
         or record["size"] < 1
         or not isinstance(record["tags"], list)
         or not record["tags"]
-        or record["requires_dist"] != ["wrapt==1.17.2"]
+        or record["requires_dist"] != core.python_runtime_requirements(catalog)
     ):
         raise ValueError(
             "wheel inspection metadata does not match the selected Task 2 spec"
@@ -969,8 +1263,8 @@ def _select_wheel(
     return spec, record
 
 
-def _resolve_compatibility_rule(
-    compatibility: dict[str, Any],
+def _resolve_fixture_compatibility_rule(
+    catalog: dict[str, Any],
     compatibility_rule_id: str,
     release_manifest: dict[str, Any],
     spec: dict[str, Any],
@@ -978,25 +1272,25 @@ def _resolve_compatibility_rule(
 ) -> dict[str, Any]:
     try:
         validate_schema(
-            compatibility,
+            catalog,
             load_json(DEFAULT_SCHEMA_DIR / "config.schema.json"),
         )
     except (KeyError, TypeError, ValueError) as error:
         raise ValueError(
-            f"compatibility config failed Task 2 schema validation: {error}"
+            f"release catalog failed Task 2 schema validation: {error}"
         ) from error
     if (
-        compatibility.get("kind") != "compatibility-config"
-        or compatibility.get("schema_version") != 1
-        or compatibility.get("ucm_version") != release_manifest["ucm_version"]
+        catalog.get("kind") != "release-config"
+        or catalog.get("schema_version") != 2
+        or catalog.get("ucm_version") != release_manifest["ucm_version"]
     ):
         raise ValueError(
-            "compatibility config identity/version does not match release manifest"
+            "release catalog identity/version does not match release manifest"
         )
-    compatibility_sha256 = sha256_value(compatibility)
-    if compatibility_sha256 != release_manifest["compatibility_sha256"]:
-        raise ValueError("compatibility config digest does not match release manifest")
-    rules = compatibility.get("rules")
+    if sha256_value(catalog) != release_manifest["config_sha256"]:
+        raise ValueError("release catalog digest does not match release manifest")
+    compatibility = catalog.get("compatibility")
+    rules = compatibility.get("rules") if isinstance(compatibility, dict) else None
     if not isinstance(rules, list):
         raise ValueError("compatibility rules must be an array")
     matches = [
@@ -1032,12 +1326,12 @@ def _resolve_compatibility_rule(
     return copy.deepcopy(rule)
 
 
-def build_candidate(
+def build_fixture_candidate(
     release_manifest: dict[str, Any],
     wheel_records: list[dict[str, Any]],
     spec_id: str,
     upstream_snapshot: dict[str, Any],
-    compatibility: dict[str, Any],
+    catalog: dict[str, Any],
     compatibility_rule_id: str,
     implementation_digest: str,
     *,
@@ -1046,16 +1340,19 @@ def build_candidate(
     """Bind all immutable inputs into one build key and one target tag family."""
     if not isinstance(release_manifest, dict) or not isinstance(wheel_records, list):
         raise ValueError("release manifest and wheel records have invalid types")
-    spec, wheel = _select_wheel(release_manifest, wheel_records, spec_id, fixture_mode)
-    snapshot = validate_snapshot(upstream_snapshot)
+    spec, wheel = _select_fixture_wheel(
+        release_manifest, wheel_records, spec_id, fixture_mode, catalog
+    )
+    snapshot = validate_fixture_snapshot(upstream_snapshot)
     if not isinstance(compatibility_rule_id, str) or not compatibility_rule_id:
         raise ValueError("compatibility rule id must be non-empty")
     implementation_digest = _digest(implementation_digest, "implementation")
-    parsed = parse_upstream_tag(
-        _product_for_repository(snapshot["repository"]), snapshot["upstream_tag"]
+    parsed = parse_fixture_upstream_tag(
+        _fixture_product_for_repository(snapshot["repository"]),
+        snapshot["upstream_tag"],
     )
-    rule = _resolve_compatibility_rule(
-        compatibility,
+    rule = _resolve_fixture_compatibility_rule(
+        catalog,
         compatibility_rule_id,
         release_manifest,
         spec,
@@ -1115,7 +1412,7 @@ def build_candidate(
     }
 
 
-def _validate_candidate(candidate: dict[str, Any]) -> None:
+def _validate_fixture_candidate(candidate: dict[str, Any]) -> None:
     if not isinstance(candidate, dict):
         raise ValueError("candidate must be an object")
     _exact_keys(candidate, CANDIDATE_KEYS, "candidate")
@@ -1124,7 +1421,7 @@ def _validate_candidate(candidate: dict[str, Any]) -> None:
         or candidate["kind"] != "ucm-image-build-candidate"
     ):
         raise ValueError("candidate identity is invalid")
-    if candidate["target_repository"] not in set(TARGET_REPOSITORIES.values()):
+    if candidate["target_repository"] not in set(FIXTURE_TARGET_REPOSITORIES.values()):
         raise ValueError("candidate target repository is not allowed")
     if candidate["fixture_only"] is not True or candidate["unpublished"] is not True:
         raise ValueError(
@@ -1177,9 +1474,10 @@ def _validate_candidate(candidate: dict[str, Any]) -> None:
         "index_digest": upstream["index_digest"],
         "platforms": upstream["platforms"],
     }
-    snapshot = validate_snapshot(synthetic_snapshot)
-    parsed = parse_upstream_tag(
-        _product_for_repository(snapshot["repository"]), snapshot["upstream_tag"]
+    snapshot = validate_fixture_snapshot(synthetic_snapshot)
+    parsed = parse_fixture_upstream_tag(
+        _fixture_product_for_repository(snapshot["repository"]),
+        snapshot["upstream_tag"],
     )
     expected_accelerator = "ascend" if parsed["product"] == "vllm-ascend" else "cuda"
     semantic_checks = (
@@ -1220,8 +1518,8 @@ def _validate_candidate(candidate: dict[str, Any]) -> None:
         raise ValueError("candidate build key does not match its immutable inputs")
 
 
-def with_revision(candidate: dict[str, Any], revision: int) -> dict[str, Any]:
-    _validate_candidate(candidate)
+def with_fixture_revision(candidate: dict[str, Any], revision: int) -> dict[str, Any]:
+    _validate_fixture_candidate(candidate)
     if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
         raise ValueError("revision must be an integer >= 1")
     result = copy.deepcopy(candidate)
@@ -1230,7 +1528,7 @@ def with_revision(candidate: dict[str, Any], revision: int) -> dict[str, Any]:
     return result
 
 
-def inventory_digest(inventory: dict[str, Any]) -> str:
+def fixture_inventory_digest(inventory: dict[str, Any]) -> str:
     """Hash the canonical Registry read set, excluding its asserted digest field."""
     if not isinstance(inventory, dict):
         raise ValueError("registry inventory must be an object")
@@ -1248,17 +1546,17 @@ def inventory_digest(inventory: dict[str, Any]) -> str:
     return sha256_value(canonical_inventory)
 
 
-def _validate_inventory(inventory: dict[str, Any]) -> list[dict[str, Any]]:
+def _validate_fixture_inventory(inventory: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(inventory, dict):
         raise ValueError("registry inventory must be an object")
     _exact_keys(inventory, INVENTORY_KEYS, "registry inventory")
     if inventory["schema_version"] != 1 or inventory["kind"] != "registry-inventory":
         raise ValueError("registry inventory identity is invalid")
-    if inventory["repositories"] != sorted(TARGET_REPOSITORIES.values()):
+    if inventory["repositories"] != sorted(FIXTURE_TARGET_REPOSITORIES.values()):
         raise ValueError(
             "registry inventory must cover exactly the two target repositories"
         )
-    actual_inventory_sha256 = inventory_digest(inventory)
+    actual_inventory_sha256 = fixture_inventory_digest(inventory)
     if inventory["inventory_sha256"] != actual_inventory_sha256:
         raise ValueError(
             "inventory digest mismatch: "
@@ -1272,7 +1570,7 @@ def _validate_inventory(inventory: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(entry, dict):
             raise ValueError(f"registry inventory entry {index} must be an object")
         _exact_keys(entry, ENTRY_KEYS, f"registry inventory entry {index}")
-        if entry["repository"] not in set(TARGET_REPOSITORIES.values()):
+        if entry["repository"] not in set(FIXTURE_TARGET_REPOSITORIES.values()):
             raise ValueError("registry inventory target repository is not allowed")
         validate_public_tag(entry["tag"])
         for field in ("build_key_sha256", "observed_digest", "evidence_digest"):
@@ -1288,10 +1586,12 @@ def _validate_inventory(inventory: dict[str, Any]) -> list[dict[str, Any]]:
     return entries
 
 
-def reconcile(candidate: dict[str, Any], inventory: dict[str, Any]) -> dict[str, Any]:
+def reconcile_fixture_candidate(
+    candidate: dict[str, Any], inventory: dict[str, Any]
+) -> dict[str, Any]:
     """Return a build task or a no-op from a passed, immutable Registry view."""
-    _validate_candidate(candidate)
-    entries = _validate_inventory(inventory)
+    _validate_fixture_candidate(candidate)
+    entries = _validate_fixture_inventory(inventory)
     inventory_sha256 = inventory["inventory_sha256"]
     family_prefix = candidate["tag_base"] + "-r"
     family_entries = [
@@ -1336,7 +1636,7 @@ def reconcile(candidate: dict[str, Any], inventory: dict[str, Any]) -> dict[str,
     while revision in used_revisions:
         revision += 1
     reason = "tag-digest-drift" if matching else "new-build-key"
-    revisioned = with_revision(candidate, revision)
+    revisioned = with_fixture_revision(candidate, revision)
     task = {
         "action": "build-unpublished-candidate",
         "repository": candidate["target_repository"],
@@ -1371,90 +1671,1049 @@ def reconcile(candidate: dict[str, Any], inventory: dict[str, Any]) -> dict[str,
     }
 
 
-def canonical_registry_contract() -> dict[str, Any]:
-    """Re-derive the exact six members and three public r1 coordinates."""
-    candidate = core.build_matrix("feature-candidate")
-    publication = core.build_matrix("protected-tag")
-    candidate_tasks = candidate.get("tasks")
-    publication_tasks = publication.get("tasks")
-    if not isinstance(candidate_tasks, list) or not isinstance(publication_tasks, list):
-        raise ValueError("release matrices must contain canonical task arrays")
-    if [item.get("spec_id") for item in candidate_tasks] != CANONICAL_MEMBER_SPEC_IDS:
-        raise ValueError("feature matrix is not the exact six-member contract")
-    if [item.get("spec_id") for item in publication_tasks] != CANONICAL_MEMBER_SPEC_IDS:
-        raise ValueError("protected matrix is not the exact six-member contract")
-    publication_by_spec = {item["spec_id"]: item for item in publication_tasks}
-    stable_fields = (
-        "spec_id",
-        "profile_id",
-        "platform",
-        "cpu_arch",
-        "target_repository",
-        "target_tag",
-    )
-    members: list[dict[str, Any]] = []
-    for task in candidate_tasks:
-        protected = publication_by_spec[task["spec_id"]]
-        if any(task[field] != protected[field] for field in stable_fields):
-            raise ValueError("feature/protected matrix stable coordinates diverged")
-        if task.get("write_authority") != [] or protected.get("write_authority") != [
-            "github-prerelease",
-            "ghcr-final-index",
-            "ghcr-private-staging",
-        ]:
-            raise ValueError("release matrix write authority is noncanonical")
-        if task["task_sha256"] == protected["task_sha256"]:
-            raise ValueError("candidate and publication task identities must differ")
-        members.append(
-            {
-                "spec_id": task["spec_id"],
-                "profile_id": task["profile_id"],
-                "family_id": task["profile_id"],
-                "platform": task["platform"],
-                "target_repository": task["target_repository"],
-                "target_tag": task["target_tag"],
-                "candidate_task_sha256": task["task_sha256"],
-                "publication_task_sha256": protected["task_sha256"],
-            }
-        )
-    groups: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
-    for member in members:
-        key = (
-            member["target_repository"],
-            member["target_tag"],
-            member["family_id"],
-        )
-        groups.setdefault(key, []).append(member)
+def resolved_registry_contract(
+    resolved_plan: dict[str, Any],
+    *,
+    expected_plan_sha256: str,
+) -> dict[str, Any]:
+    """Project protected Registry member/family authority from one frozen plan."""
+    validate_resolved_plan(resolved_plan)
+    if (
+        not isinstance(expected_plan_sha256, str)
+        or resolved_plan["lane"] != "protected-tag"
+        or resolved_plan["fixture_only"] is not False
+        or resolved_plan["resolved_plan_sha256"] != expected_plan_sha256
+    ):
+        raise ValueError("Registry publication requires the exact live protected plan")
+    images_by_id = {task["task_id"]: task for task in resolved_plan["image_tasks"]}
+    members = [
+        {
+            "task_id": task["task_id"],
+            "family_task_id": task["family_task_id"],
+            "spec_id": task["spec_id"],
+            "profile_id": task["profile_id"],
+            "family_id": task["family_task_id"],
+            "platform": task["platform"],
+            "target_repository": task["target_repository"],
+            "target_tag": task["target_tag"],
+            "candidate_task_sha256": task["task_sha256"],
+            "publication_task_sha256": task["task_sha256"],
+        }
+        for task in resolved_plan["image_tasks"]
+    ]
     indexes: list[dict[str, Any]] = []
-    for (repository, tag, family_id), grouped in sorted(groups.items()):
-        grouped.sort(
-            key=lambda item: ("linux/amd64", "linux/arm64").index(item["platform"])
-        )
-        if [item["platform"] for item in grouped] != [
-            "linux/amd64",
-            "linux/arm64",
-        ]:
-            raise ValueError("each release family requires amd64 then arm64")
-        if not tag.endswith("-r1"):
-            raise ValueError("the initial public image revision must be exact r1")
+    for family in resolved_plan["family_tasks"]:
+        grouped = [images_by_id[task_id] for task_id in family["image_task_ids"]]
+        if any(
+            task["family_task_id"] != family["task_id"]
+            or task["target_repository"] != family["target_repository"]
+            or task["target_tag"] != family["target_tag"]
+            for task in grouped
+        ):
+            raise ValueError("resolved family task has inconsistent image authority")
         indexes.append(
             {
-                "family_id": family_id,
-                "target_repository": repository,
-                "target_tag": tag,
-                "member_spec_ids": [item["spec_id"] for item in grouped],
+                "family_task_id": family["task_id"],
+                "family_task_sha256": family["task_sha256"],
+                "family_id": family["task_id"],
+                "target_repository": family["target_repository"],
+                "target_tag": validate_public_tag(family["target_tag"]),
+                "member_task_ids": list(family["image_task_ids"]),
             }
         )
-    if len(indexes) != 3 or len({item["target_repository"] for item in indexes}) != 2:
-        raise ValueError("release contract requires three families in two packages")
     payload = {
         "schema_version": 1,
-        "kind": "ucm-registry-contract",
-        "staging_repository": STAGING_REPOSITORY,
+        "kind": "ucm-resolved-registry-contract",
+        "resolved_plan_sha256": resolved_plan["resolved_plan_sha256"],
+        "source_sha": resolved_plan["source"]["commit"],
+        "staging_repository": resolved_plan["source"]["staging_repository"],
         "members": members,
         "indexes": indexes,
     }
     return {**payload, "contract_sha256": sha256_value(payload)}
+
+
+def _require_resolved_registry_contract(
+    resolved_plan: object, expected_plan_sha256: object
+) -> dict[str, Any]:
+    if not isinstance(resolved_plan, dict) or not isinstance(expected_plan_sha256, str):
+        raise ValueError("production Registry requires an exact frozen resolved plan")
+    return resolved_registry_contract(
+        resolved_plan, expected_plan_sha256=expected_plan_sha256
+    )
+
+
+_CANONICAL_UPSTREAM_TAG = re.compile(
+    r"^v(?P<version>(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\."
+    r"(?:0|[1-9][0-9]*)(?:rc[1-9][0-9]*)?)(?P<suffix>-[a-z0-9][a-z0-9.-]*)?$"
+)
+
+
+def _excluded_by_pattern(tag: str, patterns: list[str]) -> bool:
+    normalized = tag.casefold()
+    for pattern in patterns:
+        if pattern.casefold() in normalized:
+            return True
+    return False
+
+
+def _canonical_variant_suffixes(product: dict[str, Any]) -> dict[str, str]:
+    suffixes: dict[str, str] = {}
+    for variant_value in product["variants"]:
+        variant = variant_value["id"]
+        suffix = variant_value.get("tag_suffix")
+        if (
+            not isinstance(suffix, str)
+            or re.fullmatch(r"(?:|-[a-z0-9][a-z0-9.-]*)", suffix) is None
+        ):
+            raise ValueError(
+                f"upstream variant {variant!r} has an invalid declared tag suffix"
+            )
+        previous = suffixes.get(suffix)
+        if previous is not None:
+            raise ValueError(
+                "duplicate canonical variant suffix "
+                f"{suffix!r} for product {product['id']!r}: "
+                f"{previous!r} and {variant!r}"
+            )
+        suffixes[suffix] = variant
+    return suffixes
+
+
+def validate_catalog_tag_grammar(catalog: dict[str, Any]) -> None:
+    """Reject product variant declarations with ambiguous canonical tags."""
+    for product in catalog["upstream_products"]:
+        _canonical_variant_suffixes(product)
+
+
+def _parse_product_tag(product: dict[str, Any], tag: str) -> dict[str, str]:
+    match = _CANONICAL_UPSTREAM_TAG.fullmatch(tag)
+    if match is None:
+        raise ValueError("malformed-tag")
+    version_text = match.group("version")
+    try:
+        version = Version(version_text)
+    except InvalidVersion as error:  # pragma: no cover - guarded by the regex.
+        raise ValueError("malformed-tag") from error
+    if (
+        version.epoch != 0
+        or version.local is not None
+        or version.dev is not None
+        or version.post is not None
+        or str(version) != version_text
+    ):
+        raise ValueError("malformed-tag")
+    channel = "rc" if version.pre is not None and version.pre[0] == "rc" else "stable"
+    suffix = match.group("suffix") or ""
+    suffixes = _canonical_variant_suffixes(product)
+    variant = suffixes.get(suffix)
+    if variant is None:
+        raise ValueError("unsupported-variant")
+    return {
+        "tag": tag,
+        "version": version_text,
+        "channel": channel,
+        "variant": variant,
+    }
+
+
+def select_catalog_tags(
+    catalog: dict[str, Any], tag_lists: dict[str, list[str]]
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Purely select canonical configured tags and retain every exclusion."""
+    selected: list[dict[str, str]] = []
+    exclusions: list[dict[str, str]] = []
+    validate_catalog_tag_grammar(catalog)
+    patterns = catalog["compatibility"]["excluded_upstream_patterns"]
+    for product in sorted(catalog["upstream_products"], key=lambda item: item["id"]):
+        repository = product["repository"]
+        tags = tag_lists.get(repository)
+        if not isinstance(tags, list):
+            raise ValueError(
+                f"tag list is missing for configured repository {repository}"
+            )
+        for tag in sorted(set(tags)):
+            reason: str | None = None
+            parsed: dict[str, str] | None = None
+            if _excluded_by_pattern(tag, patterns):
+                reason = "excluded-pattern"
+            else:
+                try:
+                    parsed = _parse_product_tag(product, tag)
+                except ValueError as error:
+                    reason = str(error)
+            if parsed is not None and parsed["channel"] not in product["channels"]:
+                reason = "unsupported-channel"
+            if parsed is not None and reason is None:
+                if Version(parsed["version"]) not in SpecifierSet(
+                    product["version_specifier"]
+                ):
+                    reason = "version-outside-specifier"
+            if reason is not None:
+                exclusions.append(
+                    {
+                        "product_id": product["id"],
+                        "repository": repository,
+                        "tag": tag,
+                        "reason": reason,
+                    }
+                )
+                continue
+            assert parsed is not None
+            selected.append(
+                {
+                    "product_id": product["id"],
+                    "repository": repository,
+                    **copy.deepcopy(parsed),
+                }
+            )
+    selected.sort(
+        key=lambda item: (
+            item["product_id"],
+            Version(item["version"]),
+            item["variant"],
+            item["tag"],
+        )
+    )
+    exclusions.sort(
+        key=lambda item: (
+            item["product_id"],
+            item["repository"],
+            item["tag"],
+            item["reason"],
+        )
+    )
+    return selected, exclusions
+
+
+def _target_coordinate(
+    catalog: dict[str, Any], selected: dict[str, str]
+) -> tuple[str, str]:
+    matches = [
+        product
+        for product in catalog["upstream_products"]
+        if product["id"] == selected["product_id"]
+    ]
+    if len(matches) != 1:
+        raise ValueError("selected product must have exactly one target configuration")
+    product = matches[0]
+    target_repository = product.get("target_repository")
+    target_tag_suffix = product.get("target_tag_suffix")
+    if not isinstance(target_repository, str) or not isinstance(target_tag_suffix, str):
+        raise ValueError("selected product target configuration is malformed")
+    return target_repository, selected["tag"] + target_tag_suffix
+
+
+def _artifact_set(tasks: list[dict[str, Any]], prefix: str) -> list[dict[str, str]]:
+    return [
+        {"task_id": task["task_id"], "name": task["artifact_name"]} for task in tasks
+    ]
+
+
+def _pr_smoke_projection(
+    catalog: dict[str, Any],
+    wheel_tasks: list[dict[str, Any]],
+    image_tasks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    selectors = catalog["pr_smoke"]["image_selectors"]
+    selected_images: list[dict[str, Any]] = []
+    for selector in selectors:
+        matches = [
+            task
+            for task in image_tasks
+            if task["runtime"]["product_id"] == selector["product_id"]
+            and task["runtime"]["variant"] == selector["variant"]
+            and task["cpu_arch"] == selector["cpu_arch"]
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                "PR smoke selector must resolve exactly one image task: "
+                f"{selector!r}"
+            )
+        selected_images.append(matches[0])
+    selected_image_ids = {task["task_id"] for task in selected_images}
+    if len(selected_image_ids) != len(selected_images):
+        raise ValueError("PR smoke selectors resolve duplicate image tasks")
+    selected_wheel_ids = {task["wheel_task_id"] for task in selected_images}
+    selected_wheels = [
+        task for task in wheel_tasks if task["task_id"] in selected_wheel_ids
+    ]
+    if {task["task_id"] for task in selected_wheels} != selected_wheel_ids:
+        raise ValueError("PR smoke image dependencies do not resolve exact wheel tasks")
+    return {
+        "github_wheel_matrix": {
+            "include": [
+                {"task_id": task["task_id"], "runner": task["runner"]}
+                for task in selected_wheels
+            ]
+        },
+        "github_image_matrix": {
+            "include": [
+                {
+                    "task_id": task["task_id"],
+                    "runner": task["runner"],
+                    "wheel_task_id": task["wheel_task_id"],
+                }
+                for task in selected_images
+            ]
+        },
+    }
+
+
+def resolve_catalog(
+    catalog: dict[str, Any],
+    *,
+    source_sha: str,
+    lane: str,
+    fixture: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Snapshot configured repositories once and emit one immutable build plan."""
+    core._exact_keys(catalog, core.RELEASE_KEYS, "release catalog")
+    core.validate_catalog(catalog)
+    if fixture is not None and lane == "protected-tag":
+        raise ValueError("fixture resolution cannot acquire protected-tag authority")
+    if re.fullmatch(r"[0-9a-f]{40}", source_sha) is None:
+        raise ValueError("source_sha must be an exact lowercase 40-hex commit")
+    limits = catalog.get("scan_limits")
+    if not isinstance(limits, dict) or set(limits) != {
+        "max_tags_per_repository",
+        "max_selected_upstreams",
+    }:
+        raise ValueError("catalog requires exact scan_limits")
+    if any(
+        not isinstance(value, int) or isinstance(value, bool) or value < 1
+        for value in limits.values()
+    ):
+        raise ValueError("catalog scan limits must be positive integers")
+    configured_repositories = {
+        product["repository"] for product in catalog["upstream_products"]
+    }
+    repositories_fixture: dict[str, Any] | None = None
+    if fixture is not None:
+        if not isinstance(fixture, dict) or set(fixture) != {
+            "kind",
+            "schema_version",
+            "repositories",
+        }:
+            raise ValueError("registry discovery fixture fields are noncanonical")
+        if (
+            fixture["kind"] != "registry-discovery-fixture"
+            or fixture["schema_version"] != 1
+            or not isinstance(fixture["repositories"], dict)
+            or set(fixture["repositories"]) != configured_repositories
+        ):
+            raise ValueError("registry discovery fixture is incomplete")
+        repositories_fixture = fixture["repositories"]
+
+    tag_lists: dict[str, list[str]] = {}
+    operations: list[dict[str, Any]] = []
+    for repository in sorted(configured_repositories):
+        repository_fixture = (
+            repositories_fixture[repository]
+            if repositories_fixture is not None
+            else None
+        )
+        tag_result = enumerate_repository_tags(
+            repository,
+            fixture=repository_fixture,
+            max_tags=limits["max_tags_per_repository"],
+        )
+        tag_lists[repository] = tag_result["tags"]
+        operations.extend(tag_result["operations"])
+    selected, exclusions = select_catalog_tags(catalog, tag_lists)
+    if len(selected) > limits["max_selected_upstreams"]:
+        raise ValueError(
+            "registry selection limit max_selected_upstreams="
+            f"{limits['max_selected_upstreams']} exceeded by exact set of "
+            f"{len(selected)}"
+        )
+
+    products = {item["id"]: item for item in catalog["upstream_products"]}
+    resolved_upstreams: list[dict[str, Any]] = []
+    selected_fixture_tags: dict[str, set[str]] = {
+        repository: set() for repository in configured_repositories
+    }
+    for item in selected:
+        product = products[item["product_id"]]
+        snapshot_fixture = None
+        if repositories_fixture is not None:
+            snapshots = repositories_fixture[item["repository"]]["snapshots"]
+            if not isinstance(snapshots, dict) or item["tag"] not in snapshots:
+                raise ValueError(
+                    f"registry fixture is missing selected snapshot {item['tag']}"
+                )
+            snapshot_fixture = snapshots[item["tag"]]
+            selected_fixture_tags[item["repository"]].add(item["tag"])
+        scan = resolve_repository_tag(
+            item["repository"],
+            item["tag"],
+            required_architectures=product["required_cpu_architectures"],
+            fixture=snapshot_fixture,
+        )
+        operations.extend(scan["operations"])
+        target_repository, target_tag = _target_coordinate(catalog, item)
+        resolved_upstreams.append(
+            {
+                **copy.deepcopy(item),
+                "index_digest": scan["snapshot"]["index_digest"],
+                "members": scan["snapshot"]["members"],
+                "target_repository": target_repository,
+                "target_tag": target_tag,
+            }
+        )
+    if repositories_fixture is not None:
+        for repository in sorted(configured_repositories):
+            snapshots = repositories_fixture[repository]["snapshots"]
+            if set(snapshots) != selected_fixture_tags[repository]:
+                raise ValueError(
+                    f"registry fixture snapshots are not the exact selected set for {repository}"
+                )
+
+    expanded = core.expand_release_plan(catalog, resolved_upstreams, lane=lane)
+    wheel_tasks = expanded["wheel_tasks"]
+    image_tasks = expanded["image_tasks"]
+    family_tasks = expanded["family_tasks"]
+    source = {
+        "repository": catalog["source"]["repository"],
+        "staging_repository": catalog["source"]["staging_repository"],
+        "default_branch": catalog["source"]["default_branch"],
+        "release_tag": catalog["source"]["release_tag"],
+        "release_policy": catalog["source"]["release_policy"],
+        "version_file": catalog["version_file"],
+        "ucm_version": catalog["ucm_version"],
+        "commit": source_sha,
+    }
+    scan_evidence = {
+        "resolved_upstreams": resolved_upstreams,
+        "exclusions": exclusions,
+        "operations": operations,
+    }
+    result: dict[str, Any] = {
+        "kind": "ucm-resolved-build-plan",
+        "schema_version": 1,
+        "fixture_only": fixture is not None,
+        "lane": lane,
+        "source": source,
+        "chart": copy.deepcopy(catalog["chart"]),
+        "config_sha256": core.sha256_value(catalog),
+        "source_sha256": core.sha256_value(source),
+        "scan_sha256": core.sha256_value(scan_evidence),
+        "resolved_upstreams": resolved_upstreams,
+        "wheel_tasks": wheel_tasks,
+        "image_tasks": image_tasks,
+        "family_tasks": family_tasks,
+        "github_wheel_matrix": {
+            "include": [
+                {"task_id": task["task_id"], "runner": task["runner"]}
+                for task in wheel_tasks
+            ]
+        },
+        "github_image_matrix": {
+            "include": [
+                {
+                    "task_id": task["task_id"],
+                    "runner": task["runner"],
+                    "wheel_task_id": task["wheel_task_id"],
+                }
+                for task in image_tasks
+            ]
+        },
+        "github_family_matrix": {
+            "include": [
+                {
+                    "task_id": task["task_id"],
+                    "family_task_id": task["task_id"],
+                    "runner": task["control_runner"],
+                    "control_task_id": task["control_task_id"],
+                    "control_arch": task["control_arch"],
+                }
+                for task in family_tasks
+            ]
+        },
+        "pr_smoke": _pr_smoke_projection(catalog, wheel_tasks, image_tasks),
+        "expected_artifacts": {
+            "resolved_plan": f"ucm-resolved-plan-{source_sha}",
+            "wheels": _artifact_set(wheel_tasks, "wheel"),
+            "images": _artifact_set(image_tasks, "image"),
+            "families": _artifact_set(family_tasks, "family"),
+        },
+        "exclusions": exclusions,
+        "operations": operations,
+        "counts": {
+            "scanned_tags": sum(len(tags) for tags in tag_lists.values()),
+            "selected_upstreams": len(resolved_upstreams),
+            "excluded_tags": len(exclusions),
+            "wheel_tasks": len(wheel_tasks),
+            "image_tasks": len(image_tasks),
+            "family_tasks": len(family_tasks),
+        },
+    }
+    result["resolved_plan_sha256"] = core.sha256_value(result)
+    return result
+
+
+def validate_resolved_plan(plan: dict[str, Any]) -> None:
+    """Validate the immutable envelope and every task hash before consumption."""
+    if not isinstance(plan, dict):
+        raise ValueError("resolved plan must be an object")
+    expected_fields = {
+        "kind",
+        "schema_version",
+        "fixture_only",
+        "lane",
+        "source",
+        "chart",
+        "config_sha256",
+        "source_sha256",
+        "scan_sha256",
+        "resolved_upstreams",
+        "wheel_tasks",
+        "image_tasks",
+        "family_tasks",
+        "github_wheel_matrix",
+        "github_image_matrix",
+        "github_family_matrix",
+        "pr_smoke",
+        "expected_artifacts",
+        "exclusions",
+        "operations",
+        "counts",
+        "resolved_plan_sha256",
+    }
+    if set(plan) != expected_fields:
+        raise ValueError(
+            "resolved plan top-level fields mismatch: "
+            f"missing={sorted(expected_fields - set(plan))}, "
+            f"extra={sorted(set(plan) - expected_fields)}"
+        )
+    if plan.get("kind") != "ucm-resolved-build-plan" or plan.get("schema_version") != 1:
+        raise ValueError("resolved plan identity must be schema version 1")
+    if not isinstance(plan["fixture_only"], bool):
+        raise ValueError("resolved plan fixture_only must be boolean")
+    if plan["lane"] not in {"feature-candidate", "protected-tag"}:
+        raise ValueError("resolved plan lane is invalid")
+    if plan["fixture_only"] and plan["lane"] == "protected-tag":
+        raise ValueError("fixture plan cannot carry protected-tag authority")
+    claimed_hash = plan.get("resolved_plan_sha256")
+    unhashed = {
+        key: value for key, value in plan.items() if key != "resolved_plan_sha256"
+    }
+    if claimed_hash != core.sha256_value(unhashed):
+        raise ValueError("resolved plan hash mismatch")
+    source = plan["source"]
+    if (
+        not isinstance(source, dict)
+        or set(source)
+        != {
+            "repository",
+            "staging_repository",
+            "default_branch",
+            "release_tag",
+            "release_policy",
+            "version_file",
+            "ucm_version",
+            "commit",
+        }
+        or not isinstance(source["repository"], str)
+        or re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", source["repository"])
+        is None
+        or not isinstance(source["staging_repository"], str)
+        or REPOSITORY_RE.fullmatch(source["staging_repository"]) is None
+        or not isinstance(source["release_tag"], str)
+        or re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:rc[0-9]+)?", source["release_tag"])
+        is None
+        or not isinstance(source["commit"], str)
+        or re.fullmatch(r"[0-9a-f]{40}", source["commit"]) is None
+        or not isinstance(source["default_branch"], str)
+        or not source["default_branch"]
+        or not isinstance(source["release_policy"], str)
+        or not source["release_policy"]
+        or not isinstance(source["version_file"], str)
+        or not source["version_file"]
+        or Path(source["version_file"]).is_absolute()
+        or ".." in Path(source["version_file"]).parts
+        or not isinstance(source["ucm_version"], str)
+        or not source["ucm_version"]
+        or source["release_tag"] != f"v{source['ucm_version']}"
+    ):
+        raise ValueError("resolved plan source is malformed")
+    if plan["source_sha256"] != core.sha256_value(source):
+        raise ValueError("resolved plan source hash mismatch")
+    chart = plan["chart"]
+    if (
+        not isinstance(chart, dict)
+        or set(chart)
+        != {
+            "source",
+            "name",
+            "version",
+            "app_version",
+            "publication_target",
+            "validation_cases",
+        }
+        or any(
+            not isinstance(chart[field], str) or not chart[field]
+            for field in (
+                "source",
+                "name",
+                "version",
+                "app_version",
+                "publication_target",
+            )
+        )
+        or not isinstance(chart["validation_cases"], list)
+        or not chart["validation_cases"]
+    ):
+        raise ValueError("resolved plan Chart authority is malformed")
+    for hash_name in ("config_sha256", "scan_sha256", "resolved_plan_sha256"):
+        if (
+            not isinstance(plan[hash_name], str)
+            or DIGEST_RE.fullmatch(plan[hash_name]) is None
+        ):
+            raise ValueError(f"resolved plan {hash_name} is malformed")
+
+    core.validate_resolved_upstreams(plan["resolved_upstreams"])
+    snapshots = plan["resolved_upstreams"]
+    snapshot_hashes = [core.sha256_value(snapshot) for snapshot in snapshots]
+    if len(snapshot_hashes) != len(set(snapshot_hashes)):
+        raise ValueError("resolved plan snapshots must be unique")
+
+    exclusions = plan["exclusions"]
+    exclusion_fields = {"product_id", "repository", "tag", "reason"}
+    if not isinstance(exclusions, list) or any(
+        not isinstance(item, dict)
+        or set(item) != exclusion_fields
+        or any(not isinstance(item[key], str) or not item[key] for key in item)
+        for item in exclusions
+    ):
+        raise ValueError("resolved plan exclusions are malformed")
+    if exclusions != sorted(
+        exclusions,
+        key=lambda item: (
+            item["product_id"],
+            item["repository"],
+            item["tag"],
+            item["reason"],
+        ),
+    ):
+        raise ValueError("resolved plan exclusions are not canonical")
+
+    operations = plan["operations"]
+    allowed_operation_types = {
+        "crane-tag-list",
+        "crane-digest",
+        "crane-manifest",
+        "fixture-tag-page-read",
+        "fixture-snapshot-read",
+    }
+    if not isinstance(operations, list) or not operations:
+        raise ValueError("resolved plan operations must be a non-empty array")
+    for operation in operations:
+        if (
+            not isinstance(operation, dict)
+            or operation.get("type") not in allowed_operation_types
+            or operation.get("capability") != "read"
+            or not isinstance(operation.get("reference"), str)
+            or not operation["reference"]
+            or set(operation)
+            != (
+                {"type", "capability", "reference", "page"}
+                if operation.get("type") == "fixture-tag-page-read"
+                else {"type", "capability", "reference"}
+            )
+            or (
+                "page" in operation
+                and (
+                    not isinstance(operation["page"], int)
+                    or isinstance(operation["page"], bool)
+                    or operation["page"] < 1
+                )
+            )
+        ):
+            raise ValueError("resolved plan operation is malformed")
+    fixture_operations = [
+        operation["type"].startswith("fixture-") for operation in operations
+    ]
+    if (plan["fixture_only"] and not all(fixture_operations)) or (
+        not plan["fixture_only"] and any(fixture_operations)
+    ):
+        raise ValueError("resolved plan fixture authority differs from operations")
+    scan_evidence = {
+        "resolved_upstreams": snapshots,
+        "exclusions": exclusions,
+        "operations": operations,
+    }
+    if plan["scan_sha256"] != core.sha256_value(scan_evidence):
+        raise ValueError("resolved plan scan hash mismatch")
+
+    task_ids: set[str] = set()
+    tasks_by_kind: dict[str, list[dict[str, Any]]] = {}
+    expected_write_authority = (
+        []
+        if plan["lane"] == "feature-candidate"
+        else ["github-prerelease", "ghcr-final-index", "ghcr-private-staging"]
+    )
+    for task_kind in ("wheel", "image", "family"):
+        tasks = plan.get(f"{task_kind}_tasks")
+        if not isinstance(tasks, list):
+            raise ValueError(f"resolved plan {task_kind} tasks must be an array")
+        tasks_by_kind[task_kind] = tasks
+        for task in tasks:
+            if not isinstance(task, dict) or not isinstance(task.get("task_id"), str):
+                raise ValueError(f"resolved plan {task_kind} task is malformed")
+            if set(task) != RESOLVED_TASK_FIELDS[task_kind]:
+                raise ValueError(
+                    f"resolved plan {task_kind} task fields mismatch: "
+                    f"missing={sorted(RESOLVED_TASK_FIELDS[task_kind] - set(task))}, "
+                    f"extra={sorted(set(task) - RESOLVED_TASK_FIELDS[task_kind])}"
+                )
+            if re.fullmatch(f"{task_kind}-[0-9a-f]{{64}}", task["task_id"]) is None:
+                raise ValueError(f"resolved plan {task_kind} task ID is malformed")
+            if task["task_id"] in task_ids:
+                raise ValueError("resolved plan task IDs must be globally unique")
+            task_ids.add(task["task_id"])
+            task_payload = {
+                key: value for key, value in task.items() if key != "task_sha256"
+            }
+            if task.get("task_sha256") != core.sha256_value(task_payload):
+                raise ValueError(f"resolved plan {task_kind} task hash mismatch")
+            if task_kind in {"wheel", "image"}:
+                cpu_authority = core.cpu_toolchain_authority(
+                    task.get("cpu_arch"),
+                    location=f"resolved plan {task_kind} task cpu_arch",
+                )
+                if task.get("platform") != cpu_authority.oci_platform:
+                    raise ValueError(
+                        f"resolved plan {task_kind} platform differs from its "
+                        "CPU/tool architecture"
+                    )
+            else:
+                architectures = task.get("cpu_arch")
+                platforms = task.get("platform")
+                if (
+                    not isinstance(architectures, list)
+                    or not isinstance(platforms, list)
+                    or len(architectures) != len(platforms)
+                ):
+                    raise ValueError(
+                        "resolved plan family CPU/tool architecture projection "
+                        "is malformed"
+                    )
+                for index, architecture in enumerate(architectures):
+                    cpu_authority = core.cpu_toolchain_authority(
+                        architecture,
+                        location=f"resolved plan family task cpu_arch[{index}]",
+                    )
+                    if platforms[index] != cpu_authority.oci_platform:
+                        raise ValueError(
+                            "resolved plan family platform differs from its "
+                            "CPU/tool architecture"
+                        )
+                core.cpu_toolchain_authority(
+                    task.get("control_arch"),
+                    location="resolved plan family control_arch",
+                )
+            if task.get("write_authority") != expected_write_authority:
+                raise ValueError(
+                    f"resolved plan {task_kind} task lane authority mismatch"
+                )
+
+    wheel_tasks = tasks_by_kind["wheel"]
+    image_tasks = tasks_by_kind["image"]
+    family_tasks = tasks_by_kind["family"]
+    wheels_by_id = {task["task_id"]: task for task in wheel_tasks}
+    families_by_id = {task["task_id"]: task for task in family_tasks}
+    if len(wheels_by_id) != len(wheel_tasks) or len(families_by_id) != len(
+        family_tasks
+    ):
+        raise ValueError("resolved plan task IDs are not unique")
+    for image in image_tasks:
+        if image.get("wheel_task_id") not in wheels_by_id:
+            raise ValueError("resolved plan image references an unknown wheel task")
+        if image.get("family_task_id") not in families_by_id:
+            raise ValueError("resolved plan image references an unknown family task")
+        wheel = wheels_by_id[image["wheel_task_id"]]
+        linked_wheel_fields = {
+            "spec_id",
+            "profile_id",
+            "runner",
+            "cpu_arch",
+            "platform",
+            "builder",
+            "builder_sha256",
+            "build",
+            "python_abi",
+            "python_version",
+            "wheel_version",
+            "wheel_platform",
+            "required_native",
+            "forbidden_native",
+            "allowed_dt_needed",
+            "external_required_dependencies",
+            "dependency_lock_sha256",
+            "dependency_lock",
+            "runtime_requirements",
+            "runtime_patch_manifest_sha256",
+            "write_authority",
+            "build_eligible",
+        }
+        if any(image[field] != wheel[field] for field in linked_wheel_fields) or (
+            image["wheel_artifact_name"] != wheel["artifact_name"]
+        ):
+            raise ValueError("resolved plan image/wheel linkage is inconsistent")
+    for family in family_tasks:
+        linked = [
+            image
+            for image in image_tasks
+            if image["family_task_id"] == family["task_id"]
+        ]
+        if not linked or family.get("image_task_ids") != [
+            image["task_id"] for image in linked
+        ]:
+            raise ValueError("resolved plan family/image linkage is inconsistent")
+        expected_family_projection = {
+            "control_task_id": linked[0]["task_id"],
+            "control_arch": linked[0]["cpu_arch"],
+            "control_runner": linked[0]["runner"],
+            "runner": [image["runner"] for image in linked],
+            "cpu_arch": [image["cpu_arch"] for image in linked],
+            "platform": [image["platform"] for image in linked],
+            "builder": [image["builder"] for image in linked],
+            "builder_sha256": [image["builder_sha256"] for image in linked],
+            "member_set_sha256": core.sha256_value(
+                [image["task_sha256"] for image in linked]
+            ),
+        }
+        if any(
+            family[field] != value
+            for field, value in expected_family_projection.items()
+        ):
+            raise ValueError("resolved plan family/image projection is inconsistent")
+        if family.get("wheel_task_ids") != {
+            image["cpu_arch"]: image["wheel_task_id"] for image in linked
+        }:
+            raise ValueError("resolved plan family/wheel linkage is inconsistent")
+        snapshot_matches = [
+            snapshot
+            for snapshot in snapshots
+            if core.sha256_value(snapshot) == family.get("snapshot_sha256")
+        ]
+        if len(snapshot_matches) != 1:
+            raise ValueError("resolved plan family snapshot linkage is inconsistent")
+        snapshot = snapshot_matches[0]
+        expected_family_runtime = {
+            "repository": snapshot["repository"],
+            "tag": snapshot["tag"],
+            "version": snapshot["version"],
+            "channel": snapshot["channel"],
+            "variant": snapshot["variant"],
+            "index_digest": snapshot["index_digest"],
+        }
+        if (
+            family.get("product_id") != snapshot["product_id"]
+            or family.get("runtime") != expected_family_runtime
+            or family.get("runtime_sha256")
+            != core.sha256_value(expected_family_runtime)
+            or family.get("target_repository") != snapshot["target_repository"]
+            or family.get("target_tag") != snapshot["target_tag"]
+        ):
+            raise ValueError("resolved plan family/snapshot linkage is inconsistent")
+        for image in linked:
+            member = snapshot["members"].get(image["cpu_arch"])
+            expected_runtime = {
+                "product_id": snapshot["product_id"],
+                "repository": snapshot["repository"],
+                "tag": snapshot["tag"],
+                "version": snapshot["version"],
+                "channel": snapshot["channel"],
+                "variant": snapshot["variant"],
+                "index_digest": snapshot["index_digest"],
+                **(member or {}),
+            }
+            if (
+                image.get("runtime") != expected_runtime
+                or image.get("runtime_sha256") != core.sha256_value(expected_runtime)
+                or image.get("target_repository") != family["target_repository"]
+                or image.get("target_tag") != family["target_tag"]
+            ):
+                raise ValueError("resolved plan image/snapshot linkage is inconsistent")
+    if {family["snapshot_sha256"] for family in family_tasks} != set(snapshot_hashes):
+        raise ValueError("resolved plan snapshot set differs from family tasks")
+
+    expected_counts = {
+        "scanned_tags": len(snapshots) + len(exclusions),
+        "selected_upstreams": len(snapshots),
+        "excluded_tags": len(exclusions),
+        "wheel_tasks": len(wheel_tasks),
+        "image_tasks": len(image_tasks),
+        "family_tasks": len(family_tasks),
+    }
+    if plan["counts"] != expected_counts:
+        raise ValueError("resolved plan counts mismatch")
+    expected_wheel_matrix = {
+        "include": [
+            {"task_id": task["task_id"], "runner": task["runner"]}
+            for task in wheel_tasks
+        ]
+    }
+    expected_image_matrix = {
+        "include": [
+            {
+                "task_id": task["task_id"],
+                "runner": task["runner"],
+                "wheel_task_id": task["wheel_task_id"],
+            }
+            for task in image_tasks
+        ]
+    }
+    expected_family_matrix = {
+        "include": [
+            {
+                "task_id": task["task_id"],
+                "family_task_id": task["task_id"],
+                "runner": task["control_runner"],
+                "control_task_id": task["control_task_id"],
+                "control_arch": task["control_arch"],
+            }
+            for task in family_tasks
+        ]
+    }
+    if plan["github_wheel_matrix"] != expected_wheel_matrix:
+        raise ValueError("resolved plan wheel matrix mismatch")
+    if plan["github_image_matrix"] != expected_image_matrix:
+        raise ValueError("resolved plan image matrix mismatch")
+    if plan["github_family_matrix"] != expected_family_matrix:
+        raise ValueError("resolved plan family matrix mismatch")
+    smoke = plan["pr_smoke"]
+    if not isinstance(smoke, dict) or set(smoke) != {
+        "github_wheel_matrix",
+        "github_image_matrix",
+    }:
+        raise ValueError("resolved plan PR smoke projection is malformed")
+    smoke_wheel = smoke["github_wheel_matrix"]
+    smoke_image = smoke["github_image_matrix"]
+    if (
+        not isinstance(smoke_wheel, dict)
+        or set(smoke_wheel) != {"include"}
+        or not isinstance(smoke_wheel["include"], list)
+        or not smoke_wheel["include"]
+        or not isinstance(smoke_image, dict)
+        or set(smoke_image) != {"include"}
+        or not isinstance(smoke_image["include"], list)
+        or not smoke_image["include"]
+    ):
+        raise ValueError("resolved plan PR smoke matrices are malformed")
+    expected_wheels_by_id = {
+        item["task_id"]: item for item in expected_wheel_matrix["include"]
+    }
+    expected_images_by_id = {
+        item["task_id"]: item for item in expected_image_matrix["include"]
+    }
+    if any(
+        item != expected_wheels_by_id.get(item.get("task_id"))
+        for item in smoke_wheel["include"]
+        if isinstance(item, dict)
+    ) or any(
+        item != expected_images_by_id.get(item.get("task_id"))
+        for item in smoke_image["include"]
+        if isinstance(item, dict)
+    ):
+        raise ValueError("resolved plan PR smoke matrices differ from full plan")
+    smoke_image_wheels = {item["wheel_task_id"] for item in smoke_image["include"]}
+    if {item["task_id"] for item in smoke_wheel["include"]} != smoke_image_wheels:
+        raise ValueError("resolved plan PR smoke wheel dependency set mismatch")
+    expected_artifacts = {
+        "resolved_plan": f"ucm-resolved-plan-{source['commit']}",
+        "wheels": _artifact_set(wheel_tasks, "wheel"),
+        "images": _artifact_set(image_tasks, "image"),
+        "families": _artifact_set(family_tasks, "family"),
+    }
+    if plan["expected_artifacts"] != expected_artifacts:
+        raise ValueError("resolved plan artifact set mismatch")
+
+
+def select_task(
+    plan: dict[str, Any],
+    *,
+    task_kind: str,
+    task_id: str,
+    expected_plan_sha256: str,
+) -> dict[str, Any]:
+    """Select exactly one frozen task without consulting Registry state."""
+    validate_resolved_plan(plan)
+    if (
+        not isinstance(expected_plan_sha256, str)
+        or DIGEST_RE.fullmatch(expected_plan_sha256) is None
+        or expected_plan_sha256 != plan["resolved_plan_sha256"]
+    ):
+        raise ValueError("expected plan hash mismatch")
+    if plan["fixture_only"] is True and plan["lane"] == "protected-tag":
+        raise ValueError("fixture plan cannot authorize protected task selection")
+    if task_kind not in {"wheel", "image", "family"}:
+        raise ValueError("task_kind must be wheel, image, or family")
+    if not isinstance(task_id, str) or not task_id:
+        raise ValueError("task_id must be a non-empty opaque identifier")
+    matches = [
+        task for task in plan[f"{task_kind}_tasks"] if task["task_id"] == task_id
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            f"resolved plan {task_kind} task {task_id!r} does not resolve exactly once"
+        )
+    return copy.deepcopy(matches[0])
+
+
+def verify_upstream_drift(
+    plan: dict[str, Any], *, fixture: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Re-read every selected source tag before protected publication."""
+    validate_resolved_plan(plan)
+    if plan["fixture_only"] is True:
+        raise ValueError("fixture plan cannot pass protected drift verification")
+    if plan.get("lane") != "protected-tag":
+        raise ValueError("upstream drift verification requires a protected-tag plan")
+    if fixture is not None:
+        raise ValueError("fixture reads cannot pass protected drift verification")
+    operations: list[dict[str, Any]] = []
+    observations: list[dict[str, str]] = []
+    drifts: list[dict[str, str]] = []
+    for frozen in plan["resolved_upstreams"]:
+        fresh = read_repository_tag_digest(frozen["repository"], frozen["tag"])
+        operations.append(fresh["operation"])
+        observations.append(
+            {
+                "repository": frozen["repository"],
+                "tag": frozen["tag"],
+                "frozen_index_digest": frozen["index_digest"],
+                "fresh_index_digest": fresh["index_digest"],
+            }
+        )
+        if fresh["index_digest"] != frozen["index_digest"]:
+            drifts.append(
+                {
+                    "repository": frozen["repository"],
+                    "tag": frozen["tag"],
+                    "frozen_index_digest": frozen["index_digest"],
+                    "fresh_index_digest": fresh["index_digest"],
+                }
+            )
+    if drifts:
+        detail = "; ".join(
+            f"{item['repository']}:{item['tag']} changed from "
+            f"{item['frozen_index_digest']} to {item['fresh_index_digest']}"
+            for item in drifts
+        )
+        raise ValueError(f"upstream tag drift: {detail}")
+    result: dict[str, Any] = {
+        "kind": "ucm-upstream-drift-verification",
+        "schema_version": 1,
+        "resolved_plan_sha256": plan["resolved_plan_sha256"],
+        "verified_tags": len(observations),
+        "observations": observations,
+        "operations": operations,
+    }
+    result["verification_sha256"] = core.sha256_value(result)
+    return result
 
 
 def _record_payload(record: dict[str, Any]) -> dict[str, Any]:
@@ -1469,8 +2728,9 @@ def _validate_member_operations(record: dict[str, Any]) -> list[dict[str, str]]:
     operations = record["operations"]
     if not isinstance(operations, list) or not operations:
         raise ValueError("member operations must be a non-empty array")
-    member_reference = f"{STAGING_REPOSITORY}@{record['member_digest']}"
-    staging_reference = f"{STAGING_REPOSITORY}:{record['staging_tag']}"
+    staging_repository = _repository(record.get("staging_repository"))
+    member_reference = f"{staging_repository}@{record['member_digest']}"
+    staging_reference = f"{staging_repository}:{record['staging_tag']}"
     push = {
         "type": "registry-member-push-by-digest",
         "capability": "write",
@@ -1505,13 +2765,13 @@ def _validate_member_operations(record: dict[str, Any]) -> list[dict[str, str]]:
         {
             "type": "registry-authenticated-config-blob-read",
             "capability": "read",
-            "reference": f"{STAGING_REPOSITORY}@{record['config_digest']}",
+            "reference": f"{staging_repository}@{record['config_digest']}",
         },
         *[
             {
                 "type": "registry-authenticated-layer-blob-read",
                 "capability": "read",
-                "reference": f"{STAGING_REPOSITORY}@{layer['digest']}",
+                "reference": f"{staging_repository}@{layer['digest']}",
             }
             for layer in record["layers"]
         ],
@@ -1545,7 +2805,9 @@ def _validate_member_operations(record: dict[str, Any]) -> list[dict[str, str]]:
     return validated
 
 
-def _validate_member_content_identity(record: dict[str, Any]) -> dict[str, Any]:
+def _validate_member_content_identity(
+    record: dict[str, Any], *, source_repository_url: str
+) -> dict[str, Any]:
     identity = record["content_identity"]
     if not isinstance(identity, dict):
         raise ValueError("member content identity must be an object")
@@ -1566,6 +2828,8 @@ def _validate_member_content_identity(record: dict[str, Any]) -> dict[str, Any]:
     _exact_keys(source, CONTENT_IDENTITY_SOURCE_KEYS, "member content identity source")
     if (
         source["commit"] != record["source_sha"]
+        or source["repository_url"] != source_repository_url
+        or source["repository_url"] != f"https://github.com/{source['repository']}"
         or re.fullmatch(r"[0-9a-f]{40}", source["tree"]) is None
     ):
         raise ValueError("member content identity source differs from publication")
@@ -1628,7 +2892,7 @@ def _validate_member_content_identity(record: dict[str, Any]) -> dict[str, Any]:
     ):
         raise ValueError("member content identity labels are invalid")
     expected_release_labels = {
-        "org.opencontainers.image.source": SOURCE_REPOSITORY_URL,
+        "org.opencontainers.image.source": source_repository_url,
         "org.opencontainers.image.revision": record["source_sha"],
         "io.ucm.release.source-tree": source["tree"],
         "io.ucm.release.source-context-sha256": source["context_sha256"],
@@ -1649,8 +2913,14 @@ def _validate_member_content_identity(record: dict[str, Any]) -> dict[str, Any]:
     return copy.deepcopy(identity)
 
 
-def validate_member_record(record: object) -> dict[str, Any]:
+def validate_member_record(
+    record: object,
+    *,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+) -> dict[str, Any]:
     """Validate a canonical publication record without changing image-result state."""
+    contract = _require_resolved_registry_contract(resolved_plan, expected_plan_sha256)
     if not isinstance(record, dict):
         raise ValueError("member publication record must be an object")
     _exact_keys(record, MEMBER_RECORD_KEYS, "member publication record")
@@ -1665,12 +2935,14 @@ def validate_member_record(record: object) -> dict[str, Any]:
         or record["status"] != "passed"
     ):
         raise ValueError("member publication record identity is invalid")
-    contract = canonical_registry_contract()
     authorities = [
-        item for item in contract["members"] if item["spec_id"] == record["spec_id"]
+        item
+        for item in contract["members"]
+        if item["spec_id"] == record["spec_id"]
+        and item["candidate_task_sha256"] == record["candidate_task_sha256"]
     ]
     if len(authorities) != 1:
-        raise ValueError("member spec does not resolve in the canonical contract")
+        raise ValueError("member task does not resolve in the frozen plan contract")
     authority = authorities[0]
     stable_fields = (
         "spec_id",
@@ -1685,7 +2957,7 @@ def validate_member_record(record: object) -> dict[str, Any]:
     if any(record[field] != authority[field] for field in stable_fields):
         raise ValueError("member record differs from feature/protected task authority")
     if (
-        record["staging_repository"] != STAGING_REPOSITORY
+        record["staging_repository"] != resolved_plan["source"]["staging_repository"]
         or record["staging_visibility"] != "private"
     ):
         raise ValueError("member record requires the exact private staging package")
@@ -1814,7 +3086,12 @@ def validate_member_record(record: object) -> dict[str, Any]:
             created=record["content_identity"]["created"],
             label=f"member layer {position}",
         )
-    _validate_member_content_identity(record)
+    _validate_member_content_identity(
+        record,
+        source_repository_url=(
+            f"https://github.com/{resolved_plan['source']['repository']}"
+        ),
+    )
     _validate_collision_model(record["collision_model"], "member")
     _validate_member_operations(record)
     if record["record_sha256"] != sha256_value(_record_payload(record)):
@@ -1822,8 +3099,15 @@ def validate_member_record(record: object) -> dict[str, Any]:
     return copy.deepcopy(record)
 
 
-def validate_index_record(record: object, *, parent_plans: object) -> dict[str, Any]:
+def validate_index_record(
+    record: object,
+    *,
+    parent_plans: object,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+) -> dict[str, Any]:
     """Reopen one index publication against its exact canonical parent plan."""
+    _require_resolved_registry_contract(resolved_plan, expected_plan_sha256)
     if not isinstance(record, dict):
         raise ValueError("index publication record must be an object")
     _exact_keys(record, INDEX_RECORD_KEYS, "index publication record")
@@ -1838,9 +3122,17 @@ def validate_index_record(record: object, *, parent_plans: object) -> dict[str, 
         or record["status"] != "passed"
     ):
         raise ValueError("index publication record identity is invalid")
-    parent = _validate_parent_plans(parent_plans)
+    parent = _validate_parent_plans(
+        parent_plans,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
     matching = [
-        plan for plan in parent["plans"] if plan["family_id"] == record["family_id"]
+        plan
+        for plan in parent["plans"]
+        if plan["family_id"] == record["family_id"]
+        and plan["target_repository"] == record["target_repository"]
+        and plan["target_tag"] == record["target_tag"]
     ]
     if len(matching) != 1:
         raise ValueError("index publication family does not resolve in parent plans")
@@ -1869,15 +3161,12 @@ def validate_index_record(record: object, *, parent_plans: object) -> dict[str, 
         _digest(record[field], f"index {field}")
     if record["manifest_sha256"] != record["index_digest"]:
         raise ValueError("index manifest digest differs from the published index")
-    if (
-        not isinstance(record["member_digests"], list)
-        or len(record["member_digests"]) != 2
-    ):
-        raise ValueError("index publication requires two ordered unique members")
+    if not isinstance(record["member_digests"], list):
+        raise ValueError("index publication requires the planned ordered members")
     for digest in record["member_digests"]:
         _digest(digest, "index member")
-    if len(set(record["member_digests"])) != 2:
-        raise ValueError("index publication requires two ordered unique members")
+    if len(set(record["member_digests"])) != len(record["member_digests"]):
+        raise ValueError("index publication requires unique planned members")
     _validate_collision_model(record["collision_model"], "index")
     operations = record["operations"]
     target = f"{record['target_repository']}:{record['target_tag']}"
@@ -1895,9 +3184,19 @@ def validate_index_record(record: object, *, parent_plans: object) -> dict[str, 
     return copy.deepcopy(record)
 
 
-def verify_member_readback(member_record: object, readback: object) -> dict[str, Any]:
+def verify_member_readback(
+    member_record: object,
+    readback: object,
+    *,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+) -> dict[str, Any]:
     """Close a member publication over exact manifest, config and layer bytes."""
-    record = validate_member_record(member_record)
+    record = validate_member_record(
+        member_record,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
     if not isinstance(readback, dict):
         raise ValueError("member readback must be an object")
     _exact_keys(
@@ -1924,7 +3223,7 @@ def verify_member_readback(member_record: object, readback: object) -> dict[str,
     }
     if readback["readback_sha256"] != sha256_value(payload):
         raise ValueError("member readback digest mismatch")
-    expected_reference = f"{STAGING_REPOSITORY}@{record['member_digest']}"
+    expected_reference = f"{record['staging_repository']}@{record['member_digest']}"
     if (
         readback["schema_version"] != 1
         or readback["kind"] != "ucm-registry-readback"
@@ -1945,23 +3244,15 @@ def verify_member_readback(member_record: object, readback: object) -> dict[str,
     return copy.deepcopy(record)
 
 
-def _member_authority(spec_id: str) -> dict[str, Any]:
-    matches = [
-        item
-        for item in canonical_registry_contract()["members"]
-        if item["spec_id"] == spec_id
-    ]
-    if len(matches) != 1:
-        raise ValueError("member spec does not resolve in canonical registry authority")
-    return matches[0]
-
-
 def plan_staging_tag(
     build_key_sha256: object,
     member_digest: object,
     observed_digest: object | None,
+    *,
+    staging_repository: object,
 ) -> dict[str, Any]:
     """Apply the exact absent/create, same/reuse, different/fail contract."""
+    repository = _repository(staging_repository)
     build_key = _digest(build_key_sha256, "staging build key")
     expected = _digest(member_digest, "staging member")
     tag = "staging-" + build_key.removeprefix("sha256:")
@@ -1971,14 +3262,14 @@ def plan_staging_tag(
         observed = _digest(observed_digest, "observed staging member")
         if observed != expected:
             raise ValueError(
-                f"staging tag collision for {STAGING_REPOSITORY}:{tag}: "
+                f"staging tag collision for {repository}:{tag}: "
                 f"expected {expected}, observed {observed}"
             )
         decision = "reuse"
     return {
         "schema_version": 1,
         "kind": "ucm-registry-staging-tag-plan",
-        "repository": STAGING_REPOSITORY,
+        "repository": repository,
         "tag": tag,
         "member_digest": expected,
         "decision": decision,
@@ -1986,7 +3277,7 @@ def plan_staging_tag(
 
 
 class BarrierBlocker(ValueError):
-    """A six-member barrier failure that carries a proven-empty operation ledger."""
+    """A plan-member barrier failure that carries a proven-empty operation ledger."""
 
     def __init__(self, message: str) -> None:
         super().__init__(message)
@@ -2003,11 +3294,27 @@ def _index_manifest(
     if len(source_shas) != 1:
         raise ValueError("index members must have one exact source SHA")
     source_sha = next(iter(source_shas))
+    source_repository_urls = {
+        item.get("content_identity", {}).get("source", {}).get("repository_url")
+        for item in members
+        if isinstance(item.get("content_identity"), dict)
+    }
     if (
         not isinstance(source_sha, str)
         or re.fullmatch(r"[0-9a-f]{40}", source_sha) is None
     ):
         raise ValueError("index member source SHA is invalid")
+    if (
+        len(source_repository_urls) != 1
+        or not isinstance(next(iter(source_repository_urls)), str)
+        or re.fullmatch(
+            r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",
+            next(iter(source_repository_urls)),
+        )
+        is None
+    ):
+        raise ValueError("index members must have one source repository authority")
+    source_repository_url = next(iter(source_repository_urls))
     identity = {
         "schema_version": 1,
         "source_sha": source_sha,
@@ -2047,7 +3354,7 @@ def _index_manifest(
             for item in members
         ],
         "annotations": {
-            "org.opencontainers.image.source": SOURCE_REPOSITORY_URL,
+            "org.opencontainers.image.source": source_repository_url,
             "io.ucm.release.family-id": family_id,
             "io.ucm.release.index-build-key-sha256": index_build_key,
             "io.ucm.release.source-sha": source_sha,
@@ -2065,65 +3372,160 @@ def plan_indexes(
     inventory: object,
     *,
     member_statuses: object,
-    lane: str | None = None,
+    lane: str,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
 ) -> dict[str, Any]:
-    """Plan all three exact r1 indexes after one indivisible six-member barrier."""
-    if not isinstance(member_records, list):
-        raise BarrierBlocker("six-member barrier requires a member record array")
-    if len(member_records) != 6:
-        raise BarrierBlocker("six-member barrier requires exactly six records")
-    records = [validate_member_record(item) for item in member_records]
-    source_shas = {item["source_sha"] for item in records}
-    if len(source_shas) != 1:
-        raise BarrierBlocker("six-member barrier requires one exact source SHA")
-    source_sha = next(iter(source_shas))
-    by_spec: dict[str, dict[str, Any]] = {}
+    """Plan the exact index set declared by one immutable protected plan."""
+    _require_resolved_registry_contract(resolved_plan, expected_plan_sha256)
+    return _plan_indexes_from_resolved_plan(
+        member_records,
+        inventory,
+        member_statuses=member_statuses,
+        lane=lane,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
+
+
+def _plan_indexes_from_resolved_plan(
+    member_records: object,
+    inventory: object,
+    *,
+    member_statuses: object,
+    lane: str | None,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str | None,
+) -> dict[str, Any]:
+    """Plan the exact member/family sets declared by one protected plan."""
+    contract = resolved_registry_contract(
+        resolved_plan, expected_plan_sha256=expected_plan_sha256
+    )
+    authorities = contract["members"]
+    if not isinstance(member_records, list) or len(member_records) != len(authorities):
+        raise BarrierBlocker("member barrier differs from the frozen image task set")
+    records = [
+        validate_member_record(
+            item,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+        )
+        for item in member_records
+    ]
+    records_by_task: dict[str, dict[str, Any]] = {}
+    authority_by_hash = {item["candidate_task_sha256"]: item for item in authorities}
     for record in records:
-        if record["spec_id"] in by_spec:
-            raise BarrierBlocker("six-member barrier rejects duplicate members")
-        by_spec[record["spec_id"]] = record
-    if set(by_spec) != set(CANONICAL_MEMBER_SPEC_IDS):
-        raise BarrierBlocker("six-member barrier has missing or invented members")
-    if not isinstance(member_statuses, dict) or set(member_statuses) != set(
-        CANONICAL_MEMBER_SPEC_IDS
-    ):
-        raise BarrierBlocker("six-member barrier statuses are incomplete")
+        authority = authority_by_hash.get(record["candidate_task_sha256"])
+        if authority is None or authority["task_id"] in records_by_task:
+            raise BarrierBlocker(
+                "member barrier has missing or duplicate planned tasks"
+            )
+        records_by_task[authority["task_id"]] = record
+    task_order = [item["task_id"] for item in authorities]
+    if set(records_by_task) != set(task_order):
+        raise BarrierBlocker("member barrier has missing or invented planned tasks")
+    if not isinstance(member_statuses, dict) or set(member_statuses) != set(task_order):
+        raise BarrierBlocker("member barrier statuses differ from frozen image tasks")
     failed = sorted(
-        spec_id for spec_id, status in member_statuses.items() if status != "success"
+        task_id for task_id, status in member_statuses.items() if status != "success"
     )
     if failed:
         raise BarrierBlocker(
-            f"six-member barrier blocked by unsuccessful members: {failed}"
+            f"member barrier blocked by unsuccessful planned tasks: {failed}"
         )
-    if not isinstance(inventory, list) or any(
-        not isinstance(item, dict) for item in inventory
-    ):
-        raise ValueError("index inventory must be an array of objects")
-    inventory_by_target: dict[tuple[str, str], dict[str, Any]] = {}
-    allowed_targets = {
-        (item["target_repository"], item["target_tag"])
-        for item in canonical_registry_contract()["indexes"]
+    source_sha = contract["source_sha"]
+    if {item["source_sha"] for item in records} != {source_sha}:
+        raise BarrierBlocker("member barrier source differs from frozen plan")
+    allowed_targets = [
+        (item["target_repository"], item["target_tag"]) for item in contract["indexes"]
+    ]
+    if not isinstance(inventory, dict):
+        raise ValueError("dynamic index inventory must be a plan-bound object")
+    _exact_keys(
+        inventory,
+        {
+            "schema_version",
+            "kind",
+            "entries",
+            "absent",
+            "operations",
+            "inventory_sha256",
+        },
+        "dynamic index inventory",
+    )
+    inventory_payload = {
+        key: copy.deepcopy(value)
+        for key, value in inventory.items()
+        if key != "inventory_sha256"
     }
-    for entry in inventory:
+    if (
+        inventory["schema_version"] != 1
+        or isinstance(inventory["schema_version"], bool)
+        or inventory["kind"] != "ucm-registry-inventory"
+        or inventory["inventory_sha256"] != sha256_value(inventory_payload)
+        or not isinstance(inventory["entries"], list)
+        or not isinstance(inventory["absent"], list)
+        or not isinstance(inventory["operations"], list)
+    ):
+        raise ValueError("dynamic index inventory envelope is invalid")
+    inventory_by_target: dict[tuple[str, str], dict[str, Any]] = {}
+    for entry in inventory["entries"]:
+        if not isinstance(entry, dict):
+            raise ValueError("dynamic index inventory entry is malformed")
         _exact_keys(
             entry,
             {"repository", "tag", "digest", "build_key_sha256"},
             "index inventory entry",
         )
         key = (entry["repository"], entry["tag"])
-        if key not in allowed_targets:
-            raise ValueError(
-                "index inventory coordinate is outside the exact allowlist"
-            )
-        if key in inventory_by_target:
-            raise ValueError("duplicate index inventory coordinate")
+        if key not in set(allowed_targets) or key in inventory_by_target:
+            raise ValueError("index inventory differs from frozen family targets")
         _digest(entry["digest"], "inventory index")
         _digest(entry["build_key_sha256"], "inventory index build key")
         inventory_by_target[key] = entry
+    absent_targets: list[tuple[str, str]] = []
+    for entry in inventory["absent"]:
+        if not isinstance(entry, dict):
+            raise ValueError("dynamic index absent target is malformed")
+        _exact_keys(entry, {"repository", "tag"}, "dynamic index absent target")
+        key = (entry["repository"], entry["tag"])
+        if (
+            key not in set(allowed_targets)
+            or key in inventory_by_target
+            or key in absent_targets
+        ):
+            raise ValueError("index inventory differs from frozen family targets")
+        absent_targets.append(key)
+    if set(inventory_by_target) | set(absent_targets) != set(allowed_targets):
+        raise ValueError("index inventory coverage differs from frozen family targets")
+    if [key for key in allowed_targets if key in inventory_by_target] != list(
+        inventory_by_target
+    ) or [key for key in allowed_targets if key in absent_targets] != absent_targets:
+        raise ValueError("index inventory target ordering differs from frozen plan")
+    expected_inventory_operations: list[dict[str, str]] = []
+    for repository, tag in allowed_targets:
+        expected_inventory_operations.append(
+            {
+                "type": "registry-authenticated-digest-read",
+                "capability": "read",
+                "reference": f"{repository}:{tag}",
+            }
+        )
+        observed = inventory_by_target.get((repository, tag))
+        if observed is not None:
+            expected_inventory_operations.append(
+                {
+                    "type": "registry-authenticated-manifest-read",
+                    "capability": "read",
+                    "reference": f"{repository}@{observed['digest']}",
+                }
+            )
+    if inventory["operations"] != expected_inventory_operations:
+        raise ValueError("index inventory operations differ from frozen targets")
     plans: list[dict[str, Any]] = []
     operations: list[dict[str, str]] = []
-    for authority in canonical_registry_contract()["indexes"]:
-        grouped = [by_spec[spec_id] for spec_id in authority["member_spec_ids"]]
+    for authority in contract["indexes"]:
+        grouped = [records_by_task[task_id] for task_id in authority["member_task_ids"]]
         manifest, index_build_key, expected_digest = _index_manifest(
             authority["family_id"],
             authority["target_repository"],
@@ -2145,13 +3547,14 @@ def plan_indexes(
             decision = "reuse"
         else:
             raise ValueError(
-                f"r1 conflict for {coordinate[0]}:{coordinate[1]}; refusing r2 or overwrite"
+                f"r1 conflict for {coordinate[0]}:{coordinate[1]}; refusing overwrite"
             )
         plans.append(
             {
                 "schema_version": 1,
                 "kind": "ucm-registry-index-plan",
                 "source_sha": source_sha,
+                "family_task_id": authority["family_task_id"],
                 "family_id": authority["family_id"],
                 "target_repository": authority["target_repository"],
                 "target_tag": authority["target_tag"],
@@ -2162,41 +3565,46 @@ def plan_indexes(
                 "decision": decision,
             }
         )
+    if operations and lane != "protected-tag":
+        raise ValueError(f"{lane} cannot plan write-capable final index operations")
     payload = {
         "schema_version": 1,
         "kind": "ucm-registry-index-plans",
         "source_sha": source_sha,
-        "member_records": [by_spec[spec_id] for spec_id in CANONICAL_MEMBER_SPEC_IDS],
+        "resolved_plan_sha256": contract["resolved_plan_sha256"],
+        "member_records": [records_by_task[task_id] for task_id in task_order],
         "member_statuses": {
-            spec_id: member_statuses[spec_id] for spec_id in CANONICAL_MEMBER_SPEC_IDS
+            task_id: member_statuses[task_id] for task_id in task_order
         },
         "inventory": copy.deepcopy(inventory),
         "plans": plans,
         "operations": operations,
     }
-    if operations and lane not in {None, "protected-tag"}:
-        raise ValueError(f"{lane} cannot plan write-capable final index operations")
     return {**payload, "plans_sha256": sha256_value(payload)}
 
 
-def _validate_parent_plans(parent_plans: object) -> dict[str, Any]:
+def _validate_parent_plans(
+    parent_plans: object,
+    *,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+) -> dict[str, Any]:
+    _require_resolved_registry_contract(resolved_plan, expected_plan_sha256)
     if not isinstance(parent_plans, dict):
         raise ValueError("index parent plans must be an object")
-    _exact_keys(
-        parent_plans,
-        {
-            "schema_version",
-            "kind",
-            "source_sha",
-            "member_records",
-            "member_statuses",
-            "inventory",
-            "plans",
-            "operations",
-            "plans_sha256",
-        },
-        "index parent plans",
-    )
+    expected_fields = {
+        "schema_version",
+        "kind",
+        "source_sha",
+        "member_records",
+        "member_statuses",
+        "inventory",
+        "plans",
+        "operations",
+        "plans_sha256",
+    }
+    expected_fields.add("resolved_plan_sha256")
+    _exact_keys(parent_plans, expected_fields, "index parent plans")
     payload = {
         key: copy.deepcopy(value)
         for key, value in parent_plans.items()
@@ -2209,17 +3617,26 @@ def _validate_parent_plans(parent_plans: object) -> dict[str, Any]:
         parent_plans["inventory"],
         member_statuses=parent_plans["member_statuses"],
         lane="protected-tag",
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
     )
     if parent_plans != rederived:
-        raise ValueError(
-            "index parent plans differ from canonical six-member authority"
-        )
+        raise ValueError("index parent plans differ from frozen plan authority")
     return copy.deepcopy(parent_plans)
 
 
-def validate_index_plans(parent_plans: object) -> dict[str, Any]:
-    """Publicly reopen the exact six-member/three-family index parent envelope."""
-    return _validate_parent_plans(parent_plans)
+def validate_index_plans(
+    parent_plans: object,
+    *,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+) -> dict[str, Any]:
+    """Publicly reopen the exact plan-member/family parent envelope."""
+    return _validate_parent_plans(
+        parent_plans,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
 
 
 def verify_index(
@@ -2227,8 +3644,11 @@ def verify_index(
     *,
     parent_plans: object,
     observed: object | None = None,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
 ) -> dict[str, Any]:
     """Verify one canonical r1 plan and optional readback record."""
+    contract = _require_resolved_registry_contract(resolved_plan, expected_plan_sha256)
     if not isinstance(plan, dict) or plan.get("kind") != "ucm-registry-index-plan":
         raise ValueError("index plan identity is invalid")
     required = {
@@ -2244,17 +3664,25 @@ def verify_index(
         "index_manifest",
         "decision",
     }
+    required.add("family_task_id")
     _exact_keys(plan, required, "index plan")
-    parent = _validate_parent_plans(parent_plans)
+    parent = _validate_parent_plans(
+        parent_plans,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
     matching_parent_plans = [
-        item for item in parent["plans"] if item["family_id"] == plan["family_id"]
+        item
+        for item in parent["plans"]
+        if (item.get("family_task_id") == plan.get("family_task_id"))
     ]
     if len(matching_parent_plans) != 1 or matching_parent_plans[0] != plan:
         raise ValueError("index plan is not the exact canonical parent plan")
     authorities = [
         item
-        for item in canonical_registry_contract()["indexes"]
+        for item in contract["indexes"]
         if item["family_id"] == plan["family_id"]
+        and item["family_task_id"] == plan["family_task_id"]
     ]
     if len(authorities) != 1:
         raise ValueError("index family is outside canonical authority")
@@ -2263,11 +3691,26 @@ def verify_index(
         plan["source_sha"] != parent["source_sha"]
         or plan["target_repository"] != authority["target_repository"]
         or plan["target_tag"] != authority["target_tag"]
-        or [item["spec_id"] for item in plan["members"]] != authority["member_spec_ids"]
+        or [item["candidate_task_sha256"] for item in plan["members"]]
+        != [
+            next(
+                member["candidate_task_sha256"]
+                for member in contract["members"]
+                if member["task_id"] == task_id
+            )
+            for task_id in authority["member_task_ids"]
+        ]
         or plan["decision"] not in {"create", "reuse"}
     ):
         raise ValueError("index plan coordinate or decision differs from authority")
-    members = [validate_member_record(item) for item in plan["members"]]
+    members = [
+        validate_member_record(
+            item,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+        )
+        for item in plan["members"]
+    ]
     manifest, build_key, digest = _index_manifest(
         plan["family_id"], plan["target_repository"], plan["target_tag"], members
     )
@@ -2276,7 +3719,7 @@ def verify_index(
         or plan["index_build_key_sha256"] != build_key
         or plan["expected_index_digest"] != digest
     ):
-        raise ValueError("index plan does not close over its exact two members")
+        raise ValueError("index plan does not close over its planned members")
     if observed is not None:
         if not isinstance(observed, dict) or observed != {
             "digest": digest,
@@ -2297,27 +3740,33 @@ def verify_index(
     return {**payload, "verification_sha256": sha256_value(payload)}
 
 
-def _registry_reference(value: object) -> str:
+def _registry_reference(
+    value: object,
+    *,
+    public_targets: set[str] | None = None,
+    staging_repository: str | None = None,
+) -> str:
     if not isinstance(value, str):
         raise ValueError("registry reference must be a string")
-    contract = canonical_registry_contract()
-    public_repositories = {item["target_repository"] for item in contract["indexes"]}
-    public_tags = {
-        f"{item['target_repository']}:{item['target_tag']}"
-        for item in contract["indexes"]
-    }
+    public_tags = public_targets or set()
+    public_repositories = {item.rsplit(":", 1)[0] for item in public_tags}
+    staging = (
+        _repository(staging_repository) if staging_repository is not None else None
+    )
     if value in public_tags:
         return value
     repository, separator, suffix = value.rpartition("@")
     if (
         separator == "@"
-        and repository in public_repositories | {STAGING_REPOSITORY}
+        and repository in public_repositories | ({staging} if staging else set())
         and DIGEST_RE.fullmatch(suffix) is not None
     ):
         return value
-    staging_prefix = STAGING_REPOSITORY + ":staging-"
-    if value.startswith(staging_prefix) and re.fullmatch(
-        r"[0-9a-f]{64}", value.removeprefix(staging_prefix)
+    staging_prefix = staging + ":staging-" if staging else None
+    if (
+        staging_prefix is not None
+        and value.startswith(staging_prefix)
+        and re.fullmatch(r"[0-9a-f]{64}", value.removeprefix(staging_prefix))
     ):
         return value
     raise ValueError(f"registry reference is outside the exact allowlist: {value}")
@@ -2551,14 +4000,31 @@ def _fresh_transport_digest(
     raise ValueError(f"fresh Registry read failed for {reference}: {detail}")
 
 
-def inventory_registry() -> dict[str, Any]:
-    """Read the three exact public r1 coordinates without inventing local state."""
+def inventory_registry(*, targets: object) -> dict[str, Any]:
+    """Read one explicit frozen-plan target set without catalog fallback."""
+    if not isinstance(targets, list) or not targets:
+        raise ValueError("registry inventory targets must be a nonempty array")
+    normalized_targets = []
+    seen: set[tuple[str, str]] = set()
+    for target in targets:
+        if not isinstance(target, dict):
+            raise ValueError("registry inventory target must be an object")
+        _exact_keys(target, {"repository", "tag"}, "registry inventory target")
+        normalized = {
+            "repository": _repository(target["repository"]),
+            "tag": validate_public_tag(target["tag"]),
+        }
+        coordinate = (normalized["repository"], normalized["tag"])
+        if coordinate in seen:
+            raise ValueError("registry inventory targets must be unique")
+        seen.add(coordinate)
+        normalized_targets.append(normalized)
     executable = resolve_pinned_crane()
     entries: list[dict[str, Any]] = []
     absent: list[dict[str, str]] = []
     operations: list[dict[str, str]] = []
-    for target in canonical_registry_contract()["indexes"]:
-        reference = f"{target['target_repository']}:{target['target_tag']}"
+    for target in normalized_targets:
+        reference = f"{target['repository']}:{target['tag']}"
         operations.append(
             {
                 "type": "registry-authenticated-digest-read",
@@ -2575,13 +4041,13 @@ def inventory_registry() -> dict[str, Any]:
                 raise ValueError(f"registry inventory failed for {reference}: {detail}")
             absent.append(
                 {
-                    "repository": target["target_repository"],
-                    "tag": target["target_tag"],
+                    "repository": target["repository"],
+                    "tag": target["tag"],
                 }
             )
             continue
         digest = _digest(digest_result.stdout.strip(), "inventory index")
-        digest_reference = f"{target['target_repository']}@{digest}"
+        digest_reference = f"{target['repository']}@{digest}"
         operations.append(
             {
                 "type": "registry-authenticated-manifest-read",
@@ -2600,8 +4066,8 @@ def inventory_registry() -> dict[str, Any]:
         )
         entries.append(
             {
-                "repository": target["target_repository"],
-                "tag": target["target_tag"],
+                "repository": target["repository"],
+                "tag": target["tag"],
                 "digest": digest,
                 "build_key_sha256": build_key,
             }
@@ -2620,9 +4086,15 @@ def readback_reference(
     reference: object,
     *,
     anonymous: bool = False,
+    public_targets: set[str] | None = None,
+    staging_repository: str | None = None,
 ) -> dict[str, Any]:
     """Read manifest/config/layer bytes with isolated anonymous credentials."""
-    canonical_reference = _registry_reference(reference)
+    canonical_reference = _registry_reference(
+        reference,
+        public_targets=public_targets,
+        staging_repository=staging_repository,
+    )
     executable = resolve_pinned_crane()
 
     def read(environment: dict[str, str] | None) -> dict[str, Any]:
@@ -2755,13 +4227,14 @@ def readback_reference(
 
 
 def verify_private_staging(
-    reference: object, *, phase: str = "postwrite"
+    reference: object, *, staging_repository: str, phase: str = "postwrite"
 ) -> dict[str, Any]:
     """Prove private visibility only from a typed anonymous authorization denial."""
     if phase not in {"prewrite", "postwrite"}:
         raise ValueError("private staging visibility phase is noncanonical")
-    canonical_reference = _registry_reference(reference)
-    if not canonical_reference.startswith(STAGING_REPOSITORY + ":staging-"):
+    repository = _repository(staging_repository)
+    canonical_reference = _registry_reference(reference, staging_repository=repository)
+    if not canonical_reference.startswith(repository + ":staging-"):
         raise ValueError("private visibility evidence requires an exact staging tag")
     executable = resolve_pinned_crane()
     with tempfile.TemporaryDirectory(
@@ -2784,10 +4257,10 @@ def verify_private_staging(
             r"^\s*DENIED\s*:",
         )
     )
-    staging_path = STAGING_REPOSITORY.removeprefix("ghcr.io/")
+    staging_path = repository.removeprefix("ghcr.io/")
     token_scope = urllib.parse.quote(f"repository:{staging_path}:pull", safe="")
     exact_token_url = f"https://ghcr.io/token?scope={token_scope}&service=ghcr.io"
-    staging_tag = canonical_reference.removeprefix(STAGING_REPOSITORY + ":")
+    staging_tag = canonical_reference.removeprefix(repository + ":")
     exact_manifest_url = f"https://ghcr.io/v2/{staging_path}/manifests/{staging_tag}"
     ghcr_token_denial = any(
         exact_token_url in line
@@ -2824,11 +4297,31 @@ def verify_private_staging(
     return {**payload, "visibility_evidence_sha256": sha256_value(payload)}
 
 
-def _fresh_write_authority(lane: object) -> dict[str, Any]:
+def _fresh_write_authority(
+    lane: object,
+    *,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+    task_kind: str,
+    task_id: str,
+) -> dict[str, Any]:
     if lane != "protected-tag":
         raise ValueError("registry writes require the protected-tag lane")
-    preflight = core.tag_preflight(lane="protected-tag")
-    matrix = core.build_matrix("protected-tag")
+    _require_resolved_registry_contract(resolved_plan, expected_plan_sha256)
+    if task_kind not in {"image", "family"} or not isinstance(task_id, str):
+        raise ValueError(
+            "production Registry write requires one frozen resolved plan task"
+        )
+    selected = select_task(
+        resolved_plan,
+        task_kind=task_kind,
+        task_id=task_id,
+        expected_plan_sha256=expected_plan_sha256,
+    )
+    preflight = core.tag_preflight(
+        lane="protected-tag",
+        authority=resolved_plan["source"],
+    )
     if (
         preflight.get("kind") != "ucm-tag-preflight"
         or preflight.get("lane") != "protected-tag"
@@ -2837,19 +4330,19 @@ def _fresh_write_authority(lane: object) -> dict[str, Any]:
         != ["github-prerelease", "ghcr-final-index", "ghcr-private-staging"]
     ):
         raise ValueError("fresh protected Tag preflight did not grant write authority")
-    tasks = matrix.get("tasks")
-    if (
-        matrix.get("lane") != "protected-tag"
-        or not isinstance(tasks, list)
-        or [item.get("spec_id") for item in tasks] != CANONICAL_MEMBER_SPEC_IDS
-        or any(
-            item.get("write_authority")
-            != ["github-prerelease", "ghcr-final-index", "ghcr-private-staging"]
-            for item in tasks
-        )
-    ):
-        raise ValueError("fresh protected matrix did not grant exact write authority")
-    return {"preflight": preflight, "matrix": matrix}
+    if resolved_plan["source"]["commit"] != preflight.get("source_sha"):
+        raise ValueError("fresh protected Tag source differs from frozen plan")
+    if selected.get("write_authority") != [
+        "github-prerelease",
+        "ghcr-final-index",
+        "ghcr-private-staging",
+    ]:
+        raise ValueError("frozen plan task did not grant fresh write authority")
+    return {
+        "preflight": preflight,
+        "resolved_plan_sha256": resolved_plan["resolved_plan_sha256"],
+        "selected_task": selected,
+    }
 
 
 def _oci_blob(
@@ -3129,7 +4622,7 @@ def _validate_image_result_content_identity(result: dict[str, Any]) -> dict[str,
         raise ValueError("image result content identity annotations differ")
     labels = identity.get("labels")
     expected_labels = {
-        "org.opencontainers.image.source": SOURCE_REPOSITORY_URL,
+        "org.opencontainers.image.source": source["repository_url"],
         "org.opencontainers.image.revision": source["commit"],
         "io.ucm.release.source-tree": source["tree"],
         "io.ucm.release.source-context-sha256": source["context_sha256"],
@@ -3193,19 +4686,53 @@ def publish_member(
     *,
     image_result: object,
     lane: str,
+    selected_task: dict[str, Any],
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
 ) -> dict[str, Any]:
     """Publish one real candidate and derive its record only from trusted readback."""
-    write_authority = _fresh_write_authority(lane)
+    _require_resolved_registry_contract(resolved_plan, expected_plan_sha256)
+    if not isinstance(selected_task, dict):
+        raise ValueError("member publication requires one frozen image task")
+    write_authority = _fresh_write_authority(
+        lane,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+        task_kind="image",
+        task_id=selected_task.get("task_id"),
+    )
     from . import image
 
-    result = image.validate_image_result(image_result)
+    result = image.validate_image_result(
+        image_result,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+        task_id=selected_task.get("task_id"),
+    )
     if (
         result.get("candidate_kind") != "real-candidate"
         or result.get("unpublished") is not True
         or result.get("oci", {}).get("published") is not False
     ):
         raise ValueError("member publication requires a real unpublished image result")
-    authority = _member_authority(result.get("spec_id"))
+    selected = select_task(
+        resolved_plan,
+        task_kind="image",
+        task_id=selected_task.get("task_id"),
+        expected_plan_sha256=expected_plan_sha256,
+    )
+    if selected != selected_task:
+        raise ValueError("selected member task differs from frozen plan")
+    matches = [
+        item
+        for item in resolved_registry_contract(
+            resolved_plan, expected_plan_sha256=expected_plan_sha256
+        )["members"]
+        if item["task_id"] == selected["task_id"]
+    ]
+    if len(matches) != 1:
+        raise ValueError("selected member task does not resolve in Registry authority")
+    authority = matches[0]
     expected_authority = {
         "spec_id": result.get("spec_id"),
         "profile_id": result.get("profile_id"),
@@ -3221,10 +4748,11 @@ def publish_member(
         "source_sha"
     ):
         raise ValueError("member source differs from live protected tag")
+    staging_repository = _repository(resolved_plan["source"].get("staging_repository"))
     identity = _validate_image_result_content_identity(result)
     crane_binary = resolve_pinned_crane()
     staging_tag = "staging-" + result["build_key_sha256"].removeprefix("sha256:")
-    staging_reference = f"{STAGING_REPOSITORY}:{staging_tag}"
+    staging_reference = f"{staging_repository}:{staging_tag}"
     with materialize_oci_layout(archive_path) as materialized:
         descriptor = materialized["index"]["manifests"][0]
         manifest = materialized["manifest"]
@@ -3246,7 +4774,9 @@ def publish_member(
                 "Buildx OCI bytes differ from image-result content identity"
             )
         prewrite_visibility = verify_private_staging(
-            staging_reference, phase="prewrite"
+            staging_reference,
+            staging_repository=staging_repository,
+            phase="prewrite",
         )
         operations: list[dict[str, str]] = [
             copy.deepcopy(prewrite_visibility["operation"]),
@@ -3263,6 +4793,7 @@ def publish_member(
             result["build_key_sha256"],
             result["oci"]["digest"],
             observed_staging_digest,
+            staging_repository=staging_repository,
         )
         core.require_default_head_for_create(
             write_authority["preflight"],
@@ -3271,7 +4802,7 @@ def publish_member(
         )
         push_result = _push_materialized_member(
             materialized,
-            repository=STAGING_REPOSITORY,
+            repository=staging_repository,
             crane_binary=crane_binary,
         )
         operations.extend(push_result["operations"])
@@ -3303,16 +4834,20 @@ def publish_member(
             layer_records.append(layer_record)
 
     tag_result = _apply_digest_tag(
-        repository=STAGING_REPOSITORY,
+        repository=staging_repository,
         digest=result["oci"]["digest"],
         tag=staging_tag,
         crane_binary=crane_binary,
     )
     operations.extend(tag_result["operations"])
-    digest_reference = f"{STAGING_REPOSITORY}@{result['oci']['digest']}"
-    readback = readback_reference(digest_reference)
+    digest_reference = f"{staging_repository}@{result['oci']['digest']}"
+    readback = readback_reference(
+        digest_reference, staging_repository=staging_repository
+    )
     operations.extend(copy.deepcopy(readback["operations"]))
-    visibility = verify_private_staging(staging_reference)
+    visibility = verify_private_staging(
+        staging_reference, staging_repository=staging_repository
+    )
     operations.append(copy.deepcopy(visibility["operation"]))
     annotations = {
         "io.ucm.release.build-key-sha256": result["build_key_sha256"],
@@ -3322,12 +4857,25 @@ def publish_member(
         "io.ucm.release.spec-id": authority["spec_id"],
         "io.ucm.release.wheel-sha256": result["wheel"]["sha256"],
     }
+    record_authority = {
+        key: authority[key]
+        for key in (
+            "spec_id",
+            "profile_id",
+            "family_id",
+            "platform",
+            "target_repository",
+            "target_tag",
+            "candidate_task_sha256",
+            "publication_task_sha256",
+        )
+    }
     payload = {
         "schema_version": 1,
         "kind": "ucm-registry-member-publication",
         "status": "passed",
-        **copy.deepcopy(authority),
-        "staging_repository": STAGING_REPOSITORY,
+        **copy.deepcopy(record_authority),
+        "staging_repository": staging_repository,
         "staging_visibility": "private",
         "staging_tag": staging_tag,
         "build_key_sha256": result["build_key_sha256"],
@@ -3353,8 +4901,31 @@ def publish_member(
         "operations": operations,
     }
     record = {**payload, "record_sha256": sha256_value(payload)}
-    verify_member_readback(record, readback)
+    verify_member_readback(
+        record,
+        readback,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
     return record
+
+
+def _require_member_record_for_selected_image_task(
+    record: dict[str, Any], selected_task: dict[str, Any]
+) -> None:
+    """Bind a validated publication record to the caller-selected image task."""
+    expected = {
+        "spec_id": selected_task.get("spec_id"),
+        "profile_id": selected_task.get("profile_id"),
+        "family_id": selected_task.get("family_task_id"),
+        "platform": selected_task.get("platform"),
+        "target_repository": selected_task.get("target_repository"),
+        "target_tag": selected_task.get("target_tag"),
+        "candidate_task_sha256": selected_task.get("task_sha256"),
+        "publication_task_sha256": selected_task.get("task_sha256"),
+    }
+    if any(record.get(field) != value for field, value in expected.items()):
+        raise ValueError("member record differs from the selected image task")
 
 
 def push_member_by_digest(
@@ -3362,11 +4933,26 @@ def push_member_by_digest(
     member_record: object,
     *,
     lane: str,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+    task_id: str,
 ) -> dict[str, Any]:
     """Push one safely reopened Buildx OCI layout to the staging content digest."""
-    authority = _fresh_write_authority(lane)
+    authority = _fresh_write_authority(
+        lane,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+        task_kind="image",
+        task_id=task_id,
+    )
+    record = validate_member_record(
+        member_record,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
+    _require_member_record_for_selected_image_task(record, authority["selected_task"])
+    staging_repository = _repository(resolved_plan["source"].get("staging_repository"))
     crane_binary = resolve_pinned_crane()
-    record = validate_member_record(member_record)
     with materialize_oci_layout(archive_path) as materialized:
         descriptor = materialized["index"]["manifests"][0]
         if (
@@ -3395,7 +4981,7 @@ def push_member_by_digest(
             raise ValueError("Buildx OCI layout differs from member publication record")
         push = _push_materialized_member(
             materialized,
-            repository=STAGING_REPOSITORY,
+            repository=staging_repository,
             crane_binary=crane_binary,
         )
     payload = {
@@ -3404,7 +4990,7 @@ def push_member_by_digest(
         "digest": push["digest"],
         "record_sha256": record["record_sha256"],
         "preflight_sha256": authority["preflight"].get("preflight_sha256"),
-        "matrix_sha256": authority["matrix"]["matrix_sha256"],
+        "resolved_plan_sha256": authority["resolved_plan_sha256"],
         "operations": push["operations"],
     }
     return {**payload, "push_sha256": sha256_value(payload)}
@@ -3414,13 +5000,28 @@ def apply_staging_tag(
     member_record: object,
     *,
     lane: str,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+    task_id: str,
 ) -> dict[str, Any]:
     """Create a GC tag only when absent; identity is a read-only reuse."""
-    _fresh_write_authority(lane)
+    authority = _fresh_write_authority(
+        lane,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+        task_kind="image",
+        task_id=task_id,
+    )
+    record = validate_member_record(
+        member_record,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
+    _require_member_record_for_selected_image_task(record, authority["selected_task"])
+    staging_repository = _repository(resolved_plan["source"].get("staging_repository"))
     crane_binary = resolve_pinned_crane()
-    record = validate_member_record(member_record)
     transport = _apply_digest_tag(
-        repository=STAGING_REPOSITORY,
+        repository=staging_repository,
         digest=record["member_digest"],
         tag=record["staging_tag"],
         crane_binary=crane_binary,
@@ -3429,6 +5030,7 @@ def apply_staging_tag(
         record["build_key_sha256"],
         record["member_digest"],
         record["member_digest"] if transport["decision"] == "reuse" else None,
+        staging_repository=staging_repository,
     )
     return {
         **plan,
@@ -3567,10 +5169,14 @@ PROVISIONAL_INDEX_KEYS = {
     "decision",
     "postwrite_manifest_sha256",
     "preflight_sha256",
-    "matrix_sha256",
     "verification_sha256",
     "parent_plans_sha256",
     "provisional_sha256",
+}
+DYNAMIC_PROVISIONAL_INDEX_KEYS = PROVISIONAL_INDEX_KEYS | {
+    "resolved_plan_sha256",
+    "family_task_id",
+    "family_task_sha256",
 }
 INDEX_READBACK_KEYS = {
     "schema_version",
@@ -3671,7 +5277,11 @@ def _validate_prepared_index_readback(
     }
     if readback.get("readback_sha256") != sha256_value(payload):
         raise ValueError("prepared index readback hash mismatch")
-    verify.audit_operations(readback["operations"], lane="protected-tag")
+    verify.audit_operations(
+        readback["operations"],
+        lane="protected-tag",
+        public_targets={expected_reference},
+    )
     return copy.deepcopy(readback)
 
 
@@ -3735,7 +5345,11 @@ def _validate_index_closure_evidence(
         raise ValueError("index remote validation differs from parent authority")
     _digest(evidence["stdout_sha256"], "index validation stdout")
     _digest(evidence["stderr_sha256"], "index validation stderr")
-    verify.audit_operations([operation], lane="protected-tag")
+    verify.audit_operations(
+        [operation],
+        lane="protected-tag",
+        public_targets={f"{plan['target_repository']}:{plan['target_tag']}"},
+    )
     payload = {
         key: copy.deepcopy(value)
         for key, value in evidence.items()
@@ -3812,13 +5426,33 @@ def prepare_index(
     *,
     parent_plans: object,
     lane: str,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
 ) -> dict[str, Any]:
     """Create/reuse one r1 and close authenticated state, deferring anonymity."""
-    authority = _fresh_write_authority(lane)
-    verification = verify_index(plan, parent_plans=parent_plans)
-    parent = _validate_parent_plans(parent_plans)
+    _require_resolved_registry_contract(resolved_plan, expected_plan_sha256)
+    authority = _fresh_write_authority(
+        lane,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+        task_kind="family",
+        task_id=(plan or {}).get("family_task_id") if isinstance(plan, dict) else None,
+    )
+    verification = verify_index(
+        plan,
+        parent_plans=parent_plans,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
+    parent = _validate_parent_plans(
+        parent_plans,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
     matches = [
-        item for item in parent["plans"] if item["family_id"] == plan["family_id"]
+        item
+        for item in parent["plans"]
+        if (item.get("family_task_id") == plan.get("family_task_id"))
     ]
     if len(matches) != 1 or matches[0] != plan:
         raise ValueError("prepared index plan is not the exact parent plan")
@@ -3832,13 +5466,14 @@ def prepare_index(
     )
     crane_binary = resolve_pinned_crane()
     buildx_binary = resolve_pinned_buildx()
+    staging_repository = _repository(resolved_plan["source"].get("staging_repository"))
     target = f"{plan['target_repository']}:{plan['target_tag']}"
     with tempfile.TemporaryDirectory(prefix="ucm-index-inputs-") as directory:
         source_files: list[Path] = []
         for position, member in enumerate(plan["members"]):
             source = Path(directory) / f"{position}-{member['platform'].split('/')[-1]}"
             source.write_bytes(
-                f"{STAGING_REPOSITORY}@{member['member_digest']}".encode("utf-8")
+                f"{staging_repository}@{member['member_digest']}".encode("utf-8")
             )
             source_files.append(source)
         common_arguments = [
@@ -3847,7 +5482,8 @@ def prepare_index(
             "--tag",
             target,
             "--annotation",
-            "index:org.opencontainers.image.source=" + SOURCE_REPOSITORY_URL,
+            "index:org.opencontainers.image.source="
+            + plan["index_manifest"]["annotations"]["org.opencontainers.image.source"],
             "--annotation",
             f"index:io.ucm.release.family-id={plan['family_id']}",
             "--annotation",
@@ -3871,9 +5507,11 @@ def prepare_index(
                 ]
             )
 
+        parent_inventory = parent["inventory"]
+        inventory_entries = parent_inventory["entries"]
         inventory_matches = [
             item
-            for item in parent_plans["inventory"]
+            for item in inventory_entries
             if item["repository"] == plan["target_repository"]
             and item["tag"] == plan["target_tag"]
         ]
@@ -3892,7 +5530,7 @@ def prepare_index(
     rendered = transport["rendered"]
     operations = transport["operations"]
     decision = transport["decision"]
-    authenticated = readback_reference(target)
+    authenticated = readback_reference(target, public_targets={target})
     if rendered != plan["index_manifest"]:
         raise ValueError("prepared index transport differs from parent intent")
     authenticated = _validate_prepared_index_readback(
@@ -3926,24 +5564,40 @@ def prepare_index(
         "decision": decision,
         "postwrite_manifest_sha256": transport["postwrite_manifest_sha256"],
         "preflight_sha256": preflight_sha256,
-        "matrix_sha256": authority["matrix"]["matrix_sha256"],
         "verification_sha256": verification["verification_sha256"],
         "parent_plans_sha256": parent["plans_sha256"],
+        "resolved_plan_sha256": authority["resolved_plan_sha256"],
+        "family_task_id": authority["selected_task"]["task_id"],
+        "family_task_sha256": authority["selected_task"]["task_sha256"],
     }
     provisional = {
         **provisional_payload,
         "provisional_sha256": sha256_value(provisional_payload),
     }
-    return validate_provisional_index(provisional, parent_plans=parent)
+    return validate_provisional_index(
+        provisional,
+        parent_plans=parent,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
 
 
 def validate_provisional_index(
-    provisional: object, *, parent_plans: object
+    provisional: object,
+    *,
+    parent_plans: object,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
 ) -> dict[str, Any]:
     """Validate the strict authenticated envelope without treating it as final."""
+    _require_resolved_registry_contract(resolved_plan, expected_plan_sha256)
     if not isinstance(provisional, dict):
         raise ValueError("provisional index must be an object")
-    _exact_keys(provisional, PROVISIONAL_INDEX_KEYS, "provisional index")
+    _exact_keys(
+        provisional,
+        DYNAMIC_PROVISIONAL_INDEX_KEYS,
+        "provisional index",
+    )
     if (
         not isinstance(provisional["schema_version"], int)
         or isinstance(provisional["schema_version"], bool)
@@ -3952,13 +5606,17 @@ def validate_provisional_index(
         or provisional["status"] != "authenticated-passed"
     ):
         raise ValueError("provisional index identity is invalid")
-    parent = _validate_parent_plans(parent_plans)
+    parent = _validate_parent_plans(
+        parent_plans,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
     if provisional["parent_plans_sha256"] != parent["plans_sha256"]:
         raise ValueError("provisional index parent hash mismatch")
     matches = [
         item
         for item in parent["plans"]
-        if item["family_id"] == provisional["family_id"]
+        if (item.get("family_task_id") == provisional.get("family_task_id"))
     ]
     if len(matches) != 1:
         raise ValueError("provisional index family is not parent-bound")
@@ -3972,12 +5630,23 @@ def validate_provisional_index(
     }
     if any(provisional[key] != value for key, value in expected_fields.items()):
         raise ValueError("provisional index differs from its exact parent plan")
+    family_task = select_task(
+        resolved_plan,
+        task_kind="family",
+        task_id=provisional["family_task_id"],
+        expected_plan_sha256=expected_plan_sha256,
+    )
+    if (
+        provisional["resolved_plan_sha256"] != resolved_plan["resolved_plan_sha256"]
+        or provisional["family_task_sha256"] != family_task["task_sha256"]
+        or plan.get("family_task_id") != family_task["task_id"]
+    ):
+        raise ValueError("provisional index differs from frozen family authority")
     for field in (
         "index_digest",
         "manifest_sha256",
         "postwrite_manifest_sha256",
         "preflight_sha256",
-        "matrix_sha256",
         "verification_sha256",
         "parent_plans_sha256",
         "provisional_sha256",
@@ -3991,14 +5660,14 @@ def validate_provisional_index(
         raise ValueError("provisional index manifest hashes disagree")
     if (
         provisional["verification_sha256"]
-        != verify_index(plan, parent_plans=parent)["verification_sha256"]
+        != verify_index(
+            plan,
+            parent_plans=parent,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+        )["verification_sha256"]
     ):
         raise ValueError("provisional index verification hash mismatch")
-    if (
-        provisional["matrix_sha256"]
-        != core.build_matrix("protected-tag")["matrix_sha256"]
-    ):
-        raise ValueError("provisional index matrix hash mismatch")
     _validate_collision_model(provisional["collision_model"], "provisional index")
     decision = provisional["decision"]
     target = f"{plan['target_repository']}:{plan['target_tag']}"
@@ -4041,17 +5710,35 @@ def validate_provisional_index(
     return copy.deepcopy(provisional)
 
 
-def finalize_index(provisional: object, *, parent_plans: object) -> dict[str, Any]:
+def finalize_index(
+    provisional: object,
+    *,
+    parent_plans: object,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+) -> dict[str, Any]:
     """Perform deferred anonymous closure and retain reopenable final evidence."""
     from . import verify
 
-    parent = _validate_parent_plans(parent_plans)
-    prepared = validate_provisional_index(provisional, parent_plans=parent)
+    _require_resolved_registry_contract(resolved_plan, expected_plan_sha256)
+    parent = _validate_parent_plans(
+        parent_plans,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
+    prepared = validate_provisional_index(
+        provisional,
+        parent_plans=parent,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
     plan = next(
-        item for item in parent["plans"] if item["family_id"] == prepared["family_id"]
+        item
+        for item in parent["plans"]
+        if (item.get("family_task_id") == prepared.get("family_task_id"))
     )
     target = f"{plan['target_repository']}:{plan['target_tag']}"
-    anonymous = readback_reference(target, anonymous=True)
+    anonymous = readback_reference(target, anonymous=True, public_targets={target})
     anonymous = _validate_prepared_index_readback(
         anonymous,
         plan=plan,
@@ -4088,7 +5775,12 @@ def finalize_index(provisional: object, *, parent_plans: object) -> dict[str, An
         "operations": copy.deepcopy(prepared["operations"]),
     }
     record = {**record_payload, "record_sha256": sha256_value(record_payload)}
-    record = validate_index_record(record, parent_plans=parent)
+    record = validate_index_record(
+        record,
+        parent_plans=parent,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
     finalization_payload = {
         "schema_version": 1,
         "kind": "ucm-registry-index-finalization",
@@ -4102,19 +5794,29 @@ def finalize_index(provisional: object, *, parent_plans: object) -> dict[str, An
         "anonymous_closure": copy.deepcopy(anonymous_closure),
         "operation_audit": {
             "publication": verify.audit_operations(
-                prepared["operations"], lane="protected-tag"
+                prepared["operations"],
+                lane="protected-tag",
+                public_targets={target},
             ),
             "authenticated": verify.audit_operations(
-                authenticated["operations"], lane="protected-tag"
+                authenticated["operations"],
+                lane="protected-tag",
+                public_targets={target},
             ),
             "anonymous": verify.audit_operations(
-                anonymous["operations"], lane="protected-tag"
+                anonymous["operations"],
+                lane="protected-tag",
+                public_targets={target},
             ),
             "authenticated_closure": verify.audit_operations(
-                [authenticated_closure["operation"]], lane="protected-tag"
+                [authenticated_closure["operation"]],
+                lane="protected-tag",
+                public_targets={target},
             ),
             "anonymous_closure": verify.audit_operations(
-                [anonymous_closure["operation"]], lane="protected-tag"
+                [anonymous_closure["operation"]],
+                lane="protected-tag",
+                public_targets={target},
             ),
         },
     }
@@ -4122,15 +5824,25 @@ def finalize_index(provisional: object, *, parent_plans: object) -> dict[str, An
         **finalization_payload,
         "finalization_sha256": sha256_value(finalization_payload),
     }
-    return validate_finalized_index(finalized, parent_plans=parent)
+    return validate_finalized_index(
+        finalized,
+        parent_plans=parent,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
 
 
 def validate_finalized_index(
-    finalized: object, *, parent_plans: object
+    finalized: object,
+    *,
+    parent_plans: object,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
 ) -> dict[str, Any]:
     """Reopen one anonymous finalization envelope against its parent/provisional."""
     from . import verify
 
+    _require_resolved_registry_contract(resolved_plan, expected_plan_sha256)
     if not isinstance(finalized, dict):
         raise ValueError("finalized index must be an object")
     _exact_keys(finalized, FINALIZED_INDEX_KEYS, "finalized index")
@@ -4142,10 +5854,22 @@ def validate_finalized_index(
         or finalized["status"] != "anonymous-passed"
     ):
         raise ValueError("finalized index identity is invalid")
-    parent = _validate_parent_plans(parent_plans)
-    record = validate_index_record(finalized["record"], parent_plans=parent)
+    parent = _validate_parent_plans(
+        parent_plans,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
+    record = validate_index_record(
+        finalized["record"],
+        parent_plans=parent,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
     provisional = validate_provisional_index(
-        finalized["provisional"], parent_plans=parent
+        finalized["provisional"],
+        parent_plans=parent,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
     )
     if finalized["family_id"] != record["family_id"]:
         raise ValueError("finalized index family differs from record")
@@ -4158,8 +5882,11 @@ def validate_finalized_index(
     ):
         raise ValueError("finalized index differs from strict provisional")
     plan = next(
-        item for item in parent["plans"] if item["family_id"] == record["family_id"]
+        item
+        for item in parent["plans"]
+        if (item.get("family_task_id") == provisional.get("family_task_id"))
     )
+    target = f"{plan['target_repository']}:{plan['target_tag']}"
     authenticated = _validate_prepared_index_readback(
         finalized["authenticated_readback"],
         plan=plan,
@@ -4197,19 +5924,27 @@ def validate_finalized_index(
         raise ValueError("finalized index readback closure mismatch")
     expected_audit = {
         "publication": verify.audit_operations(
-            record["operations"], lane="protected-tag"
+            record["operations"], lane="protected-tag", public_targets={target}
         ),
         "authenticated": verify.audit_operations(
-            authenticated["operations"], lane="protected-tag"
+            authenticated["operations"],
+            lane="protected-tag",
+            public_targets={target},
         ),
         "anonymous": verify.audit_operations(
-            anonymous["operations"], lane="protected-tag"
+            anonymous["operations"],
+            lane="protected-tag",
+            public_targets={target},
         ),
         "authenticated_closure": verify.audit_operations(
-            [authenticated_closure["operation"]], lane="protected-tag"
+            [authenticated_closure["operation"]],
+            lane="protected-tag",
+            public_targets={target},
         ),
         "anonymous_closure": verify.audit_operations(
-            [anonymous_closure["operation"]], lane="protected-tag"
+            [anonymous_closure["operation"]],
+            lane="protected-tag",
+            public_targets={target},
         ),
     }
     if finalized["operation_audit"] != expected_audit:
@@ -4229,17 +5964,29 @@ def create_index(
     *,
     parent_plans: object,
     lane: str,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
 ) -> dict[str, Any]:
     """Compatibility wrapper: prepare then immediately close anonymous readback."""
-    provisional = prepare_index(plan, parent_plans=parent_plans, lane=lane)
-    finalized = finalize_index(provisional, parent_plans=parent_plans)
+    provisional = prepare_index(
+        plan,
+        parent_plans=parent_plans,
+        lane=lane,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
+    finalized = finalize_index(
+        provisional,
+        parent_plans=parent_plans,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
     record = finalized["record"]
     return {
         **record,
         "decision": provisional["decision"],
         "postwrite_manifest_sha256": provisional["postwrite_manifest_sha256"],
         "preflight_sha256": provisional["preflight_sha256"],
-        "matrix_sha256": provisional["matrix_sha256"],
         "verification_sha256": provisional["verification_sha256"],
     }
 

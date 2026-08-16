@@ -45,7 +45,7 @@ static uint8_t bf16_pack_extra8(const uint16_t* p_src)
     return extra8;
 }
 
-static void compress_bf16_to_fp8(uint8_t* p_dst, const uint16_t* p_src, size_t n_bf16)
+void CompressBF16ToFP8(uint8_t* p_dst, const uint16_t* p_src, size_t n_bf16)
 {
     for (size_t i = 0; i < n_bf16; i++) {
         uint16_t x = p_src[i];
@@ -68,7 +68,7 @@ static void decompress_fp8_to_bf16(uint16_t* p_dst, const uint8_t* p_src, size_t
     }
 }
 
-static int decompress_fp8_to_bf16_inplace(uint8_t* p_data, size_t n_bf16)
+int DecompressFP8ToBF16Inplace(uint8_t* p_data, size_t n_bf16)
 {
 #if !defined(NEON_DECOMPRESSION)
     for (size_t i = n_bf16; i > 0; i--) {

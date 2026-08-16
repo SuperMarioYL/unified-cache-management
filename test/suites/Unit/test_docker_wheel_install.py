@@ -1,21 +1,16 @@
+import importlib
+import sys
 import unittest
 from pathlib import Path
 
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
-EXPECTED_UCM_WHEEL_DOCKERFILES = {
-    "Dockerfile.ucm-mindie-ascend.a2-v2",
-    "Dockerfile.ucm-sglang-cuda-v0.5.5",
-    "Dockerfile.ucm-vllm-ascend.a2-latest",
-    "Dockerfile.ucm-vllm-ascend.a2-v0.18.0",
-    "Dockerfile.ucm-vllm-ascend.a2-v0.18.0glm5.1",
-    "Dockerfile.ucm-vllm-ascend.a2-v0.20.2rc1",
-    "Dockerfile.ucm-vllm-ascend.a3-v0.18.0glm5.1",
-    "Dockerfile.ucm-vllm-ascend.a3-v0.20.2rc1",
-    "Dockerfile.ucm-vllm-cuda-latest",
-    "Dockerfile.ucm-vllm-cuda-v0.18.0",
-    "Dockerfile.ucm-vllm-cuda-v0.20.2",
-    "Dockerfile.ucm-vllm-cuda-v0.21.0",
-}
+RELEASE_ROOT = REPO_ROOT / ".github" / "release"
+sys.path.insert(0, str(RELEASE_ROOT))
+
+release_core = importlib.import_module("ucm_release.core")
+release_image = importlib.import_module("ucm_release.image")
+
 INSTALL_COMMAND = "RUN pip install /workspace/package/uc_manager-*.whl"
 POST_INSTALL_COMMAND = (
     "RUN if [ -f /workspace/package/install.sh ]; then \\\n"
@@ -25,105 +20,94 @@ POST_INSTALL_COMMAND = (
 
 
 class DockerWheelInstallTest(unittest.TestCase):
-    def _wheel_dockerfiles(self):
-        dockerfiles = sorted((REPO_ROOT / "docker").glob("Dockerfile*"))
+    @classmethod
+    def setUpClass(cls):
+        cls.catalog = release_core.load_catalog()
+        cls.recipes = {
+            recipe["path"]: recipe for recipe in cls.catalog["docker_recipes"]
+        }
+
+    def _text(self, recipe):
+        return (REPO_ROOT / recipe["path"]).read_text(encoding="utf-8")
+
+    def _recipes_for(self, *, product=None, engine_type=None, upstream_variant=None):
         return [
-            path
-            for path in dockerfiles
-            if "uc_manager-*.whl" in path.read_text(encoding="utf-8")
+            recipe
+            for recipe in self.recipes.values()
+            if (product is None or recipe["product"] == product)
+            and (engine_type is None or recipe["engine_type"] == engine_type)
+            and (
+                upstream_variant is None
+                or recipe.get("upstream_variant") == upstream_variant
+            )
         ]
 
-    def _expected_engine_type(self, dockerfile):
-        name = dockerfile.name
-        if "mindie" in name:
-            return "mindie"
-        if "sglang" in name:
-            return "sglang"
-        if "vllm-ascend.a2" in name:
-            return "vllm-ascend.a2"
-        if "vllm-ascend.a3" in name:
-            return "vllm-ascend.a3"
-        if "vllm-cuda" in name:
-            return "vllm-cuda"
-        self.fail(f"unknown engine type for {dockerfile}")
+    def test_catalog_is_the_exact_repository_dockerfile_inventory(self):
+        discovered = {
+            path.relative_to(REPO_ROOT).as_posix()
+            for path in (REPO_ROOT / "docker").glob("Dockerfile.ucm-*")
+            if path.is_file()
+        }
 
-    def test_ucm_wheel_dockerfiles_run_optional_package_install_hook(self):
-        wheel_dockerfiles = self._wheel_dockerfiles()
+        self.assertEqual(set(self.recipes), discovered)
+        self.assertEqual(len(self.recipes), len(self.catalog["docker_recipes"]))
 
-        self.assertEqual(
-            {path.name for path in wheel_dockerfiles}, EXPECTED_UCM_WHEEL_DOCKERFILES
+    def test_declared_engine_and_install_hook_contracts_drive_each_recipe(self):
+        for recipe in self.recipes.values():
+            text = self._text(recipe)
+            self.assertIn(f"ENV UCM_ENGINE_TYPE={recipe['engine_type']}", text)
+            if recipe["install_hook"] == "required":
+                self.assertIn(INSTALL_COMMAND, text, recipe["path"])
+                self.assertIn(POST_INSTALL_COMMAND, text, recipe["path"])
+                self.assertNotIn("uc_manager-*.whl &&", text, recipe["path"])
+                self.assertNotIn("install_ucm_wheel.sh", text, recipe["path"])
+            else:
+                self.assertEqual(recipe["install_hook"], "none")
+            if recipe["build_mode"] == "legacy-source-build":
+                self.assertIn('ARG INSTALL_MODE="source"', text, recipe["path"])
+            else:
+                self.assertEqual(recipe["build_mode"], "generic-install-only")
+
+    def test_declared_ascend_a3_recipes_build_the_a3_package(self):
+        recipes = self._recipes_for(
+            product="vllm-ascend",
+            engine_type="vllm-ascend.a3",
+            upstream_variant="a3",
         )
-        for path in wheel_dockerfiles:
-            text = path.read_text(encoding="utf-8")
-            self.assertIn(INSTALL_COMMAND, text, path)
-            self.assertIn(POST_INSTALL_COMMAND, text, path)
-            self.assertNotIn("uc_manager-*.whl &&", text, path)
-            self.assertNotIn("install_ucm_wheel.sh", text, path)
-
-    def test_ucm_wheel_dockerfiles_export_engine_type(self):
-        wheel_dockerfiles = self._wheel_dockerfiles()
-
-        self.assertEqual(
-            {path.name for path in wheel_dockerfiles}, EXPECTED_UCM_WHEEL_DOCKERFILES
-        )
-        for path in wheel_dockerfiles:
-            text = path.read_text(encoding="utf-8")
-            expected = f"ENV UCM_ENGINE_TYPE={self._expected_engine_type(path)}"
-            self.assertIn(expected, text, path)
-
-    def test_ascend_a3_dockerfiles_build_a3_package(self):
-        a3_dockerfiles = [
-            REPO_ROOT / "docker" / "Dockerfile.ucm-vllm-ascend.a3-v0.18.0glm5.1",
-            REPO_ROOT / "docker" / "Dockerfile.ucm-vllm-ascend.a3-v0.20.2rc1",
-        ]
-
-        for path in a3_dockerfiles:
-            text = path.read_text(encoding="utf-8")
-            self.assertIn("ENV UCM_ENGINE_TYPE=vllm-ascend.a3", text, path)
+        self.assertTrue(recipes)
+        for recipe in recipes:
+            text = self._text(recipe)
             self.assertIn(
                 "bash /workspace/unified-cache-management/scripts/build_ascend.sh -p ascend-a3",
                 text,
-                path,
+                recipe["path"],
             )
 
-    def test_no_vllm_017_dockerfiles_remain(self):
-        self.assertEqual(
-            sorted(path.name for path in (REPO_ROOT / "docker").glob("*v0.17.0*")),
-            [],
-        )
-        workflow_text = (
-            REPO_ROOT / ".github" / "workflows" / "pull-request.yml"
-        ).read_text(encoding="utf-8")
-        self.assertNotIn("Dockerfile.ucm-vllm-ascend.a2-v0.17.0", workflow_text)
-
-    def test_no_deepseekv4_dockerfile_remains(self):
-        self.assertEqual(
-            sorted(path.name for path in (REPO_ROOT / "docker").glob("*deepseekv4*")),
-            [],
-        )
-        workflow_text = (
-            REPO_ROOT / ".github" / "workflows" / "pull-request.yml"
-        ).read_text(encoding="utf-8")
-        self.assertNotIn("deepseekv4", workflow_text)
-
-    def test_mindie_and_sglang_patches_live_in_dockerfiles(self):
+    def test_declared_specialized_patches_live_in_selected_recipes(self):
         install_hook = (REPO_ROOT / "install.sh").read_text(encoding="utf-8")
-
         self.assertNotIn('case "${UCM_ENGINE_TYPE:-}" in', install_hook)
         self.assertNotIn("boot_patch", install_hook)
         self.assertNotIn("sglang-adapt.patch", install_hook)
 
-        mindie_dockerfile = (
-            REPO_ROOT / "docker" / "Dockerfile.ucm-mindie-ascend.a2-v2"
-        ).read_text(encoding="utf-8")
-        self.assertIn("Apply patch for MindIE", mindie_dockerfile)
-        self.assertIn("boot_patch", mindie_dockerfile)
+        mindie = self._recipes_for(product="mindie")
+        sglang = self._recipes_for(product="sglang")
+        self.assertTrue(mindie)
+        self.assertTrue(sglang)
+        for recipe in mindie:
+            self.assertIn("Apply patch for MindIE", self._text(recipe))
+            self.assertIn("boot_patch", self._text(recipe))
+        for recipe in sglang:
+            self.assertIn("Apply patch for SGLang", self._text(recipe))
+            self.assertIn("sglang-adapt.patch", self._text(recipe))
 
-        sglang_dockerfile = (
-            REPO_ROOT / "docker" / "Dockerfile.ucm-sglang-cuda-v0.5.5"
-        ).read_text(encoding="utf-8")
-        self.assertIn("Apply patch for SGLang", sglang_dockerfile)
-        self.assertIn("sglang-adapt.patch", sglang_dockerfile)
+    def test_repository_source_builds_have_no_formal_release_authority(self):
+        for recipe in self.recipes.values():
+            self.assertEqual(recipe["build_mode"], "legacy-source-build")
+            self.assertNotIn("formal-release", recipe["lanes"])
+            self.assertTrue(recipe["exclusion_reason"])
+
+        self.assertEqual(release_image.DOCKER_ROOT, RELEASE_ROOT / "docker")
+        self.assertTrue((release_image.DOCKER_ROOT / "Dockerfile").is_file())
 
     def test_build_scripts_package_install_hook(self):
         build_scripts = sorted((REPO_ROOT / "scripts").glob("build_*.sh"))

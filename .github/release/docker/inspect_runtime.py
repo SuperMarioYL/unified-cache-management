@@ -25,6 +25,29 @@ def _load(path: Path) -> dict[str, Any]:
     return value
 
 
+def _runtime_patch_variants(payload: dict[str, Any]) -> dict[str, str]:
+    expected = payload.get("runtime_patch_variants")
+    observed_raw = os.environ.get("UCM_RUNTIME_PATCH_VARIANTS")
+    try:
+        observed = json.loads(observed_raw) if observed_raw is not None else None
+    except json.JSONDecodeError as error:
+        raise ValueError("runtime patch variant map is invalid JSON") from error
+    if (
+        not isinstance(expected, dict)
+        or not expected
+        or observed != expected
+        or observed_raw
+        != json.dumps(
+            expected,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+    ):
+        raise ValueError("runtime patch variant map differs from image recipe")
+    return observed
+
+
 def _sha256(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -241,6 +264,7 @@ def _inspect_real(
     expected = wheel.get("builder_evidence") if isinstance(wheel, dict) else None
     if not isinstance(expected, dict):
         raise ValueError("real recipe lacks builder native evidence")
+    observed_variants = _runtime_patch_variants(payload)
     distribution = importlib.metadata.distribution("uc-manager")
     expected_members = expected.get("native_members")
     if not isinstance(expected_members, dict) or not expected_members:
@@ -318,6 +342,7 @@ def _inspect_real(
         "python_version": platform.python_version(),
         "soabi": sysconfig.get_config_var("SOABI") or "unknown",
         "package_version": distribution.version,
+        "runtime_patch_variants": observed_variants,
         "native_members": expected_members,
         "elf_machines": machines,
         "dt_needed": dt_needed,

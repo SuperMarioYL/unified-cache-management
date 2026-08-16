@@ -166,21 +166,17 @@ def test_docker_layout_rejects_a_nested_duplicate_of_an_allowed_name(
     assert "nested/Dockerfile" in violation
 
 
-def test_release_config_has_three_profiles_and_no_profile_runner_escape_hatch() -> None:
+def test_release_config_profiles_are_dynamic_and_have_no_runner_escape_hatch() -> None:
     release = yaml.safe_load(
         (REPO_ROOT / ".github" / "release" / "release.yaml").read_text(encoding="utf-8")
     )
 
-    assert [item["id"] for item in release["wheel_profiles"]] == [
-        "cuda130",
-        "cann900-a2",
-        "cann900-a3",
-    ]
-    assert all(
-        item["cpu_arch"] == ["amd64", "arm64"] for item in release["wheel_profiles"]
-    )
+    profiles = release["wheel_profiles"]
+    assert profiles
+    assert len({item["id"] for item in profiles}) == len(profiles)
+    assert all(item["cpu_arch"] for item in profiles)
+    assert all(len(set(item["cpu_arch"])) == len(item["cpu_arch"]) for item in profiles)
     assert all("runner" not in item for item in release["wheel_profiles"])
-    assert release["runner_map"] == {
-        "amd64": "ubuntu-24.04",
-        "arm64": "ubuntu-24.04-arm",
+    assert set(release["runner_map"]) == {
+        architecture for profile in profiles for architecture in profile["cpu_arch"]
     }

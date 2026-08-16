@@ -25,6 +25,7 @@ Status CompressorAction::Setup(const Config& config)
 
     switch (config.dataType) {
         case 0: dataType = DT_BF16; break;
+        case 2: dataType = DT_FP8E5M2; break;  // round-11e: FP8 lossy (Tier-2 bounded-loss re-frame)
         default: return Status::InvalidParam("Invalid compress dataType({})", config.dataType);
     }
 
@@ -73,8 +74,16 @@ void CompressorAction::Compress_Load(CompressTask& ct)
         for (size_t i = 0; i < shards.size(); ++i) {
             if (ratio == R200) {
                 size_t n_bf16 = shardSize_ >> 1;
-                int err = TunstallDecompressBF16Inplace(static_cast<uint8_t*>(shards[i].addrs[0]),
-                                                        n_bf16);
+                int err = 0;
+                if (dataType == DT_FP8E5M2) {
+                    // round-11e: lossy FP8 2x (bounded-loss). Same in-place 1:2 expand
+                    // contract as Tunstall (FP8 at p_data[0:n_bf16], expands to n_bf16*2).
+                    err = DecompressFP8ToBF16Inplace(
+                        static_cast<uint8_t*>(shards[i].addrs[0]), n_bf16);
+                } else {
+                    err = TunstallDecompressBF16Inplace(
+                        static_cast<uint8_t*>(shards[i].addrs[0]), n_bf16);
+                }
                 if (err != 0) {
                     UC_ERROR("COMPRESS LOAD FAILED | shard: {}, error: {}", shards[i].index, err);
                     continue;
@@ -126,11 +135,16 @@ void CompressorAction::Compress_Dump(CompressTask& ct)
             bool ok = true;
             if (ratio == R200) {
                 size_t n_bf16 = shardSize_ >> 1;
-                int err = TunstallCompressBF16(compBuf, src, n_bf16);
-                if (err != 0) [[unlikely]] {
-                    UC_ERROR("COMPRESS DUMP FAILED | task_id: {}, shard: {}, error: {}",
-                             ct.task->id, s.index, err);
-                    ok = false;
+                if (dataType == DT_FP8E5M2) {
+                    // round-11e: lossy FP8 2x (bounded-loss). void fn, no error code.
+                    CompressBF16ToFP8(compBuf, src, n_bf16);
+                } else {
+                    int err = TunstallCompressBF16(compBuf, src, n_bf16);
+                    if (err != 0) [[unlikely]] {
+                        UC_ERROR("COMPRESS DUMP FAILED | task_id: {}, shard: {}, error: {}",
+                                 ct.task->id, s.index, err);
+                        ok = false;
+                    }
                 }
                 compBytes = n_bf16;
             } else {

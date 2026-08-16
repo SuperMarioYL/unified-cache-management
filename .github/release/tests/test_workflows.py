@@ -26,6 +26,7 @@ EXPECTED_RELEASE_WORKFLOWS = {
     "_build-image.yml",
     "_publish-image-member.yml",
     "_build-wheel.yml",
+    "hardware-e2e.yml",
     "release-ucm.yml",
     "release-vllm-images-protected.yml",
     "release-vllm-images.yml",
@@ -109,6 +110,46 @@ def _release_modules() -> tuple[object, object, object]:
         importlib.import_module("ucm_release.wheel"),
         importlib.import_module("ucm_release.verify"),
     )
+
+
+def _catalog_registry_fixture() -> dict[str, object]:
+    path = (
+        REPO_ROOT
+        / ".github"
+        / "release"
+        / "tests"
+        / "fixtures"
+        / "catalog-registry.json"
+    )
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _resolved_fixture_plan(source_sha: str, *, lane: str) -> dict[str, object]:
+    core, _, _ = _release_modules()
+    registry_module = importlib.import_module("ucm_release.registry")
+    return registry_module.resolve_catalog(
+        core.load_catalog(),
+        source_sha=source_sha,
+        lane=lane,
+        fixture=_catalog_registry_fixture(),
+    )
+
+
+def _protected_release_fixture_plan(
+    source_sha: str, monkeypatch: pytest.MonkeyPatch
+) -> dict[str, object]:
+    """Promote the complete local plan envelope for Release-only fake transport tests."""
+    plan = _resolved_fixture_plan(source_sha, lane="feature-candidate")
+    plan.update(
+        {
+            "lane": "protected-tag",
+            "fixture_only": False,
+            "resolved_plan_sha256": "sha256:" + "9" * 64,
+        }
+    )
+    registry_module = importlib.import_module("ucm_release.registry")
+    monkeypatch.setattr(registry_module, "validate_resolved_plan", lambda _plan: None)
+    return plan
 
 
 def _write_canonical(path: Path, value: object) -> None:
@@ -280,9 +321,6 @@ def _valid_image_result(
         "source": {
             "release_manifest_sha256": build_inputs["release_manifest_sha256"],
             "config_sha256": manifest_record["config_sha256"],
-            "compatibility_sha256": manifest_record["compatibility_sha256"],
-            "compatibility_rule_id": build_inputs["compatibility_rule_id"],
-            "compatibility_rule_sha256": build_inputs["compatibility_rule_sha256"],
             "upstream_repository": upstream["repository"],
             "upstream_index_digest": upstream["index_digest"],
             "upstream_platform_manifest_digest": upstream_platform["manifest_digest"],
@@ -304,7 +342,7 @@ def _valid_image_result(
             "npu_arch_or_na": wheel_input["npu_arch_or_na"],
             "os": wheel_input["os"],
             "binary_profile_id": wheel_input["binary_profile_id"],
-            "requires_dist": ["wrapt==1.17.2"],
+            "requires_dist": ["packaging==24.2", "wrapt==1.17.2"],
         },
         "implementation": image_module.implementation_digests(),
         "oci": {
@@ -321,7 +359,7 @@ def _valid_image_result(
             "pip_check": "passed",
             "direct_url": "passed",
             "ucm_import": "passed",
-            "wrapt_import": "passed",
+            "runtime_dependency_imports": "passed",
             "abi": "passed",
         },
         "runtime_validation": "external-required",
@@ -337,7 +375,15 @@ def _release_closure(
     core, wheel_module, verify_module = _release_modules()
     image_module = importlib.import_module("ucm_release.image")
     chart_module = importlib.import_module("ucm_release.chart")
+    registry_module = importlib.import_module("ucm_release.registry")
     source_sha = "b" * 40
+    catalog = core.load_catalog()
+    resolved_plan = registry_module.resolve_catalog(
+        catalog,
+        source_sha=source_sha,
+        lane="feature-candidate",
+        fixture=_catalog_registry_fixture(),
+    )
     wheel_dir = tmp_path / "wheel"
     fixture = wheel_module.build_fixture_wheel(wheel_dir, source_sha, FIXTURE_PROFILE)
     prepared = verify_module.prepare_candidate_loop(
@@ -427,7 +473,11 @@ def _release_closure(
         run={"id": "17", "attempt": attempt},
     )
     chart_dir = tmp_path / "chart"
-    chart_result = chart_module.package_chart(chart_dir)
+    chart_result = chart_module.package_chart(
+        chart_dir,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
+    )
     paths = {
         "build_record": wheel_dir / "fixture-build.json",
         "wheel_inspection": wheel_dir / "wheel-inspection.json",
@@ -444,6 +494,7 @@ def _release_closure(
         "completed_loop": tmp_path / "completed-loop.json",
         "second_reconcile": tmp_path / "second-reconcile.json",
         "image_loop": tmp_path / "vllm-loop-evidence.json",
+        "resolved_plan": tmp_path / "resolved-plan.json",
     }
     _write_canonical(paths["chart_result"], chart_result)
     _write_canonical(paths["image_result"], image_result)
@@ -497,6 +548,7 @@ def _release_closure(
     _write_canonical(paths["completed_loop"], completed)
     _write_canonical(paths["second_reconcile"], completed["second_reconcile"])
     _write_canonical(paths["image_loop"], completed["evidence"])
+    _write_canonical(paths["resolved_plan"], resolved_plan)
     return {
         "core": core,
         "verify": verify_module,
@@ -505,6 +557,7 @@ def _release_closure(
         "prepared": prepared,
         "image_result_value": image_result,
         "completed_value": completed,
+        "resolved_plan": resolved_plan,
         "paths": paths,
     }
 
@@ -530,6 +583,8 @@ def _aggregate(closure: dict[str, object], *, attempt: int = 1) -> dict[str, obj
         repository="SuperMarioYL/unified-cache-management",
         ref="refs/heads/feature/cicd",
         source_sha=closure["source_sha"],
+        resolved_plan=closure["resolved_plan"],
+        expected_plan_sha256=closure["resolved_plan"]["resolved_plan_sha256"],
         run={"id": "17", "attempt": attempt},
     )
 
@@ -741,15 +796,23 @@ def _artifact_uploads(document: dict[str, object]) -> list[dict[str, object]]:
 
 def _has_upstream_guard(job: dict[object, object]) -> bool:
     condition = str(job.get("if", ""))
-    return all(
+    protected_tag_guard = all(
         fragment in condition
         for fragment in (
             "github.event_name == 'push'",
             "github.repository == 'SuperMarioYL/unified-cache-management'",
-            "github.ref == 'refs/tags/v0.5.0rc1'",
+            "github.ref_type == 'tag'",
             "github.ref_protected == true",
         )
     )
+    protected_dispatch_guard = all(
+        fragment in condition
+        for fragment in (
+            "github.event_name == 'workflow_dispatch'",
+            "github.repository == 'SuperMarioYL/unified-cache-management'",
+        )
+    )
+    return protected_tag_guard or protected_dispatch_guard
 
 
 def _truthy(value: object) -> bool:
@@ -870,34 +933,30 @@ def test_release_workflows_are_compact_and_fork_candidate_is_read_only() -> None
         else {}
     )
     jobs = document.get("jobs", {}) if isinstance(document, dict) else {}
-    candidate = jobs.get("build-wheels-feature") if isinstance(jobs, dict) else None
+    candidate = jobs.get("build-wheels") if isinstance(jobs, dict) else None
     if not isinstance(candidate, dict):
-        violations.append(
-            "release-ucm.yml must define a build-wheels-feature candidate job"
-        )
+        violations.append("release-ucm.yml must define a build-wheels candidate job")
     else:
         if candidate.get("permissions") != {"contents": "read"}:
             violations.append(
-                "build-wheels-feature permissions must be exactly {'contents': 'read'}"
+                "build-wheels permissions must be exactly {'contents': 'read'}"
             )
         candidate_text = "\n".join(_strings(candidate)).lower()
         if "environment" in candidate:
-            violations.append(
-                "build-wheels-feature must not use protected environments"
-            )
+            violations.append("build-wheels must not use protected environments")
         banned_fragments = {
             "secrets.": "secrets",
             "self-hosted": "self-hosted runners",
         }
         for fragment, label in banned_fragments.items():
             if fragment in candidate_text:
-                violations.append(f"build-wheels-feature must not use {label}")
+                violations.append(f"build-wheels must not use {label}")
         if re.search(r"\b(?:docker|crane)\s+(?:login|push)\b", candidate_text):
             violations.append(
-                "build-wheels-feature must not log in to or push a container registry"
+                "build-wheels must not log in to or push a container registry"
             )
         if re.search(r"\bgh\s+api\b.*\bdispatch", candidate_text):
-            violations.append("build-wheels-feature must not dispatch workflows")
+            violations.append("build-wheels must not dispatch workflows")
 
     documents = _release_workflow_documents(WORKFLOW_DIR)
     violations.extend(_fork_isolation_violations(documents))
@@ -907,156 +966,46 @@ def test_release_workflows_are_compact_and_fork_candidate_is_read_only() -> None
     )
 
 
-def test_real_hosted_matrix_projects_the_reviewed_six_tasks_without_a_second_matrix() -> (
-    None
-):
-    """A missing/wrong task, runner, target, or immutable builder breaks hosted builds."""
-    core, _, verify_module = _release_modules()
-    source_sha = "a" * 40
-    source_epoch = 1_700_000_000
-    hosted = verify_module.hosted_build_matrix(source_sha, source_epoch)
-    reviewed = core.build_matrix("feature-candidate")
-
-    assert [item["spec_id"] for item in hosted["tasks"]] == REAL_SPEC_IDS
-    assert hosted["github_matrix"] == {
-        "include": [{"spec_id": spec_id} for spec_id in REAL_SPEC_IDS]
-    }
-    assert [item["task_sha256"] for item in hosted["tasks"]] == [
-        item["task_sha256"] for item in reviewed["tasks"]
-    ]
-    assert {
-        item["runner"] for item in hosted["tasks"] if item["cpu_arch"] == "amd64"
-    } == {"ubuntu-24.04"}
-    assert {
-        item["runner"] for item in hosted["tasks"] if item["cpu_arch"] == "arm64"
-    } == {"ubuntu-24.04-arm"}
-    assert {item["docker_target"] for item in hosted["tasks"]} == {
-        "wheel-cuda",
-        "wheel-ascend",
-    }
-    assert all(
-        item["builder_coordinate"]
-        == next(
-            task for task in reviewed["tasks"] if task["spec_id"] == item["spec_id"]
-        )["builder"]["root"]["repository"]
-        + "@"
-        + next(
-            task for task in reviewed["tasks"] if task["spec_id"] == item["spec_id"]
-        )["builder"]["root"]["manifest_digest"]
-        for item in hosted["tasks"]
+def test_wheel_workflow_selects_python_from_frozen_task_before_setup() -> None:
+    """The runner Python must follow the selected task instead of a cp312 literal."""
+    workflow = (WORKFLOW_DIR / "_build-wheel.yml").read_text(encoding="utf-8")
+    assert (
+        'python-version: "${{ steps.task-python.outputs.python_version }}"' in workflow
     )
-    for item in hosted["tasks"]:
-        assert item["wheel_artifact"] == f"ucm-wheel-{item['spec_id']}-{source_sha}"
-        assert item["image_artifact"] == f"ucm-image-{item['spec_id']}-{source_sha}"
-        assert item["build_args"]["UCM_RELEASE_BUILD_KEY"] == item["task_sha256"]
-        assert item["build_args"]["SOURCE_DATE_EPOCH"] == str(source_epoch)
-        expected_pyyaml = {
-            "amd64": {
-                "PYYAML_VERSION": "6.0.2",
-                "PYYAML_FILENAME": "PyYAML-6.0.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
-                "PYYAML_SHA256": "sha256:80bab7bfc629882493af4aa31a4cfa43a4c57c83813253626916b8c7ada83476",
-            },
-            "arm64": {
-                "PYYAML_VERSION": "6.0.2",
-                "PYYAML_FILENAME": "PyYAML-6.0.2-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl",
-                "PYYAML_SHA256": "sha256:1f71ea527786de97d1a0cc0eacd1defc0985dcf6b3f17bb77dcfc8c34bec4dc5",
-            },
-        }[item["cpu_arch"]]
-        assert {
-            key: item["build_args"][key] for key in expected_pyyaml
-        } == expected_pyyaml
-        expected_cmake = {
-            "amd64": {
-                "CMAKE_VERSION": "3.31.6",
-                "CMAKE_FILENAME": "cmake-3.31.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
-                "CMAKE_SHA256": "sha256:1c8b05df0602365da91ee6a3336fe57525b137706c4ab5675498f662ae1dbcec",
-            },
-            "arm64": {
-                "CMAKE_VERSION": "3.31.6",
-                "CMAKE_FILENAME": "cmake-3.31.6-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl",
-                "CMAKE_SHA256": "sha256:42d9883b8958da285d53d5f69d40d9650c2d1bcf922d82b3ebdceb2b3a7d4521",
-            },
-        }[item["cpu_arch"]]
-        assert {
-            key: item["build_args"][key] for key in expected_cmake
-        } == expected_cmake
-
-    dockerfile = (REPO_ROOT / ".github/release/docker/Dockerfile").read_text(
-        encoding="utf-8"
-    )
-    assert "ARG PYYAML_VERSION" in dockerfile
-    assert '"PyYAML==${PYYAML_VERSION}"' in dockerfile
-    assert 'check_wheel "${PYYAML_FILENAME}" "${PYYAML_SHA256}"' in dockerfile
-    assert "PyYAML==${PYYAML_VERSION} --hash=${PYYAML_SHA256}" in dockerfile
-    assert "PYTHONDONTWRITEBYTECODE=1" in dockerfile
-
-
-def test_hosted_matrix_cli_writes_the_canonical_workflow_authority(
-    tmp_path: Path,
-) -> None:
-    """Workflows consume one tested record instead of reconstructing task authority."""
-    output = tmp_path / "hosted-matrix.json"
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "ucm_release",
-            "core",
-            "hosted-matrix",
-            "--source-sha",
-            "c" * 40,
-            "--source-date-epoch",
-            "1700000000",
-            "--output",
-            str(output),
-        ],
-        cwd=REPO_ROOT,
-        env={
-            **__import__("os").environ,
-            "PYTHONPATH": str(REPO_ROOT / ".github" / "release"),
-        },
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-
-    assert completed.returncode == 0, completed.stderr
-    stdout = json.loads(completed.stdout)
-    written = json.loads(output.read_text(encoding="utf-8"))
-    assert stdout == written
-    assert [item["spec_id"] for item in written["tasks"]] == REAL_SPEC_IDS
-    assert output.read_bytes() == (
-        json.dumps(written, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+    assert 'python-version: "3.12"' not in workflow
+    assert workflow.index("id: task-python") < workflow.index("actions/setup-python@")
+    assert workflow.index("actions/download-artifact@") < workflow.index(
+        "id: task-python"
     )
 
 
-def test_four_workflows_run_real_six_wheel_and_six_image_native_jobs() -> None:
-    """The feature push must execute six native wheels and six install-only OCIs."""
+def test_workflows_fan_out_the_planner_selected_native_tasks() -> None:
+    """The entry and reusable consumers use task IDs and explicit runners."""
     entry = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
     entry_jobs = _jobs(entry)
     assert _trigger(entry)["push"] == {
         "branches": ["feature/**"],
-        "tags": ["v0.5.0rc1"],
+        "tags": ["v*"],
     }
-    wheel_job = entry_jobs["build-wheels-feature"]
+    wheel_job = entry_jobs["build-wheels"]
     assert wheel_job["strategy"]["fail-fast"] is False
     assert wheel_job["strategy"]["matrix"] == (
-        "${{ fromJSON(needs.plan.outputs.matrix) }}"
+        "${{ fromJSON(needs.plan.outputs.build_wheel_matrix) }}"
     )
     assert wheel_job["uses"] == "./.github/workflows/_build-wheel.yml"
-    assert wheel_job["with"] == {
-        "source_sha": "${{ needs.plan.outputs.source_sha }}",
-        "spec_id": "${{ matrix.spec_id }}",
-    }
+    assert wheel_job["with"]["task_id"] == "${{ matrix.task_id }}"
+    assert wheel_job["with"]["runner"] == "${{ matrix.runner }}"
 
     wheel = _load_workflow(WORKFLOW_DIR / "_build-wheel.yml")
     wheel_build = _jobs(wheel)["build"]
     assert wheel_build["timeout-minutes"] == 180
-    assert "ubuntu-24.04-arm" in str(wheel_build["runs-on"])
+    assert wheel_build["runs-on"] == "${{ inputs.runner }}"
     wheel_text = "\n".join(_strings(wheel_build))
     for required in (
         "wheel context",
-        "core hosted-matrix",
+        "catalog select",
+        "core hosted-task",
+        "cp out/selected-task.json out/source-context/wheel-task.json",
         '--target "${docker_target}"',
         "--output type=local,dest=out/wheel",
         "wheel inspect",
@@ -1072,19 +1021,19 @@ def test_four_workflows_run_real_six_wheel_and_six_image_native_jobs() -> None:
     image_matrix = image_jobs["build-images-feature"]
     assert image_matrix["strategy"]["fail-fast"] is False
     assert image_matrix["strategy"]["matrix"] == (
-        "${{ fromJSON(needs.plan.outputs.matrix) }}"
+        "${{ fromJSON(inputs.image_matrix) }}"
     )
     assert image_matrix["uses"] == "./.github/workflows/_build-image.yml"
     assert "feature-barrier" in image_jobs
     barrier = image_jobs["feature-barrier"]
-    assert set(barrier["needs"]) == {"plan", "build-images-feature"}
+    assert set(barrier["needs"]) == {"build-images-feature"}
     assert "always()" in str(barrier["if"])
     assert "needs.build-images-feature.result" in "\n".join(_strings(barrier))
 
     image_workflow = _load_workflow(WORKFLOW_DIR / "_build-image.yml")
     image_build = _jobs(image_workflow)["build"]
     assert image_build["timeout-minutes"] == 210
-    assert "ubuntu-24.04-arm" in str(image_build["runs-on"])
+    assert image_build["runs-on"] == "${{ inputs.runner }}"
     image_text = "\n".join(_strings(image_build))
     for required in (
         "image real-authorities",
@@ -1110,7 +1059,7 @@ def test_full_oci_delivery_opt_in_is_resolved_then_explicitly_forwarded() -> Non
     entry_triggers = _trigger(entry)
     assert entry_triggers["push"] == {
         "branches": ["feature/**"],
-        "tags": ["v0.5.0rc1"],
+        "tags": ["v*"],
     }
     dispatch = entry_triggers["workflow_dispatch"]
     assert isinstance(dispatch, dict)
@@ -1130,11 +1079,12 @@ def test_full_oci_delivery_opt_in_is_resolved_then_explicitly_forwarded() -> Non
         "${{ steps.plan.outputs.deliver_full_oci }}"
     )
     plan_steps = {str(step.get("name")): step for step in _steps(entry_jobs["plan"])}
-    resolver = plan_steps["Route only the feature lane or exact protected tag"]
+    resolver = plan_steps["Route invocation and resolve one frozen catalog plan"]
     assert resolver["env"] == {
         "EVENT_NAME": "${{ github.event_name }}",
         "REPOSITORY": "${{ github.repository }}",
         "REF": "${{ github.ref }}",
+        "REF_TYPE": "${{ github.ref_type }}",
         "REF_PROTECTED": "${{ github.ref_protected }}",
         "HEAD_COMMIT_MESSAGE": "${{ github.event.head_commit.message }}",
         "MANUAL_DELIVERY": "${{ inputs.deliver_full_oci }}",
@@ -1145,10 +1095,12 @@ def test_full_oci_delivery_opt_in_is_resolved_then_explicitly_forwarded() -> Non
     )
 
     image_call = entry_jobs["reconcile-images-feature"]["with"]
-    assert image_call == {
-        "source_sha": "${{ needs.plan.outputs.source_sha }}",
-        "deliver_full_oci": "${{ needs.plan.outputs.deliver_full_oci == 'true' }}",
-    }
+    assert image_call["source_sha"] == "${{ needs.plan.outputs.source_sha }}"
+    assert image_call["image_matrix"] == "${{ needs.plan.outputs.build_image_matrix }}"
+    assert (
+        image_call["deliver_full_oci"]
+        == "${{ needs.plan.outputs.deliver_full_oci == 'true' }}"
+    )
 
     images = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
     image_inputs = _trigger(images)["workflow_call"]["inputs"]
@@ -1174,7 +1126,7 @@ def test_full_oci_delivery_opt_in_is_resolved_then_explicitly_forwarded() -> Non
     ):
         condition = str(named_steps[step_name]["if"])
         assert "inputs.deliver_full_oci" in condition
-        assert "refs/tags/v0.5.0rc1" in condition
+        assert "github.ref_type == 'tag'" in condition
     assert named_steps["Upload manually requested full OCI artifact"]["if"] == (
         "${{ inputs.deliver_full_oci }}"
     )
@@ -1182,7 +1134,7 @@ def test_full_oci_delivery_opt_in_is_resolved_then_explicitly_forwarded() -> Non
     full_upload = named_steps["Upload manually requested full OCI artifact"]
     assert str(full_upload["uses"]).startswith("actions/upload-artifact@")
     assert full_upload["with"] == {
-        "name": "ucm-oci-${{ inputs.spec_id }}-${{ inputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}",
+        "name": "ucm-oci-${{ inputs.task_id }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}",
         "path": "out/full-oci-artifact/",
         "if-no-files-found": "error",
         "compression-level": 0,
@@ -1300,9 +1252,9 @@ def test_full_oci_delivery_resolver_routes_each_explicit_opt_in(
     """Run the real resolver for ordinary push, marker push, and manual true."""
     entry = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
     steps = {str(step.get("name")): step for step in _steps(_jobs(entry)["plan"])}
-    assert "Route only the feature lane or exact protected tag" in steps
-    resolver = steps["Route only the feature lane or exact protected tag"]
-    resolver_script = str(resolver["run"]).split("source_date_epoch=", 1)[0]
+    assert "Route invocation and resolve one frozen catalog plan" in steps
+    resolver = steps["Route invocation and resolve one frozen catalog plan"]
+    resolver_script = str(resolver["run"]).split("mkdir -p out/plan", 1)[0]
     resolver_script = re.sub(
         r"(?m)^\s*PYTHONPATH=.*feature-preflight\.json\s*$", ":", resolver_script
     )
@@ -1316,6 +1268,7 @@ def test_full_oci_delivery_resolver_routes_each_explicit_opt_in(
             "EVENT_NAME": event_name,
             "REPOSITORY": "SuperMarioYL/unified-cache-management",
             "REF": "refs/heads/feature/cicd",
+            "REF_TYPE": "branch",
             "REF_PROTECTED": "false",
             "HEAD_COMMIT_MESSAGE": head_commit_message,
             "MANUAL_DELIVERY": manual_opt_in,
@@ -1559,15 +1512,21 @@ exit 19
         assert not (tmp_path / "out/wheel").exists()
 
 
-def test_real_family_plans_are_three_sorted_dual_arch_candidates_and_reconcile_zero() -> (
-    None
-):
+def test_real_family_plans_follow_exact_resolved_set_and_reconcile_zero() -> None:
     """Missing, duplicated, or cross-family members cannot produce a green aggregate."""
     core, _, verify_module = _release_modules()
+    registry_module = importlib.import_module("ucm_release.registry")
     source_sha = "b" * 40
-    matrix = core.build_matrix("feature-candidate")
+    plan = registry_module.resolve_catalog(
+        core.load_catalog(),
+        source_sha=source_sha,
+        lane="feature-candidate",
+        fixture=core.load_json(
+            REPO_ROOT / ".github/release/tests/fixtures/catalog-registry.json"
+        ),
+    )
     results = []
-    for index, task in enumerate(matrix["tasks"]):
+    for index, task in enumerate(plan["image_tasks"]):
         results.append(
             {
                 "candidate_kind": "real-candidate",
@@ -1576,7 +1535,7 @@ def test_real_family_plans_are_three_sorted_dual_arch_candidates_and_reconcile_z
                 "publication_attempted": False,
                 "status": "real-verified-unpublished",
                 "spec_id": task["spec_id"],
-                "family_id": task["profile_id"],
+                "family_id": task["family_task_id"],
                 "profile_id": task["profile_id"],
                 "target_platform": task["platform"],
                 "target_repository": task["target_repository"],
@@ -1594,17 +1553,17 @@ def test_real_family_plans_are_three_sorted_dual_arch_candidates_and_reconcile_z
             }
         )
 
-    first = verify_module.build_real_family_plans(results, source_sha=source_sha)
+    first = verify_module.build_real_family_plans(
+        results, source_sha=source_sha, resolved_plan=plan
+    )
     second = verify_module.build_real_family_plans(
-        list(reversed(results)), source_sha=source_sha
+        list(reversed(results)), source_sha=source_sha, resolved_plan=plan
     )
 
     assert first == second
-    assert [item["family_id"] for item in first["families"]] == [
-        "cann900-a2",
-        "cann900-a3",
-        "cuda130",
-    ]
+    assert {item["family_task_id"] for item in first["families"]} == {
+        item["task_id"] for item in plan["family_tasks"]
+    }
     assert all(
         [member["platform"] for member in family["members"]]
         == ["linux/amd64", "linux/arm64"]
@@ -1615,8 +1574,10 @@ def test_real_family_plans_are_three_sorted_dual_arch_candidates_and_reconcile_z
         "task_count": 0,
         "tasks": [],
     }
-    with pytest.raises(ValueError, match="exactly six"):
-        verify_module.build_real_family_plans(results[:-1], source_sha=source_sha)
+    with pytest.raises(ValueError, match="exact resolved task set"):
+        verify_module.build_real_family_plans(
+            results[:-1], source_sha=source_sha, resolved_plan=plan
+        )
 
 
 def test_existing_cpp_changes_are_explicitly_forbidden_from_the_stage() -> None:
@@ -1648,7 +1609,7 @@ def test_fork_isolation_rejects_reusable_workflow_publish_mutations() -> None:
                 "fork-candidate": {
                     "permissions": {"contents": "read"},
                     "runs-on": "ubuntu-24.04",
-                    "steps": [{"run": "python -m ucm_release core plan"}],
+                    "steps": [{"run": "python -m ucm_release catalog validate"}],
                 }
             }
         },
@@ -1720,18 +1681,17 @@ def test_fork_isolation_allows_a_read_only_reusable_build() -> None:
 
 
 def test_release_workflow_topology_runs_split_files_at_the_pushed_sha() -> None:
-    """The feature push must reach six wheels, Chart, six images, and aggregate."""
+    """The feature push must reach catalog-projected builds, Chart, and aggregate."""
     entry = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
     triggers = _trigger(entry)
     push = triggers.get("push")
     assert isinstance(push, dict)
     assert push.get("branches") == ["feature/**"]
-    assert push.get("tags") == ["v0.5.0rc1"]
-    assert set(triggers) == {"push", "workflow_dispatch"}
+    assert push.get("tags") == ["v*"]
+    assert set(triggers) == {"push", "workflow_dispatch", "workflow_call"}
 
     entry_jobs = _jobs(entry)
-    assert entry_jobs["build-wheels-feature"]["permissions"] == {"contents": "read"}
-    assert entry_jobs["build-wheels-protected"]["permissions"] == {"contents": "read"}
+    assert entry_jobs["build-wheels"]["permissions"] == {"contents": "read"}
     local_calls = {
         str(job["uses"])
         for job in entry_jobs.values()
@@ -1747,7 +1707,7 @@ def test_release_workflow_topology_runs_split_files_at_the_pushed_sha() -> None:
     assert "loop aggregate-real" in "\n".join(_strings(entry))
     assert set(entry_jobs["feature-barrier"]["needs"]) == {
         "plan",
-        "build-wheels-feature",
+        "build-wheels",
         "package-chart",
         "reconcile-images-feature",
     }
@@ -1766,7 +1726,6 @@ def test_release_workflow_topology_runs_split_files_at_the_pushed_sha() -> None:
         "./.github/workflows/_build-image.yml"
     )
     assert set(image_jobs["aggregate-feature"]["needs"]) == {
-        "plan",
         "build-images-feature",
         "feature-barrier",
     }
@@ -1780,12 +1739,51 @@ def test_release_workflow_topology_runs_split_files_at_the_pushed_sha() -> None:
     assert _jobs(publisher)["build"]["uses"] == ("./.github/workflows/_build-image.yml")
 
 
+def test_workflow_safety_literals_match_catalog_source_authority() -> None:
+    """Static GitHub guards may be duplicated only when they match the catalog."""
+    release_core = _release_modules()[0]
+    catalog = release_core.load_catalog()
+    repository = catalog["source"]["repository"]
+    protected_environment = catalog["source"]["protected_environment"]
+    repository_guards: list[str] = []
+    literal_environments: list[str] = []
+    for filename in EXPECTED_RELEASE_WORKFLOWS:
+        path = WORKFLOW_DIR / filename
+        text = path.read_text(encoding="utf-8")
+        repository_guards.extend(
+            re.findall(r"github\.repository\s*==\s*'([^']+)'", text)
+        )
+        repository_guards.extend(
+            re.findall(
+                r'"\$\{REPOSITORY\}"\s*==\s*([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)', text
+            )
+        )
+        document = _load_workflow(path)
+        literal_environments.extend(
+            environment
+            for job in _jobs(document).values()
+            if isinstance((environment := job.get("environment")), str)
+            and not environment.startswith("${{")
+        )
+
+    assert repository_guards
+    assert set(repository_guards) == {repository}
+    assert literal_environments
+    assert set(literal_environments) == {protected_environment}
+
+
 def test_reusable_workflow_inputs_outputs_and_artifacts_are_exact() -> None:
     """Reusable boundaries must carry immutable identities, not implicit state."""
     wheel = _load_workflow(WORKFLOW_DIR / "_build-wheel.yml")
     wheel_call = _trigger(wheel)["workflow_call"]
     assert isinstance(wheel_call, dict)
-    assert set(wheel_call.get("inputs", {})) == {"source_sha", "spec_id"}
+    assert set(wheel_call.get("inputs", {})) == {
+        "source_sha",
+        "task_id",
+        "runner",
+        "resolved_plan_artifact",
+        "resolved_plan_sha256",
+    }
     assert {
         "wheel_artifact",
         "wheel_sha256",
@@ -1802,7 +1800,10 @@ def test_reusable_workflow_inputs_outputs_and_artifacts_are_exact() -> None:
     assert isinstance(image_call, dict)
     assert set(image_call.get("inputs", {})) == {
         "source_sha",
-        "spec_id",
+        "task_id",
+        "runner",
+        "resolved_plan_artifact",
+        "resolved_plan_sha256",
         "deliver_full_oci",
     }
     assert {"image_artifact", "image_result_sha256", "oci_digest"} <= set(
@@ -1824,11 +1825,16 @@ def test_reusable_workflow_inputs_outputs_and_artifacts_are_exact() -> None:
             if upload.get("if") == "${{ inputs.deliver_full_oci }}":
                 assert inputs.get("retention-days") == 1
                 assert inputs.get("compression-level") == 0
+            elif (
+                isinstance(retention, str)
+                and "steps.plan.outputs.protected" in retention
+            ):
+                assert "90 || 3" in retention
             elif isinstance(retention, str):
                 for fragment in (
                     "github.event_name == 'push'",
                     "SuperMarioYL/unified-cache-management",
-                    "refs/tags/v0.5.0rc1",
+                    "github.ref_type == 'tag'",
                     "github.ref_protected == true",
                     "90 || 3",
                 ):
@@ -1844,24 +1850,30 @@ def test_reusable_workflow_inputs_outputs_and_artifacts_are_exact() -> None:
             "_build-wheel.yml",
             {
                 "SOURCE_SHA": "a" * 40,
-                "SPEC_ID": "cuda130-amd64",
+                "TASK_ID": "wheel-" + "1" * 64,
+                "RESOLVED_PLAN_ARTIFACT": "ucm-resolved-plan-test",
+                "RESOLVED_PLAN_SHA256": "sha256:" + "2" * 64,
             },
             [
                 {"SOURCE_SHA": "refs/heads/feature/cicd"},
-                {"SPEC_ID": ""},
-                {"SPEC_ID": "cuda130-riscv64"},
+                {"TASK_ID": ""},
+                {"TASK_ID": "image-" + "1" * 64},
+                {"RESOLVED_PLAN_SHA256": "sha256:nope"},
             ],
         ),
         (
             "_build-image.yml",
             {
                 "SOURCE_SHA": "b" * 40,
-                "SPEC_ID": "cann900-a3-arm64",
+                "TASK_ID": "image-" + "3" * 64,
+                "RESOLVED_PLAN_ARTIFACT": "ucm-resolved-plan-test",
+                "RESOLVED_PLAN_SHA256": "sha256:" + "4" * 64,
             },
             [
                 {"SOURCE_SHA": "refs/heads/feature/cicd"},
-                {"SPEC_ID": ""},
-                {"SPEC_ID": "cann900-a5-arm64"},
+                {"TASK_ID": ""},
+                {"TASK_ID": "wheel-" + "3" * 64},
+                {"RESOLVED_PLAN_ARTIFACT": "bad/name"},
             ],
         ),
     ],
@@ -1938,7 +1950,7 @@ def test_reusable_entry_contracts_reject_empty_partial_and_illegal_calls() -> No
     for fragment in (
         "SuperMarioYL/unified-cache-management",
         "refs/heads/feature/",
-        "refs/tags/v0.5.0rc1",
+        "REF_TYPE",
         "REF_PROTECTED",
         "release invocation is outside feature/protected authority",
         "exit 2",
@@ -1947,19 +1959,21 @@ def test_reusable_entry_contracts_reject_empty_partial_and_illegal_calls() -> No
 
     images = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
     image_inputs = _trigger(images)["workflow_call"]["inputs"]
-    assert set(image_inputs) == {"source_sha", "deliver_full_oci"}
+    assert set(image_inputs) == {
+        "source_sha",
+        "wheel_matrix",
+        "image_matrix",
+        "resolved_plan_artifact",
+        "resolved_plan_sha256",
+        "deliver_full_oci",
+    }
     assert image_inputs["source_sha"]["required"] is True
     assert image_inputs["deliver_full_oci"] == {
         "type": "boolean",
         "required": True,
     }
-    contract = next(
-        step
-        for step in _steps(_jobs(images)["plan"])
-        if step.get("name") == "Fail closed and project the exact six feature members"
-    )
-    assert "inputs.source_sha" in str(contract["env"]["SOURCE_SHA"])
-    assert "exit 2" in str(contract["run"])
+    build = _jobs(images)["build-images-feature"]
+    assert build["strategy"]["matrix"] == "${{ fromJSON(inputs.image_matrix) }}"
 
 
 def test_empty_reusable_inputs_are_routed_only_for_explicit_direct_events() -> None:
@@ -2018,7 +2032,7 @@ def test_empty_reusable_inputs_are_routed_only_for_explicit_direct_events() -> N
         )
 
 
-def test_candidate_evidence_binds_six_real_members_three_plans_and_chart() -> None:
+def test_candidate_evidence_binds_exact_planned_members_families_and_chart() -> None:
     """The deterministic payload binds every real hosted output without publication."""
     entry_text = (WORKFLOW_DIR / "release-ucm.yml").read_text(encoding="utf-8")
     image_text = (WORKFLOW_DIR / "release-vllm-images.yml").read_text(encoding="utf-8")
@@ -2047,8 +2061,10 @@ def test_candidate_evidence_binds_six_real_members_three_plans_and_chart() -> No
     assert '"wheels": wheel_summaries' in policy_text
     assert '"images": image_summaries' in policy_text
     assert '"families": planned["families"]' in policy_text
-    assert "len(task_records) != 6" in policy_text
-    assert "len(image_results) != 6" in policy_text
+    assert 'resolved_plan["wheel_tasks"]' in policy_text
+    assert 'resolved_plan["image_tasks"]' in policy_text
+    assert 'resolved_plan["family_tasks"]' in policy_text
+    assert "exact resolved task set" in policy_text
     assert "--chart-result input/chart/chart-result.json" in entry_text
 
 
@@ -2200,7 +2216,8 @@ def test_workflows_only_orchestrate_tested_cli_and_real_runs_full_closure() -> N
         encoding="utf-8"
     )
     entry_text = (WORKFLOW_DIR / "release-ucm.yml").read_text(encoding="utf-8")
-    assert "core hosted-matrix" in wheel_text and "wheel context" in wheel_text
+    assert "catalog select" in wheel_text and "core hosted-task" in wheel_text
+    assert "wheel context" in wheel_text
     assert "wheel fixture-build" not in wheel_text
     assert "image prepare-real" in image_text and "image verify" in image_text
     assert "loop aggregate-real" in reconcile_text
@@ -2329,6 +2346,8 @@ def test_every_hosted_cli_job_installs_the_locked_runtime_dependencies_first() -
         ("_build-wheel.yml", "build"),
         ("_build-image.yml", "build"),
         ("_publish-image-member.yml", "publish-member"),
+        ("hardware-e2e.yml", "repository-recipe-plan"),
+        ("hardware-e2e.yml", "hardware-e2e"),
         ("release-ucm.yml", "plan"),
         ("release-ucm.yml", "package-chart"),
         ("release-ucm.yml", "aggregate-evidence"),
@@ -2336,9 +2355,7 @@ def test_every_hosted_cli_job_installs_the_locked_runtime_dependencies_first() -
         ("release-ucm.yml", "anonymous-registry-readback"),
         ("release-ucm.yml", "publish-release"),
         ("release-ucm.yml", "anonymous-release-readback"),
-        ("release-vllm-images.yml", "plan"),
         ("release-vllm-images.yml", "aggregate-feature"),
-        ("release-vllm-images-protected.yml", "plan"),
         ("release-vllm-images-protected.yml", "aggregate-members"),
         ("release-vllm-images-protected.yml", "publish-indexes"),
         ("release-vllm-images-protected.yml", "authenticated-readback"),
@@ -2378,31 +2395,34 @@ def test_reusable_image_routers_split_feature_and_protected_authority() -> None:
     assert set(_trigger(feature)) == {"workflow_call"}
     assert set(_trigger(feature)["workflow_call"]["inputs"]) == {
         "source_sha",
+        "wheel_matrix",
+        "image_matrix",
+        "resolved_plan_artifact",
+        "resolved_plan_sha256",
         "deliver_full_oci",
     }
-    feature_plan = "\n".join(_strings(feature_jobs["plan"]))
-    assert "inputs.source_sha" in feature_plan
-    for authority in (
-        "github.event_name",
-        "github.repository",
-        "github.ref",
-        "refs/heads/feature/",
-    ):
-        assert authority in feature_plan
-    assert "github.ref_protected" not in feature_plan
+    assert "plan" not in feature_jobs
+    feature_build = "\n".join(_strings(feature_jobs["build-images-feature"]))
+    assert "inputs.source_sha" in feature_build
+    assert "inputs.image_matrix" in feature_build
     assert "standalone-wheel" not in feature_jobs
 
     protected = _load_workflow(WORKFLOW_DIR / "release-vllm-images-protected.yml")
-    assert set(_trigger(protected)["workflow_call"]["inputs"]) == {"source_sha"}
-    protected_plan = "\n".join(_strings(_jobs(protected)["plan"]))
+    assert set(_trigger(protected)["workflow_call"]["inputs"]) == {
+        "source_sha",
+        "image_matrix",
+        "family_matrix",
+        "resolved_plan_artifact",
+        "resolved_plan_sha256",
+    }
+    protected_build = "\n".join(_strings(_jobs(protected)["build-images-protected"]))
     for authority in (
         "github.event_name",
         "github.repository",
-        "github.ref",
+        "github.ref_type",
         "github.ref_protected",
-        "refs/tags/v0.5.0rc1",
     ):
-        assert authority in protected_plan
+        assert authority in protected_build
 
 
 def test_callable_image_chain_overrides_skipped_standalone_ancestor() -> None:
@@ -2412,13 +2432,10 @@ def test_callable_image_chain_overrides_skipped_standalone_ancestor() -> None:
         _load_workflow(WORKFLOW_DIR / "release-vllm-images-protected.yml")
     )
     dependencies = {
-        "build-images-feature": ["plan"],
-        "aggregate-feature": ["plan", "build-images-feature", "feature-barrier"],
+        "aggregate-feature": ["build-images-feature", "feature-barrier"],
     }
     protected_dependencies = {
-        "build-images-protected": ["plan"],
         "aggregate-members": [
-            "plan",
             "build-images-protected",
             "member-barrier",
         ],
@@ -2450,19 +2467,19 @@ def test_callable_image_chain_fails_closed_for_direct_needs_and_cancellation() -
         (
             feature_jobs,
             "feature-barrier",
-            {"plan", "build-images-feature"},
-            {"PLAN_RESULT", "IMAGE_RESULT"},
+            {"build-images-feature"},
+            {"IMAGE_RESULT"},
         ),
         (
             protected_jobs,
             "member-barrier",
-            {"plan", "build-images-protected"},
-            {"PLAN_RESULT", "MEMBERS_RESULT"},
+            {"build-images-protected"},
+            {"MEMBERS_RESULT"},
         ),
         (
             protected_jobs,
             "index-barrier",
-            {"plan", "aggregate-members", "publish-indexes"},
+            {"aggregate-members", "publish-indexes"},
             {"MEMBERS_RESULT", "INDEXES_RESULT"},
         ),
     )
@@ -2483,9 +2500,7 @@ def test_multi_output_steps_use_one_grouped_github_output_append() -> None:
         ("_build-wheel.yml", "build", "record"): 2,
         ("_build-image.yml", "build", "task"): 3,
         ("_build-image.yml", "build", "result"): 2,
-        ("release-ucm.yml", "plan", "plan"): 5,
-        ("release-vllm-images.yml", "plan", "plan"): 3,
-        ("release-vllm-images-protected.yml", "plan", "plan"): 3,
+        ("release-ucm.yml", "plan", "plan"): 14,
     }
     for (filename, job_name, step_id), output_count in targets.items():
         document = _load_workflow(WORKFLOW_DIR / filename)
@@ -2530,7 +2545,7 @@ def test_release_entry_router_fails_closed_inside_the_always_run_plan_job() -> N
         "REF_PROTECTED",
         "SuperMarioYL/unified-cache-management",
         "refs/heads/feature/",
-        "refs/tags/v0.5.0rc1",
+        "REF_TYPE",
         "release invocation is outside feature/protected authority",
         "exit 2",
     ):
@@ -2538,19 +2553,19 @@ def test_release_entry_router_fails_closed_inside_the_always_run_plan_job() -> N
     assert "refs/tags/v*" not in command
 
 
-def test_only_the_exact_protected_v_tag_can_enter_the_publication_route() -> None:
-    """Foreign, unprotected, or wildcard tags fail in the plan before any writer."""
+def test_only_protected_version_tags_can_enter_the_publication_route() -> None:
+    """The generic trigger remains repository and protected-tag gated."""
     document = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
-    assert _trigger(document)["push"]["tags"] == ["v0.5.0rc1"]
+    assert _trigger(document)["push"]["tags"] == ["v*"]
     plan_text = "\n".join(_strings(_jobs(document)["plan"]))
     for fragment in (
         '"${EVENT_NAME}" == push',
         '"${REPOSITORY}" == SuperMarioYL/unified-cache-management',
-        '"${REF}" == refs/tags/v0.5.0rc1',
+        '"${REF_TYPE}" == tag',
         '"${REF_PROTECTED}" == true',
     ):
         assert fragment in plan_text
-    assert "refs/tags/v*" not in plan_text
+    assert "core tag-preflight" in plan_text
     protected_jobs = {
         "reconcile-images-protected",
         "prepare-release-draft",
@@ -2558,12 +2573,74 @@ def test_only_the_exact_protected_v_tag_can_enter_the_publication_route() -> Non
     }
     for job_name in protected_jobs:
         condition = str(_jobs(document)[job_name]["if"])
-        assert "refs/tags/v0.5.0rc1" in condition
+        assert "github.ref_type == 'tag'" in condition
         assert "github.ref_protected == true" in condition
 
 
+def test_every_tag_preflight_is_explicitly_planner_only_or_frozen_plan_bound() -> None:
+    planner_calls = 0
+    frozen_calls = 0
+    for filename in (
+        "release-ucm.yml",
+        "_publish-image-member.yml",
+        "release-vllm-images-protected.yml",
+    ):
+        text = (WORKFLOW_DIR / filename).read_text(encoding="utf-8")
+        logical_lines = text.replace("\\\n", " ").splitlines()
+        for line in logical_lines:
+            if "core tag-preflight" not in line:
+                continue
+            if "--catalog-planner" in line:
+                planner_calls += 1
+                assert filename == "release-ucm.yml"
+                assert "--resolved-plan" not in line
+                assert "--expected-plan-sha256" not in line
+            else:
+                frozen_calls += 1
+                assert "--resolved-plan input/plan/resolved-plan.json" in line
+                assert '--expected-plan-sha256 "${RESOLVED_PLAN_SHA256}"' in line
+    assert planner_calls
+    assert frozen_calls
+
+
+def test_github_release_io_uses_the_frozen_plan_repository_identity() -> None:
+    """Release API paths come from the validated plan, not a concrete repository."""
+    document = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
+    cases = {
+        "prepare-release-draft": (
+            "draft",
+            "input/plan/resolved-plan.json",
+        ),
+        "publish-release": (
+            "publish",
+            "input/plan/resolved-plan.json",
+        ),
+        "anonymous-release-readback": (
+            None,
+            "input/state/release-assets/resolved-plan.json",
+        ),
+    }
+    for job_name, (step_id, plan_path) in cases.items():
+        steps = _steps(_jobs(document)[job_name])
+        step = (
+            next(item for item in steps if item.get("id") == step_id)
+            if step_id is not None
+            else next(
+                item
+                for item in steps
+                if "Anonymous exact release" in str(item.get("name", ""))
+            )
+        )
+        command = str(step["run"])
+        assert "repos/SuperMarioYL/unified-cache-management" not in command
+        assert plan_path in command
+        assert '["source"]["repository"]' in command
+        assert 'test "${release_repository}" = "${GITHUB_REPOSITORY}"' in command
+        assert "${release_repository}" in command
+
+
 def test_production_and_unsupported_callable_lanes_fail_closed() -> None:
-    """Only exact protected concrete writers receive an Environment or write token."""
+    """Only exact protected writers or trusted hardware receive an Environment."""
     entry = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
     assert "release invocation is outside feature/protected authority" in "\n".join(
         _strings(_jobs(entry)["plan"])
@@ -2579,6 +2656,7 @@ def test_production_and_unsupported_callable_lanes_fail_closed() -> None:
         ("release-vllm-images-protected.yml", "publish-indexes"),
         ("release-ucm.yml", "prepare-release-draft"),
         ("release-ucm.yml", "publish-release"),
+        ("hardware-e2e.yml", "hardware-e2e"),
     }
     for filename in EXPECTED_RELEASE_WORKFLOWS:
         document = _load_workflow(WORKFLOW_DIR / filename)
@@ -2734,7 +2812,10 @@ def test_fixture_wheel_builder_is_deterministic_unpublished_and_source_bound(
     assert first["wheel_sha256"] == second["wheel_sha256"]
     assert first["inspection_sha256"] == second["inspection_sha256"]
     assert first["build_record"] == second["build_record"]
-    assert first["inspection"]["requires_dist"] == ["wrapt==1.17.2"]
+    assert first["inspection"]["requires_dist"] == [
+        "packaging==24.2",
+        "wrapt==1.17.2",
+    ]
     assert first["inspection"]["status"] == "fixture-only"
     assert first["inspection"]["published"] is False
     assert first["build_record"]["source_sha"] == source_sha
@@ -3185,6 +3266,10 @@ def test_aggregate_cli_reopens_files_and_exits_two_for_mutation(
                 "refs/heads/feature/cicd",
                 "--source-sha",
                 str(closure["source_sha"]),
+                "--resolved-plan",
+                str(paths["resolved_plan"]),
+                "--expected-plan-sha256",
+                str(closure["resolved_plan"]["resolved_plan_sha256"]),
                 "--run-id",
                 "17",
                 "--attempt",
@@ -3312,28 +3397,68 @@ def test_image_context_bundle_reopens_fixed_base_descriptor_bytes(
         )
 
 
-def test_base_authority_is_owned_by_python_and_consumed_once_by_workflow() -> None:
-    """Workflow derives all six real base chains instead of duplicating coordinates."""
+def test_base_authority_is_plan_bound_and_consumed_once_by_workflow(
+    tmp_path: Path,
+) -> None:
+    """Workflow selects real base authority instead of duplicating coordinates."""
+    core_module, _, _ = _release_modules()
+    registry_module = importlib.import_module("ucm_release.registry")
     image_module = importlib.import_module("ucm_release.image")
-    authority = image_module.real_image_authorities()
+    catalog = core_module.load_catalog()
+    fixture = json.loads(
+        (REPO_ROOT / ".github/release/tests/fixtures/catalog-registry.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    plan = registry_module.resolve_catalog(
+        catalog,
+        source_sha="a" * 40,
+        lane="feature-candidate",
+        fixture=fixture,
+    )
+    authorities = [
+        image_module.real_image_authority_from_plan(
+            plan,
+            task_id=task["task_id"],
+            expected_plan_sha256=plan["resolved_plan_sha256"],
+        )
+        for task in plan["image_tasks"]
+    ]
+    plan_path = tmp_path / "resolved-plan.json"
+    _write_canonical(plan_path, plan)
     environment = {
         **__import__("os").environ,
         "PYTHONPATH": str(REPO_ROOT / ".github" / "release"),
     }
     command = subprocess.run(
-        [sys.executable, "-m", "ucm_release", "image", "real-authorities"],
+        [
+            sys.executable,
+            "-m",
+            "ucm_release",
+            "image",
+            "real-authorities",
+            "--resolved-plan",
+            str(plan_path),
+            "--task-id",
+            plan["image_tasks"][0]["task_id"],
+            "--expected-plan-sha256",
+            plan["resolved_plan_sha256"],
+        ],
         cwd=REPO_ROOT,
         env=environment,
         check=True,
         capture_output=True,
         text=True,
     )
-    assert json.loads(command.stdout)["members"] == authority
+    assert json.loads(command.stdout) == authorities[0]
 
     workflow = (WORKFLOW_DIR / "_build-image.yml").read_text(encoding="utf-8")
     assert "image real-authorities" in workflow
+    assert "--resolved-plan input/plan/resolved-plan.json" in workflow
+    assert '--expected-plan-sha256 "${RESOLVED_PLAN_SHA256}"' in workflow
+    assert '--task-id "${TASK_ID}"' in workflow
     assert "image base-record-real" in workflow
-    for item in authority:
+    for item in authorities:
         for field in ("index_digest", "manifest_digest", "config_digest"):
             assert str(item["runtime"][field]) not in workflow
 
@@ -3506,7 +3631,7 @@ def test_task5_protected_route_has_static_permission_and_environment_boundaries(
     entry_jobs = _jobs(entry)
     assert _trigger(entry)["push"] == {
         "branches": ["feature/**"],
-        "tags": ["v0.5.0rc1"],
+        "tags": ["v*"],
     }
     assert entry["concurrency"] == {
         "group": "ucm-tag-${{ github.repository_id }}-${{ github.ref_name }}",
@@ -3514,7 +3639,7 @@ def test_task5_protected_route_has_static_permission_and_environment_boundaries(
     }
     assert entry["permissions"] == {"contents": "read"}
 
-    assert entry_jobs["build-wheels-feature"]["permissions"] == {"contents": "read"}
+    assert entry_jobs["build-wheels"]["permissions"] == {"contents": "read"}
     assert entry_jobs["reconcile-images-feature"]["permissions"] == {"contents": "read"}
     assert "environment" not in entry_jobs["reconcile-images-feature"]
     assert entry_jobs["reconcile-images-protected"]["permissions"] == {
@@ -3525,7 +3650,7 @@ def test_task5_protected_route_has_static_permission_and_environment_boundaries(
     for fragment in (
         "github.event_name == 'push'",
         "github.repository == 'SuperMarioYL/unified-cache-management'",
-        "github.ref == 'refs/tags/v0.5.0rc1'",
+        "github.ref_type == 'tag'",
         "github.ref_protected == true",
     ):
         assert fragment in protected_call_if
@@ -3717,7 +3842,7 @@ def test_task5_artifacts_are_run_bound_and_barriers_are_transitive() -> None:
     }
     assert jobs["publish-indexes"]["strategy"] == {
         "fail-fast": False,
-        "matrix": {"family_id": ["cann900-a3", "cann900-a2", "cuda130"]},
+        "matrix": "${{ fromJSON(inputs.family_matrix) }}",
     }
     assert jobs["publish-indexes"]["permissions"] == {
         "contents": "read",
@@ -3794,17 +3919,16 @@ def test_task5_artifacts_are_run_bound_and_barriers_are_transitive() -> None:
         for status in ("success", "skipped", "failure", "cancelled"):
             assert status in barrier_text
 
-    protected_chain = {
-        "aggregate-members": {"plan", "build-images-protected", "member-barrier"},
-        "publish-indexes": {"plan", "aggregate-members"},
-        "index-barrier": {"plan", "aggregate-members", "publish-indexes"},
-        "authenticated-readback": {
-            "plan",
-            "aggregate-members",
-            "publish-indexes",
-            "index-barrier",
-        },
-    }
+        protected_chain = {
+            "aggregate-members": {"build-images-protected", "member-barrier"},
+            "publish-indexes": {"aggregate-members"},
+            "index-barrier": {"aggregate-members", "publish-indexes"},
+            "authenticated-readback": {
+                "aggregate-members",
+                "publish-indexes",
+                "index-barrier",
+            },
+        }
     for job_name, direct_needs in protected_chain.items():
         job = jobs[job_name]
         assert set(job["needs"]) == direct_needs
@@ -3822,12 +3946,12 @@ def test_task5_artifacts_are_run_bound_and_barriers_are_transitive() -> None:
         "artifact collect-provisionals",
         "member_collection",
         "provisional_collection",
-        "registry inventory",
         "registry plan-index",
         "registry prepare-index",
         "registry aggregate-authenticated",
     ):
         assert required in workflow_text
+    assert "registry inventory" not in workflow_text
     assert "registry audit-operations" in "\n".join(
         _strings(_load_workflow(WORKFLOW_DIR / "_publish-image-member.yml"))
     )
@@ -3835,7 +3959,7 @@ def test_task5_artifacts_are_run_bound_and_barriers_are_transitive() -> None:
 
 
 def test_task5_public_visibility_and_release_order_are_fail_closed() -> None:
-    """Anonymous package closure and seven rehashed assets precede prerelease publish."""
+    """Anonymous package closure and the complete asset set precede publication."""
     images = _load_workflow(WORKFLOW_DIR / "release-vllm-images-protected.yml")
     jobs = _jobs(images)
     assert jobs["authenticated-readback"]["permissions"] == {"contents": "read"}
@@ -3844,7 +3968,7 @@ def test_task5_public_visibility_and_release_order_are_fail_closed() -> None:
     draft = entry_jobs["prepare-release-draft"]
     assert set(draft["needs"]) == {
         "plan",
-        "build-wheels-protected",
+        "build-wheels",
         "package-chart",
         "reconcile-images-protected",
     }
@@ -3867,7 +3991,7 @@ def test_task5_public_visibility_and_release_order_are_fail_closed() -> None:
     release_job = entry_jobs["publish-release"]
     assert set(release_job["needs"]) == {
         "plan",
-        "build-wheels-protected",
+        "build-wheels",
         "package-chart",
         "prepare-release-draft",
         "anonymous-registry-readback",
@@ -3958,7 +4082,7 @@ def test_task5_public_visibility_and_release_order_are_fail_closed() -> None:
 def test_task5_run_bound_artifact_identity_rejects_cross_attempt_reuse() -> None:
     """Physical artifact identity binds run/attempt while logical identity stays stable."""
     _, _, verify_module = _release_modules()
-    logical = "ucm-wheel-cuda130-amd64-" + "a" * 40
+    logical = "ucm-wheel-wheel-task-a-" + "a" * 40
     assert verify_module.run_bound_artifact_name(logical, "17", 2) == (
         logical + "-run-17-attempt-2"
     )
@@ -3983,11 +4107,11 @@ def test_task5_run_bound_artifact_identity_rejects_cross_attempt_reuse() -> None
 def test_task5_run_bound_artifact_directories_reject_stale_or_logical_dirs(
     tmp_path: Path,
 ) -> None:
-    """Downloaded task directories must be the exact six from this attempt."""
+    """Downloaded task directories must equal the selected set from this attempt."""
     _, _, verify_module = _release_modules()
     logical_names = [
-        "ucm-wheel-cuda130-amd64-" + "a" * 40,
-        "ucm-wheel-cuda130-arm64-" + "a" * 40,
+        "ucm-wheel-wheel-task-a-" + "a" * 40,
+        "ucm-wheel-wheel-task-b-" + "a" * 40,
     ]
     run = {"run_id": "17", "run_attempt": 2}
     for logical_name in logical_names:
@@ -4018,25 +4142,32 @@ def test_task5_run_bound_artifact_directories_reject_stale_or_logical_dirs(
         )
 
 
-def test_task5_release_state_is_create_or_exact_idempotent_reuse() -> None:
+def test_task5_release_state_is_create_or_exact_idempotent_reuse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Reruns reject foreign releases while accepting the exact draft/prerelease."""
     _, _, verify_module = _release_modules()
     source_sha = "a" * 40
-    authority = verify_module.github_release_authority(source_sha)
-    assert authority == {
+    resolved_plan = _protected_release_fixture_plan(source_sha, monkeypatch)
+    plan_binding = {
+        "resolved_plan": resolved_plan,
+        "expected_plan_sha256": resolved_plan["resolved_plan_sha256"],
+    }
+    authority = verify_module.github_release_authority(source_sha, **plan_binding)
+    assert {key: authority[key] for key in authority if key != "body"} == {
         "tag_name": "v0.5.0rc1",
         "target_commitish": source_sha,
         "name": "UCM v0.5.0rc1",
-        "body": (
-            "Protected UCM v0.5.0rc1 release from reviewed source commit "
-            + source_sha
-            + "."
-        ),
         "draft": True,
         "prerelease": True,
         "make_latest": "false",
     }
-    assert verify_module.plan_github_release(None, source_sha)["decision"] == "create"
+    assert source_sha in authority["body"]
+    assert resolved_plan["resolved_plan_sha256"] in authority["body"]
+    assert (
+        verify_module.plan_github_release(None, source_sha, **plan_binding)["decision"]
+        == "create"
+    )
 
     remote = {
         "id": 41,
@@ -4056,7 +4187,9 @@ def test_task5_release_state_is_create_or_exact_idempotent_reuse() -> None:
             "releases/tag/untagged-a2d19fd21f8e2f4f9847"
         ),
     }
-    created = verify_module.plan_github_release(remote, source_sha, just_created=True)
+    created = verify_module.plan_github_release(
+        remote, source_sha, just_created=True, **plan_binding
+    )
     assert created["decision"] == "reuse-draft"
     assert created["asset_count"] == 0
     assert created["asset_download_slug"] == "untagged-a2d19fd21f8e2f4f9847"
@@ -4067,15 +4200,15 @@ def test_task5_release_state_is_create_or_exact_idempotent_reuse() -> None:
         "https://github.com/SuperMarioYL/unified-cache-management/"
         "releases/tag/v0.5.0rc1"
     )
-    assert verify_module.plan_github_release(published, source_sha)["decision"] == (
-        "inspect-published-prerelease"
-    )
+    assert verify_module.plan_github_release(published, source_sha, **plan_binding)[
+        "decision"
+    ] == ("inspect-published-prerelease")
     different_unused_target = copy.deepcopy(remote)
     different_unused_target["target_commitish"] = "develop"
     assert (
-        verify_module.plan_github_release(different_unused_target, source_sha)[
-            "decision"
-        ]
+        verify_module.plan_github_release(
+            different_unused_target, source_sha, **plan_binding
+        )["decision"]
         == "resume-draft"
     )
 
@@ -4088,12 +4221,18 @@ def test_task5_release_state_is_create_or_exact_idempotent_reuse() -> None:
         {"draft": 1},
     ):
         with pytest.raises(ValueError, match="release"):
-            verify_module.plan_github_release({**remote, **mutation}, source_sha)
+            verify_module.plan_github_release(
+                {**remote, **mutation}, source_sha, **plan_binding
+            )
     partial_create = copy.deepcopy(remote)
     partial_create["assets"] = [{"id": 1, "name": "foreign.whl"}]
     with pytest.raises(ValueError, match="empty"):
-        verify_module.plan_github_release(partial_create, source_sha, just_created=True)
-    existing_partial = verify_module.plan_github_release(partial_create, source_sha)
+        verify_module.plan_github_release(
+            partial_create, source_sha, just_created=True, **plan_binding
+        )
+    existing_partial = verify_module.plan_github_release(
+        partial_create, source_sha, **plan_binding
+    )
     assert existing_partial["decision"] == "resume-draft"
     assert existing_partial["asset_count"] == 1
 
@@ -4102,19 +4241,23 @@ def test_task5_release_state_is_create_or_exact_idempotent_reuse() -> None:
         "/41/", "/42/"
     )
     with pytest.raises(ValueError, match="transport"):
-        verify_module.plan_github_release(mismatched_endpoint, source_sha)
+        verify_module.plan_github_release(
+            mismatched_endpoint, source_sha, **plan_binding
+        )
     mismatched_assets_endpoint = copy.deepcopy(remote)
     mismatched_assets_endpoint["assets_url"] += "/foreign"
     with pytest.raises(ValueError, match="transport"):
-        verify_module.plan_github_release(mismatched_assets_endpoint, source_sha)
+        verify_module.plan_github_release(
+            mismatched_assets_endpoint, source_sha, **plan_binding
+        )
     malformed_author = copy.deepcopy(remote)
     malformed_author["author"] = {"login": ""}
     with pytest.raises(ValueError, match="author"):
-        verify_module.plan_github_release(malformed_author, source_sha)
+        verify_module.plan_github_release(malformed_author, source_sha, **plan_binding)
     foreign_author = copy.deepcopy(remote)
     foreign_author["author"] = {"login": "attacker[bot]", "type": "Bot"}
     with pytest.raises(ValueError, match="author"):
-        verify_module.plan_github_release(foreign_author, source_sha)
+        verify_module.plan_github_release(foreign_author, source_sha, **plan_binding)
 
     for bad_html_url in (
         "http://github.com/SuperMarioYL/unified-cache-management/releases/tag/untagged-a2d19fd21f8e2f4f9847",
@@ -4126,7 +4269,7 @@ def test_task5_release_state_is_create_or_exact_idempotent_reuse() -> None:
     ):
         with pytest.raises(ValueError, match="HTML transport"):
             verify_module.plan_github_release(
-                {**remote, "html_url": bad_html_url}, source_sha
+                {**remote, "html_url": bad_html_url}, source_sha, **plan_binding
             )
     with pytest.raises(ValueError, match="HTML transport"):
         verify_module.plan_github_release(
@@ -4138,17 +4281,33 @@ def test_task5_release_state_is_create_or_exact_idempotent_reuse() -> None:
                 ),
             },
             source_sha,
+            **plan_binding,
         )
 
 
 def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Only missing canonical assets upload; existing names must match exact bytes."""
-    core_module, _, verify_module = _release_modules()
+    _, _, verify_module = _release_modules()
     asset_root = tmp_path / "release-assets"
     asset_root.mkdir()
-    tasks = core_module.build_matrix("protected-tag")["tasks"]
+    resolved_plan = _resolved_fixture_plan("a" * 40, lane="feature-candidate")
+    resolved_plan.update(
+        {
+            "lane": "protected-tag",
+            "fixture_only": False,
+            "resolved_plan_sha256": "sha256:" + "9" * 64,
+        }
+    )
+    registry_module = importlib.import_module("ucm_release.registry")
+    monkeypatch.setattr(registry_module, "validate_resolved_plan", lambda _plan: None)
+    plan_binding = {
+        "resolved_plan": resolved_plan,
+        "expected_plan_sha256": resolved_plan["resolved_plan_sha256"],
+    }
+    tasks = resolved_plan["wheel_tasks"]
     assets = []
     for index, task in enumerate(tasks):
         architecture = "x86_64" if task["cpu_arch"] == "amd64" else "aarch64"
@@ -4185,10 +4344,33 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
             "path": str(chart_path),
         }
     )
+    for spec_id, name, asset_type in (
+        ("resolved-plan", "resolved-plan.json", "resolved-plan"),
+        (
+            "release-provenance",
+            "release-provenance.json",
+            "release-provenance",
+        ),
+    ):
+        path = asset_root / name
+        path.write_text(f"{spec_id}\n", encoding="utf-8")
+        assets.append(
+            {
+                "spec_id": spec_id,
+                "profile_id": None,
+                "platform": None,
+                "name": name,
+                "sha256": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(),
+                "size": path.stat().st_size,
+                "type": asset_type,
+                "path": str(path),
+            }
+        )
     expected = {
         "schema_version": 1,
         "kind": "ucm-github-release-assets",
         "source_sha": "a" * 40,
+        "resolved_plan_sha256": "sha256:" + "9" * 64,
         "assets": assets,
     }
     expected["assets_sha256"] = verify_module.sha256_value(
@@ -4196,6 +4378,7 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
             "schema_version": 1,
             "kind": expected["kind"],
             "source_sha": expected["source_sha"],
+            "resolved_plan_sha256": expected["resolved_plan_sha256"],
             "assets": [
                 {key: value for key, value in asset.items() if key != "path"}
                 for asset in assets
@@ -4204,7 +4387,9 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
     )
 
     assert (
-        verify_module.validate_release_asset_manifest(expected, allowed_root=asset_root)
+        verify_module.validate_release_asset_manifest(
+            expected, allowed_root=asset_root, **plan_binding
+        )
         == expected
     )
 
@@ -4231,11 +4416,11 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
 
     reused = [remote(expected["assets"][0], 501)]
     plan = verify_module.plan_release_assets(
-        expected, reused, release_id=41, allowed_root=asset_root
+        expected, reused, release_id=41, allowed_root=asset_root, **plan_binding
     )
-    assert plan["asset_count"] == 7
+    assert plan["asset_count"] == len(assets)
     assert plan["reuse_names"] == [expected["assets"][0]["name"]]
-    assert len(plan["upload_names"]) == 6
+    assert len(plan["upload_names"]) == len(assets) - 1
 
     draft_slug = "untagged-a2d19fd21f8e2f4f9847"
     draft_reused = copy.deepcopy(reused)
@@ -4247,6 +4432,7 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
         draft_reused,
         release_id=41,
         allowed_root=asset_root,
+        **plan_binding,
         asset_download_slug=draft_slug,
     )
     assert draft_plan["reuse_names"] == [expected["assets"][0]["name"]]
@@ -4256,6 +4442,7 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
             draft_reused,
             release_id=41,
             allowed_root=asset_root,
+            **plan_binding,
             asset_download_slug="untagged-00000000000000000000",
         )
 
@@ -4263,7 +4450,11 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
     conflict[0]["download_sha256"] = "sha256:" + "e" * 64
     with pytest.raises(ValueError, match="conflict"):
         verify_module.plan_release_assets(
-            expected, conflict, release_id=41, allowed_root=asset_root
+            expected,
+            conflict,
+            release_id=41,
+            allowed_root=asset_root,
+            **plan_binding,
         )
     with pytest.raises(ValueError, match="foreign"):
         verify_module.plan_release_assets(
@@ -4271,10 +4462,11 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
             [{**remote(expected["assets"][0], 502), "name": "foreign.bin"}],
             release_id=41,
             allowed_root=asset_root,
+            **plan_binding,
         )
     full = [remote(asset, 600 + index) for index, asset in enumerate(assets)]
     verified = verify_module.verify_release_assets(
-        expected, full, release_id=41, allowed_root=asset_root
+        expected, full, release_id=41, allowed_root=asset_root, **plan_binding
     )
     assert verified["verified_names"] == [asset["name"] for asset in assets]
 
@@ -4306,6 +4498,7 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
         release_id=41,
         allowed_root=asset_root,
         require_complete=False,
+        **plan_binding,
         asset_download_slug=draft_slug,
     )
     assert draft_download_plan["asset_download_slug"] == draft_slug
@@ -4316,6 +4509,7 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
             expected_name=draft_raw_assets[0]["name"],
             release_id=41,
             allowed_root=asset_root,
+            **plan_binding,
             asset_download_slug=draft_slug,
         )["asset_download_slug"]
         == draft_slug
@@ -4326,6 +4520,7 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
         release_id=41,
         allowed_root=asset_root,
         require_complete=True,
+        **plan_binding,
     )
     assert [item["name"] for item in download_plan["downloads"]] == [
         item["name"] for item in assets
@@ -4355,6 +4550,7 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
             list(reversed(raw_assets)),
             release_id=41,
             allowed_root=asset_root,
+            **plan_binding,
         )
         == full
     )
@@ -4370,6 +4566,7 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
             list(reversed(raw_assets)),
             release_id=41,
             allowed_root=asset_root,
+            **plan_binding,
             prior_asset_download_slug=draft_slug,
             asset_download_slug="v0.5.0rc1",
         )
@@ -4382,6 +4579,7 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
             list(reversed(raw_assets)),
             release_id=41,
             allowed_root=asset_root,
+            **plan_binding,
             prior_asset_download_slug=draft_slug,
             asset_download_slug="untagged-00000000000000000000",
         )
@@ -4402,6 +4600,7 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
                 changed,
                 release_id=41,
                 allowed_root=asset_root,
+                **plan_binding,
                 prior_asset_download_slug=draft_slug,
                 asset_download_slug="v0.5.0rc1",
             )
@@ -4414,6 +4613,7 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
             list(reversed(raw_assets)),
             release_id=41,
             allowed_root=asset_root,
+            **plan_binding,
             prior_asset_download_slug=draft_slug,
             asset_download_slug="v0.5.0rc1",
         )
@@ -4426,6 +4626,7 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
             drifted_raw,
             release_id=41,
             allowed_root=asset_root,
+            **plan_binding,
         )
     current_reused = [
         {
@@ -4448,6 +4649,7 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
         next_name=plan["upload_names"][0],
         release_id=41,
         allowed_root=asset_root,
+        **plan_binding,
     )
     assert prefix["completed_upload_names"] == []
     raced = copy.deepcopy(current_reused)
@@ -4461,14 +4663,16 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
             next_name=plan["upload_names"][0],
             release_id=41,
             allowed_root=asset_root,
+            **plan_binding,
         )
-    with pytest.raises(ValueError, match="published|seven"):
+    with pytest.raises(ValueError, match="published|asset"):
         verify_module.plan_release_assets(
             expected,
             reused,
             release_id=41,
             release_published=True,
             allowed_root=asset_root,
+            **plan_binding,
         )
 
     for field, bad in (
@@ -4484,14 +4688,18 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
         forged[0][field] = bad
         with pytest.raises(ValueError, match="asset|conflict|release|transport"):
             verify_module.plan_release_assets(
-                expected, forged, release_id=41, allowed_root=asset_root
+                expected,
+                forged,
+                release_id=41,
+                allowed_root=asset_root,
+                **plan_binding,
             )
 
     boolean_schema = copy.deepcopy(expected)
     boolean_schema["schema_version"] = True
     with pytest.raises(ValueError, match="identity|schema"):
         verify_module.validate_release_asset_manifest(
-            boolean_schema, allowed_root=asset_root
+            boolean_schema, allowed_root=asset_root, **plan_binding
         )
     duplicate_spec = copy.deepcopy(expected)
     duplicate_spec["assets"][1]["spec_id"] = duplicate_spec["assets"][0]["spec_id"]
@@ -4508,21 +4716,46 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
     )
     with pytest.raises(ValueError, match="spec|canonical"):
         verify_module.validate_release_asset_manifest(
-            duplicate_spec, allowed_root=asset_root
+            duplicate_spec, allowed_root=asset_root, **plan_binding
         )
     assets[0]["path"] = str(asset_root / ".." / assets[0]["name"])
     with pytest.raises(ValueError, match="path|root|regular"):
-        verify_module.validate_release_asset_manifest(expected, allowed_root=asset_root)
+        verify_module.validate_release_asset_manifest(
+            expected, allowed_root=asset_root, **plan_binding
+        )
 
 
 def test_task5_release_asset_manifest_reopens_exact_current_attempt_inputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The seven public assets derive from six sealed wheels and one Chart result."""
+    """Public assets derive from the frozen wheels, Chart, plan, and provenance."""
     core_module, wheel_module, verify_module = _release_modules()
     source_sha = "a" * 40
     run = {"run_id": "17", "run_attempt": 2}
-    matrix = verify_module.hosted_build_matrix(source_sha, 1_700_000_000)
+    expanded = _resolved_fixture_plan(source_sha, lane="feature-candidate")
+    resolved_plan = copy.deepcopy(expanded)
+    resolved_plan.update(
+        {
+            "lane": "protected-tag",
+            "fixture_only": False,
+            "resolved_plan_sha256": "sha256:" + "9" * 64,
+        }
+    )
+    registry_module = importlib.import_module("ucm_release.registry")
+    monkeypatch.setattr(registry_module, "validate_resolved_plan", lambda plan: None)
+    matrix = {
+        "source_date_epoch": 1_700_000_000,
+        "tasks": [
+            verify_module.hosted_wheel_task(
+                task,
+                source_sha,
+                1_700_000_000,
+                resolved_plan=expanded,
+                expected_plan_sha256=expanded["resolved_plan_sha256"],
+            )
+            for task in expanded["wheel_tasks"]
+        ],
+    }
     wheel_root = tmp_path / "wheel-downloads"
     wheel_root.mkdir()
     inspections: dict[str, dict[str, object]] = {}
@@ -4534,7 +4767,7 @@ def test_task5_release_asset_manifest_reopens_exact_current_attempt_inputs(
         _write_canonical(artifact / "hosted-task.json", task)
         reviewed = next(
             item
-            for item in core_module.build_matrix("protected-tag")["tasks"]
+            for item in expanded["wheel_tasks"]
             if item["spec_id"] == task["spec_id"]
         )
         architecture = "x86_64" if reviewed["cpu_arch"] == "amd64" else "aarch64"
@@ -4554,6 +4787,9 @@ def test_task5_release_asset_manifest_reopens_exact_current_attempt_inputs(
                 "build_key": task["task_sha256"],
                 "source_date_epoch": matrix["source_date_epoch"],
                 "build_context_digest": "sha256:" + "b" * 64,
+                "runtime_patch_manifest_sha256": reviewed[
+                    "runtime_patch_manifest_sha256"
+                ],
             },
         }
         inspections[str(wheel_path)] = inspection
@@ -4575,6 +4811,9 @@ def test_task5_release_asset_manifest_reopens_exact_current_attempt_inputs(
                 "build_key": task["task_sha256"],
                 "wheel_sha256": wheel_sha256,
                 "inspection_sha256": inspection_sha,
+                "runtime_patch_manifest_sha256": reviewed[
+                    "runtime_patch_manifest_sha256"
+                ],
             },
         )
         _write_canonical(
@@ -4587,7 +4826,11 @@ def test_task5_release_asset_manifest_reopens_exact_current_attempt_inputs(
         )
 
     def inspect_wheel(
-        path: Path, spec_id: str, wheel_sha256: str, source_kind: str
+        path: Path,
+        spec_id: str,
+        wheel_sha256: str,
+        source_kind: str,
+        **_kwargs: object,
     ) -> dict[str, object]:
         assert source_kind == "builder-candidate"
         value = inspections[str(path)]
@@ -4613,7 +4856,7 @@ def test_task5_release_asset_manifest_reopens_exact_current_attempt_inputs(
     monkeypatch.setattr(
         verify_module,
         "_real_chart_summary",
-        lambda result_path, package_path: {
+        lambda result_path, package_path, **_kwargs: {
             **json.loads(result_path.read_text()),
             "sha256": "sha256:" + hashlib.sha256(package_path.read_bytes()).hexdigest(),
         },
@@ -4626,17 +4869,24 @@ def test_task5_release_asset_manifest_reopens_exact_current_attempt_inputs(
         chart_package_path=chart_package,
         output_dir=output_root,
         source_sha=source_sha,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
         run=run,
     )
     assert [item["spec_id"] for item in manifest["assets"]] == [
-        *REAL_SPEC_IDS,
+        *(task["spec_id"] for task in expanded["wheel_tasks"]),
         "helm-chart",
+        "resolved-plan",
+        "release-provenance",
     ]
-    assert manifest["assets"][-1]["name"] == ("unified-cache-pd-0.5.0-rc.1.tgz")
+    assert manifest["assets"][-3]["name"] == ("unified-cache-pd-0.5.0-rc.1.tgz")
     assert all(Path(item["path"]).parent == output_root for item in manifest["assets"])
     assert (
         verify_module.validate_release_asset_manifest(
-            manifest, allowed_root=output_root
+            manifest,
+            allowed_root=output_root,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
         )
         == manifest
     )
@@ -4655,6 +4905,8 @@ def test_task5_release_asset_manifest_reopens_exact_current_attempt_inputs(
             chart_package_path=chart_package,
             output_dir=tmp_path / "forged-release-assets",
             source_sha=source_sha,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
             run=run,
         )
 
@@ -4665,13 +4917,19 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
     monkeypatch: pytest.MonkeyPatch,
     release_branch: str,
 ) -> None:
-    """Final evidence binds protected Registry closure to one public seven-asset release."""
-    core_module, _, verify_module = _release_modules()
+    """Final evidence binds Registry closure to the exact planned public assets."""
+    _, _, verify_module = _release_modules()
     source_sha = "a" * 40
     asset_root = tmp_path / "release-assets"
     asset_root.mkdir()
     assets: list[dict[str, object]] = []
-    for task in core_module.build_matrix("protected-tag")["tasks"]:
+    resolved_plan = _protected_release_fixture_plan(source_sha, monkeypatch)
+    tasks = resolved_plan["wheel_tasks"]
+    plan_binding = {
+        "resolved_plan": resolved_plan,
+        "expected_plan_sha256": resolved_plan["resolved_plan_sha256"],
+    }
+    for task in tasks:
         architecture = "x86_64" if task["cpu_arch"] == "amd64" else "aarch64"
         name = (
             f"uc_manager-{task['wheel_version']}-{task['python_abi']}-"
@@ -4705,10 +4963,33 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
             "path": str(chart_path),
         }
     )
+    for spec_id, name, asset_type in (
+        ("resolved-plan", "resolved-plan.json", "resolved-plan"),
+        (
+            "release-provenance",
+            "release-provenance.json",
+            "release-provenance",
+        ),
+    ):
+        path = asset_root / name
+        path.write_text(f"{spec_id}\n", encoding="utf-8")
+        assets.append(
+            {
+                "spec_id": spec_id,
+                "profile_id": None,
+                "platform": None,
+                "name": name,
+                "sha256": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(),
+                "size": path.stat().st_size,
+                "type": asset_type,
+                "path": str(path),
+            }
+        )
     asset_manifest = {
         "schema_version": 1,
         "kind": "ucm-github-release-assets",
         "source_sha": source_sha,
+        "resolved_plan_sha256": "sha256:" + "9" * 64,
         "assets": assets,
     }
     asset_manifest["assets_sha256"] = verify_module.sha256_value(
@@ -4716,13 +4997,14 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
             "schema_version": 1,
             "kind": asset_manifest["kind"],
             "source_sha": source_sha,
+            "resolved_plan_sha256": asset_manifest["resolved_plan_sha256"],
             "assets": [
                 {key: value for key, value in asset.items() if key != "path"}
                 for asset in assets
             ],
         }
     )
-    authority = verify_module.github_release_authority(source_sha)
+    authority = verify_module.github_release_authority(source_sha, **plan_binding)
     published_release = {
         "id": 41,
         "tag_name": authority["tag_name"],
@@ -4731,7 +5013,7 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
         "body": authority["body"],
         "draft": False,
         "prerelease": True,
-        "assets": [{"id": 600 + index} for index in range(7)],
+        "assets": [{"id": 600 + index} for index in range(len(assets))],
         "author": {"login": "github-actions[bot]", "type": "Bot"},
         "upload_url": "https://uploads.github.com/repos/SuperMarioYL/unified-cache-management/releases/41/assets{?name,label}",
         "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/releases/41",
@@ -4775,7 +5057,7 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
         initial_release = copy.deepcopy(published_release)
         initial_assets = copy.deepcopy(remote_assets)
         prepare_initial_plan = verify_module.plan_github_release(
-            prepare_release, source_sha
+            prepare_release, source_sha, **plan_binding
         )
         prepublish_release = copy.deepcopy(published_release)
     elif release_branch == "create":
@@ -4790,7 +5072,9 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
         }
         initial_release = copy.deepcopy(prepare_release)
         initial_assets = []
-        prepare_initial_plan = verify_module.plan_github_release(None, source_sha)
+        prepare_initial_plan = verify_module.plan_github_release(
+            None, source_sha, **plan_binding
+        )
         prepublish_release = {
             **copy.deepcopy(published_release),
             "draft": True,
@@ -4812,7 +5096,7 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
         initial_release = copy.deepcopy(prepare_release)
         initial_assets = copy.deepcopy(draft_remote_assets[:3])
         prepare_initial_plan = verify_module.plan_github_release(
-            prepare_release, source_sha
+            prepare_release, source_sha, **plan_binding
         )
         prepublish_release = {
             **copy.deepcopy(published_release),
@@ -4822,7 +5106,9 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
                 f"releases/tag/{draft_slug}"
             ),
         }
-    initial_state = verify_module.plan_github_release(initial_release, source_sha)
+    initial_state = verify_module.plan_github_release(
+        initial_release, source_sha, **plan_binding
+    )
     initial_asset_plan = verify_module.plan_release_assets(
         asset_manifest,
         initial_assets,
@@ -4830,6 +5116,7 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
         allowed_root=asset_root,
         release_published=release_branch == "published",
         asset_download_slug=initial_state["asset_download_slug"],
+        **plan_binding,
     )
 
     def raw_asset(item: dict[str, object]) -> dict[str, object]:
@@ -4866,6 +5153,7 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
             release_id=41,
             allowed_root=asset_root,
             asset_download_slug=initial_state["asset_download_slug"],
+            **plan_binding,
         )
         raw_response = raw_asset(final_by_name[name])
         response = verify_module.record_release_upload_response(
@@ -4875,6 +5163,7 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
             release_id=41,
             allowed_root=asset_root,
             asset_download_slug=initial_state["asset_download_slug"],
+            **plan_binding,
         )
         upload_transcript.append(
             {
@@ -4930,6 +5219,7 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
                 source_sha=source_sha,
                 release_id=41,
                 allowed_root=asset_root,
+                **plan_binding,
             )
     protected_payload = {
         "kind": "ucm-protected-registry-publication-payload",
@@ -5135,10 +5425,11 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
         operations=operations,
         source_sha=source_sha,
         run={"run_id": "17", "run_attempt": 2},
+        **plan_binding,
     )
     assert evidence["payload"]["kind"] == "ucm-github-release-publication"
     assert evidence["payload"]["publication"] == "published-prerelease"
-    assert evidence["payload"]["asset_count"] == 7
+    assert evidence["payload"]["asset_count"] == len(assets)
 
     forged_assets = copy.deepcopy(remote_assets)
     forged_assets[0]["download_sha256"] = "sha256:" + "f" * 64
@@ -5162,6 +5453,7 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
             operations=operations,
             source_sha=source_sha,
             run={"run_id": "17", "run_attempt": 2},
+            **plan_binding,
         )
 
     forged_operations = copy.deepcopy(operations)
@@ -5207,4 +5499,5 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
             operations=forged_operations,
             source_sha=source_sha,
             run={"run_id": "17", "run_attempt": 2},
+            **plan_binding,
         )

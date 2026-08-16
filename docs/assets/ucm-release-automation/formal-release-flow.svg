@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="620" viewBox="0 0 1600 620" role="img" aria-labelledby="title desc">
+  <title id="title">UCM 正式版本发布流程</title>
+  <desc id="desc">正式 Tag 经过版本检查、三条产品线构建、统一发布计划审批、分渠道发布和远端验证后，才公开 GitHub Release。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,5 L0,10 Z" fill="#64748B"/></marker>
+    <marker id="arrowRed" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,5 L0,10 Z" fill="#E11D48"/></marker>
+    <style>
+      .canvas{fill:#FAFAFA}.title{font:700 28px Inter,'PingFang SC','Microsoft YaHei',sans-serif;fill:#111827}.sub{font:400 15px Inter,'PingFang SC','Microsoft YaHei',sans-serif;fill:#64748B}
+      .label{font:700 16px Inter,'PingFang SC','Microsoft YaHei',sans-serif;fill:#1F2937}.text{font:400 13px Inter,'PingFang SC','Microsoft YaHei',sans-serif;fill:#475569}
+      .start{fill:#E1F5FE;stroke:#0277BD;stroke-width:2}.step{fill:#FFFFFF;stroke:#64748B;stroke-width:1.6}.build{fill:#E8F5E9;stroke:#43A047;stroke-width:2}
+      .decision{fill:#FFF9C4;stroke:#D4A72C;stroke-width:2}.publish{fill:#FFF3E0;stroke:#F59E0B;stroke-width:2}.done{fill:#E1F5FE;stroke:#0277BD;stroke-width:2}
+      .fail{fill:#FCE4EC;stroke:#E91E63;stroke-width:2}.line{fill:none;stroke:#64748B;stroke-width:2;marker-end:url(#arrow)}
+      .join{fill:none;stroke:#64748B;stroke-width:2}
+      .failLine{fill:none;stroke:#E11D48;stroke-width:2;marker-end:url(#arrowRed)}.branch{font:700 13px Inter,'PingFang SC','Microsoft YaHei',sans-serif;fill:#475569}
+    </style>
+  </defs>
+  <rect class="canvas" width="1600" height="620"/>
+  <text class="title" x="48" y="48">UCM 正式版本发布流程</text>
+  <text class="sub" x="48" y="76">先完成三类产品的构建和验证，再按渠道发布；任一正式渠道回读失败，都不能把 GitHub Release 标记为完成。</text>
+
+  <rect class="start" x="48" y="170" width="168" height="86" rx="43"/>
+  <text class="label" x="132" y="204" text-anchor="middle">受保护 Tag</text>
+  <text class="text" x="132" y="230" text-anchor="middle">开始正式发布</text>
+  <rect class="step" x="274" y="160" width="192" height="106" rx="12"/>
+  <text class="label" x="370" y="195" text-anchor="middle">生成版本计划</text>
+  <text class="text" x="370" y="221" text-anchor="middle">校验版本映射</text>
+  <text class="text" x="370" y="244" text-anchor="middle">固定源码提交</text>
+  <path class="line" d="M216 213 H274"/>
+
+  <rect class="build" x="530" y="108" width="210" height="82" rx="10"/>
+  <text class="label" x="635" y="141" text-anchor="middle">构建 Wheel</text>
+  <text class="text" x="635" y="167" text-anchor="middle">安装测试与校验和</text>
+  <rect class="build" x="530" y="216" width="210" height="82" rx="10"/>
+  <text class="label" x="635" y="249" text-anchor="middle">构建镜像矩阵</text>
+  <text class="text" x="635" y="275" text-anchor="middle">多版本、多架构验证</text>
+  <rect class="build" x="530" y="324" width="210" height="82" rx="10"/>
+  <text class="label" x="635" y="357" text-anchor="middle">构建 Chart</text>
+  <text class="text" x="635" y="383" text-anchor="middle">lint、render、package</text>
+  <path class="line" d="M466 188 H498 V149 H530"/>
+  <path class="line" d="M466 213 H498 V257 H530"/>
+  <path class="line" d="M466 238 H482 V365 H530"/>
+
+  <polygon class="decision" points="870,144 978,213 870,282 762,213"/>
+  <text class="label" x="870" y="205" text-anchor="middle">所有计划项</text>
+  <text class="label" x="870" y="228" text-anchor="middle">都通过？</text>
+  <path class="join" d="M740 149 H750 V213"/>
+  <path class="join" d="M740 257 H750 V213"/>
+  <path class="join" d="M740 365 H750 V213"/>
+  <path class="line" d="M750 213 H762"/>
+
+  <rect class="publish" x="1020" y="142" width="230" height="142" rx="12"/>
+  <text class="label" x="1135" y="177" text-anchor="middle">形成待发布批次</text>
+  <text class="text" x="1135" y="204" text-anchor="middle">Wheel 与 Chart 文件</text>
+  <text class="text" x="1135" y="228" text-anchor="middle">镜像暂存摘要</text>
+  <text class="text" x="1135" y="252" text-anchor="middle">发布说明与渠道清单</text>
+  <path class="line" d="M978 213 H1020"/>
+  <text class="branch" x="988" y="198">是</text>
+
+  <rect class="publish" x="1312" y="98" width="238" height="230" rx="12"/>
+  <text class="label" x="1431" y="136" text-anchor="middle">正式渠道发布</text>
+  <text class="text" x="1431" y="170" text-anchor="middle">Wheel → PyPI</text>
+  <text class="text" x="1431" y="198" text-anchor="middle">镜像 → GHCR + Docker Hub</text>
+  <text class="text" x="1431" y="226" text-anchor="middle">Chart → GitHub Packages</text>
+  <text class="text" x="1431" y="254" text-anchor="middle">Wheel → GitHub Release 草稿</text>
+  <text class="text" x="1431" y="282" text-anchor="middle">逐渠道下载或摘要回读</text>
+  <text class="text" x="1431" y="306" text-anchor="middle">确认结果与发布计划一致</text>
+  <path class="line" d="M1250 213 H1312"/>
+
+  <polygon class="decision" points="1200,390 1302,450 1200,510 1098,450"/>
+  <text class="label" x="1200" y="442" text-anchor="middle">远端结果</text>
+  <text class="label" x="1200" y="465" text-anchor="middle">完全一致？</text>
+  <path class="line" d="M1431 328 V358 H1260 V414"/>
+
+  <rect class="done" x="1360" y="408" width="190" height="84" rx="42"/>
+  <text class="label" x="1455" y="442" text-anchor="middle">公开 GitHub Release</text>
+  <text class="text" x="1455" y="468" text-anchor="middle">正式版本发布完成</text>
+  <path class="line" d="M1302 450 H1360"/>
+  <text class="branch" x="1321" y="436">是</text>
+
+  <rect class="fail" x="686" y="478" width="290" height="94" rx="12"/>
+  <text class="label" x="831" y="512" text-anchor="middle">停止公开，保留可诊断结果</text>
+  <text class="text" x="831" y="539" text-anchor="middle">修复后从失败产品或渠道重试</text>
+  <text class="text" x="831" y="560" text-anchor="middle">不覆盖已确认的版本内容</text>
+  <path class="failLine" d="M870 282 V478"/>
+  <text class="branch" x="882" y="320">否</text>
+  <path class="failLine" d="M1098 450 H1030 V525 H976"/>
+  <text class="branch" x="1030" y="436">否</text>
+</svg>

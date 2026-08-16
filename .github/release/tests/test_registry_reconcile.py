@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import ast
 import base64
 import copy
 import csv
+import functools
 import hashlib
 import importlib
+import inspect
 import io
 import json
 import os
@@ -84,6 +87,7 @@ def _fixture_wheel(tmp_path: Path, spec: dict[str, object], version: str) -> Pat
                 "Metadata-Version: 2.1",
                 "Name: uc-manager",
                 f"Version: {version}",
+                "Requires-Dist: packaging==24.2",
                 "Requires-Dist: wrapt==1.17.2",
                 "",
             ]
@@ -121,7 +125,7 @@ def _case(tmp_path: Path) -> dict[str, object]:
     sys.path.insert(0, str(RELEASE_ROOT))
     core = importlib.import_module("ucm_release.core")
     wheel = importlib.import_module("ucm_release.wheel")
-    manifest = core.build_release_manifest()
+    manifest = core._build_fixture_release_manifest()
     spec = next(
         item
         for item in manifest["wheel_specs"]
@@ -136,20 +140,20 @@ def _case(tmp_path: Path) -> dict[str, object]:
         tmp_path / "fixture-wheel", "0" * 40, spec["spec_id"]
     )
     wheel_record = fixture["inspection"]
-    _, compatibility = core.validate_config()
+    catalog = core.load_catalog()
     return {
         "release_manifest": manifest,
         "wheel_records": [wheel_record],
         "spec_id": spec["spec_id"],
         "upstream_snapshot": _snapshot(),
-        "compatibility": compatibility,
+        "catalog": catalog,
         "compatibility_rule_id": "ascend-supported",
         "implementation_digest": DIGESTS["implementation"],
     }
 
 
 def _inventory(entries: list[dict[str, object]] | None = None) -> dict[str, object]:
-    registry, _ = _modules()
+    registry, verify = _modules()
     inventory = {
         "schema_version": 1,
         "kind": "registry-inventory",
@@ -159,7 +163,7 @@ def _inventory(entries: list[dict[str, object]] | None = None) -> dict[str, obje
         ],
         "entries": entries or [],
     }
-    inventory["inventory_sha256"] = registry.inventory_digest(inventory)
+    inventory["inventory_sha256"] = registry.fixture_inventory_digest(inventory)
     return inventory
 
 
@@ -252,13 +256,15 @@ def test_reconcile_schedules_r1_skips_identity_and_preserves_drifted_r1(
     tmp_path: Path,
 ) -> None:
     """A reconciler that overwrites or rebuilds an identical input breaks idempotency."""
-    registry, _ = _modules()
-    candidate = registry.build_candidate(**_case(tmp_path), fixture_mode=True)
+    registry, verify = _modules()
+    candidate = registry.build_fixture_candidate(**_case(tmp_path), fixture_mode=True)
 
-    first = registry.reconcile(candidate, _inventory())
-    same = registry.reconcile(candidate, _inventory([_entry(candidate)]))
+    first = registry.reconcile_fixture_candidate(candidate, _inventory())
+    same = registry.reconcile_fixture_candidate(
+        candidate, _inventory([_entry(candidate)])
+    )
     drift_entry = _entry(candidate, drift=True)
-    drifted = registry.reconcile(candidate, _inventory([drift_entry]))
+    drifted = registry.reconcile_fixture_candidate(candidate, _inventory([drift_entry]))
 
     assert first["task_count"] == 1
     assert first["tasks"][0]["revision"] == 1
@@ -277,17 +283,19 @@ def test_reconcile_schedules_r1_skips_identity_and_preserves_drifted_r1(
     }
     assert first["tasks"][0]["concurrency_key"] == candidate["tag_family_sha256"]
 
-    stale_again = registry.reconcile(candidate, _inventory())
+    stale_again = registry.reconcile_fixture_candidate(candidate, _inventory())
     changed_entry = _entry(candidate)
     changed_entry["tag"] = candidate["tag_base"] + "-r99"
     changed_entry["build_key_sha256"] = "sha256:" + "a" * 64
-    changed = registry.reconcile(candidate, _inventory([changed_entry]))
+    changed = registry.reconcile_fixture_candidate(
+        candidate, _inventory([changed_entry])
+    )
     assert stale_again["tasks"][0]["precondition"] == first["tasks"][0]["precondition"]
     assert changed["tasks"][0]["precondition"] != first["tasks"][0]["precondition"]
     bad_inventory = _inventory()
     bad_inventory["inventory_sha256"] = "sha256:" + "0" * 64
     with pytest.raises(ValueError, match="inventory digest mismatch"):
-        registry.reconcile(candidate, bad_inventory)
+        registry.reconcile_fixture_candidate(candidate, bad_inventory)
     second_entry = copy.deepcopy(changed_entry)
     second_entry["tag"] = candidate["tag_base"] + "-r98"
     second_entry["build_key_sha256"] = "sha256:" + "b" * 64
@@ -313,7 +321,7 @@ def test_upstream_parser_retains_only_canonical_device_and_os_tags(
     """Defaulting or suffix parsing must not lose the A2/A3/openEuler boundary."""
     registry, _ = _modules()
 
-    parsed = registry.parse_upstream_tag(product, tag)
+    parsed = registry.parse_fixture_upstream_tag(product, tag)
 
     assert parsed["exact_upstream_tag"] == tag
     assert parsed["npu_arch"] == arch
@@ -349,7 +357,7 @@ def test_upstream_parser_rejects_noncanonical_and_excluded_tags(
     registry, _ = _modules()
 
     with pytest.raises(ValueError):
-        registry.parse_upstream_tag(product, tag)
+        registry.parse_fixture_upstream_tag(product, tag)
 
 
 def test_registry_scan_rejects_same_product_name_on_an_unreviewed_host() -> None:
@@ -357,7 +365,7 @@ def test_registry_scan_rejects_same_product_name_on_an_unreviewed_host() -> None
     registry, _ = _modules()
 
     with pytest.raises(ValueError, match="exact upstream repository"):
-        registry.scan_registry(
+        registry.scan_fixture_registry(
             "evil.example/vllm/vllm-openai",
             "v0.10.2",
             fixture={**_snapshot(), "repository": "evil.example/vllm/vllm-openai"},
@@ -368,7 +376,7 @@ def test_snapshot_and_build_identity_bind_every_immutable_input(tmp_path: Path) 
     """Dropping any platform/config/wheel/rule/implementation input changes identity."""
     registry, _ = _modules()
     case = _case(tmp_path)
-    baseline = registry.build_candidate(**case, fixture_mode=True)
+    baseline = registry.build_fixture_candidate(**case, fixture_mode=True)
 
     assert baseline["target_repository"] == ("ghcr.io/modelengine-group/vllm-ascend")
     assert baseline["tag_base"] == "v0.22.1rc1-a3-ucm-0.5.0rc1"
@@ -378,7 +386,12 @@ def test_snapshot_and_build_identity_bind_every_immutable_input(tmp_path: Path) 
 
     mutations = []
     changed_manifest = copy.deepcopy(case)
-    changed_manifest["release_manifest"]["config_sha256"] = "sha256:" + "d" * 64
+    changed_manifest["catalog"]["compatibility"]["excluded_upstream_patterns"].append(
+        "future"
+    )
+    changed_manifest["release_manifest"]["config_sha256"] = registry.sha256_value(
+        changed_manifest["catalog"]
+    )
     mutations.append(changed_manifest)
     changed_wheel = copy.deepcopy(case)
     changed_wheel["wheel_records"][0]["sha256"] = "sha256:" + "a" * 64
@@ -391,13 +404,13 @@ def test_snapshot_and_build_identity_bind_every_immutable_input(tmp_path: Path) 
     changed_rule = copy.deepcopy(case)
     ascend_rule = next(
         item
-        for item in changed_rule["compatibility"]["rules"]
+        for item in changed_rule["catalog"]["compatibility"]["rules"]
         if item["id"] == "ascend-supported"
     )
     ascend_rule["id"] = "ascend-supported-v2"
     changed_rule["compatibility_rule_id"] = "ascend-supported-v2"
-    changed_rule["release_manifest"]["compatibility_sha256"] = registry.sha256_value(
-        changed_rule["compatibility"]
+    changed_rule["release_manifest"]["config_sha256"] = registry.sha256_value(
+        changed_rule["catalog"]
     )
     mutations.append(changed_rule)
     changed_implementation = copy.deepcopy(case)
@@ -405,12 +418,14 @@ def test_snapshot_and_build_identity_bind_every_immutable_input(tmp_path: Path) 
     mutations.append(changed_implementation)
 
     assert all(
-        registry.build_candidate(**mutation, fixture_mode=True)["build_key_sha256"]
+        registry.build_fixture_candidate(**mutation, fixture_mode=True)[
+            "build_key_sha256"
+        ]
         != baseline["build_key_sha256"]
         for mutation in mutations
     )
     assert (
-        registry.with_revision(baseline, 9)["build_key_sha256"]
+        registry.with_fixture_revision(baseline, 9)["build_key_sha256"]
         == baseline["build_key_sha256"]
     )
     assert baseline["build_inputs"]["compatibility_rule"]["id"] == ("ascend-supported")
@@ -419,19 +434,19 @@ def test_snapshot_and_build_identity_bind_every_immutable_input(tmp_path: Path) 
     cross_pair = copy.deepcopy(case)
     cross_pair["compatibility_rule_id"] = "cuda-supported"
     with pytest.raises(ValueError, match="compatibility"):
-        registry.build_candidate(**cross_pair, fixture_mode=True)
+        registry.build_fixture_candidate(**cross_pair, fixture_mode=True)
     semantic_mutation = copy.deepcopy(case)
     mutated_rule = next(
         item
-        for item in semantic_mutation["compatibility"]["rules"]
+        for item in semantic_mutation["catalog"]["compatibility"]["rules"]
         if item["id"] == "ascend-supported"
     )
     mutated_rule["accelerator_runtimes"].remove("cann-9.0.0")
-    semantic_mutation["release_manifest"]["compatibility_sha256"] = (
-        registry.sha256_value(semantic_mutation["compatibility"])
+    semantic_mutation["release_manifest"]["config_sha256"] = registry.sha256_value(
+        semantic_mutation["catalog"]
     )
     with pytest.raises(ValueError, match="compatibility"):
-        registry.build_candidate(**semantic_mutation, fixture_mode=True)
+        registry.build_fixture_candidate(**semantic_mutation, fixture_mode=True)
 
     for mutation in (
         lambda value: value["platforms"].pop(),
@@ -440,7 +455,7 @@ def test_snapshot_and_build_identity_bind_every_immutable_input(tmp_path: Path) 
         bad = _snapshot()
         mutation(bad)
         with pytest.raises(ValueError):
-            registry.validate_snapshot(bad)
+            registry.validate_fixture_snapshot(bad)
 
 
 def test_fixture_base_policy_drift_creates_a_new_build_task(
@@ -452,7 +467,7 @@ def test_fixture_base_policy_drift_creates_a_new_build_task(
     case = _case(tmp_path)
     original_implementation = image.implementation_digests()
     case["implementation_digest"] = original_implementation["aggregate_sha256"]
-    baseline = registry.build_candidate(**case, fixture_mode=True)
+    baseline = registry.build_fixture_candidate(**case, fixture_mode=True)
 
     changed_authority = copy.deepcopy(image.FIXTURE_BASE_AUTHORITY)
     changed_authority["manifest_digest"] = "sha256:" + "d" * 64
@@ -460,8 +475,10 @@ def test_fixture_base_policy_drift_creates_a_new_build_task(
     changed_implementation = image.implementation_digests()
     changed_case = copy.deepcopy(case)
     changed_case["implementation_digest"] = changed_implementation["aggregate_sha256"]
-    changed = registry.build_candidate(**changed_case, fixture_mode=True)
-    reconciled = registry.reconcile(changed, _inventory([_entry(baseline)]))
+    changed = registry.build_fixture_candidate(**changed_case, fixture_mode=True)
+    reconciled = registry.reconcile_fixture_candidate(
+        changed, _inventory([_entry(baseline)])
+    )
 
     assert (
         changed_implementation["base_authority_sha256"]
@@ -482,7 +499,7 @@ def test_fixture_image_toolchain_policy_drift_creates_a_new_build_task(
     case = _case(tmp_path)
     original_implementation = image.implementation_digests()
     case["implementation_digest"] = original_implementation["aggregate_sha256"]
-    baseline = registry.build_candidate(**case, fixture_mode=True)
+    baseline = registry.build_fixture_candidate(**case, fixture_mode=True)
 
     changed_authority = copy.deepcopy(image.FIXTURE_IMAGE_TOOLCHAIN_AUTHORITY)
     if mutation == "version":
@@ -495,8 +512,10 @@ def test_fixture_image_toolchain_policy_drift_creates_a_new_build_task(
     changed_implementation = image.implementation_digests()
     changed_case = copy.deepcopy(case)
     changed_case["implementation_digest"] = changed_implementation["aggregate_sha256"]
-    changed = registry.build_candidate(**changed_case, fixture_mode=True)
-    reconciled = registry.reconcile(changed, _inventory([_entry(baseline)]))
+    changed = registry.build_fixture_candidate(**changed_case, fixture_mode=True)
+    reconciled = registry.reconcile_fixture_candidate(
+        changed, _inventory([_entry(baseline)])
+    )
 
     assert (
         changed_implementation["image_toolchain_authority_sha256"]
@@ -510,24 +529,26 @@ def test_inventory_tag_and_wheel_boundaries_fail_closed(tmp_path: Path) -> None:
     """Conflicting inventory, ambiguous wheels, and unpublished production never plan."""
     registry, _ = _modules()
     case = _case(tmp_path)
-    candidate = registry.build_candidate(**case, fixture_mode=True)
+    candidate = registry.build_fixture_candidate(**case, fixture_mode=True)
     conflict = _entry(candidate)
     duplicate = copy.deepcopy(conflict)
     duplicate["observed_digest"] = DIGESTS["observed_drift"]
 
     with pytest.raises(ValueError, match="conflicting"):
-        registry.reconcile(candidate, _inventory([conflict, duplicate]))
+        registry.reconcile_fixture_candidate(
+            candidate, _inventory([conflict, duplicate])
+        )
     with pytest.raises(ValueError):
-        registry.with_revision(candidate, 0)
+        registry.with_fixture_revision(candidate, 0)
     with pytest.raises(ValueError):
         registry.validate_public_tag(candidate["tag_base"] + "-r01")
     with pytest.raises(ValueError):
-        registry.build_candidate(
+        registry.build_fixture_candidate(
             **{**case, "wheel_records": case["wheel_records"] * 2},
             fixture_mode=True,
         )
     with pytest.raises(ValueError, match="unpublished"):
-        registry.build_candidate(**case, fixture_mode=False)
+        registry.build_fixture_candidate(**case, fixture_mode=False)
     forged = copy.deepcopy(case["wheel_records"][0])
     forged.update(
         source_kind="builder-candidate",
@@ -537,7 +558,7 @@ def test_inventory_tag_and_wheel_boundaries_fail_closed(tmp_path: Path) -> None:
         publication_eligible=True,
     )
     with pytest.raises(ValueError, match="Task 2"):
-        registry.build_candidate(
+        registry.build_fixture_candidate(
             **{**case, "wheel_records": [forged]},
             fixture_mode=False,
         )
@@ -555,20 +576,20 @@ def test_inventory_tag_and_wheel_boundaries_fail_closed(tmp_path: Path) -> None:
         trust_level="unpublished-builder-candidate",
     )
     with pytest.raises(ValueError, match="fixture-only"):
-        registry.build_candidate(
+        registry.build_fixture_candidate(
             **{**case, "wheel_records": [builder_record]}, fixture_mode=True
         )
     forged_candidate = copy.deepcopy(candidate)
     forged_candidate["fixture_only"] = False
     with pytest.raises(ValueError, match="fixture-only"):
-        registry.reconcile(forged_candidate, _inventory())
+        registry.reconcile_fixture_candidate(forged_candidate, _inventory())
     mini_manifest = {
         "kind": "ucm-core-release-manifest",
         "ucm_version": "0.5.0rc1",
         "wheel_specs": [],
     }
     with pytest.raises(ValueError, match="release manifest"):
-        registry.build_candidate(
+        registry.build_fixture_candidate(
             **{**case, "release_manifest": mini_manifest}, fixture_mode=True
         )
     mini_wheel = {
@@ -583,73 +604,27 @@ def test_inventory_tag_and_wheel_boundaries_fail_closed(tmp_path: Path) -> None:
         "publication_eligible": False,
     }
     with pytest.raises(ValueError, match="wheel inspection"):
-        registry.build_candidate(
+        registry.build_fixture_candidate(
             **{**case, "wheel_records": [mini_wheel]}, fixture_mode=True
         )
 
 
-def test_crane_live_scan_cli_and_evidence_envelope_are_read_only_and_deterministic(
+def test_fixture_scan_cli_and_evidence_envelope_are_local_and_deterministic(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Live discovery must need both child configs and expose no registry write verb."""
+    """The legacy Task 3 scanner accepts only an explicit local snapshot fixture."""
     registry, verify = _modules()
-    crane = tmp_path / "crane-v0.20.3"
-    crane.write_text(
-        """#!/usr/bin/env python3
-import json
-import sys
-if sys.argv[1] != "manifest":
-    if sys.argv[1] == "digest" and sys.argv[2].endswith(":v0.10.2"):
-        print("sha256:" + "1" * 64)
-        raise SystemExit(0)
-    raise SystemExit(91)
-ref = sys.argv[2]
-if ref.endswith(":v0.10.2"):
-    raise SystemExit(93)
-elif ref.endswith("@sha256:" + "1" * 64):
-    print(json.dumps({
-        "mediaType": "application/vnd.oci.image.index.v1+json",
-        "manifests": [
-            {"mediaType": "application/vnd.oci.image.manifest.v1+json", "digest": "sha256:" + "2" * 64, "platform": {"os": "linux", "architecture": "amd64"}},
-            {"mediaType": "application/vnd.oci.image.manifest.v1+json", "digest": "sha256:" + "4" * 64, "platform": {"os": "linux", "architecture": "arm64"}},
-        ]
-    }))
-elif ref.endswith("2" * 64):
-    print(json.dumps({"mediaType": "application/vnd.oci.image.manifest.v1+json", "config": {"digest": "sha256:" + "3" * 64}}))
-elif ref.endswith("4" * 64):
-    print(json.dumps({"mediaType": "application/vnd.oci.image.manifest.v1+json", "config": {"digest": "sha256:" + "5" * 64}}))
-else:
-    raise SystemExit(92)
-""",
-        encoding="utf-8",
-    )
-    crane.chmod(0o755)
-    monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: str(crane))
-
-    live_scan = registry.scan_registry(
-        "docker.io/vllm/vllm-openai",
-        "v0.10.2",
-    )
-    snapshot = live_scan["snapshot"]
-    assert snapshot["platforms"] == _snapshot()["platforms"]
-    assert live_scan["operations"][1]["reference"] == (
-        "docker.io/vllm/vllm-openai@" + DIGESTS["index"]
-    )
-    assert all(item["capability"] == "read" for item in live_scan["operations"])
-    assert verify.audit_operations(live_scan["operations"]) == {
-        "operation_count": 4,
-        "operation_types": ["crane-digest", "crane-manifest"],
-        "write_capable_operations": [],
-        "write_count": 0,
+    snapshot = {
+        **_snapshot(),
+        "repository": "docker.io/vllm/vllm-openai",
+        "upstream_tag": "v0.10.2",
     }
-
     fixture_path = tmp_path / "snapshot.json"
     fixture_path.write_text(json.dumps(snapshot), encoding="utf-8")
     scanned = json.loads(
         _cli(
             "registry",
-            "scan",
+            "fixture-scan",
             "--repository",
             "docker.io/vllm/vllm-openai",
             "--tag",
@@ -668,13 +643,15 @@ else:
     ]
 
     case = _case(tmp_path)
-    candidate = registry.build_candidate(**case, fixture_mode=True)
+    candidate = registry.build_fixture_candidate(**case, fixture_mode=True)
     reconcile_path = tmp_path / "reconcile.json"
     reconcile_path.write_text(
         json.dumps({"candidate": candidate, "inventory": _inventory()}),
         encoding="utf-8",
     )
-    reconciled = json.loads(_cli("reconcile", "--input", str(reconcile_path)).stdout)
+    reconciled = json.loads(
+        _cli("fixture-reconcile", "--input", str(reconcile_path)).stdout
+    )
     assert reconciled["task_count"] == 1
 
     case_path = tmp_path / "case.json"
@@ -789,13 +766,13 @@ def test_operation_ledger_accepts_only_exact_producer_operations(
     """The verifier accepts emitted scan/reconcile batches without a permissive fallback."""
     registry, verify = _modules()
     case = _case(tmp_path)
-    scan = registry.scan_registry(
+    scan = registry.scan_fixture_registry(
         case["upstream_snapshot"]["repository"],
         case["upstream_snapshot"]["upstream_tag"],
         fixture=case["upstream_snapshot"],
     )
-    candidate = registry.build_candidate(**case, fixture_mode=True)
-    planned = registry.reconcile(candidate, _inventory())
+    candidate = registry.build_fixture_candidate(**case, fixture_mode=True)
+    planned = registry.reconcile_fixture_candidate(candidate, _inventory())
 
     audit = verify.audit_operation_batches([scan["operations"], planned["operations"]])
 
@@ -811,14 +788,37 @@ def test_operation_ledger_accepts_only_exact_producer_operations(
     }
 
 
+@functools.lru_cache(maxsize=1)
+def _publication_fixture_authorities() -> tuple[dict[str, object], dict[str, object]]:
+    """Resolve the local registry fixture once, then derive both lane authorities."""
+    registry, _ = _modules()
+    catalog = registry.core.load_catalog()
+    fixture = json.loads(
+        (RELEASE_ROOT / "tests" / "fixtures" / "catalog-registry.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    candidate = registry.resolve_catalog(
+        catalog,
+        source_sha="a" * 40,
+        lane="feature-candidate",
+        fixture=fixture,
+    )
+    protected = registry.core.expand_release_plan(
+        catalog,
+        candidate["resolved_upstreams"],
+        lane="protected-tag",
+    )
+    return candidate, protected
+
+
 def _publication_members() -> list[dict[str, object]]:
     sys.path.insert(0, str(RELEASE_ROOT))
     core = importlib.import_module("ucm_release.core")
-    candidate = core.build_matrix("feature-candidate")
-    protected = core.build_matrix("protected-tag")
-    protected_by_spec = {item["spec_id"]: item for item in protected["tasks"]}
+    candidate, protected = _publication_fixture_authorities()
+    protected_by_task_id = {item["task_id"]: item for item in protected["image_tasks"]}
     members: list[dict[str, object]] = []
-    for index, task in enumerate(candidate["tasks"], start=1):
+    for index, task in enumerate(candidate["image_tasks"], start=1):
         digest = f"sha256:{index:064x}"
         config_digest = f"sha256:{index + 10:064x}"
         build_key = f"sha256:{index + 20:064x}"
@@ -891,6 +891,10 @@ def _publication_members() -> list[dict[str, object]]:
                 },
             ],
             "source": {
+                "repository": "SuperMarioYL/unified-cache-management",
+                "repository_url": (
+                    "https://github.com/SuperMarioYL/unified-cache-management"
+                ),
                 "commit": "a" * 40,
                 "tree": source_tree,
                 "archive_sha256": source_archive_digest,
@@ -950,7 +954,7 @@ def _publication_members() -> list[dict[str, object]]:
             "status": "passed",
             "spec_id": task["spec_id"],
             "profile_id": task["profile_id"],
-            "family_id": task["profile_id"],
+            "family_id": task["family_task_id"],
             "platform": task["platform"],
             "target_repository": task["target_repository"],
             "target_tag": task["target_tag"],
@@ -958,7 +962,7 @@ def _publication_members() -> list[dict[str, object]]:
             "staging_visibility": "private",
             "staging_tag": f"staging-{build_key.removeprefix('sha256:')}",
             "candidate_task_sha256": task["task_sha256"],
-            "publication_task_sha256": protected_by_spec[task["spec_id"]][
+            "publication_task_sha256": protected_by_task_id[task["task_id"]][
                 "task_sha256"
             ],
             "build_key_sha256": build_key,
@@ -969,7 +973,7 @@ def _publication_members() -> list[dict[str, object]]:
             "annotations": {
                 "io.ucm.release.build-key-sha256": build_key,
                 "io.ucm.release.candidate-task-sha256": task["task_sha256"],
-                "io.ucm.release.family-id": task["profile_id"],
+                "io.ucm.release.family-id": task["family_task_id"],
                 "io.ucm.release.platform": task["platform"],
                 "io.ucm.release.spec-id": task["spec_id"],
                 "io.ucm.release.wheel-sha256": wheel_digest,
@@ -1025,8 +1029,1847 @@ def _publication_members() -> list[dict[str, object]]:
     return members
 
 
+def _protected_resolved_plan(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    extra_product: bool = False,
+    split_cuda_family_profiles: bool = False,
+    source_overrides: dict[str, str] | None = None,
+) -> dict[str, object]:
+    """Resolve the catalog as a live protected plan without network access."""
+    registry, _ = _modules()
+    # Warm the immutable fixture authority before this helper installs its live-read
+    # stand-ins on the shared registry module.
+    _publication_fixture_authorities()
+    catalog = registry.core.load_catalog()
+    if source_overrides is not None:
+        catalog["source"].update(source_overrides)
+    if split_cuda_family_profiles:
+        cuda_profile = next(
+            item for item in catalog["wheel_profiles"] if item["id"] == "cuda130"
+        )
+        arm_profile = copy.deepcopy(cuda_profile)
+        arm_profile.update(
+            {
+                "id": "cuda130-arm-only",
+                "cpu_arch": ["arm64"],
+                "builders": {"arm64": arm_profile["builders"]["arm64"]},
+            }
+        )
+        cuda_profile["cpu_arch"] = ["amd64"]
+        cuda_profile["builders"] = {"amd64": cuda_profile["builders"]["amd64"]}
+        catalog["wheel_profiles"].append(arm_profile)
+    if extra_product:
+        product = copy.deepcopy(
+            next(item for item in catalog["upstream_products"] if item["id"] == "vllm")
+        )
+        product.update(
+            {
+                "id": "vllm-extra",
+                "repository": "docker.io/vllm/vllm-openai-extra",
+                "target_repository": "ghcr.io/supermarioyl/vllm-openai-extra",
+                "target_tag_suffix": "-extra-ucm-0.5.0rc1-r1",
+            }
+        )
+        catalog["upstream_products"].append(product)
+        rule = copy.deepcopy(
+            next(
+                item
+                for item in catalog["compatibility"]["rules"]
+                if item["id"] == "cuda-supported"
+            )
+        )
+        rule.update({"id": "cuda-extra-supported", "upstream_products": ["vllm-extra"]})
+        catalog["compatibility"]["rules"].append(rule)
+    fixture = json.loads(
+        (RELEASE_ROOT / "tests" / "fixtures" / "catalog-registry.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    repositories = fixture["repositories"]
+    if extra_product:
+        extra_repository = copy.deepcopy(repositories["docker.io/vllm/vllm-openai"])
+        for snapshot in extra_repository["snapshots"].values():
+            snapshot["repository"] = "docker.io/vllm/vllm-openai-extra"
+        repositories["docker.io/vllm/vllm-openai-extra"] = extra_repository
+    enumerate_tags = registry.enumerate_repository_tags
+    resolve_tag = registry.resolve_repository_tag
+
+    def live_tags(
+        repository: str, *, fixture: object, max_tags: int
+    ) -> dict[str, object]:
+        assert fixture is None
+        result = enumerate_tags(
+            repository, fixture=repositories[repository], max_tags=max_tags
+        )
+        result["operations"] = [
+            {
+                "type": "crane-tag-list",
+                "capability": "read",
+                "reference": repository,
+            }
+        ]
+        return result
+
+    def live_snapshot(
+        repository: str,
+        upstream_tag: str,
+        *,
+        required_architectures: list[str],
+        fixture: object,
+    ) -> dict[str, object]:
+        assert fixture is None
+        snapshot_fixture = repositories[repository]["snapshots"][upstream_tag]
+        result = resolve_tag(
+            repository,
+            upstream_tag,
+            required_architectures=required_architectures,
+            fixture=snapshot_fixture,
+        )
+        snapshot = result["snapshot"]
+        result["fixture_only"] = False
+        result["operations"] = [
+            {
+                "type": "crane-digest",
+                "capability": "read",
+                "reference": f"{repository}:{upstream_tag}",
+            },
+            {
+                "type": "crane-manifest",
+                "capability": "read",
+                "reference": f"{repository}@{snapshot['index_digest']}",
+            },
+            *[
+                {
+                    "type": "crane-manifest",
+                    "capability": "read",
+                    "reference": f"{repository}@{member['manifest_digest']}",
+                }
+                for member in snapshot["members"].values()
+            ],
+        ]
+        return result
+
+    monkeypatch.setattr(registry, "enumerate_repository_tags", live_tags)
+    monkeypatch.setattr(registry, "resolve_repository_tag", live_snapshot)
+    plan = registry.resolve_catalog(
+        catalog,
+        source_sha="a" * 40,
+        lane="protected-tag",
+    )
+    registry.validate_resolved_plan(plan)
+    return plan
+
+
+def test_protected_registry_contract_uses_family_task_not_member_profile_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One target family may select different wheel profiles by architecture."""
+    registry, _ = _modules()
+    plan = _protected_resolved_plan(monkeypatch, split_cuda_family_profiles=True)
+    family = next(
+        item
+        for item in plan["family_tasks"]
+        if item["target_repository"].endswith("/vllm-openai")
+    )
+    image_tasks = [
+        next(item for item in plan["image_tasks"] if item["task_id"] == task_id)
+        for task_id in family["image_task_ids"]
+    ]
+    assert [item["profile_id"] for item in image_tasks] == [
+        "cuda130",
+        "cuda130-arm-only",
+    ]
+
+    contract = registry.resolved_registry_contract(
+        plan, expected_plan_sha256=plan["resolved_plan_sha256"]
+    )
+    family_members = [
+        item
+        for item in contract["members"]
+        if item["family_task_id"] == family["task_id"]
+    ]
+    family_index = next(
+        item
+        for item in contract["indexes"]
+        if item["family_task_id"] == family["task_id"]
+    )
+    assert {item["profile_id"] for item in family_members} == {
+        "cuda130",
+        "cuda130-arm-only",
+    }
+    assert {item["family_id"] for item in family_members} == {family["task_id"]}
+    assert family_index["family_id"] == family["task_id"]
+
+    member_records = _publication_members_for_plan(plan)
+    forged = copy.deepcopy(
+        next(
+            record
+            for record in member_records
+            if record["profile_id"] == "cuda130-arm-only"
+        )
+    )
+    forged["family_id"] = forged["profile_id"]
+    forged["annotations"]["io.ucm.release.family-id"] = forged["family_id"]
+    forged["record_sha256"] = registry.sha256_value(
+        {key: value for key, value in forged.items() if key != "record_sha256"}
+    )
+    with pytest.raises(ValueError, match="differs from feature/protected task"):
+        registry.validate_member_record(
+            forged,
+            resolved_plan=plan,
+            expected_plan_sha256=plan["resolved_plan_sha256"],
+        )
+
+
+def _publication_members_for_plan(
+    plan: dict[str, object],
+) -> list[dict[str, object]]:
+    """Rebind valid publication fixtures to exact frozen image tasks."""
+    registry, _ = _modules()
+    fixture_records = {
+        (
+            item["target_repository"],
+            item["target_tag"],
+            item["platform"],
+        ): item
+        for item in _publication_members()
+    }
+    fixture_records_by_build_shape = {
+        (item["spec_id"], item["platform"]): item for item in _publication_members()
+    }
+    members: list[dict[str, object]] = []
+    for task in plan["image_tasks"]:
+        template = fixture_records.get(
+            (
+                task["target_repository"],
+                task["target_tag"],
+                task["platform"],
+            )
+        )
+        if template is None:
+            template = fixture_records_by_build_shape[
+                (task["spec_id"], task["platform"])
+            ]
+        record = copy.deepcopy(template)
+        prior_staging_repository = record["staging_repository"]
+        staging_repository = plan["source"]["staging_repository"]
+        record.update(
+            {
+                "spec_id": task["spec_id"],
+                "profile_id": task["profile_id"],
+                "family_id": task["family_task_id"],
+                "platform": task["platform"],
+                "target_repository": task["target_repository"],
+                "target_tag": task["target_tag"],
+                "candidate_task_sha256": task["task_sha256"],
+                "publication_task_sha256": task["task_sha256"],
+                "source_sha": plan["source"]["commit"],
+                "staging_repository": staging_repository,
+            }
+        )
+        for operation in record["operations"]:
+            operation["reference"] = operation["reference"].replace(
+                prior_staging_repository, staging_repository, 1
+            )
+        record["annotations"]["io.ucm.release.candidate-task-sha256"] = task[
+            "task_sha256"
+        ]
+        record["annotations"]["io.ucm.release.family-id"] = task["family_task_id"]
+        record["annotations"]["io.ucm.release.spec-id"] = task["spec_id"]
+        record["manifest"]["annotations"]["io.ucm.release.task-sha256"] = task[
+            "task_sha256"
+        ]
+        record["config"]["labels"]["io.ucm.release.task-sha256"] = task["task_sha256"]
+        source_repository = plan["source"]["repository"]
+        source_repository_url = f"https://github.com/{source_repository}"
+        record["config"]["labels"][
+            "org.opencontainers.image.source"
+        ] = source_repository_url
+        identity = record["content_identity"]
+        identity["annotations"] = copy.deepcopy(record["manifest"]["annotations"])
+        identity["labels"] = copy.deepcopy(record["config"]["labels"])
+        identity["task_sha256"] = task["task_sha256"]
+        identity["source"].update(
+            {
+                "repository": source_repository,
+                "repository_url": source_repository_url,
+                "commit": plan["source"]["commit"],
+            }
+        )
+        identity["content_identity_sha256"] = registry.sha256_value(
+            {
+                key: value
+                for key, value in identity.items()
+                if key != "content_identity_sha256"
+            }
+        )
+        record["content_identity_sha256"] = identity["content_identity_sha256"]
+        readback_payload = {
+            "schema_version": 1,
+            "kind": "ucm-registry-readback",
+            "reference": record["staging_repository"] + "@" + record["member_digest"],
+            "digest": record["member_digest"],
+            "manifest": copy.deepcopy(record["manifest"]),
+            "config": copy.deepcopy(record["config"]),
+            "layers": copy.deepcopy(record["layers"]),
+            "children": [],
+            "authenticated": True,
+            "operations": copy.deepcopy(record["operations"][2:6]),
+        }
+        record["readback_sha256"] = registry.sha256_value(readback_payload)
+        record["record_sha256"] = registry.sha256_value(
+            {key: value for key, value in record.items() if key != "record_sha256"}
+        )
+        members.append(record)
+    return members
+
+
+def test_registry_staging_repository_is_bound_to_the_frozen_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-current staging package must flow through every member reference."""
+    registry, verify = _modules()
+    staging_repository = "ghcr.io/future-org/frozen-private-staging"
+    plan = _protected_resolved_plan(
+        monkeypatch,
+        source_overrides={"staging_repository": staging_repository},
+    )
+    members = _publication_members_for_plan(plan)
+    contract = registry.resolved_registry_contract(
+        plan, expected_plan_sha256=plan["resolved_plan_sha256"]
+    )
+
+    assert plan["source"]["staging_repository"] == staging_repository
+    assert contract["staging_repository"] == staging_repository
+    for member in members:
+        validated = registry.validate_member_record(
+            member,
+            resolved_plan=plan,
+            expected_plan_sha256=plan["resolved_plan_sha256"],
+        )
+        assert validated["staging_repository"] == staging_repository
+        assert all(
+            staging_repository in operation["reference"]
+            for operation in validated["operations"]
+        )
+        assert verify.audit_operations(
+            validated["operations"],
+            lane="protected-tag",
+            staging_repository=staging_repository,
+        )["operation_count"] == len(validated["operations"])
+
+
+def test_release_asset_builder_rejects_wrong_plan_hash_before_output_io(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An independently wrong plan hash cannot create the staging directory."""
+    _, verify = _modules()
+    plan = _protected_resolved_plan(monkeypatch)
+    output_dir = tmp_path / "release-assets"
+
+    with pytest.raises(ValueError, match="exact live protected plan"):
+        verify.build_release_asset_manifest(
+            wheel_dir=tmp_path / "missing-wheels",
+            chart_result_path=tmp_path / "missing-chart-result.json",
+            chart_package_path=tmp_path / "missing-chart.tgz",
+            output_dir=output_dir,
+            source_sha=plan["source"]["commit"],
+            resolved_plan=plan,
+            expected_plan_sha256="sha256:" + "f" * 64,
+            run={"run_id": "17", "run_attempt": 2},
+        )
+
+    assert not output_dir.exists()
+
+
+def _absent_inventory_for_plan(
+    plan: dict[str, object],
+) -> dict[str, object]:
+    """Build the canonical all-absent result emitted for frozen family targets."""
+    registry, _ = _modules()
+    absent = [
+        {"repository": task["target_repository"], "tag": task["target_tag"]}
+        for task in plan["family_tasks"]
+    ]
+    payload = {
+        "schema_version": 1,
+        "kind": "ucm-registry-inventory",
+        "entries": [],
+        "absent": absent,
+        "operations": [
+            {
+                "type": "registry-authenticated-digest-read",
+                "capability": "read",
+                "reference": f"{item['repository']}:{item['tag']}",
+            }
+            for item in absent
+        ],
+    }
+    return {**payload, "inventory_sha256": registry.sha256_value(payload)}
+
+
+def _resolved_publication_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[
+    dict[str, object],
+    list[dict[str, object]],
+    dict[str, object],
+    dict[str, object],
+]:
+    """Build one fully local protected fixture bound to its resolved plan."""
+    registry, _ = _modules()
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    members = _publication_members_for_plan(resolved_plan)
+    binding = {
+        "resolved_plan": resolved_plan,
+        "expected_plan_sha256": resolved_plan["resolved_plan_sha256"],
+    }
+    parent = registry.plan_indexes(
+        members,
+        inventory=_absent_inventory_for_plan(resolved_plan),
+        member_statuses={
+            item["task_id"]: "success" for item in resolved_plan["image_tasks"]
+        },
+        lane="protected-tag",
+        **binding,
+    )
+    return resolved_plan, members, parent, binding
+
+
+def test_collect_members_cli_output_is_consumed_without_plan_field_repair(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The real CLI collection is directly valid for the real aggregate consumer."""
+    registry, verify = _modules()
+    cli = importlib.import_module("ucm_release.cli")
+    plan = _protected_resolved_plan(monkeypatch)
+    members = _publication_members_for_plan(plan)
+    run = {"run_id": "42", "run_attempt": 3}
+    root = tmp_path / "artifacts"
+    root.mkdir()
+    for task, member in zip(plan["image_tasks"], members, strict=True):
+        directory = root / verify.run_bound_artifact_name(
+            f"ucm-member-{task['task_id']}", run["run_id"], run["run_attempt"]
+        )
+        directory.mkdir()
+        preflight_payload = {
+            "schema_version": 1,
+            "kind": "ucm-tag-preflight",
+            "lane": "protected-tag",
+            "source_sha": plan["source"]["commit"],
+            "publication_allowed": True,
+            "write_authority": [
+                "github-prerelease",
+                "ghcr-final-index",
+                "ghcr-private-staging",
+            ],
+            "checks": {"release_tag_matches": True},
+        }
+        preflight = {
+            **preflight_payload,
+            "preflight_sha256": registry.sha256_value(preflight_payload),
+        }
+        files = {
+            "member-record.json": member,
+            "member-audit.json": {"kind": "test-member-audit"},
+            "member-preflight.json": preflight,
+            "member-mutation-preflight.json": preflight,
+            "selected-task.json": task,
+            "upstream-drift.json": {"kind": "test-upstream-drift"},
+        }
+        for name, value in files.items():
+            (directory / name).write_bytes(registry.canonical_bytes(value) + b"\n")
+    plan_path = tmp_path / "resolved-plan.json"
+    request_path = tmp_path / "collect-members.input.json"
+    output_path = tmp_path / "member-collection.json"
+    collected_dir = tmp_path / "collected"
+    plan_path.write_bytes(registry.canonical_bytes(plan) + b"\n")
+    request_path.write_bytes(
+        registry.canonical_bytes(
+            {
+                "root": str(root),
+                "output_dir": str(collected_dir),
+                "source_sha": plan["source"]["commit"],
+                "resolved_plan": str(plan_path),
+                "resolved_plan_sha256": plan["resolved_plan_sha256"],
+                "run": run,
+            }
+        )
+        + b"\n"
+    )
+
+    assert (
+        cli.main(
+            [
+                "artifact",
+                "collect-members",
+                "--input",
+                str(request_path),
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 0
+    )
+    collection = json.loads(capsys.readouterr().out)
+    contract = registry.resolved_registry_contract(
+        plan, expected_plan_sha256=plan["resolved_plan_sha256"]
+    )
+    consumed = verify._validate_member_artifact_collection(
+        collection,
+        members,
+        source_sha=plan["source"]["commit"],
+        contract=contract,
+    )
+
+    assert consumed["resolved_plan_sha256"] == plan["resolved_plan_sha256"]
+    assert consumed["collection_sha256"] == collection["collection_sha256"]
+
+
+def test_dynamic_member_publish_uses_catalog_added_plan_authority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-six protected member write is authorized only by its frozen task."""
+    registry, _ = _modules()
+    image = importlib.import_module("ucm_release.image")
+    plan = _protected_resolved_plan(monkeypatch, extra_product=True)
+    selected = next(
+        task
+        for task in plan["image_tasks"]
+        if task["runtime"]["product_id"] == "vllm-extra" and task["cpu_arch"] == "amd64"
+    )
+    member = next(
+        item
+        for task, item in zip(
+            plan["image_tasks"], _publication_members_for_plan(plan), strict=True
+        )
+        if task["task_id"] == selected["task_id"]
+    )
+    archive, expected = _valid_oci_archive(tmp_path, member)
+    image_result = {
+        "candidate_kind": "real-candidate",
+        "unpublished": True,
+        "spec_id": expected["spec_id"],
+        "profile_id": expected["profile_id"],
+        "family_id": expected["family_id"],
+        "target_platform": expected["platform"],
+        "target_repository": expected["target_repository"],
+        "target_tag": expected["target_tag"],
+        "task_key": expected["candidate_task_sha256"],
+        "build_key_sha256": expected["build_key_sha256"],
+        "recipe_sha256": expected["recipe_sha256"],
+        "content_identity_sha256": expected["content_identity_sha256"],
+        "result_sha256": expected["image_result_sha256"],
+        "source": {
+            **copy.deepcopy(expected["content_identity"]["source"]),
+            "task_sha256": expected["candidate_task_sha256"],
+            "wheel_build_key": "sha256:" + "e" * 64,
+        },
+        "wheel": {"sha256": expected["wheel_sha256"]},
+        "oci": {"digest": expected["member_digest"], "published": False},
+        "content_identity": copy.deepcopy(expected["content_identity"]),
+    }
+    member_reference = (
+        plan["source"]["staging_repository"] + "@" + expected["member_digest"]
+    )
+    read_operations = [
+        {
+            "type": "registry-authenticated-digest-read",
+            "capability": "read",
+            "reference": member_reference,
+        },
+        {
+            "type": "registry-authenticated-manifest-read",
+            "capability": "read",
+            "reference": member_reference,
+        },
+        {
+            "type": "registry-authenticated-config-blob-read",
+            "capability": "read",
+            "reference": plan["source"]["staging_repository"]
+            + "@"
+            + expected["config_digest"],
+        },
+        {
+            "type": "registry-authenticated-layer-blob-read",
+            "capability": "read",
+            "reference": (
+                plan["source"]["staging_repository"]
+                + "@"
+                + expected["layers"][0]["digest"]
+            ),
+        },
+    ]
+    readback_payload = {
+        "schema_version": 1,
+        "kind": "ucm-registry-readback",
+        "reference": member_reference,
+        "digest": expected["member_digest"],
+        "manifest": copy.deepcopy(expected["manifest"]),
+        "config": copy.deepcopy(expected["config"]),
+        "layers": copy.deepcopy(expected["layers"]),
+        "children": [],
+        "authenticated": True,
+        "operations": read_operations,
+    }
+    readback = {
+        **readback_payload,
+        "readback_sha256": registry.sha256_value(readback_payload),
+    }
+
+    def visibility(
+        reference: str,
+        *,
+        staging_repository: str,
+        phase: str = "postwrite",
+    ) -> dict[str, object]:
+        assert staging_repository == plan["source"]["staging_repository"]
+        operation = {
+            "type": (
+                "registry-anonymous-prewrite-visibility-read"
+                if phase == "prewrite"
+                else "registry-anonymous-visibility-read"
+            ),
+            "capability": "read",
+            "reference": reference,
+        }
+        payload = {
+            "schema_version": 1,
+            "kind": "ucm-registry-private-visibility-evidence",
+            "status": "anonymous-denied",
+            "phase": phase,
+            "returncode": 1,
+            "stdout_sha256": "sha256:" + ("1" if phase == "prewrite" else "3") * 64,
+            "stderr_sha256": "sha256:" + ("2" if phase == "prewrite" else "4") * 64,
+            "operation": operation,
+        }
+        return {
+            **payload,
+            "visibility_evidence_sha256": registry.sha256_value(payload),
+        }
+
+    validation_calls: list[dict[str, object]] = []
+
+    def validate_image_result(
+        value: object,
+        *,
+        resolved_plan: dict[str, object],
+        expected_plan_sha256: str,
+        task_id: str,
+    ) -> object:
+        validation_calls.append(
+            {
+                "resolved_plan": resolved_plan,
+                "expected_plan_sha256": expected_plan_sha256,
+                "task_id": task_id,
+            }
+        )
+        return copy.deepcopy(value)
+
+    monkeypatch.setattr(image, "validate_image_result", validate_image_result)
+    monkeypatch.setattr(
+        registry.core, "tag_preflight", lambda **_: _protected_preflight()
+    )
+    assert not hasattr(registry.core, "build_matrix")
+    monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: "/pinned/crane")
+    monkeypatch.setattr(registry, "verify_private_staging", visibility)
+    monkeypatch.setattr(registry, "_fresh_transport_digest", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        registry,
+        "_push_materialized_member",
+        lambda *_a, **_k: {
+            "digest": expected["member_digest"],
+            "operations": [
+                {
+                    "type": "registry-member-push-by-digest",
+                    "capability": "write",
+                    "reference": member_reference,
+                }
+            ],
+        },
+    )
+    staging_reference = (
+        plan["source"]["staging_repository"]
+        + ":staging-"
+        + expected["build_key_sha256"][7:]
+    )
+    monkeypatch.setattr(
+        registry,
+        "_apply_digest_tag",
+        lambda **_kwargs: {
+            "digest": expected["member_digest"],
+            "decision": "create",
+            "collision_model": registry._collision_model_evidence(),
+            "operations": [
+                {
+                    "type": "registry-staging-tag-create",
+                    "capability": "write",
+                    "reference": staging_reference,
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        registry, "readback_reference", lambda *_a, **_k: copy.deepcopy(readback)
+    )
+
+    published = registry.publish_member(
+        archive,
+        image_result=image_result,
+        lane="protected-tag",
+        selected_task=selected,
+        resolved_plan=plan,
+        expected_plan_sha256=plan["resolved_plan_sha256"],
+    )
+    assert len(plan["image_tasks"]) == 8
+    assert validation_calls == [
+        {
+            "resolved_plan": plan,
+            "expected_plan_sha256": plan["resolved_plan_sha256"],
+            "task_id": selected["task_id"],
+        }
+    ]
+    assert published["candidate_task_sha256"] == selected["task_sha256"]
+    foreign = copy.deepcopy(selected)
+    foreign["task_id"] = "image-" + "f" * 64
+    with pytest.raises(ValueError, match="selected|task"):
+        registry.publish_member(
+            archive,
+            image_result=image_result,
+            lane="protected-tag",
+            selected_task=foreign,
+            resolved_plan=plan,
+            expected_plan_sha256=plan["resolved_plan_sha256"],
+        )
+
+
+def test_production_registry_and_release_boundaries_require_frozen_plan_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Missing plan authority fails before payload parsing or protected preflight."""
+    registry, verify = _modules()
+    monkeypatch.setattr(
+        registry.core,
+        "tag_preflight",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("protected preflight ran before plan validation")
+        ),
+    )
+
+    with pytest.raises(ValueError, match="frozen resolved plan"):
+        registry.validate_member_record(
+            {}, resolved_plan=None, expected_plan_sha256=None
+        )
+    with pytest.raises(ValueError, match="frozen resolved plan"):
+        registry.plan_indexes(
+            [],
+            {},
+            member_statuses={},
+            lane="protected-tag",
+            resolved_plan=None,
+            expected_plan_sha256=None,
+        )
+    with pytest.raises(ValueError, match="frozen resolved plan"):
+        registry._fresh_write_authority(
+            "protected-tag",
+            resolved_plan=None,
+            expected_plan_sha256=None,
+            task_kind=None,
+            task_id=None,
+        )
+    with pytest.raises(ValueError, match="frozen resolved plan"):
+        verify.validate_index_readbacks(
+            [],
+            [],
+            parent_plans={},
+            anonymous=True,
+            resolved_plan=None,
+            expected_plan_sha256=None,
+        )
+    with pytest.raises(ValueError, match="frozen resolved plan"):
+        verify.validate_release_asset_manifest(
+            {},
+            allowed_root=tmp_path,
+            resolved_plan=None,
+            expected_plan_sha256=None,
+        )
+
+
+def test_registry_production_source_has_no_fixed_catalog_fallback() -> None:
+    """Current fixture cardinality must not remain callable production authority."""
+    source = (RELEASE_ROOT / "ucm_release" / "registry.py").read_text(encoding="utf-8")
+    for forbidden in (
+        "CANONICAL_MEMBER_SPEC_IDS",
+        "def canonical_registry_contract",
+        'core.build_matrix("protected-tag")',
+        '"matrix_sha256"',
+        'len(record["member_digests"]) != 2',
+        "len(member_records) != 6",
+    ):
+        assert forbidden not in source
+
+    cli_source = (RELEASE_ROOT / "ucm_release" / "cli.py").read_text(encoding="utf-8")
+    for forbidden in (
+        "registry.inventory_registry()",
+        'set(request) != {"lane", "parent_plans", "family_id"}',
+    ):
+        assert forbidden not in cli_source
+
+    verify_source = (RELEASE_ROOT / "ucm_release" / "verify.py").read_text(
+        encoding="utf-8"
+    )
+    for forbidden in (
+        "contract: dict[str, Any] | None = None",
+        "member artifact collection differs from six records",
+        "provisional artifact collection differs from three indexes",
+        "Aggregate 6/3 authenticated state",
+    ):
+        assert forbidden not in verify_source
+
+
+def test_release_closure_internal_calls_always_forward_the_frozen_plan() -> None:
+    """Every nested production asset reopen stays on its originating plan/hash."""
+    source = (RELEASE_ROOT / "ucm_release" / "verify.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    protected_calls = {
+        "validate_release_asset_manifest",
+        "plan_release_assets",
+        "verify_release_assets",
+        "plan_release_asset_downloads",
+        "refresh_release_asset_metadata",
+        "rebase_release_asset_manifest",
+        "verify_release_upload_prefix",
+        "record_release_upload_response",
+        "validate_release_upload_transcript",
+    }
+    missing: list[tuple[str, int, list[str]]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        if node.func.id not in protected_calls:
+            continue
+        keywords = {item.arg for item in node.keywords}
+        absent = sorted({"resolved_plan", "expected_plan_sha256"} - keywords)
+        if absent:
+            missing.append((node.func.id, node.lineno, absent))
+    assert missing == []
+
+
+def test_production_registry_and_release_plan_parameters_are_required() -> None:
+    """Production API signatures cannot silently default back to current state."""
+    registry, verify = _modules()
+    functions = [
+        registry.resolved_registry_contract,
+        registry.validate_member_record,
+        registry.validate_index_record,
+        registry.verify_member_readback,
+        registry.plan_indexes,
+        registry._validate_parent_plans,
+        registry.validate_index_plans,
+        registry.verify_index,
+        registry._fresh_write_authority,
+        registry.publish_member,
+        registry.prepare_index,
+        registry.validate_provisional_index,
+        registry.finalize_index,
+        registry.validate_finalized_index,
+        verify.validate_release_asset_manifest,
+        verify.plan_release_assets,
+        verify.verify_release_assets,
+        verify.plan_release_asset_downloads,
+        verify.refresh_release_asset_metadata,
+        verify.rebase_release_asset_manifest,
+        verify.verify_release_upload_prefix,
+        verify.record_release_upload_response,
+        verify.validate_release_upload_transcript,
+        verify.github_release_publication_evidence,
+        verify.validate_index_readbacks,
+        verify.authenticated_registry_publication_evidence,
+        verify.protected_registry_publication_evidence,
+    ]
+    optional: list[tuple[str, str]] = []
+    for function in functions:
+        parameters = inspect.signature(function).parameters
+        for name in ("resolved_plan", "expected_plan_sha256"):
+            if parameters[name].default is not inspect.Parameter.empty:
+                optional.append((function.__name__, name))
+    if (
+        inspect.signature(registry.select_task)
+        .parameters["expected_plan_sha256"]
+        .default
+        is not inspect.Parameter.empty
+    ):
+        optional.append(("select_task", "expected_plan_sha256"))
+    assert optional == []
+
+
+def test_release_asset_set_reopens_only_against_its_frozen_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The exact plan-derived asset order has a positive local reopen path."""
+    registry, verify = _modules()
+    plan = _protected_resolved_plan(monkeypatch)
+    authorities = verify._canonical_release_asset_authorities(
+        plan["wheel_tasks"],
+        include_plan=True,
+        chart_authority=plan["chart"],
+    )
+    assets: list[dict[str, object]] = []
+    for index, authority in enumerate(authorities):
+        path = tmp_path / authority["name"]
+        path.write_bytes(f"asset-{index}".encode())
+        assets.append(
+            {
+                **authority,
+                "sha256": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(),
+                "size": path.stat().st_size,
+                "path": str(path),
+            }
+        )
+    manifest = {
+        "schema_version": 1,
+        "kind": "ucm-github-release-assets",
+        "source_sha": plan["source"]["commit"],
+        "resolved_plan_sha256": plan["resolved_plan_sha256"],
+        "assets": assets,
+    }
+    manifest["assets_sha256"] = verify.sha256_value(
+        verify._release_asset_identity_payload(manifest)
+    )
+
+    assert (
+        verify.validate_release_asset_manifest(
+            manifest,
+            allowed_root=tmp_path,
+            resolved_plan=plan,
+            expected_plan_sha256=plan["resolved_plan_sha256"],
+        )
+        == manifest
+    )
+    with pytest.raises(ValueError, match="exact live protected plan"):
+        verify.validate_release_asset_manifest(
+            manifest,
+            allowed_root=tmp_path,
+            resolved_plan=plan,
+            expected_plan_sha256="sha256:" + "f" * 64,
+        )
+
+
+def test_dynamic_index_prepare_binds_catalog_added_family_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Prepare/provisional validation use the exact non-six frozen family task."""
+    registry, _ = _modules()
+    resolved_plan = _protected_resolved_plan(monkeypatch, extra_product=True)
+    members = _publication_members_for_plan(resolved_plan)
+    monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: "/pinned/crane")
+    monkeypatch.setattr(
+        registry,
+        "_run_registry_tool",
+        lambda _executable, arguments, **_kwargs: subprocess.CompletedProcess(
+            arguments, 1, stdout="", stderr="MANIFEST_UNKNOWN"
+        ),
+    )
+    inventory = registry.inventory_registry(
+        targets=[
+            {"repository": task["target_repository"], "tag": task["target_tag"]}
+            for task in resolved_plan["family_tasks"]
+        ]
+    )
+    parent = registry.plan_indexes(
+        members,
+        inventory=inventory,
+        member_statuses={
+            task["task_id"]: "success" for task in resolved_plan["image_tasks"]
+        },
+        lane="protected-tag",
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
+    )
+    family = next(
+        task
+        for task in resolved_plan["family_tasks"]
+        if task["product_id"] == "vllm-extra"
+    )
+    index_plan = next(
+        item for item in parent["plans"] if item["family_task_id"] == family["task_id"]
+    )
+    digest = index_plan["expected_index_digest"]
+    target = index_plan["target_repository"] + ":" + index_plan["target_tag"]
+    monkeypatch.setattr(
+        registry.core, "tag_preflight", lambda **_: _protected_preflight()
+    )
+    assert not hasattr(registry.core, "build_matrix")
+    monkeypatch.setattr(registry, "resolve_pinned_buildx", lambda: "/pinned/buildx")
+    monkeypatch.setattr(
+        registry,
+        "_create_index_transport",
+        lambda **_: {
+            "rendered": copy.deepcopy(index_plan["index_manifest"]),
+            "raw_manifest": registry.canonical_bytes(index_plan["index_manifest"]),
+            "index_digest": digest,
+            "decision": "create",
+            "collision_model": registry._collision_model_evidence(),
+            "operations": [
+                {
+                    "type": "registry-index-create",
+                    "capability": "write",
+                    "reference": target,
+                }
+            ],
+            "postwrite_manifest_sha256": digest,
+        },
+    )
+    readback_payload = {
+        "schema_version": 1,
+        "kind": "ucm-registry-readback",
+        "reference": target,
+        "digest": digest,
+        "manifest": {
+            "media_type": "application/vnd.oci.image.index.v1+json",
+            "digest": digest,
+            "size": len(registry.canonical_bytes(index_plan["index_manifest"])),
+            "annotations": copy.deepcopy(index_plan["index_manifest"]["annotations"]),
+        },
+        "config": None,
+        "layers": [],
+        "children": copy.deepcopy(index_plan["index_manifest"]["manifests"]),
+        "authenticated": True,
+        "operations": [
+            {
+                "type": "registry-authenticated-digest-read",
+                "capability": "read",
+                "reference": target,
+            },
+            {
+                "type": "registry-authenticated-manifest-read",
+                "capability": "read",
+                "reference": index_plan["target_repository"] + "@" + digest,
+            },
+        ],
+    }
+    readback = {
+        **readback_payload,
+        "readback_sha256": registry.sha256_value(readback_payload),
+    }
+    monkeypatch.setattr(
+        registry, "readback_reference", lambda *_a, **_k: copy.deepcopy(readback)
+    )
+    monkeypatch.setattr(
+        registry,
+        "_validate_remote_index_closure",
+        lambda plan, *, index_digest, anonymous=False: _index_closure_evidence(
+            registry, plan, index_digest, authenticated=not anonymous
+        ),
+    )
+
+    provisional = registry.prepare_index(
+        index_plan,
+        parent_plans=parent,
+        lane="protected-tag",
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
+    )
+    assert provisional["resolved_plan_sha256"] == resolved_plan["resolved_plan_sha256"]
+    assert provisional["family_task_id"] == family["task_id"]
+    assert provisional["family_task_sha256"] == family["task_sha256"]
+    assert (
+        registry.validate_provisional_index(
+            provisional,
+            parent_plans=parent,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
+        )
+        == provisional
+    )
+
+    foreign = copy.deepcopy(index_plan)
+    foreign["family_task_id"] = "family-" + "f" * 64
+    with pytest.raises(ValueError, match="task|family"):
+        registry.prepare_index(
+            foreign,
+            parent_plans=parent,
+            lane="protected-tag",
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
+        )
+
+
+def test_plan_index_cli_binds_dynamic_members_to_frozen_protected_plan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The protected planner accepts task IDs only from one validated plan."""
+    registry, _ = _modules()
+    cli = importlib.import_module("ucm_release.cli")
+    plan = _protected_resolved_plan(monkeypatch)
+    members = _publication_members_for_plan(plan)
+    statuses = {task["task_id"]: "success" for task in plan["image_tasks"]}
+    plan_path = tmp_path / "resolved-plan.json"
+    input_path = tmp_path / "plan-index.input.json"
+    output_path = tmp_path / "parent-plans.json"
+    plan_path.write_bytes(registry.canonical_bytes(plan) + b"\n")
+    input_path.write_bytes(
+        registry.canonical_bytes(
+            {
+                "lane": "protected-tag",
+                "members": members,
+                "member_statuses": statuses,
+                "resolved_plan": str(plan_path),
+                "resolved_plan_sha256": plan["resolved_plan_sha256"],
+            }
+        )
+        + b"\n"
+    )
+    monkeypatch.setattr(
+        registry,
+        "inventory_registry",
+        lambda *, targets: _absent_inventory_for_plan(plan),
+    )
+
+    assert (
+        cli.main(
+            [
+                "registry",
+                "plan-index",
+                "--input",
+                str(input_path),
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 0
+    )
+    parent = json.loads(capsys.readouterr().out)
+    assert parent["resolved_plan_sha256"] == plan["resolved_plan_sha256"]
+    assert parent["member_statuses"] == statuses
+    assert {item["family_task_id"] for item in parent["plans"]} == {
+        item["task_id"] for item in plan["family_tasks"]
+    }
+
+
+def test_plan_index_cli_inventories_only_frozen_family_targets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Dynamic inventory has exact plan coverage and rejects missing/extra scans."""
+    registry, _ = _modules()
+    cli = importlib.import_module("ucm_release.cli")
+    plan = _protected_resolved_plan(monkeypatch, extra_product=True)
+    members = _publication_members_for_plan(plan)
+    statuses = {task["task_id"]: "success" for task in plan["image_tasks"]}
+    plan_path = tmp_path / "resolved-plan.json"
+    request_path = tmp_path / "plan-index.input.json"
+    output_path = tmp_path / "parent-plans.json"
+    plan_path.write_bytes(registry.canonical_bytes(plan) + b"\n")
+    request_path.write_bytes(
+        registry.canonical_bytes(
+            {
+                "lane": "protected-tag",
+                "members": members,
+                "member_statuses": statuses,
+                "resolved_plan": str(plan_path),
+                "resolved_plan_sha256": plan["resolved_plan_sha256"],
+            }
+        )
+        + b"\n"
+    )
+    queried: list[str] = []
+
+    def missing_registry_read(
+        _executable: str, arguments: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        assert arguments[0] == "digest"
+        queried.append(arguments[1])
+        return subprocess.CompletedProcess(
+            arguments, 1, stdout="", stderr="MANIFEST_UNKNOWN"
+        )
+
+    monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: "/pinned/crane")
+    monkeypatch.setattr(registry, "_run_registry_tool", missing_registry_read)
+
+    assert (
+        cli.main(
+            [
+                "registry",
+                "plan-index",
+                "--input",
+                str(request_path),
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 0
+    )
+    parent = json.loads(capsys.readouterr().out)
+    targets = [
+        {"repository": family["target_repository"], "tag": family["target_tag"]}
+        for family in plan["family_tasks"]
+    ]
+    assert queried == [f"{item['repository']}:{item['tag']}" for item in targets]
+    assert parent["inventory"]["absent"] == targets
+
+    missing = registry.inventory_registry(targets=targets[:-1])
+    with pytest.raises(ValueError, match="inventory|target|coverage"):
+        registry.plan_indexes(
+            members,
+            missing,
+            member_statuses=statuses,
+            lane="protected-tag",
+            resolved_plan=plan,
+            expected_plan_sha256=plan["resolved_plan_sha256"],
+        )
+    extra = registry.inventory_registry(
+        targets=[
+            *targets,
+            {
+                "repository": "ghcr.io/supermarioyl/foreign-image",
+                "tag": plan["family_tasks"][0]["target_tag"],
+            },
+        ]
+    )
+    with pytest.raises(ValueError, match="inventory|target|coverage"):
+        registry.plan_indexes(
+            members,
+            extra,
+            member_statuses=statuses,
+            lane="protected-tag",
+            resolved_plan=plan,
+            expected_plan_sha256=plan["resolved_plan_sha256"],
+        )
+
+
+def test_prepare_index_cli_selects_exact_frozen_family_task(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A family writer receives no profile/family allowlist outside the plan."""
+    registry, _ = _modules()
+    cli = importlib.import_module("ucm_release.cli")
+    plan = _protected_resolved_plan(monkeypatch)
+    members = _publication_members_for_plan(plan)
+    statuses = {task["task_id"]: "success" for task in plan["image_tasks"]}
+    parent = registry.plan_indexes(
+        members,
+        _absent_inventory_for_plan(plan),
+        member_statuses=statuses,
+        lane="protected-tag",
+        resolved_plan=plan,
+        expected_plan_sha256=plan["resolved_plan_sha256"],
+    )
+    family_task = plan["family_tasks"][0]
+    plan_path = tmp_path / "resolved-plan.json"
+    input_path = tmp_path / "prepare-index.input.json"
+    output_path = tmp_path / "provisional.json"
+    plan_path.write_bytes(registry.canonical_bytes(plan) + b"\n")
+    input_path.write_bytes(
+        registry.canonical_bytes(
+            {
+                "lane": "protected-tag",
+                "parent_plans": parent,
+                "family_task_id": family_task["task_id"],
+                "resolved_plan": str(plan_path),
+                "resolved_plan_sha256": plan["resolved_plan_sha256"],
+            }
+        )
+        + b"\n"
+    )
+    selected: dict[str, object] = {}
+
+    def prepare(
+        index_plan: dict[str, object],
+        *,
+        parent_plans: dict[str, object],
+        lane: str,
+        resolved_plan: dict[str, object],
+        expected_plan_sha256: str,
+    ) -> dict[str, object]:
+        selected.update(index_plan)
+        assert parent_plans == parent
+        assert lane == "protected-tag"
+        assert resolved_plan == plan
+        assert expected_plan_sha256 == plan["resolved_plan_sha256"]
+        return {
+            "schema_version": 1,
+            "kind": "ucm-registry-index-provisional",
+            "family_task_id": index_plan["family_task_id"],
+        }
+
+    monkeypatch.setattr(registry, "prepare_index", prepare)
+
+    assert (
+        cli.main(
+            [
+                "registry",
+                "prepare-index",
+                "--input",
+                str(input_path),
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["family_task_id"] == family_task["task_id"]
+    assert selected["family_task_id"] == family_task["task_id"]
+
+
+def test_collect_provisionals_cli_uses_frozen_family_task_artifact_names(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Provisional collection closes over the plan's opaque family task IDs."""
+    registry, verify = _modules()
+    cli = importlib.import_module("ucm_release.cli")
+    plan = _protected_resolved_plan(monkeypatch)
+    members = _publication_members_for_plan(plan)
+    statuses = {task["task_id"]: "success" for task in plan["image_tasks"]}
+    parent = registry.plan_indexes(
+        members,
+        _absent_inventory_for_plan(plan),
+        member_statuses=statuses,
+        lane="protected-tag",
+        resolved_plan=plan,
+        expected_plan_sha256=plan["resolved_plan_sha256"],
+    )
+    plan_path = tmp_path / "resolved-plan.json"
+    parent_path = tmp_path / "parent-plans.json"
+    plan_path.write_bytes(registry.canonical_bytes(plan) + b"\n")
+    parent_path.write_bytes(registry.canonical_bytes(parent) + b"\n")
+    run = {"run_id": "42", "run_attempt": 3}
+    root = tmp_path / "artifacts"
+    root.mkdir()
+    provisionals: dict[str, dict[str, object]] = {}
+    for family in plan["family_tasks"]:
+        family_task_id = family["task_id"]
+        physical = verify.run_bound_artifact_name(
+            f"ucm-index-provisional-{family_task_id}",
+            run["run_id"],
+            run["run_attempt"],
+        )
+        directory = root / physical
+        directory.mkdir()
+        preflight_payload = {
+            "schema_version": 1,
+            "kind": "ucm-tag-preflight",
+            "lane": "protected-tag",
+            "source_sha": plan["source"]["commit"],
+            "publication_allowed": True,
+        }
+        preflight = {
+            **preflight_payload,
+            "preflight_sha256": registry.sha256_value(preflight_payload),
+        }
+        provisional = {
+            "schema_version": 1,
+            "kind": "ucm-registry-index-provisional",
+            "family_task_id": family_task_id,
+            "family_id": next(
+                item["family_id"]
+                for item in parent["plans"]
+                if item["family_task_id"] == family_task_id
+            ),
+            "preflight_sha256": preflight["preflight_sha256"],
+            "provisional_sha256": "sha256:" + family_task_id[-64:],
+        }
+        provisionals[family_task_id] = provisional
+        (directory / "provisional.json").write_bytes(
+            registry.canonical_bytes(provisional) + b"\n"
+        )
+        (directory / "preflight.json").write_bytes(
+            registry.canonical_bytes(preflight) + b"\n"
+        )
+    monkeypatch.setattr(
+        registry,
+        "validate_provisional_index",
+        lambda value, **kwargs: copy.deepcopy(value),
+    )
+    input_path = tmp_path / "collect.input.json"
+    output_path = tmp_path / "collection.json"
+    output_dir = tmp_path / "collected"
+    input_path.write_bytes(
+        registry.canonical_bytes(
+            {
+                "root": str(root),
+                "output_dir": str(output_dir),
+                "source_sha": plan["source"]["commit"],
+                "parent_plans": str(parent_path),
+                "resolved_plan": str(plan_path),
+                "resolved_plan_sha256": plan["resolved_plan_sha256"],
+                "run": run,
+            }
+        )
+        + b"\n"
+    )
+
+    assert (
+        cli.main(
+            [
+                "artifact",
+                "collect-provisionals",
+                "--input",
+                str(input_path),
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 0
+    )
+    collection = json.loads(capsys.readouterr().out)
+    assert {Path(path).name for path in collection["provisional_indexes"]} == {
+        f"{task['task_id']}.json" for task in plan["family_tasks"]
+    }
+    assert set(collection["provisional_sha256s"]) == {
+        task["task_id"] for task in plan["family_tasks"]
+    }
+
+
+def test_authenticated_aggregate_cli_passes_exact_frozen_plan_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Authenticated aggregation receives the plan object and expected hash."""
+    registry, verify = _modules()
+    cli = importlib.import_module("ucm_release.cli")
+    plan = _protected_resolved_plan(monkeypatch)
+    members = _publication_members_for_plan(plan)
+    statuses = {task["task_id"]: "success" for task in plan["image_tasks"]}
+    parent = registry.plan_indexes(
+        members,
+        _absent_inventory_for_plan(plan),
+        member_statuses=statuses,
+        lane="protected-tag",
+        resolved_plan=plan,
+        expected_plan_sha256=plan["resolved_plan_sha256"],
+    )
+    plan_path = tmp_path / "resolved-plan.json"
+    parent_path = tmp_path / "parent-plans.json"
+    collection_path = tmp_path / "member-collection.json"
+    provisional_collection_path = tmp_path / "provisional-collection.json"
+    plan_path.write_bytes(registry.canonical_bytes(plan) + b"\n")
+    parent_path.write_bytes(registry.canonical_bytes(parent) + b"\n")
+    collection_path.write_text("{}\n", encoding="utf-8")
+    provisional_collection_path.write_text("{}\n", encoding="utf-8")
+    member_paths: list[str] = []
+    for task, member in zip(plan["image_tasks"], members, strict=True):
+        path = tmp_path / f"{task['task_id']}.member.json"
+        path.write_bytes(registry.canonical_bytes(member) + b"\n")
+        member_paths.append(str(path))
+    provisional_paths: list[str] = []
+    for family in plan["family_tasks"]:
+        path = tmp_path / f"{family['task_id']}.provisional.json"
+        path.write_text('{"kind":"test-provisional"}\n', encoding="utf-8")
+        provisional_paths.append(str(path))
+    observed: dict[str, object] = {}
+
+    def aggregate(**kwargs: object) -> dict[str, object]:
+        observed.update(kwargs)
+        return {
+            "schema_version": 1,
+            "kind": "ucm-authenticated-registry-publication-payload",
+            "resolved_plan_sha256": kwargs["resolved_plan"]["resolved_plan_sha256"],
+        }
+
+    monkeypatch.setattr(
+        verify, "authenticated_registry_publication_evidence", aggregate
+    )
+    request_path = tmp_path / "aggregate.input.json"
+    output_path = tmp_path / "authenticated.json"
+    request_path.write_bytes(
+        registry.canonical_bytes(
+            {
+                "member_records": member_paths,
+                "member_collection": str(collection_path),
+                "provisional_indexes": provisional_paths,
+                "provisional_collection": str(provisional_collection_path),
+                "parent_plans": str(parent_path),
+                "source_sha": plan["source"]["commit"],
+                "resolved_plan": str(plan_path),
+                "resolved_plan_sha256": plan["resolved_plan_sha256"],
+                "run": {"run_id": "42", "run_attempt": 3},
+            }
+        )
+        + b"\n"
+    )
+
+    assert (
+        cli.main(
+            [
+                "registry",
+                "aggregate-authenticated",
+                "--input",
+                str(request_path),
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["resolved_plan_sha256"] == plan["resolved_plan_sha256"]
+    assert observed["resolved_plan"] == plan
+    assert observed["expected_plan_sha256"] == plan["resolved_plan_sha256"]
+
+
+def test_protected_aggregate_cli_passes_exact_frozen_plan_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Protected aggregation executes with the same frozen plan/hash authority."""
+    registry, verify = _modules()
+    cli = importlib.import_module("ucm_release.cli")
+    plan = _protected_resolved_plan(monkeypatch)
+    members = _publication_members_for_plan(plan)
+    parent = registry.plan_indexes(
+        members,
+        _absent_inventory_for_plan(plan),
+        member_statuses={task["task_id"]: "success" for task in plan["image_tasks"]},
+        lane="protected-tag",
+        resolved_plan=plan,
+        expected_plan_sha256=plan["resolved_plan_sha256"],
+    )
+    plan_path = tmp_path / "resolved-plan.json"
+    parent_path = tmp_path / "parent-plans.json"
+    member_collection_path = tmp_path / "member-collection.json"
+    provisional_collection_path = tmp_path / "provisional-collection.json"
+    plan_path.write_bytes(registry.canonical_bytes(plan) + b"\n")
+    parent_path.write_bytes(registry.canonical_bytes(parent) + b"\n")
+    member_collection_path.write_text("{}\n", encoding="utf-8")
+    provisional_collection_path.write_text("{}\n", encoding="utf-8")
+    member_paths: list[str] = []
+    for task, member in zip(plan["image_tasks"], members, strict=True):
+        path = tmp_path / f"{task['task_id']}.member.json"
+        path.write_bytes(registry.canonical_bytes(member) + b"\n")
+        member_paths.append(str(path))
+    finalized_paths: list[str] = []
+    for family in plan["family_tasks"]:
+        path = tmp_path / f"{family['task_id']}.finalized.json"
+        path.write_text('{"kind":"test-finalized"}\n', encoding="utf-8")
+        finalized_paths.append(str(path))
+    observed: dict[str, object] = {}
+
+    def aggregate(**kwargs: object) -> dict[str, object]:
+        observed.update(kwargs)
+        return {
+            "schema_version": 1,
+            "kind": "ucm-protected-registry-publication-payload",
+            "resolved_plan_sha256": kwargs["resolved_plan"]["resolved_plan_sha256"],
+        }
+
+    monkeypatch.setattr(verify, "protected_registry_publication_evidence", aggregate)
+    request_path = tmp_path / "aggregate-protected.input.json"
+    output_path = tmp_path / "protected.json"
+    request_path.write_bytes(
+        registry.canonical_bytes(
+            {
+                "member_records": member_paths,
+                "member_collection": str(member_collection_path),
+                "finalized_indexes": finalized_paths,
+                "provisional_collection": str(provisional_collection_path),
+                "parent_plans": str(parent_path),
+                "source_sha": plan["source"]["commit"],
+                "resolved_plan": str(plan_path),
+                "resolved_plan_sha256": plan["resolved_plan_sha256"],
+                "run": {"run_id": "42", "run_attempt": 3},
+            }
+        )
+        + b"\n"
+    )
+
+    assert (
+        cli.main(
+            [
+                "registry",
+                "aggregate-protected",
+                "--input",
+                str(request_path),
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["resolved_plan_sha256"] == plan["resolved_plan_sha256"]
+    assert observed["resolved_plan"] == plan
+    assert observed["expected_plan_sha256"] == plan["resolved_plan_sha256"]
+
+
+def test_image_bridge_cli_reopens_hosted_image_task_from_frozen_plan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The member bridge compares image evidence to its image task, not a wheel."""
+    registry, verify = _modules()
+    cli = importlib.import_module("ucm_release.cli")
+    plan = _protected_resolved_plan(monkeypatch)
+    task = plan["image_tasks"][0]
+    epoch = 1_800_000_000
+    hosted = verify.hosted_image_task(
+        task,
+        plan["source"]["commit"],
+        epoch,
+        resolved_plan=plan,
+        expected_plan_sha256=plan["resolved_plan_sha256"],
+    )
+    plan_path = tmp_path / "resolved-plan.json"
+    hosted_path = tmp_path / "hosted-task.json"
+    request_path = tmp_path / "bridge.input.json"
+    output_path = tmp_path / "bridge.json"
+    plan_path.write_bytes(registry.canonical_bytes(plan) + b"\n")
+    hosted_path.write_bytes(registry.canonical_bytes(hosted) + b"\n")
+    run = {"run_id": "42", "run_attempt": 3}
+    request_path.write_bytes(
+        registry.canonical_bytes(
+            {
+                "source_sha": plan["source"]["commit"],
+                "task_id": task["task_id"],
+                "oci_artifact": verify.run_bound_artifact_name(
+                    f"ucm-internal-oci-{task['task_id']}", "42", 3
+                ),
+                "image_artifact": verify.run_bound_artifact_name(
+                    task["artifact_name"], "42", 3
+                ),
+                "hosted_task": str(hosted_path),
+                "resolved_plan": str(plan_path),
+                "resolved_plan_sha256": plan["resolved_plan_sha256"],
+                "run": run,
+            }
+        )
+        + b"\n"
+    )
+
+    assert (
+        cli.main(
+            [
+                "artifact",
+                "validate-image-bridge",
+                "--input",
+                str(request_path),
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["task_id"] == task["task_id"]
+    assert result["image_task_sha256"] == task["task_sha256"]
+    assert result["resolved_plan_sha256"] == plan["resolved_plan_sha256"]
+
+
+def test_verify_member_cli_passes_exact_selected_image_task_to_publisher(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The mutating member command cannot fall back to an embedded six-ID map."""
+    registry, _ = _modules()
+    cli = importlib.import_module("ucm_release.cli")
+    plan = _protected_resolved_plan(monkeypatch)
+    task = plan["image_tasks"][0]
+    plan_path = tmp_path / "resolved-plan.json"
+    result_path = tmp_path / "image-result.json"
+    archive_path = tmp_path / "image.oci.tar"
+    input_path = tmp_path / "verify-member.input.json"
+    output_path = tmp_path / "member-record.json"
+    plan_path.write_bytes(registry.canonical_bytes(plan) + b"\n")
+    result_path.write_text('{"kind":"test-image-result"}\n', encoding="utf-8")
+    archive_path.write_bytes(b"oci")
+    input_path.write_bytes(
+        registry.canonical_bytes(
+            {
+                "lane": "protected-tag",
+                "image_result": str(result_path),
+                "oci_archive": str(archive_path),
+                "task_id": task["task_id"],
+                "resolved_plan": str(plan_path),
+                "resolved_plan_sha256": plan["resolved_plan_sha256"],
+            }
+        )
+        + b"\n"
+    )
+    observed: dict[str, object] = {}
+
+    def publish(archive: Path, **kwargs: object) -> dict[str, object]:
+        observed.update(kwargs)
+        assert archive == archive_path
+        return {
+            "schema_version": 1,
+            "kind": "ucm-registry-member-publication",
+            "task_id": kwargs["selected_task"]["task_id"],
+        }
+
+    monkeypatch.setattr(registry, "publish_member", publish)
+
+    assert (
+        cli.main(
+            [
+                "registry",
+                "verify-member",
+                "--input",
+                str(input_path),
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["task_id"] == task["task_id"]
+    assert observed["selected_task"] == task
+    assert observed["resolved_plan"] == plan
+    assert observed["expected_plan_sha256"] == plan["resolved_plan_sha256"]
+
+
+def test_finalize_index_cli_binds_anonymous_readback_to_frozen_family_task(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Anonymous finalization reopens the same plan and opaque family task ID."""
+    registry, _ = _modules()
+    cli = importlib.import_module("ucm_release.cli")
+    plan = _protected_resolved_plan(monkeypatch)
+    members = _publication_members_for_plan(plan)
+    statuses = {task["task_id"]: "success" for task in plan["image_tasks"]}
+    parent = registry.plan_indexes(
+        members,
+        _absent_inventory_for_plan(plan),
+        member_statuses=statuses,
+        lane="protected-tag",
+        resolved_plan=plan,
+        expected_plan_sha256=plan["resolved_plan_sha256"],
+    )
+    family_task_id = plan["family_tasks"][0]["task_id"]
+    provisional = {
+        "kind": "test-provisional",
+        "family_task_id": family_task_id,
+    }
+    plan_path = tmp_path / "resolved-plan.json"
+    parent_path = tmp_path / "parent-plans.json"
+    provisional_path = tmp_path / f"{family_task_id}.json"
+    input_path = tmp_path / "finalize.input.json"
+    output_path = tmp_path / "finalized.json"
+    plan_path.write_bytes(registry.canonical_bytes(plan) + b"\n")
+    parent_path.write_bytes(registry.canonical_bytes(parent) + b"\n")
+    provisional_path.write_bytes(registry.canonical_bytes(provisional) + b"\n")
+    input_path.write_bytes(
+        registry.canonical_bytes(
+            {
+                "parent_plans": str(parent_path),
+                "provisional": str(provisional_path),
+                "family_task_id": family_task_id,
+                "resolved_plan": str(plan_path),
+                "resolved_plan_sha256": plan["resolved_plan_sha256"],
+            }
+        )
+        + b"\n"
+    )
+    observed: dict[str, object] = {}
+
+    def finalize(value: object, **kwargs: object) -> dict[str, object]:
+        observed.update(kwargs)
+        assert value == provisional
+        return {
+            "schema_version": 1,
+            "kind": "ucm-registry-index-finalization",
+            "family_task_id": family_task_id,
+        }
+
+    monkeypatch.setattr(registry, "finalize_index", finalize)
+
+    assert (
+        cli.main(
+            [
+                "registry",
+                "finalize-index",
+                "--input",
+                str(input_path),
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["family_task_id"] == family_task_id
+    assert observed["resolved_plan"] == plan
+    assert observed["expected_plan_sha256"] == plan["resolved_plan_sha256"]
+
+
+def test_validate_index_parent_cli_reopens_exact_frozen_plan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The parent artifact gate binds its dynamic families to the plan hash."""
+    registry, verify = _modules()
+    cli = importlib.import_module("ucm_release.cli")
+    plan = _protected_resolved_plan(monkeypatch)
+    members = _publication_members_for_plan(plan)
+    parent = registry.plan_indexes(
+        members,
+        _absent_inventory_for_plan(plan),
+        member_statuses={task["task_id"]: "success" for task in plan["image_tasks"]},
+        lane="protected-tag",
+        resolved_plan=plan,
+        expected_plan_sha256=plan["resolved_plan_sha256"],
+    )
+    plan_path = tmp_path / "resolved-plan.json"
+    parent_path = tmp_path / "parent-plans.json"
+    input_path = tmp_path / "parent-validation.input.json"
+    output_path = tmp_path / "parent-validation.json"
+    plan_path.write_bytes(registry.canonical_bytes(plan) + b"\n")
+    parent_path.write_bytes(registry.canonical_bytes(parent) + b"\n")
+    input_path.write_bytes(
+        registry.canonical_bytes(
+            {
+                "parent_plans": str(parent_path),
+                "parent_artifact": verify.run_bound_artifact_name(
+                    f"ucm-index-parent-{plan['source']['commit']}", "42", 3
+                ),
+                "source_sha": plan["source"]["commit"],
+                "resolved_plan": str(plan_path),
+                "resolved_plan_sha256": plan["resolved_plan_sha256"],
+                "run": {"run_id": "42", "run_attempt": 3},
+            }
+        )
+        + b"\n"
+    )
+
+    assert (
+        cli.main(
+            [
+                "artifact",
+                "validate-index-parent",
+                "--input",
+                str(input_path),
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["resolved_plan_sha256"] == plan["resolved_plan_sha256"]
+    assert result["plans_sha256"] == parent["plans_sha256"]
+
+
 def test_protected_member_workflow_executes_postpublish_record_audit(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The hosted member bridge must reopen its JSON record through a Path."""
     registry, _ = _modules()
@@ -1046,10 +2889,16 @@ def test_protected_member_workflow_executes_postpublish_record_audit(
 
     out_dir = tmp_path / "out"
     out_dir.mkdir()
-    member = _publication_members()[0]
+    plan = _protected_resolved_plan(monkeypatch)
+    member = _publication_members_for_plan(plan)[0]
     (out_dir / "member-record.json").write_text(
         json.dumps(member, sort_keys=True, separators=(",", ":")) + "\n",
         encoding="utf-8",
+    )
+    plan_dir = tmp_path / "input" / "plan"
+    plan_dir.mkdir(parents=True)
+    (plan_dir / "resolved-plan.json").write_bytes(
+        registry.canonical_bytes(plan) + b"\n"
     )
     release_link = tmp_path / ".github" / "release"
     release_link.parent.mkdir(parents=True)
@@ -1064,6 +2913,7 @@ def test_protected_member_workflow_executes_postpublish_record_audit(
         env={
             **os.environ,
             "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+            "RESOLVED_PLAN_SHA256": plan["resolved_plan_sha256"],
         },
         capture_output=True,
         text=True,
@@ -1073,20 +2923,66 @@ def test_protected_member_workflow_executes_postpublish_record_audit(
     assert result.returncode == 0, result.stderr
     assert json.loads(
         (out_dir / "member-audit-request.json").read_text(encoding="utf-8")
-    ) == {"lane": "protected-tag", "operations": member["operations"]}
+    ) == {
+        "lane": "protected-tag",
+        "operations": member["operations"],
+        "resolved_plan": "input/plan/resolved-plan.json",
+        "resolved_plan_sha256": plan["resolved_plan_sha256"],
+    }
+    cli = importlib.import_module("ucm_release.cli")
+    monkeypatch.chdir(tmp_path)
+    audit_output = out_dir / "member-audit.json"
+    assert (
+        cli.main(
+            [
+                "registry",
+                "audit-operations",
+                "--input",
+                str(out_dir / "member-audit-request.json"),
+                "--output",
+                str(audit_output),
+            ]
+        )
+        == 0
+    )
+    missing_plan = out_dir / "member-audit-missing-plan.json"
+    missing_plan.write_bytes(
+        registry.canonical_bytes(
+            {"lane": "protected-tag", "operations": member["operations"]}
+        )
+        + b"\n"
+    )
+    rejected_output = out_dir / "member-audit-rejected.json"
+    with pytest.raises(SystemExit) as rejected:
+        cli.main(
+            [
+                "registry",
+                "audit-operations",
+                "--input",
+                str(missing_plan),
+                "--output",
+                str(rejected_output),
+            ]
+        )
+    assert rejected.value.code == 2
+    assert not rejected_output.exists()
 
 
 def test_protected_index_workflow_embeds_reopened_parent_plan(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The hosted index request must carry the validated parent object, not its path."""
     registry, _ = _modules()
-    members = _publication_members()
+    plan = _protected_resolved_plan(monkeypatch)
+    members = _publication_members_for_plan(plan)
     parent = registry.plan_indexes(
         members,
-        inventory=[],
-        member_statuses={member["spec_id"]: "success" for member in members},
+        inventory=_absent_inventory_for_plan(plan),
+        member_statuses={task["task_id"]: "success" for task in plan["image_tasks"]},
         lane="protected-tag",
+        resolved_plan=plan,
+        expected_plan_sha256=plan["resolved_plan_sha256"],
     )
     workflow = registry.core.load_yaml(
         REPO_ROOT / ".github" / "workflows" / "release-vllm-images-protected.yml"
@@ -1105,6 +3001,9 @@ def test_protected_index_workflow_embeds_reopened_parent_plan(
     parent_path = tmp_path / "input" / "parent" / "parent-plans.json"
     parent_path.parent.mkdir(parents=True)
     parent_path.write_bytes(registry.canonical_bytes(parent) + b"\n")
+    plan_path = tmp_path / "input" / "plan" / "resolved-plan.json"
+    plan_path.parent.mkdir(parents=True)
+    plan_path.write_bytes(registry.canonical_bytes(plan) + b"\n")
     (tmp_path / "out").mkdir()
     release_link = tmp_path / ".github" / "release"
     release_link.parent.mkdir(parents=True)
@@ -1112,14 +3011,15 @@ def test_protected_index_workflow_embeds_reopened_parent_plan(
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     (bin_dir / "python").symlink_to(PYTHON)
-    family_id = parent["plans"][0]["family_id"]
+    family_task_id = parent["plans"][0]["family_task_id"]
 
     result = subprocess.run(
         ["bash", "-c", request_command],
         cwd=tmp_path,
         env={
             **os.environ,
-            "FAMILY_ID": family_id,
+            "FAMILY_TASK_ID": family_task_id,
+            "RESOLVED_PLAN_SHA256": plan["resolved_plan_sha256"],
             "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
         },
         capture_output=True,
@@ -1131,7 +3031,9 @@ def test_protected_index_workflow_embeds_reopened_parent_plan(
     assert registry.core.load_json(tmp_path / "out" / "request.json") == {
         "lane": "protected-tag",
         "parent_plans": parent,
-        "family_id": family_id,
+        "family_task_id": family_task_id,
+        "resolved_plan": "input/plan/resolved-plan.json",
+        "resolved_plan_sha256": plan["resolved_plan_sha256"],
     }
 
 
@@ -1228,6 +3130,8 @@ def _provisional_index_evidence(
     registry: object,
     parent: dict[str, object],
     plan: dict[str, object],
+    *,
+    resolved_plan: dict[str, object],
 ) -> dict[str, object]:
     digest = plan["expected_index_digest"]
     target = plan["target_repository"] + ":" + plan["target_tag"]
@@ -1235,6 +3139,12 @@ def _provisional_index_evidence(
         [{"type": "registry-index-create", "capability": "write", "reference": target}]
         if plan["decision"] == "create"
         else []
+    )
+    family_task = registry.select_task(
+        resolved_plan,
+        task_kind="family",
+        task_id=plan["family_task_id"],
+        expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
     )
     payload = {
         "schema_version": 1,
@@ -1265,62 +3175,265 @@ def _provisional_index_evidence(
         "decision": plan["decision"],
         "postwrite_manifest_sha256": digest,
         "preflight_sha256": "sha256:" + "a" * 64,
-        "matrix_sha256": registry.core.build_matrix("protected-tag")["matrix_sha256"],
-        "verification_sha256": registry.verify_index(plan, parent_plans=parent)[
-            "verification_sha256"
-        ],
+        "verification_sha256": registry.verify_index(
+            plan,
+            parent_plans=parent,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
+        )["verification_sha256"],
         "parent_plans_sha256": parent["plans_sha256"],
+        "resolved_plan_sha256": resolved_plan["resolved_plan_sha256"],
+        "family_task_id": family_task["task_id"],
+        "family_task_sha256": family_task["task_sha256"],
     }
     return {**payload, "provisional_sha256": registry.sha256_value(payload)}
 
 
-def test_canonical_registry_contract_has_six_members_and_three_exact_r1_targets() -> (
-    None
-):
-    """Production coordinates come from the reviewed matrices, never legacy constants."""
-    registry, _ = _modules()
-
-    contract = registry.canonical_registry_contract()
-
-    assert contract["staging_repository"] == (
-        "ghcr.io/supermarioyl/ucm-release-staging"
+def test_authenticated_evidence_aggregates_exact_dynamic_plan_sets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The authenticated barrier derives N/M solely from the frozen plan."""
+    registry, verify = _modules()
+    plan = _protected_resolved_plan(monkeypatch)
+    members = _publication_members_for_plan(plan)
+    statuses = {task["task_id"]: "success" for task in plan["image_tasks"]}
+    parent = registry.plan_indexes(
+        members,
+        _absent_inventory_for_plan(plan),
+        member_statuses=statuses,
+        lane="protected-tag",
+        resolved_plan=plan,
+        expected_plan_sha256=plan["resolved_plan_sha256"],
     )
-    assert [item["spec_id"] for item in contract["members"]] == [
-        "cuda130-amd64",
-        "cuda130-arm64",
-        "cann900-a2-amd64",
-        "cann900-a2-arm64",
-        "cann900-a3-amd64",
-        "cann900-a3-arm64",
+    provisionals = [
+        _provisional_index_evidence(registry, parent, family_plan, resolved_plan=plan)
+        for family_plan in parent["plans"]
     ]
-    assert [item["platform"] for item in contract["members"]] == [
-        "linux/amd64",
-        "linux/arm64",
-        "linux/amd64",
-        "linux/arm64",
-        "linux/amd64",
-        "linux/arm64",
-    ]
-    assert [
-        (item["target_repository"], item["target_tag"]) for item in contract["indexes"]
-    ] == [
-        (
-            "ghcr.io/supermarioyl/vllm-ascend",
-            "v0.22.1rc1-a3-ucm-0.5.0rc1-r1",
-        ),
-        (
-            "ghcr.io/supermarioyl/vllm-ascend",
-            "v0.22.1rc1-ucm-0.5.0rc1-r1",
-        ),
-        (
-            "ghcr.io/supermarioyl/vllm-openai",
-            "v0.21.0-ucm-0.5.0rc1-r1",
-        ),
-    ]
-    assert all(
-        item["candidate_task_sha256"] != item["publication_task_sha256"]
-        for item in contract["members"]
+    member_collection_payload = {
+        "schema_version": 1,
+        "kind": "ucm-member-artifact-collection",
+        "source_sha": plan["source"]["commit"],
+        "resolved_plan_sha256": plan["resolved_plan_sha256"],
+        "member_record_sha256s": {
+            task["task_id"]: member["record_sha256"]
+            for task, member in zip(plan["image_tasks"], members, strict=True)
+        },
+        "member_preflight_sha256s": {
+            task["task_id"]: "sha256:" + "a" * 64 for task in plan["image_tasks"]
+        },
+    }
+    member_collection = {
+        **member_collection_payload,
+        "collection_sha256": registry.sha256_value(member_collection_payload),
+    }
+    provisional_collection_payload = {
+        "schema_version": 1,
+        "kind": "ucm-provisional-artifact-collection",
+        "source_sha": plan["source"]["commit"],
+        "resolved_plan_sha256": plan["resolved_plan_sha256"],
+        "parent_plans_sha256": parent["plans_sha256"],
+        "provisional_sha256s": {
+            family_plan["family_task_id"]: provisional["provisional_sha256"]
+            for family_plan, provisional in zip(
+                parent["plans"], provisionals, strict=True
+            )
+        },
+        "provisional_preflight_sha256s": {
+            family_plan["family_task_id"]: provisional["preflight_sha256"]
+            for family_plan, provisional in zip(
+                parent["plans"], provisionals, strict=True
+            )
+        },
+    }
+    provisional_collection = {
+        **provisional_collection_payload,
+        "collection_sha256": registry.sha256_value(provisional_collection_payload),
+    }
+
+    evidence = verify.authenticated_registry_publication_evidence(
+        member_records=members,
+        member_collection=member_collection,
+        provisional_indexes=provisionals,
+        provisional_collection=provisional_collection,
+        parent_plans=parent,
+        source_sha=plan["source"]["commit"],
+        resolved_plan=plan,
+        expected_plan_sha256=plan["resolved_plan_sha256"],
+        run={"run_id": "42", "run_attempt": 3},
     )
+
+    assert evidence["payload"]["resolved_plan_sha256"] == plan["resolved_plan_sha256"]
+    assert len(evidence["payload"]["member_records"]) == len(plan["image_tasks"])
+    assert len(evidence["payload"]["provisional_indexes"]) == len(plan["family_tasks"])
+
+
+@pytest.mark.parametrize(
+    ("extra_product", "split_cuda_family_profiles"),
+    [(True, False), (False, True)],
+)
+def test_protected_evidence_accepts_dynamic_family_end_to_end(
+    monkeypatch: pytest.MonkeyPatch,
+    extra_product: bool,
+    split_cuda_family_profiles: bool,
+) -> None:
+    """Dynamic family counts and per-arch profiles survive protected Release E2E."""
+    registry, verify = _modules()
+    plan = _protected_resolved_plan(
+        monkeypatch,
+        extra_product=extra_product,
+        split_cuda_family_profiles=split_cuda_family_profiles,
+    )
+    members = _publication_members_for_plan(plan)
+    expected_images, expected_families = (8, 4) if extra_product else (6, 3)
+    assert len(plan["image_tasks"]) == expected_images
+    assert len(plan["family_tasks"]) == expected_families
+    if split_cuda_family_profiles:
+        cuda_family = next(
+            item
+            for item in plan["family_tasks"]
+            if item["target_repository"].endswith("/vllm-openai")
+        )
+        cuda_members = [
+            next(item for item in plan["image_tasks"] if item["task_id"] == task_id)
+            for task_id in cuda_family["image_task_ids"]
+        ]
+        assert {item["profile_id"] for item in cuda_members} == {
+            "cuda130",
+            "cuda130-arm-only",
+        }
+    parent = registry.plan_indexes(
+        members,
+        _absent_inventory_for_plan(plan),
+        member_statuses={task["task_id"]: "success" for task in plan["image_tasks"]},
+        lane="protected-tag",
+        resolved_plan=plan,
+        expected_plan_sha256=plan["resolved_plan_sha256"],
+    )
+    provisionals = [
+        _provisional_index_evidence(registry, parent, family_plan, resolved_plan=plan)
+        for family_plan in parent["plans"]
+    ]
+    plans_by_reference = {
+        item["target_repository"] + ":" + item["target_tag"]: item
+        for item in parent["plans"]
+    }
+
+    def anonymous_readback(
+        reference: str,
+        *,
+        anonymous: bool = False,
+        public_targets: set[str] | None = None,
+    ) -> dict[str, object]:
+        assert anonymous is True
+        assert public_targets == {reference}
+        selected = plans_by_reference[reference]
+        return _index_readback_evidence(
+            registry,
+            selected,
+            selected["expected_index_digest"],
+            authenticated=False,
+        )
+
+    def anonymous_closure(
+        selected: dict[str, object],
+        *,
+        index_digest: str,
+        anonymous: bool = False,
+    ) -> dict[str, object]:
+        assert anonymous is True
+        return _index_closure_evidence(
+            registry, selected, index_digest, authenticated=False
+        )
+
+    monkeypatch.setattr(registry, "readback_reference", anonymous_readback)
+    monkeypatch.setattr(registry, "_validate_remote_index_closure", anonymous_closure)
+    finalized = [
+        registry.finalize_index(
+            provisional,
+            parent_plans=parent,
+            resolved_plan=plan,
+            expected_plan_sha256=plan["resolved_plan_sha256"],
+        )
+        for provisional in provisionals
+    ]
+    member_payload = {
+        "schema_version": 1,
+        "kind": "ucm-member-artifact-collection",
+        "source_sha": plan["source"]["commit"],
+        "resolved_plan_sha256": plan["resolved_plan_sha256"],
+        "member_record_sha256s": {
+            task["task_id"]: member["record_sha256"]
+            for task, member in zip(plan["image_tasks"], members, strict=True)
+        },
+        "member_preflight_sha256s": {
+            task["task_id"]: "sha256:" + "a" * 64 for task in plan["image_tasks"]
+        },
+    }
+    member_collection = {
+        **member_payload,
+        "collection_sha256": registry.sha256_value(member_payload),
+    }
+    provisional_payload = {
+        "schema_version": 1,
+        "kind": "ucm-provisional-artifact-collection",
+        "source_sha": plan["source"]["commit"],
+        "resolved_plan_sha256": plan["resolved_plan_sha256"],
+        "parent_plans_sha256": parent["plans_sha256"],
+        "provisional_sha256s": {
+            task["task_id"]: provisional["provisional_sha256"]
+            for task, provisional in zip(
+                plan["family_tasks"], provisionals, strict=True
+            )
+        },
+        "provisional_preflight_sha256s": {
+            task["task_id"]: provisional["preflight_sha256"]
+            for task, provisional in zip(
+                plan["family_tasks"], provisionals, strict=True
+            )
+        },
+    }
+    provisional_collection = {
+        **provisional_payload,
+        "collection_sha256": registry.sha256_value(provisional_payload),
+    }
+    monkeypatch.setattr(
+        verify,
+        "_build_fixture_release_manifest",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("protected evidence reopened the current release manifest")
+        ),
+    )
+
+    evidence = verify.protected_registry_publication_evidence(
+        member_records=members,
+        member_collection=member_collection,
+        finalized_indexes=finalized,
+        provisional_collection=provisional_collection,
+        parent_plans=parent,
+        source_sha=plan["source"]["commit"],
+        resolved_plan=plan,
+        expected_plan_sha256=plan["resolved_plan_sha256"],
+        run={"run_id": "42", "run_attempt": 3},
+    )
+
+    assert evidence["payload"]["resolved_plan_sha256"] == plan["resolved_plan_sha256"]
+    assert len(evidence["payload"]["members"]) == len(plan["image_tasks"])
+    assert len(evidence["payload"]["indexes"]) == len(plan["family_tasks"])
+    release_schema = registry.core.load_json(
+        RELEASE_ROOT / "schemas" / "release-manifest.schema.json"
+    )
+    for record in evidence["payload"]["member_records"]:
+        registry.core.validate_schema(
+            record,
+            release_schema["$defs"]["registryMemberRecord"],
+            root=release_schema,
+        )
+    for record in evidence["payload"]["index_records"]:
+        registry.core.validate_schema(
+            record,
+            release_schema["$defs"]["registryIndexRecord"],
+            root=release_schema,
+        )
 
 
 def test_staging_tag_and_exact_r1_reconciliation_are_collision_safe(
@@ -1328,93 +3441,164 @@ def test_staging_tag_and_exact_r1_reconciliation_are_collision_safe(
 ) -> None:
     """Absent creates, identity reuses, and same-name drift cannot retag or roll r2."""
     registry, _ = _modules()
-    members = _publication_members()
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    members = _publication_members_for_plan(resolved_plan)
     monkeypatch.setattr(
         registry.core, "tag_preflight", lambda **_: _protected_preflight()
     )
+    plan_binding = {
+        "resolved_plan": resolved_plan,
+        "expected_plan_sha256": resolved_plan["resolved_plan_sha256"],
+    }
 
     build_key = members[0]["build_key_sha256"]
     digest = members[0]["member_digest"]
-    assert registry.plan_staging_tag(build_key, digest, None)["decision"] == "create"
-    assert registry.plan_staging_tag(build_key, digest, digest)["decision"] == "reuse"
+    staging_repository = resolved_plan["source"]["staging_repository"]
+    assert (
+        registry.plan_staging_tag(
+            build_key,
+            digest,
+            None,
+            staging_repository=staging_repository,
+        )["decision"]
+        == "create"
+    )
+    assert (
+        registry.plan_staging_tag(
+            build_key,
+            digest,
+            digest,
+            staging_repository=staging_repository,
+        )["decision"]
+        == "reuse"
+    )
     with pytest.raises(ValueError, match="staging tag collision"):
-        registry.plan_staging_tag(build_key, digest, DIGESTS["observed_drift"])
+        registry.plan_staging_tag(
+            build_key,
+            digest,
+            DIGESTS["observed_drift"],
+            staging_repository=staging_repository,
+        )
     public_staging = copy.deepcopy(members[0])
     public_staging["staging_visibility"] = "public"
     public_staging["record_sha256"] = registry.sha256_value(
         {key: value for key, value in public_staging.items() if key != "record_sha256"}
     )
     with pytest.raises(ValueError, match="private staging"):
-        registry.validate_member_record(public_staging)
+        registry.validate_member_record(public_staging, **plan_binding)
 
-    statuses = {item["spec_id"]: "success" for item in members}
-    absent = registry.plan_indexes(members, inventory=[], member_statuses=statuses)
-    same_inventory = [
-        {
-            "repository": item["target_repository"],
-            "tag": item["target_tag"],
-            "digest": plan["expected_index_digest"],
-            "build_key_sha256": plan["index_build_key_sha256"],
-        }
-        for item, plan in zip(absent["plans"], absent["plans"], strict=True)
-    ]
-    reused = registry.plan_indexes(
-        members, inventory=same_inventory, member_statuses=statuses
+    statuses = {item["task_id"]: "success" for item in resolved_plan["image_tasks"]}
+    absent = registry.plan_indexes(
+        members,
+        inventory=_absent_inventory_for_plan(resolved_plan),
+        member_statuses=statuses,
+        lane="protected-tag",
+        **plan_binding,
     )
-    assert [item["decision"] for item in absent["plans"]] == [
-        "create",
-        "create",
-        "create",
-    ]
-    assert [item["decision"] for item in reused["plans"]] == [
-        "reuse",
-        "reuse",
-        "reuse",
-    ]
+    same_inventory_payload = {
+        "schema_version": 1,
+        "kind": "ucm-registry-inventory",
+        "entries": [
+            {
+                "repository": item["target_repository"],
+                "tag": item["target_tag"],
+                "digest": item["expected_index_digest"],
+                "build_key_sha256": item["index_build_key_sha256"],
+            }
+            for item in absent["plans"]
+        ],
+        "absent": [],
+        "operations": [
+            operation
+            for item in absent["plans"]
+            for operation in (
+                {
+                    "type": "registry-authenticated-digest-read",
+                    "capability": "read",
+                    "reference": f"{item['target_repository']}:{item['target_tag']}",
+                },
+                {
+                    "type": "registry-authenticated-manifest-read",
+                    "capability": "read",
+                    "reference": (
+                        f"{item['target_repository']}@{item['expected_index_digest']}"
+                    ),
+                },
+            )
+        ],
+    }
+    same_inventory = {
+        **same_inventory_payload,
+        "inventory_sha256": registry.sha256_value(same_inventory_payload),
+    }
+    reused = registry.plan_indexes(
+        members,
+        inventory=same_inventory,
+        member_statuses=statuses,
+        lane="protected-tag",
+        **plan_binding,
+    )
+    assert [item["decision"] for item in absent["plans"]] == ["create"] * len(
+        resolved_plan["family_tasks"]
+    )
+    assert [item["decision"] for item in reused["plans"]] == ["reuse"] * len(
+        resolved_plan["family_tasks"]
+    )
     assert all(
         item["index_manifest"]["annotations"]["org.opencontainers.image.source"]
-        == "https://github.com/SuperMarioYL/unified-cache-management"
+        == f"https://github.com/{resolved_plan['source']['repository']}"
         for item in absent["plans"]
     )
-    assert [item["members"][0]["platform"] for item in absent["plans"]] == [
-        "linux/amd64",
-        "linux/amd64",
-        "linux/amd64",
-    ]
-    assert [item["members"][1]["platform"] for item in absent["plans"]] == [
-        "linux/arm64",
-        "linux/arm64",
-        "linux/arm64",
-    ]
     conflict = copy.deepcopy(same_inventory)
-    conflict[0]["digest"] = DIGESTS["observed_drift"]
-    conflict[0]["build_key_sha256"] = DIGESTS["observed_drift"]
+    conflict["entries"][0]["digest"] = DIGESTS["observed_drift"]
+    conflict["entries"][0]["build_key_sha256"] = DIGESTS["observed_drift"]
+    conflict["operations"][1][
+        "reference"
+    ] = f"{conflict['entries'][0]['repository']}@{DIGESTS['observed_drift']}"
+    conflict["inventory_sha256"] = registry.sha256_value(
+        {key: value for key, value in conflict.items() if key != "inventory_sha256"}
+    )
     with pytest.raises(ValueError, match="r1 conflict"):
-        registry.plan_indexes(members, inventory=conflict, member_statuses=statuses)
+        registry.plan_indexes(
+            members,
+            inventory=conflict,
+            member_statuses=statuses,
+            lane="protected-tag",
+            **plan_binding,
+        )
     with pytest.raises(ValueError, match="feature-candidate.*write-capable"):
         registry.plan_indexes(
             members,
-            inventory=[],
+            inventory=_absent_inventory_for_plan(resolved_plan),
             member_statuses=statuses,
             lane="feature-candidate",
+            **plan_binding,
         )
 
 
 @pytest.mark.parametrize("status", ["failed", "cancelled", "skipped", "missing"])
-def test_exact_six_barrier_emits_zero_index_writes_for_any_unsuccessful_member(
+def test_planned_member_barrier_emits_zero_index_writes_for_any_unsuccessful_member(
     monkeypatch: pytest.MonkeyPatch, status: str
 ) -> None:
-    """No partial family can open any of the three final-index write gates."""
+    """No partial family can open any plan-derived final-index write gate."""
     registry, _ = _modules()
-    members = _publication_members()
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    members = _publication_members_for_plan(resolved_plan)
     monkeypatch.setattr(
         registry.core, "tag_preflight", lambda **_: _protected_preflight()
     )
-    statuses = {item["spec_id"]: "success" for item in members}
-    statuses[members[2]["spec_id"]] = status
+    statuses = {item["task_id"]: "success" for item in resolved_plan["image_tasks"]}
+    statuses[resolved_plan["image_tasks"][0]["task_id"]] = status
 
-    with pytest.raises(ValueError, match="six-member barrier") as blocked:
-        registry.plan_indexes(members, inventory=[], member_statuses=statuses)
+    with pytest.raises(ValueError, match="unsuccessful planned tasks") as blocked:
+        registry.plan_indexes(
+            members,
+            inventory=_absent_inventory_for_plan(resolved_plan),
+            member_statuses=statuses,
+            lane="protected-tag",
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
+        )
 
     assert getattr(blocked.value, "operations", []) == []
 
@@ -1446,7 +3630,13 @@ def test_feature_and_protected_operation_audits_are_typed_and_allowlisted() -> N
 
     with pytest.raises(ValueError, match="feature-candidate.*write"):
         verify.audit_operations(protected_operations, lane="feature-candidate")
-    protected = verify.audit_operations(protected_operations, lane="protected-tag")
+    public_targets = {protected_operations[-1]["reference"]}
+    protected = verify.audit_operations(
+        protected_operations,
+        lane="protected-tag",
+        staging_repository=staging,
+        public_targets=public_targets,
+    )
     assert protected == {
         "operation_count": 3,
         "operation_types": [
@@ -1460,7 +3650,12 @@ def test_feature_and_protected_operation_audits_are_typed_and_allowlisted() -> N
     bad = copy.deepcopy(protected_operations)
     bad[-1]["reference"] = "ghcr.io/attacker/vllm-openai:latest"
     with pytest.raises(ValueError, match="allowlist"):
-        verify.audit_operations(bad, lane="protected-tag")
+        verify.audit_operations(
+            bad,
+            lane="protected-tag",
+            staging_repository=staging,
+            public_targets=public_targets,
+        )
 
 
 def test_extended_registry_read_operations_audit_exact_roles() -> None:
@@ -1495,7 +3690,11 @@ def test_extended_registry_read_operations_audit_exact_roles() -> None:
         },
     ]
 
-    assert verify.audit_operations(operations, lane="protected-tag") == {
+    assert verify.audit_operations(
+        operations,
+        lane="protected-tag",
+        staging_repository=staging,
+    ) == {
         "operation_count": 5,
         "operation_types": [
             "registry-anonymous-config-blob-read",
@@ -1524,167 +3723,18 @@ def test_extended_registry_read_operations_audit_exact_roles() -> None:
     invalid.append(duplicate)
     for ledger in invalid:
         with pytest.raises(ValueError):
-            verify.audit_operations(ledger, lane="protected-tag")
-
-
-def test_registry_cli_commands_use_canonical_json_files(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """File commands split authenticated prepare from anonymous finalization."""
-    registry, _ = _modules()
-    cli = importlib.import_module("ucm_release.cli")
-    members = _publication_members()
-    statuses = {item["spec_id"]: "success" for item in members}
-    parent = registry.plan_indexes(
-        members,
-        inventory=[],
-        member_statuses=statuses,
-        lane="protected-tag",
-    )
-    image_result_path = tmp_path / "image-result.json"
-    image_result_path.write_text('{"kind":"test-image-result"}\n', encoding="utf-8")
-    oci_archive = tmp_path / "member.oci.tar"
-    oci_archive.write_bytes(b"test transport boundary")
-    inventory_result = {
-        "schema_version": 1,
-        "kind": "ucm-registry-inventory",
-        "entries": [],
-        "absent": [
-            {
-                "repository": item["target_repository"],
-                "tag": item["target_tag"],
-            }
-            for item in registry.canonical_registry_contract()["indexes"]
-        ],
-        "operations": [],
-        "inventory_sha256": "sha256:" + "1" * 64,
-    }
-    monkeypatch.setattr(
-        registry, "inventory_registry", lambda: copy.deepcopy(inventory_result)
-    )
-    monkeypatch.setattr(
-        registry,
-        "publish_member",
-        lambda archive, *, image_result, lane: {
-            "schema_version": 1,
-            "kind": "ucm-registry-member-publication",
-            "status": "passed",
-            "record_sha256": "sha256:" + "2" * 64,
-        },
-    )
-    monkeypatch.setattr(
-        registry,
-        "create_index",
-        lambda plan, *, parent_plans, lane: {
-            "schema_version": 1,
-            "kind": "ucm-registry-index-publication",
-            "status": "passed",
-            "source_sha": "a" * 40,
-            "record_sha256": "sha256:" + "3" * 64,
-        },
-    )
-    monkeypatch.setattr(
-        registry,
-        "prepare_index",
-        lambda plan, *, parent_plans, lane: {
-            "schema_version": 1,
-            "kind": "ucm-registry-index-provisional",
-            "status": "authenticated-passed",
-            "provisional_sha256": "sha256:" + "4" * 64,
-        },
-    )
-    monkeypatch.setattr(
-        registry,
-        "finalize_index",
-        lambda provisional, *, parent_plans: {
-            "schema_version": 1,
-            "kind": "ucm-registry-index-finalization",
-            "status": "anonymous-passed",
-            "finalization_sha256": "sha256:" + "5" * 64,
-        },
-    )
-    parent_path = tmp_path / "parent-plans.json"
-    provisional_path = tmp_path / "index-provisional.json"
-    parent_path.write_bytes(registry.canonical_bytes(parent) + b"\n")
-    provisional_path.write_text(
-        '{"kind":"ucm-registry-index-provisional"}\n', encoding="utf-8"
-    )
-    requests = {
-        "inventory": {},
-        "verify-member": {
-            "lane": "protected-tag",
-            "image_result": str(image_result_path),
-            "oci_archive": str(oci_archive),
-        },
-        "plan-index": {
-            "lane": "protected-tag",
-            "members": members,
-            "member_statuses": statuses,
-        },
-        "verify-index": {
-            "lane": "protected-tag",
-            "parent_plans": parent,
-            "family_id": parent["plans"][0]["family_id"],
-        },
-        "prepare-index": {
-            "lane": "protected-tag",
-            "parent_plans": parent,
-            "family_id": parent["plans"][0]["family_id"],
-        },
-        "finalize-index": {
-            "parent_plans": str(parent_path),
-            "provisional": str(provisional_path),
-        },
-        "audit-operations": {"lane": "feature-candidate", "operations": []},
-    }
-    for action, request in requests.items():
-        input_path = tmp_path / f"{action}.input.json"
-        output_path = tmp_path / f"{action}.output.json"
-        input_path.write_bytes(
-            json.dumps(request, sort_keys=True, separators=(",", ":")).encode() + b"\n"
-        )
-        assert "crane" not in request and "docker" not in request
-        assert (
-            cli.main(
-                [
-                    "registry",
-                    action,
-                    "--input",
-                    str(input_path),
-                    "--output",
-                    str(output_path),
-                ]
+            verify.audit_operations(
+                ledger,
+                lane="protected-tag",
+                staging_repository=staging,
             )
-            == 0
-        )
-        stdout = capsys.readouterr().out
-        assert output_path.read_text(encoding="utf-8") == stdout
-        assert json.loads(stdout)["kind"].startswith("ucm-registry-")
-
-    bad_input = tmp_path / "bad-inventory.json"
-    bad_output = tmp_path / "bad-output.json"
-    bad_input.write_text('{"crane":"/tmp/attacker"}\n', encoding="utf-8")
-    with pytest.raises(SystemExit) as rejected:
-        cli.main(
-            [
-                "registry",
-                "inventory",
-                "--input",
-                str(bad_input),
-                "--output",
-                str(bad_output),
-            ]
-        )
-    assert rejected.value.code == 2
 
 
 def test_release_manifest_schema_accepts_optional_registry_publication() -> None:
     """Publication evidence is separate from still-unpublished image results."""
     sys.path.insert(0, str(RELEASE_ROOT))
     core = importlib.import_module("ucm_release.core")
-    manifest = core.build_release_manifest()
+    manifest = core._build_fixture_release_manifest()
     manifest["publication"]["registry"] = {
         "status": "candidate",
         "candidate_task_sha256": "sha256:" + "1" * 64,
@@ -1926,10 +3976,12 @@ def _valid_oci_archive(
     return archive, updated
 
 
-def _member_with_buildkit_rewritten_timestamp() -> dict[str, object]:
+def _member_with_buildkit_rewritten_timestamp(
+    member: dict[str, object] | None = None,
+) -> dict[str, object]:
     """Project the descriptor annotation emitted by BuildKit v0.19.2."""
     registry, _ = _modules()
-    record = copy.deepcopy(_publication_members()[0])
+    record = copy.deepcopy(member or _publication_members()[0])
     identity = record["content_identity"]
     identity["created"] = "2026-08-10T09:22:50Z"
     identity["history"][-1]["created"] = identity["created"]
@@ -1969,8 +4021,16 @@ def _rehash_member_content_identity(record: dict[str, object]) -> None:
 def test_inventory_and_anonymous_readback_use_real_subprocess_transport(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Anonymous reads get a fresh empty auth config and inventory records absence."""
+    """The current local transport fixture records plan-scoped reads and absence."""
     registry, verify = _modules()
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    targets = [
+        {
+            "repository": item["target_repository"],
+            "tag": item["target_tag"],
+        }
+        for item in resolved_plan["family_tasks"]
+    ]
     crane, log = _fake_registry_tool(tmp_path)
     caller_config = tmp_path / "caller-docker-config"
     caller_config.mkdir()
@@ -1982,15 +4042,22 @@ def test_inventory_and_anonymous_readback_use_real_subprocess_transport(
     monkeypatch.setenv("UCM_TRANSPORT_LOG", str(log))
     monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: str(crane))
 
-    inventory = registry.inventory_registry()
+    inventory = registry.inventory_registry(targets=targets)
+    public_target_refs = {f"{item['repository']}:{item['tag']}" for item in targets}
     assert [(item["repository"], item["tag"]) for item in inventory["entries"]] == [
         (
             "ghcr.io/supermarioyl/vllm-openai",
             "v0.21.0-ucm-0.5.0rc1-r1",
         )
     ]
-    assert len(inventory["absent"]) == 2
-    assert verify.audit_operations(inventory["operations"])["write_count"] == 0
+    assert len(inventory["entries"]) + len(inventory["absent"]) == len(targets)
+    assert (
+        verify.audit_operations(
+            inventory["operations"],
+            public_targets=public_target_refs,
+        )["write_count"]
+        == 0
+    )
 
     anonymous_manifest = json.dumps(
         {
@@ -2030,6 +4097,7 @@ else:
     readback = registry.readback_reference(
         "ghcr.io/supermarioyl/vllm-openai:v0.21.0-ucm-0.5.0rc1-r1",
         anonymous=True,
+        public_targets=public_target_refs,
     )
     assert readback["digest"] == anonymous_digest
     assert readback["authenticated"] is False
@@ -2044,6 +4112,13 @@ def test_write_transport_fails_closed_before_subprocess_for_nonprotected_lanes(
 ) -> None:
     """A caller label cannot reach push/tag/index transport outside protected Tag."""
     registry, _ = _modules()
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    members = _publication_members_for_plan(resolved_plan)
+    selected_task = resolved_plan["image_tasks"][0]
+    plan_binding = {
+        "resolved_plan": resolved_plan,
+        "expected_plan_sha256": resolved_plan["resolved_plan_sha256"],
+    }
     crane, log = _fake_registry_tool(tmp_path)
     monkeypatch.setenv("UCM_TRANSPORT_LOG", str(log))
     archive = tmp_path / "member.tar"
@@ -2052,23 +4127,33 @@ def test_write_transport_fails_closed_before_subprocess_for_nonprotected_lanes(
     with pytest.raises(ValueError, match="protected-tag"):
         registry.push_member_by_digest(
             archive,
-            _publication_members()[0],
+            members[0],
             lane=lane,
+            task_id=selected_task["task_id"],
+            **plan_binding,
         )
     with pytest.raises(ValueError, match="protected-tag"):
-        registry.apply_staging_tag(_publication_members()[0], lane=lane)
-    members = _publication_members()
+        registry.apply_staging_tag(
+            members[0],
+            lane=lane,
+            task_id=selected_task["task_id"],
+            **plan_binding,
+        )
     parent = registry.plan_indexes(
         members,
-        inventory=[],
-        member_statuses={item["spec_id"]: "success" for item in members},
+        inventory=_absent_inventory_for_plan(resolved_plan),
+        member_statuses={
+            item["task_id"]: "success" for item in resolved_plan["image_tasks"]
+        },
         lane="protected-tag",
+        **plan_binding,
     )
     with pytest.raises(ValueError, match="protected-tag"):
         registry.create_index(
             parent["plans"][0],
             parent_plans=parent,
             lane=lane,
+            **plan_binding,
         )
 
     assert not log.exists()
@@ -2077,38 +4162,46 @@ def test_write_transport_fails_closed_before_subprocess_for_nonprotected_lanes(
 def test_protected_write_transport_rechecks_authority_and_exact_coordinates(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Each write reloads protected preflight/matrix and returns a typed ledger."""
+    """Each write rechecks protected preflight without reopening catalog state."""
     registry, verify = _modules()
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    members = _publication_members_for_plan(resolved_plan)
+    selected_task = resolved_plan["image_tasks"][0]
     crane, log = _fake_registry_tool(tmp_path)
     monkeypatch.setenv("UCM_TRANSPORT_LOG", str(log))
-    calls = {"preflight": 0, "matrix": 0}
-    real_matrix = registry.core.build_matrix
+    calls = {"preflight": 0}
 
     def preflight(**_: object) -> dict[str, object]:
         calls["preflight"] += 1
         return _protected_preflight()
 
-    def matrix(lane: str) -> dict[str, object]:
-        calls["matrix"] += 1
-        return real_matrix(lane)
-
     monkeypatch.setattr(registry.core, "tag_preflight", preflight)
-    monkeypatch.setattr(registry.core, "build_matrix", matrix)
+    monkeypatch.setattr(
+        registry.core,
+        "load_catalog",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("write transport reopened the current catalog")
+        ),
+    )
     monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: str(crane))
-    archive, member = _valid_oci_archive(tmp_path, _publication_members()[0])
+    archive, member = _valid_oci_archive(tmp_path, members[0])
     result = registry.push_member_by_digest(
         archive,
         member,
         lane="protected-tag",
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
+        task_id=selected_task["task_id"],
     )
 
     assert calls["preflight"] == 1
-    assert calls["matrix"] >= 1
     assert result["digest"] == member["member_digest"]
     assert (
-        verify.audit_operations(result["operations"], lane="protected-tag")[
-            "write_count"
-        ]
+        verify.audit_operations(
+            result["operations"],
+            lane="protected-tag",
+            staging_repository=resolved_plan["source"]["staging_repository"],
+        )["write_count"]
         == 1
     )
     events = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
@@ -2116,11 +4209,105 @@ def test_protected_write_transport_rechecks_authority_and_exact_coordinates(
     assert Path(events[1]["args"][1]).name.startswith("ucm-oci-layout-")
 
 
+def test_fresh_write_preflight_uses_non_current_frozen_source_without_catalog_reopen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry, _ = _modules()
+    plan = _protected_resolved_plan(
+        monkeypatch,
+        source_overrides={
+            "repository": "FutureOrg/unified-cache-next",
+            "default_branch": "next",
+            "release_tag": "v0.5.0rc1",
+            "release_policy": "future-owner-reviewed-v2",
+        },
+    )
+    selected = plan["image_tasks"][0]
+    observed: list[dict[str, object]] = []
+
+    def live_preflight(
+        *, lane: str, authority: dict[str, object], repository_root: Path
+    ) -> dict[str, object]:
+        observed.append(copy.deepcopy(authority))
+        assert lane == "protected-tag"
+        assert repository_root == registry.core.REPO_ROOT
+        return _protected_preflight()
+
+    monkeypatch.setattr(
+        registry.core,
+        "_tag_preflight_live",
+        live_preflight,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        registry.core,
+        "load_catalog",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("CURRENT_CATALOG_REOPEN")
+        ),
+    )
+
+    authority = registry._fresh_write_authority(
+        "protected-tag",
+        resolved_plan=plan,
+        expected_plan_sha256=plan["resolved_plan_sha256"],
+        task_kind="image",
+        task_id=selected["task_id"],
+    )
+
+    assert observed == [plan["source"]]
+    assert authority["selected_task"] == selected
+
+
+@pytest.mark.parametrize("entrypoint", ["push", "tag"])
+def test_member_write_binds_record_to_selected_task_before_transport(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    entrypoint: str,
+) -> None:
+    registry, _ = _modules()
+    plan = _protected_resolved_plan(monkeypatch)
+    selected = plan["image_tasks"][0]
+    foreign_record = _publication_members_for_plan(plan)[1]
+    transport_calls = 0
+
+    def transport_forbidden() -> str:
+        nonlocal transport_calls
+        transport_calls += 1
+        raise AssertionError("registry transport resolved before task binding")
+
+    monkeypatch.setattr(
+        registry.core, "tag_preflight", lambda **_: _protected_preflight()
+    )
+    monkeypatch.setattr(registry, "resolve_pinned_crane", transport_forbidden)
+    arguments = {
+        "lane": "protected-tag",
+        "resolved_plan": plan,
+        "expected_plan_sha256": plan["resolved_plan_sha256"],
+        "task_id": selected["task_id"],
+    }
+
+    with pytest.raises(ValueError, match="selected image task"):
+        if entrypoint == "push":
+            registry.push_member_by_digest(
+                tmp_path / "must-not-be-opened.tar",
+                foreign_record,
+                **arguments,
+            )
+        else:
+            registry.apply_staging_tag(foreign_record, **arguments)
+
+    assert transport_calls == 0
+
+
 def test_buildkit_rewritten_timestamp_annotation_survives_member_push_projection(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The exact BuildKit timestamp descriptor remains byte-bound through push."""
     registry, _ = _modules()
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    member_fixture = _publication_members_for_plan(resolved_plan)[0]
+    selected_task = resolved_plan["image_tasks"][0]
     crane, log = _fake_registry_tool(tmp_path)
     monkeypatch.setenv("UCM_TRANSPORT_LOG", str(log))
     monkeypatch.setattr(
@@ -2128,7 +4315,7 @@ def test_buildkit_rewritten_timestamp_annotation_survives_member_push_projection
     )
     monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: str(crane))
     archive, member = _valid_oci_archive(
-        tmp_path, _member_with_buildkit_rewritten_timestamp()
+        tmp_path, _member_with_buildkit_rewritten_timestamp(member_fixture)
     )
     release_schema = registry.load_json(
         registry.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"
@@ -2146,6 +4333,9 @@ def test_buildkit_rewritten_timestamp_annotation_survives_member_push_projection
         archive,
         member,
         lane="protected-tag",
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
+        task_id=selected_task["task_id"],
     )
 
     expected_annotations = {"buildkit/rewritten-timestamp": "1786353770"}
@@ -2165,8 +4355,10 @@ def test_annotated_registry_readback_preserves_exact_member_layer_descriptor(
 ) -> None:
     """Authenticated readback retains the producer annotation for exact reopen."""
     registry, _ = _modules()
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    member_fixture = _publication_members_for_plan(resolved_plan)[0]
     archive, member = _valid_oci_archive(
-        tmp_path, _member_with_buildkit_rewritten_timestamp()
+        tmp_path, _member_with_buildkit_rewritten_timestamp(member_fixture)
     )
     with registry.materialize_oci_layout(archive) as materialized:
         manifest_raw = json.dumps(
@@ -2202,15 +4394,25 @@ else:
     crane.chmod(0o755)
     monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: str(crane))
 
-    reference = registry.STAGING_REPOSITORY + "@" + member["member_digest"]
-    readback = registry.readback_reference(reference)
+    reference = registry.FIXTURE_STAGING_REPOSITORY + "@" + member["member_digest"]
+    readback = registry.readback_reference(
+        reference, staging_repository=resolved_plan["source"]["staging_repository"]
+    )
     member["readback_sha256"] = readback["readback_sha256"]
     _rehash_publication_record(member)
 
     assert readback["layers"][0]["annotations"] == {
         "buildkit/rewritten-timestamp": "1786353770"
     }
-    assert registry.verify_member_readback(member, readback) == member
+    assert (
+        registry.verify_member_readback(
+            member,
+            readback,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
+        )
+        == member
+    )
 
 
 @pytest.mark.parametrize(
@@ -2224,11 +4426,14 @@ else:
     ],
 )
 def test_buildkit_rewritten_timestamp_annotation_rejects_noncanonical_variants(
-    mutation: str, message: str
+    monkeypatch: pytest.MonkeyPatch, mutation: str, message: str
 ) -> None:
     """Only the one exact decimal annotation matching config.created is accepted."""
     registry, _ = _modules()
-    member = _member_with_buildkit_rewritten_timestamp()
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    member = _member_with_buildkit_rewritten_timestamp(
+        _publication_members_for_plan(resolved_plan)[0]
+    )
     identity_layer = member["content_identity"]["layers"][0]
     record_layer = member["layers"][0]
     if mutation == "unknown-descriptor-key":
@@ -2248,7 +4453,11 @@ def test_buildkit_rewritten_timestamp_annotation_rejects_noncanonical_variants(
     _rehash_member_content_identity(member)
 
     with pytest.raises(ValueError, match=message):
-        registry.validate_member_record(member)
+        registry.validate_member_record(
+            member,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
+        )
 
 
 def test_loopback_registry_contract_uses_tiny_scratch_manifests_only() -> None:
@@ -2285,15 +4494,24 @@ def test_loopback_registry_contract_uses_tiny_scratch_manifests_only() -> None:
     ],
 )
 def test_index_verification_rejects_forged_authority_and_parent_plan(
-    field: str, value: str
+    monkeypatch: pytest.MonkeyPatch, field: str, value: str
 ) -> None:
-    """A self-consistent caller rewrite cannot bypass the exact-six parent barrier."""
+    """A self-consistent caller rewrite cannot bypass the frozen-plan barrier."""
     registry, _ = _modules()
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    members = _publication_members_for_plan(resolved_plan)
+    plan_binding = {
+        "resolved_plan": resolved_plan,
+        "expected_plan_sha256": resolved_plan["resolved_plan_sha256"],
+    }
     parent = registry.plan_indexes(
-        _publication_members(),
-        inventory=[],
-        member_statuses={item["spec_id"]: "success" for item in _publication_members()},
+        members,
+        inventory=_absent_inventory_for_plan(resolved_plan),
+        member_statuses={
+            item["task_id"]: "success" for item in resolved_plan["image_tasks"]
+        },
         lane="protected-tag",
+        **plan_binding,
     )
     forged_parent = copy.deepcopy(parent)
     forged = forged_parent["plans"][0]
@@ -2316,7 +4534,11 @@ def test_index_verification_rejects_forged_authority_and_parent_plan(
     forged_parent["plans_sha256"] = registry.sha256_value(payload)
 
     with pytest.raises(ValueError, match="canonical|parent|authority|decision"):
-        registry.verify_index(forged, parent_plans=forged_parent)
+        registry.verify_index(
+            forged,
+            parent_plans=forged_parent,
+            **plan_binding,
+        )
 
 
 def test_index_create_rejects_forged_parent_before_docker(
@@ -2324,12 +4546,20 @@ def test_index_create_rejects_forged_parent_before_docker(
 ) -> None:
     """Even a rehashed forged parent cannot reach the Docker subprocess boundary."""
     registry, _ = _modules()
-    members = _publication_members()
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    members = _publication_members_for_plan(resolved_plan)
+    plan_binding = {
+        "resolved_plan": resolved_plan,
+        "expected_plan_sha256": resolved_plan["resolved_plan_sha256"],
+    }
     parent = registry.plan_indexes(
         members,
-        inventory=[],
-        member_statuses={item["spec_id"]: "success" for item in members},
+        inventory=_absent_inventory_for_plan(resolved_plan),
+        member_statuses={
+            item["task_id"]: "success" for item in resolved_plan["image_tasks"]
+        },
         lane="protected-tag",
+        **plan_binding,
     )
     forged = copy.deepcopy(parent)
     forged["plans"][0]["target_repository"] = "ghcr.io/attacker/forged"
@@ -2355,6 +4585,7 @@ def test_index_create_rejects_forged_parent_before_docker(
             forged["plans"][0],
             parent_plans=forged,
             lane="protected-tag",
+            **plan_binding,
         )
 
     assert not marker.exists()
@@ -2389,7 +4620,9 @@ def test_staging_tag_rereads_fresh_drift_before_mutation(
 ) -> None:
     """Caller-claimed absence cannot overwrite a tag that appeared before write."""
     registry, _ = _modules()
-    record = _publication_members()[0]
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    record = _publication_members_for_plan(resolved_plan)[0]
+    selected_task = resolved_plan["image_tasks"][0]
     crane, marker = _fresh_drift_crane(tmp_path, DIGESTS["observed_drift"])
     monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: str(crane))
     monkeypatch.setenv("UCM_FRESH_DIGEST", DIGESTS["observed_drift"])
@@ -2402,6 +4635,9 @@ def test_staging_tag_rereads_fresh_drift_before_mutation(
         registry.apply_staging_tag(
             record,
             lane="protected-tag",
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
+            task_id=selected_task["task_id"],
         )
 
     assert not marker.exists()
@@ -2412,14 +4648,22 @@ def test_staging_tag_reports_observed_state_collision_model(
 ) -> None:
     """Evidence must disclose repository serialization and unavailable global CAS."""
     registry, _ = _modules()
-    record = _publication_members()[0]
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    record = _publication_members_for_plan(resolved_plan)[0]
+    selected_task = resolved_plan["image_tasks"][0]
     crane, marker = _fresh_drift_crane(tmp_path, record["member_digest"])
     monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: str(crane))
     monkeypatch.setattr(
         registry.core, "tag_preflight", lambda **_: _protected_preflight()
     )
 
-    result = registry.apply_staging_tag(record, lane="protected-tag")
+    result = registry.apply_staging_tag(
+        record,
+        lane="protected-tag",
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
+        task_id=selected_task["task_id"],
+    )
 
     assert result["collision_model"] == {
         "model": "observed-state-fail-closed",
@@ -2437,12 +4681,20 @@ def test_index_create_rereads_fresh_drift_before_docker(
 ) -> None:
     """A stale absent inventory cannot overwrite a final r1 that appeared later."""
     registry, _ = _modules()
-    members = _publication_members()
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    members = _publication_members_for_plan(resolved_plan)
+    plan_binding = {
+        "resolved_plan": resolved_plan,
+        "expected_plan_sha256": resolved_plan["resolved_plan_sha256"],
+    }
     parent = registry.plan_indexes(
         members,
-        inventory=[],
-        member_statuses={item["spec_id"]: "success" for item in members},
+        inventory=_absent_inventory_for_plan(resolved_plan),
+        member_statuses={
+            item["task_id"]: "success" for item in resolved_plan["image_tasks"]
+        },
         lane="protected-tag",
+        **plan_binding,
     )
     plan = parent["plans"][0]
     crane, registry_marker = _fresh_drift_crane(tmp_path, DIGESTS["observed_drift"])
@@ -2476,6 +4728,7 @@ else:
             plan,
             parent_plans=parent,
             lane="protected-tag",
+            **plan_binding,
         )
 
     assert not docker_marker.exists()
@@ -2488,7 +4741,7 @@ def test_real_buildx_oci_layout_is_materialized_as_a_crane_directory(
     """Production accepts Buildx OCI output without pretending it is Docker-save."""
     registry, _ = _modules()
     image = importlib.import_module("ucm_release.image")
-    buildkit_image = image.real_image_authorities()[0]["toolchain"]["buildkit_image"]
+    buildkit_image = image.fixture_image_toolchain_authority()["buildkit_image"]
     docker = shutil.which("docker")
     if docker is None:
         pytest.skip("docker is unavailable for the real Buildx OCI transport test")
@@ -2592,9 +4845,11 @@ def test_real_buildx_oci_layout_is_materialized_as_a_crane_directory(
         assert materialized["config"]["os"] == "linux"
 
 
-def _expanded_member_and_readback() -> tuple[dict[str, object], dict[str, object]]:
+def _expanded_member_and_readback(
+    member: dict[str, object] | None = None,
+) -> tuple[dict[str, object], dict[str, object]]:
     registry, _ = _modules()
-    base = _publication_members()[0]
+    base = copy.deepcopy(member or _publication_members()[0])
     manifest_annotations = copy.deepcopy(base["manifest"]["annotations"])
     config_labels = copy.deepcopy(base["config"]["labels"])
     layer = {
@@ -2733,11 +4988,15 @@ def _expanded_member_and_readback() -> tuple[dict[str, object], dict[str, object
     ["config", "layer", "annotations", "build-key"],
 )
 def test_member_publication_rejects_readback_closure_mutations(
+    monkeypatch: pytest.MonkeyPatch,
     mutation: str,
 ) -> None:
     """Config, layer, annotations, and build key all remain byte-bound."""
     registry, _ = _modules()
-    member, readback = _expanded_member_and_readback()
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    member, readback = _expanded_member_and_readback(
+        _publication_members_for_plan(resolved_plan)[0]
+    )
     mutated = copy.deepcopy(readback)
     if mutation == "config":
         mutated["config"]["digest"] = DIGESTS["observed_drift"]
@@ -2759,7 +5018,12 @@ def test_member_publication_rejects_readback_closure_mutations(
     mutated["readback_sha256"] = registry.sha256_value(payload)
 
     with pytest.raises(ValueError, match="config|layer|annotation|build key|closure"):
-        registry.verify_member_readback(member, mutated)
+        registry.verify_member_readback(
+            member,
+            mutated,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
+        )
 
 
 @pytest.mark.parametrize(
@@ -2856,7 +5120,8 @@ else:
 
     monkeypatch.setattr(registry, "_run_registry_tool_bytes", bounded_runner)
     result = registry.readback_reference(
-        "ghcr.io/supermarioyl/ucm-release-staging@" + manifest_digest
+        "ghcr.io/supermarioyl/ucm-release-staging@" + manifest_digest,
+        staging_repository=registry.FIXTURE_STAGING_REPOSITORY,
     )
 
     assert result["config"]["blob_sha256"] == config_digest
@@ -2947,7 +5212,7 @@ def test_registry_reads_retry_only_explicit_github_secondary_limits(
     )
     sleeps: list[float] = []
     monkeypatch.setattr(registry.time, "sleep", sleeps.append)
-    reference = registry.STAGING_REPOSITORY + "@sha256:" + "b" * 64
+    reference = registry.FIXTURE_STAGING_REPOSITORY + "@sha256:" + "b" * 64
 
     if transport == "text-digest":
         result = registry._run_registry_tool(
@@ -2968,7 +5233,7 @@ def test_registry_reads_retry_only_explicit_github_secondary_limits(
                 "size": len(payload),
             },
             label="registry layer",
-            repository=registry.STAGING_REPOSITORY,
+            repository=registry.FIXTURE_STAGING_REPOSITORY,
             crane_binary=str(crane),
             environment=None,
             retain_raw=False,
@@ -3007,7 +5272,7 @@ def test_registry_reads_do_not_retry_authorization_or_generic_403_failures(
     )
     sleeps: list[float] = []
     monkeypatch.setattr(registry.time, "sleep", sleeps.append)
-    reference = registry.STAGING_REPOSITORY + ":staging-" + "c" * 64
+    reference = registry.FIXTURE_STAGING_REPOSITORY + ":staging-" + "c" * 64
 
     if transport == "text":
         with pytest.raises(ValueError, match="fresh Registry read failed"):
@@ -3025,7 +5290,7 @@ def test_registry_reads_do_not_retry_authorization_or_generic_403_failures(
                     "size": len(payload),
                 },
                 label="registry layer",
-                repository=registry.STAGING_REPOSITORY,
+                repository=registry.FIXTURE_STAGING_REPOSITORY,
                 crane_binary=str(crane),
                 environment=None,
                 retain_raw=False,
@@ -3053,7 +5318,7 @@ def test_registry_mutations_never_retry_even_explicit_secondary_limits(
     with pytest.raises(ValueError, match=f"registry tool {operation} failed"):
         registry._run_registry_tool(
             str(crane),
-            [operation, str(tmp_path / "source"), registry.STAGING_REPOSITORY],
+            [operation, str(tmp_path / "source"), registry.FIXTURE_STAGING_REPOSITORY],
         )
 
     assert attempts.read_text(encoding="utf-8") == "1"
@@ -3073,7 +5338,7 @@ def test_registry_secondary_limit_exhaustion_is_never_missing_or_private(
     )
     sleeps: list[float] = []
     monkeypatch.setattr(registry.time, "sleep", sleeps.append)
-    reference = registry.STAGING_REPOSITORY + ":staging-" + "d" * 64
+    reference = registry.FIXTURE_STAGING_REPOSITORY + ":staging-" + "d" * 64
 
     with pytest.raises(ValueError) as failure:
         registry._run_registry_tool(str(crane), ["digest", reference], missing_ok=True)
@@ -3108,7 +5373,7 @@ def test_registry_secondary_limit_retry_is_bounded_and_discards_partial_blob(
                 "size": len(payload),
             },
             label="registry layer",
-            repository=registry.STAGING_REPOSITORY,
+            repository=registry.FIXTURE_STAGING_REPOSITORY,
             crane_binary=str(crane),
             environment=None,
             retain_raw=False,
@@ -3124,16 +5389,16 @@ def test_registry_secondary_limit_retry_is_bounded_and_discards_partial_blob(
 def _published_registry_evidence() -> dict[str, object]:
     registry, _ = _modules()
     members = _publication_members()
+    resolved_plan, _ = _publication_fixture_authorities()
     indexes = []
-    for position, authority in enumerate(
-        registry.canonical_registry_contract()["indexes"], start=1
-    ):
+    for position, authority in enumerate(resolved_plan["family_tasks"], start=1):
+        family_id = authority["task_id"]
         payload = {
             "schema_version": 1,
             "kind": "ucm-registry-index-publication",
             "status": "passed",
             "source_sha": "a" * 40,
-            "family_id": authority["family_id"],
+            "family_id": family_id,
             "target_repository": authority["target_repository"],
             "target_tag": authority["target_tag"],
             "index_build_key_sha256": f"sha256:{position + 80:064x}",
@@ -3142,7 +5407,7 @@ def _published_registry_evidence() -> dict[str, object]:
             "member_digests": [
                 item["member_digest"]
                 for item in members
-                if item["family_id"] == authority["family_id"]
+                if item["family_id"] == family_id
             ],
             "authenticated_readback_sha256": f"sha256:{position + 100:064x}",
             "authenticated_closure_sha256": f"sha256:{position + 105:064x}",
@@ -3187,28 +5452,28 @@ def _rehash_publication_record(record: dict[str, object]) -> None:
 
 
 @pytest.mark.parametrize(
-    ("record_kind", "count"),
+    ("record_kind", "mutation"),
     [
-        ("member_records", 0),
-        ("member_records", 5),
-        ("member_records", 7),
-        ("index_records", 0),
-        ("index_records", 2),
-        ("index_records", 4),
+        ("member_records", "empty"),
+        ("member_records", "duplicate"),
+        ("index_records", "empty"),
+        ("index_records", "duplicate"),
     ],
 )
-def test_published_registry_schema_requires_exact_six_members_and_three_indexes(
-    record_kind: str, count: int
+def test_published_registry_schema_requires_nonempty_unique_record_arrays(
+    record_kind: str, mutation: str
 ) -> None:
-    """Published evidence cannot be empty, partial, duplicated, or oversized."""
+    """Published evidence record arrays are nonempty and unique at any size."""
     sys.path.insert(0, str(RELEASE_ROOT))
     core = importlib.import_module("ucm_release.core")
-    manifest = core.build_release_manifest()
+    manifest = core._build_fixture_release_manifest()
     evidence = _published_registry_evidence()
     originals = evidence[record_kind]
-    evidence[record_kind] = [
-        copy.deepcopy(originals[index % len(originals)]) for index in range(count)
-    ]
+    evidence[record_kind] = (
+        []
+        if mutation == "empty"
+        else [*copy.deepcopy(originals), copy.deepcopy(originals[0])]
+    )
     manifest["publication"]["registry"] = evidence
 
     with pytest.raises(ValueError):
@@ -3221,7 +5486,7 @@ def test_published_registry_schema_requires_exact_six_members_and_three_indexes(
 def test_published_registry_schema_rejects_arbitrary_record_items() -> None:
     sys.path.insert(0, str(RELEASE_ROOT))
     core = importlib.import_module("ucm_release.core")
-    manifest = core.build_release_manifest()
+    manifest = core._build_fixture_release_manifest()
     evidence = _published_registry_evidence()
     evidence["member_records"][0] = {}
     manifest["publication"]["registry"] = evidence
@@ -3233,39 +5498,25 @@ def test_published_registry_schema_rejects_arbitrary_record_items() -> None:
         )
 
 
-@pytest.mark.parametrize("record_kind", ["member_records", "index_records"])
-def test_published_registry_schema_rejects_exact_count_arbitrary_identities(
-    record_kind: str,
-) -> None:
-    """Exact 6/3 cardinality cannot legitimize attacker-controlled identities."""
+def test_published_registry_schema_rejects_malformed_member_records() -> None:
+    """Structural schema still rejects members missing their typed OCI payload."""
     sys.path.insert(0, str(RELEASE_ROOT))
     core = importlib.import_module("ucm_release.core")
-    manifest = core.build_release_manifest()
+    manifest = core._build_fixture_release_manifest()
     evidence = _published_registry_evidence()
-    if record_kind == "member_records":
-        for position, record in enumerate(evidence[record_kind]):
-            record.update(
-                {
-                    "spec_id": f"attacker-spec-{position}",
-                    "profile_id": "attacker-profile",
-                    "family_id": "attacker-family",
-                    "target_repository": "evil.invalid/attacker/repo",
-                    "target_tag": "latest",
-                    "annotations": {},
-                    "manifest": {},
-                    "config": {},
-                }
-            )
-    else:
-        for position, record in enumerate(evidence[record_kind]):
-            record.update(
-                {
-                    "family_id": f"attacker-family-{position}",
-                    "target_repository": "evil.invalid/attacker/repo",
-                    "target_tag": "latest",
-                    "operations": [],
-                }
-            )
+    for position, record in enumerate(evidence["member_records"]):
+        record.update(
+            {
+                "spec_id": f"attacker-spec-{position}",
+                "profile_id": "attacker-profile",
+                "family_id": "attacker-family",
+                "target_repository": "evil.invalid/attacker/repo",
+                "target_tag": "latest",
+                "annotations": {},
+                "manifest": {},
+                "config": {},
+            }
+        )
     manifest["publication"]["registry"] = evidence
 
     with pytest.raises(ValueError):
@@ -3273,6 +5524,29 @@ def test_published_registry_schema_rejects_exact_count_arbitrary_identities(
             manifest,
             core.load_json(core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"),
         )
+
+
+def test_published_registry_schema_defers_index_identity_to_frozen_plan() -> None:
+    """Structurally valid index coordinates are authorized by the frozen plan."""
+    sys.path.insert(0, str(RELEASE_ROOT))
+    core = importlib.import_module("ucm_release.core")
+    manifest = core._build_fixture_release_manifest()
+    evidence = _published_registry_evidence()
+    for position, record in enumerate(evidence["index_records"]):
+        record.update(
+            {
+                "family_id": f"attacker-family-{position}",
+                "target_repository": "evil.invalid/attacker/repo",
+                "target_tag": "latest",
+                "operations": [],
+            }
+        )
+    manifest["publication"]["registry"] = evidence
+
+    core.validate_schema(
+        manifest,
+        core.load_json(core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"),
+    )
 
 
 @pytest.mark.parametrize(
@@ -3286,22 +5560,21 @@ def test_published_registry_schema_rejects_exact_count_arbitrary_identities(
         ("target_tag", "v0.22.1rc1-ucm-0.5.0rc1-r1"),
     ],
 )
-def test_published_registry_schema_rejects_member_identity_mismatch(
+def test_published_registry_schema_defers_member_identity_to_frozen_plan(
     field: str, wrong_canonical_value: str
 ) -> None:
     """Allowed identity strings cannot be recombined into a forged member."""
     sys.path.insert(0, str(RELEASE_ROOT))
     core = importlib.import_module("ucm_release.core")
-    manifest = core.build_release_manifest()
+    manifest = core._build_fixture_release_manifest()
     evidence = _published_registry_evidence()
     evidence["member_records"][0][field] = wrong_canonical_value
     manifest["publication"]["registry"] = evidence
 
-    with pytest.raises(ValueError):
-        core.validate_schema(
-            manifest,
-            core.load_json(core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"),
-        )
+    core.validate_schema(
+        manifest,
+        core.load_json(core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"),
+    )
 
 
 @pytest.mark.parametrize(
@@ -3312,34 +5585,33 @@ def test_published_registry_schema_rejects_member_identity_mismatch(
         ("io.ucm.release.platform", "linux/arm64"),
     ],
 )
-def test_published_registry_schema_rejects_nested_member_identity_mismatch(
+def test_published_registry_schema_defers_nested_identity_to_frozen_plan(
     annotation: str, wrong_canonical_value: str
 ) -> None:
     """Nested allowed values must still agree with the member's canonical slot."""
     sys.path.insert(0, str(RELEASE_ROOT))
     core = importlib.import_module("ucm_release.core")
-    manifest = core.build_release_manifest()
+    manifest = core._build_fixture_release_manifest()
     evidence = _published_registry_evidence()
     evidence["member_records"][0]["annotations"][annotation] = wrong_canonical_value
     manifest["publication"]["registry"] = evidence
 
-    with pytest.raises(ValueError):
-        core.validate_schema(
-            manifest,
-            core.load_json(core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"),
-        )
+    core.validate_schema(
+        manifest,
+        core.load_json(core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"),
+    )
 
 
 @pytest.mark.parametrize(
     ("record_kind", "count"), [("member_records", 6), ("index_records", 3)]
 )
-def test_published_registry_schema_rejects_unique_objects_with_duplicate_identity(
+def test_published_registry_schema_defers_identity_uniqueness_to_frozen_plan(
     record_kind: str, count: int
 ) -> None:
     """Changing hashes cannot bypass uniqueness of canonical member/family identity."""
     sys.path.insert(0, str(RELEASE_ROOT))
     core = importlib.import_module("ucm_release.core")
-    manifest = core.build_release_manifest()
+    manifest = core._build_fixture_release_manifest()
     evidence = _published_registry_evidence()
     original = evidence[record_kind][0]
     duplicates = []
@@ -3350,11 +5622,10 @@ def test_published_registry_schema_rejects_unique_objects_with_duplicate_identit
     evidence[record_kind] = duplicates
     manifest["publication"]["registry"] = evidence
 
-    with pytest.raises(ValueError):
-        core.validate_schema(
-            manifest,
-            core.load_json(core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"),
-        )
+    core.validate_schema(
+        manifest,
+        core.load_json(core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"),
+    )
 
 
 @pytest.mark.parametrize(
@@ -3372,7 +5643,7 @@ def test_published_registry_schema_rejects_noncanonical_content_and_operation_sh
     """Supported blob media and typed canonical coordinates are schema boundaries."""
     sys.path.insert(0, str(RELEASE_ROOT))
     core = importlib.import_module("ucm_release.core")
-    manifest = core.build_release_manifest()
+    manifest = core._build_fixture_release_manifest()
     evidence = _published_registry_evidence()
     member = evidence["member_records"][0]
     if mutation == "layer-media-type":
@@ -3398,7 +5669,7 @@ def test_published_registry_schema_accepts_index_reuse_with_empty_write_ledger()
     """An exact r1 reuse emits no index write operation and remains publishable."""
     sys.path.insert(0, str(RELEASE_ROOT))
     core = importlib.import_module("ucm_release.core")
-    manifest = core.build_release_manifest()
+    manifest = core._build_fixture_release_manifest()
     evidence = _published_registry_evidence()
     for record in evidence["index_records"]:
         record["operations"] = []
@@ -3425,7 +5696,7 @@ def test_registry_schema_rejects_bool_int_equality_masquerades(
     """JSON true/1 equality cannot bypass integer and boolean type identity."""
     sys.path.insert(0, str(RELEASE_ROOT))
     core = importlib.import_module("ucm_release.core")
-    manifest = core.build_release_manifest()
+    manifest = core._build_fixture_release_manifest()
     evidence = _published_registry_evidence()
     record = evidence[record_kind][0]
     if mutation == "schema-version-bool":
@@ -3443,11 +5714,13 @@ def test_registry_schema_rejects_bool_int_equality_masquerades(
 
 @pytest.mark.parametrize("mutation", ["schema-version-bool", "collision-flag-int"])
 def test_member_python_validator_rejects_bool_int_equality_masquerades(
+    monkeypatch: pytest.MonkeyPatch,
     mutation: str,
 ) -> None:
     """Canonical member reopening applies strict Python scalar types too."""
     registry, _ = _modules()
-    record = _publication_members()[0]
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    record = _publication_members_for_plan(resolved_plan)[0]
     if mutation == "schema-version-bool":
         record["schema_version"] = True
     else:
@@ -3455,17 +5728,28 @@ def test_member_python_validator_rejects_bool_int_equality_masquerades(
     _rehash_publication_record(record)
 
     with pytest.raises(ValueError, match="schema|collision|boolean"):
-        registry.validate_member_record(record)
+        registry.validate_member_record(
+            record,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
+        )
 
 
-def test_member_record_binds_full_real_content_identity_and_source_labels() -> None:
+def test_member_record_binds_full_real_content_identity_and_source_labels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Inherited labels survive, while every canonical release label is authoritative."""
     registry, _ = _modules()
-    record = _publication_members()[0]
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    record = _publication_members_for_plan(resolved_plan)[0]
+    plan_binding = {
+        "resolved_plan": resolved_plan,
+        "expected_plan_sha256": resolved_plan["resolved_plan_sha256"],
+    }
 
     assert record["config"]["labels"]["base.label"] == "preserved-1"
     assert record["config"]["labels"] == record["content_identity"]["labels"]
-    assert registry.validate_member_record(record) == record
+    assert registry.validate_member_record(record, **plan_binding) == record
 
     for label, forged_value in (
         ("org.opencontainers.image.source", "https://example.invalid/attacker"),
@@ -3493,13 +5777,13 @@ def test_member_record_binds_full_real_content_identity_and_source_labels() -> N
         ]
         _rehash_publication_record(forged)
         with pytest.raises(ValueError, match="content|label|source|identity"):
-            registry.validate_member_record(forged)
+            registry.validate_member_record(forged, **plan_binding)
 
     inherited_drift = copy.deepcopy(record)
     inherited_drift["config"]["labels"]["base.label"] = "changed-after-build"
     _rehash_publication_record(inherited_drift)
     with pytest.raises(ValueError, match="content|label|identity"):
-        registry.validate_member_record(inherited_drift)
+        registry.validate_member_record(inherited_drift, **plan_binding)
 
 
 @pytest.mark.parametrize(
@@ -3518,7 +5802,7 @@ def test_registry_schema_rejects_cross_role_and_duplicate_operations(
     """Member and index ledgers accept only operations belonging to their roles."""
     sys.path.insert(0, str(RELEASE_ROOT))
     core = importlib.import_module("ucm_release.core")
-    manifest = core.build_release_manifest()
+    manifest = core._build_fixture_release_manifest()
     evidence = _published_registry_evidence()
     record = evidence[record_kind][0]
     staging_digest = "ghcr.io/supermarioyl/ucm-release-staging@" + "sha256:" + "1" * 64
@@ -3577,11 +5861,13 @@ def test_registry_schema_rejects_cross_role_and_duplicate_operations(
     ],
 )
 def test_member_python_validator_rejects_cross_role_and_duplicate_operations(
+    monkeypatch: pytest.MonkeyPatch,
     mutation: str,
 ) -> None:
     """Self-hashed member ledgers cannot smuggle index/public/duplicate operations."""
     registry, _ = _modules()
-    record = _publication_members()[0]
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    record = _publication_members_for_plan(resolved_plan)[0]
     public_target = "ghcr.io/supermarioyl/vllm-ascend:" "v0.22.1rc1-a3-ucm-0.5.0rc1-r1"
     if mutation == "index-create":
         record["operations"] = [
@@ -3623,7 +5909,11 @@ def test_member_python_validator_rejects_cross_role_and_duplicate_operations(
     _rehash_publication_record(record)
 
     with pytest.raises(ValueError, match="operation|duplicate|reference|role"):
-        registry.validate_member_record(record)
+        registry.validate_member_record(
+            record,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
+        )
 
 
 def test_validate_index_record_reopens_only_canonical_role_ledger(
@@ -3634,13 +5924,7 @@ def test_validate_index_record_reopens_only_canonical_role_ledger(
     monkeypatch.setattr(
         registry.core, "tag_preflight", lambda **_: _protected_preflight()
     )
-    members = _publication_members()
-    parent_plans = registry.plan_indexes(
-        members,
-        inventory=[],
-        member_statuses={item["spec_id"]: "success" for item in members},
-        lane="protected-tag",
-    )
+    _, _, parent_plans, plan_binding = _resolved_publication_context(monkeypatch)
     plan = parent_plans["plans"][0]
     record = _published_registry_evidence()["index_records"][0]
     record.update(
@@ -3660,7 +5944,14 @@ def test_validate_index_record_reopens_only_canonical_role_ledger(
         }
     )
     _rehash_publication_record(record)
-    assert registry.validate_index_record(record, parent_plans=parent_plans) == record
+    assert (
+        registry.validate_index_record(
+            record,
+            parent_plans=parent_plans,
+            **plan_binding,
+        )
+        == record
+    )
 
     mutations = []
     schema_bool = copy.deepcopy(record)
@@ -3689,12 +5980,16 @@ def test_validate_index_record_reopens_only_canonical_role_ledger(
     wrong_reference = copy.deepcopy(record)
     wrong_reference["operations"][0][
         "reference"
-    ] = "ghcr.io/supermarioyl/vllm-openai:v0.21.0-ucm-0.5.0rc1-r1"
+    ] = "ghcr.io/attacker/vllm-openai:v0.21.0-ucm-0.5.0rc1-r1"
     mutations.append(wrong_reference)
     for mutation in mutations:
         _rehash_publication_record(mutation)
         with pytest.raises(ValueError):
-            registry.validate_index_record(mutation, parent_plans=parent_plans)
+            registry.validate_index_record(
+                mutation,
+                parent_plans=parent_plans,
+                **plan_binding,
+            )
 
 
 def test_index_create_uses_exact_dry_run_bytes_and_postwrite_readback(
@@ -3702,13 +5997,7 @@ def test_index_create_uses_exact_dry_run_bytes_and_postwrite_readback(
 ) -> None:
     """Write inputs, expected digest, and post-read bytes are one exact object."""
     registry, _ = _modules()
-    members = _publication_members()
-    parent = registry.plan_indexes(
-        members,
-        inventory=[],
-        member_statuses={item["spec_id"]: "success" for item in members},
-        lane="protected-tag",
-    )
+    resolved_plan, _, parent, plan_binding = _resolved_publication_context(monkeypatch)
     plan = parent["plans"][0]
     descriptors = []
     for member in plan["members"]:
@@ -3733,7 +6022,7 @@ def test_index_create_uses_exact_dry_run_bytes_and_postwrite_readback(
         "manifests": descriptors,
         "annotations": {
             "org.opencontainers.image.source": (
-                "https://github.com/SuperMarioYL/unified-cache-management"
+                f"https://github.com/{resolved_plan['source']['repository']}"
             ),
             "io.ucm.release.family-id": plan["family_id"],
             "io.ucm.release.index-build-key-sha256": plan["index_build_key_sha256"],
@@ -3808,6 +6097,7 @@ else:
         plan,
         parent_plans=parent,
         lane="protected-tag",
+        **plan_binding,
     )
 
     assert result["index_digest"] == expected
@@ -3817,12 +6107,16 @@ else:
         "decision",
         "postwrite_manifest_sha256",
         "preflight_sha256",
-        "matrix_sha256",
         "verification_sha256",
     }
     strict_record = {key: result[key] for key in registry.INDEX_RECORD_KEYS}
-    assert registry.validate_index_record(strict_record, parent_plans=parent) == (
-        strict_record
+    assert (
+        registry.validate_index_record(
+            strict_record,
+            parent_plans=parent,
+            **plan_binding,
+        )
+        == strict_record
     )
     assert result["decision"] == "create"
     assert result["operations"] == [
@@ -3836,10 +6130,8 @@ else:
     assert len(invocations) == 2
     assert invocations[0]["args"][:2] == ["imagetools", "create"]
     assert invocations[0]["files"] == [
-        "ghcr.io/supermarioyl/ucm-release-staging@"
-        + plan["members"][0]["member_digest"],
-        "ghcr.io/supermarioyl/ucm-release-staging@"
-        + plan["members"][1]["member_digest"],
+        f"{registry.FIXTURE_STAGING_REPOSITORY}@{member['member_digest']}"
+        for member in plan["members"]
     ]
     assert "GITHUB_TOKEN" not in invocations[0]["environment"]
     assert "ACTIONS_ID_TOKEN_REQUEST_TOKEN" not in invocations[0]["environment"]
@@ -3854,13 +6146,7 @@ def test_index_prepare_defers_anonymous_readback_until_strict_finalize(
 ) -> None:
     """The empty draft can be created between authenticated prepare and anonymous close."""
     registry, verify = _modules()
-    members = _publication_members()
-    parent = registry.plan_indexes(
-        members,
-        inventory=[],
-        member_statuses={item["spec_id"]: "success" for item in members},
-        lane="protected-tag",
-    )
+    _, _, parent, plan_binding = _resolved_publication_context(monkeypatch)
     plan = parent["plans"][0]
     target = plan["target_repository"] + ":" + plan["target_tag"]
     digest = plan["expected_index_digest"]
@@ -3896,7 +6182,9 @@ def test_index_prepare_defers_anonymous_readback_until_strict_finalize(
     )
     calls: list[bool] = []
 
-    def fake_readback(reference: str, *, anonymous: bool = False) -> dict[str, object]:
+    def fake_readback(
+        reference: str, *, anonymous: bool = False, **_kwargs: object
+    ) -> dict[str, object]:
         calls.append(anonymous)
         prefix = "registry-anonymous" if anonymous else "registry-authenticated"
         operations = [
@@ -3974,7 +6262,10 @@ def test_index_prepare_defers_anonymous_readback_until_strict_finalize(
     )
 
     provisional = registry.prepare_index(
-        plan, parent_plans=parent, lane="protected-tag"
+        plan,
+        parent_plans=parent,
+        lane="protected-tag",
+        **plan_binding,
     )
 
     assert calls == [False]
@@ -3982,17 +6273,27 @@ def test_index_prepare_defers_anonymous_readback_until_strict_finalize(
     assert provisional["kind"] == "ucm-registry-index-provisional"
     assert "anonymous_readback_sha256" not in provisional
     assert (
-        registry.validate_provisional_index(provisional, parent_plans=parent)
+        registry.validate_provisional_index(
+            provisional,
+            parent_plans=parent,
+            **plan_binding,
+        )
         == provisional
     )
     assert (
-        verify.audit_operations(provisional["operations"], lane="protected-tag")[
-            "write_count"
-        ]
+        verify.audit_operations(
+            provisional["operations"],
+            lane="protected-tag",
+            public_targets={target},
+        )["write_count"]
         == 1
     )
 
-    finalized = registry.finalize_index(provisional, parent_plans=parent)
+    finalized = registry.finalize_index(
+        provisional,
+        parent_plans=parent,
+        **plan_binding,
+    )
     final = finalized["record"]
 
     assert calls == [False, True]
@@ -4005,7 +6306,14 @@ def test_index_prepare_defers_anonymous_readback_until_strict_finalize(
     assert finalized["operation_audit"]["anonymous"]["write_count"] == 0
     assert set(final) == registry.INDEX_RECORD_KEYS
     assert final["anonymous_readback_sha256"] != final["authenticated_readback_sha256"]
-    assert registry.validate_index_record(final, parent_plans=parent) == final
+    assert (
+        registry.validate_index_record(
+            final,
+            parent_plans=parent,
+            **plan_binding,
+        )
+        == final
+    )
     assert final["source_sha"] == "a" * 40
     forged_finalized = copy.deepcopy(finalized)
     forged_finalized["provisional"]["preflight_sha256"] = "sha256:" + "f" * 64
@@ -4017,7 +6325,11 @@ def test_index_prepare_defers_anonymous_readback_until_strict_finalize(
         }
     )
     with pytest.raises(ValueError):
-        registry.validate_finalized_index(forged_finalized, parent_plans=parent)
+        registry.validate_finalized_index(
+            forged_finalized,
+            parent_plans=parent,
+            **plan_binding,
+        )
 
 
 def test_index_plans_reject_mixed_sources_and_writer_rechecks_live_tag_source(
@@ -4025,7 +6337,10 @@ def test_index_plans_reject_mixed_sources_and_writer_rechecks_live_tag_source(
 ) -> None:
     """No final r1 transport may begin for mixed or stale protected sources."""
     registry, _ = _modules()
-    mixed = _publication_members()
+    resolved_plan, members, parent, plan_binding = _resolved_publication_context(
+        monkeypatch
+    )
+    mixed = copy.deepcopy(members)
     mixed[0]["source_sha"] = "b" * 40
     mixed[0]["record_sha256"] = registry.sha256_value(
         {key: value for key, value in mixed[0].items() if key != "record_sha256"}
@@ -4033,18 +6348,14 @@ def test_index_plans_reject_mixed_sources_and_writer_rechecks_live_tag_source(
     with pytest.raises(ValueError, match="source"):
         registry.plan_indexes(
             mixed,
-            inventory=[],
-            member_statuses={item["spec_id"]: "success" for item in mixed},
+            inventory=_absent_inventory_for_plan(resolved_plan),
+            member_statuses={
+                item["task_id"]: "success" for item in resolved_plan["image_tasks"]
+            },
             lane="protected-tag",
+            **plan_binding,
         )
 
-    members = _publication_members()
-    parent = registry.plan_indexes(
-        members,
-        inventory=[],
-        member_statuses={item["spec_id"]: "success" for item in members},
-        lane="protected-tag",
-    )
     stale_preflight = _protected_preflight()
     stale_preflight["source_sha"] = "b" * 40
     monkeypatch.setattr(registry.core, "tag_preflight", lambda **_: stale_preflight)
@@ -4058,7 +6369,10 @@ def test_index_plans_reject_mixed_sources_and_writer_rechecks_live_tag_source(
     monkeypatch.setattr(registry, "_create_index_transport", transport)
     with pytest.raises(ValueError, match="source"):
         registry.prepare_index(
-            parent["plans"][0], parent_plans=parent, lane="protected-tag"
+            parent["plans"][0],
+            parent_plans=parent,
+            lane="protected-tag",
+            **plan_binding,
         )
     assert called is False
 
@@ -4067,7 +6381,10 @@ def test_index_plans_reject_mixed_sources_and_writer_rechecks_live_tag_source(
     monkeypatch.setattr(registry.core, "tag_preflight", lambda **_: head_mismatch)
     with pytest.raises(ValueError, match="default branch|first publication"):
         registry.prepare_index(
-            parent["plans"][0], parent_plans=parent, lane="protected-tag"
+            parent["plans"][0],
+            parent_plans=parent,
+            lane="protected-tag",
+            **plan_binding,
         )
     assert called is False
 
@@ -4077,13 +6394,7 @@ def test_index_prepare_fails_when_child_manifest_is_missing_from_final_repositor
 ) -> None:
     """An index descriptor alone cannot prove its child is pullable cross-repository."""
     registry, _ = _modules()
-    members = _publication_members()
-    parent = registry.plan_indexes(
-        members,
-        inventory=[],
-        member_statuses={item["spec_id"]: "success" for item in members},
-        lane="protected-tag",
-    )
+    _, _, parent, plan_binding = _resolved_publication_context(monkeypatch)
     plan = parent["plans"][0]
     digest = plan["expected_index_digest"]
     target = plan["target_repository"] + ":" + plan["target_tag"]
@@ -4162,7 +6473,12 @@ def test_index_prepare_fails_when_child_manifest_is_missing_from_final_repositor
         raising=False,
     )
     with pytest.raises(ValueError, match="child manifest"):
-        registry.prepare_index(plan, parent_plans=parent, lane="protected-tag")
+        registry.prepare_index(
+            plan,
+            parent_plans=parent,
+            lane="protected-tag",
+            **plan_binding,
+        )
 
 
 def test_index_provisional_cannot_forge_parent_or_finalize_with_authenticated_read(
@@ -4170,93 +6486,20 @@ def test_index_provisional_cannot_forge_parent_or_finalize_with_authenticated_re
 ) -> None:
     """Finalize derives the target from the parent and requires an anonymous readback."""
     registry, _ = _modules()
-    members = _publication_members()
-    parent = registry.plan_indexes(
-        members,
-        inventory=[],
-        member_statuses={item["spec_id"]: "success" for item in members},
-        lane="protected-tag",
-    )
+    resolved_plan, _, parent, plan_binding = _resolved_publication_context(monkeypatch)
     plan = parent["plans"][0]
-    target = plan["target_repository"] + ":" + plan["target_tag"]
-    digest = plan["expected_index_digest"]
-    authenticated_payload = {
-        "schema_version": 1,
-        "kind": "ucm-registry-readback",
-        "reference": target,
-        "digest": digest,
-        "manifest": {
-            "media_type": "application/vnd.oci.image.index.v1+json",
-            "digest": digest,
-            "size": 1,
-            "annotations": copy.deepcopy(plan["index_manifest"]["annotations"]),
-        },
-        "config": None,
-        "layers": [],
-        "children": copy.deepcopy(plan["index_manifest"]["manifests"]),
-        "authenticated": True,
-        "operations": [
-            {
-                "type": "registry-authenticated-digest-read",
-                "capability": "read",
-                "reference": target,
-            },
-            {
-                "type": "registry-authenticated-manifest-read",
-                "capability": "read",
-                "reference": plan["target_repository"] + "@" + digest,
-            },
-        ],
-    }
-    authenticated = {
-        **authenticated_payload,
-        "readback_sha256": registry.sha256_value(authenticated_payload),
-    }
-    provisional_payload = {
-        "schema_version": 1,
-        "kind": "ucm-registry-index-provisional",
-        "status": "authenticated-passed",
-        "source_sha": plan["source_sha"],
-        "family_id": plan["family_id"],
-        "target_repository": plan["target_repository"],
-        "target_tag": plan["target_tag"],
-        "index_build_key_sha256": plan["index_build_key_sha256"],
-        "index_digest": digest,
-        "manifest_sha256": digest,
-        "member_digests": [item["member_digest"] for item in plan["members"]],
-        "authenticated_readback": authenticated,
-        "authenticated_closure": _index_closure_evidence(
-            registry, plan, digest, authenticated=True
-        ),
-        "collision_model": {
-            "model": "observed-state-fail-closed",
-            "in_system_serialization": "repository-concurrency",
-            "fresh_prewrite_read": True,
-            "exact_postwrite_readback": True,
-            "external_admin_atomicity": "unavailable",
-        },
-        "operations": [
-            {
-                "type": "registry-index-create",
-                "capability": "write",
-                "reference": target,
-            }
-        ],
-        "decision": "create",
-        "postwrite_manifest_sha256": digest,
-        "preflight_sha256": "sha256:" + "a" * 64,
-        "matrix_sha256": registry.core.build_matrix("protected-tag")["matrix_sha256"],
-        "verification_sha256": registry.verify_index(plan, parent_plans=parent)[
-            "verification_sha256"
-        ],
-        "parent_plans_sha256": parent["plans_sha256"],
-    }
-    provisional = {
-        **provisional_payload,
-        "provisional_sha256": registry.sha256_value(provisional_payload),
-    }
+    provisional = _provisional_index_evidence(
+        registry,
+        parent,
+        plan,
+        resolved_plan=resolved_plan,
+    )
     assert (
-        registry.validate_provisional_index(provisional, parent_plans=parent)
+        registry.validate_provisional_index(
+            provisional,
+            parent_plans=parent,
+            **plan_binding,
+        )
         == provisional
     )
 
@@ -4266,13 +6509,23 @@ def test_index_provisional_cannot_forge_parent_or_finalize_with_authenticated_re
         {key: value for key, value in forged.items() if key != "provisional_sha256"}
     )
     with pytest.raises(ValueError):
-        registry.validate_provisional_index(forged, parent_plans=parent)
+        registry.validate_provisional_index(
+            forged,
+            parent_plans=parent,
+            **plan_binding,
+        )
 
     monkeypatch.setattr(
-        registry, "readback_reference", lambda *_args, **_kwargs: authenticated
+        registry,
+        "readback_reference",
+        lambda *_args, **_kwargs: provisional["authenticated_readback"],
     )
     with pytest.raises(ValueError, match="anonymous"):
-        registry.finalize_index(provisional, parent_plans=parent)
+        registry.finalize_index(
+            provisional,
+            parent_plans=parent,
+            **plan_binding,
+        )
 
 
 def test_provisional_and_finalized_index_readbacks_are_strict_and_mode_bound(
@@ -4280,13 +6533,7 @@ def test_provisional_and_finalized_index_readbacks_are_strict_and_mode_bound(
 ) -> None:
     """Cross-job evidence rejects loose types, extra keys, and mixed auth ledgers."""
     registry, _ = _modules()
-    members = _publication_members()
-    parent = registry.plan_indexes(
-        members,
-        inventory=[],
-        member_statuses={item["spec_id"]: "success" for item in members},
-        lane="protected-tag",
-    )
+    resolved_plan, _, parent, plan_binding = _resolved_publication_context(monkeypatch)
     plan = parent["plans"][0]
     target = plan["target_repository"] + ":" + plan["target_tag"]
     digest = plan["expected_index_digest"]
@@ -4323,52 +6570,19 @@ def test_provisional_and_finalized_index_readbacks_are_strict_and_mode_bound(
         }
         return {**payload, "readback_sha256": registry.sha256_value(payload)}
 
-    auth = readback(authenticated=True)
-    provisional_payload = {
-        "schema_version": 1,
-        "kind": "ucm-registry-index-provisional",
-        "status": "authenticated-passed",
-        "source_sha": plan["source_sha"],
-        "family_id": plan["family_id"],
-        "target_repository": plan["target_repository"],
-        "target_tag": plan["target_tag"],
-        "index_build_key_sha256": plan["index_build_key_sha256"],
-        "index_digest": digest,
-        "manifest_sha256": digest,
-        "member_digests": [item["member_digest"] for item in plan["members"]],
-        "authenticated_readback": auth,
-        "authenticated_closure": _index_closure_evidence(
-            registry, plan, digest, authenticated=True
-        ),
-        "collision_model": {
-            "model": "observed-state-fail-closed",
-            "in_system_serialization": "repository-concurrency",
-            "fresh_prewrite_read": True,
-            "exact_postwrite_readback": True,
-            "external_admin_atomicity": "unavailable",
-        },
-        "operations": [
-            {
-                "type": "registry-index-create",
-                "capability": "write",
-                "reference": target,
-            }
-        ],
-        "decision": "create",
-        "postwrite_manifest_sha256": digest,
-        "preflight_sha256": "sha256:" + "a" * 64,
-        "matrix_sha256": registry.core.build_matrix("protected-tag")["matrix_sha256"],
-        "verification_sha256": registry.verify_index(plan, parent_plans=parent)[
-            "verification_sha256"
-        ],
-        "parent_plans_sha256": parent["plans_sha256"],
-    }
-    provisional = {
-        **provisional_payload,
-        "provisional_sha256": registry.sha256_value(provisional_payload),
-    }
+    provisional = _provisional_index_evidence(
+        registry,
+        parent,
+        plan,
+        resolved_plan=resolved_plan,
+    )
+    auth = provisional["authenticated_readback"]
     assert (
-        registry.validate_provisional_index(provisional, parent_plans=parent)
+        registry.validate_provisional_index(
+            provisional,
+            parent_plans=parent,
+            **plan_binding,
+        )
         == provisional
     )
 
@@ -4394,7 +6608,11 @@ def test_provisional_and_finalized_index_readbacks_are_strict_and_mode_bound(
             {key: item for key, item in forged.items() if key != "provisional_sha256"}
         )
         with pytest.raises(ValueError):
-            registry.validate_provisional_index(forged, parent_plans=parent)
+            registry.validate_provisional_index(
+                forged,
+                parent_plans=parent,
+                **plan_binding,
+            )
 
     mixed = readback(authenticated=False)
     mixed["operations"] = copy.deepcopy(auth["operations"])
@@ -4403,342 +6621,79 @@ def test_provisional_and_finalized_index_readbacks_are_strict_and_mode_bound(
     )
     monkeypatch.setattr(registry, "readback_reference", lambda *_args, **_kwargs: mixed)
     with pytest.raises(ValueError):
-        registry.finalize_index(provisional, parent_plans=parent)
+        registry.finalize_index(
+            provisional,
+            parent_plans=parent,
+            **plan_binding,
+        )
 
 
-def test_index_rerun_defers_same_build_key_digest_to_exact_dry_run() -> None:
+def test_index_rerun_defers_same_build_key_digest_to_exact_dry_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Buildx formatting may change bytes without changing parsed index intent."""
     registry, _ = _modules()
-    members = _publication_members()
-    statuses = {item["spec_id"]: "success" for item in members}
-    absent = registry.plan_indexes(
-        members, inventory=[], member_statuses=statuses, lane="protected-tag"
+    resolved_plan, members, absent, plan_binding = _resolved_publication_context(
+        monkeypatch
     )
+    statuses = {item["task_id"]: "success" for item in resolved_plan["image_tasks"]}
     plan = absent["plans"][0]
     buildx_raw = json.dumps(plan["index_manifest"], indent=2).encode()
     actual_digest = "sha256:" + hashlib.sha256(buildx_raw).hexdigest()
     assert actual_digest != plan["expected_index_digest"]
-    inventory = [
-        {
-            "repository": plan["target_repository"],
-            "tag": plan["target_tag"],
-            "digest": actual_digest,
-            "build_key_sha256": plan["index_build_key_sha256"],
-        }
-    ]
+    inventory_payload = {
+        "schema_version": 1,
+        "kind": "ucm-registry-inventory",
+        "entries": [
+            {
+                "repository": plan["target_repository"],
+                "tag": plan["target_tag"],
+                "digest": actual_digest,
+                "build_key_sha256": plan["index_build_key_sha256"],
+            }
+        ],
+        "absent": [
+            {
+                "repository": item["target_repository"],
+                "tag": item["target_tag"],
+            }
+            for item in absent["plans"][1:]
+        ],
+        "operations": [
+            {
+                "type": "registry-authenticated-digest-read",
+                "capability": "read",
+                "reference": f"{plan['target_repository']}:{plan['target_tag']}",
+            },
+            {
+                "type": "registry-authenticated-manifest-read",
+                "capability": "read",
+                "reference": f"{plan['target_repository']}@{actual_digest}",
+            },
+            *[
+                {
+                    "type": "registry-authenticated-digest-read",
+                    "capability": "read",
+                    "reference": (f"{item['target_repository']}:{item['target_tag']}"),
+                }
+                for item in absent["plans"][1:]
+            ],
+        ],
+    }
+    inventory = {
+        **inventory_payload,
+        "inventory_sha256": registry.sha256_value(inventory_payload),
+    }
 
     rerun = registry.plan_indexes(
         members,
         inventory=inventory,
         member_statuses=statuses,
         lane="protected-tag",
+        **plan_binding,
     )
 
     assert rerun["plans"][0]["decision"] == "reuse"
-
-
-def test_registry_aggregate_keeps_authenticated_and_anonymous_states_distinct(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Authenticated provisional evidence cannot claim final public publication."""
-    registry, verify = _modules()
-    members = _publication_members()
-    parent = registry.plan_indexes(
-        members,
-        inventory=[],
-        member_statuses={item["spec_id"]: "success" for item in members},
-        lane="protected-tag",
-    )
-    provisionals = [
-        _provisional_index_evidence(registry, parent, plan) for plan in parent["plans"]
-    ]
-    member_collection = {
-        "schema_version": 1,
-        "kind": "ucm-member-artifact-collection",
-        "source_sha": "a" * 40,
-        "member_records": [
-            f"out/member-records/{item['spec_id']}.json" for item in members
-        ],
-        "member_record_sha256s": {
-            item["spec_id"]: item["record_sha256"] for item in members
-        },
-        "member_preflight_sha256s": {
-            item["spec_id"]: "sha256:" + "e" * 64 for item in members
-        },
-    }
-    member_collection["collection_sha256"] = verify.sha256_value(
-        {
-            key: value
-            for key, value in member_collection.items()
-            if key != "member_records"
-        }
-    )
-    provisional_collection = {
-        "schema_version": 1,
-        "kind": "ucm-provisional-artifact-collection",
-        "source_sha": "a" * 40,
-        "parent_plans_sha256": parent["plans_sha256"],
-        "provisional_indexes": [
-            f"out/provisionals/{item['family_id']}.json" for item in provisionals
-        ],
-        "provisional_sha256s": {
-            item["family_id"]: item["provisional_sha256"] for item in provisionals
-        },
-        "provisional_preflight_sha256s": {
-            item["family_id"]: item["preflight_sha256"] for item in provisionals
-        },
-    }
-    provisional_collection["collection_sha256"] = verify.sha256_value(
-        {
-            key: value
-            for key, value in provisional_collection.items()
-            if key != "provisional_indexes"
-        }
-    )
-
-    authenticated = verify.authenticated_registry_publication_evidence(
-        member_records=members,
-        member_collection=member_collection,
-        provisional_indexes=provisionals,
-        provisional_collection=provisional_collection,
-        parent_plans=parent,
-        source_sha="a" * 40,
-        run={"run_id": "123", "run_attempt": 4},
-    )
-
-    assert authenticated["payload"]["kind"] == (
-        "ucm-authenticated-registry-publication-payload"
-    )
-    assert authenticated["payload"]["publication"] == {
-        "registry": "authenticated-passed",
-        "anonymous": "pending",
-        "github_release": "pending",
-    }
-    assert "release_manifest_sha256" not in authenticated["payload"]
-    assert authenticated["payload"]["member_records"] == parent["member_records"]
-    assert authenticated["payload"]["provisional_indexes"] == provisionals
-
-    plans_by_reference = {
-        plan["target_repository"] + ":" + plan["target_tag"]: plan
-        for plan in parent["plans"]
-    }
-
-    def anonymous_readback(
-        reference: str, *, anonymous: bool = False
-    ) -> dict[str, object]:
-        assert anonymous is True
-        plan = plans_by_reference[reference]
-        return _index_readback_evidence(
-            registry,
-            plan,
-            plan["expected_index_digest"],
-            authenticated=False,
-        )
-
-    def anonymous_closure(
-        plan: dict[str, object],
-        *,
-        index_digest: str,
-        anonymous: bool = False,
-    ) -> dict[str, object]:
-        assert anonymous is True
-        return _index_closure_evidence(
-            registry, plan, index_digest, authenticated=False
-        )
-
-    monkeypatch.setattr(registry, "readback_reference", anonymous_readback)
-    monkeypatch.setattr(registry, "_validate_remote_index_closure", anonymous_closure)
-    finalized = [
-        registry.finalize_index(provisional, parent_plans=parent)
-        for provisional in provisionals
-    ]
-    published = verify.protected_registry_publication_evidence(
-        member_records=members,
-        member_collection=member_collection,
-        finalized_indexes=finalized,
-        provisional_collection=provisional_collection,
-        parent_plans=parent,
-        source_sha="a" * 40,
-        run={"run_id": "123", "run_attempt": 4},
-    )
-
-    assert published["payload"]["publication"] == {
-        "registry": "published",
-        "anonymous": "passed",
-        "github_release": "pending",
-    }
-    assert published["payload"]["release_manifest_sha256"].startswith("sha256:")
-    assert published["payload"]["member_records"] == parent["member_records"]
-    assert published["payload"]["finalized_indexes"] == finalized
-    assert len(published["payload"]["index_records"]) == 3
-    assert (
-        verify.authenticated_registry_publication_evidence(
-            member_records=authenticated["payload"]["member_records"],
-            member_collection=authenticated["payload"]["member_collection"],
-            provisional_indexes=authenticated["payload"]["provisional_indexes"],
-            provisional_collection=authenticated["payload"]["provisional_collection"],
-            parent_plans=authenticated["payload"]["parent_plans"],
-            source_sha="a" * 40,
-            run={"run_id": "123", "run_attempt": 4},
-        )
-        == authenticated
-    )
-    assert (
-        verify.protected_registry_publication_evidence(
-            member_records=published["payload"]["member_records"],
-            member_collection=published["payload"]["member_collection"],
-            finalized_indexes=published["payload"]["finalized_indexes"],
-            provisional_collection=published["payload"]["provisional_collection"],
-            parent_plans=published["payload"]["parent_plans"],
-            source_sha="a" * 40,
-            run={"run_id": "123", "run_attempt": 4},
-        )
-        == published
-    )
-
-    asset_root = tmp_path / "release-assets"
-    asset_root.mkdir()
-    assets: list[dict[str, object]] = []
-    for authority in verify._canonical_release_asset_authorities():
-        path = asset_root / authority["name"]
-        path.write_bytes(str(authority["spec_id"]).encode())
-        assets.append(
-            {
-                **copy.deepcopy(authority),
-                "sha256": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(),
-                "size": path.stat().st_size,
-                "path": str(path),
-            }
-        )
-    asset_manifest = {
-        "schema_version": 1,
-        "kind": "ucm-github-release-assets",
-        "source_sha": "a" * 40,
-        "assets": assets,
-    }
-    asset_manifest["assets_sha256"] = verify.sha256_value(
-        {
-            **asset_manifest,
-            "assets": [
-                {key: value for key, value in asset.items() if key != "path"}
-                for asset in assets
-            ],
-        }
-    )
-    authority = verify.github_release_authority("a" * 40)
-    release = {
-        "id": 41,
-        "tag_name": authority["tag_name"],
-        "target_commitish": "develop",
-        "name": authority["name"],
-        "body": authority["body"],
-        "draft": False,
-        "prerelease": True,
-        "assets": [{"id": 600 + index} for index in range(7)],
-        "author": {"login": "github-actions[bot]", "type": "Bot"},
-        "upload_url": (
-            "https://uploads.github.com/repos/SuperMarioYL/"
-            "unified-cache-management/releases/41/assets{?name,label}"
-        ),
-        "url": (
-            "https://api.github.com/repos/SuperMarioYL/"
-            "unified-cache-management/releases/41"
-        ),
-        "assets_url": (
-            "https://api.github.com/repos/SuperMarioYL/"
-            "unified-cache-management/releases/41/assets"
-        ),
-        "html_url": (
-            "https://github.com/SuperMarioYL/unified-cache-management/"
-            "releases/tag/v0.5.0rc1"
-        ),
-    }
-    remote_assets = [
-        {
-            "release_id": 41,
-            "asset_id": 600 + index,
-            "name": asset["name"],
-            "size": asset["size"],
-            "state": "uploaded",
-            "digest": asset["sha256"],
-            "api_url": (
-                "https://api.github.com/repos/SuperMarioYL/"
-                f"unified-cache-management/releases/assets/{600 + index}"
-            ),
-            "browser_download_url": (
-                "https://github.com/SuperMarioYL/unified-cache-management/"
-                f"releases/download/v0.5.0rc1/{asset['name']}"
-            ),
-            "uploader": {"login": "github-actions[bot]", "type": "Bot"},
-            "download_sha256": asset["sha256"],
-            "download_size": asset["size"],
-        }
-        for index, asset in enumerate(assets)
-    ]
-    release_plan = verify.plan_github_release(release, "a" * 40)
-    asset_plan = verify.plan_release_assets(
-        asset_manifest,
-        remote_assets,
-        release_id=41,
-        allowed_root=asset_root,
-        release_published=True,
-    )
-    operations = verify.build_github_release_operation_ledger(
-        prepare_initial_plan=release_plan,
-        initial_release=release,
-        initial_asset_plan=asset_plan,
-        authenticated_assets=remote_assets,
-        upload_transcript=[],
-        source_sha="a" * 40,
-    )
-    github = verify.github_release_publication_evidence(
-        protected_registry=published,
-        asset_manifest=asset_manifest,
-        allowed_root=asset_root,
-        prepare_initial_plan=release_plan,
-        prepare_release=release,
-        initial_release=release,
-        initial_assets=remote_assets,
-        initial_asset_plan=asset_plan,
-        upload_transcript=[],
-        prepublish_release=release,
-        prepublish_assets=remote_assets,
-        authenticated_release=release,
-        authenticated_assets=remote_assets,
-        anonymous_release=release,
-        anonymous_assets=remote_assets,
-        operations=operations,
-        source_sha="a" * 40,
-        run={"run_id": "123", "run_attempt": 4},
-    )
-    assert (
-        github["payload"]["protected_registry_payload_sha256"]
-        == published["payload_sha256"]
-    )
-    assert github["payload"]["publication"] == "published-prerelease"
-
-    split_brain_members = copy.deepcopy(members)
-    split_brain_members[0]["image_result_sha256"] = "sha256:" + "f" * 64
-    _rehash_publication_record(split_brain_members[0])
-    with pytest.raises(ValueError, match="parent|member"):
-        verify.authenticated_registry_publication_evidence(
-            member_records=split_brain_members,
-            member_collection=member_collection,
-            provisional_indexes=provisionals,
-            provisional_collection=provisional_collection,
-            parent_plans=parent,
-            source_sha="a" * 40,
-        )
-    with pytest.raises(ValueError, match="final|provisional|index"):
-        verify.protected_registry_publication_evidence(
-            member_records=members,
-            member_collection=member_collection,
-            finalized_indexes=provisionals,
-            provisional_collection=provisional_collection,
-            parent_plans=parent,
-            source_sha="a" * 40,
-        )
 
 
 def test_publish_member_rederives_record_from_image_result_and_registry_bytes(
@@ -4747,8 +6702,16 @@ def test_publish_member_rederives_record_from_image_result_and_registry_bytes(
     """A caller cannot supply the publication record that authorizes its own write."""
     registry, verify = _modules()
     image = importlib.import_module("ucm_release.image")
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    selected_task = resolved_plan["image_tasks"][0]
+    member_fixture = _publication_members_for_plan(resolved_plan)[0]
+    plan_binding = {
+        "selected_task": selected_task,
+        "resolved_plan": resolved_plan,
+        "expected_plan_sha256": resolved_plan["resolved_plan_sha256"],
+    }
     archive, expected = _valid_oci_archive(
-        tmp_path, _member_with_buildkit_rewritten_timestamp()
+        tmp_path, _member_with_buildkit_rewritten_timestamp(member_fixture)
     )
     image_result = {
         "candidate_kind": "real-candidate",
@@ -4774,7 +6737,9 @@ def test_publish_member_rederives_record_from_image_result_and_registry_bytes(
         "content_identity": copy.deepcopy(expected["content_identity"]),
     }
     monkeypatch.setattr(
-        image, "validate_image_result", lambda value: copy.deepcopy(value)
+        image,
+        "validate_image_result",
+        lambda value, **_kwargs: copy.deepcopy(value),
     )
     with registry.materialize_oci_layout(archive) as materialized:
         manifest_raw = json.dumps(
@@ -4837,7 +6802,10 @@ else:
     monkeypatch.setattr(registry.core, "tag_preflight", lambda **_: ancestor_preflight)
     with pytest.raises(ValueError, match="default branch|first publication"):
         registry.publish_member(
-            archive, image_result=image_result, lane="protected-tag"
+            archive,
+            image_result=image_result,
+            lane="protected-tag",
+            **plan_binding,
         )
     assert not any(
         marker in invocation_log.read_text(encoding="utf-8")
@@ -4851,7 +6819,12 @@ else:
     stale = copy.deepcopy(image_result)
     stale["source"]["commit"] = "b" * 40
     with pytest.raises(ValueError, match="source"):
-        registry.publish_member(archive, image_result=stale, lane="protected-tag")
+        registry.publish_member(
+            archive,
+            image_result=stale,
+            lane="protected-tag",
+            **plan_binding,
+        )
     assert not invocation_log.exists()
 
     forged_identity = copy.deepcopy(image_result)
@@ -4869,7 +6842,10 @@ else:
     ]
     with pytest.raises(ValueError, match="content identity|task"):
         registry.publish_member(
-            archive, image_result=forged_identity, lane="protected-tag"
+            archive,
+            image_result=forged_identity,
+            lane="protected-tag",
+            **plan_binding,
         )
     assert not invocation_log.exists()
 
@@ -4897,11 +6873,15 @@ else:
                 archive,
                 image_result=forged_config_closure,
                 lane="protected-tag",
+                **plan_binding,
             )
         assert not invocation_log.exists()
 
     record = registry.publish_member(
-        archive, image_result=image_result, lane="protected-tag"
+        archive,
+        image_result=image_result,
+        lane="protected-tag",
+        **plan_binding,
     )
 
     assert record["member_digest"] == expected["member_digest"]
@@ -4910,14 +6890,25 @@ else:
         "buildkit/rewritten-timestamp": "1786353770"
     }
     assert record["prewrite_visibility_evidence_sha256"].startswith("sha256:")
-    assert registry.validate_member_record(record) == record
+    assert (
+        registry.validate_member_record(
+            record,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
+        )
+        == record
+    )
     assert {item["type"] for item in record["operations"]} >= {
         "registry-member-push-by-digest",
         "registry-staging-tag-create",
         "registry-authenticated-config-blob-read",
         "registry-authenticated-layer-blob-read",
     }
-    assert verify.audit_operations(record["operations"], lane="protected-tag") == {
+    assert verify.audit_operations(
+        record["operations"],
+        lane="protected-tag",
+        staging_repository=resolved_plan["source"]["staging_repository"],
+    ) == {
         "operation_count": 9,
         "operation_types": [
             "registry-anonymous-prewrite-visibility-read",
@@ -4947,7 +6938,17 @@ def test_member_tag_collision_fails_before_any_digest_push(
     """A pre-existing staging tag with different bytes cannot leave an orphan push."""
     registry, _ = _modules()
     image = importlib.import_module("ucm_release.image")
-    archive, expected = _valid_oci_archive(tmp_path, _publication_members()[0])
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    selected_task = resolved_plan["image_tasks"][0]
+    archive, expected = _valid_oci_archive(
+        tmp_path,
+        _publication_members_for_plan(resolved_plan)[0],
+    )
+    plan_binding = {
+        "selected_task": selected_task,
+        "resolved_plan": resolved_plan,
+        "expected_plan_sha256": resolved_plan["resolved_plan_sha256"],
+    }
     image_result = {
         "candidate_kind": "real-candidate",
         "unpublished": True,
@@ -4972,14 +6973,22 @@ def test_member_tag_collision_fails_before_any_digest_push(
         "content_identity": copy.deepcopy(expected["content_identity"]),
     }
     monkeypatch.setattr(
-        image, "validate_image_result", lambda value: copy.deepcopy(value)
+        image,
+        "validate_image_result",
+        lambda value, **_kwargs: copy.deepcopy(value),
     )
     monkeypatch.setattr(
         registry.core, "tag_preflight", lambda **_: _protected_preflight()
     )
     monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: "/pinned/crane")
 
-    def visibility(reference: str, *, phase: str = "postwrite") -> dict[str, object]:
+    def visibility(
+        reference: str,
+        *,
+        staging_repository: str,
+        phase: str = "postwrite",
+    ) -> dict[str, object]:
+        assert staging_repository == resolved_plan["source"]["staging_repository"]
         operation = {
             "type": (
                 "registry-anonymous-prewrite-visibility-read"
@@ -5006,7 +7015,7 @@ def test_member_tag_collision_fails_before_any_digest_push(
 
     monkeypatch.setattr(registry, "verify_private_staging", visibility)
     staging_reference = (
-        registry.STAGING_REPOSITORY
+        resolved_plan["source"]["staging_repository"]
         + ":staging-"
         + expected["build_key_sha256"].removeprefix("sha256:")
     )
@@ -5031,21 +7040,31 @@ def test_member_tag_collision_fails_before_any_digest_push(
 
     with pytest.raises(ValueError, match="tag collision"):
         registry.publish_member(
-            archive, image_result=image_result, lane="protected-tag"
+            archive,
+            image_result=image_result,
+            lane="protected-tag",
+            **plan_binding,
         )
     assert pushed == []
 
 
-def test_member_prewrite_and_postwrite_visibility_evidence_must_be_distinct() -> None:
+def test_member_prewrite_and_postwrite_visibility_evidence_must_be_distinct(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A record cannot collapse the two sides of the private staging write gate."""
     registry, _ = _modules()
-    record = _publication_members()[0]
+    resolved_plan = _protected_resolved_plan(monkeypatch)
+    record = _publication_members_for_plan(resolved_plan)[0]
     record["visibility_evidence_sha256"] = record["prewrite_visibility_evidence_sha256"]
     record["record_sha256"] = registry.sha256_value(
         {key: value for key, value in record.items() if key != "record_sha256"}
     )
     with pytest.raises(ValueError, match="visibility"):
-        registry.validate_member_record(record)
+        registry.validate_member_record(
+            record,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=resolved_plan["resolved_plan_sha256"],
+        )
 
 
 def test_materialize_oci_hashes_large_layers_without_read_bytes(
@@ -5153,7 +7172,9 @@ echo 'sha256:{'1' * 64}'
     reference = "ghcr.io/supermarioyl/ucm-release-staging:staging-" + "2" * 64
 
     if accepted:
-        evidence = registry.verify_private_staging(reference)
+        evidence = registry.verify_private_staging(
+            reference, staging_repository=registry.FIXTURE_STAGING_REPOSITORY
+        )
         assert evidence["status"] == "anonymous-denied"
         assert evidence["returncode"] == 1
         assert evidence["stdout_sha256"].startswith("sha256:")
@@ -5163,13 +7184,19 @@ echo 'sha256:{'1' * 64}'
             "capability": "read",
             "reference": reference,
         }
-        prewrite = registry.verify_private_staging(reference, phase="prewrite")
+        prewrite = registry.verify_private_staging(
+            reference,
+            staging_repository=registry.FIXTURE_STAGING_REPOSITORY,
+            phase="prewrite",
+        )
         assert prewrite["operation"]["type"] == (
             "registry-anonymous-prewrite-visibility-read"
         )
     else:
         with pytest.raises(ValueError, match="public|anonymous|network|denial"):
-            registry.verify_private_staging(reference)
+            registry.verify_private_staging(
+                reference, staging_repository=registry.FIXTURE_STAGING_REPOSITORY
+            )
 
 
 def test_registry_subprocess_environment_is_minimal_and_keeps_login_config(
@@ -5321,13 +7348,7 @@ def test_production_index_api_rejects_caller_selected_executor(
 ) -> None:
     """Neither Python callers nor the canonical CLI can replace Buildx."""
     registry, _ = _modules()
-    members = _publication_members()
-    parent = registry.plan_indexes(
-        members,
-        inventory=[],
-        member_statuses={item["spec_id"]: "success" for item in members},
-        lane="protected-tag",
-    )
+    _, _, parent, plan_binding = _resolved_publication_context(monkeypatch)
     marker = tmp_path / "caller-executor-ran"
     attacker = tmp_path / "attacker-docker"
     attacker.write_text(f"#!/bin/sh\ntouch {marker}\nexit 99\n", encoding="utf-8")
@@ -5342,6 +7363,7 @@ def test_production_index_api_rejects_caller_selected_executor(
             parent_plans=parent,
             lane="protected-tag",
             docker_binary=str(attacker),
+            **plan_binding,
         )
 
     assert not marker.exists()

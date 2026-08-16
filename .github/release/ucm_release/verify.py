@@ -16,24 +16,24 @@ from typing import Any, Callable
 
 from . import chart, image, wheel
 from .core import (
-    build_matrix,
-    build_release_manifest,
+    _build_fixture_release_manifest,
     canonical_bytes,
+    cpu_toolchain_authority,
+    load_catalog,
+    python_runtime_requirements,
     sha256_value,
-    validate_config,
 )
 from .registry import (
-    STAGING_REPOSITORY,
-    TARGET_REPOSITORIES,
+    FIXTURE_TARGET_REPOSITORIES,
     RegistryBlocker,
-    build_candidate,
-    canonical_registry_contract,
-    inventory_digest,
-    parse_upstream_tag,
-    reconcile,
-    scan_registry,
+    build_fixture_candidate,
+    fixture_inventory_digest,
+    parse_fixture_upstream_tag,
+    reconcile_fixture_candidate,
+    scan_fixture_registry,
     validate_public_tag,
-    validate_snapshot,
+    validate_resolved_plan,
+    validate_fixture_snapshot,
 )
 
 EXPECTED_BLOCKERS = [
@@ -47,11 +47,11 @@ REPOSITORY_RE = re.compile(
 )
 OPERATION_CONTRACTS = MappingProxyType(
     {
-        "fixture-read": ("read", "upstream-tag"),
+        "fixture-read": ("read", "fixture-upstream-tag"),
         "crane-digest": ("read", "upstream-tag"),
         "crane-manifest": ("read", "upstream-digest"),
         "registry-inventory-read": ("read", "digest"),
-        "build-plan": ("plan", "target-tag"),
+        "build-plan": ("plan", "fixture-target-tag"),
         "registry-member-push-by-digest": ("write", "staging-digest"),
         "registry-staging-tag-create": ("write", "staging-tag"),
         "registry-index-create": ("write", "public-target"),
@@ -122,7 +122,7 @@ REQUIRED_IMAGE_GATES = {
     "pip_check",
     "direct_url",
     "ucm_import",
-    "wrapt_import",
+    "runtime_dependency_imports",
     "abi",
 }
 
@@ -212,16 +212,104 @@ def resolve_run_bound_artifact_directories(
     }
 
 
-def github_release_authority(source_sha: object) -> dict[str, Any]:
-    """Return the non-configurable GitHub prerelease identity for this release."""
-    source_sha = _source_sha(source_sha)
+def _release_tag_name(resolved_plan: object) -> str:
+    source = resolved_plan.get("source") if isinstance(resolved_plan, dict) else None
+    tag_name = source.get("release_tag") if isinstance(source, dict) else None
+    wheel_tasks = (
+        resolved_plan.get("wheel_tasks") if isinstance(resolved_plan, dict) else None
+    )
+    versions = {
+        task.get("wheel_version", "").split("+", 1)[0]
+        for task in wheel_tasks or []
+        if isinstance(task, dict)
+    }
+    if (
+        not isinstance(tag_name, str)
+        or len(versions) != 1
+        or tag_name != f"v{next(iter(versions))}"
+        or re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:rc[0-9]+)?", tag_name) is None
+    ):
+        raise ValueError("frozen plan release tag identity is invalid")
+    return tag_name
+
+
+def _github_repository_roots(resolved_plan: object) -> dict[str, str]:
+    source = resolved_plan.get("source") if isinstance(resolved_plan, dict) else None
+    repository = source.get("repository") if isinstance(source, dict) else None
+    if (
+        not isinstance(repository, str)
+        or re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) is None
+    ):
+        raise ValueError("frozen plan GitHub repository identity is invalid")
     return {
-        "tag_name": "v0.5.0rc1",
+        "repository": repository,
+        "api": f"https://api.github.com/repos/{repository}",
+        "uploads": f"https://uploads.github.com/repos/{repository}",
+        "html": f"https://github.com/{repository}",
+    }
+
+
+def _github_release_plan_binding(
+    resolved_plan: object,
+    expected_plan_sha256: object,
+    source_sha: object,
+) -> dict[str, Any]:
+    """Validate and project the complete protected plan before Release planning."""
+    from . import registry
+
+    source_sha = _source_sha(source_sha)
+    contract = registry._require_resolved_registry_contract(
+        resolved_plan, expected_plan_sha256
+    )
+    if contract["source_sha"] != source_sha:
+        raise ValueError("GitHub Release source differs from the frozen protected plan")
+    task_sets = {
+        kind: [
+            {
+                "task_id": task["task_id"],
+                "task_sha256": task["task_sha256"],
+                "artifact_name": task["artifact_name"],
+            }
+            for task in resolved_plan[f"{kind}_tasks"]
+        ]
+        for kind in ("wheel", "image", "family")
+    }
+    payload = {
+        "schema_version": 1,
+        "kind": "ucm-github-release-plan-binding",
+        "source_sha": source_sha,
+        "source_repository": resolved_plan["source"]["repository"],
+        "release_tag": resolved_plan["source"]["release_tag"],
+        "chart_sha256": sha256_value(resolved_plan["chart"]),
+        "resolved_plan_sha256": resolved_plan["resolved_plan_sha256"],
+        "task_sets": task_sets,
+        "expected_artifacts": copy.deepcopy(resolved_plan["expected_artifacts"]),
+        "registry_contract_sha256": contract["contract_sha256"],
+    }
+    return {**payload, "plan_binding_sha256": sha256_value(payload)}
+
+
+def github_release_authority(
+    source_sha: object,
+    *,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+) -> dict[str, Any]:
+    """Return the config-derived GitHub prerelease identity for this release."""
+    binding = _github_release_plan_binding(
+        resolved_plan, expected_plan_sha256, source_sha
+    )
+    source_sha = binding["source_sha"]
+    tag_name = _release_tag_name(resolved_plan)
+    return {
+        "tag_name": tag_name,
         "target_commitish": source_sha,
-        "name": "UCM v0.5.0rc1",
+        "name": f"UCM {tag_name}",
         "body": (
-            "Protected UCM v0.5.0rc1 release from reviewed source commit "
+            f"Protected UCM {tag_name} release from reviewed source commit "
             + source_sha
+            + f". Frozen plan {binding['resolved_plan_sha256']}; task set "
+            + binding["plan_binding_sha256"]
             + "."
         ),
         "draft": True,
@@ -230,20 +318,27 @@ def github_release_authority(source_sha: object) -> dict[str, Any]:
     }
 
 
-def _validated_release_asset_download_slug(value: object) -> str:
-    if value == "v0.5.0rc1" or (
+def _validated_release_asset_download_slug(
+    value: object, *, resolved_plan: dict[str, Any]
+) -> str:
+    if value is None:
+        value = _release_tag_name(resolved_plan)
+    if value == _release_tag_name(resolved_plan) or (
         isinstance(value, str) and re.fullmatch(r"untagged-[0-9a-f]{20}", value)
     ):
         return value
     raise ValueError("GitHub Release asset download slug is invalid")
 
 
-def _github_release_asset_download_slug(html_url: object, *, draft: bool) -> str:
+def _github_release_asset_download_slug(
+    html_url: object, *, draft: bool, resolved_plan: dict[str, Any]
+) -> str:
     """Bind asset URLs to the exact live draft or published Release page."""
     if not isinstance(html_url, str) or not isinstance(draft, bool):
         raise ValueError("GitHub release HTML transport identity is malformed")
     parsed = urllib.parse.urlsplit(html_url)
-    prefix = "/SuperMarioYL/unified-cache-management/releases/tag/"
+    roots = _github_repository_roots(resolved_plan)
+    prefix = f"/{roots['repository']}/releases/tag/"
     if (
         parsed.scheme != "https"
         or parsed.netloc != "github.com"
@@ -254,12 +349,13 @@ def _github_release_asset_download_slug(html_url: object, *, draft: bool) -> str
         raise ValueError("GitHub release HTML transport identity is malformed")
     slug = parsed.path.removeprefix(prefix)
     try:
-        slug = _validated_release_asset_download_slug(slug)
+        slug = _validated_release_asset_download_slug(slug, resolved_plan=resolved_plan)
     except ValueError as error:
         raise ValueError(
             "GitHub release HTML transport identity is malformed"
         ) from error
-    if (draft and slug == "v0.5.0rc1") or (not draft and slug != "v0.5.0rc1"):
+    tag_name = _release_tag_name(resolved_plan)
+    if (draft and slug == tag_name) or (not draft and slug != tag_name):
         raise ValueError("GitHub release HTML transport identity is malformed")
     return slug
 
@@ -268,10 +364,20 @@ def plan_github_release(
     remote: object | None,
     source_sha: object,
     *,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
     just_created: bool = False,
 ) -> dict[str, Any]:
     """Plan create-or-reopen without replacing a foreign or conflicting release."""
-    authority = github_release_authority(source_sha)
+    binding = _github_release_plan_binding(
+        resolved_plan, expected_plan_sha256, source_sha
+    )
+    source_sha = binding["source_sha"]
+    authority = github_release_authority(
+        source_sha,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
     if not isinstance(just_created, bool):
         raise ValueError("release creation marker must be boolean")
     if remote is None:
@@ -282,6 +388,9 @@ def plan_github_release(
             "kind": "ucm-github-release-state-plan",
             "decision": "create",
             "authority": authority,
+            "plan_binding": binding,
+            "resolved_plan_sha256": binding["resolved_plan_sha256"],
+            "plan_binding_sha256": binding["plan_binding_sha256"],
             "release_id": None,
             "upload_url": None,
             "asset_download_slug": None,
@@ -297,13 +406,10 @@ def plan_github_release(
     assets_url = remote.get("assets_url")
     author = remote.get("author")
     draft = remote.get("draft")
-    expected_api_url = (
-        "https://api.github.com/repos/SuperMarioYL/unified-cache-management/"
-        f"releases/{release_id}"
-    )
+    roots = _github_repository_roots(resolved_plan)
+    expected_api_url = f"{roots['api']}/releases/{release_id}"
     expected_upload_url = (
-        "https://uploads.github.com/repos/SuperMarioYL/"
-        f"unified-cache-management/releases/{release_id}/assets{{?name,label}}"
+        f"{roots['uploads']}/releases/{release_id}/assets{{?name,label}}"
     )
     expected_assets_url = expected_api_url + "/assets"
     if (
@@ -319,7 +425,7 @@ def plan_github_release(
     ):
         raise ValueError("GitHub release transport identity is malformed")
     asset_download_slug = _github_release_asset_download_slug(
-        remote.get("html_url"), draft=draft
+        remote.get("html_url"), draft=draft, resolved_plan=resolved_plan
     )
     if (
         not isinstance(author, dict)
@@ -350,6 +456,9 @@ def plan_github_release(
         "kind": "ucm-github-release-state-plan",
         "decision": decision,
         "authority": authority,
+        "plan_binding": binding,
+        "resolved_plan_sha256": binding["resolved_plan_sha256"],
+        "plan_binding_sha256": binding["plan_binding_sha256"],
         "release_id": release_id,
         "upload_url": expected_upload_url.removesuffix("{?name,label}"),
         "assets_url": expected_assets_url,
@@ -360,11 +469,15 @@ def plan_github_release(
     return {**payload, "plan_sha256": sha256_value(payload)}
 
 
-def _canonical_release_asset_authorities() -> list[dict[str, Any]]:
-    tasks = build_matrix("protected-tag")["tasks"]
+def _canonical_release_asset_authorities(
+    tasks: list[dict[str, Any]],
+    *,
+    chart_authority: dict[str, Any],
+    include_plan: bool = False,
+) -> list[dict[str, Any]]:
     authorities: list[dict[str, Any]] = []
     for task in tasks:
-        architecture = "x86_64" if task["cpu_arch"] == "amd64" else "aarch64"
+        architecture = cpu_toolchain_authority(task["cpu_arch"]).wheel_arch
         authorities.append(
             {
                 "spec_id": task["spec_id"],
@@ -377,10 +490,8 @@ def _canonical_release_asset_authorities() -> list[dict[str, Any]]:
                 "type": "wheel",
             }
         )
-    release, _ = validate_config()
-    chart_authority = release.get("chart")
     if not isinstance(chart_authority, dict):
-        raise ValueError("release Chart authority is missing")
+        raise ValueError("frozen plan Chart authority is missing")
     authorities.append(
         {
             "spec_id": "helm-chart",
@@ -390,6 +501,25 @@ def _canonical_release_asset_authorities() -> list[dict[str, Any]]:
             "type": "helm-chart",
         }
     )
+    if include_plan:
+        authorities.extend(
+            [
+                {
+                    "spec_id": "resolved-plan",
+                    "profile_id": None,
+                    "platform": None,
+                    "name": "resolved-plan.json",
+                    "type": "resolved-plan",
+                },
+                {
+                    "spec_id": "release-provenance",
+                    "profile_id": None,
+                    "platform": None,
+                    "name": "release-provenance.json",
+                    "type": "release-provenance",
+                },
+            ]
+        )
     return authorities
 
 
@@ -408,6 +538,7 @@ def _release_asset_identity_payload(manifest: dict[str, Any]) -> dict[str, Any]:
         "schema_version": manifest["schema_version"],
         "kind": manifest["kind"],
         "source_sha": manifest["source_sha"],
+        "resolved_plan_sha256": manifest["resolved_plan_sha256"],
         "assets": [
             {key: copy.deepcopy(value) for key, value in asset.items() if key != "path"}
             for asset in manifest["assets"]
@@ -422,10 +553,21 @@ def build_release_asset_manifest(
     chart_package_path: Path,
     output_dir: Path,
     source_sha: object,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
     run: object,
 ) -> dict[str, Any]:
-    """Reopen current-attempt wheel/Chart artifacts and stage exact seven files."""
+    """Stage the exact frozen wheel set, Chart, plan, and provenance."""
+    from . import registry
+
+    registry._require_resolved_registry_contract(resolved_plan, expected_plan_sha256)
     source_sha = _source_sha(source_sha)
+    if (
+        resolved_plan["source"]["commit"] != source_sha
+        or resolved_plan["lane"] != "protected-tag"
+        or resolved_plan["fixture_only"] is not False
+    ):
+        raise ValueError("release assets require one live protected frozen plan")
     wheel_root = Path(wheel_dir)
     output_root = Path(output_dir)
     if output_root.exists():
@@ -437,9 +579,9 @@ def build_release_asset_manifest(
             raise ValueError("release asset output directory must be empty")
     else:
         output_root.mkdir(parents=True)
-    reviewed = build_matrix("protected-tag")["tasks"]
+    reviewed = resolved_plan["wheel_tasks"]
     reviewed_by_spec = {item["spec_id"]: item for item in reviewed}
-    logical_names = [f"ucm-wheel-{item['spec_id']}-{source_sha}" for item in reviewed]
+    logical_names = [item["artifact_name"] for item in reviewed]
     directories = resolve_run_bound_artifact_directories(
         wheel_root,
         logical_names,
@@ -459,11 +601,22 @@ def build_release_asset_manifest(
     epochs = {item.get("source_date_epoch") for item in task_records.values()}
     if len(epochs) != 1:
         raise ValueError("release hosted wheel tasks disagree on source epoch")
-    expected_matrix = hosted_build_matrix(source_sha, next(iter(epochs)))
-    expected_tasks = {item["spec_id"]: item for item in expected_matrix["tasks"]}
+    source_date_epoch = next(iter(epochs))
+    expected_tasks = {
+        item["spec_id"]: hosted_wheel_task(
+            item,
+            source_sha,
+            source_date_epoch,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+        )
+        for item in reviewed
+    }
     if task_records != expected_tasks:
         raise ValueError("release hosted wheel tasks differ from reviewed matrix")
-    authorities = _canonical_release_asset_authorities()
+    authorities = _canonical_release_asset_authorities(
+        reviewed, chart_authority=resolved_plan["chart"], include_plan=True
+    )
     authority_by_spec = {item["spec_id"]: item for item in authorities}
     assets: list[dict[str, Any]] = []
     for spec_id in [item["spec_id"] for item in reviewed]:
@@ -485,7 +638,11 @@ def build_release_asset_manifest(
         )
         wheel_sha256, wheel_size = _stream_sha256_and_size(wheel_path)
         reopened = wheel.inspect_wheel(
-            wheel_path, spec_id, wheel_sha256, "builder-candidate"
+            wheel_path,
+            spec_id,
+            wheel_sha256,
+            "builder-candidate",
+            task=reviewed_by_spec[spec_id],
         )
         builder = reopened.get("builder_evidence")
         if (
@@ -498,10 +655,14 @@ def build_release_asset_manifest(
             or seal.get("build_key") != task["task_sha256"]
             or seal.get("wheel_sha256") != wheel_sha256
             or seal.get("inspection_sha256") != _file_sha256(inspection_path)
+            or seal.get("runtime_patch_manifest_sha256")
+            != reviewed_by_spec[spec_id]["runtime_patch_manifest_sha256"]
             or not isinstance(builder, dict)
             or builder.get("source_commit") != source_sha
             or builder.get("build_key") != task["task_sha256"]
-            or builder.get("source_date_epoch") != expected_matrix["source_date_epoch"]
+            or builder.get("source_date_epoch") != source_date_epoch
+            or builder.get("runtime_patch_manifest_sha256")
+            != reviewed_by_spec[spec_id]["runtime_patch_manifest_sha256"]
             or source_context.get("source_sha") != source_sha
             or source_context.get("build_context_sha256")
             != builder.get("build_context_digest")
@@ -520,7 +681,10 @@ def build_release_asset_manifest(
             }
         )
     chart_summary = _real_chart_summary(
-        Path(chart_result_path), Path(chart_package_path)
+        Path(chart_result_path),
+        Path(chart_package_path),
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
     )
     chart_authority = authority_by_spec["helm-chart"]
     if chart_summary.get("filename") != chart_authority["name"] or chart_summary.get(
@@ -537,23 +701,64 @@ def build_release_asset_manifest(
             "path": str(chart_destination),
         }
     )
+    plan_destination = output_root / "resolved-plan.json"
+    plan_destination.write_bytes(canonical_bytes(resolved_plan) + b"\n")
+    provenance = {
+        "schema_version": 1,
+        "kind": "ucm-release-provenance",
+        "source_sha": source_sha,
+        "resolved_plan_sha256": resolved_plan["resolved_plan_sha256"],
+        "wheel_tasks": [
+            {key: task[key] for key in ("task_id", "task_sha256", "artifact_name")}
+            for task in reviewed
+        ],
+    }
+    provenance_destination = output_root / "release-provenance.json"
+    provenance_destination.write_bytes(canonical_bytes(provenance) + b"\n")
+    for authority, path in (
+        (authority_by_spec["resolved-plan"], plan_destination),
+        (authority_by_spec["release-provenance"], provenance_destination),
+    ):
+        sha256, size = _stream_sha256_and_size(path)
+        assets.append(
+            {
+                **copy.deepcopy(authority),
+                "sha256": sha256,
+                "size": size,
+                "path": str(path),
+            }
+        )
     manifest = {
         "schema_version": 1,
         "kind": "ucm-github-release-assets",
         "source_sha": source_sha,
+        "resolved_plan_sha256": resolved_plan["resolved_plan_sha256"],
         "assets": assets,
     }
     manifest["assets_sha256"] = sha256_value(_release_asset_identity_payload(manifest))
-    return validate_release_asset_manifest(manifest, allowed_root=output_root)
+    return validate_release_asset_manifest(
+        manifest,
+        allowed_root=output_root,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
 
 
 def validate_release_asset_manifest(
-    manifest: object, *, allowed_root: Path
+    manifest: object,
+    *,
+    allowed_root: Path,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
 ) -> dict[str, Any]:
+    from . import registry
+
+    registry._require_resolved_registry_contract(resolved_plan, expected_plan_sha256)
     if not isinstance(manifest, dict) or set(manifest) != {
         "schema_version",
         "kind",
         "source_sha",
+        "resolved_plan_sha256",
         "assets",
         "assets_sha256",
     }:
@@ -566,9 +771,13 @@ def validate_release_asset_manifest(
     ):
         raise ValueError("release asset manifest identity is invalid")
     _source_sha(manifest["source_sha"])
+    if DIGEST_RE.fullmatch(str(manifest["resolved_plan_sha256"])) is None:
+        raise ValueError("release asset resolved plan identity is invalid")
     assets = manifest["assets"]
-    if not isinstance(assets, list) or len(assets) != 7:
-        raise ValueError("release asset manifest requires exactly seven assets")
+    if not isinstance(assets, list) or len(assets) < 3:
+        raise ValueError(
+            "release asset manifest requires wheels, Chart, plan, provenance"
+        )
     root = Path(allowed_root)
     try:
         root_stat = root.lstat()
@@ -577,12 +786,21 @@ def validate_release_asset_manifest(
         raise ValueError("release asset allowlisted root is missing") from error
     if not stat.S_ISDIR(root_stat.st_mode) or root.is_symlink():
         raise ValueError("release asset allowlisted root must be a real directory")
-    authorities = _canonical_release_asset_authorities()
+    if (
+        manifest["resolved_plan_sha256"] != resolved_plan["resolved_plan_sha256"]
+        or manifest["source_sha"] != resolved_plan["source"]["commit"]
+    ):
+        raise ValueError("release asset manifest differs from frozen resolved plan")
+    authorities = _canonical_release_asset_authorities(
+        resolved_plan["wheel_tasks"],
+        chart_authority=resolved_plan["chart"],
+        include_plan=True,
+    )
     if [item.get("spec_id") for item in assets] != [
         item["spec_id"] for item in authorities
     ]:
         raise ValueError(
-            "release assets do not cover the canonical six specs and Chart"
+            "release assets do not cover the canonical wheel, Chart, plan, provenance set"
         )
     names: set[str] = set()
     for asset, authority in zip(assets, authorities, strict=True):
@@ -641,7 +859,8 @@ def _validate_remote_release_asset(
     *,
     expected: dict[str, Any],
     release_id: int,
-    asset_download_slug: object = "v0.5.0rc1",
+    resolved_plan: dict[str, Any],
+    asset_download_slug: object = None,
 ) -> dict[str, Any]:
     required = {
         "release_id",
@@ -678,16 +897,13 @@ def _validate_remote_release_asset(
         or item["download_size"] != expected["size"]
     ):
         raise ValueError(f"GitHub Release asset conflict: {item.get('name')}")
-    asset_download_slug = _validated_release_asset_download_slug(asset_download_slug)
-    expected_api_url = (
-        "https://api.github.com/repos/SuperMarioYL/unified-cache-management/"
-        f"releases/assets/{asset_id}"
+    asset_download_slug = _validated_release_asset_download_slug(
+        asset_download_slug, resolved_plan=resolved_plan
     )
+    roots = _github_repository_roots(resolved_plan)
+    expected_api_url = f"{roots['api']}/releases/assets/{asset_id}"
     browser = urllib.parse.urlsplit(str(item["browser_download_url"]))
-    expected_prefix = (
-        "/SuperMarioYL/unified-cache-management/releases/download/"
-        f"{asset_download_slug}/"
-    )
+    expected_prefix = f"/{roots['repository']}/releases/download/{asset_download_slug}/"
     if (
         item["api_url"] != expected_api_url
         or browser.scheme != "https"
@@ -716,8 +932,10 @@ def plan_release_assets(
     *,
     release_id: int,
     allowed_root: Path,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
     release_published: bool = False,
-    asset_download_slug: object = "v0.5.0rc1",
+    asset_download_slug: object = None,
 ) -> dict[str, Any]:
     """Reuse exact bytes, upload only absences, and reject every foreign/conflict."""
     if (
@@ -727,9 +945,14 @@ def plan_release_assets(
         or not isinstance(release_published, bool)
     ):
         raise ValueError("release asset plan identity is invalid")
-    asset_download_slug = _validated_release_asset_download_slug(asset_download_slug)
+    asset_download_slug = _validated_release_asset_download_slug(
+        asset_download_slug, resolved_plan=resolved_plan
+    )
     manifest = validate_release_asset_manifest(
-        expected_manifest, allowed_root=allowed_root
+        expected_manifest,
+        allowed_root=allowed_root,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
     )
     if not isinstance(observed_assets, list) or any(
         not isinstance(item, dict) for item in observed_assets
@@ -748,6 +971,7 @@ def plan_release_assets(
             item,
             expected=expected[name],
             release_id=release_id,
+            resolved_plan=resolved_plan,
             asset_download_slug=asset_download_slug,
         )
         if validated["asset_id"] in observed_ids:
@@ -757,13 +981,13 @@ def plan_release_assets(
     ordered_names = [item["name"] for item in manifest["assets"]]
     upload_names = [name for name in ordered_names if name not in observed]
     if release_published and upload_names:
-        raise ValueError("published prerelease reuse requires exact seven assets")
+        raise ValueError("published prerelease reuse requires the exact asset set")
     payload = {
         "schema_version": 1,
         "kind": "ucm-github-release-asset-plan",
         "source_sha": manifest["source_sha"],
         "assets_sha256": manifest["assets_sha256"],
-        "asset_count": 7,
+        "asset_count": len(manifest["assets"]),
         "release_id": release_id,
         "release_published": release_published,
         "asset_download_slug": asset_download_slug,
@@ -780,14 +1004,18 @@ def verify_release_assets(
     *,
     release_id: int,
     allowed_root: Path,
-    asset_download_slug: object = "v0.5.0rc1",
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+    asset_download_slug: object = None,
 ) -> dict[str, Any]:
-    """Require exact seven API records and downloaded byte hashes before publish/reuse."""
+    """Require the exact API records and downloaded byte hashes before reuse."""
     plan = plan_release_assets(
         expected_manifest,
         observed_assets,
         release_id=release_id,
         allowed_root=allowed_root,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
         release_published=True,
         asset_download_slug=asset_download_slug,
     )
@@ -803,16 +1031,27 @@ def verify_release_assets(
     return {**payload, "verification_sha256": sha256_value(payload)}
 
 
-def select_github_release_pages(pages: object, source_sha: object) -> dict[str, Any]:
+def select_github_release_pages(
+    pages: object,
+    source_sha: object,
+    *,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+) -> dict[str, Any]:
     """Select the unique protected tag from a complete paginated REST listing."""
-    source_sha = _source_sha(source_sha)
+    binding = _github_release_plan_binding(
+        resolved_plan, expected_plan_sha256, source_sha
+    )
+    source_sha = binding["source_sha"]
     if not isinstance(pages, list) or any(
         not isinstance(page, list) or any(not isinstance(item, dict) for item in page)
         for page in pages
     ):
         raise ValueError("GitHub Release pages are malformed")
+    tag_name = _release_tag_name(resolved_plan)
+    roots = _github_repository_roots(resolved_plan)
     matches = [
-        item for page in pages for item in page if item.get("tag_name") == "v0.5.0rc1"
+        item for page in pages for item in page if item.get("tag_name") == tag_name
     ]
     if len(matches) > 1:
         raise ValueError("duplicate protected GitHub Release tag")
@@ -821,21 +1060,25 @@ def select_github_release_pages(pages: object, source_sha: object) -> dict[str, 
         "schema_version": 1,
         "kind": "ucm-github-release-list-selection",
         "source_sha": source_sha,
+        "resolved_plan_sha256": binding["resolved_plan_sha256"],
+        "plan_binding": binding,
         "remote": remote,
         "plan_request": {
             "remote": copy.deepcopy(remote),
             "source_sha": source_sha,
             "just_created": False,
+            "resolved_plan_sha256": binding["resolved_plan_sha256"],
         },
-        "create_request": github_release_authority(source_sha),
+        "create_request": github_release_authority(
+            source_sha,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+        ),
         "operations": [
             {
                 "type": "github-release-list",
                 "capability": "read",
-                "reference": (
-                    "https://api.github.com/repos/SuperMarioYL/"
-                    "unified-cache-management/releases"
-                ),
+                "reference": (roots["api"] + "/releases"),
                 "authenticated": True,
             }
         ],
@@ -866,14 +1109,21 @@ def plan_release_asset_downloads(
     release_id: int,
     allowed_root: Path,
     require_complete: bool,
-    asset_download_slug: object = "v0.5.0rc1",
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+    asset_download_slug: object = None,
 ) -> dict[str, Any]:
     """Validate REST metadata before downloading canonical asset names or URLs."""
     if not isinstance(require_complete, bool):
         raise ValueError("release asset download completeness is malformed")
-    asset_download_slug = _validated_release_asset_download_slug(asset_download_slug)
+    asset_download_slug = _validated_release_asset_download_slug(
+        asset_download_slug, resolved_plan=resolved_plan
+    )
     manifest = validate_release_asset_manifest(
-        expected_manifest, allowed_root=allowed_root
+        expected_manifest,
+        allowed_root=allowed_root,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
     )
     raw = _flatten_release_asset_pages(raw_assets)
     expected = {item["name"]: item for item in manifest["assets"]}
@@ -909,6 +1159,7 @@ def plan_release_asset_downloads(
             candidate,
             expected=expected[name],
             release_id=release_id,
+            resolved_plan=resolved_plan,
             asset_download_slug=asset_download_slug,
         )
         if validated["asset_id"] in ids:
@@ -917,7 +1168,7 @@ def plan_release_asset_downloads(
         by_name[name] = validated
     ordered_names = [item["name"] for item in manifest["assets"]]
     if require_complete and set(by_name) != set(ordered_names):
-        raise ValueError("GitHub Release download plan requires exact seven assets")
+        raise ValueError("GitHub Release download plan requires the exact asset set")
     downloads = [
         {
             "release_id": release_id,
@@ -1025,17 +1276,21 @@ def refresh_release_asset_metadata(
     *,
     release_id: int,
     allowed_root: Path,
-    prior_asset_download_slug: object = "v0.5.0rc1",
-    asset_download_slug: object = "v0.5.0rc1",
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+    prior_asset_download_slug: object = None,
+    asset_download_slug: object = None,
 ) -> list[dict[str, Any]]:
     """Bind a fresh metadata listing to the previously rehashed exact bytes."""
     prior_asset_download_slug = _validated_release_asset_download_slug(
-        prior_asset_download_slug
+        prior_asset_download_slug, resolved_plan=resolved_plan
     )
-    asset_download_slug = _validated_release_asset_download_slug(asset_download_slug)
+    asset_download_slug = _validated_release_asset_download_slug(
+        asset_download_slug, resolved_plan=resolved_plan
+    )
     if prior_asset_download_slug != asset_download_slug and not (
         prior_asset_download_slug.startswith("untagged-")
-        and asset_download_slug == "v0.5.0rc1"
+        and asset_download_slug == _release_tag_name(resolved_plan)
     ):
         raise ValueError("GitHub Release asset metadata phase transition is invalid")
     prior = plan_release_assets(
@@ -1043,6 +1298,8 @@ def refresh_release_asset_metadata(
         prior_assets,
         release_id=release_id,
         allowed_root=allowed_root,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
         release_published=True,
         asset_download_slug=prior_asset_download_slug,
     )["reuse_assets"]
@@ -1052,6 +1309,8 @@ def refresh_release_asset_metadata(
         release_id=release_id,
         allowed_root=allowed_root,
         require_complete=True,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
         asset_download_slug=asset_download_slug,
     )
     prior_by_id = {item["asset_id"]: item for item in prior}
@@ -1092,7 +1351,11 @@ def refresh_release_asset_metadata(
 
 
 def rebase_release_asset_manifest(
-    manifest: object, *, allowed_root: Path
+    manifest: object,
+    *,
+    allowed_root: Path,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
 ) -> dict[str, Any]:
     """Rebind stable asset identities to a fresh current-job transport root."""
     if not isinstance(manifest, dict) or not isinstance(manifest.get("assets"), list):
@@ -1103,7 +1366,12 @@ def rebase_release_asset_manifest(
         if not isinstance(asset, dict) or not isinstance(asset.get("name"), str):
             raise ValueError("release asset manifest entry is malformed")
         asset["path"] = str(root / asset["name"])
-    return validate_release_asset_manifest(rebased, allowed_root=root)
+    return validate_release_asset_manifest(
+        rebased,
+        allowed_root=root,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
 
 
 def verify_release_upload_prefix(
@@ -1115,10 +1383,14 @@ def verify_release_upload_prefix(
     next_name: object,
     release_id: int,
     allowed_root: Path,
-    asset_download_slug: object = "v0.5.0rc1",
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+    asset_download_slug: object = None,
 ) -> dict[str, Any]:
     """Fail closed if the live draft changes between planning and each upload."""
-    asset_download_slug = _validated_release_asset_download_slug(asset_download_slug)
+    asset_download_slug = _validated_release_asset_download_slug(
+        asset_download_slug, resolved_plan=resolved_plan
+    )
     if (
         not isinstance(initial_asset_plan, dict)
         or initial_asset_plan.get("kind") != "ucm-github-release-asset-plan"
@@ -1145,6 +1417,8 @@ def verify_release_upload_prefix(
         release_id=release_id,
         allowed_root=allowed_root,
         require_complete=False,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
         asset_download_slug=asset_download_slug,
     )
     uploaded_names = [item["name"] for item in uploaded_plan["downloads"]]
@@ -1161,6 +1435,8 @@ def verify_release_upload_prefix(
         release_id=release_id,
         allowed_root=allowed_root,
         require_complete=False,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
         asset_download_slug=asset_download_slug,
     )
     current_names = [item["name"] for item in current_plan["downloads"]]
@@ -1173,7 +1449,10 @@ def verify_release_upload_prefix(
         != [
             item["name"]
             for item in validate_release_asset_manifest(
-                expected_manifest, allowed_root=allowed_root
+                expected_manifest,
+                allowed_root=allowed_root,
+                resolved_plan=resolved_plan,
+                expected_plan_sha256=expected_plan_sha256,
             )["assets"]
             if item["name"] in set(expected_current_names)
         ]
@@ -1227,7 +1506,9 @@ def record_release_upload_response(
     expected_name: object,
     release_id: int,
     allowed_root: Path,
-    asset_download_slug: object = "v0.5.0rc1",
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+    asset_download_slug: object = None,
 ) -> dict[str, Any]:
     """Canonicalize one successful upload response before the next mutation."""
     if not isinstance(raw_response, dict) or not isinstance(expected_name, str):
@@ -1238,6 +1519,8 @@ def record_release_upload_response(
         release_id=release_id,
         allowed_root=allowed_root,
         require_complete=False,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
         asset_download_slug=asset_download_slug,
     )
     if len(plan["downloads"]) != 1 or plan["downloads"][0]["name"] != expected_name:
@@ -1261,11 +1544,16 @@ def validate_release_upload_transcript(
     source_sha: object,
     release_id: int,
     allowed_root: Path,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
 ) -> list[dict[str, Any]]:
     """Replay every draft observation and upload response from persisted evidence."""
     source_sha = _source_sha(source_sha)
     manifest = validate_release_asset_manifest(
-        expected_manifest, allowed_root=allowed_root
+        expected_manifest,
+        allowed_root=allowed_root,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
     )
     if (
         not isinstance(initial_asset_plan, dict)
@@ -1321,7 +1609,12 @@ def validate_release_upload_transcript(
             or entry.get("name") != expected_name
         ):
             raise ValueError("GitHub Release upload transcript entry is noncanonical")
-        release_plan = plan_github_release(entry["release"], source_sha)
+        release_plan = plan_github_release(
+            entry["release"],
+            source_sha,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+        )
         if (
             release_plan["decision"] != "resume-draft"
             or release_plan["release_id"] != release_id
@@ -1437,6 +1730,7 @@ def validate_release_upload_transcript(
             },
             expected=expected_asset,
             release_id=release_id,
+            resolved_plan=resolved_plan,
             asset_download_slug=initial_asset_plan["asset_download_slug"],
         )
         if (
@@ -1461,6 +1755,8 @@ def build_github_release_operation_ledger(
     authenticated_assets: object,
     upload_transcript: object,
     source_sha: object,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
 ) -> list[dict[str, Any]]:
     """Build the exact audited REST sequence from validated branch observations."""
     source_sha = _source_sha(source_sha)
@@ -1475,7 +1771,12 @@ def build_github_release_operation_ledger(
         "inspect-published-prerelease",
     }:
         raise ValueError("GitHub Release prepare branch is invalid")
-    initial_state = plan_github_release(initial_release, source_sha)
+    initial_state = plan_github_release(
+        initial_release,
+        source_sha,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
     release_id = initial_state["release_id"]
     if (
         initial_asset_plan.get("kind") != "ucm-github-release-asset-plan"
@@ -1495,7 +1796,8 @@ def build_github_release_operation_ledger(
         or len(upload_transcript) != len(initial_asset_plan.get("upload_names", []))
     ):
         raise ValueError("GitHub Release asset operation plan is invalid")
-    api_root = "https://api.github.com/repos/SuperMarioYL/unified-cache-management"
+    roots = _github_repository_roots(resolved_plan)
+    api_root = roots["api"]
     release_url = f"{api_root}/releases/{release_id}"
     assets_url = release_url + "/assets"
     operations: list[dict[str, Any]] = [
@@ -1576,8 +1878,7 @@ def build_github_release_operation_ledger(
                     "type": "github-release-asset-upload",
                     "capability": "write",
                     "reference": (
-                        "https://uploads.github.com/repos/SuperMarioYL/"
-                        f"unified-cache-management/releases/{release_id}/assets?name="
+                        f"{roots['uploads']}/releases/{release_id}/assets?name="
                         + urllib.parse.quote(name, safe="")
                     ),
                     "authenticated": True,
@@ -1641,7 +1942,8 @@ def build_github_release_operation_ledger(
             {
                 "type": "github-release-tag-read",
                 "capability": "read",
-                "reference": api_root + "/releases/tags/v0.5.0rc1",
+                "reference": api_root
+                + f"/releases/tags/{_release_tag_name(resolved_plan)}",
                 "authenticated": False,
             },
             {
@@ -1684,17 +1986,16 @@ def _validate_github_release_operations(
     release_id: int,
     remote_assets: list[dict[str, Any]],
     expected_operations: list[dict[str, Any]],
+    resolved_plan: dict[str, Any],
 ) -> dict[str, Any]:
     """Audit the exact GitHub REST reads/writes used for one prerelease."""
     if not isinstance(operations, list):
         raise ValueError("GitHub Release operation ledger must be an array")
     if operations != expected_operations:
         raise ValueError("GitHub Release operation ledger order or branch is invalid")
-    api_root = "https://api.github.com/repos/SuperMarioYL/unified-cache-management"
-    uploads_root = (
-        "https://uploads.github.com/repos/SuperMarioYL/unified-cache-management/"
-        f"releases/{release_id}/assets"
-    )
+    roots = _github_repository_roots(resolved_plan)
+    api_root = roots["api"]
+    uploads_root = f"{roots['uploads']}/releases/{release_id}/assets"
     release_url = f"{api_root}/releases/{release_id}"
     assets_url = release_url + "/assets"
     asset_urls = {item["api_url"] for item in remote_assets}
@@ -1754,7 +2055,10 @@ def _validate_github_release_operations(
         elif operation_type in {"github-release-publish", "github-release-read"}:
             valid_reference = reference == release_url
         elif operation_type == "github-release-tag-read":
-            valid_reference = reference == api_root + "/releases/tags/v0.5.0rc1"
+            valid_reference = (
+                reference
+                == api_root + f"/releases/tags/{_release_tag_name(resolved_plan)}"
+            )
         else:  # pragma: no cover - immutable mapping owns this branch.
             valid_reference = False
         if not valid_reference:
@@ -1803,6 +2107,8 @@ def github_release_publication_evidence(
     anonymous_assets: object,
     operations: object,
     source_sha: object,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
     run: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Bind final anonymous GitHub Release readback to protected Registry state."""
@@ -1838,12 +2144,17 @@ def github_release_publication_evidence(
         provisional_collection=protected_payload.get("provisional_collection"),
         parent_plans=protected_payload.get("parent_plans"),
         source_sha=source_sha,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
         run=run,
     )
     if rebuilt != protected_registry:
         raise ValueError("protected Registry publication does not reopen")
     manifest = validate_release_asset_manifest(
-        asset_manifest, allowed_root=allowed_root
+        asset_manifest,
+        allowed_root=allowed_root,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
     )
     if manifest["source_sha"] != source_sha:
         raise ValueError("GitHub Release assets differ from protected source")
@@ -1851,14 +2162,28 @@ def github_release_publication_evidence(
         raise ValueError("prepare Release plan is malformed")
     prepare_decision = prepare_initial_plan.get("decision")
     if prepare_decision == "create":
-        if prepare_initial_plan != plan_github_release(None, source_sha):
+        if prepare_initial_plan != plan_github_release(
+            None,
+            source_sha,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+        ):
             raise ValueError("prepare Release create plan does not reopen")
         prepared_state = plan_github_release(
-            prepare_release, source_sha, just_created=True
+            prepare_release,
+            source_sha,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+            just_created=True,
         )
         branch = "create"
     else:
-        expected_prepare = plan_github_release(prepare_release, source_sha)
+        expected_prepare = plan_github_release(
+            prepare_release,
+            source_sha,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+        )
         if prepare_initial_plan != expected_prepare or prepare_decision not in {
             "resume-draft",
             "inspect-published-prerelease",
@@ -1866,7 +2191,12 @@ def github_release_publication_evidence(
             raise ValueError("prepare Release reopen plan does not reopen")
         prepared_state = expected_prepare
         branch = prepare_decision
-    initial_state = plan_github_release(initial_release, source_sha)
+    initial_state = plan_github_release(
+        initial_release,
+        source_sha,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
     if (
         prepared_state["release_id"] != initial_state["release_id"]
         or prepared_state["asset_download_slug"] != initial_state["asset_download_slug"]
@@ -1886,6 +2216,8 @@ def github_release_publication_evidence(
         initial_assets,
         release_id=release_id,
         allowed_root=allowed_root,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
         release_published=initial_state["decision"] == "inspect-published-prerelease",
         asset_download_slug=initial_state["asset_download_slug"],
     )
@@ -1898,6 +2230,8 @@ def github_release_publication_evidence(
         source_sha=source_sha,
         release_id=release_id,
         allowed_root=allowed_root,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
     )
     if not isinstance(initial_release, dict):
         raise ValueError("initial GitHub Release state is malformed")
@@ -1907,7 +2241,12 @@ def github_release_publication_evidence(
     }
     if embedded_asset_ids != observed_initial_ids:
         raise ValueError("initial GitHub Release assets differ from live Release state")
-    prepublish_plan = plan_github_release(prepublish_release, source_sha)
+    prepublish_plan = plan_github_release(
+        prepublish_release,
+        source_sha,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
     if (
         prepublish_plan["release_id"] != release_id
         or prepublish_plan["asset_download_slug"]
@@ -1927,11 +2266,23 @@ def github_release_publication_evidence(
         prepublish_assets,
         release_id=release_id,
         allowed_root=allowed_root,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
         release_published=True,
         asset_download_slug=prepublish_plan["asset_download_slug"],
     )
-    auth_plan = plan_github_release(authenticated_release, source_sha)
-    anon_plan = plan_github_release(anonymous_release, source_sha)
+    auth_plan = plan_github_release(
+        authenticated_release,
+        source_sha,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
+    anon_plan = plan_github_release(
+        anonymous_release,
+        source_sha,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
     if (
         auth_plan["decision"] != "inspect-published-prerelease"
         or anon_plan["decision"] != "inspect-published-prerelease"
@@ -1945,6 +2296,8 @@ def github_release_publication_evidence(
         authenticated_assets,
         release_id=release_id,
         allowed_root=allowed_root,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
         asset_download_slug=auth_plan["asset_download_slug"],
     )
     anon_verification = verify_release_assets(
@@ -1952,6 +2305,8 @@ def github_release_publication_evidence(
         anonymous_assets,
         release_id=release_id,
         allowed_root=allowed_root,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
         asset_download_slug=anon_plan["asset_download_slug"],
     )
     auth_assets = plan_release_assets(
@@ -1959,6 +2314,8 @@ def github_release_publication_evidence(
         authenticated_assets,
         release_id=release_id,
         allowed_root=allowed_root,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
         release_published=True,
         asset_download_slug=auth_plan["asset_download_slug"],
     )["reuse_assets"]
@@ -1967,6 +2324,8 @@ def github_release_publication_evidence(
         anonymous_assets,
         release_id=release_id,
         allowed_root=allowed_root,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
         release_published=True,
         asset_download_slug=anon_plan["asset_download_slug"],
     )["reuse_assets"]
@@ -2035,7 +2394,7 @@ def github_release_publication_evidence(
         or embedded_ids(authenticated_release, "authenticated") != final_asset_ids
         or embedded_ids(anonymous_release, "anonymous") != final_asset_ids
     ):
-        raise ValueError("GitHub Release embedded assets differ from exact seven")
+        raise ValueError("GitHub Release embedded assets differ from the exact set")
     expected_operations = build_github_release_operation_ledger(
         prepare_initial_plan=prepare_initial_plan,
         initial_release=initial_release,
@@ -2043,22 +2402,25 @@ def github_release_publication_evidence(
         authenticated_assets=auth_assets,
         upload_transcript=validated_upload_transcript,
         source_sha=source_sha,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
     )
     operation_audit = _validate_github_release_operations(
         operations,
         release_id=release_id,
         remote_assets=auth_assets,
         expected_operations=expected_operations,
+        resolved_plan=resolved_plan,
     )
     payload = {
         "schema_version": 1,
         "kind": "ucm-github-release-publication",
         "source_sha": source_sha,
-        "tag_name": "v0.5.0rc1",
+        "tag_name": _release_tag_name(resolved_plan),
         "release_id": release_id,
         "protected_registry_payload_sha256": protected_registry["payload_sha256"],
         "assets_sha256": manifest["assets_sha256"],
-        "asset_count": 7,
+        "asset_count": len(manifest["assets"]),
         "release_branch": branch,
         "prepare_initial_plan": copy.deepcopy(prepare_initial_plan),
         "prepare_release": copy.deepcopy(prepare_release),
@@ -2081,7 +2443,12 @@ def github_release_publication_evidence(
 
 
 def extract_index_publication_record(
-    envelope: object, parent_plans: object, family_id: object
+    envelope: object,
+    parent_plans: object,
+    family_id: object,
+    *,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
 ) -> dict[str, Any]:
     """Reopen Task 4's create envelope before extracting its strict record."""
     from . import registry
@@ -2093,7 +2460,6 @@ def extract_index_publication_record(
         "decision",
         "postwrite_manifest_sha256",
         "preflight_sha256",
-        "matrix_sha256",
     }
     if set(envelope) != registry.INDEX_RECORD_KEYS | extras:
         raise ValueError("index publication envelope fields are noncanonical")
@@ -2101,12 +2467,16 @@ def extract_index_publication_record(
         "verification_sha256",
         "postwrite_manifest_sha256",
         "preflight_sha256",
-        "matrix_sha256",
     ):
         if DIGEST_RE.fullmatch(str(envelope[field])) is None:
             raise ValueError(f"index publication envelope {field} is invalid")
     record = {key: copy.deepcopy(envelope[key]) for key in registry.INDEX_RECORD_KEYS}
-    record = registry.validate_index_record(record, parent_plans=parent_plans)
+    record = registry.validate_index_record(
+        record,
+        parent_plans=parent_plans,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
     plans = parent_plans.get("plans") if isinstance(parent_plans, dict) else None
     matches = (
         [item for item in plans if item.get("family_id") == family_id]
@@ -2145,27 +2515,41 @@ def validate_index_readbacks(
     *,
     parent_plans: object,
     anonymous: bool,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
 ) -> list[dict[str, Any]]:
-    """Bind three Registry readbacks to exact final-tag index records."""
+    """Bind Registry readbacks to the exact frozen family task set."""
     from . import registry
 
+    contract = registry._require_resolved_registry_contract(
+        resolved_plan, expected_plan_sha256
+    )
     if not isinstance(anonymous, bool):
         raise ValueError("index readback authentication mode must be boolean")
     if not isinstance(readbacks, list) or not isinstance(index_records, list):
         raise ValueError("index readback closure requires two arrays")
-    if len(readbacks) != 3 or len(index_records) != 3:
-        raise ValueError("index readback closure requires exactly three families")
-    parent = registry.validate_index_plans(parent_plans)
-    contracts = registry.canonical_registry_contract()["indexes"]
+    contracts = contract["indexes"]
+    if len(readbacks) != len(contracts) or len(index_records) != len(contracts):
+        raise ValueError("index readback closure differs from frozen family tasks")
+    parent = registry.validate_index_plans(
+        parent_plans,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
     records = [
-        registry.validate_index_record(item, parent_plans=parent)
+        registry.validate_index_record(
+            item,
+            parent_plans=parent,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+        )
         for item in index_records
     ]
     by_family = {
         item.get("family_id"): item for item in records if isinstance(item, dict)
     }
     if set(by_family) != {item["family_id"] for item in contracts}:
-        raise ValueError("index records do not cover the canonical three families")
+        raise ValueError("index records do not cover frozen family tasks")
     validated: list[dict[str, Any]] = []
     for authority, readback in zip(contracts, readbacks, strict=True):
         record = by_family[authority["family_id"]]
@@ -2192,33 +2576,58 @@ def _validated_publication_members(
     member_records: object,
     parent_plans: object,
     source_sha: object,
-) -> tuple[dict[str, Any], list[dict[str, Any]], list[str]]:
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[str], dict[str, Any]]:
     from . import registry
 
+    contract = registry._require_resolved_registry_contract(
+        resolved_plan, expected_plan_sha256
+    )
     source_sha = _source_sha(source_sha)
     if not isinstance(member_records, list):
         raise ValueError("protected publication member records must be an array")
-    parent = registry.validate_index_plans(parent_plans)
-    members = [registry.validate_member_record(item) for item in member_records]
-    contract = registry.canonical_registry_contract()
-    member_order = [item["spec_id"] for item in contract["members"]]
-    by_spec = {item["spec_id"]: item for item in members}
-    if set(by_spec) != set(member_order) or len(members) != 6:
-        raise ValueError("protected publication requires exact six members")
-    members = [by_spec[spec_id] for spec_id in member_order]
+    parent = registry.validate_index_plans(
+        parent_plans,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
+    members = [
+        registry.validate_member_record(
+            item,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+        )
+        for item in member_records
+    ]
+    authority_key = "candidate_task_sha256"
+    member_order = [item[authority_key] for item in contract["members"]]
+    by_authority = {item[authority_key]: item for item in members}
+    if set(by_authority) != set(member_order) or len(members) != len(member_order):
+        raise ValueError("protected publication differs from frozen member tasks")
+    members = [by_authority[value] for value in member_order]
     if any(item["source_sha"] != source_sha for item in members):
         raise ValueError("protected member source SHA differs from the tag")
     if members != parent["member_records"] or parent["source_sha"] != source_sha:
         raise ValueError("protected members differ from their exact parent plans")
-    family_order = [item["family_id"] for item in contract["indexes"]]
-    return parent, members, family_order
+    family_order = [item["family_task_id"] for item in contract["indexes"]]
+    return parent, members, family_order, contract
 
 
 def _publication_operation_audit(
     operation_batches: list[list[dict[str, Any]]],
+    *,
+    staging_repository: str,
+    public_targets: set[str] | None = None,
 ) -> dict[str, Any]:
     audits = [
-        audit_operations(batch, lane="protected-tag") for batch in operation_batches
+        audit_operations(
+            batch,
+            lane="protected-tag",
+            staging_repository=staging_repository,
+            public_targets=public_targets,
+        )
+        for batch in operation_batches
     ]
     return {
         "batch_count": len(audits),
@@ -2234,8 +2643,13 @@ def _validate_member_artifact_collection(
     members: list[dict[str, Any]],
     *,
     source_sha: str,
+    contract: dict[str, Any],
 ) -> dict[str, Any]:
-    record_sha256s = {item["spec_id"]: item["record_sha256"] for item in members}
+    record_sha256s = {
+        authority["task_id"]: member["record_sha256"]
+        for authority, member in zip(contract["members"], members, strict=True)
+    }
+    resolved_plan_sha256 = contract["resolved_plan_sha256"]
     normalized_keys = {
         "schema_version",
         "kind",
@@ -2243,6 +2657,7 @@ def _validate_member_artifact_collection(
         "member_record_sha256s",
         "member_preflight_sha256s",
         "collection_sha256",
+        "resolved_plan_sha256",
     }
     if isinstance(collection, dict) and set(collection) == normalized_keys:
         preflight_sha256s = collection.get("member_preflight_sha256s")
@@ -2251,6 +2666,7 @@ def _validate_member_artifact_collection(
             or isinstance(collection.get("schema_version"), bool)
             or collection.get("kind") != "ucm-member-artifact-collection"
             or collection.get("source_sha") != source_sha
+            or collection.get("resolved_plan_sha256") != resolved_plan_sha256
             or collection.get("member_record_sha256s") != record_sha256s
             or not isinstance(preflight_sha256s, dict)
             or set(preflight_sha256s) != set(record_sha256s)
@@ -2280,11 +2696,13 @@ def _validate_member_artifact_collection(
             "member_record_sha256s",
             "member_preflight_sha256s",
             "collection_sha256",
+            "resolved_plan_sha256",
         }
         or collection.get("schema_version") != 1
         or isinstance(collection.get("schema_version"), bool)
         or collection.get("kind") != "ucm-member-artifact-collection"
         or collection.get("source_sha") != source_sha
+        or collection.get("resolved_plan_sha256") != resolved_plan_sha256
         or not isinstance(collection.get("member_records"), list)
         or not all(
             isinstance(path, str) and path for path in collection["member_records"]
@@ -2310,13 +2728,14 @@ def _validate_member_artifact_collection(
         )
         or len(collection["member_records"]) != len(members)
         or [Path(path).name for path in collection["member_records"]]
-        != [f"{item['spec_id']}.json" for item in members]
+        != [f"{key}.json" for key in record_sha256s]
     ):
-        raise ValueError("member artifact collection differs from six records")
+        raise ValueError("member artifact collection differs from frozen member tasks")
     return {
         "schema_version": 1,
         "kind": collection["kind"],
         "source_sha": source_sha,
+        "resolved_plan_sha256": resolved_plan_sha256,
         "member_record_sha256s": copy.deepcopy(record_sha256s),
         "member_preflight_sha256s": copy.deepcopy(preflight_sha256s),
         "collection_sha256": collection["collection_sha256"],
@@ -2329,12 +2748,13 @@ def _validate_provisional_artifact_collection(
     *,
     parent: dict[str, Any],
     source_sha: str,
+    contract: dict[str, Any],
 ) -> dict[str, Any]:
     provisional_sha256s = {
-        item["family_id"]: item["provisional_sha256"] for item in provisionals
+        item["family_task_id"]: item["provisional_sha256"] for item in provisionals
     }
     preflight_sha256s = {
-        item["family_id"]: item["preflight_sha256"] for item in provisionals
+        item["family_task_id"]: item["preflight_sha256"] for item in provisionals
     }
     normalized_keys = {
         "schema_version",
@@ -2344,6 +2764,7 @@ def _validate_provisional_artifact_collection(
         "provisional_sha256s",
         "provisional_preflight_sha256s",
         "collection_sha256",
+        "resolved_plan_sha256",
     }
     if isinstance(collection, dict) and set(collection) == normalized_keys:
         if (
@@ -2351,6 +2772,8 @@ def _validate_provisional_artifact_collection(
             or isinstance(collection.get("schema_version"), bool)
             or collection.get("kind") != "ucm-provisional-artifact-collection"
             or collection.get("source_sha") != source_sha
+            or collection.get("resolved_plan_sha256")
+            != contract["resolved_plan_sha256"]
             or collection.get("parent_plans_sha256") != parent["plans_sha256"]
             or collection.get("provisional_sha256s") != provisional_sha256s
             or collection.get("provisional_preflight_sha256s") != preflight_sha256s
@@ -2377,11 +2800,13 @@ def _validate_provisional_artifact_collection(
             "provisional_sha256s",
             "provisional_preflight_sha256s",
             "collection_sha256",
+            "resolved_plan_sha256",
         }
         or collection.get("schema_version") != 1
         or isinstance(collection.get("schema_version"), bool)
         or collection.get("kind") != "ucm-provisional-artifact-collection"
         or collection.get("source_sha") != source_sha
+        or collection.get("resolved_plan_sha256") != contract["resolved_plan_sha256"]
         or collection.get("parent_plans_sha256") != parent["plans_sha256"]
         or not isinstance(collection.get("provisional_indexes"), list)
         or not all(
@@ -2402,13 +2827,16 @@ def _validate_provisional_artifact_collection(
         or collection.get("provisional_preflight_sha256s") != preflight_sha256s
         or len(collection["provisional_indexes"]) != len(provisionals)
         or [Path(path).name for path in collection["provisional_indexes"]]
-        != [f"{item['family_id']}.json" for item in provisionals]
+        != [f"{key}.json" for key in provisional_sha256s]
     ):
-        raise ValueError("provisional artifact collection differs from three indexes")
+        raise ValueError(
+            "provisional artifact collection differs from frozen family tasks"
+        )
     return {
         "schema_version": 1,
         "kind": collection["kind"],
         "source_sha": source_sha,
+        "resolved_plan_sha256": contract["resolved_plan_sha256"],
         "parent_plans_sha256": parent["plans_sha256"],
         "provisional_sha256s": copy.deepcopy(provisional_sha256s),
         "provisional_preflight_sha256s": copy.deepcopy(preflight_sha256s),
@@ -2424,34 +2852,47 @@ def authenticated_registry_publication_evidence(
     provisional_collection: object,
     parent_plans: object,
     source_sha: object,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
     run: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Aggregate 6/3 authenticated state without claiming anonymous publication."""
+    """Aggregate the frozen member/family sets without anonymous publication."""
     from . import registry
 
-    parent, members, family_order = _validated_publication_members(
+    parent, members, family_order, contract = _validated_publication_members(
         member_records=member_records,
         parent_plans=parent_plans,
         source_sha=source_sha,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
     )
     if not isinstance(provisional_indexes, list):
         raise ValueError("authenticated publication provisionals must be an array")
     provisionals = [
-        registry.validate_provisional_index(item, parent_plans=parent)
+        registry.validate_provisional_index(
+            item,
+            parent_plans=parent,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+        )
         for item in provisional_indexes
     ]
-    by_family = {item["family_id"]: item for item in provisionals}
-    if len(provisionals) != 3 or set(by_family) != set(family_order):
-        raise ValueError("authenticated publication requires exact three provisionals")
+    by_family = {item["family_task_id"]: item for item in provisionals}
+    if len(provisionals) != len(family_order) or set(by_family) != set(family_order):
+        raise ValueError("authenticated publication differs from frozen family tasks")
     provisionals = [by_family[family_id] for family_id in family_order]
     member_collection_evidence = _validate_member_artifact_collection(
-        member_collection, members, source_sha=parent["source_sha"]
+        member_collection,
+        members,
+        source_sha=parent["source_sha"],
+        contract=contract,
     )
     provisional_collection_evidence = _validate_provisional_artifact_collection(
         provisional_collection,
         provisionals,
         parent=parent,
         source_sha=parent["source_sha"],
+        contract=contract,
     )
     batches: list[list[dict[str, Any]]] = [
         *[copy.deepcopy(item["operations"]) for item in members],
@@ -2469,6 +2910,7 @@ def authenticated_registry_publication_evidence(
         "schema_version": 1,
         "kind": "ucm-authenticated-registry-publication-payload",
         "source_sha": parent["source_sha"],
+        "resolved_plan_sha256": contract["resolved_plan_sha256"],
         "workflow_refs": copy.deepcopy(WORKFLOW_REFS),
         "wheel_sha256s": [item["wheel_sha256"] for item in members],
         "member_records": copy.deepcopy(members),
@@ -2477,7 +2919,14 @@ def authenticated_registry_publication_evidence(
         "provisional_indexes": copy.deepcopy(provisionals),
         "provisional_collection": provisional_collection_evidence,
         "parent_plans_sha256": parent["plans_sha256"],
-        "operation_audit": _publication_operation_audit(batches),
+        "operation_audit": _publication_operation_audit(
+            batches,
+            staging_repository=contract["staging_repository"],
+            public_targets={
+                f"{item['target_repository']}:{item['target_tag']}"
+                for item in contract["indexes"]
+            },
+        ),
         "publication": {
             "registry": "authenticated-passed",
             "anonymous": "pending",
@@ -2495,41 +2944,54 @@ def protected_registry_publication_evidence(
     provisional_collection: object,
     parent_plans: object,
     source_sha: object,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
     run: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build final deterministic evidence only after exact anonymous closure."""
     from . import registry
-    from .core import DEFAULT_SCHEMA_DIR, load_json, validate_schema
 
-    parent, members, family_order = _validated_publication_members(
+    parent, members, family_order, contract = _validated_publication_members(
         member_records=member_records,
         parent_plans=parent_plans,
         source_sha=source_sha,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
     )
     if not isinstance(finalized_indexes, list):
         raise ValueError("protected finalizations must be an array")
     finalizations = [
-        registry.validate_finalized_index(item, parent_plans=parent)
+        registry.validate_finalized_index(
+            item,
+            parent_plans=parent,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+        )
         for item in finalized_indexes
     ]
-    final_by_family = {item["family_id"]: item for item in finalizations}
-    if len(finalizations) != 3 or set(final_by_family) != set(family_order):
-        raise ValueError("protected publication requires exact three finalizations")
+    final_by_family = {
+        item["provisional"]["family_task_id"]: item for item in finalizations
+    }
+    if len(finalizations) != len(family_order) or set(final_by_family) != set(
+        family_order
+    ):
+        raise ValueError("protected publication differs from frozen family tasks")
     finalizations = [final_by_family[family_id] for family_id in family_order]
     provisionals = [item["provisional"] for item in finalizations]
     member_collection_evidence = _validate_member_artifact_collection(
-        member_collection, members, source_sha=source_sha
+        member_collection,
+        members,
+        source_sha=source_sha,
+        contract=contract,
     )
     provisional_collection_evidence = _validate_provisional_artifact_collection(
         provisional_collection,
         provisionals,
         parent=parent,
         source_sha=source_sha,
+        contract=contract,
     )
     indexes = [item["record"] for item in finalizations]
-    by_family = {item["family_id"]: item for item in indexes}
-    indexes = [by_family[family_id] for family_id in family_order]
-    manifest = build_release_manifest()
     registry_payload = {
         "status": "published",
         "candidate_task_sha256": sha256_value(
@@ -2541,9 +3003,47 @@ def protected_registry_publication_evidence(
         "member_records": members,
         "index_records": indexes,
     }
-    manifest["publication"]["registry"] = registry_payload
-    schema = load_json(DEFAULT_SCHEMA_DIR / "release-manifest.schema.json")
-    validate_schema(manifest, schema)
+    if not isinstance(resolved_plan, dict):  # guarded by the contract above
+        raise ValueError("protected release evidence requires its frozen plan")
+    manifest = {
+        "schema_version": 1,
+        "kind": "ucm-protected-release-plan-manifest",
+        "source_sha": source_sha,
+        "resolved_plan_sha256": contract["resolved_plan_sha256"],
+        "config_sha256": resolved_plan["config_sha256"],
+        "wheel_tasks": [
+            {key: task[key] for key in ("task_id", "task_sha256", "artifact_name")}
+            for task in resolved_plan["wheel_tasks"]
+        ],
+        "image_tasks": [
+            {
+                key: task[key]
+                for key in (
+                    "task_id",
+                    "task_sha256",
+                    "family_task_id",
+                    "artifact_name",
+                )
+            }
+            for task in resolved_plan["image_tasks"]
+        ],
+        "family_tasks": [
+            {
+                key: task[key]
+                for key in (
+                    "task_id",
+                    "task_sha256",
+                    "image_task_ids",
+                    "artifact_name",
+                )
+            }
+            for task in resolved_plan["family_tasks"]
+        ],
+        "publication": {
+            "registry": copy.deepcopy(registry_payload),
+            "github_release": "pending",
+        },
+    }
     operation_batches: list[list[dict[str, Any]]] = [
         *[copy.deepcopy(item["operations"]) for item in members],
         *[copy.deepcopy(item["record"]["operations"]) for item in finalizations],
@@ -2568,6 +3068,7 @@ def protected_registry_publication_evidence(
         "schema_version": 1,
         "kind": "ucm-protected-registry-publication-payload",
         "source_sha": source_sha,
+        "resolved_plan_sha256": contract["resolved_plan_sha256"],
         "workflow_refs": copy.deepcopy(WORKFLOW_REFS),
         "wheel_sha256s": [item["wheel_sha256"] for item in members],
         "member_records": copy.deepcopy(members),
@@ -2596,7 +3097,14 @@ def protected_registry_publication_evidence(
         "provisional_collection": provisional_collection_evidence,
         "parent_plans_sha256": parent["plans_sha256"],
         "release_manifest_sha256": sha256_value(manifest),
-        "operation_audit": _publication_operation_audit(operation_batches),
+        "operation_audit": _publication_operation_audit(
+            operation_batches,
+            staging_repository=contract["staging_repository"],
+            public_targets={
+                f"{item['target_repository']}:{item['target_tag']}"
+                for item in contract["indexes"]
+            },
+        ),
         "publication": {
             "registry": "published",
             "anonymous": "passed",
@@ -2637,122 +3145,224 @@ def _load_canonical_json(path: Path, label: str) -> dict[str, Any]:
     return value
 
 
-def hosted_build_matrix(
+def _require_plan_bound_hosted_task(
+    task: object,
+    *,
+    task_kind: str,
+    source_sha: str,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+) -> dict[str, Any]:
+    from . import registry
+
+    if not isinstance(task, dict) or not isinstance(task.get("task_id"), str):
+        raise ValueError(f"hosted {task_kind} task must be an object")
+    selected = registry.select_task(
+        resolved_plan,
+        task_kind=task_kind,
+        task_id=task["task_id"],
+        expected_plan_sha256=expected_plan_sha256,
+    )
+    if selected != task:
+        raise ValueError(f"hosted {task_kind} task differs from the frozen plan")
+    if resolved_plan["source"]["commit"] != source_sha:
+        raise ValueError(f"hosted {task_kind} source differs from the frozen plan")
+    return selected
+
+
+def hosted_wheel_task(
+    task: dict[str, Any],
     source_sha: str,
     source_date_epoch: int,
+    *,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
 ) -> dict[str, Any]:
-    """Project the reviewed matrix into the only hosted wheel/image task records."""
+    """Materialize one frozen wheel task into Docker build inputs."""
     source_sha = _source_sha(source_sha)
+    task = _require_plan_bound_hosted_task(
+        task,
+        task_kind="wheel",
+        source_sha=source_sha,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
     if (
         not isinstance(source_date_epoch, int)
         or isinstance(source_date_epoch, bool)
         or not 315532800 <= source_date_epoch <= 4354819199
     ):
         raise ValueError("hosted source date epoch is outside the ZIP timestamp range")
-    release, _ = validate_config()
-    reviewed = build_matrix("feature-candidate")
-    if len(reviewed["tasks"]) != 6:
-        raise ValueError("hosted build matrix requires exactly six reviewed tasks")
-    platform_values = {
-        "cuda130": ("cuda", "wheel-cuda"),
-        "cann900-a2": ("ascend", "wheel-ascend"),
-        "cann900-a3": ("ascend-a3", "wheel-ascend"),
+    if not isinstance(task, dict):
+        raise ValueError("hosted wheel task must be an object")
+    task_payload = {key: value for key, value in task.items() if key != "task_sha256"}
+    if re.fullmatch(
+        r"wheel-[0-9a-f]{64}", str(task.get("task_id"))
+    ) is None or task.get("task_sha256") != sha256_value(task_payload):
+        raise ValueError("hosted wheel task identity is invalid")
+    build = task.get("build")
+    dependency_lock = task.get("dependency_lock")
+    if (
+        not isinstance(build, dict)
+        or set(build) != {"docker_target", "platform_arg"}
+        or not isinstance(dependency_lock, dict)
+        or set(dependency_lock) != {"build_tools", "runtime_dependencies"}
+        or task.get("dependency_lock_sha256") != sha256_value(dependency_lock)
+    ):
+        raise ValueError("hosted wheel task build authority is invalid")
+    build_tools = dependency_lock["build_tools"]
+    if (
+        not isinstance(build_tools, list)
+        or not build_tools
+        or any(not isinstance(record, dict) for record in build_tools)
+    ):
+        raise ValueError("hosted wheel build tool authority is invalid")
+    profile_id = task["profile_id"]
+    root = task["builder"]["root"]
+    build_args = {
+        "SOURCE_DATE_EPOCH": str(source_date_epoch),
+        "UCM_BUILDER_IMAGE": f"{root['repository']}@{root['manifest_digest']}",
+        "PLATFORM": build["platform_arg"],
+        "UCM_RELEASE_TASK_ID": task["task_id"],
+        "UCM_RELEASE_SPEC_ID": task["spec_id"],
+        "UCM_RELEASE_PROFILE": profile_id,
+        "UCM_RELEASE_SOURCE_SHA": source_sha,
+        "UCM_RELEASE_VERSION": task["wheel_version"],
+        "UCM_RELEASE_BUILD_KEY": task["task_sha256"],
+        "UCM_RELEASE_PYTHON_VERSION": task["python_version"],
+        "UCM_RELEASE_PYTHON_ABI": task["python_abi"],
+        "UCM_RELEASE_WHEEL_PLATFORM": task["wheel_platform"],
+        "UCM_RELEASE_BUILD_SETTINGS": canonical_bytes(build).decode("utf-8"),
+        "UCM_RUNTIME_PATCH_MANIFEST_SHA256": task["runtime_patch_manifest_sha256"],
+        "UCM_RELEASE_REQUIRED_TARGETS": ",".join(task["required_native"]),
+        "UCM_RELEASE_FORBIDDEN_TARGETS": ",".join(task["forbidden_native"]),
     }
-    package_arg_names = {
-        "build": "BUILD",
-        "pyproject-hooks": "PYPROJECT_HOOKS",
-        "packaging": "PACKAGING",
-        "setuptools": "SETUPTOOLS",
-        "wheel": "WHEEL",
-    }
-    tasks: list[dict[str, Any]] = []
-    for reviewed_task in reviewed["tasks"]:
-        profile_id = reviewed_task["profile_id"]
-        if profile_id not in platform_values:
-            raise ValueError(f"hosted task has unsupported profile: {profile_id}")
-        platform_arg, docker_target = platform_values[profile_id]
-        root = reviewed_task["builder"]["root"]
-        build_args = {
-            "SOURCE_DATE_EPOCH": str(source_date_epoch),
-            "UCM_BUILDER_IMAGE": f"{root['repository']}@{root['manifest_digest']}",
-            "PLATFORM": platform_arg,
-            "UCM_RELEASE_PROFILE": profile_id,
-            "UCM_RELEASE_SOURCE_SHA": source_sha,
-            "UCM_RELEASE_VERSION": reviewed_task["wheel_version"],
-            "UCM_RELEASE_BUILD_KEY": reviewed_task["task_sha256"],
-            "UCM_RELEASE_REQUIRED_TARGETS": ",".join(reviewed_task["required_native"]),
-            "UCM_RELEASE_FORBIDDEN_TARGETS": ",".join(
-                reviewed_task["forbidden_native"]
-            ),
-        }
-        for package_name, argument_prefix in package_arg_names.items():
-            package = release["python_build_lock"]["packages"][package_name]
-            build_args[f"{argument_prefix}_VERSION"] = package["version"]
-            build_args[f"{argument_prefix}_FILENAME"] = package["filename"]
-            build_args[f"{argument_prefix}_SHA256"] = package["sha256"]
-        cmake = release["python_build_lock"]["cmake"]
-        cmake_artifact = cmake["artifacts"][reviewed_task["cpu_arch"]]
-        pyyaml = release["python_build_lock"]["pyyaml"]
-        pyyaml_artifact = pyyaml["artifacts"][reviewed_task["cpu_arch"]]
-        build_args.update(
-            {
-                "PYYAML_VERSION": pyyaml["version"],
-                "PYYAML_FILENAME": pyyaml_artifact["filename"],
-                "PYYAML_SHA256": pyyaml_artifact["sha256"],
-                "CMAKE_VERSION": cmake["version"],
-                "CMAKE_FILENAME": cmake_artifact["filename"],
-                "CMAKE_SHA256": cmake_artifact["sha256"],
-            }
-        )
-        spec_id = reviewed_task["spec_id"]
-        task = {
-            "spec_id": spec_id,
-            "profile_id": profile_id,
-            "cpu_arch": reviewed_task["cpu_arch"],
-            "platform": reviewed_task["platform"],
-            "runner": reviewed_task["runner"],
-            "task_sha256": reviewed_task["task_sha256"],
-            "builder_coordinate": build_args["UCM_BUILDER_IMAGE"],
-            "docker_target": docker_target,
-            "source_sha": source_sha,
-            "source_date_epoch": source_date_epoch,
-            "wheel_artifact": f"ucm-wheel-{spec_id}-{source_sha}",
-            "image_artifact": f"ucm-image-{spec_id}-{source_sha}",
-            "build_args": dict(sorted(build_args.items())),
-        }
-        task["hosted_task_sha256"] = sha256_value(task)
-        tasks.append(task)
-    payload = {
-        "schema_version": 1,
-        "kind": "ucm-real-hosted-build-matrix",
+    build_tool_lock = "".join(
+        f"{record['name']} @ file:///wheelhouse/{record['filename']} "
+        f"--hash={record['sha256']}\n"
+        for record in build_tools
+    )
+    result = {
+        "task_id": task["task_id"],
+        "spec_id": task["spec_id"],
+        "profile_id": profile_id,
+        "cpu_arch": task["cpu_arch"],
+        "platform": task["platform"],
+        "runner": task["runner"],
+        "task_sha256": task["task_sha256"],
+        "builder_coordinate": build_args["UCM_BUILDER_IMAGE"],
+        "docker_target": build["docker_target"],
         "source_sha": source_sha,
         "source_date_epoch": source_date_epoch,
-        "reviewed_matrix_sha256": reviewed["matrix_sha256"],
-        "github_matrix": {"include": [{"spec_id": item["spec_id"]} for item in tasks]},
-        "tasks": tasks,
+        "wheel_artifact": task["artifact_name"],
+        "build_tools": copy.deepcopy(build_tools),
+        "build_tool_lock": build_tool_lock,
+        "build_tool_lock_sha256": "sha256:"
+        + hashlib.sha256(build_tool_lock.encode()).hexdigest(),
+        "build_args": dict(sorted(build_args.items())),
     }
-    return {**payload, "hosted_matrix_sha256": sha256_value(payload)}
+    result["hosted_task_sha256"] = sha256_value(result)
+    return result
+
+
+def hosted_image_task(
+    task: dict[str, Any],
+    source_sha: str,
+    source_date_epoch: int,
+    *,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+) -> dict[str, Any]:
+    """Materialize one frozen image task's artifact and dependency bindings."""
+    source_sha = _source_sha(source_sha)
+    task = _require_plan_bound_hosted_task(
+        task,
+        task_kind="image",
+        source_sha=source_sha,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
+    if (
+        not isinstance(source_date_epoch, int)
+        or isinstance(source_date_epoch, bool)
+        or not 315532800 <= source_date_epoch <= 4354819199
+        or not isinstance(task, dict)
+    ):
+        raise ValueError("hosted image task input is invalid")
+    payload = {key: value for key, value in task.items() if key != "task_sha256"}
+    if (
+        re.fullmatch(r"image-[0-9a-f]{64}", str(task.get("task_id"))) is None
+        or task.get("task_sha256") != sha256_value(payload)
+        or re.fullmatch(r"wheel-[0-9a-f]{64}", str(task.get("wheel_task_id"))) is None
+    ):
+        raise ValueError("hosted image task identity is invalid")
+    result = {
+        "task_id": task["task_id"],
+        "spec_id": task["spec_id"],
+        "profile_id": task["profile_id"],
+        "family_task_id": task["family_task_id"],
+        "wheel_task_id": task["wheel_task_id"],
+        "runner": task["runner"],
+        "source_sha": source_sha,
+        "source_date_epoch": source_date_epoch,
+        "task_sha256": task["task_sha256"],
+        "runtime_patch_variants": copy.deepcopy(task["runtime_patch_variants"]),
+        "wheel_artifact": task["wheel_artifact_name"],
+        "image_artifact": task["artifact_name"],
+        "build_args": {
+            "UCM_RUNTIME_PATCH_VARIANTS": canonical_bytes(
+                task["runtime_patch_variants"]
+            ).decode("utf-8"),
+        },
+    }
+    result["hosted_task_sha256"] = sha256_value(result)
+    return result
 
 
 def build_real_family_plans(
     image_results: list[dict[str, Any]],
     *,
     source_sha: str,
+    resolved_plan: dict[str, Any],
+    selected_image_task_ids: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Create three deterministic unpublished dual-architecture index plans."""
+    """Create the frozen plan's exact unpublished family index set."""
     source_sha = _source_sha(source_sha)
-    if not isinstance(image_results, list) or len(image_results) != 6:
-        raise ValueError("real candidate planning requires exactly six image results")
-    reviewed = build_matrix("feature-candidate")
-    expected = {task["spec_id"]: task for task in reviewed["tasks"]}
+    validate_resolved_plan(resolved_plan)
+    if resolved_plan["source"]["commit"] != source_sha:
+        raise ValueError("resolved plan source differs from real image results")
+    if not isinstance(image_results, list):
+        raise ValueError("real candidate image results must be a list")
+    all_expected = {task["task_id"]: task for task in resolved_plan["image_tasks"]}
+    selected_ids = (
+        list(all_expected)
+        if selected_image_task_ids is None
+        else selected_image_task_ids
+    )
+    if (
+        not isinstance(selected_ids, list)
+        or not selected_ids
+        or any(not isinstance(task_id, str) for task_id in selected_ids)
+        or len(selected_ids) != len(set(selected_ids))
+        or not set(selected_ids).issubset(all_expected)
+    ):
+        raise ValueError("selected real image task set is invalid")
+    expected = {task_id: all_expected[task_id] for task_id in selected_ids}
     observed: dict[str, dict[str, Any]] = {}
     for result in image_results:
         if not isinstance(result, dict):
             raise ValueError("real image result must be an object")
-        spec_id = result.get("spec_id")
-        if spec_id not in expected or spec_id in observed:
+        matches = [
+            task
+            for task in expected.values()
+            if task["task_sha256"] == result.get("task_key")
+        ]
+        if len(matches) != 1:
             raise ValueError("real image results contain an unknown or duplicate task")
-        task = expected[spec_id]
+        task = matches[0]
+        task_id = task["task_id"]
+        if task_id in observed:
+            raise ValueError("real image results contain an unknown or duplicate task")
         source = result.get("source")
         oci = result.get("oci")
         required_identity = (
@@ -2761,7 +3371,7 @@ def build_real_family_plans(
             and result.get("unpublished") is True
             and result.get("publication_attempted") is False
             and result.get("status") == "real-verified-unpublished"
-            and result.get("family_id") == task["profile_id"]
+            and result.get("family_id") == task["family_task_id"]
             and result.get("profile_id") == task["profile_id"]
             and result.get("target_platform") == task["platform"]
             and result.get("target_repository") == task["target_repository"]
@@ -2774,7 +3384,7 @@ def build_real_family_plans(
             and oci.get("published") is False
         )
         if not required_identity:
-            raise ValueError(f"real image result differs from reviewed task: {spec_id}")
+            raise ValueError(f"real image result differs from resolved task: {task_id}")
         for field in (
             "build_key_sha256",
             "result_sha256",
@@ -2784,41 +3394,42 @@ def build_real_family_plans(
                 raise ValueError(f"real image result {field} is invalid")
         if DIGEST_RE.fullmatch(str(oci.get("digest"))) is None:
             raise ValueError("real image OCI digest is invalid")
-        observed[spec_id] = result
+        observed[task_id] = result
     if set(observed) != set(expected):
-        raise ValueError("real image results do not match exactly six reviewed tasks")
+        raise ValueError("real image results do not match the exact resolved task set")
 
     families: list[dict[str, Any]] = []
-    for family_id in sorted({task["profile_id"] for task in expected.values()}):
+    for family in resolved_plan["family_tasks"]:
+        if not set(family["image_task_ids"]).issubset(expected):
+            continue
+        family_tasks_by_id = {
+            task_id: expected[task_id] for task_id in family["image_task_ids"]
+        }
         family_tasks = sorted(
-            (task for task in expected.values() if task["profile_id"] == family_id),
-            key=lambda item: item["platform"],
+            family_tasks_by_id.values(), key=lambda item: item["platform"]
         )
-        if [task["platform"] for task in family_tasks] != [
-            "linux/amd64",
-            "linux/arm64",
-        ]:
-            raise ValueError(f"real image family is not dual architecture: {family_id}")
         members = [
             {
                 "platform": task["platform"],
                 "spec_id": task["spec_id"],
+                "task_id": task["task_id"],
                 "task_sha256": task["task_sha256"],
-                "manifest_digest": observed[task["spec_id"]]["oci"]["digest"],
-                "build_key_sha256": observed[task["spec_id"]]["build_key_sha256"],
-                "content_identity_sha256": observed[task["spec_id"]][
+                "manifest_digest": observed[task["task_id"]]["oci"]["digest"],
+                "build_key_sha256": observed[task["task_id"]]["build_key_sha256"],
+                "content_identity_sha256": observed[task["task_id"]][
                     "content_identity_sha256"
                 ],
-                "image_result_sha256": observed[task["spec_id"]]["result_sha256"],
+                "image_result_sha256": observed[task["task_id"]]["result_sha256"],
             }
             for task in family_tasks
         ]
         family_payload = {
             "schema_version": 1,
             "kind": "ucm-real-candidate-index-plan",
-            "family_id": family_id,
-            "target_repository": family_tasks[0]["target_repository"],
-            "target_tag": family_tasks[0]["target_tag"],
+            "family_task_id": family["task_id"],
+            "family_task_sha256": family["task_sha256"],
+            "target_repository": family["target_repository"],
+            "target_tag": family["target_tag"],
             "members": members,
             "unpublished": True,
             "publication_attempted": False,
@@ -2840,6 +3451,70 @@ def build_real_family_plans(
             "task_count": 0,
             "tasks": [],
         },
+    }
+
+
+def select_hosted_task_projection(
+    resolved_plan: dict[str, Any],
+    *,
+    wheel_matrix: object,
+    image_matrix: object,
+) -> dict[str, Any]:
+    """Select one exact dependency-closed hosted subset from a frozen plan."""
+    validate_resolved_plan(resolved_plan)
+    expected_wheels = {
+        item["task_id"]: item
+        for item in resolved_plan["github_wheel_matrix"]["include"]
+    }
+    expected_images = {
+        item["task_id"]: item
+        for item in resolved_plan["github_image_matrix"]["include"]
+    }
+
+    def selected_ids(
+        matrix: object, expected: dict[str, dict[str, Any]], label: str
+    ) -> list[str]:
+        if (
+            not isinstance(matrix, dict)
+            or set(matrix) != {"include"}
+            or not isinstance(matrix["include"], list)
+            or not matrix["include"]
+        ):
+            raise ValueError(
+                f"selected {label} matrix must contain a non-empty include"
+            )
+        task_ids: list[str] = []
+        for item in matrix["include"]:
+            if not isinstance(item, dict) or item != expected.get(item.get("task_id")):
+                raise ValueError(f"selected {label} matrix differs from frozen plan")
+            task_ids.append(item["task_id"])
+        if len(task_ids) != len(set(task_ids)):
+            raise ValueError(f"selected {label} matrix contains duplicate tasks")
+        return task_ids
+
+    wheel_ids = selected_ids(wheel_matrix, expected_wheels, "wheel")
+    image_ids = selected_ids(image_matrix, expected_images, "image")
+    wheel_by_id = {task["task_id"]: task for task in resolved_plan["wheel_tasks"]}
+    image_by_id = {task["task_id"]: task for task in resolved_plan["image_tasks"]}
+    dependency_ids = {image_by_id[task_id]["wheel_task_id"] for task_id in image_ids}
+    if set(wheel_ids) != dependency_ids:
+        raise ValueError("selected image tasks and wheel dependencies differ")
+    selected_image_ids = set(image_ids)
+    family_tasks = [
+        task
+        for task in resolved_plan["family_tasks"]
+        if set(task["image_task_ids"]).issubset(selected_image_ids)
+    ]
+    payload = {
+        "wheel_task_ids": wheel_ids,
+        "image_task_ids": image_ids,
+        "family_task_ids": [task["task_id"] for task in family_tasks],
+    }
+    return {
+        "wheel_tasks": [wheel_by_id[task_id] for task_id in wheel_ids],
+        "image_tasks": [image_by_id[task_id] for task_id in image_ids],
+        "family_tasks": family_tasks,
+        "projection_sha256": sha256_value(payload),
     }
 
 
@@ -2866,11 +3541,21 @@ def _one_file(directory: Path, pattern: str, label: str) -> Path:
     return matches[0]
 
 
-def _real_chart_summary(result_path: Path, package_path: Path) -> dict[str, Any]:
+def _real_chart_summary(
+    result_path: Path,
+    package_path: Path,
+    *,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+) -> dict[str, Any]:
     result = _load_canonical_json(result_path, "real hosted Chart result")
     with tempfile.TemporaryDirectory() as temporary:
         expected_dir = Path(temporary) / "chart"
-        expected = chart.package_chart(expected_dir)
+        expected = chart.package_chart(
+            expected_dir,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+        )
         expected_package = expected_dir / expected["filename"]
         if result != expected:
             raise ValueError("real hosted Chart result differs from fresh packaging")
@@ -2899,10 +3584,20 @@ def aggregate_real_hosted_evidence(
     ref: str,
     chart_result_path: Path | None = None,
     chart_package_path: Path | None = None,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+    wheel_matrix: object,
+    image_matrix: object,
     run: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Reopen six real wheels/images and derive deterministic feature evidence."""
+    """Reopen the frozen plan's exact wheels/images and derive feature evidence."""
     source_sha = _source_sha(source_sha)
+    validate_resolved_plan(resolved_plan)
+    if (
+        resolved_plan["source"]["commit"] != source_sha
+        or resolved_plan["resolved_plan_sha256"] != expected_plan_sha256
+    ):
+        raise ValueError("real hosted aggregation differs from the frozen plan")
     if (chart_result_path is None) != (chart_package_path is None):
         raise ValueError(
             "real hosted Chart result and package must be supplied together"
@@ -2912,47 +3607,57 @@ def aggregate_real_hosted_evidence(
     if not wheel_root.is_dir() or not image_root.is_dir():
         raise ValueError("real hosted wheel and image artifact roots must exist")
 
-    reviewed_specs = [
-        item["spec_id"] for item in build_matrix("feature-candidate")["tasks"]
-    ]
-    wheel_logical_names = [
-        f"ucm-wheel-{spec_id}-{source_sha}" for spec_id in reviewed_specs
-    ]
+    projection = select_hosted_task_projection(
+        resolved_plan,
+        wheel_matrix=wheel_matrix,
+        image_matrix=image_matrix,
+    )
+    wheel_tasks = projection["wheel_tasks"]
+    image_tasks = projection["image_tasks"]
+    wheel_logical_names = [task["artifact_name"] for task in wheel_tasks]
     wheel_artifacts = resolve_run_bound_artifact_directories(
         wheel_root, wheel_logical_names, run=run, label="real hosted wheel"
     )
     task_records: dict[str, dict[str, Any]] = {}
-    for logical_name in wheel_logical_names:
+    for planned_task, logical_name in zip(
+        wheel_tasks, wheel_logical_names, strict=True
+    ):
         task_path = wheel_artifacts[logical_name] / "hosted-task.json"
         task = _load_canonical_json(task_path, "real hosted task record")
-        spec_id = task.get("spec_id")
-        if not isinstance(spec_id, str) or spec_id in task_records:
+        task_id = task.get("task_id")
+        if not isinstance(task_id, str) or task_id in task_records:
             raise ValueError("real hosted task records are duplicated or malformed")
-        task_records[spec_id] = task
-    if len(task_records) != 6:
-        raise ValueError(
-            "real hosted aggregate requires exactly six wheel task records"
-        )
+        task_records[task_id] = task
     epochs = {task.get("source_date_epoch") for task in task_records.values()}
     if len(epochs) != 1:
         raise ValueError("real hosted tasks disagree on source date epoch")
     source_date_epoch = next(iter(epochs))
-    expected_matrix = hosted_build_matrix(source_sha, source_date_epoch)
-    expected_tasks = {item["spec_id"]: item for item in expected_matrix["tasks"]}
+    expected_tasks = {
+        item["task_id"]: hosted_wheel_task(
+            item,
+            source_sha,
+            source_date_epoch,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+        )
+        for item in wheel_tasks
+    }
     if task_records != expected_tasks:
-        raise ValueError("real hosted task records differ from reviewed matrix")
+        raise ValueError("real hosted task records differ from the frozen plan")
 
     image_artifacts = resolve_run_bound_artifact_directories(
         image_root,
-        [item["image_artifact"] for item in expected_matrix["tasks"]],
+        [item["artifact_name"] for item in image_tasks],
         run=run,
         label="real hosted image",
     )
     wheel_summaries: list[dict[str, Any]] = []
     image_results: list[dict[str, Any]] = []
     image_summaries: list[dict[str, Any]] = []
-    for spec_id in [item["spec_id"] for item in expected_matrix["tasks"]]:
-        task = expected_tasks[spec_id]
+    for planned_task in wheel_tasks:
+        task_id = planned_task["task_id"]
+        spec_id = planned_task["spec_id"]
+        task = expected_tasks[task_id]
         wheel_artifact = wheel_artifacts[task["wheel_artifact"]]
         task_path = wheel_artifact / "hosted-task.json"
         if _load_canonical_json(task_path, f"{spec_id} hosted wheel task") != task:
@@ -2970,7 +3675,11 @@ def aggregate_real_hosted_evidence(
         )
         wheel_sha256 = _file_sha256(wheel_path)
         reopened = wheel.inspect_wheel(
-            wheel_path, spec_id, wheel_sha256, "builder-candidate"
+            wheel_path,
+            spec_id,
+            wheel_sha256,
+            "builder-candidate",
+            task=planned_task,
         )
         builder = reopened.get("builder_evidence")
         if (
@@ -2983,10 +3692,14 @@ def aggregate_real_hosted_evidence(
             or seal.get("build_key") != task["task_sha256"]
             or seal.get("wheel_sha256") != wheel_sha256
             or seal.get("inspection_sha256") != _file_sha256(inspection_path)
+            or seal.get("runtime_patch_manifest_sha256")
+            != planned_task["runtime_patch_manifest_sha256"]
             or not isinstance(builder, dict)
             or builder.get("source_commit") != source_sha
             or builder.get("build_key") != task["task_sha256"]
             or builder.get("source_date_epoch") != source_date_epoch
+            or builder.get("runtime_patch_manifest_sha256")
+            != planned_task["runtime_patch_manifest_sha256"]
             or source_context.get("source_sha") != source_sha
             or source_context.get("build_context_sha256")
             != builder.get("build_context_digest")
@@ -2995,6 +3708,7 @@ def aggregate_real_hosted_evidence(
         wheel_summaries.append(
             {
                 "spec_id": spec_id,
+                "task_id": task_id,
                 "task_sha256": task["task_sha256"],
                 "hosted_task_sha256": task["hosted_task_sha256"],
                 "artifact": task["wheel_artifact"],
@@ -3002,11 +3716,27 @@ def aggregate_real_hosted_evidence(
                 "wheel_sha256": wheel_sha256,
                 "wheel_size": wheel_path.stat().st_size,
                 "inspection_sha256": _file_sha256(inspection_path),
+                "runtime_patch_manifest_sha256": planned_task[
+                    "runtime_patch_manifest_sha256"
+                ],
                 "source_tree": source_context.get("source_tree"),
                 "source_context_sha256": source_context.get("build_context_sha256"),
             }
         )
 
+    wheel_summary_by_task = {item["task_id"]: item for item in wheel_summaries}
+    for planned_image in image_tasks:
+        task_id = planned_image["task_id"]
+        spec_id = planned_image["spec_id"]
+        task = hosted_image_task(
+            planned_image,
+            source_sha,
+            source_date_epoch,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+        )
+        wheel_summary = wheel_summary_by_task[planned_image["wheel_task_id"]]
+        wheel_sha256 = wheel_summary["wheel_sha256"]
         image_artifact = image_artifacts[task["image_artifact"]]
         if (
             _load_canonical_json(
@@ -3018,13 +3748,19 @@ def aggregate_real_hosted_evidence(
         result_path = image_artifact / "image-result.json"
         recipe_path = image_artifact / "image-recipe.json"
         result = image.validate_image_result(
-            _load_canonical_json(result_path, f"{spec_id} image result")
+            _load_canonical_json(result_path, f"{spec_id} image result"),
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+            task_id=task_id,
         )
         recipe = _load_canonical_json(recipe_path, f"{spec_id} image recipe")
         compact = image.validate_real_compact_oci_evidence(
             image_artifact / "oci-evidence",
             image_result=result,
             recipe=recipe,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+            task_id=task_id,
         )
         if (
             result.get("spec_id") != spec_id
@@ -3038,6 +3774,7 @@ def aggregate_real_hosted_evidence(
         image_summaries.append(
             {
                 "spec_id": spec_id,
+                "task_id": task_id,
                 "task_sha256": task["task_sha256"],
                 "artifact": task["image_artifact"],
                 "manifest_digest": result["oci"]["digest"],
@@ -3050,7 +3787,12 @@ def aggregate_real_hosted_evidence(
             }
         )
 
-    planned = build_real_family_plans(image_results, source_sha=source_sha)
+    planned = build_real_family_plans(
+        image_results,
+        source_sha=source_sha,
+        resolved_plan=resolved_plan,
+        selected_image_task_ids=[task["task_id"] for task in image_tasks],
+    )
     payload: dict[str, Any] = {
         "schema_version": 1,
         "kind": "ucm-real-hosted-image-loop-payload",
@@ -3060,8 +3802,10 @@ def aggregate_real_hosted_evidence(
         "source_sha": source_sha,
         "source_date_epoch": source_date_epoch,
         "workflow_refs": copy.deepcopy(WORKFLOW_REFS),
-        "reviewed_matrix_sha256": expected_matrix["reviewed_matrix_sha256"],
-        "hosted_matrix_sha256": expected_matrix["hosted_matrix_sha256"],
+        "resolved_plan_sha256": resolved_plan["resolved_plan_sha256"],
+        "task_projection_sha256": projection["projection_sha256"],
+        "selected_wheel_task_ids": [task["task_id"] for task in wheel_tasks],
+        "selected_image_task_ids": [task["task_id"] for task in image_tasks],
         "wheels": wheel_summaries,
         "images": image_summaries,
         "families": planned["families"],
@@ -3071,7 +3815,12 @@ def aggregate_real_hosted_evidence(
     }
     if chart_result_path is not None and chart_package_path is not None:
         payload["kind"] = "ucm-real-hosted-release-loop-payload"
-        payload["chart"] = _real_chart_summary(chart_result_path, chart_package_path)
+        payload["chart"] = _real_chart_summary(
+            chart_result_path,
+            chart_package_path,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+        )
     return _envelope(payload, run)
 
 
@@ -3126,8 +3875,8 @@ def prepare_candidate_loop(
     ):
         raise ValueError("fixture wheel inspection does not match its build record")
 
-    manifest = build_release_manifest()
-    _, compatibility = validate_config()
+    manifest = _build_fixture_release_manifest()
+    catalog = load_catalog()
     snapshot = {
         "schema_version": 1,
         "kind": "upstream-registry-snapshot",
@@ -3154,13 +3903,13 @@ def prepare_candidate_loop(
         "wheel_records": [copy.deepcopy(wheel_record)],
         "spec_id": wheel_record["spec_id"],
         "upstream_snapshot": snapshot,
-        "compatibility": compatibility,
+        "catalog": catalog,
         "compatibility_rule_id": "cuda-supported",
         "implementation_digest": image.implementation_digests()["aggregate_sha256"],
     }
-    candidate = build_candidate(**source_case, fixture_mode=True)
-    inventory = _inventory()
-    first = reconcile(candidate, inventory)
+    candidate = build_fixture_candidate(**source_case, fixture_mode=True)
+    inventory = _fixture_inventory()
+    first = reconcile_fixture_candidate(candidate, inventory)
     if first["task_count"] != 1 or first["tasks"][0]["revision"] != 1:
         raise ValueError("new fixture input must schedule exactly one r1 task")
     loop = verify_loop(source_case, run=run)
@@ -3195,7 +3944,7 @@ def complete_candidate_loop(
     source_sha: str,
     run: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Materialize a verified local result and require the second reconcile to be zero."""
+    """Materialize a verified local result and require the second fixture reconcile to be zero."""
     source_sha = _source_sha(source_sha)
     required_prepared = {
         "source_sha",
@@ -3218,7 +3967,9 @@ def complete_candidate_loop(
         or image_input.get("inventory") != prepared["inventory"]
         or first.get("tasks") != [image_input.get("task")]
     ):
-        raise ValueError("prepared image input is not the exact first reconcile task")
+        raise ValueError(
+            "prepared image input is not the exact first fixture reconcile task"
+        )
     if not isinstance(image_result, dict):
         raise ValueError("image result must be an object")
     if (
@@ -3256,7 +4007,9 @@ def complete_candidate_loop(
         "npu_arch_or_na": wheel_input["npu_arch_or_na"],
         "os": wheel_input["os"],
         "binary_profile_id": wheel_input["binary_profile_id"],
-        "requires_dist": ["wrapt==1.17.2"],
+        "requires_dist": python_runtime_requirements(
+            prepared["source_case"]["catalog"]
+        ),
     }
     target_platform = image_input["target_platform"]
     target_architecture = target_platform.split("/", 1)[1]
@@ -3273,9 +4026,6 @@ def complete_candidate_loop(
     expected_source = {
         "release_manifest_sha256": build_inputs["release_manifest_sha256"],
         "config_sha256": manifest["config_sha256"],
-        "compatibility_sha256": manifest["compatibility_sha256"],
-        "compatibility_rule_id": build_inputs["compatibility_rule_id"],
-        "compatibility_rule_sha256": build_inputs["compatibility_rule_sha256"],
         "upstream_repository": upstream["repository"],
         "upstream_index_digest": upstream["index_digest"],
         "upstream_platform_manifest_digest": upstream_platform["manifest_digest"],
@@ -3318,19 +4068,19 @@ def complete_candidate_loop(
         "observed_digest": oci_digest,
         "evidence_digest": oci_digest,
     }
-    inventory = _inventory([entry])
-    second = reconcile(candidate, inventory)
+    inventory = _fixture_inventory([entry])
+    second = reconcile_fixture_candidate(candidate, inventory)
     if second["task_count"] != 0 or second["decision"] != "already-present":
         raise ValueError("completed fixture candidate did not reconcile to zero")
 
     accepted = {
-        "a2": parse_upstream_tag("vllm-ascend", "v0.10.2")["npu_arch"],
-        "a3": parse_upstream_tag("vllm-ascend", "v0.10.2-a3")["npu_arch"],
+        "a2": parse_fixture_upstream_tag("vllm-ascend", "v0.10.2")["npu_arch"],
+        "a3": parse_fixture_upstream_tag("vllm-ascend", "v0.10.2-a3")["npu_arch"],
     }
     rejected: list[str] = []
     for suffix in ("310p", "a5"):
         try:
-            parse_upstream_tag("vllm-ascend", f"v0.10.2-{suffix}")
+            parse_fixture_upstream_tag("vllm-ascend", f"v0.10.2-{suffix}")
         except ValueError:
             rejected.append(suffix)
     if accepted != {"a2": "a2", "a3": "a3"} or rejected != ["310p", "a5"]:
@@ -3429,10 +4179,18 @@ def aggregate_release_evidence(
     repository: str,
     ref: str,
     source_sha: str,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
     run: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Reopen every release artifact and recompute the exact candidate closure."""
     source_sha = _source_sha(source_sha)
+    validate_resolved_plan(resolved_plan)
+    if (
+        resolved_plan["source"]["commit"] != source_sha
+        or resolved_plan["resolved_plan_sha256"] != expected_plan_sha256
+    ):
+        raise ValueError("fixture aggregation differs from the frozen resolved plan")
     build_record_path = Path(build_record_path)
     wheel_record_path = Path(wheel_record_path)
     wheel_path = Path(wheel_path)
@@ -3489,7 +4247,11 @@ def aggregate_release_evidence(
     chart_result = _load_canonical_json(chart_result_path, "Chart result")
     with tempfile.TemporaryDirectory() as temporary:
         expected_chart_dir = Path(temporary) / "chart"
-        expected_chart_result = chart.package_chart(expected_chart_dir)
+        expected_chart_result = chart.package_chart(
+            expected_chart_dir,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+        )
         expected_chart_package = expected_chart_dir / expected_chart_result["filename"]
         if chart_result != expected_chart_result:
             raise ValueError("Chart result does not match fresh validation")
@@ -3538,7 +4300,9 @@ def aggregate_release_evidence(
     ):
         raise ValueError("OCI archive digest record does not match compact evidence")
     completed = _load_canonical_json(completed_loop_path, "completed loop")
-    second_reconcile = _load_canonical_json(second_reconcile_path, "second reconcile")
+    second_reconcile = _load_canonical_json(
+        second_reconcile_path, "second fixture reconcile"
+    )
     image_loop = _load_canonical_json(image_loop_path, "image loop evidence")
     if set(completed) != {"second_reconcile", "evidence"}:
         raise ValueError("completed loop fields are noncanonical")
@@ -3558,7 +4322,9 @@ def aggregate_release_evidence(
     if completed != recomputed:
         raise ValueError("completed loop does not match full recomputation")
     if second_reconcile != recomputed["second_reconcile"]:
-        raise ValueError("standalone second reconcile disagrees with completed loop")
+        raise ValueError(
+            "standalone second fixture reconcile disagrees with completed loop"
+        )
     if image_loop != recomputed["evidence"]:
         raise ValueError("image loop envelope disagrees with completed loop")
 
@@ -3653,7 +4419,7 @@ def aggregate_release_evidence(
     return evidence
 
 
-def _inventory(entries: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def _fixture_inventory(entries: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     inventory = {
         "schema_version": 1,
         "kind": "registry-inventory",
@@ -3663,11 +4429,11 @@ def _inventory(entries: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         ],
         "entries": entries or [],
     }
-    inventory["inventory_sha256"] = inventory_digest(inventory)
+    inventory["inventory_sha256"] = fixture_inventory_digest(inventory)
     return inventory
 
 
-def _entry(
+def _fixture_entry(
     candidate: dict[str, Any],
     digest: str,
     *,
@@ -3694,7 +4460,13 @@ def expect_blocker(code: str, operation: Callable[[], object]) -> str:
     raise ValueError(f"expected blocker {code} was not raised")
 
 
-def _validate_operation_reference(reference_kind: str, reference: object) -> None:
+def _validate_operation_reference(
+    reference_kind: str,
+    reference: object,
+    *,
+    staging_repository: str | None = None,
+    public_targets: set[str] | None = None,
+) -> None:
     if not isinstance(reference, str):
         raise ValueError("operation has malformed reference")
     if reference_kind == "digest":
@@ -3704,21 +4476,27 @@ def _validate_operation_reference(reference_kind: str, reference: object) -> Non
         valid = (
             separator == "@"
             and REPOSITORY_RE.fullmatch(repository) is not None
-            and repository.rsplit("/", 1)[-1] in TARGET_REPOSITORIES
             and DIGEST_RE.fullmatch(digest) is not None
         )
     elif reference_kind == "upstream-tag":
         repository, separator, tag = reference.rpartition(":")
+        valid = (
+            separator == ":"
+            and REPOSITORY_RE.fullmatch(repository) is not None
+            and re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}", tag) is not None
+        )
+    elif reference_kind == "fixture-upstream-tag":
+        repository, separator, tag = reference.rpartition(":")
         valid = separator == ":" and REPOSITORY_RE.fullmatch(repository) is not None
         if valid:
             try:
-                parse_upstream_tag(repository.rsplit("/", 1)[-1], tag)
+                parse_fixture_upstream_tag(repository.rsplit("/", 1)[-1], tag)
             except ValueError:
                 valid = False
-    elif reference_kind == "target-tag":
+    elif reference_kind == "fixture-target-tag":
         matching = [
             repository
-            for repository in TARGET_REPOSITORIES.values()
+            for repository in FIXTURE_TARGET_REPOSITORIES.values()
             if reference.startswith(repository + ":")
         ]
         valid = len(matching) == 1
@@ -3731,29 +4509,30 @@ def _validate_operation_reference(reference_kind: str, reference: object) -> Non
         repository, separator, digest = reference.rpartition("@")
         valid = (
             separator == "@"
-            and repository == STAGING_REPOSITORY
+            and staging_repository is not None
+            and REPOSITORY_RE.fullmatch(staging_repository) is not None
+            and repository == staging_repository
             and DIGEST_RE.fullmatch(digest) is not None
         )
     elif reference_kind == "staging-tag":
-        prefix = STAGING_REPOSITORY + ":staging-"
+        prefix = (staging_repository or "") + ":staging-"
         valid = (
-            reference.startswith(prefix)
+            staging_repository is not None
+            and REPOSITORY_RE.fullmatch(staging_repository) is not None
+            and reference.startswith(prefix)
             and re.fullmatch(r"[0-9a-f]{64}", reference.removeprefix(prefix))
             is not None
         )
     elif reference_kind == "public-target":
-        valid = reference in {
-            f"{item['target_repository']}:{item['target_tag']}"
-            for item in canonical_registry_contract()["indexes"]
-        }
+        allowed_targets = set() if public_targets is None else public_targets
+        valid = reference in allowed_targets
     elif reference_kind in {"registry-read-tag", "registry-read-tag-or-digest"}:
-        public_tags = {
-            f"{item['target_repository']}:{item['target_tag']}"
-            for item in canonical_registry_contract()["indexes"]
-        }
-        staging_prefix = STAGING_REPOSITORY + ":staging-"
+        public_tags = set() if public_targets is None else public_targets
+        staging_prefix = (staging_repository or "") + ":staging-"
         valid = reference in public_tags or (
-            reference.startswith(staging_prefix)
+            staging_repository is not None
+            and REPOSITORY_RE.fullmatch(staging_repository) is not None
+            and reference.startswith(staging_prefix)
             and re.fullmatch(r"[0-9a-f]{64}", reference.removeprefix(staging_prefix))
             is not None
         )
@@ -3763,25 +4542,24 @@ def _validate_operation_reference(reference_kind: str, reference: object) -> Non
                 separator == "@"
                 and repository
                 in {
-                    STAGING_REPOSITORY,
-                    *{
-                        item["target_repository"]
-                        for item in canonical_registry_contract()["indexes"]
-                    },
+                    *(
+                        {staging_repository}
+                        if staging_repository is not None
+                        else set()
+                    ),
+                    *{target.rsplit(":", 1)[0] for target in public_tags},
                 }
                 and DIGEST_RE.fullmatch(digest) is not None
             )
     elif reference_kind == "registry-read-digest":
+        allowed_targets = set() if public_targets is None else public_targets
         repository, separator, digest = reference.rpartition("@")
         valid = (
             separator == "@"
             and repository
             in {
-                STAGING_REPOSITORY,
-                *{
-                    item["target_repository"]
-                    for item in canonical_registry_contract()["indexes"]
-                },
+                *({staging_repository} if staging_repository is not None else set()),
+                *{target.rsplit(":", 1)[0] for target in allowed_targets},
             }
             and DIGEST_RE.fullmatch(digest) is not None
         )
@@ -3798,7 +4576,11 @@ def _validate_operation_reference(reference_kind: str, reference: object) -> Non
 
 
 def audit_operations(
-    operations: list[dict[str, Any]], *, lane: str | None = None
+    operations: list[dict[str, Any]],
+    *,
+    lane: str | None = None,
+    staging_repository: str | None = None,
+    public_targets: set[str] | None = None,
 ) -> dict[str, Any]:
     """Derive zero-write evidence from emitted operation ledgers."""
     if not isinstance(operations, list):
@@ -3837,7 +4619,12 @@ def audit_operations(
                 f"operation capability mismatch for {operation_type}: "
                 f"expected {expected_capability}, got {operation['capability']}"
             )
-        _validate_operation_reference(reference_kind, operation["reference"])
+        _validate_operation_reference(
+            reference_kind,
+            operation["reference"],
+            staging_repository=staging_repository,
+            public_targets=public_targets,
+        )
         if operation_type in KNOWN_WRITE_OPERATION_TYPES:
             write_capable_operations.append(copy.deepcopy(operation))
         identity = (operation_type, operation["reference"])
@@ -3879,19 +4666,23 @@ def _required_blockers(case: dict[str, Any], candidate: dict[str, Any]) -> list[
     snapshot["platforms"] = [
         item for item in snapshot["platforms"] if item["architecture"] != "arm64"
     ]
-    stable = _entry(candidate, case["upstream_snapshot"]["index_digest"])
+    stable = _fixture_entry(candidate, case["upstream_snapshot"]["index_digest"])
     conflicting = copy.deepcopy(stable)
     conflicting["observed_digest"] = "sha256:" + "f" * 64
     production_case = copy.deepcopy(case)
     results = [
         expect_blocker(
             "duplicate-conflicting-inventory",
-            lambda: reconcile(candidate, _inventory([stable, conflicting])),
+            lambda: reconcile_fixture_candidate(
+                candidate, _fixture_inventory([stable, conflicting])
+            ),
         ),
-        expect_blocker("missing-linux-arm64", lambda: validate_snapshot(snapshot)),
+        expect_blocker(
+            "missing-linux-arm64", lambda: validate_fixture_snapshot(snapshot)
+        ),
         expect_blocker(
             "production-wheel-unpublished",
-            lambda: build_candidate(**production_case, fixture_mode=False),
+            lambda: build_fixture_candidate(**production_case, fixture_mode=False),
         ),
     ]
     return sorted(results)
@@ -3927,7 +4718,7 @@ def verify_loop(
         "wheel_records",
         "spec_id",
         "upstream_snapshot",
-        "compatibility",
+        "catalog",
         "compatibility_rule_id",
         "implementation_digest",
     }
@@ -3936,35 +4727,37 @@ def verify_loop(
             "loop verification fields mismatch: "
             f"missing={sorted(required - set(case))}, extra={sorted(set(case) - required)}"
         )
-    requested_snapshot = validate_snapshot(case["upstream_snapshot"])
-    scan_result = scan_registry(
+    requested_snapshot = validate_fixture_snapshot(case["upstream_snapshot"])
+    scan_result = scan_fixture_registry(
         requested_snapshot["repository"],
         requested_snapshot["upstream_tag"],
         fixture=requested_snapshot,
     )
     fixture_case = {**case, "upstream_snapshot": scan_result["snapshot"]}
-    candidate = build_candidate(**fixture_case, fixture_mode=True)
+    candidate = build_fixture_candidate(**fixture_case, fixture_mode=True)
     snapshot = scan_result["snapshot"]
     digest = snapshot["index_digest"]
 
-    new_result = reconcile(candidate, _inventory())
-    stable_inventory = _inventory([_entry(candidate, digest)])
-    same_result = reconcile(candidate, stable_inventory)
-    drift_inventory = _inventory(
+    new_result = reconcile_fixture_candidate(candidate, _fixture_inventory())
+    stable_inventory = _fixture_inventory([_fixture_entry(candidate, digest)])
+    same_result = reconcile_fixture_candidate(candidate, stable_inventory)
+    drift_inventory = _fixture_inventory(
         [
-            _entry(
+            _fixture_entry(
                 candidate,
                 digest,
                 observed_digest="sha256:" + "f" * 64,
             )
         ]
     )
-    drift_result = reconcile(candidate, drift_inventory)
+    drift_result = reconcile_fixture_candidate(candidate, drift_inventory)
     blockers = _required_blockers(fixture_case, candidate)
 
-    first_fixture_result = reconcile(candidate, _inventory())
-    completed_entry = _entry(candidate, digest)
-    final_fixture_result = reconcile(candidate, _inventory([completed_entry]))
+    first_fixture_result = reconcile_fixture_candidate(candidate, _fixture_inventory())
+    completed_entry = _fixture_entry(candidate, digest)
+    final_fixture_result = reconcile_fixture_candidate(
+        candidate, _fixture_inventory([completed_entry])
+    )
     operation_batches = [
         scan_result["operations"],
         *[

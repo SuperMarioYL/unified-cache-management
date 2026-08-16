@@ -6,7 +6,16 @@ on:
       source_sha:
         type: string
         required: true
-      spec_id:
+      task_id:
+        type: string
+        required: true
+      runner:
+        type: string
+        required: true
+      resolved_plan_artifact:
+        type: string
+        required: true
+      resolved_plan_sha256:
         type: string
         required: true
     outputs:
@@ -27,7 +36,10 @@ jobs:
     uses: ./.github/workflows/_build-image.yml
     with:
       source_sha: ${{ inputs.source_sha }}
-      spec_id: ${{ inputs.spec_id }}
+      task_id: ${{ inputs.task_id }}
+      runner: ${{ inputs.runner }}
+      resolved_plan_artifact: ${{ inputs.resolved_plan_artifact }}
+      resolved_plan_sha256: ${{ inputs.resolved_plan_sha256 }}
       deliver_full_oci: false
 
   publish-member:
@@ -38,10 +50,10 @@ jobs:
         needs.build.result == 'success' &&
         github.event_name == 'push' &&
         github.repository == 'SuperMarioYL/unified-cache-management' &&
-        github.ref == 'refs/tags/v0.5.0rc1' &&
+        github.ref_type == 'tag' &&
         github.ref_protected == true
       }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 120
     permissions:
       contents: read
@@ -58,15 +70,14 @@ jobs:
       - name: Validate protected publisher contract
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
-          SPEC_ID: ${{ inputs.spec_id }}
+          TASK_ID: ${{ inputs.task_id }}
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
         shell: bash
         run: |
           set -euo pipefail
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
-          case "${SPEC_ID}" in
-            cuda130-amd64|cuda130-arm64|cann900-a2-amd64|cann900-a2-arm64|cann900-a3-amd64|cann900-a3-arm64) ;;
-            *) exit 2 ;;
-          esac
+          [[ "${TASK_ID}" =~ ^[a-z0-9][a-z0-9._-]*$ ]]
+          [[ "${RESOLVED_PLAN_SHA256}" =~ ^sha256:[0-9a-f]{64}$ ]]
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ inputs.source_sha }}
@@ -79,21 +90,47 @@ jobs:
         run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ inputs.resolved_plan_artifact }}
+          path: input/plan
+      - name: Reopen exact frozen member task and verify current upstream state
+        env:
+          TASK_ID: ${{ inputs.task_id }}
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          PYTHONPATH=.github/release python -m ucm_release catalog select \
+            --plan input/plan/resolved-plan.json \
+            --task-kind image \
+            --task-id "${TASK_ID}" \
+            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
+            --output out/selected-task.json >/dev/null
+          test "$(python -c 'import json; print(json.load(open("out/selected-task.json"))["runner"])')" = "${{ inputs.runner }}"
+          test "$(python -c 'import json; print(json.load(open("input/plan/resolved-plan.json"))["fixture_only"])')" = "False"
+          PYTHONPATH=.github/release python -m ucm_release catalog verify-drift \
+            --plan input/plan/resolved-plan.json \
+            --output out/upstream-drift.json >/dev/null
       - name: Recheck exact protected authority in the writer job
         env:
           UCM_RELEASE_POLICY: ${{ vars.UCM_RELEASE_POLICY }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --no-tags --force origin +refs/tags/v0.5.0rc1:refs/tags/v0.5.0rc1 +refs/heads/develop:refs/remotes/origin/develop
+          git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}" +refs/heads/develop:refs/remotes/origin/develop
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
           test "$(git rev-parse HEAD:.github/workflows)" = "$(git rev-parse origin/develop:.github/workflows)"
           test "$(git rev-parse HEAD:.github/release)" = "$(git rev-parse origin/develop:.github/release)"
           mkdir -p out
           PYTHONPATH=.github/release python -m ucm_release core tag-preflight \
-            --lane protected-tag >out/member-preflight.json
+            --lane protected-tag \
+            --resolved-plan input/plan/resolved-plan.json \
+            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >out/member-preflight.json
       - name: Free publisher disk without exposing the write token to an action
         shell: bash
         run: |
@@ -133,12 +170,13 @@ jobs:
       - name: Validate exact current-attempt bridge names
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
-          SPEC_ID: ${{ inputs.spec_id }}
+          TASK_ID: ${{ inputs.task_id }}
           OCI_ARTIFACT: ${{ needs.build.outputs.internal_oci_artifact }}
           IMAGE_ARTIFACT: ${{ needs.build.outputs.image_artifact }}
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
         run: |
           set -euo pipefail
-          python -c 'import json,os; json.dump({"source_sha":os.environ["SOURCE_SHA"],"spec_id":os.environ["SPEC_ID"],"oci_artifact":os.environ["OCI_ARTIFACT"],"image_artifact":os.environ["IMAGE_ARTIFACT"],"hosted_task":"input/image/hosted-task.json","run":{"run_id":os.environ["GITHUB_RUN_ID"],"run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"])}},open("out/bridge-request.json","w"),sort_keys=True,separators=(",",":"))'
+          python -c 'import json,os; json.dump({"source_sha":os.environ["SOURCE_SHA"],"task_id":os.environ["TASK_ID"],"oci_artifact":os.environ["OCI_ARTIFACT"],"image_artifact":os.environ["IMAGE_ARTIFACT"],"hosted_task":"input/image/hosted-task.json","resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"],"run":{"run_id":os.environ["GITHUB_RUN_ID"],"run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"])}},open("out/bridge-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release artifact validate-image-bridge --input out/bridge-request.json --output out/bridge-validation.json >/dev/null
       - name: Authenticate the pinned publisher to GHCR
         env:
@@ -156,26 +194,28 @@ jobs:
           DOCKER_CONFIG: ${{ runner.temp }}/ucm-member-docker-config
           UCM_RELEASE_POLICY: ${{ vars.UCM_RELEASE_POLICY }}
           SOURCE_SHA: ${{ inputs.source_sha }}
-          SPEC_ID: ${{ inputs.spec_id }}
+          TASK_ID: ${{ inputs.task_id }}
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --no-tags --force origin +refs/tags/v0.5.0rc1:refs/tags/v0.5.0rc1 +refs/heads/develop:refs/remotes/origin/develop
+          git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}" +refs/heads/develop:refs/remotes/origin/develop
           test "$(git rev-parse HEAD:.github/workflows)" = "$(git rev-parse origin/develop:.github/workflows)"
           test "$(git rev-parse HEAD:.github/release)" = "$(git rev-parse origin/develop:.github/release)"
-          PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag >out/member-mutation-preflight.json
+          PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
+            --resolved-plan input/plan/resolved-plan.json \
+            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >out/member-mutation-preflight.json
           cmp input/oci/image-result.json input/image/image-result.json
-          printf '%s\n' '{"image_result":"input/image/image-result.json","lane":"protected-tag","oci_archive":"input/oci/image.oci.tar"}' \
-            >out/member-request.json
+          python -c 'import json,os; json.dump({"image_result":"input/image/image-result.json","lane":"protected-tag","oci_archive":"input/oci/image.oci.tar","task_id":os.environ["TASK_ID"],"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/member-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release registry verify-member \
             --input out/member-request.json --output out/member-record.json >/dev/null
           # shellcheck disable=SC2016
-          PYTHONPATH=.github/release python -c 'import json; from pathlib import Path; from ucm_release import core,registry; record=core.load_json(Path("out/member-record.json")); registry.validate_member_record(record); schema=core.load_json(core.DEFAULT_SCHEMA_DIR/"release-manifest.schema.json"); core.validate_schema(record,schema["$defs"]["registryMemberRecord"],root=schema); open("out/member-audit-request.json","w").write(json.dumps({"lane":"protected-tag","operations":record["operations"]},sort_keys=True,separators=(",",":"))+"\n")'
+          PYTHONPATH=.github/release python -c 'import json,os; from pathlib import Path; from ucm_release import core,registry; record=core.load_json(Path("out/member-record.json")); plan=core.load_json(Path("input/plan/resolved-plan.json")); registry.validate_member_record(record,resolved_plan=plan,expected_plan_sha256=os.environ["RESOLVED_PLAN_SHA256"]); schema=core.load_json(core.DEFAULT_SCHEMA_DIR/"release-manifest.schema.json"); core.validate_schema(record,schema["$defs"]["registryMemberRecord"],root=schema); open("out/member-audit-request.json","w").write(json.dumps({"lane":"protected-tag","operations":record["operations"],"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},sort_keys=True,separators=(",",":"))+"\n")'
           PYTHONPATH=.github/release python -m ucm_release registry audit-operations \
             --input out/member-audit-request.json --output out/member-audit.json >/dev/null
-          member_artifact="ucm-member-${SPEC_ID}-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          member_artifact="ucm-member-${TASK_ID}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           {
             echo "member_artifact=${member_artifact}"
             echo "member_record_sha256=$(python -c 'import json; print(json.load(open("out/member-record.json"))["record_sha256"])')"
@@ -196,6 +236,8 @@ jobs:
             out/member-audit.json
             out/member-preflight.json
             out/member-mutation-preflight.json
+            out/selected-task.json
+            out/upstream-drift.json
           if-no-files-found: error
           overwrite: false
           retention-days: 90

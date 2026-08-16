@@ -18,6 +18,10 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from packaging.requirements import InvalidRequirement, Requirement
+from packaging.utils import canonicalize_name
+from packaging.version import InvalidVersion, Version
+
 from . import core as release_core
 from . import registry
 from . import wheel as wheel_artifact
@@ -170,7 +174,7 @@ def validate_image_toolchain_authority(value: object) -> dict[str, Any]:
         raise ValueError("fixture image Buildx version is invalid")
     binary_sha256 = _exact(
         authority["buildx_linux_sha256"],
-        {"amd64", "arm64"},
+        set(release_core.CPU_TOOLCHAIN_AUTHORITIES),
         "fixture image Buildx binary digests",
     )
     for architecture, digest in binary_sha256.items():
@@ -225,90 +229,209 @@ def real_image_toolchain_authority(
     return result
 
 
-def real_image_authorities(
+def task_toolchain_authority(
+    resolved_plan: dict[str, Any],
     *,
-    release_path: Path = release_core.DEFAULT_RELEASE,
-    compatibility_path: Path = release_core.DEFAULT_COMPATIBILITY,
-    schema_dir: Path = DEFAULT_SCHEMA_DIR,
-    docker_root: Path = DOCKER_ROOT,
-) -> list[dict[str, Any]]:
-    """Project the only six install-only member authorities from release.yaml."""
-    release, _ = release_core.validate_config(
-        release_path, compatibility_path, schema_dir
-    )
-    matrix = release_core.build_matrix(
-        "feature-candidate", release_path, compatibility_path, schema_dir
-    )
-    tasks = matrix["tasks"]
-    if len(tasks) != 6:
-        raise ValueError("real image authority requires exactly six matrix tasks")
-    toolchain = real_image_toolchain_authority(docker_root)
-    result: list[dict[str, Any]] = []
-    for task in tasks:
-        architecture = task["cpu_arch"]
-        authority: dict[str, Any] = {
-            "schema_version": 1,
-            "kind": "ucm-real-image-task-authority",
-            "candidate_kind": "real-candidate",
-            "fixture_only": False,
-            "unpublished": True,
-            "publication_attempted": False,
-            "spec_id": task["spec_id"],
-            "family_id": task["profile_id"],
-            "profile_id": task["profile_id"],
-            "cpu_arch": architecture,
-            "platform": task["platform"],
-            "python_abi": task["python_abi"],
-            "wheel_version": task["wheel_version"],
-            "builder": copy.deepcopy(task["builder"]),
-            "runtime": copy.deepcopy(task["runtime"]),
-            "target_repository": task["target_repository"],
-            "target_tag": task["target_tag"],
-            "required_native": copy.deepcopy(task["required_native"]),
-            "forbidden_native": copy.deepcopy(task["forbidden_native"]),
-            "allowed_dt_needed": copy.deepcopy(task["allowed_dt_needed"]),
-            "external_required_dependencies": copy.deepcopy(
-                task["external_required_dependencies"]
-            ),
-            "dependency_lock_sha256": task["dependency_lock_sha256"],
-            "wrapt_wheel": copy.deepcopy(release["wrapt_wheels"][architecture]),
-            "task_sha256": task["task_sha256"],
-            "toolchain": copy.deepcopy(toolchain),
-        }
-        authority["authority_sha256"] = sha256_value(authority)
-        result.append(authority)
-    return result
-
-
-def real_image_authority(
-    family_id: str,
-    architecture: str,
-    *,
-    release_path: Path = release_core.DEFAULT_RELEASE,
-    compatibility_path: Path = release_core.DEFAULT_COMPATIBILITY,
-    schema_dir: Path = DEFAULT_SCHEMA_DIR,
+    task_kind: str,
+    task_id: str,
+    expected_plan_sha256: str,
     docker_root: Path = DOCKER_ROOT,
 ) -> dict[str, Any]:
-    """Resolve one member only by its reviewed family and CPU architecture."""
-    authorities = real_image_authorities(
-        release_path=release_path,
-        compatibility_path=compatibility_path,
-        schema_dir=schema_dir,
+    """Bind reviewed image toolchain bytes to one frozen wheel/image task."""
+    if task_kind not in {"wheel", "image"}:
+        raise ValueError("toolchain task kind must be wheel or image")
+    task = registry.select_task(
+        resolved_plan,
+        task_kind=task_kind,
+        task_id=task_id,
+        expected_plan_sha256=expected_plan_sha256,
+    )
+    payload = {
+        "schema_version": 1,
+        "kind": "ucm-task-bound-image-toolchain-authority",
+        "task_kind": task_kind,
+        "task_id": task["task_id"],
+        "task_sha256": task["task_sha256"],
+        "resolved_plan_sha256": resolved_plan["resolved_plan_sha256"],
+        "toolchain": real_image_toolchain_authority(docker_root),
+    }
+    return {**payload, "authority_sha256": sha256_value(payload)}
+
+
+def _real_image_authority_from_selected_tasks(
+    task: dict[str, Any],
+    wheel_task: dict[str, Any],
+    *,
+    resolved_plan_sha256: str,
+    source_repository: str,
+    docker_root: Path = DOCKER_ROOT,
+) -> dict[str, Any]:
+    """Project already-selected image/wheel tasks from one validated plan."""
+    if not isinstance(task, dict):
+        raise ValueError("real image task must be an object")
+    payload = {key: value for key, value in task.items() if key != "task_sha256"}
+    dependency_lock = task.get("dependency_lock")
+    runtime = task.get("runtime")
+    runtime_patch_product = task.get("runtime_patch_product")
+    runtime_patch_variants = task.get("runtime_patch_variants")
+    runtime_requirements = task.get("runtime_requirements")
+    expected_runtime_products = {"vllm", runtime_patch_product}
+    if (
+        re.fullmatch(r"image-[0-9a-f]{64}", str(task.get("task_id"))) is None
+        or task.get("task_sha256") != sha256_value(payload)
+        or not isinstance(dependency_lock, dict)
+        or set(dependency_lock) != {"build_tools", "runtime_dependencies"}
+        or task.get("dependency_lock_sha256") != sha256_value(dependency_lock)
+        or not isinstance(runtime_requirements, list)
+        or not runtime_requirements
+        or not isinstance(runtime, dict)
+        or runtime_patch_product not in {"vllm", "vllm-ascend"}
+        or not isinstance(runtime_patch_variants, dict)
+        or set(runtime_patch_variants) != expected_runtime_products
+        or any(
+            not isinstance(value, str) or not value
+            for value in runtime_patch_variants.values()
+        )
+        or runtime.get("variant") != runtime_patch_variants.get(runtime_patch_product)
+    ):
+        raise ValueError("real image task identity or runtime variant is invalid")
+    wheel_task = wheel_artifact._validate_wheel_task(wheel_task)
+    if (
+        task.get("wheel_task_id") != wheel_task["task_id"]
+        or task.get("spec_id") != wheel_task["spec_id"]
+        or task.get("profile_id") != wheel_task["profile_id"]
+        or task.get("cpu_arch") != wheel_task["cpu_arch"]
+    ):
+        raise ValueError("real image task does not bind the selected wheel task")
+    if (
+        not isinstance(resolved_plan_sha256, str)
+        or DIGEST_RE.fullmatch(resolved_plan_sha256) is None
+    ):
+        raise ValueError("real image resolved plan hash is invalid")
+    if (
+        not isinstance(source_repository, str)
+        or re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", source_repository) is None
+    ):
+        raise ValueError("real image source repository is invalid")
+    runtime_versions: dict[str, str] = {}
+    for raw_requirement in runtime_requirements:
+        try:
+            requirement = Requirement(raw_requirement)
+        except (InvalidRequirement, TypeError) as error:
+            raise ValueError("real image runtime requirement is invalid") from error
+        name = canonicalize_name(requirement.name)
+        specifiers = list(requirement.specifier)
+        if name in runtime_versions or len(specifiers) != 1:
+            raise ValueError("real image runtime requirement is not exact")
+        specifier = specifiers[0]
+        if specifier.operator != "==" or "*" in specifier.version:
+            raise ValueError("real image runtime requirement is not exact")
+        try:
+            runtime_versions[name] = str(Version(specifier.version))
+        except InvalidVersion as error:
+            raise ValueError(
+                "real image runtime requirement version is invalid"
+            ) from error
+    runtime_dependencies = copy.deepcopy(dependency_lock["runtime_dependencies"])
+    if (
+        not isinstance(runtime_dependencies, list)
+        or not runtime_dependencies
+        or len(runtime_dependencies) != len(runtime_versions)
+        or len({record.get("name") for record in runtime_dependencies})
+        != len(runtime_dependencies)
+    ):
+        raise ValueError("real image runtime dependency authority is invalid")
+    for record in runtime_dependencies:
+        if (
+            not isinstance(record, dict)
+            or set(record)
+            != {
+                "name",
+                "version",
+                "requirement",
+                "import_name",
+                "filename",
+                "sha256",
+            }
+            or runtime_versions.get(record["name"]) != record["version"]
+            or record["requirement"] != f"{record['name']}=={record['version']}"
+            or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", record["import_name"]) is None
+            or not isinstance(record["filename"], str)
+            or not record["filename"].endswith(".whl")
+            or DIGEST_RE.fullmatch(str(record["sha256"])) is None
+        ):
+            raise ValueError(
+                "real image dependency wheels differ from runtime requirements"
+            )
+    authority: dict[str, Any] = {
+        "schema_version": 1,
+        "kind": "ucm-real-image-task-authority",
+        "candidate_kind": "real-candidate",
+        "fixture_only": False,
+        "unpublished": True,
+        "publication_attempted": False,
+        "source_repository": source_repository,
+        "source_repository_url": f"https://github.com/{source_repository}",
+        "task_id": task["task_id"],
+        "family_task_id": task["family_task_id"],
+        "wheel_task_id": task["wheel_task_id"],
+        "wheel_task": copy.deepcopy(wheel_task),
+        "spec_id": task["spec_id"],
+        "family_id": task["family_task_id"],
+        "profile_id": task["profile_id"],
+        "cpu_arch": task["cpu_arch"],
+        "platform": task["platform"],
+        "python_abi": task["python_abi"],
+        "wheel_version": task["wheel_version"],
+        "builder": copy.deepcopy(task["builder"]),
+        "runtime": copy.deepcopy(task["runtime"]),
+        "runtime_patch_variants": copy.deepcopy(runtime_patch_variants),
+        "target_repository": task["target_repository"],
+        "target_tag": task["target_tag"],
+        "required_native": copy.deepcopy(task["required_native"]),
+        "forbidden_native": copy.deepcopy(task["forbidden_native"]),
+        "allowed_dt_needed": copy.deepcopy(task["allowed_dt_needed"]),
+        "external_required_dependencies": copy.deepcopy(
+            task["external_required_dependencies"]
+        ),
+        "dependency_lock_sha256": task["dependency_lock_sha256"],
+        "runtime_requirements": copy.deepcopy(runtime_requirements),
+        "runtime_dependencies": runtime_dependencies,
+        "task_sha256": task["task_sha256"],
+        "resolved_plan_sha256": resolved_plan_sha256,
+        "toolchain": real_image_toolchain_authority(docker_root),
+    }
+    authority["authority_sha256"] = sha256_value(authority)
+    return authority
+
+
+def real_image_authority_from_plan(
+    resolved_plan: dict[str, Any],
+    *,
+    task_id: str,
+    expected_plan_sha256: str,
+    docker_root: Path = DOCKER_ROOT,
+) -> dict[str, Any]:
+    """Project one real image authority from an exact frozen-plan selection."""
+    task = registry.select_task(
+        resolved_plan,
+        task_kind="image",
+        task_id=task_id,
+        expected_plan_sha256=expected_plan_sha256,
+    )
+    wheel_task = registry.select_task(
+        resolved_plan,
+        task_kind="wheel",
+        task_id=task["wheel_task_id"],
+        expected_plan_sha256=expected_plan_sha256,
+    )
+    return _real_image_authority_from_selected_tasks(
+        task,
+        wheel_task,
+        resolved_plan_sha256=resolved_plan["resolved_plan_sha256"],
+        source_repository=resolved_plan["source"]["repository"],
         docker_root=docker_root,
     )
-    families = {item["family_id"] for item in authorities}
-    if family_id not in families:
-        raise ValueError(f"unknown real image family: {family_id!r}")
-    if architecture not in {"amd64", "arm64"}:
-        raise ValueError(f"unknown real image architecture: {architecture!r}")
-    matches = [
-        item
-        for item in authorities
-        if item["family_id"] == family_id and item["cpu_arch"] == architecture
-    ]
-    if len(matches) != 1:
-        raise ValueError("real image family/architecture does not resolve uniquely")
-    return matches[0]
 
 
 def _validate_base_authority(value: object) -> dict[str, Any]:
@@ -595,8 +718,11 @@ def _validate_base(
         target_os, target_architecture = target_platform.split("/", 1)
     except ValueError as error:
         raise ValueError("base target platform must be os/architecture") from error
-    if target_os != "linux" or target_architecture not in {"amd64", "arm64"}:
-        raise ValueError("base target platform must be linux/amd64 or linux/arm64")
+    cpu_authority = release_core.cpu_toolchain_authority(
+        target_architecture, location="base target platform architecture"
+    )
+    if target_os != "linux" or target_platform != cpu_authority.oci_platform:
+        raise ValueError("base target platform differs from CPU/tool architecture")
 
     index_blob, index = _base_blob(base["index"], "base index", OCI_INDEX_MEDIA_TYPES)
     manifest_blob, manifest = _base_blob(
@@ -670,17 +796,35 @@ def _validate_base(
     return result
 
 
+def _require_real_image_task_authority(task_authority: object) -> dict[str, Any]:
+    if not isinstance(task_authority, dict):
+        raise ValueError("real image task authority must be an object")
+    task = copy.deepcopy(task_authority)
+    claimed = task.pop("authority_sha256", None)
+    if (
+        task.get("kind") != "ucm-real-image-task-authority"
+        or claimed != sha256_value(task)
+        or task.get("fixture_only") is not False
+        or DIGEST_RE.fullmatch(str(task.get("resolved_plan_sha256"))) is None
+    ):
+        raise ValueError("real image task authority identity is invalid")
+    wheel_task = wheel_artifact._validate_wheel_task(task.get("wheel_task"))
+    if (
+        task.get("wheel_task_id") != wheel_task["task_id"]
+        or task.get("spec_id") != wheel_task["spec_id"]
+        or task.get("profile_id") != wheel_task["profile_id"]
+        or task.get("cpu_arch") != wheel_task["cpu_arch"]
+    ):
+        raise ValueError("real image task authority has an invalid wheel binding")
+    task["authority_sha256"] = claimed
+    return task
+
+
 def validate_real_base_authority(
     base_record: object, task_authority: object
 ) -> dict[str, Any]:
     """Reopen a real base descriptor chain and bind it to the exact Task 1 member."""
-    if not isinstance(task_authority, dict):
-        raise ValueError("real image task authority must be an object")
-    task = real_image_authority(
-        task_authority.get("family_id"), task_authority.get("cpu_arch")
-    )
-    if task_authority != task:
-        raise ValueError("real image task authority differs from release config")
+    task = _require_real_image_task_authority(task_authority)
     if not isinstance(base_record, dict):
         raise ValueError("real base authority must be an object")
     raw_keys = {
@@ -719,15 +863,14 @@ def validate_real_base_authority(
 
 
 def real_base_record_from_files(
-    family_id: str,
-    architecture: str,
     *,
     index_path: Path,
     manifest_path: Path,
     config_path: Path,
+    task_authority: dict[str, Any],
 ) -> dict[str, Any]:
     """Build and reopen a real base record from three raw Registry blobs."""
-    task = real_image_authority(family_id, architecture)
+    task = _require_real_image_task_authority(task_authority)
     paths = {
         "index": Path(index_path),
         "manifest": Path(manifest_path),
@@ -825,25 +968,14 @@ def _single_embedded_json(
 
 
 def inspect_real_wheel_candidate(
-    family_id: str,
-    architecture: str,
     wheel_path: Path,
     inspection: object,
     *,
-    release_path: Path = release_core.DEFAULT_RELEASE,
-    compatibility_path: Path = release_core.DEFAULT_COMPATIBILITY,
     schema_dir: Path = DEFAULT_SCHEMA_DIR,
-    docker_root: Path = DOCKER_ROOT,
+    task_authority: dict[str, Any],
 ) -> dict[str, Any]:
     """Reinspect sealed bytes as builder-candidate and reverse them to one task."""
-    task = real_image_authority(
-        family_id,
-        architecture,
-        release_path=release_path,
-        compatibility_path=compatibility_path,
-        schema_dir=schema_dir,
-        docker_root=docker_root,
-    )
+    task = _require_real_image_task_authority(task_authority)
     path = Path(wheel_path)
     if not path.is_file() or path.is_symlink():
         raise ValueError("real builder-candidate wheel must be one regular file")
@@ -854,9 +986,8 @@ def inspect_real_wheel_candidate(
             task["spec_id"],
             raw_sha256,
             "builder-candidate",
-            release_path=release_path,
-            compatibility_path=compatibility_path,
             schema_dir=schema_dir,
+            task=task["wheel_task"],
         )
     except (OSError, KeyError, TypeError, ValueError, zipfile.BadZipFile) as error:
         raise ValueError(
@@ -997,27 +1128,37 @@ def audit_real_context(context_dir: Path, expected_files: set[str]) -> None:
 def build_real_dependency_lock(
     task_authority: dict[str, Any],
     wheel_path: Path,
-    wrapt_path: Path,
+    runtime_dependency_paths: list[Path],
     *,
     wheel_record: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Generate the two-artifact offline direct-reference hash lock."""
-    task = real_image_authority(
-        task_authority.get("family_id"), task_authority.get("cpu_arch")
-    )
-    if task_authority != task:
-        raise ValueError("real dependency task authority is noncanonical")
-    wrapt = Path(wrapt_path)
-    expected_wrapt = task["wrapt_wheel"]
+    """Generate the exact offline direct-reference runtime dependency lock."""
+    task = _require_real_image_task_authority(task_authority)
+    expected_dependencies = task.get("runtime_dependencies")
+    if not isinstance(expected_dependencies, list) or not expected_dependencies:
+        raise ValueError("runtime dependency authority is missing")
+    paths = [Path(path) for path in runtime_dependency_paths]
+    expected_by_filename = {
+        record["filename"]: record for record in expected_dependencies
+    }
     if (
-        not wrapt.is_file()
-        or wrapt.is_symlink()
-        or wrapt.name != expected_wrapt["filename"]
+        len(paths) != len(expected_by_filename)
+        or len({path.name for path in paths}) != len(paths)
+        or {path.name for path in paths} != set(expected_by_filename)
     ):
-        raise ValueError("exact architecture-specific wrapt wheel is missing")
-    wrapt_sha256 = "sha256:" + hashlib.sha256(wrapt.read_bytes()).hexdigest()
-    if wrapt_sha256 != expected_wrapt["sha256"]:
-        raise ValueError("wrapt wheel SHA256 differs from release authority")
+        raise ValueError("exact runtime dependency wheel set is missing or ambiguous")
+    for path in paths:
+        record = expected_by_filename[path.name]
+        if not path.is_file() or path.is_symlink():
+            raise ValueError(
+                f"exact runtime dependency wheel is missing: {record['name']}"
+            )
+        actual_sha256 = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual_sha256 != record["sha256"]:
+            raise ValueError(
+                f"runtime dependency wheel SHA256 differs from release authority: "
+                f"{record['name']}"
+            )
     wheel = Path(wheel_path)
     if not wheel.is_file() or wheel.is_symlink() or wheel.suffix != ".whl":
         raise ValueError("exact UCM wheel is missing")
@@ -1028,10 +1169,12 @@ def build_real_dependency_lock(
     ):
         raise ValueError("UCM wheel bytes differ from builder-candidate inspection")
     requirements = (
-        f"uc-manager @ file:///wheelhouse/{wheel.name} "
-        f"--hash={wheel_sha256}\n"
-        f"wrapt @ file:///wheelhouse/{wrapt.name} "
-        f"--hash={wrapt_sha256}\n"
+        f"uc-manager @ file:///wheelhouse/{wheel.name} --hash={wheel_sha256}\n"
+        + "".join(
+            f"{record['name']} @ file:///wheelhouse/{record['filename']} "
+            f"--hash={record['sha256']}\n"
+            for record in sorted(expected_dependencies, key=lambda item: item["name"])
+        )
     )
     return {
         "schema_version": 1,
@@ -1039,7 +1182,7 @@ def build_real_dependency_lock(
         "requirements": requirements,
         "sha256": "sha256:" + hashlib.sha256(requirements.encode()).hexdigest(),
         "wheel": {"filename": wheel.name, "sha256": wheel_sha256},
-        "wrapt": {"filename": wrapt.name, "sha256": wrapt_sha256},
+        "runtime_dependencies": copy.deepcopy(expected_dependencies),
         "preinstall_command": [
             "python",
             "-m",
@@ -1047,7 +1190,7 @@ def build_real_dependency_lock(
             "uninstall",
             "--yes",
             "uc-manager",
-            "wrapt",
+            *sorted(record["name"] for record in expected_dependencies),
         ],
         "pip_command": [
             "python",
@@ -1222,6 +1365,18 @@ def _project_dependency_closure(
     return projected
 
 
+def _matches_python_command(value: object, python_abi: object) -> bool:
+    if (
+        not isinstance(value, str)
+        or not isinstance(python_abi, str)
+        or re.fullmatch(r"cp[0-9]{2,}", python_abi) is None
+    ):
+        return False
+    digits = python_abi.removeprefix("cp")
+    version = f"{digits[0]}.{digits[1:]}"
+    return PurePosixPath(value).name in {"python", "python3", f"python{version}"}
+
+
 def verify_real_runtime_evidence(recipe: object, evidence: object) -> dict[str, str]:
     """Verify offline install plus installed native/ELF/closure evidence."""
     if not isinstance(recipe, dict) or set(recipe) != {"payload", "payload_sha256"}:
@@ -1246,14 +1401,18 @@ def verify_real_runtime_evidence(recipe: object, evidence: object) -> dict[str, 
     if install.get("pip_check") != "passed":
         raise ValueError("real pip check gate did not pass")
     wheel = payload.get("wheel")
-    wrapt = payload.get("wrapt_wheel")
-    if not isinstance(wheel, dict) or not isinstance(wrapt, dict):
+    runtime_dependencies = payload.get("runtime_dependencies")
+    if (
+        not isinstance(wheel, dict)
+        or not isinstance(runtime_dependencies, list)
+        or not runtime_dependencies
+        or any(not isinstance(value, dict) for value in runtime_dependencies)
+    ):
         raise ValueError("real recipe wheel authority is missing")
     if install.get("kind") == "ucm-real-install-result" and (
         install.get("wheel_filename") != wheel.get("filename")
         or install.get("wheel_sha256") != wheel.get("sha256")
-        or install.get("wrapt_filename") != wrapt.get("filename")
-        or install.get("wrapt_sha256") != wrapt.get("sha256")
+        or install.get("runtime_dependencies") != runtime_dependencies
         or install.get("version") != wheel.get("version")
     ):
         raise ValueError("real install wheel identity differs from recipe")
@@ -1265,7 +1424,7 @@ def verify_real_runtime_evidence(recipe: object, evidence: object) -> dict[str, 
         not isinstance(preinstall_command, list)
         or not isinstance(expected_preinstall_command, list)
         or preinstall_command[1:] != expected_preinstall_command[1:]
-        or not str(preinstall_command[0]).endswith(("python", "python3", "python3.12"))
+        or not _matches_python_command(preinstall_command[0], wheel.get("python_abi"))
     ):
         raise ValueError("real preinstall purge is not the exact reviewed command")
     command = install.get("pip_command")
@@ -1274,23 +1433,33 @@ def verify_real_runtime_evidence(recipe: object, evidence: object) -> dict[str, 
         not isinstance(command, list)
         or not isinstance(expected_command, list)
         or command[1:] != expected_command[1:]
-        or not str(command[0]).endswith(("python", "python3", "python3.12"))
+        or not _matches_python_command(command[0], wheel.get("python_abi"))
     ):
         raise ValueError("real pip command is not the exact offline hashed install")
-    if install.get("installed_packages") != {
-        "uc-manager": wheel.get("version"),
-        "wrapt": "1.17.2",
-    }:
+    expected_packages = {"uc-manager": wheel.get("version")}
+    expected_packages.update(
+        {record["name"]: record.get("version") for record in runtime_dependencies}
+    )
+    if install.get("installed_packages") != expected_packages:
         raise ValueError("real installed package versions do not match")
-    if install.get("imports") != {"ucm": "passed", "wrapt": "passed"}:
+    expected_imports = {"ucm": "passed"}
+    expected_imports.update(
+        {record["import_name"]: "passed" for record in runtime_dependencies}
+    )
+    if install.get("imports") != expected_imports:
         raise ValueError("real import gate did not pass")
     direct_urls = install.get("direct_urls")
     if not isinstance(direct_urls, dict):
         raise ValueError("real direct_url evidence is missing")
     expected_direct = {
         "uc-manager": (wheel.get("filename"), wheel.get("sha256")),
-        "wrapt": (wrapt.get("filename"), wrapt.get("sha256")),
     }
+    expected_direct.update(
+        {
+            record["name"]: (record.get("filename"), record.get("sha256"))
+            for record in runtime_dependencies
+        }
+    )
     for distribution, (filename, digest) in expected_direct.items():
         direct = direct_urls.get(distribution)
         if (
@@ -1307,6 +1476,13 @@ def verify_real_runtime_evidence(recipe: object, evidence: object) -> dict[str, 
         "ucm-real-runtime-inspection",
     }:
         raise ValueError("real runtime inspection is missing")
+    expected_variants = payload.get("runtime_patch_variants")
+    if (
+        not isinstance(expected_variants, dict)
+        or not expected_variants
+        or runtime.get("runtime_patch_variants") != expected_variants
+    ):
+        raise ValueError("real runtime patch variant map differs from recipe")
     abi = runtime.get("abi")
     expected_abi = wheel.get("python_abi")
     if abi != {
@@ -1366,11 +1542,12 @@ def verify_real_runtime_evidence(recipe: object, evidence: object) -> dict[str, 
         "pip_check": "passed",
         "direct_url": "passed",
         "ucm_import": "passed",
-        "wrapt_import": "passed",
+        "runtime_dependency_imports": "passed",
         "abi": "passed",
         "native_members": "passed",
         "elf": "passed",
         "dependency_closure": "passed",
+        "variant": "passed",
     }
 
 
@@ -1406,6 +1583,13 @@ def real_content_identity(recipe: object, closure: object) -> dict[str, Any]:
         not isinstance(source, dict)
         or not isinstance(wheel, dict)
         or not isinstance(base_config_raw, str)
+        or re.fullmatch(
+            r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",
+            str(source.get("repository")),
+        )
+        is None
+        or source.get("repository_url")
+        != f"https://github.com/{source.get('repository')}"
     ):
         raise ValueError("real content recipe source/wheel/base authority is missing")
     base_config = _json_bytes(base_config_raw.encode(), "real recipe base config")
@@ -1419,9 +1603,7 @@ def real_content_identity(recipe: object, closure: object) -> dict[str, Any]:
     expected_labels = copy.deepcopy(base_labels)
     expected_labels.update(
         {
-            "org.opencontainers.image.source": (
-                "https://github.com/SuperMarioYL/unified-cache-management"
-            ),
+            "org.opencontainers.image.source": source.get("repository_url"),
             "org.opencontainers.image.revision": source.get("commit"),
             "io.ucm.release.source-tree": source.get("tree"),
             "io.ucm.release.source-context-sha256": source.get("context_sha256"),
@@ -1499,47 +1681,35 @@ def real_content_identity(recipe: object, closure: object) -> dict[str, Any]:
 
 def prepare_real_context(
     *,
-    family_id: str,
-    architecture: str,
     wheel_path: Path,
     wheel_inspection: dict[str, Any],
     base_record: dict[str, Any],
-    wrapt_path: Path,
+    runtime_dependency_paths: list[Path],
     output_dir: Path,
-    release_path: Path = release_core.DEFAULT_RELEASE,
-    compatibility_path: Path = release_core.DEFAULT_COMPATIBILITY,
     schema_dir: Path = DEFAULT_SCHEMA_DIR,
     docker_root: Path = DOCKER_ROOT,
+    task_authority: dict[str, Any],
 ) -> dict[str, Any]:
     """Prepare one exact source-free real install-only member context."""
-    task = real_image_authority(
-        family_id,
-        architecture,
-        release_path=release_path,
-        compatibility_path=compatibility_path,
-        schema_dir=schema_dir,
-        docker_root=docker_root,
-    )
+    task = _require_real_image_task_authority(task_authority)
     wheel_authority = inspect_real_wheel_candidate(
-        family_id,
-        architecture,
         Path(wheel_path),
         wheel_inspection,
-        release_path=release_path,
-        compatibility_path=compatibility_path,
         schema_dir=schema_dir,
-        docker_root=docker_root,
+        task_authority=task,
     )
     base = validate_real_base_authority(base_record, task)
     dependency_lock = build_real_dependency_lock(
         task,
         Path(wheel_path),
-        Path(wrapt_path),
+        [Path(path) for path in runtime_dependency_paths],
         wheel_record=wheel_authority["inspection"],
     )
     bindings = wheel_authority["bindings"]
     implementation = implementation_digests(docker_root)
     source = {
+        "repository": task["source_repository"],
+        "repository_url": task["source_repository_url"],
         "commit": bindings["source_sha"],
         "tree": bindings["source_tree"],
         "archive_sha256": bindings["source_archive_sha256"],
@@ -1625,7 +1795,7 @@ def prepare_real_context(
             CONTEXT_RECIPE,
             REAL_REQUIREMENTS_LOCK,
             wheel["filename"],
-            task["wrapt_wheel"]["filename"],
+            *(record["filename"] for record in task["runtime_dependencies"]),
         ]
     )
     payload = {
@@ -1636,9 +1806,13 @@ def prepare_real_context(
         "unpublished": True,
         "publication_attempted": False,
         "source_date_epoch": bindings["source_date_epoch"],
-        "family_id": family_id,
+        "task_id": task["task_id"],
+        "family_task_id": task["family_task_id"],
+        "resolved_plan_sha256": task["resolved_plan_sha256"],
+        "family_id": task["family_id"],
         "profile_id": task["profile_id"],
         "spec_id": task["spec_id"],
+        "runtime_patch_variants": copy.deepcopy(task["runtime_patch_variants"]),
         "target_platform": task["platform"],
         "target_repository": task["target_repository"],
         "target_tag": task["target_tag"],
@@ -1648,7 +1822,7 @@ def prepare_real_context(
         "source": source,
         "base": copy.deepcopy(base),
         "wheel": wheel,
-        "wrapt_wheel": copy.deepcopy(task["wrapt_wheel"]),
+        "runtime_dependencies": copy.deepcopy(task["runtime_dependencies"]),
         "dependency_lock": {
             "filename": REAL_REQUIREMENTS_LOCK,
             "sha256": dependency_lock["sha256"],
@@ -1666,13 +1840,16 @@ def prepare_real_context(
                 "SOURCE_DATE_EPOCH": str(bindings["source_date_epoch"]),
                 "TARGETPLATFORM": task["platform"],
                 "UCM_WHEEL": wheel["filename"],
-                "WRAPT_WHEEL": task["wrapt_wheel"]["filename"],
                 "UCM_SOURCE_SHA": source["commit"],
+                "UCM_SOURCE_REPOSITORY_URL": source["repository_url"],
                 "UCM_SOURCE_TREE": source["tree"],
                 "UCM_SOURCE_CONTEXT_SHA256": source["context_sha256"],
                 "UCM_TASK_SHA256": task["task_sha256"],
                 "UCM_BUILD_KEY_SHA256": build_key,
                 "UCM_WHEEL_SHA256": wheel["sha256"],
+                "UCM_RUNTIME_PATCH_VARIANTS": release_core.canonical_bytes(
+                    task["runtime_patch_variants"]
+                ).decode("utf-8"),
             },
         },
         "context_files": context_files,
@@ -1686,7 +1863,9 @@ def prepare_real_context(
     for filename in DOCKER_FILES:
         shutil.copyfile(Path(docker_root) / filename, output / filename)
     shutil.copyfile(Path(wheel_path), output / wheel["filename"])
-    shutil.copyfile(Path(wrapt_path), output / task["wrapt_wheel"]["filename"])
+    for dependency_path in runtime_dependency_paths:
+        dependency = Path(dependency_path)
+        shutil.copyfile(dependency, output / dependency.name)
     _write_json(output / REAL_IMAGE_CONTEXT_RECORD, authority)
     _write_json(output / CONTEXT_RECIPE, recipe)
     (output / REAL_REQUIREMENTS_LOCK).write_text(
@@ -1712,7 +1891,7 @@ def _derive_recipe(
         "wheel_records",
         "spec_id",
         "upstream_snapshot",
-        "compatibility",
+        "catalog",
         "compatibility_rule_id",
         "implementation_digest",
     }
@@ -1723,7 +1902,7 @@ def _derive_recipe(
             "Task 3 implementation digest does not match Docker implementation"
         )
     try:
-        recomputed_candidate = registry.build_candidate(
+        recomputed_candidate = registry.build_fixture_candidate(
             **source_case, fixture_mode=True
         )
     except (KeyError, TypeError, ValueError) as error:
@@ -1732,7 +1911,9 @@ def _derive_recipe(
         ) from error
     if candidate != recomputed_candidate:
         raise ValueError("caller candidate does not match recomputed Task 3 candidate")
-    reconcile_result = registry.reconcile(recomputed_candidate, inventory)
+    reconcile_result = registry.reconcile_fixture_candidate(
+        recomputed_candidate, inventory
+    )
     if reconcile_result["task_count"] != 1:
         raise ValueError(
             "Task 3 fixture inventory must schedule exactly one candidate task"
@@ -1842,13 +2023,6 @@ def _derive_recipe(
                 "release_manifest_sha256"
             ],
             "config_sha256": manifest["config_sha256"],
-            "compatibility_sha256": manifest["compatibility_sha256"],
-            "compatibility_rule_id": recomputed_candidate["build_inputs"][
-                "compatibility_rule_id"
-            ],
-            "compatibility_rule_sha256": recomputed_candidate["build_inputs"][
-                "compatibility_rule_sha256"
-            ],
             "upstream_repository": upstream["repository"],
             "upstream_index_digest": upstream["index_digest"],
             "upstream_platform_manifest_digest": upstream_platform["manifest_digest"],
@@ -1869,7 +2043,9 @@ def _derive_recipe(
             "npu_arch_or_na": wheel_input["npu_arch_or_na"],
             "os": wheel_input["os"],
             "binary_profile_id": wheel_input["binary_profile_id"],
-            "requires_dist": ["wrapt==1.17.2"],
+            "requires_dist": release_core.python_runtime_requirements(
+                source_case["catalog"]
+            ),
         },
         "implementation": implementations,
         "context_files": context_files,
@@ -1889,7 +2065,7 @@ def prepare_context(
     output_dir: Path,
     docker_root: Path = DOCKER_ROOT,
 ) -> dict[str, Any]:
-    """Create the exact seven-file Buildx context after recomputing source closure."""
+    """Create the task-bound allowlisted Buildx context after recomputing closure."""
     wheel_path = Path(wheel_path)
     output_dir = Path(output_dir)
     metadata, recipe = _derive_recipe(
@@ -2073,6 +2249,61 @@ def _load_context(context_dir: Path) -> tuple[dict[str, Any], dict[str, Any], Pa
     return metadata, recipe, context_dir / wheel["filename"]
 
 
+def _validate_fixture_python_closure(
+    wheel: dict[str, Any], install: dict[str, Any]
+) -> None:
+    """Bind fixture package/import evidence to the recipe dependency declarations."""
+    requirements = wheel.get("requires_dist")
+    installed = install.get("installed_packages")
+    if not isinstance(requirements, list) or not isinstance(installed, dict):
+        raise ValueError("fixture dependency evidence is malformed")
+    normalized_installed: dict[str, str] = {}
+    for name, version in installed.items():
+        if not isinstance(name, str) or not isinstance(version, str):
+            raise ValueError("fixture installed package evidence is malformed")
+        normalized = canonicalize_name(name)
+        if normalized in normalized_installed:
+            raise ValueError("fixture installed package names are duplicated")
+        normalized_installed[normalized] = version
+    expected_names = {canonicalize_name("uc-manager")}
+    parsed_requirements: list[Requirement] = []
+    for raw in requirements:
+        try:
+            requirement = Requirement(raw)
+        except (InvalidRequirement, TypeError) as error:
+            raise ValueError("fixture recipe requirement is malformed") from error
+        normalized = canonicalize_name(requirement.name)
+        if normalized in expected_names:
+            raise ValueError("fixture recipe requirements are duplicated")
+        expected_names.add(normalized)
+        parsed_requirements.append(requirement)
+    if set(normalized_installed) != expected_names:
+        raise ValueError("fixture installed package set differs from recipe")
+    if normalized_installed[canonicalize_name("uc-manager")] != wheel.get("version"):
+        raise ValueError("fixture UCM package version differs from recipe")
+    for requirement in parsed_requirements:
+        version_text = normalized_installed[canonicalize_name(requirement.name)]
+        try:
+            version = Version(version_text)
+        except InvalidVersion as error:
+            raise ValueError(
+                "fixture installed package version is malformed"
+            ) from error
+        if requirement.specifier and not requirement.specifier.contains(
+            version, prereleases=True
+        ):
+            raise ValueError("fixture installed package version differs from recipe")
+    expected_imports = {
+        "ucm": "passed",
+        **{
+            canonicalize_name(requirement.name).replace("-", "_"): "passed"
+            for requirement in parsed_requirements
+        },
+    }
+    if install.get("imports") != expected_imports:
+        raise ValueError("required import gate failed")
+
+
 def _verify_evidence(
     recipe: dict[str, Any], evidence: dict[str, Any]
 ) -> dict[str, str]:
@@ -2140,7 +2371,7 @@ def _verify_evidence(
         or install["wheel_filename"] != wheel["filename"]
         or install["wheel_sha256"] != wheel["sha256"]
         or install["version"] != wheel["version"]
-        or install["requires_dist"] != ["wrapt==1.17.2"]
+        or install["requires_dist"] != wheel.get("requires_dist")
         or install["status"] != "passed"
     ):
         raise ValueError("wheel install result does not match the recipe")
@@ -2165,13 +2396,7 @@ def _verify_evidence(
         )
     if install["pip_check"] != "passed":
         raise ValueError("pip check required gate failed")
-    if install["imports"] != {"ucm": "passed", "wrapt": "passed"}:
-        raise ValueError("required import gate failed")
-    if install["installed_packages"] != {
-        "uc-manager": wheel["version"],
-        "wrapt": "1.17.2",
-    }:
-        raise ValueError("installed package versions do not match")
+    _validate_fixture_python_closure(wheel, install)
     expected_archive_hash = "sha256=" + wheel["sha256"].removeprefix("sha256:")
     direct_url = install["direct_url"]
     if (
@@ -2256,7 +2481,7 @@ def _verify_evidence(
         "pip_check": "passed",
         "direct_url": "passed",
         "ucm_import": "passed",
-        "wrapt_import": "passed",
+        "runtime_dependency_imports": "passed",
         "abi": "passed",
     }
 
@@ -2339,11 +2564,33 @@ def verify_image(
 
 
 def validate_image_result(
-    result: object, *, schema_dir: Path = DEFAULT_SCHEMA_DIR
+    result: object,
+    *,
+    schema_dir: Path = DEFAULT_SCHEMA_DIR,
+    resolved_plan: dict[str, Any] | None = None,
+    expected_plan_sha256: str | None = None,
+    task_id: str | None = None,
 ) -> dict[str, Any]:
     """Reopen a canonical image result and revalidate its embedded byte chains."""
     if not isinstance(result, dict):
         raise ValueError("image result must be an object")
+    selected_task: dict[str, Any] | None = None
+    if result.get("candidate_kind") == "real-candidate":
+        if (
+            not isinstance(resolved_plan, dict)
+            or not isinstance(expected_plan_sha256, str)
+            or not isinstance(task_id, str)
+            or not task_id
+        ):
+            raise ValueError(
+                "real image result requires its frozen resolved plan, hash, and task ID"
+            )
+        selected_task = registry.select_task(
+            resolved_plan,
+            task_kind="image",
+            task_id=task_id,
+            expected_plan_sha256=expected_plan_sha256,
+        )
     schema = load_json(Path(schema_dir) / "image-result.schema.json")
     validate_schema(result, schema)
     payload = {
@@ -2354,13 +2601,21 @@ def validate_image_result(
     if result["result_sha256"] != sha256_value(payload):
         raise ValueError("image result digest does not match its payload")
     if result.get("candidate_kind") == "real-candidate":
-        task = real_image_authority(
-            result.get("family_id"), result["target_platform"].split("/", 1)[1]
+        assert selected_task is not None
+        task = real_image_authority_from_plan(
+            resolved_plan,
+            task_id=task_id,
+            expected_plan_sha256=expected_plan_sha256,
         )
         if (
             result.get("fixture_only") is not False
             or result.get("unpublished") is not True
             or result.get("publication_attempted") is not False
+            or result.get("task_id") != selected_task["task_id"]
+            or result.get("family_task_id") != selected_task["family_task_id"]
+            or result.get("task_sha256") != selected_task["task_sha256"]
+            or result.get("resolved_plan_sha256")
+            != resolved_plan["resolved_plan_sha256"]
             or result.get("task_key") != task["task_sha256"]
             or result.get("profile_id") != task["profile_id"]
             or result.get("spec_id") != task["spec_id"]
@@ -2446,7 +2701,9 @@ def _canonical_tar_name(
 
 def _load_real_context(
     context_dir: Path,
-) -> tuple[dict[str, Any], dict[str, Any], Path, Path]:
+    *,
+    task_authority: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], Path, list[Path]]:
     """Rebuild a real context contract from raw wheels and reviewed authorities."""
     context = Path(context_dir)
     recipe = load_json(context / CONTEXT_RECIPE)
@@ -2456,15 +2713,24 @@ def _load_real_context(
         or recipe["payload"].get("candidate_kind") != "real-candidate"
     ):
         raise ValueError("context is not a real-candidate image recipe")
+    if authority.get("task") != task_authority:
+        raise ValueError("real context task differs from expected task authority")
     payload = recipe["payload"]
     if recipe.get("payload_sha256") != sha256_value(payload):
         raise ValueError("real context recipe payload digest is invalid")
     wheel = payload.get("wheel")
-    wrapt = payload.get("wrapt_wheel")
-    if not isinstance(wheel, dict) or not isinstance(wrapt, dict):
+    runtime_dependencies = payload.get("runtime_dependencies")
+    if (
+        not isinstance(wheel, dict)
+        or not isinstance(runtime_dependencies, list)
+        or not runtime_dependencies
+        or any(not isinstance(value, dict) for value in runtime_dependencies)
+    ):
         raise ValueError("real context wheel authority is missing")
     wheel_path = context / str(wheel.get("filename"))
-    wrapt_path = context / str(wrapt.get("filename"))
+    runtime_dependency_paths = [
+        context / str(dependency.get("filename")) for dependency in runtime_dependencies
+    ]
     expected_files = payload.get("context_files")
     if not isinstance(expected_files, list) or not all(
         isinstance(item, str) for item in expected_files
@@ -2477,14 +2743,13 @@ def _load_real_context(
     with tempfile.TemporaryDirectory() as temporary:
         rebuilt_dir = Path(temporary) / "context"
         rebuilt_recipe = prepare_real_context(
-            family_id=payload.get("family_id"),
-            architecture=target_platform.split("/", 1)[1],
             wheel_path=wheel_path,
             wheel_inspection=authority.get("wheel_inspection"),
             base_record=authority.get("base"),
-            wrapt_path=wrapt_path,
+            runtime_dependency_paths=runtime_dependency_paths,
             output_dir=rebuilt_dir,
             docker_root=context,
+            task_authority=task_authority,
         )
         rebuilt_authority = load_json(rebuilt_dir / REAL_IMAGE_CONTEXT_RECORD)
         rebuilt_lock = (rebuilt_dir / REAL_REQUIREMENTS_LOCK).read_bytes()
@@ -2494,7 +2759,7 @@ def _load_real_context(
         )
     if (context / REAL_REQUIREMENTS_LOCK).read_bytes() != rebuilt_lock:
         raise ValueError("real context requirements lock differs from recomputation")
-    return authority, recipe, wheel_path, wrapt_path
+    return authority, recipe, wheel_path, runtime_dependency_paths
 
 
 class _DigestingReader:
@@ -2583,6 +2848,7 @@ def evidence_from_oci(
     oci_path: Path,
     *,
     evidence_dir: Path | None = None,
+    task_authority: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Derive all build evidence directly from a standard local OCI archive."""
     context_dir = Path(context_dir)
@@ -2594,7 +2860,12 @@ def evidence_from_oci(
         and candidate_payload.get("candidate_kind") == "real-candidate"
     )
     if real_candidate:
-        context_authority, recipe, wheel_path, _ = _load_real_context(context_dir)
+        if not isinstance(task_authority, dict):
+            raise ValueError("real OCI evidence requires exact task authority")
+        context_authority, recipe, wheel_path, _ = _load_real_context(
+            context_dir,
+            task_authority=task_authority,
+        )
     else:
         _, recipe, wheel_path = _load_context(context_dir)
         context_authority = None
@@ -2876,13 +3147,44 @@ def verify_real_image(
     evidence: dict[str, Any],
     *,
     output_mode: str,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+    task_id: str,
     schema_dir: Path = DEFAULT_SCHEMA_DIR,
 ) -> dict[str, Any]:
     """Recompute a real context and emit an unpublished member result."""
     if output_mode not in {"feature", "production"}:
         raise ValueError("real image output mode must be feature or production")
-    authority, recipe, _, _ = _load_real_context(Path(context_dir))
+    selected_task = registry.select_task(
+        resolved_plan,
+        task_kind="image",
+        task_id=task_id,
+        expected_plan_sha256=expected_plan_sha256,
+    )
+    expected_task_authority = real_image_authority_from_plan(
+        resolved_plan,
+        task_id=task_id,
+        expected_plan_sha256=expected_plan_sha256,
+    )
+    authority, recipe, _, _ = _load_real_context(
+        Path(context_dir),
+        task_authority=expected_task_authority,
+    )
+    if authority.get("task") != expected_task_authority:
+        raise ValueError("real image context task differs from frozen plan selection")
     payload = recipe["payload"]
+    if (
+        payload.get("task_id") != selected_task["task_id"]
+        or payload.get("family_task_id") != selected_task["family_task_id"]
+        or payload.get("task_sha256") != selected_task["task_sha256"]
+        or payload.get("resolved_plan_sha256") != resolved_plan["resolved_plan_sha256"]
+        or payload.get("source", {}).get("commit") != resolved_plan["source"]["commit"]
+        or payload.get("source", {}).get("repository")
+        != resolved_plan["source"]["repository"]
+        or payload.get("source", {}).get("repository_url")
+        != f"https://github.com/{resolved_plan['source']['repository']}"
+    ):
+        raise ValueError("real image recipe differs from frozen plan identity")
     _exact(
         evidence,
         {
@@ -2944,9 +3246,11 @@ def verify_real_image(
         "npu_arch_or_na": authority["wheel_embedded_build"]["npu_arch_or_na"],
         "os": authority["wheel_embedded_build"]["os"],
         "binary_profile_id": authority["wheel_embedded_build"]["binary_profile_id"],
-        "requires_dist": ["wrapt==1.17.2"],
+        "requires_dist": copy.deepcopy(selected_task["runtime_requirements"]),
     }
     source = {
+        "repository": payload["source"]["repository"],
+        "repository_url": payload["source"]["repository_url"],
         "commit": payload["source"]["commit"],
         "tree": payload["source"]["tree"],
         "archive_sha256": payload["source"]["archive_sha256"],
@@ -2966,9 +3270,14 @@ def verify_real_image(
         "content_identity_sha256": identity["content_identity_sha256"],
         "build_key_sha256": payload["build_key_sha256"],
         "task_key": payload["task_sha256"],
+        "task_id": selected_task["task_id"],
+        "family_task_id": selected_task["family_task_id"],
+        "task_sha256": selected_task["task_sha256"],
+        "resolved_plan_sha256": resolved_plan["resolved_plan_sha256"],
         "family_id": payload["family_id"],
         "profile_id": payload["profile_id"],
         "spec_id": payload["spec_id"],
+        "runtime_patch_variants": copy.deepcopy(payload["runtime_patch_variants"]),
         "ucm_version": payload["wheel"]["version"].split("+", 1)[0],
         "source": source,
         "base": copy.deepcopy(payload["base"]),
@@ -2976,7 +3285,7 @@ def verify_real_image(
         "target_repository": payload["target_repository"],
         "target_tag": payload["target_tag"],
         "wheel": wheel_result,
-        "wrapt_wheel": copy.deepcopy(payload["wrapt_wheel"]),
+        "runtime_dependencies": copy.deepcopy(payload["runtime_dependencies"]),
         "dependency_lock": copy.deepcopy(payload["dependency_lock"]),
         "implementation": copy.deepcopy(payload["implementation"]),
         "toolchain": copy.deepcopy(payload["toolchain"]),
@@ -3006,6 +3315,9 @@ def validate_real_compact_oci_evidence(
     *,
     image_result: object,
     recipe: object,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
+    task_id: str,
 ) -> dict[str, Any]:
     """Reopen saved real descriptors after the large OCI archive is discarded."""
     directory = Path(evidence_dir)
@@ -3054,7 +3366,12 @@ def validate_real_compact_oci_evidence(
         or config_descriptor.get("size") != len(raw["config.json"])
     ):
         raise ValueError("real compact OCI raw descriptors do not reopen")
-    result = validate_image_result(image_result)
+    result = validate_image_result(
+        image_result,
+        resolved_plan=resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+        task_id=task_id,
+    )
     if result.get("candidate_kind") != "real-candidate":
         raise ValueError("real compact OCI evidence requires a real result")
     if not isinstance(recipe, dict) or recipe.get("payload_sha256") != result.get(
@@ -3117,14 +3434,47 @@ def verify_oci(
     schema_dir: Path = DEFAULT_SCHEMA_DIR,
     evidence_dir: Path | None = None,
     output_mode: str = "feature",
+    resolved_plan: dict[str, Any] | None = None,
+    expected_plan_sha256: str | None = None,
+    task_id: str | None = None,
 ) -> dict[str, Any]:
     """Verify a Buildx local OCI output without caller-authored result summaries."""
-    evidence = evidence_from_oci(context_dir, oci_path, evidence_dir=evidence_dir)
-    if evidence.get("kind") == "ucm-real-image-build-evidence":
+    context_recipe = load_json(Path(context_dir) / CONTEXT_RECIPE)
+    recipe_payload = context_recipe.get("payload")
+    real_candidate = (
+        isinstance(recipe_payload, dict)
+        and recipe_payload.get("candidate_kind") == "real-candidate"
+    )
+    task_authority: dict[str, Any] | None = None
+    if real_candidate:
+        if (
+            not isinstance(resolved_plan, dict)
+            or not isinstance(expected_plan_sha256, str)
+            or not isinstance(task_id, str)
+            or not task_id
+        ):
+            raise ValueError(
+                "real OCI verification requires its frozen resolved plan, hash, and task ID"
+            )
+        task_authority = real_image_authority_from_plan(
+            resolved_plan,
+            task_id=task_id,
+            expected_plan_sha256=expected_plan_sha256,
+        )
+    evidence = evidence_from_oci(
+        context_dir,
+        oci_path,
+        evidence_dir=evidence_dir,
+        task_authority=task_authority,
+    )
+    if real_candidate:
         result = verify_real_image(
             context_dir,
             evidence,
             output_mode=output_mode,
+            resolved_plan=resolved_plan,
+            expected_plan_sha256=expected_plan_sha256,
+            task_id=task_id,
             schema_dir=schema_dir,
         )
         if evidence_dir is not None:
@@ -3132,6 +3482,9 @@ def verify_oci(
                 evidence_dir,
                 image_result=result,
                 recipe=load_json(Path(context_dir) / CONTEXT_RECIPE),
+                resolved_plan=resolved_plan,
+                expected_plan_sha256=expected_plan_sha256,
+                task_id=task_id,
             )
         if Path(oci_path).is_file():
             Path(oci_path).unlink()

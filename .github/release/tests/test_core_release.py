@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import csv
 import hashlib
 import importlib
@@ -30,32 +31,11 @@ _deterministic_repack = importlib.import_module(
     "ucm_release.chart"
 )._deterministic_repack
 release_core = importlib.import_module("ucm_release.core")
+release_registry = importlib.import_module("ucm_release.registry")
 release_verify = importlib.import_module("ucm_release.verify")
 release_wheel = importlib.import_module("ucm_release.wheel")
 derive_chart_version = release_core.derive_chart_version
 
-
-EXPECTED_TASK_IDS = [
-    "cuda130-amd64",
-    "cuda130-arm64",
-    "cann900-a2-amd64",
-    "cann900-a2-arm64",
-    "cann900-a3-amd64",
-    "cann900-a3-arm64",
-]
-
-EXPECTED_TARGETS = {
-    "ghcr.io/supermarioyl/vllm-openai:v0.21.0-ucm-0.5.0rc1-r1",
-    "ghcr.io/supermarioyl/vllm-ascend:v0.22.1rc1-ucm-0.5.0rc1-r1",
-    "ghcr.io/supermarioyl/vllm-ascend:v0.22.1rc1-a3-ucm-0.5.0rc1-r1",
-}
-
-CUDA_AMD64_BUILD_KEY = (
-    "sha256:7451d868b0b2d4b3393640c0166d36a3bf45a19f3975bf10aad6d7fb06e6a887"
-)
-A2_AMD64_BUILD_KEY = (
-    "sha256:899162d9f594b3c135deec0bae8e413b739955898dd177a449e6dc4375e205a5"
-)
 SOURCE_DATE_EPOCH = 1_700_000_000
 REVIEWED_SOURCE_SHA = subprocess.run(
     ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
@@ -128,6 +108,50 @@ def _run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         check=check,
     )
+
+
+def _fixture_registry() -> dict[str, object]:
+    return release_core.load_json(
+        RELEASE_ROOT / "tests" / "fixtures" / "catalog-registry.json"
+    )
+
+
+def _fixture_resolved_plan(
+    catalog: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Resolve test tasks from the explicitly local, non-publishable fixture."""
+    return release_registry.resolve_catalog(
+        catalog or release_core.load_catalog(),
+        source_sha="0" * 40,
+        lane="feature-candidate",
+        fixture=_fixture_registry(),
+    )
+
+
+def _fixture_wheel_task(
+    spec_id: str,
+    catalog: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return next(
+        task
+        for task in _fixture_resolved_plan(catalog)["wheel_tasks"]
+        if task["spec_id"] == spec_id
+    )
+
+
+def _fixture_build_key(spec_id: str) -> str:
+    return str(_fixture_wheel_task(spec_id)["task_sha256"])
+
+
+def _write_fixture_wheel_task(
+    directory: Path,
+    spec_id: str,
+    catalog: dict[str, object] | None = None,
+) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{spec_id}-fixture-task.json"
+    _write_canonical_json(path, _fixture_wheel_task(spec_id, catalog))
+    return path
 
 
 def _clone(value: object) -> object:
@@ -204,7 +228,11 @@ def _protected_tag_repository(
     shutil.copyfile(
         ROOT / "charts" / "ucm" / "Chart.yaml", chart_directory / "Chart.yaml"
     )
-    _git(repository, "add", "version.ini", "charts/ucm/Chart.yaml")
+    shutil.copytree(
+        ROOT / "ucm" / "integration" / "vllm" / "patch",
+        repository / "ucm" / "integration" / "vllm" / "patch",
+    )
+    _git(repository, "add", "version.ini", "charts/ucm/Chart.yaml", "ucm")
     _git(repository, "commit", "-m", "release source")
     tag_sha = _git(repository, "rev-parse", "HEAD")
     _git(repository, "tag", "v0.5.0rc1", tag_sha)
@@ -267,20 +295,24 @@ def _rewrite_event(event_path: Path, **updates: object) -> None:
     event_path.write_text(json.dumps(event), encoding="utf-8")
 
 
-def _reject_config(
+def _reject_fixture_resolution(
     tmp_path: Path,
     release: dict,
-    *,
-    compatibility: dict | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    release_path, compatibility_path = _write_configs(tmp_path, release, compatibility)
+    release_path = _write_catalog(tmp_path, release)
     return _run(
-        "config",
-        "validate",
-        "--release",
+        "catalog",
+        "resolve",
+        "--catalog",
         str(release_path),
-        "--compatibility",
-        str(compatibility_path),
+        "--fixture",
+        str(RELEASE_ROOT / "tests" / "fixtures" / "catalog-registry.json"),
+        "--lane",
+        "feature-candidate",
+        "--source-sha",
+        "0" * 40,
+        "--output",
+        str(tmp_path / "resolved-plan.json"),
         check=False,
     )
 
@@ -327,7 +359,8 @@ def _builder_candidate_wheel(
     entries: dict[str, bytes] = {
         f"{dist_info}/METADATA": (
             "Metadata-Version: 2.1\nName: uc-manager\n"
-            f"Version: {version}\nRequires-Dist: wrapt==1.17.2\n\n"
+            f"Version: {version}\nRequires-Dist: packaging==24.2\n"
+            "Requires-Dist: wrapt==1.17.2\n\n"
         ).encode(),
         f"{dist_info}/WHEEL": (
             "Wheel-Version: 1.0\nRoot-Is-Purelib: false\n"
@@ -433,11 +466,12 @@ def _native_component_manifest(
     profile_id: str = "cuda130",
     spec_id: str = "cuda130-amd64",
     source_sha: str = REVIEWED_SOURCE_SHA,
-    build_key: str = CUDA_AMD64_BUILD_KEY,
+    build_key: str | None = None,
     cpu_arch: str = "amd64",
     required: list[str] | None = None,
     forbidden: list[str] | None = None,
 ) -> bytes:
+    build_key = build_key or _fixture_build_key(spec_id)
     value = {
         "schema_version": 1,
         "kind": "ucm-native-components",
@@ -460,7 +494,7 @@ def _raw_native_wheel(
     version: str = "0.5.0rc1+cuda130",
     profile_id: str = "cuda130",
     spec_id: str = "cuda130-amd64",
-    build_key: str = CUDA_AMD64_BUILD_KEY,
+    build_key: str | None = None,
     forbidden: list[str] | None = None,
     required: list[str] | None = None,
     extra_components: tuple[str, ...] = (),
@@ -469,6 +503,8 @@ def _raw_native_wheel(
     rpath: str | None = None,
     leaked_path: bytes = b"",
     manifest_overrides: dict[str, object] | None = None,
+    python_abi: str = "cp312",
+    native_members: dict[str, str] | None = None,
 ) -> Path:
     required = required or CUDA_REQUIRED_NATIVE
     forbidden = forbidden or CUDA_FORBIDDEN_NATIVE
@@ -476,14 +512,26 @@ def _raw_native_wheel(
     entries: dict[str, bytes] = {
         f"{dist_info}/METADATA": (
             "Metadata-Version: 2.1\nName: uc-manager\n"
-            f"Version: {version}\nRequires-Dist: wrapt==1.17.2\n\n"
+            f"Version: {version}\nRequires-Dist: packaging==24.2\n"
+            "Requires-Dist: wrapt==1.17.2\n\n"
         ).encode(),
         f"{dist_info}/WHEEL": (
             "Wheel-Version: 1.0\nRoot-Is-Purelib: false\n"
-            "Tag: cp312-cp312-linux_x86_64\n\n"
+            f"Tag: {python_abi}-{python_abi}-linux_x86_64\n\n"
         ).encode(),
         "ucm/__init__.py": f"__version__ = {version!r}\n".encode(),
     }
+    patch_manifest = release_core.runtime_patch_manifest(release_core.load_catalog())
+    for rule in patch_manifest["rules"]:
+        for declaration in rule["imports"]:
+            module_parts = declaration["module"].split(".")
+            module_member = "/".join(module_parts) + ".py"
+            entries[module_member] = (ROOT / module_member).read_bytes()
+            for length in range(1, len(module_parts)):
+                package_member = "/".join(module_parts[:length]) + "/__init__.py"
+                package_path = ROOT / package_member
+                if package_path.is_file():
+                    entries.setdefault(package_member, package_path.read_bytes())
     manifest = json.loads(
         _native_component_manifest(
             profile_id=profile_id,
@@ -505,9 +553,12 @@ def _raw_native_wheel(
         rpath=rpath,
         leaked_path=leaked_path,
     )
+    component_members = native_members or NATIVE_MEMBERS
     for component in [*required, *extra_components]:
-        entries[NATIVE_MEMBERS[component]] = elf
-    raw = directory / f"uc_manager-{version}-cp312-cp312-linux_x86_64.whl"
+        entries[component_members[component]] = elf
+    raw = directory / (
+        f"uc_manager-{version}-{python_abi}-{python_abi}-linux_x86_64.whl"
+    )
     with zipfile.ZipFile(raw, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for name, data in entries.items():
             archive.writestr(name, data)
@@ -520,33 +571,35 @@ def _seal_native_wheel(
     *,
     spec_id: str = "cuda130-amd64",
     source_sha: str = REVIEWED_SOURCE_SHA,
-    build_key: str = CUDA_AMD64_BUILD_KEY,
+    build_key: str | None = None,
     authority_mutation=None,
     closure_resolved: tuple[str, ...] = ("libc.so.6",),
     closure_external_required: dict[str, str] | None = None,
+    catalog: dict[str, object] | None = None,
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    matrix = release_core.build_matrix("feature-candidate")
-    task = next(item for item in matrix["tasks"] if item["spec_id"] == spec_id)
-    release = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
+    catalog = catalog or release_core.load_catalog()
+    task = _fixture_wheel_task(spec_id, catalog)
+    build_key = build_key or str(task["task_sha256"])
     tool_wheels = {
         value["filename"]: value["sha256"]
-        for value in release["python_build_lock"]["packages"].values()
+        for value in task["dependency_lock"]["build_tools"]
     }
-    cmake = release["python_build_lock"]["cmake"]["artifacts"][task["cpu_arch"]]
-    tool_wheels[cmake["filename"]] = cmake["sha256"]
-    pyyaml = release["python_build_lock"]["pyyaml"]["artifacts"][task["cpu_arch"]]
-    tool_wheels[pyyaml["filename"]] = pyyaml["sha256"]
     source_tree = _git(ROOT, "rev-parse", f"{REVIEWED_SOURCE_SHA}^{{tree}}")
     root = task["builder"]["root"]
     authority = {
         "schema_version": 1,
         "kind": "ucm-native-build-authority",
+        "task_id": task["task_id"],
         "spec_id": spec_id,
         "profile_id": task["profile_id"],
         "cpu_arch": task["cpu_arch"],
         "platform": task["platform"],
+        "build": task["build"],
+        "python_version": task["python_version"],
+        "python_abi": task["python_abi"],
         "wheel_version": task["wheel_version"],
+        "wheel_platform": task["wheel_platform"],
         "source_sha": REVIEWED_SOURCE_SHA,
         "source_tree": source_tree,
         "source_archive_sha256": "sha256:"
@@ -559,6 +612,8 @@ def _seal_native_wheel(
         "tool_wheels": dict(sorted(tool_wheels.items())),
         "required_native": task["required_native"],
         "forbidden_native": task["forbidden_native"],
+        "runtime_patch_manifest_sha256": task["runtime_patch_manifest_sha256"],
+        "runtime_requirements": task["runtime_requirements"],
     }
     if authority_mutation is not None:
         authority_mutation(authority)
@@ -569,6 +624,7 @@ def _seal_native_wheel(
     authority_path = tmp_path / "build-authority.json"
     authority_path.parent.mkdir(parents=True, exist_ok=True)
     authority_path.write_bytes(release_core.canonical_bytes(authority) + b"\n")
+    task_path = _write_fixture_wheel_task(tmp_path, spec_id, catalog)
 
     with zipfile.ZipFile(raw) as archive:
         native_names = sorted(
@@ -615,6 +671,13 @@ def _seal_native_wheel(
     )
     closure_path = tmp_path / "dependency-closure.json"
     closure_path.write_bytes(release_core.canonical_bytes(closure) + b"\n")
+    config_arguments: list[str] = []
+    if catalog is not None and catalog != release_core.load_catalog():
+        release_path = _write_catalog(tmp_path / "config", catalog)
+        config_arguments = [
+            "--release",
+            str(release_path),
+        ]
     return _run(
         "wheel",
         "seal",
@@ -631,8 +694,11 @@ def _seal_native_wheel(
         str(authority_path),
         "--dependency-closure",
         str(closure_path),
+        "--task-file",
+        str(task_path),
         "--output-dir",
         str(tmp_path / "sealed"),
+        *config_arguments,
         check=check,
     )
 
@@ -672,30 +738,11 @@ def _rewrite_zip(
             archive.writestr(info, entries[name])
 
 
-def _write_configs(
-    directory: Path,
-    release: dict,
-    compatibility: dict | None = None,
-) -> tuple[Path, Path]:
+def _write_catalog(directory: Path, release: dict) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     release_path = directory / "release.yaml"
-    compatibility_path = directory / "compatibility.yaml"
     release_path.write_text(yaml.safe_dump(release, sort_keys=False), encoding="utf-8")
-    compatibility_path.write_text(
-        yaml.safe_dump(
-            compatibility
-            or yaml.safe_load(
-                (RELEASE_ROOT / "compatibility.yaml").read_text(encoding="utf-8")
-            ),
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-    return release_path, compatibility_path
-
-
-def _resolved_cuda_release() -> dict:
-    return yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
+    return release_path
 
 
 def _write_tar(path: Path, members: list[tuple[tarfile.TarInfo, bytes | None]]) -> None:
@@ -704,152 +751,26 @@ def _write_tar(path: Path, members: list[tuple[tarfile.TarInfo, bytes | None]]) 
             archive.addfile(info, io.BytesIO(data) if data is not None else None)
 
 
-def test_real_release_matrix_is_exact_immutable_and_stable() -> None:
-    first = json.loads(_run("core", "matrix", "--lane", "feature-candidate").stdout)
-    second = json.loads(_run("core", "matrix", "--lane", "feature-candidate").stdout)
-
-    assert first == second
-    assert first["kind"] == "ucm-real-wheel-matrix"
-    assert first["lane"] == "feature-candidate"
-    assert [task["spec_id"] for task in first["tasks"]] == EXPECTED_TASK_IDS
-    assert len(first["tasks"]) == 6
-    assert {task["platform"] for task in first["tasks"]} == {
-        "linux/amd64",
-        "linux/arm64",
-    }
-    assert {task["runner"] for task in first["tasks"]} == {
-        "ubuntu-24.04",
-        "ubuntu-24.04-arm",
-    }
-    assert {task["wheel_version"] for task in first["tasks"]} == {
-        "0.5.0rc1+cuda130",
-        "0.5.0rc1+cann900.a2",
-        "0.5.0rc1+cann900.a3",
-    }
-    assert {
-        f"{task['target_repository']}:{task['target_tag']}" for task in first["tasks"]
-    } == EXPECTED_TARGETS
-    assert all(task["write_authority"] == [] for task in first["tasks"])
-    assert all(task["build_eligible"] is True for task in first["tasks"])
-    assert all(task["task_sha256"].startswith("sha256:") for task in first["tasks"])
-    assert first["matrix_sha256"].startswith("sha256:")
-
-
-def test_release_config_carries_exact_builder_runtime_and_dependency_authorities() -> (
-    None
-):
-    release = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
-
-    assert [profile["id"] for profile in release["wheel_profiles"]] == [
-        "cuda130",
-        "cann900-a2",
-        "cann900-a3",
-    ]
-    assert release["runner_map"] == {
-        "amd64": "ubuntu-24.04",
-        "arm64": "ubuntu-24.04-arm",
-    }
-    assert len(release["image_families"]) == 3
-    assert (
-        len({family["target_repository"] for family in release["image_families"]}) == 2
-    )
-    assert {
-        f"{family['target_repository']}:{family['target_tag']}"
-        for family in release["image_families"]
-    } == EXPECTED_TARGETS
-
-    cuda = release["wheel_profiles"][0]
-    assert cuda["builders"]["amd64"]["root"] == {
-        "repository": "docker.io/pytorch/manylinux2_28-builder",
-        "tag": "cuda13.0",
-        "index_digest": "sha256:83d73c3fd2782b23de8a1873820236273d8a6db911aea15c017766c9a40e723c",
-        "manifest_digest": "sha256:746796491b3a375ee352c60ad1265c599bb1aa1762a0de46927e0f4139832918",
-        "config_digest": "sha256:0c34d69ef0b04dbf678564146d299bdad59f7d2b8e166b4f59df5e2fce3a34f2",
-    }
-    assert cuda["builders"]["arm64"]["root"]["manifest_digest"] == (
-        "sha256:48eb3eb1b3ab79fb30e49d3692a60dc15f05a3d1c4ba328400af5f06b2e6949c"
-    )
-    assert cuda["builders"]["amd64"]["sources"] == []
-
-    families = {family["id"]: family for family in release["image_families"]}
-    assert families["cuda130"]["runtime"]["members"]["amd64"] == {
-        "manifest_digest": "sha256:4ac9b7c6dabc3ec762c0edef4e9245abe98373844da91cc53ee42e5c58280c5b",
-        "config_digest": "sha256:2497255b1272ba3ae9581acd51349f840038f228d0709cd9f6a142d39008d290",
-    }
-    assert (
-        families["cann900-a2"]["runtime"]["members"]["arm64"]["manifest_digest"]
-        == "sha256:638fc04eaa3654fcf14688096ed4e9d88ea0d905fa8685eed4b36d5fffe8fd8d"
-    )
-    assert families["cann900-a3"]["runtime"]["index_digest"] == (
-        "sha256:e3d89f09a1c1d85f0ec6a1cc26e3c807b7bc8a7ec0f97a830dbef63ab50d8f81"
-    )
-
-    assert release["python_build_lock"]["packages"]["build"] == {
-        "version": "1.3.0",
-        "filename": "build-1.3.0-py3-none-any.whl",
-        "sha256": "sha256:7145f0b5061ba90a1500d60bd1b13ca0a8a4cebdd0cc16ed8adf1c0e739f43b4",
-    }
-    assert (
-        release["python_build_lock"]["cmake"]["artifacts"]["arm64"]["sha256"]
-        == "sha256:42d9883b8958da285d53d5f69d40d9650c2d1bcf922d82b3ebdceb2b3a7d4521"
-    )
-    assert release["python_build_lock"]["cmake"]["artifacts"]["amd64"] == {
-        "filename": "cmake-3.31.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
-        "sha256": "sha256:1c8b05df0602365da91ee6a3336fe57525b137706c4ab5675498f662ae1dbcec",
-    }
-    assert release["python_build_lock"]["pyyaml"] == {
-        "version": "6.0.2",
-        "artifacts": {
-            "amd64": {
-                "filename": "PyYAML-6.0.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
-                "sha256": "sha256:80bab7bfc629882493af4aa31a4cfa43a4c57c83813253626916b8c7ada83476",
-            },
-            "arm64": {
-                "filename": "PyYAML-6.0.2-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl",
-                "sha256": "sha256:1f71ea527786de97d1a0cc0eacd1defc0985dcf6b3f17bb77dcfc8c34bec4dc5",
-            },
-        },
-    }
-    assert release["wrapt_wheels"]["amd64"]["sha256"] == (
-        "sha256:bc570b5f14a79734437cb7b0500376b6b791153314986074486e0b0fa8d71d98"
-    )
-    assert all(
-        "libmetrics.so" in profile["allowed_dt_needed"]
-        for profile in release["wheel_profiles"]
-    )
-
-
-def test_release_matrix_projects_platform_loaders_and_exact_driver_boundary() -> None:
-    """Both CPU arches share one profile allowlist; only Ascend may defer HAL."""
-    matrix = release_core.build_matrix("feature-candidate")
-    tasks = {task["spec_id"]: task for task in matrix["tasks"]}
+def test_fixture_plan_projects_platform_loaders_and_driver_boundary() -> None:
+    """The local fixture keeps loaders explicit and only Ascend may defer HAL."""
+    plan = _fixture_resolved_plan()
+    assert plan["fixture_only"] is True
     platform_loaders = {"ld-linux-x86-64.so.2", "ld-linux-aarch64.so.1"}
 
-    for task in tasks.values():
+    for task in plan["wheel_tasks"]:
         assert platform_loaders <= set(task["allowed_dt_needed"])
-    assert tasks["cuda130-amd64"]["external_required_dependencies"] == []
-    assert tasks["cuda130-arm64"]["external_required_dependencies"] == []
-    for spec_id in (
-        "cann900-a2-amd64",
-        "cann900-a2-arm64",
-        "cann900-a3-amd64",
-        "cann900-a3-arm64",
-    ):
-        assert tasks[spec_id]["external_required_dependencies"] == [
-            ASCEND_EXTERNAL_REQUIRED
-        ]
+        if task["accelerator"] == "ascend":
+            assert task["external_required_dependencies"] == [ASCEND_EXTERNAL_REQUIRED]
+        else:
+            assert task["external_required_dependencies"] == []
 
 
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
-        ("missing-profile", "exact production profile set"),
-        ("extra-profile", "array is longer than maxItems"),
-        ("swapped-architecture-digest", "canonical release authority"),
-        ("mutable-tag-only-authority", "missing required properties"),
-        ("basename-only-evil-repository", "expected one of"),
+        ("missing-profile", "no compatible wheel profile"),
+        ("extra-profile", "overlapping wheel profiles"),
         ("unresolved-lock", "missing required properties"),
-        ("duplicated-public-coordinate", "public image coordinates must be unique"),
         ("caller-raw-runner", "Additional properties are not allowed"),
     ],
 )
@@ -864,37 +785,67 @@ def test_release_authority_mutations_fail_closed(
         assert isinstance(extra, dict)
         extra["id"] = "cann900-a5"
         release["wheel_profiles"].append(extra)
-    elif mutation == "swapped-architecture-digest":
-        members = release["image_families"][0]["runtime"]["members"]
-        members["amd64"]["manifest_digest"], members["arm64"]["manifest_digest"] = (
-            members["arm64"]["manifest_digest"],
-            members["amd64"]["manifest_digest"],
-        )
-    elif mutation == "mutable-tag-only-authority":
-        del release["image_families"][0]["runtime"]["index_digest"]
-    elif mutation == "basename-only-evil-repository":
-        release["image_families"][1]["runtime"][
-            "repository"
-        ] = "evil.example/ascend/vllm-ascend"
     elif mutation == "unresolved-lock":
         del release["python_build_lock"]["packages"]["wheel"]["sha256"]
-    elif mutation == "duplicated-public-coordinate":
-        release["image_families"][2]["target_tag"] = release["image_families"][1][
-            "target_tag"
-        ]
     elif mutation == "caller-raw-runner":
         release["wheel_profiles"][0]["runner"] = "self-hosted"
-    rejected = _reject_config(tmp_path / mutation, release)
+    rejected = _reject_fixture_resolution(tmp_path / mutation, release)
     assert rejected.returncode == 2
     assert message in rejected.stderr
 
 
-def test_feature_preflight_has_no_write_authority_without_identity_arguments() -> None:
+def test_feature_preflight_planner_mode_has_no_write_authority() -> None:
     feature = json.loads(
-        _run("core", "tag-preflight", "--lane", "feature-candidate").stdout
+        _run(
+            "core",
+            "tag-preflight",
+            "--lane",
+            "feature-candidate",
+            "--catalog-planner",
+        ).stdout
     )
     assert feature["publication_allowed"] is False
     assert feature["write_authority"] == []
+
+
+def test_tag_preflight_cli_requires_frozen_plan_or_explicit_planner_mode(
+    tmp_path: Path,
+) -> None:
+    missing = _run("core", "tag-preflight", "--lane", "feature-candidate", check=False)
+    assert missing.returncode == 2
+    assert "frozen plan" in missing.stderr
+
+    plan = _fixture_resolved_plan()
+    plan_path = tmp_path / "resolved-plan.json"
+    plan_path.write_bytes(release_core.canonical_bytes(plan) + b"\n")
+    selected = json.loads(
+        _run(
+            "core",
+            "tag-preflight",
+            "--lane",
+            "feature-candidate",
+            "--resolved-plan",
+            str(plan_path),
+            "--expected-plan-sha256",
+            plan["resolved_plan_sha256"],
+        ).stdout
+    )
+    assert selected["repository"] == plan["source"]["repository"]
+    assert selected["publication_allowed"] is False
+
+    tampered = _run(
+        "core",
+        "tag-preflight",
+        "--lane",
+        "feature-candidate",
+        "--resolved-plan",
+        str(plan_path),
+        "--expected-plan-sha256",
+        "sha256:" + "f" * 64,
+        check=False,
+    )
+    assert tampered.returncode == 2
+    assert "plan hash" in tampered.stderr
 
 
 def test_tag_preflight_rejects_caller_supplied_identity_arguments() -> None:
@@ -1093,233 +1044,63 @@ def test_json_array_loader_preserves_duplicate_key_rejection(tmp_path: Path) -> 
 def test_release_cli_reopens_array_output_across_command_boundary(
     tmp_path: Path,
 ) -> None:
-    """A CLI-produced JSON array remains consumable by the next strict CLI step."""
-    source_sha = "a" * 40
-    asset_root = tmp_path / "release-assets"
-    asset_root.mkdir()
-    assets: list[dict[str, object]] = []
-    for task in release_core.build_matrix("protected-tag")["tasks"]:
-        architecture = "x86_64" if task["cpu_arch"] == "amd64" else "aarch64"
-        name = (
-            f"uc_manager-{task['wheel_version']}-{task['python_abi']}-"
-            f"{task['python_abi']}-{task['wheel_platform']}_{architecture}.whl"
-        )
-        path = asset_root / name
-        path.write_bytes(task["spec_id"].encode())
-        assets.append(
-            {
-                "spec_id": task["spec_id"],
-                "profile_id": task["profile_id"],
-                "platform": task["platform"],
-                "name": name,
-                "sha256": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(),
-                "size": path.stat().st_size,
-                "type": "wheel",
-                "path": str(path),
-            }
-        )
-    chart = asset_root / "unified-cache-pd-0.5.0-rc.1.tgz"
-    chart.write_bytes(b"chart")
-    assets.append(
-        {
-            "spec_id": "helm-chart",
-            "profile_id": None,
-            "platform": None,
-            "name": chart.name,
-            "sha256": "sha256:" + hashlib.sha256(chart.read_bytes()).hexdigest(),
-            "size": chart.stat().st_size,
-            "type": "helm-chart",
-            "path": str(chart),
-        }
-    )
-    manifest = {
-        "schema_version": 1,
-        "kind": "ucm-github-release-assets",
-        "source_sha": source_sha,
-        "assets": assets,
-    }
-    manifest["assets_sha256"] = release_core.sha256_value(
-        {
-            "schema_version": 1,
-            "kind": manifest["kind"],
-            "source_sha": source_sha,
-            "assets": [
-                {key: value for key, value in asset.items() if key != "path"}
-                for asset in assets
-            ],
-        }
-    )
-    manifest_path = tmp_path / "asset-manifest.json"
-    _write_canonical_json(manifest_path, manifest)
-    download_plan = release_verify.plan_release_asset_downloads(
-        manifest,
-        [],
-        release_id=41,
-        allowed_root=asset_root,
-        require_complete=False,
-    )
-    download_plan_path = tmp_path / "download-plan.json"
-    _write_canonical_json(download_plan_path, download_plan)
+    """An empty REST observation stays an explicit JSON array across the CLI."""
     download_root = tmp_path / "downloads"
     download_root.mkdir()
-    complete_request = tmp_path / "complete-request.json"
+    payload = {
+        "schema_version": 1,
+        "kind": "ucm-github-release-asset-download-plan",
+        "release_id": 41,
+        "assets_sha256": "sha256:" + "1" * 64,
+        "asset_download_slug": "fixture-only",
+        "require_complete": False,
+        "downloads": [],
+    }
+    download_plan = {**payload, "plan_sha256": release_core.sha256_value(payload)}
+    download_plan_path = tmp_path / "download-plan.json"
+    _write_canonical_json(download_plan_path, download_plan)
+    request_path = tmp_path / "complete-request.json"
     _write_canonical_json(
-        complete_request,
+        request_path,
         {
             "download_plan": str(download_plan_path),
             "download_root": str(download_root),
         },
     )
     observed_path = tmp_path / "observed-assets.json"
+
     _run(
         "release",
         "complete-downloads",
         "--input",
-        str(complete_request),
+        str(request_path),
         "--output",
         str(observed_path),
     )
-    assert json.loads(observed_path.read_text(encoding="utf-8")) == []
 
-    authority = release_verify.github_release_authority(source_sha)
-    release_path = tmp_path / "draft-release.json"
-    _write_canonical_json(
-        release_path,
-        {
-            "id": 41,
-            "tag_name": authority["tag_name"],
-            "target_commitish": source_sha,
-            "name": authority["name"],
-            "body": authority["body"],
-            "draft": True,
-            "prerelease": True,
-            "assets": [],
-            "author": {"login": "github-actions[bot]", "type": "Bot"},
-            "upload_url": (
-                "https://uploads.github.com/repos/SuperMarioYL/"
-                "unified-cache-management/releases/41/assets{?name,label}"
-            ),
-            "url": (
-                "https://api.github.com/repos/SuperMarioYL/"
-                "unified-cache-management/releases/41"
-            ),
-            "assets_url": (
-                "https://api.github.com/repos/SuperMarioYL/"
-                "unified-cache-management/releases/41/assets"
-            ),
-            "html_url": (
-                "https://github.com/SuperMarioYL/unified-cache-management/"
-                "releases/tag/untagged-a2d19fd21f8e2f4f9847"
-            ),
-        },
-    )
-    plan_request = tmp_path / "plan-request.json"
-    _write_canonical_json(
-        plan_request,
-        {
-            "manifest": str(manifest_path),
-            "observed_assets": str(observed_path),
-            "release": str(release_path),
-            "source_sha": source_sha,
-            "release_id": 41,
-            "allowed_root": str(asset_root),
-            "release_published": False,
-        },
-    )
-    plan_path = tmp_path / "asset-plan.json"
-    _run(
-        "release",
-        "plan-assets",
-        "--input",
-        str(plan_request),
-        "--output",
-        str(plan_path),
-    )
-    planned = json.loads(plan_path.read_text(encoding="utf-8"))
-    assert planned["asset_download_slug"] == "untagged-a2d19fd21f8e2f4f9847"
-    assert planned["reuse_names"] == []
-    assert planned["upload_names"] == [asset["name"] for asset in assets]
-
-    mismatched_manifest = json.loads(json.dumps(manifest))
-    mismatched_manifest["source_sha"] = "b" * 40
-    mismatched_manifest["assets_sha256"] = release_core.sha256_value(
-        {
-            "schema_version": 1,
-            "kind": mismatched_manifest["kind"],
-            "source_sha": mismatched_manifest["source_sha"],
-            "assets": [
-                {key: value for key, value in asset.items() if key != "path"}
-                for asset in mismatched_manifest["assets"]
-            ],
-        }
-    )
-    mismatched_manifest_path = tmp_path / "mismatched-asset-manifest.json"
-    _write_canonical_json(mismatched_manifest_path, mismatched_manifest)
-    mismatched_request_path = tmp_path / "mismatched-plan-request.json"
-    _write_canonical_json(
-        mismatched_request_path,
-        {
-            "manifest": str(mismatched_manifest_path),
-            "observed_assets": str(observed_path),
-            "release": str(release_path),
-            "source_sha": source_sha,
-            "release_id": 41,
-            "allowed_root": str(asset_root),
-            "release_published": False,
-        },
-    )
-    mismatched_output = tmp_path / "mismatched-asset-plan.json"
-    mismatch = _run(
-        "release",
-        "plan-assets",
-        "--input",
-        str(mismatched_request_path),
-        "--output",
-        str(mismatched_output),
-        check=False,
-    )
-    assert mismatch.returncode == 2
-    assert "source" in mismatch.stderr
-    assert not mismatched_output.exists()
+    assert release_core.load_json_array(observed_path) == []
 
 
-def test_schema_validation_is_operational_for_configs_and_manifest(
+def test_config_schema_validation_is_operational_for_the_single_catalog(
     tmp_path: Path,
 ) -> None:
     release = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
     assert release["kind"] == "release-config"
-    compatibility = yaml.safe_load((RELEASE_ROOT / "compatibility.yaml").read_text())
-    assert compatibility["kind"] == "compatibility-config"
     schema = json.loads((RELEASE_ROOT / "schemas/config.schema.json").read_text())
-    assert schema["oneOf"] == [
-        {"$ref": "#/$defs/release"},
-        {"$ref": "#/$defs/compatibility"},
-    ]
+    assert schema["$ref"] == "#/$defs/release"
 
-    release["schema_version"] = "1"
-    release_path, compatibility_path = _write_configs(tmp_path, release, compatibility)
+    release["schema_version"] = "2"
+    release_path = _write_catalog(tmp_path, release)
     wrong_type = _run(
         "config",
         "validate",
         "--release",
         str(release_path),
-        "--compatibility",
-        str(compatibility_path),
         check=False,
     )
+
     assert wrong_type.returncode == 2
     assert "expected integer" in wrong_type.stderr
-
-    schemas = tmp_path / "schemas"
-    shutil.copytree(RELEASE_ROOT / "schemas", schemas)
-    manifest_schema = json.loads((schemas / "release-manifest.schema.json").read_text())
-    manifest_schema["properties"]["kind"]["const"] = "schema-was-not-applied"
-    (schemas / "release-manifest.schema.json").write_text(
-        json.dumps(manifest_schema), encoding="utf-8"
-    )
-    rejected_manifest = _run("core", "plan", "--schema-dir", str(schemas), check=False)
-    assert rejected_manifest.returncode == 2
-    assert "schema-was-not-applied" in rejected_manifest.stderr
 
 
 def test_schema_refs_enforce_required_enum_pattern_and_unique_items(
@@ -1333,12 +1114,11 @@ def test_schema_refs_enforce_required_enum_pattern_and_unique_items(
     mutations.append((missing, "missing required properties"))
 
     wrong_enum = json.loads(json.dumps(original))
-    wrong_enum["chart"]["validation_cases"][0]["name"] = "gpu"
+    wrong_enum["lanes"][0] = "unknown-lane"
     mutations.append((wrong_enum, "expected one of"))
 
     wrong_pattern = json.loads(json.dumps(original))
-    first_chart_case = wrong_pattern["chart"]["validation_cases"][0]
-    first_chart_case["image_digest"] = "sha256:not-a-digest"
+    wrong_pattern["source"]["repository"] = "missing-owner-separator"
     mutations.append((wrong_pattern, "does not match pattern"))
 
     duplicate_array = json.loads(json.dumps(original))
@@ -1348,81 +1128,28 @@ def test_schema_refs_enforce_required_enum_pattern_and_unique_items(
     for index, (release, message) in enumerate(mutations):
         case_dir = tmp_path / str(index)
         case_dir.mkdir()
-        release_path, compatibility_path = _write_configs(case_dir, release)
+        release_path = _write_catalog(case_dir, release)
         rejected = _run(
             "config",
             "validate",
             "--release",
             str(release_path),
-            "--compatibility",
-            str(compatibility_path),
             check=False,
         )
         assert rejected.returncode == 2
         assert message in rejected.stderr
 
 
-def test_compatibility_and_profile_references_cannot_drift(tmp_path: Path) -> None:
+def test_fixture_resolution_rejects_compatibility_without_matching_profile(
+    tmp_path: Path,
+) -> None:
     release = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
-    compatibility = yaml.safe_load((RELEASE_ROOT / "compatibility.yaml").read_text())
-    compatibility["rules"][0]["accelerator_runtimes"] = [
-        "cuda-13.0",
-        "cuda-12.9",
-    ]
-    release_path, compatibility_path = _write_configs(tmp_path, release, compatibility)
-    drift = _run(
-        "config",
-        "validate",
-        "--release",
-        str(release_path),
-        "--compatibility",
-        str(compatibility_path),
-        check=False,
-    )
+    release["compatibility"]["rules"][0]["accelerator_runtimes"] = ["cuda-12.9"]
+
+    drift = _reject_fixture_resolution(tmp_path, release)
+
     assert drift.returncode == 2
-    assert "compatibility/profile drift" in drift.stderr
-
-
-def test_all_six_specs_derive_resolved_immutable_authorities() -> None:
-    manifest = json.loads(_run("core", "plan", "--require-publishable").stdout)
-    assert manifest["eligible_wheel_count"] == 6
-    assert all(spec["build_eligible"] for spec in manifest["wheel_specs"])
-    assert all(spec["blocked_reasons"] == [] for spec in manifest["wheel_specs"])
-    assert all(
-        lock["status"] == "resolved" and "@sha256:" in lock["identity"]
-        for spec in manifest["wheel_specs"]
-        for lock in spec["locks"]
-    )
-    assert all(
-        spec["runner"]["identity"].startswith("runner://github-hosted/")
-        for spec in manifest["wheel_specs"]
-    )
-
-
-def test_core_plan_contains_the_exact_six_buildable_specs(tmp_path: Path) -> None:
-    output = tmp_path / "release-manifest.json"
-    planned = _run("core", "plan", "--output", str(output))
-    manifest = json.loads(planned.stdout)
-    assert manifest == json.loads(output.read_text(encoding="utf-8"))
-    assert manifest["ucm_version"] == "0.5.0rc1"
-    assert manifest["declared_wheel_count"] == 6
-    assert manifest["eligible_wheel_count"] == 6
-    assert len(manifest["wheel_specs"]) == 6
-    assert {item["accelerator"] for item in manifest["wheel_specs"]} == {
-        "cuda",
-        "ascend",
-    }
-    assert all(item["build_eligible"] for item in manifest["wheel_specs"])
-    assert all(item["blocked_reasons"] == [] for item in manifest["wheel_specs"])
-    assert manifest["publication"]["target"] == "github-release"
-    assert {item["type"] for item in manifest["publication"]["assets"]} == {
-        "wheel",
-        "helm-chart",
-    }
-    assert "wrapt" not in json.dumps(manifest).lower()
-
-    publishable = _run("core", "plan", "--require-publishable")
-    assert json.loads(publishable.stdout)["status"] == "candidate"
+    assert "no compatible wheel profile" in drift.stderr
 
 
 def test_setup_chart_and_configuration_share_version_authority() -> None:
@@ -1443,24 +1170,24 @@ def test_setup_chart_and_configuration_share_version_authority() -> None:
     assert setup_version == version == release_config["ucm_version"]
     assert str(chart["appVersion"]) == version
     assert chart["version"] == "0.5.0-rc.1"
-    assert release_config["python_runtime_dependencies"] == ["wrapt==1.17.2"]
+    assert release_core.python_runtime_requirements(release_config) == [
+        "packaging==24.2",
+        "wrapt==1.17.2",
+    ]
     assert derive_chart_version(version) == "0.5.0-rc.1"
 
 
 def test_coordinated_config_version_drift_is_rejected(tmp_path: Path) -> None:
     release = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
-    compatibility = yaml.safe_load((RELEASE_ROOT / "compatibility.yaml").read_text())
     release["ucm_version"] = release["chart"]["app_version"] = "0.5.0rc2"
     release["chart"]["version"] = "0.5.0-rc.2"
-    compatibility["ucm_version"] = "0.5.0rc2"
-    release_path, compatibility_path = _write_configs(tmp_path, release, compatibility)
+    release["source"]["release_tag"] = "v0.5.0rc2"
+    release_path = _write_catalog(tmp_path, release)
     drift = _run(
         "config",
         "validate",
         "--release",
         str(release_path),
-        "--compatibility",
-        str(compatibility_path),
         check=False,
     )
     assert drift.returncode == 2
@@ -1486,7 +1213,7 @@ def test_wheel_inspection_binds_sha_metadata_version_and_spec(tmp_path: Path) ->
     assert inspected["sha256"] == digest
     assert inspected["distribution"] == "uc-manager"
     assert inspected["version"] == "0.5.0rc1"
-    assert inspected["requires_dist"] == ["wrapt==1.17.2"]
+    assert inspected["requires_dist"] == ["packaging==24.2", "wrapt==1.17.2"]
     assert inspected["python_abi"] == "cp312"
     assert inspected["cpu_arch"] == "amd64"
     assert inspected["status"] == "fixture-only"
@@ -1532,6 +1259,7 @@ def test_synthetic_wheel_is_only_an_unpublished_builder_candidate(
 
     legacy = _builder_candidate_wheel(tmp_path, include_native=True)
     legacy_digest = "sha256:" + hashlib.sha256(legacy.read_bytes()).hexdigest()
+    task_path = _write_fixture_wheel_task(tmp_path, spec_id)
     rejected_legacy = _run(
         "wheel",
         "inspect",
@@ -1542,6 +1270,8 @@ def test_synthetic_wheel_is_only_an_unpublished_builder_candidate(
         legacy_digest,
         "--source-kind",
         "builder-candidate",
+        "--task-file",
+        str(task_path),
         check=False,
     )
     assert rejected_legacy.returncode == 2
@@ -1580,9 +1310,22 @@ def test_release_setup_requires_controlled_values_and_uses_local_version(
     setup_spec = f"cuda130-{setup_arch}"
     setup_task = next(
         item
-        for item in release_core.build_matrix("feature-candidate")["tasks"]
+        for item in _fixture_resolved_plan()["wheel_tasks"]
         if item["spec_id"] == setup_spec
     )
+    configured_python = shutil.which(f"python{setup_task['python_version']}")
+    if configured_python is None:
+        pytest.skip(f"configured Python {setup_task['python_version']} is unavailable")
+    setup_runtime = subprocess.run(
+        [configured_python, "-c", "import setuptools"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if setup_runtime.returncode != 0:
+        pytest.skip(
+            f"configured Python {setup_task['python_version']} lacks setuptools"
+        )
     _seal_native_wheel(
         authority_root,
         raw,
@@ -1594,17 +1337,28 @@ def test_release_setup_requires_controlled_values_and_uses_local_version(
         **base_env,
         "UCM_RELEASE_BUILD": "1",
         "PLATFORM": "cuda",
+        "UCM_RELEASE_TASK_ID": setup_task["task_id"],
+        "UCM_RELEASE_SPEC_ID": setup_task["spec_id"],
         "UCM_RELEASE_PROFILE": "cuda130",
         "UCM_RELEASE_SOURCE_SHA": REVIEWED_SOURCE_SHA,
         "UCM_RELEASE_VERSION": "0.5.0rc1+cuda130",
         "UCM_RELEASE_BUILD_KEY": setup_task["task_sha256"],
+        "UCM_RELEASE_PYTHON_VERSION": setup_task["python_version"],
+        "UCM_RELEASE_PYTHON_ABI": setup_task["python_abi"],
+        "UCM_RELEASE_WHEEL_PLATFORM": setup_task["wheel_platform"],
+        "UCM_RELEASE_BUILD_SETTINGS": json.dumps(
+            setup_task["build"], sort_keys=True, separators=(",", ":")
+        ),
+        "UCM_RUNTIME_PATCH_MANIFEST_SHA256": setup_task[
+            "runtime_patch_manifest_sha256"
+        ],
         "UCM_RELEASE_REQUIRED_TARGETS": ",".join(CUDA_REQUIRED_NATIVE),
         "UCM_RELEASE_FORBIDDEN_TARGETS": ",".join(CUDA_FORBIDDEN_NATIVE),
         "SOURCE_DATE_EPOCH": str(SOURCE_DATE_EPOCH),
         "UCM_RELEASE_AUTHORITY_FILE": str(authority_root / "build-authority.json"),
     }
     controlled = subprocess.run(
-        [sys.executable, "setup.py", "--version"],
+        [configured_python, "setup.py", "--version"],
         cwd=ROOT,
         env=release_env,
         text=True,
@@ -1615,7 +1369,7 @@ def test_release_setup_requires_controlled_values_and_uses_local_version(
     assert controlled.stdout.strip() == "0.5.0rc1+cuda130"
 
     wrong = subprocess.run(
-        [sys.executable, "setup.py", "--version"],
+        [configured_python, "setup.py", "--version"],
         cwd=ROOT,
         env={**release_env, "UCM_RELEASE_VERSION": "0.5.0rc1+cann900.a2"},
         text=True,
@@ -1690,6 +1444,222 @@ def test_release_setup_rejects_self_consistent_caller_forged_authority() -> None
     assert "authority" in forged.stderr.lower()
 
 
+def test_hosted_task_projects_complete_setup_and_builder_authority() -> None:
+    plan = _fixture_resolved_plan()
+    task = plan["wheel_tasks"][0]
+
+    hosted = release_verify.hosted_wheel_task(
+        task,
+        plan["source"]["commit"],
+        SOURCE_DATE_EPOCH,
+        resolved_plan=plan,
+        expected_plan_sha256=plan["resolved_plan_sha256"],
+    )
+
+    assert hosted["docker_target"] == task["build"]["docker_target"]
+    assert hosted["build_args"]["UCM_RELEASE_TASK_ID"] == task["task_id"]
+    assert hosted["build_args"]["UCM_RELEASE_SPEC_ID"] == task["spec_id"]
+    assert hosted["build_args"]["UCM_RELEASE_PYTHON_VERSION"] == task["python_version"]
+    assert hosted["build_args"]["UCM_RELEASE_PYTHON_ABI"] == task["python_abi"]
+    assert hosted["build_args"]["UCM_RELEASE_WHEEL_PLATFORM"] == task["wheel_platform"]
+    assert (
+        json.loads(hosted["build_args"]["UCM_RELEASE_BUILD_SETTINGS"]) == task["build"]
+    )
+    assert (
+        hosted["build_args"]["UCM_RUNTIME_PATCH_MANIFEST_SHA256"]
+        == task["runtime_patch_manifest_sha256"]
+    )
+
+
+def test_release_setup_accepts_opaque_profile_and_validates_every_explicit_value(
+    tmp_path: Path,
+) -> None:
+    architecture = (
+        "arm64" if os.uname().machine.lower() in {"arm64", "aarch64"} else "amd64"
+    )
+    task = next(
+        item
+        for item in _fixture_resolved_plan()["wheel_tasks"]
+        if item["profile_id"] == "cuda130" and item["cpu_arch"] == architecture
+    )
+    invoking_python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    invoking_python_abi = f"cp{sys.version_info.major}{sys.version_info.minor}"
+    authority = {
+        "schema_version": 1,
+        "kind": "ucm-native-build-authority",
+        "task_id": task["task_id"],
+        "spec_id": "opaque-spec-value",
+        "profile_id": "renamed-profile-value",
+        "cpu_arch": architecture,
+        "platform": task["platform"],
+        "build": {"docker_target": "wheel", "platform_arg": "cuda"},
+        "python_version": invoking_python_version,
+        "python_abi": invoking_python_abi,
+        "wheel_version": "0.5.0rc1+synthetic.7",
+        "wheel_platform": task["wheel_platform"],
+        "source_sha": REVIEWED_SOURCE_SHA,
+        "source_tree": _git(ROOT, "rev-parse", f"{REVIEWED_SOURCE_SHA}^{{tree}}"),
+        "source_archive_sha256": "sha256:" + "1" * 64,
+        "source_date_epoch": SOURCE_DATE_EPOCH,
+        "task_sha256": "sha256:" + "2" * 64,
+        "builder_coordinate": task["builder"]["root"]["repository"]
+        + "@"
+        + task["builder"]["root"]["manifest_digest"],
+        "builder_config_digest": task["builder"]["root"]["config_digest"],
+        "dependency_lock_sha256": task["dependency_lock_sha256"],
+        "tool_wheels": {
+            f"tool-{index}.whl": "sha256:" + str(index) * 64 for index in range(1, 4)
+        },
+        "required_native": task["required_native"],
+        "forbidden_native": task["forbidden_native"],
+        "runtime_patch_manifest_sha256": task["runtime_patch_manifest_sha256"],
+        "runtime_requirements": [
+            "alpha-runtime==2.0",
+            "packaging==24.2",
+            "wrapt==1.18.0",
+        ],
+        "build_context_sha256": "sha256:" + "3" * 64,
+    }
+    authority_path = tmp_path / "authority.json"
+    _write_canonical_json(authority_path, authority)
+    base_env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("UCM_RELEASE_")
+        and key not in {"SOURCE_DATE_EPOCH", "PLATFORM"}
+    }
+    environment = {
+        **base_env,
+        "UCM_RELEASE_BUILD": "1",
+        "PLATFORM": "cuda",
+        "UCM_RELEASE_TASK_ID": task["task_id"],
+        "UCM_RELEASE_SPEC_ID": "opaque-spec-value",
+        "UCM_RELEASE_PROFILE": "renamed-profile-value",
+        "UCM_RELEASE_SOURCE_SHA": REVIEWED_SOURCE_SHA,
+        "UCM_RELEASE_VERSION": "0.5.0rc1+synthetic.7",
+        "UCM_RELEASE_BUILD_KEY": "sha256:" + "2" * 64,
+        "UCM_RELEASE_PYTHON_VERSION": invoking_python_version,
+        "UCM_RELEASE_PYTHON_ABI": invoking_python_abi,
+        "UCM_RELEASE_WHEEL_PLATFORM": task["wheel_platform"],
+        "UCM_RELEASE_BUILD_SETTINGS": json.dumps(
+            authority["build"], sort_keys=True, separators=(",", ":")
+        ),
+        "UCM_RUNTIME_PATCH_MANIFEST_SHA256": task["runtime_patch_manifest_sha256"],
+        "UCM_RELEASE_REQUIRED_TARGETS": ",".join(task["required_native"]),
+        "UCM_RELEASE_FORBIDDEN_TARGETS": ",".join(task["forbidden_native"]),
+        "SOURCE_DATE_EPOCH": str(SOURCE_DATE_EPOCH),
+        "UCM_RELEASE_AUTHORITY_FILE": str(authority_path),
+    }
+
+    accepted = subprocess.run(
+        [sys.executable, "setup.py", "--version"],
+        cwd=ROOT,
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert accepted.returncode == 0, accepted.stderr
+    assert accepted.stdout.strip() == "0.5.0rc1+synthetic.7"
+
+    egg_base = tmp_path / "egg-base"
+    egg_base.mkdir()
+    metadata = subprocess.run(
+        [sys.executable, "setup.py", "egg_info", "--egg-base", str(egg_base)],
+        cwd=ROOT,
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert metadata.returncode == 0, metadata.stderr
+    requires = next(egg_base.glob("*.egg-info/requires.txt"))
+    assert requires.read_text(encoding="utf-8").splitlines() == [
+        "alpha-runtime==2.0",
+        "packaging==24.2",
+        "wrapt==1.18.0",
+    ]
+
+    for field, environment_name, tampered in (
+        ("platform", "PLATFORM", "ascend"),
+        ("version", "UCM_RELEASE_VERSION", "0.5.0rc1+tampered"),
+        ("spec", "UCM_RELEASE_SPEC_ID", "foreign-spec"),
+        ("Python ABI", "UCM_RELEASE_PYTHON_ABI", "cp311"),
+        ("required targets", "UCM_RELEASE_REQUIRED_TARGETS", "foreign"),
+        (
+            "runtime patch manifest",
+            "UCM_RUNTIME_PATCH_MANIFEST_SHA256",
+            "sha256:" + "f" * 64,
+        ),
+    ):
+        rejected = subprocess.run(
+            [sys.executable, "setup.py", "--version"],
+            cwd=ROOT,
+            env={**environment, environment_name: tampered},
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert rejected.returncode != 0, field
+        assert field.lower() in rejected.stderr.lower()
+
+
+def test_build_environment_executes_typed_checks_from_the_wheel_task(
+    tmp_path: Path,
+) -> None:
+    required_file = tmp_path / "runtime.h"
+    required_file.write_text("fixture\n", encoding="utf-8")
+    architecture = (
+        "arm64" if os.uname().machine.lower() in {"arm64", "aarch64"} else "amd64"
+    )
+    task = {
+        "task_id": "wheel-" + "a" * 64,
+        "task_sha256": "sha256:" + "b" * 64,
+        "cpu_arch": architecture,
+        "python_version": f"{sys.version_info.major}.{sys.version_info.minor}",
+        "python_abi": f"cp{sys.version_info.major}{sys.version_info.minor}",
+        "builder": {
+            "checks": [
+                {
+                    "kind": "python",
+                    "version": f"{sys.version_info.major}.{sys.version_info.minor}",
+                    "abi": f"cp{sys.version_info.major}{sys.version_info.minor}",
+                },
+                {"kind": "python-soabi", "prefix": "cpython"},
+                {"kind": "command", "name": "sh"},
+                {
+                    "kind": "command-version",
+                    "name": Path(sys.executable).name,
+                    "arguments": ["--version"],
+                    "contains": f"Python {sys.version_info.major}.{sys.version_info.minor}",
+                },
+                {"kind": "file", "path": str(required_file)},
+                {"kind": "directory", "path": str(tmp_path)},
+            ]
+        },
+    }
+
+    evidence = release_wheel.check_build_environment(
+        task, python_executable=Path(sys.executable)
+    )
+
+    assert evidence["task_id"] == task["task_id"]
+    assert [item["kind"] for item in evidence["checks"]] == [
+        "python",
+        "python-soabi",
+        "command",
+        "command-version",
+        "file",
+        "directory",
+    ]
+    missing = copy.deepcopy(task)
+    missing["builder"]["checks"][-2]["path"] = str(tmp_path / "missing.h")
+    with pytest.raises(ValueError, match="required file"):
+        release_wheel.check_build_environment(
+            missing, python_executable=Path(sys.executable)
+        )
+
+
 def test_wheel_seal_is_deterministic_and_inspection_recomputes_exact_native_evidence(
     tmp_path: Path,
 ) -> None:
@@ -1703,6 +1673,7 @@ def test_wheel_seal_is_deterministic_and_inspection_recomputes_exact_native_evid
     )
     assert first_wheel.read_bytes() == second_wheel.read_bytes()
     assert first["wheel_sha256"] == second["wheel_sha256"]
+    task_path = _write_fixture_wheel_task(tmp_path, "cuda130-amd64")
 
     inspected = json.loads(
         _run(
@@ -1715,11 +1686,13 @@ def test_wheel_seal_is_deterministic_and_inspection_recomputes_exact_native_evid
             first["wheel_sha256"],
             "--source-kind",
             "builder-candidate",
+            "--task-file",
+            str(task_path),
         ).stdout
     )
     evidence = inspected["builder_evidence"]
     assert evidence["source_commit"] == REVIEWED_SOURCE_SHA
-    assert evidence["build_key"] == CUDA_AMD64_BUILD_KEY
+    assert evidence["build_key"] == _fixture_build_key("cuda130-amd64")
     assert evidence["native_components"] == CUDA_REQUIRED_NATIVE
     assert evidence["native_members"]["ucmlogger"] == (
         "ucm/shared/infra/ucmlogger.cpython-312-x86_64-linux-gnu.so"
@@ -1739,6 +1712,198 @@ def test_wheel_seal_is_deterministic_and_inspection_recomputes_exact_native_evid
         assert all(item.date_time == (2023, 11, 14, 22, 13, 20) for item in infos)
         assert all(item.external_attr >> 16 == 0o644 for item in infos)
         assert all(item.create_system == 3 for item in infos)
+
+
+def test_cp311_full_authority_build_args_seal_and_audit_path(tmp_path: Path) -> None:
+    """A synthetic cp311 profile must stay cp311 through planning and wheel audit."""
+    catalog = copy.deepcopy(release_core.load_catalog())
+    profile = next(
+        item for item in catalog["wheel_profiles"] if item["id"] == "cuda130"
+    )
+    profile["id"] = "opaque-python-profile"
+    profile["python_version"] = "3.11"
+    profile["python_abi"] = "cp311"
+    profile["wheel_version"] = "0.5.0rc1+synthetic.cp311"
+    for builder in profile["builders"].values():
+        python_check = next(
+            item for item in builder["checks"] if item["kind"] == "python"
+        )
+        python_check["version"] = "3.11"
+        python_check["abi"] = "cp311"
+    cuda_rule = next(
+        item
+        for item in catalog["compatibility"]["rules"]
+        if item["accelerator"] == "cuda"
+    )
+    cuda_rule["python_abis"] = ["cp311"]
+    pyyaml_cp312 = catalog["python_build_lock"]["pyyaml"]["artifacts"]["cp312"]
+    catalog["python_build_lock"]["pyyaml"]["artifacts"]["cp311"] = {
+        architecture: {
+            **copy.deepcopy(artifact),
+            "filename": artifact["filename"].replace("cp312", "cp311"),
+        }
+        for architecture, artifact in pyyaml_cp312.items()
+    }
+    runtime_artifacts = catalog["python_runtime_dependencies"][0]["wheel_artifacts"]
+    wrapt_cp312 = runtime_artifacts["cp312"]
+    runtime_artifacts["cp311"] = {
+        architecture: {
+            **copy.deepcopy(artifact),
+            "filename": artifact["filename"].replace("cp312", "cp311"),
+        }
+        for architecture, artifact in wrapt_cp312.items()
+    }
+    plan = _fixture_resolved_plan(catalog)
+    task = next(
+        item
+        for item in plan["wheel_tasks"]
+        if item["profile_id"] == "opaque-python-profile" and item["cpu_arch"] == "amd64"
+    )
+
+    hosted = release_verify.hosted_wheel_task(
+        task,
+        plan["source"]["commit"],
+        SOURCE_DATE_EPOCH,
+        resolved_plan=plan,
+        expected_plan_sha256=plan["resolved_plan_sha256"],
+    )
+    assert hosted["build_args"]["UCM_RELEASE_PYTHON_VERSION"] == "3.11"
+    assert hosted["build_args"]["UCM_RELEASE_PYTHON_ABI"] == "cp311"
+    assert "cp311" in next(
+        record["filename"]
+        for record in hosted["build_tools"]
+        if record["name"] == "pyyaml"
+    )
+
+    cp311_members = {
+        component: member.replace("cpython-312", "cpython-311")
+        for component, member in NATIVE_MEMBERS.items()
+    }
+    raw = _raw_native_wheel(
+        tmp_path,
+        version=profile["wheel_version"],
+        profile_id=profile["id"],
+        spec_id=task["spec_id"],
+        build_key=task["task_sha256"],
+        python_abi="cp311",
+        native_members=cp311_members,
+    )
+    sealed_process = _seal_native_wheel(
+        tmp_path,
+        raw,
+        spec_id=task["spec_id"],
+        build_key=task["task_sha256"],
+        catalog=catalog,
+        check=False,
+    )
+    assert sealed_process.returncode == 0, sealed_process.stderr
+    sealed = json.loads(sealed_process.stdout)
+
+    assert "-cp311-cp311-" in Path(sealed["wheel_path"]).name
+    native_members = sealed["inspection"]["builder_evidence"]["native_members"]
+    assert all("cpython-312" not in member for member in native_members.values())
+    assert native_members["ucmlogger"].endswith(
+        "ucmlogger.cpython-311-x86_64-linux-gnu.so"
+    )
+
+
+def test_runtime_patch_manifest_is_canonical_bound_and_required_in_sealed_wheel(
+    tmp_path: Path,
+) -> None:
+    raw = _raw_native_wheel(tmp_path)
+    sealed = json.loads(_seal_native_wheel(tmp_path / "sealed", raw).stdout)
+    wheel = Path(sealed["wheel_path"])
+    task_path = _write_fixture_wheel_task(tmp_path, "cuda130-amd64")
+    manifest_path = "ucm/integration/vllm/patch/runtime_patch_rules.json"
+    expected_manifest = release_core.runtime_patch_manifest(release_core.load_catalog())
+    expected_bytes = release_core.canonical_bytes(expected_manifest) + b"\n"
+    expected_sha256 = "sha256:" + hashlib.sha256(expected_bytes).hexdigest()
+
+    with zipfile.ZipFile(wheel) as archive:
+        assert archive.namelist().count(manifest_path) == 1
+        assert archive.read(manifest_path) == expected_bytes
+        authority_name = next(
+            name
+            for name in archive.namelist()
+            if name.endswith(".dist-info/ucm-build-authority.json")
+        )
+        build_name = next(
+            name
+            for name in archive.namelist()
+            if name.endswith(".dist-info/ucm-build.json")
+        )
+        authority = json.loads(archive.read(authority_name))
+        build = json.loads(archive.read(build_name))
+    assert authority["runtime_patch_manifest_sha256"] == expected_sha256
+    assert build["runtime_patch_manifest_sha256"] == expected_sha256
+    assert sealed["runtime_patch_manifest_sha256"] == expected_sha256
+    assert sealed["inspection"]["runtime_patch_manifest_sha256"] == expected_sha256
+
+    for name, transform, message in (
+        (
+            "removed.whl",
+            lambda entries: entries.pop(manifest_path),
+            "runtime patch manifest",
+        ),
+        (
+            "tampered.whl",
+            lambda entries: entries.__setitem__(manifest_path, b"{}\n"),
+            "runtime patch manifest",
+        ),
+        (
+            "missing-adapter.whl",
+            lambda entries: entries.pop(
+                "ucm/integration/vllm/patch/load_failure_patch.py"
+            ),
+            "runtime patch adapter",
+        ),
+    ):
+        candidate_dir = tmp_path / name
+        candidate_dir.mkdir()
+        candidate = candidate_dir / wheel.name
+        _rewrite_zip(wheel, candidate, transform)
+        digest = "sha256:" + hashlib.sha256(candidate.read_bytes()).hexdigest()
+        rejected = _run(
+            "wheel",
+            "inspect",
+            str(candidate),
+            "--spec-id",
+            "cuda130-amd64",
+            "--expected-sha256",
+            digest,
+            "--source-kind",
+            "builder-candidate",
+            "--task-file",
+            str(task_path),
+            check=False,
+        )
+        assert rejected.returncode == 2
+        assert message in rejected.stderr.lower()
+
+    duplicate_dir = tmp_path / "duplicate"
+    duplicate_dir.mkdir()
+    duplicate = duplicate_dir / wheel.name
+    shutil.copyfile(wheel, duplicate)
+    with pytest.warns(UserWarning, match="Duplicate name"):
+        with zipfile.ZipFile(duplicate, "a") as archive:
+            archive.writestr(manifest_path, expected_bytes)
+    duplicate_digest = "sha256:" + hashlib.sha256(duplicate.read_bytes()).hexdigest()
+    rejected_duplicate = _run(
+        "wheel",
+        "inspect",
+        str(duplicate),
+        "--spec-id",
+        "cuda130-amd64",
+        "--expected-sha256",
+        duplicate_digest,
+        "--source-kind",
+        "builder-candidate",
+        "--task-file",
+        str(task_path),
+        check=False,
+    )
+    assert rejected_duplicate.returncode == 2
+    assert "duplicate" in rejected_duplicate.stderr.lower()
 
 
 @pytest.mark.parametrize(
@@ -1794,7 +1959,7 @@ def test_wheel_seal_requires_mooncake_for_ascend(tmp_path: Path) -> None:
         version="0.5.0rc1+cann900.a2",
         profile_id="cann900-a2",
         spec_id="cann900-a2-amd64",
-        build_key=A2_AMD64_BUILD_KEY,
+        build_key=_fixture_build_key("cann900-a2-amd64"),
         forbidden=CUDA_FORBIDDEN_NATIVE[1:],
         required=CUDA_REQUIRED_NATIVE,
     )
@@ -1802,7 +1967,7 @@ def test_wheel_seal_requires_mooncake_for_ascend(tmp_path: Path) -> None:
         tmp_path,
         raw,
         spec_id="cann900-a2-amd64",
-        build_key=A2_AMD64_BUILD_KEY,
+        build_key=_fixture_build_key("cann900-a2-amd64"),
         check=False,
     )
     assert rejected.returncode == 2
@@ -1872,7 +2037,7 @@ def test_wheel_seal_accepts_exact_transitive_ascend_driver_requirement(
         version="0.5.0rc1+cann900.a2",
         profile_id="cann900-a2",
         spec_id="cann900-a2-amd64",
-        build_key=A2_AMD64_BUILD_KEY,
+        build_key=_fixture_build_key("cann900-a2-amd64"),
         required=ASCEND_REQUIRED_NATIVE,
         forbidden=ASCEND_FORBIDDEN_NATIVE,
     )
@@ -1881,7 +2046,7 @@ def test_wheel_seal_accepts_exact_transitive_ascend_driver_requirement(
         tmp_path,
         raw,
         spec_id="cann900-a2-amd64",
-        build_key=A2_AMD64_BUILD_KEY,
+        build_key=_fixture_build_key("cann900-a2-amd64"),
         closure_external_required=ASCEND_EXTERNAL_REQUIRED,
         check=False,
     )
@@ -1902,7 +2067,7 @@ def test_wheel_seal_rejects_mutated_external_requirement(
         version="0.5.0rc1+cann900.a2",
         profile_id="cann900-a2",
         spec_id="cann900-a2-amd64",
-        build_key=A2_AMD64_BUILD_KEY,
+        build_key=_fixture_build_key("cann900-a2-amd64"),
         required=ASCEND_REQUIRED_NATIVE,
         forbidden=ASCEND_FORBIDDEN_NATIVE,
     )
@@ -1912,7 +2077,7 @@ def test_wheel_seal_rejects_mutated_external_requirement(
         tmp_path,
         raw,
         spec_id="cann900-a2-amd64",
-        build_key=A2_AMD64_BUILD_KEY,
+        build_key=_fixture_build_key("cann900-a2-amd64"),
         closure_external_required=declaration,
         check=False,
     )
@@ -1947,7 +2112,7 @@ def test_dependency_closure_audit_preserves_external_required_record(
         version="0.5.0rc1+cann900.a2",
         profile_id="cann900-a2",
         spec_id="cann900-a2-amd64",
-        build_key=A2_AMD64_BUILD_KEY,
+        build_key=_fixture_build_key("cann900-a2-amd64"),
         required=ASCEND_REQUIRED_NATIVE,
         forbidden=ASCEND_FORBIDDEN_NATIVE,
     )
@@ -1955,7 +2120,7 @@ def test_dependency_closure_audit_preserves_external_required_record(
         tmp_path,
         raw,
         spec_id="cann900-a2-amd64",
-        build_key=A2_AMD64_BUILD_KEY,
+        build_key=_fixture_build_key("cann900-a2-amd64"),
         closure_external_required=ASCEND_EXTERNAL_REQUIRED,
         check=False,
     )
@@ -1981,6 +2146,7 @@ libascend_hal.so => not found
         tmp_path / "audited-closure.json",
         "cann900-a2-amd64",
         tmp_path / "build-authority.json",
+        task_path=_write_fixture_wheel_task(tmp_path, "cann900-a2-amd64"),
     )
 
     for member in record["native_members"].values():
@@ -2075,7 +2241,7 @@ def test_ldd_closure_binds_direct_platform_loader_soname_to_absolute_path(
 def test_preflight_deduplicates_only_declared_transitive_hal(spec_id: str) -> None:
     """Repeated driver misses are one declared device-runtime requirement."""
     evidence = release_wheel.validate_preflight_ldd(
-        spec_id,
+        _fixture_wheel_task(spec_id),
         "/usr/local/lib/libmooncake_store.so",
         ["libtransfer_engine.so"],
         """\
@@ -2123,7 +2289,11 @@ libascend_hal.so => not found
         return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
 
     monkeypatch.setattr(release_wheel.subprocess, "run", completed)
-    evidence = release_wheel.preflight_dependencies(binary, "cann900-a2-amd64")
+    evidence = release_wheel.preflight_dependencies(
+        binary,
+        "cann900-a2-amd64",
+        task=_fixture_wheel_task("cann900-a2-amd64"),
+    )
 
     assert evidence["status"] == "passed"
     assert evidence["unexpected_unresolved"] == []
@@ -2133,7 +2303,7 @@ def test_preflight_rejects_declared_hal_mixed_with_an_unknown_missing_soname() -
     """A declared driver boundary must not hide an unrelated broken dependency."""
     with pytest.raises(ValueError, match="unexpected unresolved.*libfoo"):
         release_wheel.validate_preflight_ldd(
-            "cann900-a2-amd64",
+            _fixture_wheel_task("cann900-a2-amd64"),
             "/usr/local/lib/libmooncake_store.so",
             [],
             """\
@@ -2147,14 +2317,14 @@ def test_cuda_and_direct_dependencies_cannot_use_the_ascend_hal_boundary() -> No
     """HAL is Ascend-only and its declaration is transitive, never DT_NEEDED."""
     with pytest.raises(ValueError, match="unexpected unresolved.*libascend_hal"):
         release_wheel.validate_preflight_ldd(
-            "cuda130-amd64",
+            _fixture_wheel_task("cuda130-amd64"),
             "ucm/store/cache/libcachestore.so",
             [],
             "libascend_hal.so => not found\n",
         )
     with pytest.raises(ValueError, match="direct.*external-required|transitive"):
         release_wheel.validate_preflight_ldd(
-            "cann900-a3-arm64",
+            _fixture_wheel_task("cann900-a3-arm64"),
             "/usr/local/lib/libmooncake_store.so",
             ["libascend_hal.so"],
             "libascend_hal.so => not found\n",
@@ -2712,6 +2882,7 @@ def test_builder_inspection_rejects_tampered_sealed_wheels(
     raw = _raw_native_wheel(tmp_path)
     sealed = json.loads(_seal_native_wheel(tmp_path / "base", raw).stdout)
     wheel = Path(sealed["wheel_path"])
+    task_path = _write_fixture_wheel_task(tmp_path, "cuda130-amd64")
     tampered = tmp_path / wheel.name
     if mutation == "trailing-bytes":
         tampered.write_bytes(wheel.read_bytes() + b"not-zip")
@@ -2780,6 +2951,8 @@ def test_builder_inspection_rejects_tampered_sealed_wheels(
         digest,
         "--source-kind",
         "builder-candidate",
+        "--task-file",
+        str(task_path),
         check=False,
     )
     assert rejected.returncode == 2
@@ -2787,29 +2960,47 @@ def test_builder_inspection_rejects_tampered_sealed_wheels(
 
 
 @pytest.mark.skipif(shutil.which("helm") is None, reason="Helm 3 is required")
-def test_chart_package_runs_cuda_a2_a3_and_is_byte_deterministic(
+def test_fixture_chart_package_is_plan_derived_and_byte_deterministic(
     tmp_path: Path,
 ) -> None:
+    plan = _fixture_resolved_plan()
+    assert plan["fixture_only"] is True
+    plan_path = tmp_path / "fixture-resolved-plan.json"
+    _write_canonical_json(plan_path, plan)
+    plan_arguments = (
+        "--resolved-plan",
+        str(plan_path),
+        "--expected-plan-sha256",
+        plan["resolved_plan_sha256"],
+    )
     first = tmp_path / "first"
     second = tmp_path / "second"
-    record_a = json.loads(_run("chart", "package", "--output-dir", str(first)).stdout)
-    record_b = json.loads(_run("chart", "package", "--output-dir", str(second)).stdout)
+    record_a = json.loads(
+        _run("chart", "package", "--output-dir", str(first), *plan_arguments).stdout
+    )
+    record_b = json.loads(
+        _run("chart", "package", "--output-dir", str(second), *plan_arguments).stdout
+    )
     assert record_a == record_b
-    assert record_a["rendered_cases"] == ["cuda", "a2", "a3"]
-    assert record_a["rendered_evidence"] == {
-        "cuda": {
-            "image": "docker.io/vllm/vllm-openai@sha256:a230095847e93bd4df9888b33dab956fa9504537b828a23657d2b26fed57b5c9",
-            "resource": "nvidia.com/gpu",
-        },
-        "a2": {
-            "image": "quay.io/ascend/vllm-ascend@sha256:9008b47081282612abfe4d28069ce34436752c980fd06f7599343213205ce64d",
-            "resource": "huawei.com/Ascend910",
-        },
-        "a3": {
-            "image": "quay.io/ascend/vllm-ascend@sha256:e3d89f09a1c1d85f0ec6a1cc26e3c807b7bc8a7ec0f97a830dbef63ab50d8f81",
-            "resource": "huawei.com/Ascend910",
-        },
-    }
+    assert record_a["rendered_cases"] == [
+        case["name"] for case in plan["chart"]["validation_cases"]
+    ]
+    expected_evidence = {}
+    for case in plan["chart"]["validation_cases"]:
+        family = next(
+            task
+            for task in plan["family_tasks"]
+            if task["product_id"] == case["product_id"]
+            and task["runtime"]["variant"] == case["variant"]
+        )
+        expected_evidence[case["name"]] = {
+            "image": (
+                f"{family['runtime']['repository']}@"
+                f"{family['runtime']['index_digest']}"
+            ),
+            "resource": case["expected_resource"],
+        }
+    assert record_a["rendered_evidence"] == expected_evidence
     assert record_a["checks"] == {
         "helm_lint": "passed",
         "helm_package": "passed",

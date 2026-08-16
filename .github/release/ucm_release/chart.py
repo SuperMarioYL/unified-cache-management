@@ -12,13 +12,10 @@ import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from . import registry
 from .core import (
-    DEFAULT_COMPATIBILITY,
-    DEFAULT_RELEASE,
-    DEFAULT_SCHEMA_DIR,
     REPO_ROOT,
     canonical_bytes,
-    validate_config,
 )
 
 
@@ -139,21 +136,59 @@ def _deterministic_repack(source: Path, destination: Path) -> None:
                     )
 
 
+def resolve_chart_validation_cases(
+    resolved_plan: dict[str, Any],
+    *,
+    expected_plan_sha256: str,
+) -> list[dict[str, Any]]:
+    """Bind Chart selectors to family runtimes from one frozen plan."""
+    registry.validate_resolved_plan(resolved_plan)
+    if resolved_plan["resolved_plan_sha256"] != expected_plan_sha256:
+        raise ValueError("Chart resolved plan hash differs from expected authority")
+    resolved: list[dict[str, Any]] = []
+    for case in resolved_plan["chart"]["validation_cases"]:
+        matches = [
+            task
+            for task in resolved_plan["family_tasks"]
+            if task["product_id"] == case["product_id"]
+            and task["runtime"]["variant"] == case["variant"]
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                "Chart validation selector does not resolve exactly one family task"
+            )
+        family = matches[0]
+        resolved.append(
+            {
+                **case,
+                "family_task_id": family["task_id"],
+                "image_repository": family["runtime"]["repository"],
+                "image_digest": family["runtime"]["index_digest"],
+            }
+        )
+    return resolved
+
+
 def package_chart(
     output_dir: Path,
     *,
-    release_path: Path = DEFAULT_RELEASE,
-    compatibility_path: Path = DEFAULT_COMPATIBILITY,
-    schema_dir: Path = DEFAULT_SCHEMA_DIR,
+    resolved_plan: dict[str, Any],
+    expected_plan_sha256: str,
 ) -> dict[str, Any]:
-    release, _ = validate_config(release_path, compatibility_path, schema_dir)
-    chart_config = release["chart"]
+    registry.validate_resolved_plan(resolved_plan)
+    if resolved_plan["resolved_plan_sha256"] != expected_plan_sha256:
+        raise ValueError("Chart resolved plan hash differs from expected authority")
+    chart_config = resolved_plan["chart"]
+    validation_cases = resolve_chart_validation_cases(
+        resolved_plan,
+        expected_plan_sha256=expected_plan_sha256,
+    )
     chart_dir = REPO_ROOT / chart_config["source"]
     provenance = verify_provenance(chart_dir)
     rendered_cases: list[str] = []
     rendered_evidence: dict[str, dict[str, str]] = {}
     _run(["helm", "lint", str(chart_dir)])
-    for case in chart_config["validation_cases"]:
+    for case in validation_cases:
         values = REPO_ROOT / case["values"]
         args = [
             "--values",
@@ -216,6 +251,7 @@ def package_chart(
         "source_commit": provenance["source"]["commit"],
         "source_tree_sha256": provenance["source"]["tree_sha256"],
         "release_tree_sha256": provenance["release_tree_sha256"],
+        "resolved_plan_sha256": resolved_plan["resolved_plan_sha256"],
         "rendered_cases": rendered_cases,
         "rendered_evidence": rendered_evidence,
         "checks": {

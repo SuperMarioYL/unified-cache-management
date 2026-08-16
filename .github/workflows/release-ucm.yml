@@ -1,13 +1,19 @@
-name: Build candidates and publish protected UCM v0.5.0rc1
+name: Build planner-selected UCM candidates and publish protected tags
 
 on:
   push:
     branches: ["feature/**"]
-    tags: ["v0.5.0rc1"]
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       deliver_full_oci:
         description: Upload complete feature OCI archives for this attempt
+        type: boolean
+        required: false
+        default: false
+  workflow_call:
+    inputs:
+      deliver_full_oci:
         type: boolean
         required: false
         default: false
@@ -26,11 +32,20 @@ jobs:
     permissions:
       contents: read
     outputs:
-      matrix: ${{ steps.plan.outputs.matrix }}
       source_sha: ${{ steps.plan.outputs.source_sha }}
+      route: ${{ steps.plan.outputs.route }}
       feature: ${{ steps.plan.outputs.feature }}
       protected: ${{ steps.plan.outputs.protected }}
       deliver_full_oci: ${{ steps.plan.outputs.deliver_full_oci }}
+      resolved_plan_artifact: ${{ steps.plan.outputs.resolved_plan_artifact }}
+      resolved_plan_sha256: ${{ steps.plan.outputs.resolved_plan_sha256 }}
+      wheel_matrix: ${{ steps.plan.outputs.wheel_matrix }}
+      image_matrix: ${{ steps.plan.outputs.image_matrix }}
+      family_matrix: ${{ steps.plan.outputs.family_matrix }}
+      smoke_wheel_matrix: ${{ steps.plan.outputs.smoke_wheel_matrix }}
+      smoke_image_matrix: ${{ steps.plan.outputs.smoke_image_matrix }}
+      build_wheel_matrix: ${{ steps.plan.outputs.build_wheel_matrix }}
+      build_image_matrix: ${{ steps.plan.outputs.build_image_matrix }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -43,12 +58,26 @@ jobs:
       - run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - name: Install checksum-pinned read-only crane
+        env:
+          CRANE_VERSION: v0.20.3
+          CRANE_LINUX_AMD64_SHA256: 36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/crane.tar.gz" \
+            "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
+          echo "${CRANE_LINUX_AMD64_SHA256}  ${RUNNER_TEMP}/crane.tar.gz" | sha256sum --check
+          tar -xzf "${RUNNER_TEMP}/crane.tar.gz" -C "${RUNNER_TEMP}/crane" crane
+          test "$("${RUNNER_TEMP}/crane/crane" version)" = "${CRANE_VERSION#v}"
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
       - id: plan
-        name: Route only the feature lane or exact protected tag
+        name: Route invocation and resolve one frozen catalog plan
         env:
           EVENT_NAME: ${{ github.event_name }}
           REPOSITORY: ${{ github.repository }}
           REF: ${{ github.ref }}
+          REF_TYPE: ${{ github.ref_type }}
           REF_PROTECTED: ${{ github.ref_protected }}
           HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
           MANUAL_DELIVERY: ${{ inputs.deliver_full_oci }}
@@ -57,62 +86,94 @@ jobs:
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
           feature=false
           protected=false
+          route=
+          lane=feature-candidate
           delivery=false
-          if [[ "${REPOSITORY}" == SuperMarioYL/unified-cache-management && \
+          if [[ "${EVENT_NAME}" == pull_request ]]; then
+            route=pr
+            PYTHONPATH=.github/release python -m ucm_release core tag-preflight \
+              --lane feature-candidate --catalog-planner >feature-preflight.json
+          elif [[ "${REPOSITORY}" == SuperMarioYL/unified-cache-management && \
                 "${REF}" == refs/heads/feature/* && \
                 ( "${EVENT_NAME}" == push || "${EVENT_NAME}" == workflow_dispatch ) ]]; then
+            route=feature
             feature=true
             if [[ "${EVENT_NAME}" == push && "${HEAD_COMMIT_MESSAGE}" == *"[ucm-deliver-full-oci]"* ]] || \
                [[ "${EVENT_NAME}" == workflow_dispatch && "${MANUAL_DELIVERY}" == true ]]; then
               delivery=true
             fi
-            PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane feature-candidate >feature-preflight.json
-          elif [[ "${EVENT_NAME}" == push && \
+            PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane feature-candidate --catalog-planner >feature-preflight.json
+          elif [[ "${EVENT_NAME}" == push && "${REF_TYPE}" == tag && \
                   "${REPOSITORY}" == SuperMarioYL/unified-cache-management && \
-                  "${REF}" == refs/tags/v0.5.0rc1 && \
                   "${REF_PROTECTED}" == true ]]; then
+            route=protected
             protected=true
+            lane=protected-tag
+            git fetch --no-tags --force origin "+${REF}:${REF}" \
+              +refs/heads/develop:refs/remotes/origin/develop
+            PYTHONPATH=.github/release python -m ucm_release core tag-preflight \
+              --lane protected-tag --catalog-planner >protected-preflight.json
           else
             echo "release invocation is outside feature/protected authority" >&2
             exit 2
           fi
-          source_date_epoch="$(git show -s --format=%ct "${GITHUB_SHA}")"
-          PYTHONPATH=.github/release python -m ucm_release core hosted-matrix \
-            --source-sha "${GITHUB_SHA}" --source-date-epoch "${source_date_epoch}" \
-            --output hosted-matrix.json >/dev/null
+          mkdir -p out/plan
+          PYTHONPATH=.github/release python -m ucm_release catalog resolve \
+            --lane "${lane}" --source-sha "${GITHUB_SHA}" \
+            --output out/plan/resolved-plan.json >/dev/null
+          resolved_plan_sha256="$(python -c 'import json; print(json.load(open("out/plan/resolved-plan.json"))["resolved_plan_sha256"])')"
+          logical_artifact="$(python -c 'import json; print(json.load(open("out/plan/resolved-plan.json"))["expected_artifacts"]["resolved_plan"])')"
+          resolved_plan_artifact="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(sys.argv[1],sys.argv[2],int(sys.argv[3])))' "${logical_artifact}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
+          wheel_matrix="$(python -c 'import json; print(json.dumps(json.load(open("out/plan/resolved-plan.json"))["github_wheel_matrix"],separators=(",",":")))')"
+          image_matrix="$(python -c 'import json; print(json.dumps(json.load(open("out/plan/resolved-plan.json"))["github_image_matrix"],separators=(",",":")))')"
+          family_matrix="$(python -c 'import json; print(json.dumps(json.load(open("out/plan/resolved-plan.json"))["github_family_matrix"],separators=(",",":")))')"
+          smoke_wheel_matrix="$(python -c 'import json; print(json.dumps(json.load(open("out/plan/resolved-plan.json"))["pr_smoke"]["github_wheel_matrix"],separators=(",",":")))')"
+          smoke_image_matrix="$(python -c 'import json; print(json.dumps(json.load(open("out/plan/resolved-plan.json"))["pr_smoke"]["github_image_matrix"],separators=(",",":")))')"
+          build_wheel_matrix="${wheel_matrix}"
+          build_image_matrix="${image_matrix}"
+          if [[ "${route}" == pr ]]; then
+            build_wheel_matrix="${smoke_wheel_matrix}"
+            build_image_matrix="${smoke_image_matrix}"
+          fi
           {
-            echo "matrix=$(python -c 'import json; print(json.dumps(json.load(open("hosted-matrix.json"))["github_matrix"],separators=(",",":")))')"
             echo "source_sha=${GITHUB_SHA}"
+            echo "route=${route}"
             echo "feature=${feature}"
             echo "protected=${protected}"
             echo "deliver_full_oci=${delivery}"
+            echo "resolved_plan_artifact=${resolved_plan_artifact}"
+            echo "resolved_plan_sha256=${resolved_plan_sha256}"
+            echo "wheel_matrix=${wheel_matrix}"
+            echo "image_matrix=${image_matrix}"
+            echo "family_matrix=${family_matrix}"
+            echo "smoke_wheel_matrix=${smoke_wheel_matrix}"
+            echo "smoke_image_matrix=${smoke_image_matrix}"
+            echo "build_wheel_matrix=${build_wheel_matrix}"
+            echo "build_image_matrix=${build_image_matrix}"
           } >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.plan.outputs.resolved_plan_artifact }}
+          path: out/plan/resolved-plan.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: ${{ steps.plan.outputs.protected == 'true' && 90 || 3 }}
 
-  build-wheels-feature:
+  build-wheels:
     needs: plan
-    if: ${{ needs.plan.outputs.feature == 'true' }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.build_wheel_matrix) }}
     permissions:
       contents: read
     uses: ./.github/workflows/_build-wheel.yml
     with:
       source_sha: ${{ needs.plan.outputs.source_sha }}
-      spec_id: ${{ matrix.spec_id }}
-
-  build-wheels-protected:
-    needs: plan
-    if: ${{ needs.plan.outputs.protected == 'true' }}
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
-    permissions:
-      contents: read
-    uses: ./.github/workflows/_build-wheel.yml
-    with:
-      source_sha: ${{ needs.plan.outputs.source_sha }}
-      spec_id: ${{ matrix.spec_id }}
+      task_id: ${{ matrix.task_id }}
+      runner: ${{ matrix.runner }}
+      resolved_plan_artifact: ${{ needs.plan.outputs.resolved_plan_artifact }}
+      resolved_plan_sha256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
 
   package-chart:
     needs: plan
@@ -148,13 +209,22 @@ jobs:
           install -m 0755 "${RUNNER_TEMP}/linux-amd64/helm" "${RUNNER_TEMP}/helm"
           test "$("${RUNNER_TEMP}/helm" version --short)" = "v3.15.3+g3bb50bb"
           echo "${RUNNER_TEMP}" >>"${GITHUB_PATH}"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.plan.outputs.resolved_plan_artifact }}
+          path: input/plan
       - id: record
         env:
           SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+          RESOLVED_PLAN_SHA256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
         run: |
           set -euo pipefail
           mkdir -p out/chart out/artifact
-          PYTHONPATH=.github/release python -m ucm_release chart package --output-dir out/chart >out/artifact/chart-result.json
+          PYTHONPATH=.github/release python -m ucm_release chart package \
+            --output-dir out/chart \
+            --resolved-plan input/plan/resolved-plan.json \
+            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
+            >out/artifact/chart-result.json
           cp out/chart/*.tgz out/artifact/
           logical="ucm-chart-${SOURCE_SHA}"
           physical="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(*sys.argv[1:3], int(sys.argv[3])))' "${logical}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
@@ -177,11 +247,11 @@ jobs:
           retention-days: 90
 
   reconcile-images-feature:
-    needs: [plan, build-wheels-feature, package-chart]
+    needs: [plan, build-wheels, package-chart]
     if: >-
       ${{
-        !cancelled() && needs.plan.outputs.feature == 'true' &&
-        needs.build-wheels-feature.result == 'success' &&
+        !cancelled() && needs.plan.outputs.route != 'protected' &&
+        needs.build-wheels.result == 'success' &&
         needs.package-chart.result == 'success'
       }}
     permissions:
@@ -189,17 +259,21 @@ jobs:
     uses: ./.github/workflows/release-vllm-images.yml
     with:
       source_sha: ${{ needs.plan.outputs.source_sha }}
+      wheel_matrix: ${{ needs.plan.outputs.build_wheel_matrix }}
+      image_matrix: ${{ needs.plan.outputs.build_image_matrix }}
+      resolved_plan_artifact: ${{ needs.plan.outputs.resolved_plan_artifact }}
+      resolved_plan_sha256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
       deliver_full_oci: ${{ needs.plan.outputs.deliver_full_oci == 'true' }}
 
   reconcile-images-protected:
-    needs: [plan, build-wheels-protected, package-chart]
+    needs: [plan, build-wheels, package-chart]
     if: >-
       ${{
         !cancelled() && needs.plan.outputs.protected == 'true' &&
         github.event_name == 'push' &&
         github.repository == 'SuperMarioYL/unified-cache-management' &&
-        github.ref == 'refs/tags/v0.5.0rc1' && github.ref_protected == true &&
-        needs.build-wheels-protected.result == 'success' &&
+        github.ref_type == 'tag' && github.ref_protected == true &&
+        needs.build-wheels.result == 'success' &&
         needs.package-chart.result == 'success'
       }}
     permissions:
@@ -208,9 +282,13 @@ jobs:
     uses: ./.github/workflows/release-vllm-images-protected.yml
     with:
       source_sha: ${{ needs.plan.outputs.source_sha }}
+      image_matrix: ${{ needs.plan.outputs.image_matrix }}
+      family_matrix: ${{ needs.plan.outputs.family_matrix }}
+      resolved_plan_artifact: ${{ needs.plan.outputs.resolved_plan_artifact }}
+      resolved_plan_sha256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
 
   feature-barrier:
-    needs: [plan, build-wheels-feature, package-chart, reconcile-images-feature]
+    needs: [plan, build-wheels, package-chart, reconcile-images-feature]
     if: ${{ always() && needs.plan.outputs.feature == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -218,7 +296,7 @@ jobs:
       contents: read
     steps:
       - env:
-          WHEELS: ${{ needs.build-wheels-feature.result }}
+          WHEELS: ${{ needs.build-wheels.result }}
           CHART: ${{ needs.package-chart.result }}
           IMAGES: ${{ needs.reconcile-images-feature.result }}
         run: |
@@ -228,11 +306,11 @@ jobs:
           test "${IMAGES}" = success
 
   aggregate-evidence:
-    needs: [plan, build-wheels-feature, package-chart, reconcile-images-feature, feature-barrier]
+    needs: [plan, build-wheels, package-chart, reconcile-images-feature, feature-barrier]
     if: >-
       ${{
         !cancelled() && needs.plan.outputs.feature == 'true' &&
-        needs.build-wheels-feature.result == 'success' &&
+        needs.build-wheels.result == 'success' &&
         needs.package-chart.result == 'success' &&
         needs.reconcile-images-feature.result == 'success' &&
         needs.feature-barrier.result == 'success'
@@ -273,33 +351,45 @@ jobs:
           echo "${RUNNER_TEMP}" >>"${GITHUB_PATH}"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          pattern: ucm-wheel-*-${{ needs.plan.outputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          pattern: ucm-wheel-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/wheels
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          pattern: ucm-image-*-${{ needs.plan.outputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          pattern: ucm-image-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/images
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: ${{ needs.package-chart.outputs.chart_artifact }}
           path: input/chart
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.plan.outputs.resolved_plan_artifact }}
+          path: input/plan
       - name: Aggregate exact current-attempt feature release evidence
         env:
           SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+          RESOLVED_PLAN_SHA256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
+          WHEEL_MATRIX: ${{ needs.plan.outputs.build_wheel_matrix }}
+          IMAGE_MATRIX: ${{ needs.plan.outputs.build_image_matrix }}
         run: |
           set -euo pipefail
           chart_package="$(find input/chart -maxdepth 1 -type f -name '*.tgz' -print)"
           test -n "${chart_package}"
+          python -c 'import json,os; json.dump(json.loads(os.environ["WHEEL_MATRIX"]),open("selected-wheel-matrix.json","w"),sort_keys=True,separators=(",",":"))'
+          python -c 'import json,os; json.dump(json.loads(os.environ["IMAGE_MATRIX"]),open("selected-image-matrix.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release loop aggregate-real \
             --wheel-dir input/wheels --image-dir input/images \
             --chart-result input/chart/chart-result.json --chart-package "${chart_package}" \
             --repository "${GITHUB_REPOSITORY}" --ref "${GITHUB_REF}" \
             --source-sha "${SOURCE_SHA}" --run-id "${GITHUB_RUN_ID}" \
-            --attempt "${GITHUB_RUN_ATTEMPT}" --output release-loop-evidence.json \
+            --attempt "${GITHUB_RUN_ATTEMPT}" \
+            --resolved-plan input/plan/resolved-plan.json \
+            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
+            --selected-wheel-matrix selected-wheel-matrix.json \
+            --selected-image-matrix selected-image-matrix.json \
+            --output release-loop-evidence.json \
             >aggregate-real-result.json
-          test "$(python -c 'import json; print(len(json.load(open("release-loop-evidence.json"))["payload"]["wheels"]))')" = 6
-          test "$(python -c 'import json; print(len(json.load(open("release-loop-evidence.json"))["payload"]["images"]))')" = 6
-          test "$(python -c 'import json; print(len(json.load(open("release-loop-evidence.json"))["payload"]["families"]))')" = 3
+          python -c 'import json; p=json.load(open("release-loop-evidence.json"))["payload"]; r=json.load(open("input/plan/resolved-plan.json")); assert {x["task_id"] for x in p["wheels"]}=={x["task_id"] for x in r["wheel_tasks"]}; assert {x["task_id"] for x in p["images"]}=={x["task_id"] for x in r["image_tasks"]}; assert {x["family_task_id"] for x in p["families"]}=={x["task_id"] for x in r["family_tasks"]}'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-loop-evidence-${{ needs.plan.outputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
@@ -311,14 +401,14 @@ jobs:
           retention-days: 3
 
   prepare-release-draft:
-    needs: [plan, build-wheels-protected, package-chart, reconcile-images-protected]
+    needs: [plan, build-wheels, package-chart, reconcile-images-protected]
     if: >-
       ${{
         !cancelled() && needs.plan.outputs.protected == 'true' &&
         github.event_name == 'push' &&
         github.repository == 'SuperMarioYL/unified-cache-management' &&
-        github.ref == 'refs/tags/v0.5.0rc1' && github.ref_protected == true &&
-        needs.build-wheels-protected.result == 'success' &&
+        github.ref_type == 'tag' && github.ref_protected == true &&
+        needs.build-wheels.result == 'success' &&
         needs.package-chart.result == 'success' &&
         needs.reconcile-images-protected.result == 'success'
       }}
@@ -342,46 +432,61 @@ jobs:
       - run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.plan.outputs.resolved_plan_artifact }}
+          path: input/plan
       - id: draft
         name: Fresh preflight and create empty draft or reopen exact state
         env:
           GH_TOKEN: ${{ github.token }}
           UCM_RELEASE_POLICY: ${{ vars.UCM_RELEASE_POLICY }}
           SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+          RESOLVED_PLAN_SHA256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: |
           set -euo pipefail
+          release_repository="$(python -c 'import json,os; p=json.load(open("input/plan/resolved-plan.json")); assert p["resolved_plan_sha256"]==os.environ["RESOLVED_PLAN_SHA256"]; print(p["source"]["repository"])')"
+          test "${release_repository}" = "${GITHUB_REPOSITORY}"
           mkdir -p out/draft
-          git fetch --no-tags --force origin +refs/tags/v0.5.0rc1:refs/tags/v0.5.0rc1
-          PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag >out/draft/preflight.json
+          git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}"
+          PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
+            --resolved-plan input/plan/resolved-plan.json \
+            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >out/draft/preflight.json
+          python -c 'import json,os; json.dump({"remote":None,"source_sha":os.environ["SOURCE_SHA"],"just_created":False,"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/validate-plan-request.json","w"),sort_keys=True,separators=(",",":"))'
+          PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/validate-plan-request.json --output out/validated-plan.json >/dev/null
           gh api --paginate --slurp \
             -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
-            'repos/SuperMarioYL/unified-cache-management/releases?per_page=100' >out/pages.json
-          python -c 'import json,os; json.dump({"pages":"out/pages.json","source_sha":os.environ["SOURCE_SHA"]},open("out/select-pages-request.json","w"),sort_keys=True,separators=(",",":"))'
+            "repos/${release_repository}/releases?per_page=100" >out/pages.json
+          python -c 'import json,os; json.dump({"pages":"out/pages.json","source_sha":os.environ["SOURCE_SHA"],"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/select-pages-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release select-pages --input out/select-pages-request.json --output out/selection.json >/dev/null
-          python -c 'import json; p=json.load(open("out/selection.json")); json.dump(p["remote"],open("out/draft/observed-release.json","w"),sort_keys=True,separators=(",",":")); json.dump(p["plan_request"],open("out/plan-state-request.json","w"),sort_keys=True,separators=(",",":")); json.dump(p["create_request"],open("out/create-request.json","w"),sort_keys=True,separators=(",",":")); json.dump(p["operations"],open("out/draft/operations.json","w"),sort_keys=True,separators=(",",":"))'
+          python -c 'import json,os; p=json.load(open("out/selection.json")); q=p["plan_request"]; assert q["resolved_plan_sha256"]==os.environ["RESOLVED_PLAN_SHA256"]; q.update({"resolved_plan":"input/plan/resolved-plan.json"}); json.dump(p["remote"],open("out/draft/observed-release.json","w"),sort_keys=True,separators=(",",":")); json.dump(q,open("out/plan-state-request.json","w"),sort_keys=True,separators=(",",":")); json.dump(p["create_request"],open("out/create-request.json","w"),sort_keys=True,separators=(",",":")); json.dump(p["operations"],open("out/draft/operations.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/plan-state-request.json --output out/initial-plan.json >/dev/null
           cp out/initial-plan.json out/draft/initial-plan.json
           decision="$(python -c 'import json; print(json.load(open("out/initial-plan.json"))["decision"])')"
           if [[ "${decision}" == create ]]; then
-            git fetch --no-tags --force origin +refs/tags/v0.5.0rc1:refs/tags/v0.5.0rc1 +refs/heads/develop:refs/remotes/origin/develop
+            git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}" +refs/heads/develop:refs/remotes/origin/develop
             git diff --quiet HEAD:.github/workflows origin/develop:.github/workflows
             git diff --quiet HEAD:.github/release origin/develop:.github/release
             test "$(git rev-parse HEAD)" = "$(git rev-parse refs/remotes/origin/develop)"
-            PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag >/dev/null
+            PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
+              --resolved-plan input/plan/resolved-plan.json \
+              --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >/dev/null
             gh api --method POST \
               -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
-              repos/SuperMarioYL/unified-cache-management/releases \
+              "repos/${release_repository}/releases" \
               --input out/create-request.json >out/draft/create-response.json
             release_id="$(python -c 'import json; print(json.load(open("out/draft/create-response.json"))["id"])')"
             gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "repos/SuperMarioYL/unified-cache-management/releases/${release_id}" >out/draft/observed-release.json
-            python -c 'import json,os; p=json.load(open("out/draft/observed-release.json")); q={"remote":p,"source_sha":os.environ["SOURCE_SHA"],"just_created":True}; json.dump(q,open("out/created-state-request.json","w"),sort_keys=True,separators=(",",":"))'
+              "repos/${release_repository}/releases/${release_id}" >out/draft/observed-release.json
+            python -c 'import json; p=json.load(open("out/draft/observed-release.json")); q=json.load(open("out/plan-state-request.json")); q.update({"remote":p,"just_created":True}); json.dump(q,open("out/created-state-request.json","w"),sort_keys=True,separators=(",",":"))'
             PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/created-state-request.json --output out/draft/state-plan.json >/dev/null
-            python -c 'import json; p=json.load(open("out/draft/operations.json")); p.extend([{"type":"github-release-create","capability":"write","reference":"https://api.github.com/repos/SuperMarioYL/unified-cache-management/releases","authenticated":True},{"type":"github-release-read","capability":"read","reference":"https://api.github.com/repos/SuperMarioYL/unified-cache-management/releases/"+str(json.load(open("out/draft/observed-release.json"))["id"]),"authenticated":True}]); json.dump(p,open("out/draft/operations.json","w"),sort_keys=True,separators=(",",":"))'
-            git fetch --no-tags --force origin +refs/tags/v0.5.0rc1:refs/tags/v0.5.0rc1
-            PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag >/dev/null
+            RELEASE_REPOSITORY="${release_repository}" python -c 'import json,os; root="https://api.github.com/repos/"+os.environ["RELEASE_REPOSITORY"]+"/releases"; p=json.load(open("out/draft/operations.json")); p.extend([{"type":"github-release-create","capability":"write","reference":root,"authenticated":True},{"type":"github-release-read","capability":"read","reference":root+"/"+str(json.load(open("out/draft/observed-release.json"))["id"]),"authenticated":True}]); json.dump(p,open("out/draft/operations.json","w"),sort_keys=True,separators=(",",":"))'
+            git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}"
+            PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
+              --resolved-plan input/plan/resolved-plan.json \
+              --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >/dev/null
           else
             cp out/initial-plan.json out/draft/state-plan.json
           fi
@@ -439,21 +544,27 @@ jobs:
         with:
           name: ucm-registry-authenticated-${{ needs.plan.outputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/authenticated
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.plan.outputs.resolved_plan_artifact }}
+          path: input/plan
       - id: finalize
         env:
           SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+          RESOLVED_PLAN_SHA256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
         run: |
           set -euo pipefail
           mkdir -p out/protected/finalized
-          for family in cann900-a3 cann900-a2 cuda130; do
-            python -c 'import json,sys; json.dump({"parent_plans":"input/authenticated/parent-plans.json","provisional":"input/authenticated/provisionals/"+sys.argv[1]+".json"},open("out/finalize-request.json","w"),sort_keys=True,separators=(",",":"))' "${family}"
+          while IFS= read -r family; do
+            python -c 'import json,os,sys; json.dump({"parent_plans":"input/authenticated/parent-plans.json","provisional":"input/authenticated/provisionals/"+sys.argv[1]+".json","family_task_id":sys.argv[1],"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/finalize-request.json","w"),sort_keys=True,separators=(",",":"))' "${family}"
             PYTHONPATH=.github/release python -m ucm_release registry finalize-index --input out/finalize-request.json --output "out/protected/finalized/${family}.json" >/dev/null
-          done
+          done < <(python -c 'import json; [print(x["task_id"]) for x in json.load(open("input/plan/resolved-plan.json"))["family_tasks"]]')
           cp input/authenticated/parent-plans.json out/protected/parent-plans.json
           cp input/authenticated/member-collection.json out/protected/member-collection.json
           cp input/authenticated/provisional-collection.json out/protected/provisional-collection.json
+          cp input/plan/resolved-plan.json out/protected/resolved-plan.json
           cp -R input/authenticated/member-records out/protected/member-records
-          python -c 'import glob,json,os; json.dump({"member_records":sorted(glob.glob("out/protected/member-records/*.json")),"member_collection":"out/protected/member-collection.json","finalized_indexes":sorted(glob.glob("out/protected/finalized/*.json")),"provisional_collection":"out/protected/provisional-collection.json","parent_plans":"out/protected/parent-plans.json","source_sha":os.environ["SOURCE_SHA"],"run":{"run_id":os.environ["GITHUB_RUN_ID"],"run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"])}},open("out/protected-request.json","w"),sort_keys=True,separators=(",",":"))'
+          python -c 'import glob,json,os; json.dump({"member_records":sorted(glob.glob("out/protected/member-records/*.json")),"member_collection":"out/protected/member-collection.json","finalized_indexes":sorted(glob.glob("out/protected/finalized/*.json")),"provisional_collection":"out/protected/provisional-collection.json","parent_plans":"out/protected/parent-plans.json","source_sha":os.environ["SOURCE_SHA"],"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"],"run":{"run_id":os.environ["GITHUB_RUN_ID"],"run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"])}},open("out/protected-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release registry aggregate-protected --input out/protected-request.json --output out/protected/protected-publication.json >/dev/null
           logical="ucm-registry-protected-${SOURCE_SHA}"
           physical="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(*sys.argv[1:3], int(sys.argv[3])))' "${logical}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
@@ -467,14 +578,14 @@ jobs:
           retention-days: 90
 
   publish-release:
-    needs: [plan, build-wheels-protected, package-chart, prepare-release-draft, anonymous-registry-readback]
+    needs: [plan, build-wheels, package-chart, prepare-release-draft, anonymous-registry-readback]
     if: >-
       ${{
         !cancelled() &&
         github.event_name == 'push' &&
         github.repository == 'SuperMarioYL/unified-cache-management' &&
-        github.ref == 'refs/tags/v0.5.0rc1' && github.ref_protected == true &&
-        needs.build-wheels-protected.result == 'success' &&
+        github.ref_type == 'tag' && github.ref_protected == true &&
+        needs.build-wheels.result == 'success' &&
         needs.package-chart.result == 'success' &&
         needs.prepare-release-draft.result == 'success' &&
         needs.anonymous-registry-readback.result == 'success'
@@ -500,12 +611,16 @@ jobs:
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          pattern: ucm-wheel-*-${{ needs.plan.outputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          pattern: ucm-wheel-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/wheels
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: ${{ needs.package-chart.outputs.chart_artifact }}
           path: input/chart
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.plan.outputs.resolved_plan_artifact }}
+          path: input/plan
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: ucm-release-draft-${{ needs.plan.outputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
@@ -515,39 +630,44 @@ jobs:
           name: ucm-registry-protected-${{ needs.plan.outputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/protected
       - id: publish
-        name: Rehash exact seven upload absences and publish or reuse prerelease
+        name: Rehash the exact planner asset set and publish or reuse prerelease
         env:
           GH_TOKEN: ${{ github.token }}
           UCM_RELEASE_POLICY: ${{ vars.UCM_RELEASE_POLICY }}
           SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+          RESOLVED_PLAN_SHA256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
           RELEASE_ID: ${{ needs.prepare-release-draft.outputs.release_id }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: |
           set -euo pipefail
+          release_repository="$(python -c 'import json,os; p=json.load(open("input/plan/resolved-plan.json")); assert p["resolved_plan_sha256"]==os.environ["RESOLVED_PLAN_SHA256"]; print(p["source"]["repository"])')"
+          test "${release_repository}" = "${GITHUB_REPOSITORY}"
           mkdir -p out/state/release-assets out/downloads
-          git fetch --no-tags --force origin +refs/tags/v0.5.0rc1:refs/tags/v0.5.0rc1
-          PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag >out/state/preflight.json
+          git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}"
+          PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
+            --resolved-plan input/plan/resolved-plan.json \
+            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >out/state/preflight.json
           chart_package="$(find input/chart -maxdepth 1 -type f -name '*.tgz' -print)"
           test -n "${chart_package}"
-          CHART_PACKAGE="${chart_package}" python -c 'import json,os; p={"wheel_dir":"input/wheels","chart_result":"input/chart/chart-result.json","chart_package":os.environ["CHART_PACKAGE"],"output_dir":"out/state/release-assets","source_sha":os.environ["SOURCE_SHA"],"run":{"run_id":os.environ["GITHUB_RUN_ID"],"run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"])}}; json.dump(p,open("out/assets-request.json","w"),sort_keys=True,separators=(",",":"))'
+          CHART_PACKAGE="${chart_package}" python -c 'import json,os; p={"wheel_dir":"input/wheels","chart_result":"input/chart/chart-result.json","chart_package":os.environ["CHART_PACKAGE"],"output_dir":"out/state/release-assets","source_sha":os.environ["SOURCE_SHA"],"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"],"run":{"run_id":os.environ["GITHUB_RUN_ID"],"run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"])}}; json.dump(p,open("out/assets-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release assets-manifest --input out/assets-request.json --output out/state/assets-manifest.json >/dev/null
           gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
-            "repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}" >out/live-release.json
-          python -c 'import json,os; p={"remote":json.load(open("out/live-release.json")),"source_sha":os.environ["SOURCE_SHA"],"just_created":False}; json.dump(p,open("out/live-state-request.json","w"),sort_keys=True,separators=(",",":"))'
+            "repos/${release_repository}/releases/${RELEASE_ID}" >out/live-release.json
+          python -c 'import json,os; p={"remote":json.load(open("out/live-release.json")),"source_sha":os.environ["SOURCE_SHA"],"just_created":False,"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]}; json.dump(p,open("out/live-state-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/live-state-request.json --output out/live-state-plan.json >/dev/null
           test "$(python -c 'import json; print(json.load(open("out/live-state-plan.json"))["release_id"])')" = "${RELEASE_ID}"
-          gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}/assets?per_page=100" >out/assets-pages.json
-          python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","raw_assets":"out/assets-pages.json","release":"out/live-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets","require_complete":False},open("out/initial-download-request.json","w"),sort_keys=True,separators=(",",":"))'
+          gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}/assets?per_page=100" >out/assets-pages.json
+          python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","raw_assets":"out/assets-pages.json","release":"out/live-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets","require_complete":False,"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/initial-download-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release plan-downloads --input out/initial-download-request.json --output out/initial-download-plan.json >/dev/null
           while IFS=$'\t' read -r asset_id name; do
             gh api -H 'Accept: application/octet-stream' -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "repos/SuperMarioYL/unified-cache-management/releases/assets/${asset_id}" >"out/downloads/${name}"
+              "repos/${release_repository}/releases/assets/${asset_id}" >"out/downloads/${name}"
           done < <(python -c 'import json; [print("{}\t{}".format(x["asset_id"],x["name"])) for x in json.load(open("out/initial-download-plan.json"))["downloads"]]')
           printf '%s\n' '{"download_plan":"out/initial-download-plan.json","download_root":"out/downloads"}' >out/complete-initial-request.json
           PYTHONPATH=.github/release python -m ucm_release release complete-downloads --input out/complete-initial-request.json --output out/observed-assets.json >/dev/null
           published="$(python -c 'import json; print(str(not json.load(open("out/live-release.json"))["draft"]).lower())')"
-          PUBLISHED="${published}" python -c 'import json,os; p={"manifest":"out/state/assets-manifest.json","observed_assets":"out/observed-assets.json","release":"out/live-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets","release_published":os.environ["PUBLISHED"]=="true"}; json.dump(p,open("out/asset-plan-request.json","w"),sort_keys=True,separators=(",",":"))'
+          PUBLISHED="${published}" python -c 'import json,os; p={"manifest":"out/state/assets-manifest.json","observed_assets":"out/observed-assets.json","release":"out/live-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets","release_published":os.environ["PUBLISHED"]=="true","resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]}; json.dump(p,open("out/asset-plan-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release plan-assets --input out/asset-plan-request.json --output out/asset-plan.json >/dev/null
           cp input/draft/initial-plan.json out/state/prepare-initial-plan.json
           cp input/draft/observed-release.json out/state/prepare-release.json
@@ -557,67 +677,71 @@ jobs:
           printf '[]\n' >out/uploaded-assets.json
           printf '[]\n' >out/state/upload-transcript.json
           if [[ "${published}" != true ]]; then
-            git fetch --no-tags --force origin +refs/tags/v0.5.0rc1:refs/tags/v0.5.0rc1 +refs/heads/develop:refs/remotes/origin/develop
+            git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}" +refs/heads/develop:refs/remotes/origin/develop
             git diff --quiet HEAD:.github/workflows origin/develop:.github/workflows
             git diff --quiet HEAD:.github/release origin/develop:.github/release
-            PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag >/dev/null
+            PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
+              --resolved-plan input/plan/resolved-plan.json \
+              --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >/dev/null
             while IFS= read -r name; do
-              gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}" >out/preupload-release.json
-              python -c 'import json,os; p={"remote":json.load(open("out/preupload-release.json")),"source_sha":os.environ["SOURCE_SHA"],"just_created":False}; json.dump(p,open("out/preupload-state-request.json","w"),sort_keys=True,separators=(",",":"))'
+              gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}" >out/preupload-release.json
+              python -c 'import json,os; p={"remote":json.load(open("out/preupload-release.json")),"source_sha":os.environ["SOURCE_SHA"],"just_created":False,"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]}; json.dump(p,open("out/preupload-state-request.json","w"),sort_keys=True,separators=(",",":"))'
               PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/preupload-state-request.json --output out/preupload-plan.json >/dev/null
               test "$(python -c 'import json; print(json.load(open("out/preupload-plan.json"))["decision"])')" = resume-draft
-              gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}/assets?per_page=100" >out/preupload-assets-pages.json
-              NEXT_NAME="${name}" python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","initial_asset_plan":"out/asset-plan.json","uploaded_assets":"out/uploaded-assets.json","current_assets":"out/preupload-assets-pages.json","release":"out/preupload-release.json","source_sha":os.environ["SOURCE_SHA"],"allowed_root":"out/state/release-assets","next_name":os.environ["NEXT_NAME"],"release_id":int(os.environ["RELEASE_ID"])},open("out/upload-prefix-request.json","w"),sort_keys=True,separators=(",",":"))'
+              gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}/assets?per_page=100" >out/preupload-assets-pages.json
+              NEXT_NAME="${name}" python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","initial_asset_plan":"out/asset-plan.json","uploaded_assets":"out/uploaded-assets.json","current_assets":"out/preupload-assets-pages.json","release":"out/preupload-release.json","source_sha":os.environ["SOURCE_SHA"],"allowed_root":"out/state/release-assets","next_name":os.environ["NEXT_NAME"],"release_id":int(os.environ["RELEASE_ID"]),"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/upload-prefix-request.json","w"),sort_keys=True,separators=(",",":"))'
               PYTHONPATH=.github/release python -m ucm_release release verify-upload-prefix --input out/upload-prefix-request.json --output out/upload-prefix.json >/dev/null
               path="out/state/release-assets/${name}"
               encoded="$(python -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1],safe=""))' "${name}")"
-              gh api --method POST -H 'Accept: application/vnd.github+json' -H 'Content-Type: application/octet-stream' -H 'X-GitHub-Api-Version: 2022-11-28' --input "${path}" "https://uploads.github.com/repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}/assets?name=${encoded}" >out/upload-response.json
-              NEXT_NAME="${name}" python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","raw_response":"out/upload-response.json","release":"out/preupload-release.json","source_sha":os.environ["SOURCE_SHA"],"expected_name":os.environ["NEXT_NAME"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets"},open("out/upload-response-request.json","w"),sort_keys=True,separators=(",",":"))'
+              gh api --method POST -H 'Accept: application/vnd.github+json' -H 'Content-Type: application/octet-stream' -H 'X-GitHub-Api-Version: 2022-11-28' --input "${path}" "https://uploads.github.com/repos/${release_repository}/releases/${RELEASE_ID}/assets?name=${encoded}" >out/upload-response.json
+              NEXT_NAME="${name}" python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","raw_response":"out/upload-response.json","release":"out/preupload-release.json","source_sha":os.environ["SOURCE_SHA"],"expected_name":os.environ["NEXT_NAME"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets","resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/upload-response-request.json","w"),sort_keys=True,separators=(",",":"))'
               PYTHONPATH=.github/release python -m ucm_release release record-upload-response --input out/upload-response-request.json --output out/upload-record.json >/dev/null
               NEXT_NAME="${name}" python -c 'import json,os; p=json.load(open("out/state/upload-transcript.json")); p.append({"ordinal":len(p),"name":os.environ["NEXT_NAME"],"release":json.load(open("out/preupload-release.json")),"prefix":json.load(open("out/upload-prefix.json")),"response":json.load(open("out/upload-record.json"))}); json.dump(p,open("out/state/upload-transcript.json","w"),sort_keys=True,separators=(",",":"))'
               python -c 'import json; p=json.load(open("out/uploaded-assets.json")); p.append(json.load(open("out/upload-response.json"))); json.dump(p,open("out/uploaded-assets.json","w"),sort_keys=True,separators=(",",":"))'
             done < <(python -c 'import json; [print(x) for x in json.load(open("out/asset-plan.json"))["upload_names"]]')
           fi
-          gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}/assets?per_page=100" >out/final-assets-pages.json
+          gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}/assets?per_page=100" >out/final-assets-pages.json
           rm -rf out/final-downloads && mkdir out/final-downloads
-          python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","raw_assets":"out/final-assets-pages.json","release":"out/live-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets","require_complete":True},open("out/final-download-request.json","w"),sort_keys=True,separators=(",",":"))'
+          python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","raw_assets":"out/final-assets-pages.json","release":"out/live-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets","require_complete":True,"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/final-download-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release plan-downloads --input out/final-download-request.json --output out/final-download-plan.json >/dev/null
           while IFS=$'\t' read -r asset_id name; do
             gh api -H 'Accept: application/octet-stream' -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "repos/SuperMarioYL/unified-cache-management/releases/assets/${asset_id}" >"out/final-downloads/${name}"
+              "repos/${release_repository}/releases/assets/${asset_id}" >"out/final-downloads/${name}"
           done < <(python -c 'import json; [print("{}\t{}".format(x["asset_id"],x["name"])) for x in json.load(open("out/final-download-plan.json"))["downloads"]]')
           printf '%s\n' '{"download_plan":"out/final-download-plan.json","download_root":"out/final-downloads"}' >out/complete-final-request.json
           PYTHONPATH=.github/release python -m ucm_release release complete-downloads --input out/complete-final-request.json --output out/prepublish-downloaded-assets.json >/dev/null
-          python -c 'import json,os; p={"manifest":"out/state/assets-manifest.json","observed_assets":"out/prepublish-downloaded-assets.json","release":"out/live-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets"}; json.dump(p,open("out/verify-prepublish-assets-request.json","w"),sort_keys=True,separators=(",",":"))'
+          python -c 'import json,os; p={"manifest":"out/state/assets-manifest.json","observed_assets":"out/prepublish-downloaded-assets.json","release":"out/live-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets","resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]}; json.dump(p,open("out/verify-prepublish-assets-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release verify-assets --input out/verify-prepublish-assets-request.json --output out/state/prepublish-verification.json >/dev/null
           if [[ "${published}" != true ]]; then
-            git fetch --no-tags --force origin +refs/tags/v0.5.0rc1:refs/tags/v0.5.0rc1 +refs/heads/develop:refs/remotes/origin/develop
+            git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}" +refs/heads/develop:refs/remotes/origin/develop
             git diff --quiet HEAD:.github/workflows origin/develop:.github/workflows
             git diff --quiet HEAD:.github/release origin/develop:.github/release
-            PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag >/dev/null
-            gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}" >out/prepublish-release.json
-            python -c 'import json,os; p={"remote":json.load(open("out/prepublish-release.json")),"source_sha":os.environ["SOURCE_SHA"],"just_created":False}; json.dump(p,open("out/prepublish-state-request.json","w"),sort_keys=True,separators=(",",":"))'
+            PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
+              --resolved-plan input/plan/resolved-plan.json \
+              --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >/dev/null
+            gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}" >out/prepublish-release.json
+            python -c 'import json,os; p={"remote":json.load(open("out/prepublish-release.json")),"source_sha":os.environ["SOURCE_SHA"],"just_created":False,"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]}; json.dump(p,open("out/prepublish-state-request.json","w"),sort_keys=True,separators=(",",":"))'
             PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/prepublish-state-request.json --output out/prepublish-plan.json >/dev/null
             test "$(python -c 'import json; print(json.load(open("out/prepublish-plan.json"))["decision"])')" = resume-draft
-            gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}/assets?per_page=100" >out/prepublish-assets-pages.json
-            python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","prior_assets":"out/prepublish-downloaded-assets.json","raw_assets":"out/prepublish-assets-pages.json","prior_release":"out/live-release.json","release":"out/prepublish-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets"},open("out/refresh-assets-request.json","w"),sort_keys=True,separators=(",",":"))'
+            gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}/assets?per_page=100" >out/prepublish-assets-pages.json
+            python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","prior_assets":"out/prepublish-downloaded-assets.json","raw_assets":"out/prepublish-assets-pages.json","prior_release":"out/live-release.json","release":"out/prepublish-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets","resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/refresh-assets-request.json","w"),sort_keys=True,separators=(",",":"))'
             PYTHONPATH=.github/release python -m ucm_release release refresh-assets --input out/refresh-assets-request.json --output out/state/prepublish-assets.json >/dev/null
             cp out/prepublish-release.json out/state/prepublish-release.json
             printf '%s\n' '{"draft":false,"prerelease":true,"make_latest":"false"}' >out/publish-request.json
-            gh api --method PATCH -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}" --input out/publish-request.json >out/state/publish-response.json
-            gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}" >out/state/authenticated-release.json
+            gh api --method PATCH -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}" --input out/publish-request.json >out/state/publish-response.json
+            gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}" >out/state/authenticated-release.json
           else
-            gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}" >out/state/authenticated-release.json
+            gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}" >out/state/authenticated-release.json
             cp out/live-release.json out/state/prepublish-release.json
             cp out/prepublish-downloaded-assets.json out/state/prepublish-assets.json
           fi
-          python -c 'import json,os; p={"remote":json.load(open("out/state/authenticated-release.json")),"source_sha":os.environ["SOURCE_SHA"],"just_created":False}; json.dump(p,open("out/final-state-request.json","w"),sort_keys=True,separators=(",",":"))'
+          python -c 'import json,os; p={"remote":json.load(open("out/state/authenticated-release.json")),"source_sha":os.environ["SOURCE_SHA"],"just_created":False,"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]}; json.dump(p,open("out/final-state-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/final-state-request.json --output out/state/final-state-plan.json >/dev/null
           test "$(python -c 'import json; print(json.load(open("out/state/final-state-plan.json"))["decision"])')" = inspect-published-prerelease
-          gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}/assets?per_page=100" >out/authenticated-assets-pages.json
-          python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","prior_assets":"out/state/prepublish-assets.json","raw_assets":"out/authenticated-assets-pages.json","prior_release":"out/state/prepublish-release.json","release":"out/state/authenticated-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets"},open("out/refresh-authenticated-assets-request.json","w"),sort_keys=True,separators=(",",":"))'
+          gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}/assets?per_page=100" >out/authenticated-assets-pages.json
+          python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","prior_assets":"out/state/prepublish-assets.json","raw_assets":"out/authenticated-assets-pages.json","prior_release":"out/state/prepublish-release.json","release":"out/state/authenticated-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets","resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/refresh-authenticated-assets-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release refresh-assets --input out/refresh-authenticated-assets-request.json --output out/state/authenticated-assets.json >/dev/null
-          python -c 'import json,os; p={"manifest":"out/state/assets-manifest.json","observed_assets":"out/state/authenticated-assets.json","release":"out/state/authenticated-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets"}; json.dump(p,open("out/verify-authenticated-assets-request.json","w"),sort_keys=True,separators=(",",":"))'
+          python -c 'import json,os; p={"manifest":"out/state/assets-manifest.json","observed_assets":"out/state/authenticated-assets.json","release":"out/state/authenticated-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets","resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]}; json.dump(p,open("out/verify-authenticated-assets-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release verify-assets --input out/verify-authenticated-assets-request.json --output out/state/authenticated-verification.json >/dev/null
           cp input/protected/protected-publication.json out/state/protected-publication.json
           cp input/protected/member-collection.json out/state/member-collection.json
@@ -656,19 +780,22 @@ jobs:
         with:
           name: ucm-release-authenticated-${{ needs.plan.outputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/state
-      - name: Anonymous exact release and seven-asset byte readback
+      - name: Anonymous exact release and planner-selected asset byte readback
         env:
           SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
           RELEASE_ID: ${{ needs.prepare-release-draft.outputs.release_id }}
+          RESOLVED_PLAN_SHA256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
         run: |
           set -euo pipefail
+          release_repository="$(python -c 'import json,os; p=json.load(open("input/state/release-assets/resolved-plan.json")); assert p["resolved_plan_sha256"]==os.environ["RESOLVED_PLAN_SHA256"]; print(p["source"]["repository"])')"
+          test "${release_repository}" = "${GITHUB_REPOSITORY}"
           mkdir -p out/publication out/anonymous-downloads
-          curl -fsSL --retry 3 -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "https://api.github.com/repos/SuperMarioYL/unified-cache-management/releases/tags/v0.5.0rc1" >out/anonymous-release.json
+          curl -fsSL --retry 3 -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "https://api.github.com/repos/${release_repository}/releases/tags/${GITHUB_REF_NAME}" >out/anonymous-release.json
           test "$(python -c 'import json; print(json.load(open("out/anonymous-release.json"))["id"])')" = "${RELEASE_ID}"
-          curl -fsSL --retry 3 -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "https://api.github.com/repos/SuperMarioYL/unified-cache-management/releases/${RELEASE_ID}/assets?per_page=100" >out/anonymous-assets-raw.json
-          printf '%s\n' '{"manifest":"input/state/assets-manifest.json","allowed_root":"input/state/release-assets"}' >out/rebase-request.json
+          curl -fsSL --retry 3 -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "https://api.github.com/repos/${release_repository}/releases/${RELEASE_ID}/assets?per_page=100" >out/anonymous-assets-raw.json
+          python -c 'import json,os; json.dump({"manifest":"input/state/assets-manifest.json","allowed_root":"input/state/release-assets","resolved_plan":"input/state/release-assets/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/rebase-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release rebase-manifest --input out/rebase-request.json --output out/assets-manifest.json >/dev/null
-          python -c 'import json,os; json.dump({"manifest":"out/assets-manifest.json","raw_assets":"out/anonymous-assets-raw.json","release":"out/anonymous-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"input/state/release-assets","require_complete":True},open("out/anonymous-download-request.json","w"),sort_keys=True,separators=(",",":"))'
+          python -c 'import json,os; json.dump({"manifest":"out/assets-manifest.json","raw_assets":"out/anonymous-assets-raw.json","release":"out/anonymous-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"input/state/release-assets","require_complete":True,"resolved_plan":"input/state/release-assets/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/anonymous-download-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release plan-downloads --input out/anonymous-download-request.json --output out/anonymous-download-plan.json >/dev/null
           while IFS=$'\t' read -r api_url name; do
             curl -fsSL --retry 3 -H 'Accept: application/octet-stream' -H 'X-GitHub-Api-Version: 2022-11-28' \
@@ -676,9 +803,9 @@ jobs:
           done < <(python -c 'import json; [print("{}\t{}".format(x["api_url"],x["name"])) for x in json.load(open("out/anonymous-download-plan.json"))["downloads"]]')
           printf '%s\n' '{"download_plan":"out/anonymous-download-plan.json","download_root":"out/anonymous-downloads"}' >out/complete-anonymous-request.json
           PYTHONPATH=.github/release python -m ucm_release release complete-downloads --input out/complete-anonymous-request.json --output out/anonymous-assets.json >/dev/null
-          python -c 'import json,os; json.dump({"prepare_initial_plan":"input/state/prepare-initial-plan.json","initial_release":"input/state/initial-release.json","initial_asset_plan":"input/state/initial-asset-plan.json","authenticated_assets":"input/state/authenticated-assets.json","asset_manifest":"out/assets-manifest.json","upload_transcript":"input/state/upload-transcript.json","allowed_root":"input/state/release-assets","source_sha":os.environ["SOURCE_SHA"]},open("out/ledger-request.json","w"),sort_keys=True,separators=(",",":"))'
+          python -c 'import json,os; json.dump({"prepare_initial_plan":"input/state/prepare-initial-plan.json","initial_release":"input/state/initial-release.json","initial_asset_plan":"input/state/initial-asset-plan.json","authenticated_assets":"input/state/authenticated-assets.json","asset_manifest":"out/assets-manifest.json","upload_transcript":"input/state/upload-transcript.json","allowed_root":"input/state/release-assets","source_sha":os.environ["SOURCE_SHA"],"resolved_plan":"input/state/release-assets/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/ledger-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release operation-ledger --input out/ledger-request.json --output out/operations.json >/dev/null
-          python -c 'import json,os; request={"protected_registry":"input/state/protected-publication.json","asset_manifest":"out/assets-manifest.json","allowed_root":"input/state/release-assets","prepare_initial_plan":"input/state/prepare-initial-plan.json","prepare_release":"input/state/prepare-release.json","initial_release":"input/state/initial-release.json","initial_assets":"input/state/initial-assets.json","initial_asset_plan":"input/state/initial-asset-plan.json","upload_transcript":"input/state/upload-transcript.json","prepublish_release":"input/state/prepublish-release.json","prepublish_assets":"input/state/prepublish-assets.json","authenticated_release":"input/state/authenticated-release.json","authenticated_assets":"input/state/authenticated-assets.json","anonymous_release":"out/anonymous-release.json","anonymous_assets":"out/anonymous-assets.json","operations":"out/operations.json","source_sha":os.environ["SOURCE_SHA"],"run":{"run_id":os.environ["GITHUB_RUN_ID"],"run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"])}}; json.dump(request,open("out/publication-request.json","w"),sort_keys=True,separators=(",",":"))'
+          python -c 'import json,os; request={"protected_registry":"input/state/protected-publication.json","asset_manifest":"out/assets-manifest.json","allowed_root":"input/state/release-assets","prepare_initial_plan":"input/state/prepare-initial-plan.json","prepare_release":"input/state/prepare-release.json","initial_release":"input/state/initial-release.json","initial_assets":"input/state/initial-assets.json","initial_asset_plan":"input/state/initial-asset-plan.json","upload_transcript":"input/state/upload-transcript.json","prepublish_release":"input/state/prepublish-release.json","prepublish_assets":"input/state/prepublish-assets.json","authenticated_release":"input/state/authenticated-release.json","authenticated_assets":"input/state/authenticated-assets.json","anonymous_release":"out/anonymous-release.json","anonymous_assets":"out/anonymous-assets.json","operations":"out/operations.json","source_sha":os.environ["SOURCE_SHA"],"resolved_plan":"input/state/release-assets/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"],"run":{"run_id":os.environ["GITHUB_RUN_ID"],"run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"])}}; json.dump(request,open("out/publication-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release publication-evidence --input out/publication-request.json --output out/publication/github-release-publication.json >/dev/null
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

@@ -50,6 +50,22 @@ def _modules():
     )
 
 
+def _fixture_resolved_plan() -> dict[str, object]:
+    core, _, registry, _ = _modules()
+    catalog = core.load_catalog()
+    fixture = json.loads(
+        (RELEASE_ROOT / "tests" / "fixtures" / "catalog-registry.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    return registry.resolve_catalog(
+        catalog,
+        source_sha="0" * 40,
+        lane="feature-candidate",
+        fixture=fixture,
+    )
+
+
 def _write_fixture_wheel(tmp_path: Path, spec: dict[str, object], version: str) -> Path:
     platform = {"amd64": "x86_64", "arm64": "aarch64"}[spec["cpu_arch"]]
     tag = f"{spec['python_abi']}-{spec['python_abi']}-linux_{platform}"
@@ -65,6 +81,7 @@ def _write_fixture_wheel(tmp_path: Path, spec: dict[str, object], version: str) 
                 "Metadata-Version: 2.1",
                 "Name: uc-manager",
                 f"Version: {version}",
+                "Requires-Dist: packaging==24.2",
                 "Requires-Dist: wrapt==1.17.2",
                 "",
             ]
@@ -109,6 +126,15 @@ def _install_module():
     )
 
 
+def _inspect_module():
+    return SimpleNamespace(
+        **runpy.run_path(
+            str(DOCKER_ROOT / "inspect_runtime.py"),
+            run_name="ucm_release_inspect_test",
+        )
+    )
+
+
 def _write_metadata_wheel(
     path: Path, *, distribution: str, version: str, requires_dist: list[str]
 ) -> None:
@@ -120,40 +146,84 @@ def _write_metadata_wheel(
         "",
     ]
     dist_info = distribution.replace("-", "_")
+    module = {"uc-manager": "ucm"}.get(distribution, distribution.replace("-", "_"))
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(
             f"{dist_info}-{version}.dist-info/METADATA", "\n".join(metadata)
         )
+        archive.writestr(
+            f"{dist_info}-{version}.dist-info/WHEEL",
+            "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+        )
+        archive.writestr(f"{module}/__init__.py", f"__version__ = {version!r}\n")
+        archive.writestr(f"{dist_info}-{version}.dist-info/RECORD", "")
 
 
-def _real_install_case(tmp_path: Path, profile_id: str = "cuda130-amd64"):
+def _real_install_case(
+    tmp_path: Path,
+    profile_id: str = "cuda130-amd64",
+    *,
+    runtime_dependencies: list[dict[str, str]] | None = None,
+):
     wheelhouse = tmp_path / "wheelhouse"
     wheelhouse.mkdir()
     version = "3.1.0"
     ucm_path = wheelhouse / "uc_manager-3.1.0-cp312-cp312-linux_x86_64.whl"
-    wrapt_path = wheelhouse / "wrapt-1.17.2-cp312-cp312-linux_x86_64.whl"
+    declarations = runtime_dependencies or [
+        {
+            "name": "packaging",
+            "version": "24.2",
+            "requirement": "packaging==24.2",
+            "import_name": "packaging",
+        },
+        {
+            "name": "wrapt",
+            "version": "1.17.2",
+            "requirement": "wrapt==1.17.2",
+            "import_name": "wrapt",
+        },
+    ]
+    declarations = sorted(copy.deepcopy(declarations), key=lambda item: item["name"])
+    requirements = [item["requirement"] for item in declarations]
     _write_metadata_wheel(
         ucm_path,
         distribution="uc-manager",
         version=version,
-        requires_dist=["wrapt==1.17.2"],
-    )
-    _write_metadata_wheel(
-        wrapt_path,
-        distribution="wrapt",
-        version="1.17.2",
-        requires_dist=[],
+        requires_dist=requirements,
     )
 
     def digest(path: Path) -> str:
         return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
+    dependency_paths: dict[str, Path] = {}
+    resolved_dependencies: list[dict[str, str]] = []
+    for declaration in declarations:
+        normalized = declaration["name"].replace("-", "_")
+        path = wheelhouse / f"{normalized}-{declaration['version']}-py3-none-any.whl"
+        _write_metadata_wheel(
+            path,
+            distribution=declaration["name"],
+            version=declaration["version"],
+            requires_dist=[],
+        )
+        dependency_paths[declaration["name"]] = path
+        resolved_dependencies.append(
+            {
+                **declaration,
+                "filename": path.name,
+                "sha256": digest(path),
+            }
+        )
+
     lock_path = wheelhouse / "requirements.lock"
     ucm_sha256 = digest(ucm_path)
-    wrapt_sha256 = digest(wrapt_path)
     lock_path.write_text(
         f"uc-manager @ file:///wheelhouse/{ucm_path.name} --hash={ucm_sha256}\n"
-        f"wrapt @ file:///wheelhouse/{wrapt_path.name} --hash={wrapt_sha256}\n",
+        + "".join(
+            f"{record['name']} @ file:///wheelhouse/{record['filename']} "
+            f"--hash={record['sha256']}\n"
+            for record in resolved_dependencies
+        ),
         encoding="utf-8",
     )
     authority_payload = {
@@ -181,10 +251,12 @@ def _real_install_case(tmp_path: Path, profile_id: str = "cuda130-amd64"):
             "sha256": ucm_sha256,
             "version": version,
         },
-        "wrapt_wheel": {
-            "filename": wrapt_path.name,
-            "sha256": wrapt_sha256,
-        },
+        "runtime_dependencies": resolved_dependencies,
+        "context_files": [
+            ucm_path.name,
+            *(record["filename"] for record in resolved_dependencies),
+            lock_path.name,
+        ],
         "dependency_lock": {
             "sha256": digest(lock_path),
             "preinstall_command": [
@@ -194,7 +266,7 @@ def _real_install_case(tmp_path: Path, profile_id: str = "cuda130-amd64"):
                 "uninstall",
                 "--yes",
                 "uc-manager",
-                "wrapt",
+                *(record["name"] for record in resolved_dependencies),
             ],
             "pip_command": [
                 "python",
@@ -223,10 +295,20 @@ def _real_install_case(tmp_path: Path, profile_id: str = "cuda130-amd64"):
     recipe_path.write_text(json.dumps(recipe), encoding="utf-8")
 
     distributions: dict[str, SimpleNamespace] = {}
-    for name, installed_version, requires, filename, sha256 in (
-        ("uc-manager", version, ["wrapt==1.17.2"], ucm_path.name, ucm_sha256),
-        ("wrapt", "1.17.2", [], wrapt_path.name, wrapt_sha256),
-    ):
+    distributions_to_write = [
+        ("uc-manager", version, requirements, ucm_path.name, ucm_sha256),
+        *[
+            (
+                record["name"],
+                record["version"],
+                [],
+                record["filename"],
+                record["sha256"],
+            )
+            for record in resolved_dependencies
+        ],
+    ]
+    for name, installed_version, requires, filename, sha256 in distributions_to_write:
         dist_info = tmp_path / "installed" / name
         dist_info.mkdir(parents=True)
         (dist_info / "direct_url.json").write_text(
@@ -249,6 +331,7 @@ def _real_install_case(tmp_path: Path, profile_id: str = "cuda130-amd64"):
         "wheelhouse": wheelhouse,
         "lock_path": lock_path,
         "version": version,
+        "runtime_dependencies": resolved_dependencies,
         "distributions": distributions,
     }
 
@@ -315,7 +398,7 @@ def _inventory(registry) -> dict[str, object]:
         ],
         "entries": [],
     }
-    value["inventory_sha256"] = registry.inventory_digest(value)
+    value["inventory_sha256"] = registry.fixture_inventory_digest(value)
     return value
 
 
@@ -417,7 +500,7 @@ def _rebind_base_config(record: dict[str, object], mutate: object) -> dict[str, 
 
 def _actual_inputs(tmp_path: Path) -> dict[str, object]:
     core, wheel_module, registry, image = _modules()
-    manifest = core.build_release_manifest()
+    manifest = core._build_fixture_release_manifest()
     spec = next(
         item
         for item in manifest["wheel_specs"]
@@ -433,19 +516,19 @@ def _actual_inputs(tmp_path: Path) -> dict[str, object]:
     )
     wheel_path = Path(fixture["wheel_path"])
     wheel_record = fixture["inspection"]
-    _, compatibility = core.validate_config()
+    catalog = core.load_catalog()
     source_case = {
         "release_manifest": manifest,
         "wheel_records": [wheel_record],
         "spec_id": spec["spec_id"],
         "upstream_snapshot": _snapshot(),
-        "compatibility": compatibility,
+        "catalog": catalog,
         "compatibility_rule_id": "ascend-supported",
         "implementation_digest": image.implementation_digests()["aggregate_sha256"],
     }
-    candidate = registry.build_candidate(**source_case, fixture_mode=True)
+    candidate = registry.build_fixture_candidate(**source_case, fixture_mode=True)
     inventory = _inventory(registry)
-    task = registry.reconcile(candidate, inventory)["tasks"][0]
+    task = registry.reconcile_fixture_candidate(candidate, inventory)["tasks"][0]
     return {
         "source_case": source_case,
         "candidate": candidate,
@@ -486,7 +569,7 @@ def _evidence(recipe: dict[str, object]) -> dict[str, object]:
             "wheel_filename": wheel["filename"],
             "wheel_sha256": wheel["sha256"],
             "version": wheel["version"],
-            "requires_dist": ["wrapt==1.17.2"],
+            "requires_dist": ["packaging==24.2", "wrapt==1.17.2"],
             "pip_command": [
                 "/usr/local/bin/python",
                 "-m",
@@ -506,9 +589,14 @@ def _evidence(recipe: dict[str, object]) -> dict[str, object]:
             },
             "installed_packages": {
                 "uc-manager": wheel["version"],
+                "packaging": "24.2",
                 "wrapt": "1.17.2",
             },
-            "imports": {"ucm": "passed", "wrapt": "passed"},
+            "imports": {
+                "ucm": "passed",
+                "packaging": "passed",
+                "wrapt": "passed",
+            },
             "status": "passed",
         },
         "runtime": {
@@ -774,14 +862,16 @@ def test_native_build_and_runtime_preserve_mooncake_loader_path() -> None:
     assert dockerfile.count("ARG LD_LIBRARY_PATH") == 3
     assert dockerfile.count(inherited_loader_path) == 3
     assert dockerfile.count("RUN ldconfig /usr/local/lib") == 2
-    assert "wheel preflight-dependencies" in dockerfile
-    assert "--binary /usr/local/lib/libmooncake_store.so" in dockerfile
+    assert "wheel check-environment" in dockerfile
+    assert "libmooncake_store.so" not in dockerfile
     assert "grep -F 'not found'" not in dockerfile
     assert '[*directories, os.environ.get("LD_LIBRARY_PATH", "")]' in inspector
 
 
-def test_wheel_base_caches_cuda_runtime_without_changing_runtime_stages() -> None:
-    """Only CUDA wheel builds need cudart added to the common loader cache."""
+def test_wheel_base_uses_catalog_library_caches_without_backend_branches() -> None:
+    """Builder library cache roots come only from each selected wheel task."""
+    core, *_ = _modules()
+    catalog = core.load_catalog()
     dockerfile = (RELEASE_ROOT / "docker/Dockerfile").read_text(encoding="utf-8")
     wheel_base = dockerfile.split(
         "FROM ${UCM_BUILDER_IMAGE} AS wheel-base", maxsplit=1
@@ -793,12 +883,17 @@ def test_wheel_base_caches_cuda_runtime_without_changing_runtime_stages() -> Non
         "FROM ${BASE_IMAGE} AS runtime-real-install", maxsplit=1
     )[1].split("FROM runtime-real-install AS runtime-real", maxsplit=1)[0]
 
-    assert 'if [[ "${PLATFORM}" == "cuda" ]]; then' in wheel_base
-    cuda_branch, non_cuda_branch = wheel_base.split("else", maxsplit=1)
-    assert "test -f /usr/local/cuda/lib64/libcudart.so.13" in cuda_branch
-    assert "ldconfig /usr/local/lib /usr/local/cuda/lib64" in cuda_branch
-    assert "ldconfig /usr/local/lib;" in non_cuda_branch
-    assert "/usr/local/cuda/lib64" not in non_cuda_branch
+    cache_paths: dict[str, set[str]] = {}
+    for profile in catalog["wheel_profiles"]:
+        checks = profile["builders"]["amd64"]["checks"]
+        cache_paths[profile["accelerator"]] = {
+            check["path"] for check in checks if check["kind"] == "library-cache"
+        }
+    assert cache_paths["cuda"] == {"/usr/local/lib", "/usr/local/cuda/lib64"}
+    assert cache_paths["ascend"] == {"/usr/local/lib"}
+    assert 'if [[ "${PLATFORM}" == "cuda" ]]; then' not in wheel_base
+    assert "/usr/local/cuda/lib64" not in wheel_base
+    assert "RUN ldconfig /usr/local/lib\n" not in wheel_base
     for runtime_stage in (runtime_install, runtime_real_install):
         assert runtime_stage.count("RUN ldconfig /usr/local/lib") == 1
         assert "/usr/local/cuda/lib64" not in runtime_stage
@@ -828,19 +923,21 @@ def test_runtime_stages_remove_ldconfig_aux_cache_in_the_same_layer() -> None:
         assert "RUN rm -f /var/cache/ldconfig/aux-cache" not in runtime_stage
 
 
-def test_real_runtime_oci_labels_bind_the_canonical_source_repository() -> None:
-    """GHCR package linkage is part of the immutable real-member identity."""
+def test_real_runtime_oci_labels_bind_the_planned_source_repository() -> None:
+    """GHCR package linkage comes from the protected resolved plan."""
     dockerfile = (RELEASE_ROOT / "docker/Dockerfile").read_text(encoding="utf-8")
     runtime_real_install = dockerfile.split(
         "FROM ${BASE_IMAGE} AS runtime-real-install", maxsplit=1
     )[1].split("FROM runtime-real-install AS runtime-real", maxsplit=1)[0]
 
+    assert runtime_real_install.count("ARG UCM_SOURCE_REPOSITORY_URL") == 1
     assert (
         runtime_real_install.count(
-            'org.opencontainers.image.source="https://github.com/SuperMarioYL/unified-cache-management"'
+            'org.opencontainers.image.source="${UCM_SOURCE_REPOSITORY_URL}"'
         )
         == 1
     )
+    assert "SuperMarioYL/unified-cache-management" not in runtime_real_install
 
 
 def test_runtime_stages_invoke_all_python_helpers_through_python3() -> None:
@@ -899,25 +996,214 @@ def test_real_install_records_exact_ucm_package_scope(
 
     assert result["dependency_check"] == {
         "kind": "ucm-package-scope",
-        "scope": ["uc-manager", "wrapt"],
+        "scope": ["uc-manager", "packaging", "wrapt"],
         "packages": {
             "uc-manager": {
                 "version": case["version"],
-                "requires_dist": ["wrapt==1.17.2"],
+                "requires_dist": ["packaging==24.2", "wrapt==1.17.2"],
             },
+            "packaging": {"version": "24.2", "requires_dist": []},
             "wrapt": {"version": "1.17.2", "requires_dist": []},
         },
         "requirements": [
+            {
+                "owner": "uc-manager",
+                "requirement": "packaging==24.2",
+                "dependency": "packaging",
+                "installed_version": "24.2",
+                "status": "passed",
+            },
             {
                 "owner": "uc-manager",
                 "requirement": "wrapt==1.17.2",
                 "dependency": "wrapt",
                 "installed_version": "1.17.2",
                 "status": "passed",
-            }
+            },
         ],
         "status": "passed",
     }
+    assert result["installed_packages"] == {
+        "uc-manager": case["version"],
+        "packaging": "24.2",
+        "wrapt": "1.17.2",
+    }
+    assert result["imports"] == {
+        "ucm": "passed",
+        "packaging": "passed",
+        "wrapt": "passed",
+    }
+
+
+def test_real_install_accepts_task_bound_noncurrent_and_third_dependency(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Runtime installation must consume an arbitrary exact task dependency set."""
+    installer = _install_module()
+    dependencies = [
+        {
+            "name": "packaging",
+            "version": "24.2",
+            "requirement": "packaging==24.2",
+            "import_name": "packaging",
+        },
+        {
+            "name": "wrapt",
+            "version": "1.18.0",
+            "requirement": "wrapt==1.18.0",
+            "import_name": "wrapt",
+        },
+        {
+            "name": "alpha-runtime",
+            "version": "2.0",
+            "requirement": "alpha-runtime==2.0",
+            "import_name": "alpha_runtime",
+        },
+    ]
+    case = _real_install_case(tmp_path, runtime_dependencies=dependencies)
+    commands = _stub_real_install_environment(installer, case, monkeypatch)
+
+    result = installer.install_real(
+        case["recipe_path"],
+        case["authority_path"],
+        case["wheelhouse"],
+        case["lock_path"],
+    )
+
+    assert result["installed_packages"] == {
+        "alpha-runtime": "2.0",
+        "packaging": "24.2",
+        "uc-manager": case["version"],
+        "wrapt": "1.18.0",
+    }
+    assert result["imports"] == {
+        "alpha_runtime": "passed",
+        "packaging": "passed",
+        "ucm": "passed",
+        "wrapt": "passed",
+    }
+    assert result["runtime_dependencies"] == sorted(
+        case["runtime_dependencies"], key=lambda item: item["name"]
+    )
+    assert len(commands) == 2
+
+
+def test_dependency_lock_producer_installs_and_imports_from_isolated_site(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The locked packaging wheel, not a base-site package, satisfies runtime import."""
+    *_, image = _modules()
+    installer = _install_module()
+    case = _real_install_case(tmp_path)
+    recipe = json.loads(case["recipe_path"].read_text(encoding="utf-8"))
+    payload = recipe["payload"]
+    task = _real_image_task(image)
+    task["runtime_dependencies"] = copy.deepcopy(payload["runtime_dependencies"])
+    task["authority_sha256"] = image.sha256_value(
+        {key: value for key, value in task.items() if key != "authority_sha256"}
+    )
+    produced = image.build_real_dependency_lock(
+        task,
+        case["wheelhouse"] / payload["wheel"]["filename"],
+        [
+            case["wheelhouse"] / dependency["filename"]
+            for dependency in payload["runtime_dependencies"]
+        ],
+    )
+    assert produced["requirements"] == case["lock_path"].read_text(encoding="utf-8")
+
+    isolated_site = tmp_path / "isolated-site"
+    isolated_site.mkdir()
+    real_run = subprocess.run
+
+    def install_into_isolated_site(command: list[str], *, check: bool):
+        assert check is True
+        if command[3] == "install":
+            for wheel_path in sorted(case["wheelhouse"].glob("*.whl")):
+                with zipfile.ZipFile(wheel_path) as archive:
+                    archive.extractall(isolated_site)
+                _, _, _ = installer._wheel_metadata(wheel_path)
+                dist_info = next(
+                    path
+                    for path in isolated_site.glob("*.dist-info")
+                    if path.name.startswith(
+                        wheel_path.name.split("-", 1)[0].replace("-", "_")
+                    )
+                )
+                (dist_info / "direct_url.json").write_text(
+                    json.dumps(
+                        {
+                            "url": f"file:///wheelhouse/{wheel_path.name}",
+                            "archive_info": {
+                                "hash": "sha256="
+                                + hashlib.sha256(wheel_path.read_bytes()).hexdigest()
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+        return subprocess.CompletedProcess(command, 0)
+
+    def isolated_distribution(name: str):
+        distributions = {
+            distribution.metadata["Name"]: distribution
+            for distribution in importlib.metadata.distributions(path=[isolated_site])
+        }
+        value = distributions.get(name)
+        if value is None:
+            raise importlib.metadata.PackageNotFoundError(name)
+        return value
+
+    def isolated_import(name: str):
+        code = (
+            "import importlib,pathlib,sys;"
+            f"sys.path.insert(0,{str(isolated_site)!r});"
+            f"m=importlib.import_module({name!r});"
+            f"assert pathlib.Path(m.__file__).is_relative_to(pathlib.Path({str(isolated_site)!r}))"
+        )
+        completed = real_run(
+            [sys.executable, "-I", "-c", code],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr
+        return object()
+
+    monkeypatch.setattr(installer.subprocess, "run", install_into_isolated_site)
+    monkeypatch.setattr(
+        installer.importlib.metadata, "distribution", isolated_distribution
+    )
+    monkeypatch.setattr(installer.importlib, "import_module", isolated_import)
+
+    result = installer.install_real(
+        case["recipe_path"],
+        case["authority_path"],
+        case["wheelhouse"],
+        case["lock_path"],
+    )
+
+    assert result["imports"]["packaging"] == "passed"
+
+
+@pytest.mark.parametrize("mutation", ["missing", "tampered"])
+def test_real_install_rejects_missing_or_tampered_runtime_lock(
+    tmp_path: Path, mutation: str
+) -> None:
+    installer = _install_module()
+    case = _real_install_case(tmp_path)
+    if mutation == "missing":
+        case["lock_path"].unlink()
+    else:
+        case["lock_path"].write_text("tampered\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="lock|wheelhouse"):
+        installer.install_real(
+            case["recipe_path"],
+            case["authority_path"],
+            case["wheelhouse"],
+            case["lock_path"],
+        )
 
 
 @pytest.mark.parametrize(
@@ -971,9 +1257,8 @@ def test_native_build_runs_the_locked_cmake_from_cpython_scripts() -> None:
     )
     assert locked_cmake in dockerfile
     assert 'test -x "${locked_cmake}"' in dockerfile
-    assert '"${locked_cmake}" --version' in dockerfile
-    assert '= "${CMAKE_VERSION}"' in dockerfile
-    assert locked_scripts_path in dockerfile
+    assert f"export {locked_scripts_path}" in dockerfile
+    assert "wheel check-environment" in dockerfile
     assert "command -v cmake" not in dockerfile
 
 
@@ -1430,6 +1715,62 @@ def test_verify_recomputes_closure_and_emits_deterministic_fixture_result(
     assert "signature" not in json.dumps(first).lower()
 
 
+def test_fixture_context_uses_its_embedded_catalog_without_current_reopen(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A frozen fixture case supplies its own dependency authority."""
+    *_, image = _modules()
+    values = _actual_inputs(tmp_path)
+    expected = image.release_core.python_runtime_requirements(
+        values["source_case"]["catalog"]
+    )
+    monkeypatch.setattr(
+        image.release_core,
+        "load_catalog",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("fixture context reopened the current catalog")
+        ),
+    )
+
+    recipe = image.prepare_context(
+        **values,
+        output_dir=tmp_path / "frozen-fixture-context",
+    )
+
+    assert recipe["payload"]["wheel"]["requires_dist"] == expected
+
+
+def test_fixture_evidence_uses_recipe_dependencies_without_current_reopen(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Changed dependency names and versions remain recipe-bound."""
+    image, _, _, recipe = _prepare(tmp_path)
+    evidence = _evidence(recipe)
+    recipe = copy.deepcopy(recipe)
+    evidence = copy.deepcopy(evidence)
+    recipe["payload"]["wheel"]["requires_dist"] = ["futuredep==7.4"]
+    recipe["payload_sha256"] = image.sha256_value(recipe["payload"])
+    evidence["recipe_sha256"] = recipe["payload_sha256"]
+    evidence["install"]["requires_dist"] = ["futuredep==7.4"]
+    evidence["install"]["installed_packages"] = {
+        "uc-manager": recipe["payload"]["wheel"]["version"],
+        "futuredep": "7.4",
+    }
+    evidence["install"]["imports"] = {
+        "ucm": "passed",
+        "futuredep": "passed",
+    }
+    monkeypatch.setattr(
+        image.release_core,
+        "load_catalog",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("fixture verifier reopened the current catalog")
+        ),
+    )
+
+    assert image._verify_evidence(recipe, evidence)["install"] == "passed"
+
+
 @pytest.mark.parametrize(
     ("path", "value", "match"),
     [
@@ -1812,33 +2153,46 @@ def test_image_builder_rejects_unsupported_or_mixed_ascend_tasks(
 
 
 def _real_image_task(image, spec_id: str = "cuda130-amd64"):
-    authorities = image.real_image_authorities()
-    return next(item for item in authorities if item["spec_id"] == spec_id)
+    plan = _fixture_resolved_plan()
+    task = next(item for item in plan["image_tasks"] if item["spec_id"] == spec_id)
+    return image.real_image_authority_from_plan(
+        plan,
+        task_id=task["task_id"],
+        expected_plan_sha256=plan["resolved_plan_sha256"],
+    )
 
 
-def test_real_image_authority_projects_exactly_the_six_reviewed_members() -> None:
-    """Dropping, inventing, or caller-renaming a production member is a bug."""
-    core, _, _, image = _modules()
-    matrix = core.build_matrix("feature-candidate")
-    authorities = image.real_image_authorities()
+def test_current_catalog_fixture_real_authorities_match_the_resolved_plan() -> None:
+    """The current member list is fixture evidence; the plan is the authority."""
+    *_, image = _modules()
+    plan = _fixture_resolved_plan()
+    authorities = [
+        image.real_image_authority_from_plan(
+            plan,
+            task_id=task["task_id"],
+            expected_plan_sha256=plan["resolved_plan_sha256"],
+        )
+        for task in plan["image_tasks"]
+    ]
 
     assert [item["spec_id"] for item in authorities] == [
-        "cuda130-amd64",
-        "cuda130-arm64",
-        "cann900-a2-amd64",
-        "cann900-a2-arm64",
-        "cann900-a3-amd64",
-        "cann900-a3-arm64",
+        item["spec_id"] for item in plan["image_tasks"]
     ]
     assert [item["task_sha256"] for item in authorities] == [
-        item["task_sha256"] for item in matrix["tasks"]
+        item["task_sha256"] for item in plan["image_tasks"]
     ]
+    assert all(
+        item["resolved_plan_sha256"] == plan["resolved_plan_sha256"]
+        for item in authorities
+    )
     assert all(item["kind"] == "ucm-real-image-task-authority" for item in authorities)
     assert all(item["candidate_kind"] == "real-candidate" for item in authorities)
     assert all(item["fixture_only"] is False for item in authorities)
     assert all(item["unpublished"] is True for item in authorities)
     assert all(item["publication_attempted"] is False for item in authorities)
-    assert len({item["authority_sha256"] for item in authorities}) == 6
+    assert len({item["authority_sha256"] for item in authorities}) == len(
+        plan["image_tasks"]
+    )
     assert all(
         item["external_required_dependencies"] == []
         for item in authorities
@@ -1865,23 +2219,152 @@ def test_real_image_authority_projects_exactly_the_six_reviewed_members() -> Non
         ("docker.io/vllm/vllm-openai", "ghcr.io/supermarioyl/vllm-openai"),
         ("quay.io/ascend/vllm-ascend", "ghcr.io/supermarioyl/vllm-ascend"),
     }
+    assert {
+        (
+            item["profile_id"],
+            tuple(sorted(item["runtime_patch_variants"].items())),
+        )
+        for item in authorities
+    } == {
+        ("cuda130", (("vllm", "default"),)),
+        ("cann900-a2", (("vllm", "default"), ("vllm-ascend", "a2"))),
+        ("cann900-a3", (("vllm", "default"), ("vllm-ascend", "a3"))),
+    }
+
+
+@pytest.mark.parametrize("mutation", ["missing", "tampered", "foreign"])
+def test_real_image_authority_rejects_missing_tampered_or_foreign_variant_map(
+    mutation: str,
+) -> None:
+    """The exact product map is part of the hashed image-task authority."""
+    core, _, _, image = _modules()
+    plan = _fixture_resolved_plan()
+    task = next(
+        item
+        for item in plan["image_tasks"]
+        if item["profile_id"] == "cann900-a2" and item["cpu_arch"] == "amd64"
+    )
+    wheel_task = next(
+        item for item in plan["wheel_tasks"] if item["task_id"] == task["wheel_task_id"]
+    )
+    image._real_image_authority_from_selected_tasks(
+        copy.deepcopy(task),
+        copy.deepcopy(wheel_task),
+        resolved_plan_sha256=plan["resolved_plan_sha256"],
+        source_repository=plan["source"]["repository"],
+    )
+    if mutation == "missing":
+        task["runtime_patch_variants"].pop("vllm")
+    elif mutation == "tampered":
+        task["runtime_patch_variants"]["vllm-ascend"] = "a3"
+    else:
+        task["runtime_patch_variants"]["foreign"] = "a2"
+    task["task_sha256"] = core.sha256_value(
+        {key: value for key, value in task.items() if key != "task_sha256"}
+    )
+
+    with pytest.raises(ValueError, match="variant"):
+        image._real_image_authority_from_selected_tasks(
+            task,
+            wheel_task,
+            resolved_plan_sha256=plan["resolved_plan_sha256"],
+            source_repository=plan["source"]["repository"],
+        )
+
+
+def test_real_runtime_recipe_and_evidence_bind_the_product_variant_map() -> None:
+    """Runtime inspection cannot attest a different product-specific map."""
+    *_, image = _modules()
+    recipe, evidence = _real_runtime_probe(image, "cann900-a2-amd64")
+    expected = {"vllm": "default", "vllm-ascend": "a2"}
+    encoded = '{"vllm":"default","vllm-ascend":"a2"}'
+
+    assert recipe["payload"]["runtime_patch_variants"] == expected
+    assert (
+        recipe["payload"]["build"]["build_args"]["UCM_RUNTIME_PATCH_VARIANTS"]
+        == encoded
+    )
+    assert evidence["runtime"]["runtime_patch_variants"] == expected
+    assert image.verify_real_runtime_evidence(recipe, evidence)["variant"] == "passed"
+
+    evidence["runtime"]["runtime_patch_variants"]["vllm-ascend"] = "a3"
+    with pytest.raises(ValueError, match="variant"):
+        image.verify_real_runtime_evidence(recipe, evidence)
+
+
+def test_runtime_real_docker_stage_persists_the_authorized_variant_map() -> None:
+    """The built image must expose the canonical product-specific map."""
+    dockerfile = (RELEASE_ROOT / "docker/Dockerfile").read_text(encoding="utf-8")
+    runtime_real_install = dockerfile.split(
+        "FROM ${BASE_IMAGE} AS runtime-real-install", maxsplit=1
+    )[1].split("FROM runtime-real-install AS runtime-real", maxsplit=1)[0]
+
+    assert "ARG UCM_RUNTIME_PATCH_VARIANTS" in runtime_real_install
+    assert (
+        'ENV UCM_RUNTIME_PATCH_VARIANTS="${UCM_RUNTIME_PATCH_VARIANTS}"'
+        in runtime_real_install
+    )
 
 
 @pytest.mark.parametrize(
-    ("family_id", "architecture", "message"),
+    "observed",
     [
-        ("cuda130", "aarch64", "architecture"),
-        ("cann900-a5", "arm64", "family"),
-        ("../cuda130", "amd64", "family"),
+        None,
+        '{"vllm":"default"}',
+        '{"vllm":"default", "vllm-ascend":"a2"}',
+        '{"foreign":"a2","vllm":"default","vllm-ascend":"a2"}',
     ],
 )
-def test_real_image_authority_rejects_caller_invented_coordinates(
-    family_id: str, architecture: str, message: str
+def test_runtime_inspector_rejects_missing_tampered_or_noncanonical_variant_map(
+    monkeypatch: pytest.MonkeyPatch, observed: str | None
 ) -> None:
-    """A caller-controlled family, architecture, repository, or tag must not resolve."""
+    """Inspection reopens the exact canonical map persisted in the image."""
+    inspector = _inspect_module()
+    payload = {"runtime_patch_variants": {"vllm": "default", "vllm-ascend": "a2"}}
+    if observed is None:
+        monkeypatch.delenv("UCM_RUNTIME_PATCH_VARIANTS", raising=False)
+    else:
+        monkeypatch.setenv("UCM_RUNTIME_PATCH_VARIANTS", observed)
+
+    with pytest.raises(ValueError, match="variant map"):
+        inspector._runtime_patch_variants(payload)
+
+
+def test_runtime_inspector_accepts_the_exact_canonical_variant_map(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inspector = _inspect_module()
+    expected = {"vllm": "default", "vllm-ascend": "a2"}
+    monkeypatch.setenv(
+        "UCM_RUNTIME_PATCH_VARIANTS",
+        '{"vllm":"default","vllm-ascend":"a2"}',
+    )
+
+    assert (
+        inspector._runtime_patch_variants({"runtime_patch_variants": expected})
+        == expected
+    )
+
+
+@pytest.mark.parametrize("mutation", ["unknown", "malformed", "wrong-kind"])
+def test_real_image_authority_rejects_caller_invented_task_id(
+    mutation: str,
+) -> None:
+    """A caller-controlled task ID cannot select family/architecture authority."""
     *_, image = _modules()
-    with pytest.raises(ValueError, match=message):
-        image.real_image_authority(family_id, architecture)
+    plan = _fixture_resolved_plan()
+    task_id = {
+        "unknown": "image-" + "f" * 64,
+        "malformed": "../cuda130",
+        "wrong-kind": plan["wheel_tasks"][0]["task_id"],
+    }[mutation]
+
+    with pytest.raises(ValueError, match="task"):
+        image.real_image_authority_from_plan(
+            plan,
+            task_id=task_id,
+            expected_plan_sha256=plan["resolved_plan_sha256"],
+        )
 
 
 def test_real_entry_reinspects_raw_wheel_and_rejects_fixture_relabeling(
@@ -1889,7 +2372,7 @@ def test_real_entry_reinspects_raw_wheel_and_rejects_fixture_relabeling(
 ) -> None:
     """Changing summary labels cannot turn fixture bytes into a real wheel."""
     core, wheel, _, image = _modules()
-    manifest = core.build_release_manifest()
+    manifest = core._build_fixture_release_manifest()
     spec = next(
         item for item in manifest["wheel_specs"] if item["spec_id"] == "cuda130-amd64"
     )
@@ -1904,11 +2387,11 @@ def test_real_entry_reinspects_raw_wheel_and_rejects_fixture_relabeling(
     )
 
     with pytest.raises(ValueError, match="builder-candidate|fixture"):
+        task = _real_image_task(image)
         image.inspect_real_wheel_candidate(
-            "cuda130",
-            "amd64",
             Path(built["wheel_path"]),
             relabeled,
+            task_authority=task,
         )
 
 
@@ -1982,35 +2465,47 @@ def test_real_context_recursive_allowlist_rejects_source_tools_and_extra_wheels(
         image.audit_real_context(context, expected)
 
 
-def test_real_dependency_lock_rejects_missing_or_wrong_arch_wrapt(
+def _materialize_runtime_dependency_wheels(image, task, tmp_path: Path) -> list[Path]:
+    paths = []
+    for record in task["runtime_dependencies"]:
+        path = tmp_path / record["filename"]
+        path.write_bytes(f"reviewed {record['name']} wheel bytes".encode())
+        record["sha256"] = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+        paths.append(path)
+    task["authority_sha256"] = image.sha256_value(
+        {key: value for key, value in task.items() if key != "authority_sha256"}
+    )
+    return paths
+
+
+def test_real_dependency_lock_rejects_missing_or_wrong_runtime_wheel_set(
     tmp_path: Path,
 ) -> None:
-    """A network fallback or a same-version wrong wheel is not the reviewed dependency."""
+    """A network fallback or missing task dependency cannot satisfy the lock."""
     *_, image = _modules()
     task = _real_image_task(image, "cuda130-arm64")
-    missing = tmp_path / task["wrapt_wheel"]["filename"]
-    with pytest.raises(ValueError, match="wrapt"):
-        image.build_real_dependency_lock(task, tmp_path / "ucm.whl", missing)
-    missing.write_bytes(b"wrong architecture and hash")
-    with pytest.raises(ValueError, match="wrapt.*SHA256|SHA256.*wrapt"):
-        image.build_real_dependency_lock(task, tmp_path / "ucm.whl", missing)
+    paths = _materialize_runtime_dependency_wheels(image, task, tmp_path)
+    ucm = tmp_path / "ucm.whl"
+    ucm.write_bytes(b"ucm")
+
+    with pytest.raises(ValueError, match="wheel set|missing|ambiguous"):
+        image.build_real_dependency_lock(task, ucm, paths[:-1])
+    paths[-1].write_bytes(b"tampered")
+    with pytest.raises(ValueError, match="SHA256"):
+        image.build_real_dependency_lock(task, ucm, paths)
 
 
 def test_real_dependency_lock_uses_exact_install_and_preinstall_purge(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """The locked install replaces rather than reuses packages present in the base."""
     *_, image = _modules()
     task = _real_image_task(image)
-    wrapt_bytes = b"reviewed wrapt wheel bytes"
-    task["wrapt_wheel"]["sha256"] = "sha256:" + hashlib.sha256(wrapt_bytes).hexdigest()
-    monkeypatch.setattr(image, "real_image_authority", lambda *args, **kwargs: task)
     ucm = tmp_path / "uc_manager.whl"
     ucm.write_bytes(b"reviewed UCM wheel bytes")
-    wrapt = tmp_path / task["wrapt_wheel"]["filename"]
-    wrapt.write_bytes(wrapt_bytes)
+    runtime_paths = _materialize_runtime_dependency_wheels(image, task, tmp_path)
 
-    lock = image.build_real_dependency_lock(task, ucm, wrapt)
+    lock = image.build_real_dependency_lock(task, ucm, runtime_paths)
 
     assert lock["preinstall_command"] == [
         "python",
@@ -2019,7 +2514,7 @@ def test_real_dependency_lock_uses_exact_install_and_preinstall_purge(
         "uninstall",
         "--yes",
         "uc-manager",
-        "wrapt",
+        *sorted(record["name"] for record in task["runtime_dependencies"]),
     ]
     assert lock["pip_command"] == [
         "python",
@@ -2046,7 +2541,7 @@ def _real_runtime_probe(image, spec_id: str = "cuda130-amd64"):
     )
     machine = "EM_X86_64" if task["cpu_arch"] == "amd64" else "EM_AARCH64"
     wheel_sha256 = "sha256:" + "a" * 64
-    wrapt_sha256 = task["wrapt_wheel"]["sha256"]
+    runtime_dependencies = copy.deepcopy(task["runtime_dependencies"])
     native_members = {
         component: f"ucm/native/{component}.so" for component in task["required_native"]
     }
@@ -2070,6 +2565,7 @@ def _real_runtime_probe(image, spec_id: str = "cuda130-amd64"):
     recipe = {
         "payload": {
             "candidate_kind": "real-candidate",
+            "runtime_patch_variants": copy.deepcopy(task["runtime_patch_variants"]),
             "target_platform": task["platform"],
             "base": {"subject": runtime_coordinate},
             "wheel": {
@@ -2085,7 +2581,7 @@ def _real_runtime_probe(image, spec_id: str = "cuda130-amd64"):
                     "dependency_closure": copy.deepcopy(dependency_closure),
                 },
             },
-            "wrapt_wheel": copy.deepcopy(task["wrapt_wheel"]),
+            "runtime_dependencies": runtime_dependencies,
             "dependency_lock": {
                 "preinstall_command": [
                     "python",
@@ -2094,7 +2590,7 @@ def _real_runtime_probe(image, spec_id: str = "cuda130-amd64"):
                     "uninstall",
                     "--yes",
                     "uc-manager",
-                    "wrapt",
+                    *(record["name"] for record in runtime_dependencies),
                 ],
                 "pip_command": [
                     "python",
@@ -2110,6 +2606,15 @@ def _real_runtime_probe(image, spec_id: str = "cuda130-amd64"):
                     "-r",
                     "/wheelhouse/requirements.lock",
                 ],
+            },
+            "build": {
+                "build_args": {
+                    "UCM_RUNTIME_PATCH_VARIANTS": json.dumps(
+                        task["runtime_patch_variants"],
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                }
             },
         }
     }
@@ -2130,7 +2635,7 @@ def _real_runtime_probe(image, spec_id: str = "cuda130-amd64"):
                 "uninstall",
                 "--yes",
                 "uc-manager",
-                "wrapt",
+                *(record["name"] for record in runtime_dependencies),
             ],
             "pip_command": [
                 "/usr/local/bin/python",
@@ -2149,9 +2654,14 @@ def _real_runtime_probe(image, spec_id: str = "cuda130-amd64"):
             "pip_check": "passed",
             "installed_packages": {
                 "uc-manager": task["wheel_version"],
-                "wrapt": "1.17.2",
+                **{
+                    record["name"]: record["version"] for record in runtime_dependencies
+                },
             },
-            "imports": {"ucm": "passed", "wrapt": "passed"},
+            "imports": {
+                "ucm": "passed",
+                **{record["import_name"]: "passed" for record in runtime_dependencies},
+            },
             "direct_urls": {
                 "uc-manager": {
                     "url": "file:///wheelhouse/uc_manager.whl",
@@ -2159,17 +2669,21 @@ def _real_runtime_probe(image, spec_id: str = "cuda130-amd64"):
                         "hash": "sha256=" + wheel_sha256.removeprefix("sha256:")
                     },
                 },
-                "wrapt": {
-                    "url": f"file:///wheelhouse/{task['wrapt_wheel']['filename']}",
-                    "archive_info": {
-                        "hash": "sha256=" + wrapt_sha256.removeprefix("sha256:")
-                    },
+                **{
+                    record["name"]: {
+                        "url": f"file:///wheelhouse/{record['filename']}",
+                        "archive_info": {
+                            "hash": "sha256=" + record["sha256"].removeprefix("sha256:")
+                        },
+                    }
+                    for record in runtime_dependencies
                 },
             },
             "status": "passed",
         },
         "runtime": {
             "package_version": task["wheel_version"],
+            "runtime_patch_variants": copy.deepcopy(task["runtime_patch_variants"]),
             "native_members": native_members,
             "elf_machines": [machine],
             "dt_needed": dt_needed,
@@ -2186,6 +2700,58 @@ def _real_runtime_probe(image, spec_id: str = "cuda130-amd64"):
         },
     }
     return recipe, evidence
+
+
+def test_real_runtime_dependencies_come_from_selected_task_recipe() -> None:
+    """Future versions and extra dependencies must not reopen current authority."""
+    *_, image = _modules()
+    recipe, evidence = _real_runtime_probe(image)
+    dependencies = recipe["payload"]["runtime_dependencies"]
+    wrapt = next(record for record in dependencies if record["name"] == "wrapt")
+    wrapt["version"] = "9.9.0"
+    wrapt["requirement"] = "wrapt==9.9.0"
+    dependencies.append(
+        {
+            "name": "alpha-runtime",
+            "version": "2.0",
+            "requirement": "alpha-runtime==2.0",
+            "import_name": "alpha_runtime",
+            "filename": "alpha_runtime-2.0-py3-none-any.whl",
+            "sha256": "sha256:" + "d" * 64,
+        }
+    )
+    dependencies.sort(key=lambda item: item["name"])
+    dependency_names = [record["name"] for record in dependencies]
+    recipe["payload"]["dependency_lock"]["preinstall_command"] = [
+        "python",
+        "-m",
+        "pip",
+        "uninstall",
+        "--yes",
+        "uc-manager",
+        *dependency_names,
+    ]
+    recipe["payload_sha256"] = image.sha256_value(recipe["payload"])
+    evidence["install"]["preinstall_command"] = [
+        "/usr/local/bin/python",
+        "-m",
+        "pip",
+        "uninstall",
+        "--yes",
+        "uc-manager",
+        *dependency_names,
+    ]
+    evidence["install"]["runtime_dependencies"] = copy.deepcopy(dependencies)
+    evidence["install"]["installed_packages"].update(
+        {"alpha-runtime": "2.0", "wrapt": "9.9.0"}
+    )
+    evidence["install"]["imports"]["alpha_runtime"] = "passed"
+    evidence["install"]["direct_urls"]["alpha-runtime"] = {
+        "url": "file:///wheelhouse/alpha_runtime-2.0-py3-none-any.whl",
+        "archive_info": {"hash": "sha256=" + "d" * 64},
+    }
+
+    assert image.verify_real_runtime_evidence(recipe, evidence)["install"] == "passed"
 
 
 @pytest.mark.parametrize("spec_id", ["cuda130-amd64", "cuda130-arm64"])
@@ -2219,6 +2785,23 @@ def test_same_root_runtime_closure_rejects_external_byte_drift() -> None:
 
     with pytest.raises(ValueError, match="dependency closure"):
         image.verify_real_runtime_evidence(recipe, evidence)
+
+
+def test_real_runtime_evidence_accepts_selected_non_cp312_python_command() -> None:
+    """Offline install evidence must not encode Python 3.12 as the only ABI."""
+    *_, image = _modules()
+    recipe, evidence = _real_runtime_probe(image)
+    recipe["payload"]["wheel"]["python_abi"] = "cp311"
+    recipe["payload_sha256"] = image.sha256_value(recipe["payload"])
+    evidence["install"]["preinstall_command"][0] = "/usr/local/bin/python3.11"
+    evidence["install"]["pip_command"][0] = "/usr/local/bin/python3.11"
+    evidence["runtime"]["abi"] = {
+        "expected_python_abi": "cp311",
+        "observed_python_abi": "cp311",
+        "status": "passed",
+    }
+
+    assert image.verify_real_runtime_evidence(recipe, evidence)["abi"] == "passed"
 
 
 @pytest.mark.parametrize(
@@ -2437,6 +3020,10 @@ def test_real_content_identity_rejects_mutable_or_missing_oci_authority() -> Non
                 }
             },
             "source": {
+                "repository": "SuperMarioYL/unified-cache-management",
+                "repository_url": (
+                    "https://github.com/SuperMarioYL/unified-cache-management"
+                ),
                 "commit": "1" * 40,
                 "tree": "2" * 40,
                 "context_sha256": "sha256:" + "3" * 64,
