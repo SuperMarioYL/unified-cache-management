@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import copy
 import datetime as dt
+import functools
 import hashlib
 import json
 import os
@@ -2059,6 +2060,9 @@ def run_loopback_registry_contract(
     loopback_environment = _minimal_registry_environment(
         docker_config=loopback_auth.name
     )
+    _closure = functools.partial(
+        _descriptor_closure, crane_binary=crane_binary, environment=loopback_environment
+    )
     created_network = False
     created_volume = False
     created_container = False
@@ -2215,22 +2219,18 @@ def run_loopback_registry_contract(
                 )
                 if manifest_read != manifest_raw:
                     raise ValueError("loopback member manifest readback differs")
-                config_closure, config_read = _descriptor_closure(
+                config_closure, config_read = _closure(
                     manifest["config"],
                     label="loopback registry config",
                     repository=local_staging_repository,
-                    crane_binary=crane_binary,
-                    environment=loopback_environment,
                     retain_raw=True,
                 )
                 if config_read != config or config_closure["digest"] != config_digest:
                     raise ValueError("loopback registry config closure differs")
-                layer_closure, _ = _descriptor_closure(
+                layer_closure, _ = _closure(
                     manifest["layers"][0],
                     label="loopback registry layer",
                     repository=local_staging_repository,
-                    crane_binary=crane_binary,
-                    environment=loopback_environment,
                     retain_raw=False,
                 )
                 if layer_closure["digest"] != layer_digest:
@@ -2299,12 +2299,10 @@ def run_loopback_registry_contract(
                 )
                 if final_manifest != closure["manifest_raw"]:
                     raise ValueError("loopback cross-repository child manifest differs")
-                config_closure, config_read = _descriptor_closure(
+                config_closure, config_read = _closure(
                     closure["manifest"]["config"],
                     label="loopback final repository config",
                     repository=local_final_repository,
-                    crane_binary=crane_binary,
-                    environment=loopback_environment,
                     retain_raw=True,
                 )
                 if (
@@ -2313,12 +2311,10 @@ def run_loopback_registry_contract(
                     != closure["manifest"]["config"]["digest"]
                 ):
                     raise ValueError("loopback cross-repository config closure differs")
-                layer_closure, layer_read = _descriptor_closure(
+                layer_closure, layer_read = _closure(
                     closure["manifest"]["layers"][0],
                     label="loopback final repository layer",
                     repository=local_final_repository,
-                    crane_binary=crane_binary,
-                    environment=loopback_environment,
                     retain_raw=True,
                 )
                 if (
@@ -2388,18 +2384,15 @@ def run_loopback_registry_contract(
             "status": "passed",
         }
     finally:
-        if created_container:
-            result = docker("rm", "--force", container, check=False)
-            if result.returncode != 0:
-                cleanup_errors.append(result.stderr.strip() or "container cleanup")
-        if created_volume:
-            result = docker("volume", "rm", volume, check=False)
-            if result.returncode != 0:
-                cleanup_errors.append(result.stderr.strip() or "volume cleanup")
-        if created_network:
-            result = docker("network", "rm", network, check=False)
-            if result.returncode != 0:
-                cleanup_errors.append(result.stderr.strip() or "network cleanup")
+        for created, args, label in (
+            (created_container, ["rm", "--force", container], "container"),
+            (created_volume, ["volume", "rm", volume], "volume"),
+            (created_network, ["network", "rm", network], "network"),
+        ):
+            if created:
+                result = docker(*args, check=False)
+                if result.returncode != 0:
+                    cleanup_errors.append(result.stderr.strip() or f"{label} cleanup")
         loopback_auth.cleanup()
     if cleanup_errors:
         raise ValueError(f"loopback cleanup failed: {cleanup_errors}")

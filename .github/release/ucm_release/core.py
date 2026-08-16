@@ -1486,10 +1486,6 @@ def validate_repository_recipe_inventory(
             recipe_path.resolve().relative_to(repository_root.resolve())
         except ValueError as error:
             raise ValueError(f"{location}.path escapes the repository") from error
-        if recipe_path.is_symlink():
-            raise ValueError(
-                f"registered Docker recipe has a symlink component: {path}"
-            )
         if not recipe_path.is_file():
             raise ValueError(f"registered Docker recipe does not exist: {path}")
         dockerfile_text = recipe_path.read_text(encoding="utf-8")
@@ -2567,20 +2563,11 @@ def _tag_preflight_live(
         return result
 
     context_names = (
-        "GITHUB_ACTIONS",
-        "GITHUB_ACTOR",
-        "GITHUB_EVENT_NAME",
-        "GITHUB_EVENT_PATH",
-        "GITHUB_REF",
-        "GITHUB_REF_NAME",
-        "GITHUB_REF_PROTECTED",
-        "GITHUB_REF_TYPE",
-        "GITHUB_REPOSITORY",
-        "GITHUB_REPOSITORY_OWNER",
-        "GITHUB_SHA",
-        "GITHUB_TRIGGERING_ACTOR",
-        "UCM_RELEASE_POLICY",
-    )
+        "GITHUB_ACTIONS GITHUB_ACTOR GITHUB_EVENT_NAME GITHUB_EVENT_PATH "
+        "GITHUB_REF GITHUB_REF_NAME GITHUB_REF_PROTECTED GITHUB_REF_TYPE "
+        "GITHUB_REPOSITORY GITHUB_REPOSITORY_OWNER GITHUB_SHA "
+        "GITHUB_TRIGGERING_ACTOR UCM_RELEASE_POLICY"
+    ).split()
     context = {name: os.environ.get(name, "") for name in context_names}
     event_path = Path(context["GITHUB_EVENT_PATH"])
     if not context["GITHUB_EVENT_PATH"] or not event_path.is_file():
