@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from . import core, image, registry, verify
+from . import core, registry, verify
 
 catalog_resolution = registry
 
@@ -321,48 +321,6 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--output", type=Path, required=True)
     validate_member = registry_actions.add_parser("validate-member-schema")
     validate_member.add_argument("--input", type=Path, required=True)
-
-    image_parser = groups.add_parser("image")
-    image_actions = image_parser.add_subparsers(dest="action", required=True)
-    task_toolchain = image_actions.add_parser("task-toolchain-authority")
-    task_toolchain.add_argument("--resolved-plan", type=Path, required=True)
-    task_toolchain.add_argument(
-        "--task-kind", choices=("wheel", "image"), required=True
-    )
-    task_toolchain.add_argument("--task-id", required=True)
-    task_toolchain.add_argument("--expected-plan-sha256", required=True)
-    image_verify = image_actions.add_parser("verify", allow_abbrev=False)
-    image_verify.add_argument("--context", type=Path, required=True)
-    image_verify.add_argument("--oci", type=Path, required=True)
-    image_verify.add_argument("--evidence-dir", type=Path, required=True)
-    image_verify.add_argument(
-        "--schema-dir", type=Path, default=core.DEFAULT_SCHEMA_DIR
-    )
-    image_verify.add_argument(
-        "--output-mode", choices=("feature", "production"), default="feature"
-    )
-    image_verify.add_argument("--resolved-plan", type=Path)
-    image_verify.add_argument("--task-id")
-    image_verify.add_argument("--expected-plan-sha256")
-    real_authorities = image_actions.add_parser("real-authorities")
-    real_authorities.add_argument("--resolved-plan", type=Path, required=True)
-    real_authorities.add_argument("--task-id", required=True)
-    real_authorities.add_argument("--expected-plan-sha256", required=True)
-    image_real_base = image_actions.add_parser("base-record-real")
-    image_real_base.add_argument("--index", type=Path, required=True)
-    image_real_base.add_argument("--manifest", type=Path, required=True)
-    image_real_base.add_argument("--config", type=Path, required=True)
-    image_real_base.add_argument("--task-authority", type=Path, required=True)
-    image_prepare_real = image_actions.add_parser("prepare-real")
-    image_prepare_real.add_argument("--wheel", type=Path, required=True)
-    image_prepare_real.add_argument("--wheel-inspection", type=Path, required=True)
-    image_prepare_real.add_argument("--base-record", type=Path, required=True)
-    image_prepare_real.add_argument(
-        "--runtime-wheel", type=Path, action="append", required=True
-    )
-    image_prepare_real.add_argument("--output-dir", type=Path, required=True)
-    image_prepare_real.add_argument("--task-authority", type=Path, required=True)
-    _paths(image_prepare_real)
     return parser
 
 
@@ -580,51 +538,6 @@ def main(argv: list[str] | None = None) -> int:
                 record, schema["$defs"]["registryMemberRecord"], root=schema
             )
             result = {"kind": "ucm-member-schema-validation", "valid": True}
-        elif (args.group, args.action) == ("image", "task-toolchain-authority"):
-            result = image.task_toolchain_authority(
-                core.load_json(args.resolved_plan),
-                task_kind=args.task_kind,
-                task_id=args.task_id,
-                expected_plan_sha256=args.expected_plan_sha256,
-            )
-        elif (args.group, args.action) == ("image", "verify"):
-            result = image.verify_oci(
-                args.context,
-                args.oci,
-                schema_dir=args.schema_dir,
-                evidence_dir=args.evidence_dir,
-                output_mode=args.output_mode,
-                resolved_plan=(
-                    core.load_json(args.resolved_plan)
-                    if args.resolved_plan is not None
-                    else None
-                ),
-                expected_plan_sha256=args.expected_plan_sha256,
-                task_id=args.task_id,
-            )
-        elif (args.group, args.action) == ("image", "real-authorities"):
-            result = image.real_image_authority_from_plan(
-                core.load_json(args.resolved_plan),
-                task_id=args.task_id,
-                expected_plan_sha256=args.expected_plan_sha256,
-            )
-        elif (args.group, args.action) == ("image", "base-record-real"):
-            result = image.real_base_record_from_files(
-                index_path=args.index,
-                manifest_path=args.manifest,
-                config_path=args.config,
-                task_authority=core.load_json(args.task_authority),
-            )
-        elif (args.group, args.action) == ("image", "prepare-real"):
-            result = image.prepare_real_context(
-                wheel_path=args.wheel,
-                wheel_inspection=core.load_json(args.wheel_inspection),
-                base_record=core.load_json(args.base_record),
-                runtime_dependency_paths=args.runtime_wheel,
-                output_dir=args.output_dir,
-                schema_dir=args.schema_dir,
-                task_authority=core.load_json(args.task_authority),
-            )
         else:  # pragma: no cover - argparse owns this branch.
             parser.error("unsupported command")
     except (

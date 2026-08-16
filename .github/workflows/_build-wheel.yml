@@ -271,11 +271,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          PYTHONPATH=.github/release python -m ucm_release image task-toolchain-authority \
-            --resolved-plan input/plan/resolved-plan.json \
-            --task-kind wheel \
-            --task-id "${TASK_ID}" \
-            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
+          # Bind the reviewed Buildx/BuildKit toolchain to the frozen wheel task.
+          plan=input/plan/resolved-plan.json
+          test "$(jq -r '.resolved_plan_sha256' "${plan}")" = "${RESOLVED_PLAN_SHA256}"
+          task_sha256="$(jq -r --arg id "${TASK_ID}" \
+            '[.wheel_tasks[] | select(.task_id == $id)] | if length == 1 then .[0].task_sha256 else empty end' \
+            "${plan}")"
+          test -n "${task_sha256}"
+          frontend="$(sed -n '1s/^# syntax=//p' .github/release/docker/Dockerfile)"
+          jq -cnS \
+            --arg task_id "${TASK_ID}" \
+            --arg task_sha256 "${task_sha256}" \
+            --arg resolved "${RESOLVED_PLAN_SHA256}" \
+            --arg frontend "${frontend}" \
+            '{schema_version:1,kind:"ucm-task-bound-image-toolchain-authority",task_kind:"wheel",task_id:$task_id,task_sha256:$task_sha256,resolved_plan_sha256:$resolved,toolchain:{schema_version:1,kind:"ucm-real-image-toolchain-authority",buildx_version:"v0.19.2",buildx_linux_sha256:{amd64:"sha256:a5ff61c0b6d2c8ee20964a9d6dac7a7a6383c4a4a0ee8d354e983917578306ea",arm64:"sha256:bd54f0e28c29789da1679bad2dd94c1923786ccd2cd80dd3a0a1d560a6baf10c"},buildkit_image:"moby/buildkit:v0.18.2@sha256:86c0ad9d1137c186e9d455912167df20e530bdf7f7c19de802e892bb8ca16552",dockerfile_frontend:$frontend,deterministic_flags:["--provenance=false","--sbom=false","oci-mediatypes=true","rewrite-timestamp=true"]}}' \
             >out/task-toolchain-authority.json
           buildx_version="$(jq -r '.toolchain.buildx_version' out/task-toolchain-authority.json)"
           buildkit_image="$(jq -r '.toolchain.buildkit_image' out/task-toolchain-authority.json)"
