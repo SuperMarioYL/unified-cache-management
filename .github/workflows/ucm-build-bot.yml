@@ -1,0 +1,121 @@
+name: UCM Build Bot
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  permission-check:
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/ucm-build')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      pr-head-sha: ${{ steps.pr-info.outputs.head-sha }}
+      pr-number: ${{ steps.pr-info.outputs.number }}
+      allowed: ${{ steps.check-permission.outputs.allowed }}
+    steps:
+      - name: Check commenter write permission
+        id: check-permission
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          commenter="${{ github.event.comment.user.login }}"
+          repo="${{ github.repository }}"
+          perm="$(gh api "repos/${repo}/collaborators/${commenter}/permission" --jq '.permission')"
+          if [[ "${perm}" == "admin" || "${perm}" == "write" || "${perm}" == "maintain" ]]; then
+            echo "allowed=true" >>"${GITHUB_OUTPUT}"
+            echo "Commenter ${commenter} has ${perm} access — build authorized"
+          else
+            echo "allowed=false" >>"${GITHUB_OUTPUT}"
+            echo "::error::Commenter ${commenter} has ${perm} access (needs write+)"
+            exit 1
+          fi
+      - name: Get PR head SHA
+        id: pr-info
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pr_url="${{ github.event.issue.pull_request.url }}"
+          head_sha="$(gh api "${pr_url}" --jq '.head.sha')"
+          pr_number="$(gh api "${pr_url}" --jq '.number')"
+          echo "head-sha=${head_sha}" >>"${GITHUB_OUTPUT}"
+          echo "number=${pr_number}" >>"${GITHUB_OUTPUT}"
+
+  build-untrusted:
+    needs: permission-check
+    if: needs.permission-check.outputs.allowed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout PR head SHA (untrusted code)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.permission-check.outputs.pr-head-sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - name: Validate catalog contract
+        run: |
+          set -euo pipefail
+          PYTHONPATH=.github/release python -m ucm_release catalog validate
+      - name: Build wheels
+        run: |
+          set -euo pipefail
+          PYTHONPATH=.github/release python -m ucm_release catalog resolve \
+            --lane feature-candidate \
+            --source-sha "${{ needs.permission-check.outputs.pr-head-sha }}" \
+            --output out/plan/resolved-plan.json
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ucm-pr-build-${{ needs.permission-check.outputs.pr-number }}
+          path: out/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-trusted:
+    needs: [permission-check, build-untrusted]
+    if: needs.build-untrusted.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      packages: write
+      contents: read
+    environment: release-production
+    steps:
+      - name: Download build artifacts (never checkout PR code)
+        uses: actions/download-artifact@87c55145d4e7e9d4d947bf4ee9e328df64cddc97
+        with:
+          name: ucm-pr-build-${{ needs.permission-check.outputs.pr-number }}
+          path: input/
+      - name: Validate artifact format
+        run: |
+          set -euo pipefail
+          test -f input/plan/resolved-plan.json || { echo "missing resolved plan" >&2; exit 2; }
+          test "$(jq -r '.resolved_plan_sha256' input/plan/resolved-plan.json)" != "" || { echo "invalid plan" >&2; exit 2; }
+          echo "Artifact validation passed"
+      - name: Checkout base branch (trusted code only)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+      - name: Publish to PR-tagged GHCR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          source_sha="${{ needs.permission-check.outputs.pr-head-sha }}"
+          pr_number="${{ needs.permission-check.outputs.pr-number }}"
+          namespace="ghcr.io/${{ github.repository_owner }}/ucm-pr"
+          echo "Would push build artifacts from PR #${pr_number} (SHA ${source_sha}) to ${namespace}"
+          echo "This job has packages:write but NEVER checked out PR code"
