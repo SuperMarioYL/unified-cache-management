@@ -210,12 +210,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
-          PYTHONPATH=.github/release python -m ucm_release catalog select \
-            --plan input/plan/resolved-plan.json \
-            --task-kind family \
-            --task-id "${FAMILY_TASK_ID}" \
-            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
-            --output out/selected-family.json >/dev/null
+          test "$(jq -r '.resolved_plan_sha256' input/plan/resolved-plan.json)" = "${RESOLVED_PLAN_SHA256}"
+          test "$(jq -r '.fixture_only' input/plan/resolved-plan.json)" = "false"
+          jq -cS --arg tid "${FAMILY_TASK_ID}" \
+            '.family_tasks | map(select(.task_id == $tid)) as $m | if ($m | length) == 1 then $m[0] else error("family task does not resolve exactly once") end' \
+            input/plan/resolved-plan.json > out/selected-family.json
           test "$(jq -r '.control_task_id' out/selected-family.json)" = "${CONTROL_TASK_ID}"
           test "$(jq -r '.control_arch' out/selected-family.json)" = "${CONTROL_ARCH}"
           test "$(jq -r '.control_runner' out/selected-family.json)" = "${{ matrix.runner }}"

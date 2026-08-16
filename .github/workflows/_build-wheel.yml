@@ -152,12 +152,11 @@ jobs:
           source_date_epoch="$(git show -s --format=%ct "${SOURCE_SHA}")"
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
           test "$(find input/plan -maxdepth 1 -type f -name 'resolved-plan.json' | wc -l | tr -d ' ')" = 1
-          PYTHONPATH=.github/release python -m ucm_release catalog select \
-            --plan input/plan/resolved-plan.json \
-            --task-kind wheel \
-            --task-id "${TASK_ID}" \
-            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
-            --output out/selected-task.json >/dev/null
+          mkdir -p out
+          test "$(jq -r '.resolved_plan_sha256' input/plan/resolved-plan.json)" = "${RESOLVED_PLAN_SHA256}"
+          jq -cS --arg tid "${TASK_ID}" \
+            '.wheel_tasks | map(select(.task_id == $tid)) as $m | if ($m | length) == 1 then $m[0] else error("wheel task does not resolve exactly once") end' \
+            input/plan/resolved-plan.json > out/selected-task.json
           # Materialize the hosted wheel task: canonical build inputs, lock, and identity.
           # Mirrors verify.hosted_wheel_task so out/hosted-task.json is byte-faithful.
           build_tool_lock_sha256="sha256:$(jq -jr \

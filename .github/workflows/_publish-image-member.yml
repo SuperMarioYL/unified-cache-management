@@ -101,12 +101,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
-          PYTHONPATH=.github/release python -m ucm_release catalog select \
-            --plan input/plan/resolved-plan.json \
-            --task-kind image \
-            --task-id "${TASK_ID}" \
-            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
-            --output out/selected-task.json >/dev/null
+          test "$(jq -r '.resolved_plan_sha256' input/plan/resolved-plan.json)" = "${RESOLVED_PLAN_SHA256}"
+          jq -cS --arg tid "${TASK_ID}" \
+            '.image_tasks | map(select(.task_id == $tid)) as $m | if ($m | length) == 1 then $m[0] else error("image task does not resolve exactly once") end' \
+            input/plan/resolved-plan.json > out/selected-task.json
           test "$(jq -r '.runner' out/selected-task.json)" = "${{ inputs.runner }}"
           test "$(jq -r '.fixture_only' input/plan/resolved-plan.json)" = "false"
           PYTHONPATH=.github/release python -m ucm_release catalog verify-drift \
@@ -233,8 +231,21 @@ jobs:
           jq -cnS --arg sha "${RESOLVED_PLAN_SHA256}" \
             '{lane: "protected-tag", operations: $record[0].operations, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $sha}' \
             --slurpfile record out/member-record.json > out/member-audit-request.json
-          PYTHONPATH=.github/release python -m ucm_release registry audit-operations \
-            --input out/member-audit-request.json --output out/member-audit.json >/dev/null
+          req=out/member-audit-request.json
+          plan="$(jq -r '.resolved_plan' "$req")"
+          test "$(jq -r '.resolved_plan_sha256' "$req")" = "${RESOLVED_PLAN_SHA256}"
+          test "$(jq -r '.resolved_plan_sha256' "$plan")" = "${RESOLVED_PLAN_SHA256}"
+          staging="$(jq -r '.source.staging_repository' "$plan")"
+          jq -cS --arg staging "$staging" '
+            def ref_ok:
+              (startswith($staging + "@sha256:") and (ltrimstr($staging + "@sha256:") | test("^[0-9a-f]{64}$"))) or
+              (startswith($staging + ":staging-") and (ltrimstr($staging + ":staging-") | test("^[0-9a-f]{64}$")));
+            def contracts: {"fixture-read":["read","fixture-upstream-tag"],"crane-digest":["read","upstream-tag"],"crane-manifest":["read","upstream-digest"],"registry-inventory-read":["read","digest"],"build-plan":["plan","fixture-target-tag"],"registry-member-push-by-digest":["write","staging-digest"],"registry-staging-tag-create":["write","staging-tag"],"registry-index-create":["write","public-target"],"registry-authenticated-digest-read":["read","registry-read-tag-or-digest"],"registry-authenticated-manifest-read":["read","registry-read-digest"],"registry-authenticated-config-blob-read":["read","registry-read-digest"],"registry-authenticated-layer-blob-read":["read","registry-read-digest"],"registry-anonymous-digest-read":["read","registry-read-tag"],"registry-anonymous-manifest-read":["read","registry-read-digest"],"registry-anonymous-config-blob-read":["read","registry-read-digest"],"registry-anonymous-layer-blob-read":["read","registry-read-digest"],"registry-anonymous-prewrite-visibility-read":["read","staging-tag"],"registry-authenticated-staging-prewrite-read":["read","staging-tag"],"registry-anonymous-visibility-read":["read","staging-tag"],"registry-authenticated-recursive-validate":["read","registry-read-digest"],"registry-anonymous-recursive-validate":["read","registry-read-digest"]};
+            .operations as $ops | reduce $ops[] as $o ({ids:{}, types:{}, writes:[], n:0}; ($o | keys | sort) as $k | if $k != ["capability","reference","type"] then error("malformed ledger entry: expected exactly type/capability/reference") else . end | $o.type as $t | (contracts[$t]) as $c | if $c == null then error("unknown operation type: \($t)") else . end | if $o.capability != $c[0] then error("operation capability mismatch for \($t)") else . end | if (($o.reference | ref_ok) | not) then error("operation reference is outside the exact allowlist: \($o.reference)") else . end | (if $c[0] == "write" then .writes += [$o] else . end) | ($t + "\u0000" + $o.reference) as $id | if (.ids | has($id)) then error("duplicate operation identity: \($t) \($o.reference)") else . end | .ids[$id] = 1 | .types[$t] = 1 | .n += 1) | {schema_version:1, kind:"ucm-registry-operation-audit", lane:"protected-tag", operation_count:.n, operation_types:(.types|keys|sort), write_capable_operations:.writes, write_count:(.writes|length)}
+          ' "$req" > out/member-audit.base.json
+          audit_sha256="sha256:$(jq -cjS . out/member-audit.base.json | sha256sum | cut -d' ' -f1)"
+          jq -cS --arg sha "$audit_sha256" '. + {audit_sha256:$sha}' out/member-audit.base.json > out/member-audit.json
+          rm -f out/member-audit.base.json
           member_artifact="ucm-member-${TASK_ID}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           {
             echo "member_artifact=${member_artifact}"

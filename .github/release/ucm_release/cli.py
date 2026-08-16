@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from . import core, registry, verify
+from . import core, registry
 
 catalog_resolution = registry
 
@@ -27,18 +27,6 @@ def _paths(parser: argparse.ArgumentParser) -> None:
 
 def _write(path: Path, value: object) -> None:
     path.write_bytes(core.canonical_bytes(value) + b"\n")
-
-
-def _release_plan_binding(
-    request: dict[str, object],
-) -> tuple[dict[str, object], str]:
-    path = request.get("resolved_plan")
-    expected = request.get("resolved_plan_sha256")
-    if not isinstance(path, str) or not isinstance(expected, str):
-        raise ValueError("release frozen plan binding is malformed")
-    plan = core.load_json(Path(path))
-    registry.resolved_registry_contract(plan, expected_plan_sha256=expected)
-    return plan, expected
 
 
 def _gh_release_api(
@@ -228,14 +216,6 @@ def build_parser() -> argparse.ArgumentParser:
     catalog_resolve.add_argument("--source-sha", required=True)
     catalog_resolve.add_argument("--fixture", type=Path)
     catalog_resolve.add_argument("--output", type=Path, required=True)
-    catalog_select = catalog_actions.add_parser("select")
-    catalog_select.add_argument("--plan", type=Path, required=True)
-    catalog_select.add_argument(
-        "--task-kind", choices=("wheel", "image", "family"), required=True
-    )
-    catalog_select.add_argument("--task-id", required=True)
-    catalog_select.add_argument("--expected-plan-sha256", required=True)
-    catalog_select.add_argument("--output", type=Path)
     catalog_drift = catalog_actions.add_parser("verify-drift")
     catalog_drift.add_argument("--plan", type=Path, required=True)
     catalog_drift.add_argument("--fixture", type=Path)
@@ -312,13 +292,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     registry_parser = groups.add_parser("registry")
     registry_actions = registry_parser.add_subparsers(dest="action", required=True)
-    for action in (
-        "verify-member",
-        "audit-operations",
-    ):
-        command = registry_actions.add_parser(action)
-        command.add_argument("--input", type=Path, required=True)
-        command.add_argument("--output", type=Path, required=True)
+    verify_member = registry_actions.add_parser("verify-member")
+    verify_member.add_argument("--input", type=Path, required=True)
+    verify_member.add_argument("--output", type=Path, required=True)
     validate_member = registry_actions.add_parser("validate-member-schema")
     validate_member.add_argument("--input", type=Path, required=True)
     return parser
@@ -360,16 +336,6 @@ def main(argv: list[str] | None = None) -> int:
             )
             args.output.parent.mkdir(parents=True, exist_ok=True)
             _write(args.output, result)
-        elif (args.group, args.action) == ("catalog", "select"):
-            result = catalog_resolution.select_task(
-                core.load_json(args.plan),
-                task_kind=args.task_kind,
-                task_id=args.task_id,
-                expected_plan_sha256=args.expected_plan_sha256,
-            )
-            if args.output:
-                args.output.parent.mkdir(parents=True, exist_ok=True)
-                _write(args.output, result)
         elif (args.group, args.action) == ("catalog", "verify-drift"):
             fixture = core.load_json(args.fixture) if args.fixture else None
             result = catalog_resolution.verify_upstream_drift(
@@ -503,31 +469,6 @@ def main(argv: list[str] | None = None) -> int:
                 resolved_plan=resolved_plan,
                 expected_plan_sha256=request["resolved_plan_sha256"],
             )
-            _write(args.output, result)
-        elif (args.group, args.action) == ("registry", "audit-operations"):
-            request = core.load_json(args.input)
-            if set(request) != {
-                "lane",
-                "operations",
-                "resolved_plan",
-                "resolved_plan_sha256",
-            }:
-                raise ValueError(
-                    "audit-operations input requires the exact frozen plan binding"
-                )
-            resolved_plan, _ = _release_plan_binding(request)
-            audit = verify.audit_operations(
-                request["operations"],
-                lane=request["lane"],
-                staging_repository=resolved_plan["source"]["staging_repository"],
-            )
-            payload = {
-                "schema_version": 1,
-                "kind": "ucm-registry-operation-audit",
-                "lane": request["lane"],
-                **audit,
-            }
-            result = {**payload, "audit_sha256": core.sha256_value(payload)}
             _write(args.output, result)
         elif (args.group, args.action) == ("registry", "validate-member-schema"):
             record = core.load_json(args.input)

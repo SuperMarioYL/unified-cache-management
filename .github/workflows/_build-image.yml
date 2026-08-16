@@ -163,19 +163,14 @@ jobs:
           source_date_epoch="$(git show -s --format=%ct "${SOURCE_SHA}")"
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
           mkdir -p out
-          PYTHONPATH=.github/release python -m ucm_release catalog select \
-            --plan input/plan/resolved-plan.json \
-            --task-kind image \
-            --task-id "${TASK_ID}" \
-            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
-            --output out/selected-task.json >/dev/null
+          test "$(jq -r '.resolved_plan_sha256' input/plan/resolved-plan.json)" = "${RESOLVED_PLAN_SHA256}"
+          jq -cS --arg tid "${TASK_ID}" \
+            '.image_tasks | map(select(.task_id == $tid)) as $m | if ($m | length) == 1 then $m[0] else error("image task does not resolve exactly once") end' \
+            input/plan/resolved-plan.json > out/selected-task.json
           wheel_task_id="$(jq -r '.wheel_task_id' out/selected-task.json)"
-          PYTHONPATH=.github/release python -m ucm_release catalog select \
-            --plan input/plan/resolved-plan.json \
-            --task-kind wheel \
-            --task-id "${wheel_task_id}" \
-            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
-            --output out/selected-wheel-task.json >/dev/null
+          jq -cS --arg tid "${wheel_task_id}" \
+            '.wheel_tasks | map(select(.task_id == $tid)) as $m | if ($m | length) == 1 then $m[0] else error("wheel task does not resolve exactly once") end' \
+            input/plan/resolved-plan.json > out/selected-wheel-task.json
           # Materialize the hosted image task: artifact and dependency bindings.
           # Mirrors verify.hosted_image_task so out/hosted-task.json is byte-faithful.
           runtime_patch_canonical="$(jq -cS '.runtime_patch_variants' out/selected-task.json)"
