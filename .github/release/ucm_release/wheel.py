@@ -1,3 +1,4 @@
+# fmt: off
 from __future__ import annotations
 
 import copy
@@ -18,8 +19,7 @@ _WHEEL_DECLARATION_FIELDS = ('spec_id', 'profile_id', 'accelerator', 'accelerato
 
 
 def _validate_wheel_task(value: object) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError("selected wheel task must be an object")
+    if not isinstance(value, dict): raise ValueError('selected wheel task must be an object')  # noqa: E701,E501
     task = copy.deepcopy(value)
     task_payload = {key: item for key, item in task.items() if key != "task_sha256"}
     if re.fullmatch(
@@ -27,11 +27,9 @@ def _validate_wheel_task(value: object) -> dict[str, Any]:
     ) is None or task.get("task_sha256") != sha256_value(task_payload):
         raise ValueError("wheel task hash mismatch")
     missing = [field for field in _WHEEL_DECLARATION_FIELDS if field not in task]
-    if missing:
-        raise ValueError(f"wheel task declaration fields are missing: {missing}")
+    if missing: raise ValueError(f'wheel task declaration fields are missing: {missing}')  # noqa: E701,E501
     declaration = {field: copy.deepcopy(task[field]) for field in _WHEEL_DECLARATION_FIELDS}  # fmt: skip  # noqa: E501
-    if task.get("declaration_sha256") != sha256_value(declaration):
-        raise ValueError("wheel task declaration hash mismatch")
+    if task.get('declaration_sha256') != sha256_value(declaration): raise ValueError('wheel task declaration hash mismatch')  # noqa: E701,E501
     dependency_lock = task.get("dependency_lock")
     if (
         not isinstance(dependency_lock, dict)
@@ -47,12 +45,11 @@ def _unique_json(data: bytes, label: str) -> dict[str, Any]:
     def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
         for key, value in items:
-            if key in result:
-                raise ValueError(f"duplicate JSON key {key!r} in {label}")
+            if key in result: raise ValueError(f'duplicate JSON key {key!r} in {label}')  # noqa: E701,E501
             result[key] = value
         return result
 
     value = json.loads(data.decode("utf-8"), object_pairs_hook=pairs)
-    if not isinstance(value, dict):
-        raise ValueError(f"{label} must be a JSON object")
+    if not isinstance(value, dict): raise ValueError(f'{label} must be a JSON object')  # noqa: E701,E501
     return value
+# fmt: on

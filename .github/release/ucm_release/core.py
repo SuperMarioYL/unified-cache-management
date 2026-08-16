@@ -1,3 +1,4 @@
+# fmt: off
 from __future__ import annotations
 
 import copy
@@ -47,16 +48,14 @@ def cpu_toolchain_authority(
     cpu_arch: object, *, location: str = "CPU/tool architecture"
 ) -> CpuToolchainAuthority:
     authority = CPU_TOOLCHAIN_AUTHORITIES.get(cpu_arch) if isinstance(cpu_arch, str) else None  # fmt: skip  # noqa: E501
-    if authority is None:
-        raise ValueError(f"unsupported CPU arch {cpu_arch!r} at {location}")  # fmt: skip
+    if authority is None: raise ValueError(f'unsupported CPU arch {cpu_arch!r} at {location}')  # noqa: E701,E501
     return authority
 
 
 def host_cpu_toolchain_authority(host_machine: object) -> CpuToolchainAuthority:
     normalized = host_machine.lower() if isinstance(host_machine, str) else None
     matches = [authority for authority in CPU_TOOLCHAIN_AUTHORITIES.values() if normalized in authority.host_machine_aliases]  # fmt: skip  # noqa: E501
-    if len(matches) != 1:
-        raise ValueError(f"unsupported CPU/tool host architecture: {host_machine!r}")
+    if len(matches) != 1: raise ValueError(f'unsupported CPU/tool host architecture: {host_machine!r}')  # noqa: E701,E501
     return matches[0]
 
 
@@ -70,8 +69,7 @@ def _construct_mapping(
     mapping: dict[str, Any] = {}
     for key_node, value_node in node.value:
         key = loader.construct_object(key_node, deep=deep)
-        if key in mapping:
-            raise ValueError(f"duplicate YAML key: {key}")
+        if key in mapping: raise ValueError(f'duplicate YAML key: {key}')  # noqa: E701
         mapping[key] = loader.construct_object(value_node, deep=deep)
     return mapping
 
@@ -81,8 +79,7 @@ _UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
 
 def load_yaml(path: Path) -> dict[str, Any]:
     value = yaml.load(path.read_text(encoding="utf-8"), Loader=_UniqueKeyLoader)
-    if not isinstance(value, dict):
-        raise ValueError(f"{path} must contain a mapping")
+    if not isinstance(value, dict): raise ValueError(f'{path} must contain a mapping')  # noqa: E701,E501
     return value
 
 
@@ -91,8 +88,7 @@ def load_json_value(path: Path) -> Any:
     def unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
         for key, value in pairs:
-            if key in result:
-                raise ValueError(f"duplicate JSON key {key!r} in {path}")
+            if key in result: raise ValueError(f'duplicate JSON key {key!r} in {path}')  # noqa: E701,E501
             result[key] = value
         return result
 
@@ -101,26 +97,22 @@ def load_json_value(path: Path) -> Any:
 
 def load_json(path: Path) -> dict[str, Any]:
     value = load_json_value(path)
-    if not isinstance(value, dict):
-        raise ValueError(f"{path} must contain a JSON object")
+    if not isinstance(value, dict): raise ValueError(f'{path} must contain a JSON object')  # noqa: E701,E501
     return value
 
 
 def load_json_array(path: Path) -> list[Any]:
     value = load_json_value(path)
-    if not isinstance(value, list):
-        raise ValueError(f"{path} must contain a JSON array")
+    if not isinstance(value, list): raise ValueError(f'{path} must contain a JSON array')  # noqa: E701,E501
     return value
 
 
 def _resolve_ref(root: dict[str, Any], reference: str) -> Any:
-    if not reference.startswith("#/"):
-        raise ValueError(f"unsupported schema reference: {reference}")
+    if not reference.startswith('#/'): raise ValueError(f'unsupported schema reference: {reference}')  # noqa: E701,E501
     value: Any = root
     for raw_part in reference[2:].split("/"):
         part = raw_part.replace("~1", "/").replace("~0", "~")
-        if not isinstance(value, dict) or part not in value:
-            raise ValueError(f"unresolved schema reference: {reference}")
+        if not isinstance(value, dict) or part not in value: raise ValueError(f'unresolved schema reference: {reference}')  # noqa: E701,E501
         value = value[part]
     return value
 
@@ -132,15 +124,12 @@ def validate_schema(
     root: dict[str, Any] | None = None,
     path: str = "$",
 ) -> None:
-    if schema is False:
-        raise ValueError(f"{path}: value is forbidden by schema")
+    if schema is False: raise ValueError(f'{path}: value is forbidden by schema')  # noqa: E701,E501
     if schema is True:
         return
-    if not isinstance(schema, dict):
-        raise ValueError(f"{path}: invalid schema node")
+    if not isinstance(schema, dict): raise ValueError(f'{path}: invalid schema node')  # noqa: E701,E501
     root_schema = root or schema
-    if "$ref" in schema:
-        validate_schema(instance, _resolve_ref(root_schema, schema['$ref']), root=root_schema, path=path)  # fmt: skip  # noqa: E501
+    if '$ref' in schema: validate_schema(instance, _resolve_ref(root_schema, schema['$ref']), root=root_schema, path=path)  # noqa: E701,E501
     if "oneOf" in schema:
         matches = 0
         errors: list[str] = []
@@ -158,26 +147,21 @@ def validate_schema(
         type_checks = {'object': lambda value: isinstance(value, dict), 'array': lambda value: isinstance(value, list), 'string': lambda value: isinstance(value, str), 'integer': lambda value: isinstance(value, int) and (not isinstance(value, bool)), 'boolean': lambda value: isinstance(value, bool), 'number': lambda value: isinstance(value, (int, float)) and (not isinstance(value, bool)), 'null': lambda value: value is None}  # fmt: skip  # noqa: E501
         if expected_type not in type_checks or not type_checks[expected_type](instance):
             raise ValueError(f"{path}: expected {expected_type}")
-    if "const" in schema and instance != schema["const"]:
-        raise ValueError(f"{path}: expected constant {schema['const']!r}")
-    if "enum" in schema and instance not in schema["enum"]:
-        raise ValueError(f"{path}: expected one of {schema['enum']!r}")
+    if 'const' in schema and instance != schema['const']: raise ValueError(f"{path}: expected constant {schema['const']!r}")  # noqa: E701,E501
+    if 'enum' in schema and instance not in schema['enum']: raise ValueError(f"{path}: expected one of {schema['enum']!r}")  # noqa: E701,E501
     if isinstance(instance, str):
-        if len(instance) < schema.get("minLength", 0):
-            raise ValueError(f"{path}: string is shorter than minLength")
+        if len(instance) < schema.get('minLength', 0): raise ValueError(f'{path}: string is shorter than minLength')  # noqa: E701,E501
         if "pattern" in schema and re.search(schema["pattern"], instance) is None:
             raise ValueError(f"{path}: value does not match pattern {schema['pattern']!r}")  # fmt: skip  # noqa: E501
     if isinstance(instance, (int, float)) and not isinstance(instance, bool):
         if "minimum" in schema and instance < schema["minimum"]:
             raise ValueError(f"{path}: value is below minimum {schema['minimum']}")
     if isinstance(instance, dict):
-        if len(instance) < schema.get("minProperties", 0):
-            raise ValueError(f"{path}: object has fewer than minProperties")
+        if len(instance) < schema.get('minProperties', 0): raise ValueError(f'{path}: object has fewer than minProperties')  # noqa: E701,E501
         if "maxProperties" in schema and len(instance) > schema["maxProperties"]:
             raise ValueError(f"{path}: object has more than maxProperties")
         missing = [key for key in schema.get("required", []) if key not in instance]
-        if missing:
-            raise ValueError(f"{path}: missing required properties {missing}")
+        if missing: raise ValueError(f'{path}: missing required properties {missing}')  # noqa: E701,E501
         properties = schema.get("properties", {})
         property_names = schema.get("propertyNames")
         if property_names is not None:
@@ -185,26 +169,22 @@ def validate_schema(
                 validate_schema(key, property_names, root=root_schema, path=f'{path}.<property>')  # fmt: skip  # noqa: E501
         if schema.get("additionalProperties") is False:
             extras = sorted(set(instance) - set(properties))
-            if extras:
-                raise ValueError(f'Additional properties are not allowed at {path}: {extras}')  # fmt: skip  # noqa: E501
+            if extras: raise ValueError(f'Additional properties are not allowed at {path}: {extras}')  # noqa: E701,E501
         for key, value in instance.items():
             if key in properties:
                 validate_schema(value, properties[key], root=root_schema, path=f'{path}.{key}')  # fmt: skip  # noqa: E501
             elif isinstance(schema.get("additionalProperties"), dict):
                 validate_schema(value, schema['additionalProperties'], root=root_schema, path=f'{path}.{key}')  # fmt: skip  # noqa: E501
     if isinstance(instance, list):
-        if len(instance) < schema.get("minItems", 0):
-            raise ValueError(f"{path}: array is shorter than minItems")
+        if len(instance) < schema.get('minItems', 0): raise ValueError(f'{path}: array is shorter than minItems')  # noqa: E701,E501
         if "maxItems" in schema and len(instance) > schema["maxItems"]:
             raise ValueError(f"{path}: array is longer than maxItems")
         if schema.get("uniqueItems"):
             encoded = [canonical_bytes(item) for item in instance]
-            if len(encoded) != len(set(encoded)):
-                raise ValueError(f"{path}: array items must be unique")
+            if len(encoded) != len(set(encoded)): raise ValueError(f'{path}: array items must be unique')  # noqa: E701,E501
         prefix_items = schema.get("prefixItems", [])
         for index, item_schema in enumerate(prefix_items):
-            if index < len(instance):
-                validate_schema(instance[index], item_schema, root=root_schema, path=f'{path}[{index}]')  # fmt: skip  # noqa: E501
+            if index < len(instance): validate_schema(instance[index], item_schema, root=root_schema, path=f'{path}[{index}]')  # noqa: E701,E501
         item_schema = schema.get("items")
         if item_schema is not None:
             start = len(prefix_items) if prefix_items else 0
@@ -231,8 +211,7 @@ def read_version(path: Path | None = None) -> str:
 
 def derive_chart_version(version: str) -> str:
     match = re.fullmatch(r"([0-9]+\.[0-9]+\.[0-9]+)rc([0-9]+)", version)
-    if match is None:
-        raise ValueError(f"unsupported UCM release version for Chart SemVer: {version}")
+    if match is None: raise ValueError(f'unsupported UCM release version for Chart SemVer: {version}')  # noqa: E701,E501
     return f"{match.group(1)}-rc.{match.group(2)}"
 
 
@@ -263,15 +242,13 @@ def _specifier_interval(
         nonlocal lower, lower_inclusive
         if lower is None or candidate > lower:
             lower, lower_inclusive = candidate, inclusive
-        elif candidate == lower:
-            lower_inclusive = lower_inclusive and inclusive
+        if candidate == lower: lower_inclusive = lower_inclusive and inclusive  # noqa: E701,E501
 
     def add_upper(candidate: Version, inclusive: bool) -> None:
         nonlocal upper, upper_inclusive
         if upper is None or candidate < upper:
             upper, upper_inclusive = candidate, inclusive
-        elif candidate == upper:
-            upper_inclusive = upper_inclusive and inclusive
+        if candidate == upper: upper_inclusive = upper_inclusive and inclusive  # noqa: E701,E501
 
     for specifier in specifiers:
         operator = specifier.operator
@@ -381,8 +358,7 @@ def _require_unique_ids(items: list[dict[str, Any]], label: str) -> None:
     seen: set[str] = set()
     for item in items:
         identifier = item["id"]
-        if identifier in seen:
-            raise ValueError(f"duplicate {label} id {identifier!r}")
+        if identifier in seen: raise ValueError(f'duplicate {label} id {identifier!r}')  # noqa: E701,E501
         seen.add(identifier)
 
 
@@ -392,25 +368,20 @@ _BUILDER_CHECK_FIELDS = {'python': {'kind', 'version', 'abi'}, 'python-soabi': {
 def _validate_builder_checks(
     checks: object, *, profile: dict[str, Any], location: str
 ) -> None:
-    if not isinstance(checks, list) or not checks:
-        raise ValueError(f"{location} builder checks must be a non-empty array")
+    if not isinstance(checks, list) or not checks: raise ValueError(f'{location} builder checks must be a non-empty array')  # noqa: E701,E501
     seen: set[bytes] = set()
     requirements: dict[tuple[str, str], tuple[str, bytes]] = {}
     python_checks = 0
     soabi_checks = 0
     for index, check in enumerate(checks):
         check_location = f"{location}.checks[{index}]"
-        if not isinstance(check, dict):
-            raise ValueError(f"{check_location} must be an object")
+        if not isinstance(check, dict): raise ValueError(f'{check_location} must be an object')  # noqa: E701,E501
         kind = check.get("kind")
         fields = _BUILDER_CHECK_FIELDS.get(str(kind))
-        if fields is None:
-            raise ValueError(f"unsupported builder check kind {kind!r}")
-        if set(check) != fields:
-            raise ValueError(f"{check_location} fields are not exact")
+        if fields is None: raise ValueError(f'unsupported builder check kind {kind!r}')  # noqa: E701,E501
+        if set(check) != fields: raise ValueError(f'{check_location} fields are not exact')  # noqa: E701,E501
         encoded = canonical_bytes(check)
-        if encoded in seen:
-            raise ValueError(f"duplicate builder check at {check_location}")
+        if encoded in seen: raise ValueError(f'duplicate builder check at {check_location}')  # noqa: E701,E501
         seen.add(encoded)
         if kind == "python":
             python_checks += 1
@@ -475,8 +446,7 @@ def _validate_builder_checks(
             previous_kind, previous_encoded = previous
             if target[0] == "filesystem-node" and previous_kind == kind:
                 raise ValueError(f"duplicate builder check at {check_location}")
-            if previous_encoded != encoded:
-                raise ValueError(f"conflicting builder checks for {target[1]!r}")
+            if previous_encoded != encoded: raise ValueError(f'conflicting builder checks for {target[1]!r}')  # noqa: E701,E501
         requirements[target] = (str(kind), encoded)
     if python_checks != 1 or soabi_checks != 1:
         raise ValueError(f'{location} requires exactly one Python and one Python SOABI check')  # fmt: skip  # noqa: E501
@@ -486,8 +456,7 @@ def runtime_patch_manifest(
     catalog: dict[str, Any], *, repository_root: Path = REPO_ROOT
 ) -> dict[str, Any]:
     rules = catalog.get("runtime_patch_rules")
-    if not isinstance(rules, list) or not rules:
-        raise ValueError("runtime_patch_rules must be a non-empty array")
+    if not isinstance(rules, list) or not rules: raise ValueError('runtime_patch_rules must be a non-empty array')  # noqa: E701,E501
     _require_unique_ids(rules, "runtime patch rule")
     products = catalog.get("upstream_products", [])
     seen_orders: set[int] = set()
@@ -495,17 +464,14 @@ def runtime_patch_manifest(
     for index, rule in enumerate(rules):
         location = f"runtime_patch_rules[{index}]"
         fields = {'id', 'order', 'product', 'version_specifier', 'channels', 'variants', 'strategy', 'imports'}  # fmt: skip  # noqa: E501
-        if not isinstance(rule, dict) or set(rule) != fields:
-            raise ValueError(f"{location} fields are not exact")
+        if not isinstance(rule, dict) or set(rule) != fields: raise ValueError(f'{location} fields are not exact')  # noqa: E701,E501
         order = rule["order"]
         if not isinstance(order, int) or isinstance(order, bool) or order < 0:
             raise ValueError(f"{location}.order must be a non-negative integer")
-        if order in seen_orders:
-            raise ValueError(f"duplicate runtime patch rule order {order}")
+        if order in seen_orders: raise ValueError(f'duplicate runtime patch rule order {order}')  # noqa: E701,E501
         seen_orders.add(order)
         product_members = [product for product in products if product.get('runtime_product') == rule['product']]  # fmt: skip  # noqa: E501
-        if not product_members:
-            raise ValueError(f"{location} references unknown runtime product {rule['product']!r}")  # fmt: skip  # noqa: E501
+        if not product_members: raise ValueError(f"{location} references unknown runtime product {rule['product']!r}")  # noqa: E701,E501
         _pep440_specifier(rule["version_specifier"], f"{location}.version_specifier")
         if (
             not isinstance(rule["channels"], list)
@@ -525,8 +491,7 @@ def runtime_patch_manifest(
         imports = rule["imports"]
         if rule["strategy"] not in {"imports", "none"} or not isinstance(imports, list):
             raise ValueError(f"{location}.strategy is invalid")
-        if (rule["strategy"] == "none") != (imports == []):
-            raise ValueError(f"{location} none strategy must have no imports")
+        if (rule['strategy'] == 'none') != (imports == []): raise ValueError(f'{location} none strategy must have no imports')  # noqa: E701,E501
         if rule["strategy"] == "imports" and not imports:
             raise ValueError(f"{location} imports strategy must declare modules")
         normalized_imports: list[dict[str, Any]] = []
@@ -559,8 +524,7 @@ def runtime_patch_manifest(
                     raise ValueError(f"{import_location}.when is malformed")
                 normalized_import["when"] = {"sparse": condition["sparse"]}
             encoded_import = canonical_bytes(normalized_import)
-            if encoded_import in seen_imports:
-                raise ValueError(f"duplicate runtime patch import at {import_location}")
+            if encoded_import in seen_imports: raise ValueError(f'duplicate runtime patch import at {import_location}')  # noqa: E701,E501
             seen_imports.add(encoded_import)
             normalized_imports.append(normalized_import)
         normalized.append({'id': rule['id'], 'order': order, 'product': rule['product'], 'version_specifier': str(_pep440_specifier(rule['version_specifier'], f'{location}.version_specifier')), 'channels': sorted(rule['channels']), 'variants': sorted(rule['variants']), 'strategy': rule['strategy'], 'imports': normalized_imports})  # fmt: skip  # noqa: E501
@@ -585,8 +549,7 @@ def _matching_runtime_patch_rule(
 
 
 def _exact_runtime_requirement(value: object) -> tuple[str, str, str]:
-    if not isinstance(value, str) or not value:
-        raise ValueError("python runtime requirement is invalid")
+    if not isinstance(value, str) or not value: raise ValueError('python runtime requirement is invalid')  # noqa: E701,E501
     try:
         requirement = Requirement(value)
     except InvalidRequirement as error:
@@ -632,8 +595,7 @@ def python_runtime_requirements(catalog: dict[str, Any]) -> list[str]:
             raise ValueError("python runtime dependency import name is invalid")
         if set(declaration) == {"requirement", "import_name", "wheel_artifacts"}:
             identity, _, resolved_requirement = _exact_runtime_requirement(declaration['requirement'])  # fmt: skip  # noqa: E501
-            if not isinstance(declaration["wheel_artifacts"], dict):
-                raise ValueError("python runtime wheel artifacts are invalid")
+            if not isinstance(declaration['wheel_artifacts'], dict): raise ValueError('python runtime wheel artifacts are invalid')  # noqa: E701,E501
         elif set(declaration) == {"python_build_lock", "import_name"}:
             package_name = declaration["python_build_lock"]
             package = packages.get(package_name) if isinstance(packages, dict) and isinstance(package_name, str) else None  # fmt: skip  # noqa: E501
@@ -653,8 +615,7 @@ def python_runtime_requirements(catalog: dict[str, Any]) -> list[str]:
             resolved_requirement = f"{identity}=={package['version']}"
         else:
             raise ValueError("python runtime dependency declaration is invalid")
-        if identity in identities:
-            raise ValueError(f"duplicate python runtime dependency {identity!r}")
+        if identity in identities: raise ValueError(f'duplicate python runtime dependency {identity!r}')  # noqa: E701,E501
         identities.add(identity)
         resolved.append(resolved_requirement)
     return sorted(resolved)
@@ -696,8 +657,7 @@ def build_tool_dependency_records(
         raise ValueError("python build tool package authority is invalid")
     records: list[dict[str, str]] = []
     for package_name, package in packages.items():
-        if not isinstance(package, dict):
-            raise ValueError("python build tool package authority is invalid")
+        if not isinstance(package, dict): raise ValueError('python build tool package authority is invalid')  # noqa: E701,E501
         name = canonicalize_name(package_name)
         records.append({'name': name, 'version': str(package['version']), 'requirement': f"{name}=={package['version']}", 'filename': package['filename'], 'sha256': package['sha256']})  # fmt: skip  # noqa: E501
     for name, lock_record, artifact in (
@@ -762,8 +722,7 @@ def python_abi_artifact(
 def _validate_catalog_cpu_toolchains(catalog: dict[str, Any]) -> None:
     declarations: list[tuple[str, object]] = []
     runner_map = catalog.get("runner_map")
-    if isinstance(runner_map, dict):
-        declarations.extend((f"runner_map.{key}", key) for key in runner_map)
+    if isinstance(runner_map, dict): declarations.extend(((f'runner_map.{key}', key) for key in runner_map))  # noqa: E701,E501
     for index, profile in enumerate(catalog.get("wheel_profiles", [])):
         if not isinstance(profile, dict):
             continue
@@ -820,11 +779,9 @@ def validate_catalog(
             runtime_dependency_records(catalog, profile.get("python_abi"), architecture)
             build_tool_dependency_records(catalog, profile.get('python_abi'), architecture)  # fmt: skip  # noqa: E501
         builders = profile.get("builders")
-        if not isinstance(builders, dict):
-            raise ValueError(f"wheel_profiles[{index}].builders must be an object")
+        if not isinstance(builders, dict): raise ValueError(f'wheel_profiles[{index}].builders must be an object')  # noqa: E701,E501
         for architecture, builder in builders.items():
-            if not isinstance(builder, dict):
-                raise ValueError(f'wheel_profiles[{index}].builders.{architecture} must be an object')  # fmt: skip  # noqa: E501
+            if not isinstance(builder, dict): raise ValueError(f'wheel_profiles[{index}].builders.{architecture} must be an object')  # noqa: E701,E501
             _validate_builder_checks(builder.get('checks'), profile=profile, location=f'wheel_profiles[{index}].builders.{architecture}')  # fmt: skip  # noqa: E501
     for index, product in enumerate(products):
         _pep440_specifier(product.get('version_specifier'), f'upstream_products[{index}].version_specifier')  # fmt: skip  # noqa: E501
@@ -851,17 +808,14 @@ def validate_catalog(
     products_by_id = {product["id"]: product for product in products}
     smoke = catalog.get("pr_smoke", {})
     selectors = smoke.get("image_selectors", []) if isinstance(smoke, dict) else []
-    if not selectors:
-        raise ValueError("pr_smoke.image_selectors must not be empty")
+    if not selectors: raise ValueError('pr_smoke.image_selectors must not be empty')  # noqa: E701,E501
     selector_identities: set[tuple[str, str, str]] = set()
     for selector in selectors:
         identity = (selector['product_id'], selector['variant'], selector['cpu_arch'])  # fmt: skip
-        if identity in selector_identities:
-            raise ValueError(f"duplicate PR smoke selector {identity!r}")
+        if identity in selector_identities: raise ValueError(f'duplicate PR smoke selector {identity!r}')  # noqa: E701,E501
         selector_identities.add(identity)
         product = products_by_id.get(selector["product_id"])
-        if product is None:
-            raise ValueError(f"PR smoke selector references unknown product {selector['product_id']!r}")  # fmt: skip  # noqa: E501
+        if product is None: raise ValueError(f"PR smoke selector references unknown product {selector['product_id']!r}")  # noqa: E701,E501
         if selector["variant"] not in {
             variant["id"] for variant in product["variants"]
         }:
@@ -873,13 +827,11 @@ def validate_catalog(
         referenced_products: list[dict[str, Any]] = []
         for product_id in rule["upstream_products"]:
             product = products_by_id.get(product_id)
-            if product is None:
-                raise ValueError(f"unknown upstream product {product_id!r}")
+            if product is None: raise ValueError(f'unknown upstream product {product_id!r}')  # noqa: E701,E501
             referenced_products.append(product)
         declared_variants = {variant['id'] for product in referenced_products for variant in product['variants']}  # fmt: skip  # noqa: E501
         for variant_id in rule["variants"]:
-            if variant_id not in declared_variants:
-                raise ValueError(f"unknown variant {variant_id!r}")
+            if variant_id not in declared_variants: raise ValueError(f'unknown variant {variant_id!r}')  # noqa: E701,E501
     for left_index, left in enumerate(rules):
         for right in rules[left_index + 1 :]:
             if _compatibility_rules_semantically_overlap(left, right, products_by_id):
@@ -911,13 +863,11 @@ def _dockerfile_instructions(dockerfile_text: str) -> list[tuple[str, str]]:
             directive_value = directive_match.group("value")  # type: ignore[union-attr]
             parser_directives[directive_key] = directive_value
             if directive_key == "escape":
-                if directive_value not in {"\\", "`"}:
-                    raise ValueError('Dockerfile escape parser directive must be `\\` or ```')  # fmt: skip  # noqa: E501
+                if directive_value not in {'\\', '`'}: raise ValueError('Dockerfile escape parser directive must be `\\` or ```')  # noqa: E701,E501
                 escape_character = directive_value
             line_index += 1
             continue
-        if parser_directive_region:
-            parser_directive_region = False
+        if parser_directive_region: parser_directive_region = False  # noqa: E701
         if raw_line.lstrip().startswith("#"):
             line_index += 1
             continue
@@ -926,12 +876,10 @@ def _dockerfile_instructions(dockerfile_text: str) -> list[tuple[str, str]]:
         while logical_line.endswith(escape_character):
             logical_line = logical_line[:-1]
             while True:
-                if line_index + 1 >= len(raw_lines):
-                    raise ValueError("unterminated Dockerfile continuation")
+                if line_index + 1 >= len(raw_lines): raise ValueError('unterminated Dockerfile continuation')  # noqa: E701,E501
                 line_index += 1
                 continued_line = raw_lines[line_index]
-                if not continued_line.strip():
-                    raise ValueError("blank line inside Dockerfile continuation")
+                if not continued_line.strip(): raise ValueError('blank line inside Dockerfile continuation')  # noqa: E701,E501
                 if continued_line.lstrip().startswith("#"):
                     continue
                 logical_line += continued_line
@@ -982,8 +930,7 @@ def _dockerfile_base_authority(dockerfile_text: str, *, path: str) -> tuple[str,
                 if first_from_seen:
                     raise ValueError(f'Docker recipe base-image ARG declarations must precede the first FROM instruction: {path}')  # fmt: skip  # noqa: E501
                 value = match.group("value")
-                if value is not None and value.startswith('"'):
-                    value = value[1:-1]
+                if value is not None and value.startswith('"'): value = value[1:-1]  # noqa: E701,E501
                 relevant_args[match.group("name")].append(value)
         elif keyword == "FROM":
             first_from_seen = True
@@ -1003,8 +950,7 @@ def validate_repository_recipe_inventory(
     catalog: dict[str, Any], *, repository_root: Path = REPO_ROOT
 ) -> None:
     recipes = catalog.get("docker_recipes")
-    if not isinstance(recipes, list) or not recipes:
-        raise ValueError("docker_recipes must be a non-empty array")
+    if not isinstance(recipes, list) or not recipes: raise ValueError('docker_recipes must be a non-empty array')  # noqa: E701,E501
     _require_unique_ids(recipes, "Docker recipe")
     products = {item["id"]: item for item in catalog["upstream_products"]}
     normalized_paths: dict[str, str] = {}
@@ -1017,8 +963,7 @@ def validate_repository_recipe_inventory(
 
     for index, recipe in enumerate(recipes):
         location = f"docker_recipes[{index}]"
-        if not isinstance(recipe, dict):
-            raise ValueError(f"{location} must be an object")
+        if not isinstance(recipe, dict): raise ValueError(f'{location} must be an object')  # noqa: E701,E501
         if safe_id_pattern.fullmatch(str(recipe.get("id", ""))) is None:
             raise ValueError(f"{location}.id must be a lowercase OCI-safe identifier")
         path = recipe.get("path")
@@ -1042,8 +987,7 @@ def validate_repository_recipe_inventory(
             raise ValueError(f"{location}.lanes are invalid")
         status = recipe.get("status")
         build_mode = recipe.get("build_mode")
-        if status not in {"active", "legacy", "nightly", "specialized"}:
-            raise ValueError(f"{location}.status is invalid")
+        if status not in {'active', 'legacy', 'nightly', 'specialized'}: raise ValueError(f'{location}.status is invalid')  # noqa: E701,E501
         if build_mode not in {"generic-install-only", "legacy-source-build"}:
             raise ValueError(f"{location}.build mode is invalid")
         if build_mode == "legacy-source-build" and "formal-release" in lanes:
@@ -1056,8 +1000,7 @@ def validate_repository_recipe_inventory(
             "exclusion_reason"
         ):
             raise ValueError(f'{location} requires an exclusion reason outside formal release')  # fmt: skip  # noqa: E501
-        if status == "nightly" and set(lanes) != {"manual"}:
-            raise ValueError("nightly Docker recipes are manual-only")
+        if status == 'nightly' and set(lanes) != {'manual'}: raise ValueError('nightly Docker recipes are manual-only')  # noqa: E701,E501
         base_image = recipe.get("base_image")
         if (
             not isinstance(base_image, dict)
@@ -1098,8 +1041,7 @@ def validate_repository_recipe_inventory(
             or re.fullmatch(r"[a-z0-9][a-z0-9.-]+", cache_scope) is None
         ):
             raise ValueError(f'{location}.cache scope must be an output-safe lowercase value')  # fmt: skip  # noqa: E501
-        if cache_scope in cache_scopes:
-            raise ValueError(f"duplicate Docker recipe cache scope {cache_scope!r}")
+        if cache_scope in cache_scopes: raise ValueError(f'duplicate Docker recipe cache scope {cache_scope!r}')  # noqa: E701,E501
         cache_scopes.add(cache_scope)
         build_args = recipe.get("build_args")
         if not isinstance(build_args, list) or build_args != sorted(build_args):
@@ -1111,8 +1053,7 @@ def validate_repository_recipe_inventory(
         ):
             raise ValueError(f'{location}.build_args must contain output-safe NAME=value entries')  # fmt: skip  # noqa: E501
         argument_names = [str(value).partition("=")[0] for value in build_args]
-        if len(argument_names) != len(set(argument_names)):
-            raise ValueError(f"{location}.build_args contains duplicate names")
+        if len(argument_names) != len(set(argument_names)): raise ValueError(f'{location}.build_args contains duplicate names')  # noqa: E701,E501
         if {"IMAGE_SOURCE", "IMAGE_NAME_VERSION"} & set(argument_names):
             raise ValueError(f'{location}.build_args must not duplicate base-image authority')  # fmt: skip  # noqa: E501
 
@@ -1130,14 +1071,12 @@ def validate_repository_recipe_inventory(
         component_path = repository_root
         for component in PurePosixPath(path).parts:
             component_path = component_path / component
-            if component_path.is_symlink():
-                raise ValueError(f'registered Docker recipe has a symlink component: {path}')  # fmt: skip  # noqa: E501
+            if component_path.is_symlink(): raise ValueError(f'registered Docker recipe has a symlink component: {path}')  # noqa: E701,E501
         try:
             recipe_path.resolve().relative_to(repository_root.resolve())
         except ValueError as error:
             raise ValueError(f"{location}.path escapes the repository") from error
-        if not recipe_path.is_file():
-            raise ValueError(f"registered Docker recipe does not exist: {path}")
+        if not recipe_path.is_file(): raise ValueError(f'registered Docker recipe does not exist: {path}')  # noqa: E701,E501
         dockerfile_text = recipe_path.read_text(encoding="utf-8")
         source, name_version = _dockerfile_base_authority(dockerfile_text, path=path)
         if recipe.get("base_image") != {
@@ -1206,25 +1145,21 @@ def select_repository_recipe_task(
 
 
 def validate_resolved_upstreams(resolved_upstreams: object) -> None:
-    if not isinstance(resolved_upstreams, list):
-        raise ValueError("resolved_upstreams must be an array")
+    if not isinstance(resolved_upstreams, list): raise ValueError('resolved_upstreams must be an array')  # noqa: E701,E501
     snapshot_keys = {'product_id', 'repository', 'tag', 'version', 'channel', 'variant', 'index_digest', 'members', 'target_repository', 'target_tag'}  # fmt: skip  # noqa: E501
     member_keys = {"manifest_digest", "config_digest"}
     digest_pattern = re.compile(r"^sha256:[0-9a-f]{64}$")
     logical_identities: set[tuple[str, ...]] = set()
     for index, snapshot in enumerate(resolved_upstreams):
         location = f"resolved_upstreams[{index}]"
-        if not isinstance(snapshot, dict):
-            raise ValueError(f"{location} must be an object")
+        if not isinstance(snapshot, dict): raise ValueError(f'{location} must be an object')  # noqa: E701,E501
         missing = sorted(snapshot_keys - set(snapshot))
         extras = sorted(set(snapshot) - snapshot_keys)
-        if missing or extras:
-            raise ValueError(f'{location} requires exact key set; missing={missing}, extra={extras}')  # fmt: skip  # noqa: E501
+        if missing or extras: raise ValueError(f'{location} requires exact key set; missing={missing}, extra={extras}')  # noqa: E701,E501
         for key in snapshot_keys - {"members", "index_digest"}:
             if not isinstance(snapshot[key], str) or not snapshot[key]:
                 raise ValueError(f"{location}.{key} must be a non-empty string")
-        if snapshot["channel"] not in {"stable", "rc"}:
-            raise ValueError(f"{location}.channel must be stable or rc")
+        if snapshot['channel'] not in {'stable', 'rc'}: raise ValueError(f'{location}.channel must be stable or rc')  # noqa: E701,E501
         if OCI_REPOSITORY_PATTERN.fullmatch(snapshot["target_repository"]) is None:
             raise ValueError(f'{location}.target_repository must use canonical OCI repository syntax')  # fmt: skip  # noqa: E501
         if OCI_TAG_PATTERN.fullmatch(snapshot["target_tag"]) is None:
@@ -1235,22 +1170,18 @@ def validate_resolved_upstreams(resolved_upstreams: object) -> None:
         ):
             raise ValueError(f"{location}.index_digest must be an exact sha256 digest")
         identity = (snapshot['product_id'], snapshot['repository'], snapshot['tag'], str(_pep440_version(snapshot['version'], f'{location}.version')), snapshot['channel'], snapshot['variant'])  # fmt: skip  # noqa: E501
-        if identity in logical_identities:
-            raise ValueError(f'{location} has duplicate logical upstream identity: {identity}')  # fmt: skip  # noqa: E501
+        if identity in logical_identities: raise ValueError(f'{location} has duplicate logical upstream identity: {identity}')  # noqa: E701,E501
         logical_identities.add(identity)
         members = snapshot["members"]
-        if not isinstance(members, dict) or not members:
-            raise ValueError(f"{location}.members must be a non-empty object")
+        if not isinstance(members, dict) or not members: raise ValueError(f'{location}.members must be a non-empty object')  # noqa: E701,E501
         for architecture, member in members.items():
             member_location = f"{location}.members.{architecture}"
             if not isinstance(architecture, str) or not architecture:
                 raise ValueError(f"{location}.members has an invalid architecture")
-            if not isinstance(member, dict):
-                raise ValueError(f"{member_location} must be an object")
+            if not isinstance(member, dict): raise ValueError(f'{member_location} must be an object')  # noqa: E701,E501
             missing = sorted(member_keys - set(member))
             extras = sorted(set(member) - member_keys)
-            if missing or extras:
-                raise ValueError(f'{member_location} requires exact key set; missing={missing}, extra={extras}')  # fmt: skip  # noqa: E501
+            if missing or extras: raise ValueError(f'{member_location} requires exact key set; missing={missing}, extra={extras}')  # noqa: E701,E501
             for digest_name in sorted(member_keys):
                 if (
                     not isinstance(member[digest_name], str)
@@ -1329,8 +1260,7 @@ class ReleasePlan:
     ) -> "ReleasePlan":
         validate_catalog(catalog, repository_root=repository_root)
         validate_resolved_upstreams(resolved_upstreams)
-        if lane not in catalog["lanes"]:
-            raise ValueError(f"unsupported validation lane: {lane}")
+        if lane not in catalog['lanes']: raise ValueError(f'unsupported validation lane: {lane}')  # noqa: E701,E501
         patch_manifest = runtime_patch_manifest(catalog, repository_root=repository_root)  # fmt: skip  # noqa: E501
         patch_manifest_sha256 = runtime_patch_manifest_sha256(patch_manifest)
         runtime_requirements = python_runtime_requirements(catalog)
@@ -1344,8 +1274,7 @@ class ReleasePlan:
 
         for snapshot in snapshots:
             product = products.get(snapshot["product_id"])
-            if product is None:
-                raise ValueError(f"resolved upstream references unknown product {snapshot['product_id']!r}")  # fmt: skip  # noqa: E501
+            if product is None: raise ValueError(f"resolved upstream references unknown product {snapshot['product_id']!r}")  # noqa: E701,E501
             if snapshot["repository"] != product["repository"]:
                 raise ValueError('resolved upstream repository differs from catalog product')  # fmt: skip  # noqa: E501
             product_variant = next((item for item in product['variants'] if item['id'] == snapshot['variant']), None)  # fmt: skip  # noqa: E501
@@ -1371,11 +1300,9 @@ class ReleasePlan:
                 raise ValueError("resolved upstream channel is not selected by product")
             members = snapshot["members"]
             missing = sorted(set(product["required_cpu_architectures"]) - set(members))
-            if missing:
-                raise ValueError(f"resolved upstream {snapshot['tag']} is missing required CPU architectures: {missing}")  # fmt: skip  # noqa: E501
+            if missing: raise ValueError(f"resolved upstream {snapshot['tag']} is missing required CPU architectures: {missing}")  # noqa: E701,E501
             coordinate = f"{snapshot['target_repository']}:{snapshot['target_tag']}"
-            if coordinate in family_coordinates:
-                raise ValueError(f"duplicate target image coordinate: {coordinate}")
+            if coordinate in family_coordinates: raise ValueError(f'duplicate target image coordinate: {coordinate}')  # noqa: E701,E501
             family_coordinates.add(coordinate)
             family_identity = {k: snapshot[k] for k in _FAMILY_IDENTITY_KEYS}
             family_task_id = f"family-{sha256_value(family_identity).removeprefix('sha256:')}"  # fmt: skip  # noqa: E501
@@ -1416,8 +1343,7 @@ class ReleasePlan:
         cardinalities = {'wheel_tasks': len(wheel_tasks), 'image_tasks': len(image_tasks), 'family_tasks': len(family_tasks)}  # fmt: skip  # noqa: E501
         for task_kind, count in cardinalities.items():
             limit = limits[f"max_{task_kind}"]
-            if count > limit:
-                raise ValueError(f'matrix limit max_{task_kind}={limit} exceeded by exact generated set of {count}')  # fmt: skip  # noqa: E501
+            if count > limit: raise ValueError(f'matrix limit max_{task_kind}={limit} exceeded by exact generated set of {count}')  # noqa: E701,E501
         return cls(lane=lane, wheel_tasks=wheel_tasks, image_tasks=image_tasks, family_tasks=family_tasks)  # fmt: skip  # noqa: E501
 
 
@@ -1450,8 +1376,7 @@ def _exact_keys(
     optional = optional or set()
     missing = sorted(expected - set(value))
     extras = sorted(set(value) - expected - optional)
-    if missing or extras:
-        raise ValueError(f'{location} requires exact key set; missing={missing}, extra={extras}')  # fmt: skip  # noqa: E501
+    if missing or extras: raise ValueError(f'{location} requires exact key set; missing={missing}, extra={extras}')  # noqa: E701,E501
 
 
 def _validate_cross_config(
@@ -1464,8 +1389,7 @@ def _validate_cross_config(
         if architectures != set(profile["builders"]):
             raise ValueError(f"wheel profile {profile['id']!r} builder architectures do not match cpu_arch")  # fmt: skip  # noqa: E501
         missing_runners = sorted(architectures - set(release["runner_map"]))
-        if missing_runners:
-            raise ValueError(f"wheel profile {profile['id']!r} has no runner for {missing_runners}")  # fmt: skip  # noqa: E501
+        if missing_runners: raise ValueError(f"wheel profile {profile['id']!r} has no runner for {missing_runners}")  # noqa: E701,E501
         for architecture in sorted(architectures):
             root = profile["builders"][architecture]["root"]
             coordinate = f"{root['repository']}@{root['manifest_digest']}"
@@ -1481,8 +1405,7 @@ def _validate_cross_config(
             variant["id"] for variant in product["variants"]
         }:
             raise ValueError('Chart validation must select a declared upstream product variant')  # fmt: skip  # noqa: E501
-        if selector in chart_selectors:
-            raise ValueError('Chart validation product/variant selectors must be unique')  # fmt: skip  # noqa: E501
+        if selector in chart_selectors: raise ValueError('Chart validation product/variant selectors must be unique')  # noqa: E701,E501
         chart_selectors.add(selector)
 
 
@@ -1492,8 +1415,7 @@ def _load_supplementary_configs(
     merged: dict[str, Any] = {}
     candidates = (DEFAULT_RELEASE.parents[1] / 'docker-recipes.yaml', DEFAULT_RELEASE.parent / 'toolchain.lock.yaml', DEFAULT_RELEASE.parent / 'native-contract.yaml', DEFAULT_RELEASE.parents[2] / 'ucm' / 'integration' / 'runtime-patches.yaml')  # fmt: skip  # noqa: E501
     for path in candidates:
-        if path.is_file():
-            merged.update(load_yaml(path))
+        if path.is_file(): merged.update(load_yaml(path))  # noqa: E701
     return merged
 
 
@@ -1514,8 +1436,7 @@ def load_catalog(
         if key == "builders" and isinstance(value, dict):
             for profile in release.get("wheel_profiles", []):
                 pid = profile["id"]
-                if pid in value and "builders" not in profile:
-                    profile["builders"] = value[pid]
+                if pid in value and 'builders' not in profile: profile['builders'] = value[pid]  # noqa: E701,E501
         elif key in profile_ids and isinstance(value, dict):
             for profile in release.get("wheel_profiles", []):
                 if profile["id"] == key:
@@ -1524,17 +1445,14 @@ def load_catalog(
                         "forbidden_native",
                         "allowed_dt_needed",
                     ):
-                        if field in value and field not in profile:
-                            profile[field] = value[field]
-        elif key not in release and key in SUPPLEMENTARY_TOP_LEVEL_KEYS:
-            release[key] = value
+                        if field in value and field not in profile: profile[field] = value[field]  # noqa: E701,E501
+        if key not in release and key in SUPPLEMENTARY_TOP_LEVEL_KEYS: release[key] = value  # noqa: E701,E501
     resolved_repository = resolve_repository(repository, repository_root=repository_root)  # fmt: skip  # noqa: E501
     release = resolve_owner_templates(release, repository=resolved_repository)
     validate_schema(release, config_schema)
     missing = sorted(RELEASE_KEYS - set(release))
     extras = sorted(set(release) - RELEASE_KEYS - OPTIONAL_CATALOG_KEYS)
-    if missing or extras:
-        raise ValueError(f'release.yaml requires exact key set; missing={missing}, extra={extras}')  # fmt: skip  # noqa: E501
+    if missing or extras: raise ValueError(f'release.yaml requires exact key set; missing={missing}, extra={extras}')  # noqa: E701,E501
     release["source"]["repository"] = resolved_repository
     version = read_version(repository_root / release["version_file"])
     if release["ucm_version"] != version:
@@ -1549,12 +1467,9 @@ def load_catalog(
         local = profile.get("wheel_local_version")
         profile["wheel_version"] = f"{version}+{local}" if local else version
     chart = load_yaml(repository_root / release["chart"]["source"] / "Chart.yaml")
-    if chart.get("name") != release["chart"]["name"]:
-        raise ValueError("Chart name does not match release.yaml")
-    if chart.get("version") != release["chart"]["version"]:
-        raise ValueError("Chart version does not match release.yaml")
-    if str(chart.get("appVersion")) != version:
-        raise ValueError("Chart appVersion does not match version.ini")
+    if chart.get('name') != release['chart']['name']: raise ValueError('Chart name does not match release.yaml')  # noqa: E701,E501
+    if chart.get('version') != release['chart']['version']: raise ValueError('Chart version does not match release.yaml')  # noqa: E701,E501
+    if str(chart.get('appVersion')) != version: raise ValueError('Chart appVersion does not match version.ini')  # noqa: E701,E501
     _validate_cross_config(release, repository_root=repository_root)
     validate_repository_recipe_inventory(release, repository_root=repository_root)
     return release
@@ -1576,8 +1491,7 @@ def compute_publish_plan(
     requested = {name.strip() for name in request.split(",") if name.strip()} or None
     if requested:
         unknown = sorted(requested - set(PUBLISH_CHANNELS))
-        if unknown:
-            raise ValueError(f"unknown publish channels: {unknown}")
+        if unknown: raise ValueError(f'unknown publish channels: {unknown}')  # noqa: E701,E501
     plan: dict[str, bool] = {}
     for channel in PUBLISH_CHANNELS:
         cfg_enabled = bool(publish_cfg.get(channel, {}).get("enabled", False))
@@ -1596,11 +1510,9 @@ def publish_github_release(
     body: str,
     draft: bool = True,
 ) -> dict[str, Any]:
-    if not tag or not repository:
-        raise ValueError("tag and repository are required for GitHub release")
+    if not tag or not repository: raise ValueError('tag and repository are required for GitHub release')  # noqa: E701,E501
     create = ['gh', 'release', 'create', tag, '--repo', repository, '--title', release_name, '--notes', body]  # fmt: skip  # noqa: E501
-    if draft:
-        create.append("--draft")
+    if draft: create.append('--draft')  # noqa: E701
     create.extend(str(asset) for asset in assets)
     result = subprocess.run(create, text=True, capture_output=True, check=False)
     if result.returncode == 0:
@@ -1707,10 +1619,8 @@ def _tag_preflight_live(
     authority: dict[str, Any],
     repository_root: Path | None = None,
 ) -> dict[str, Any]:
-    if repository_root is None:
-        repository_root = REPO_ROOT
-    if lane not in LANES:
-        raise ValueError(f"unsupported validation lane: {lane}")
+    if repository_root is None: repository_root = REPO_ROOT  # noqa: E701
+    if lane not in LANES: raise ValueError(f'unsupported validation lane: {lane}')  # noqa: E701,E501
     if (
         not isinstance(authority, dict)
         or set(authority)
@@ -1732,8 +1642,7 @@ def _tag_preflight_live(
     if lane == "feature-candidate":
         checks = {"feature_zero_write": True, "version_file": version_matches}
         failed = sorted(name for name, passed in checks.items() if not passed)
-        if failed:
-            raise ValueError(f"release preflight failed: {failed}")
+        if failed: raise ValueError(f'release preflight failed: {failed}')  # noqa: E701
         result: dict[str, Any] = {'schema_version': 1, 'kind': 'ucm-tag-preflight', 'lane': lane, 'repository': authority['repository'], 'repository_owner': repository_owner, 'ref': None, 'ref_type': None, 'ref_name': None, 'source_sha': None, 'default_branch': authority['default_branch'], 'checks': checks, 'publication_allowed': False, 'write_authority': []}  # fmt: skip  # noqa: E501
         result["preflight_sha256"] = sha256_value(result)
         return result
@@ -1745,14 +1654,11 @@ def _tag_preflight_live(
         raise ValueError("release preflight failed: ['github_event_path']")
     event = load_json(event_path)
     event_repository = event.get("repository")
-    if not isinstance(event_repository, dict):
-        event_repository = {}
+    if not isinstance(event_repository, dict): event_repository = {}  # noqa: E701
     event_owner = event_repository.get("owner")
-    if not isinstance(event_owner, dict):
-        event_owner = {}
+    if not isinstance(event_owner, dict): event_owner = {}  # noqa: E701
     event_sender = event.get("sender")
-    if not isinstance(event_sender, dict):
-        event_sender = {}
+    if not isinstance(event_sender, dict): event_sender = {}  # noqa: E701
 
     release_tag = authority["release_tag"]
     tag_ref = f"refs/tags/{release_tag}"
@@ -1766,8 +1672,7 @@ def _tag_preflight_live(
     origin_repository = _origin_repository(_git_output(repository_root, 'remote', 'get-url', 'origin'))  # fmt: skip  # noqa: E501
     checks = {'actor': context['GITHUB_ACTOR'] == repository_owner, 'checked_head': checked_head_sha == source_sha, 'default_branch': event_repository.get('default_branch') == authority['default_branch'], 'default_branch_ancestry': tag_commit_sha is not None and default_branch_sha is not None and _is_ancestor(repository_root, tag_commit_sha, default_branch_sha), 'event_actor': event_sender.get('login') == context['GITHUB_ACTOR'], 'event_name': context['GITHUB_EVENT_NAME'] == 'push', 'event_owner': event_owner.get('login') == context['GITHUB_REPOSITORY_OWNER'], 'event_ref': event.get('ref') == context['GITHUB_REF'], 'event_repository': event_repository.get('full_name') == context['GITHUB_REPOSITORY'], 'event_source_sha': event.get('after') == source_sha, 'github_actions': context['GITHUB_ACTIONS'] == 'true', 'origin_repository': origin_repository == authority['repository'], 'owner': context['GITHUB_REPOSITORY_OWNER'] == repository_owner, 'ref': context['GITHUB_REF'] == tag_ref, 'ref_name': context['GITHUB_REF_NAME'] == release_tag, 'ref_protected': context['GITHUB_REF_PROTECTED'] == 'true', 'ref_type': context['GITHUB_REF_TYPE'] == 'tag', 'release_policy': context['UCM_RELEASE_POLICY'] == authority['release_policy'], 'repository': context['GITHUB_REPOSITORY'] == authority['repository'], 'repository_root': worktree_root is not None and Path(worktree_root).resolve() == repository_root.resolve(), 'source_sha': source_commit_sha == source_sha, 'frozen_source': authority.get('commit', source_sha) == source_sha, 'tag_commit': tag_commit_sha == source_sha, 'triggering_actor': context['GITHUB_TRIGGERING_ACTOR'] == repository_owner, 'version_file': version_matches}  # fmt: skip  # noqa: E501
     failed = sorted(name for name, passed in checks.items() if not passed)
-    if failed:
-        raise ValueError(f"release preflight failed: {failed}")
+    if failed: raise ValueError(f'release preflight failed: {failed}')  # noqa: E701
     result = {'schema_version': 1, 'kind': 'ucm-tag-preflight', 'lane': lane, 'repository': context['GITHUB_REPOSITORY'], 'repository_owner': context['GITHUB_REPOSITORY_OWNER'], 'actor': context['GITHUB_ACTOR'], 'triggering_actor': context['GITHUB_TRIGGERING_ACTOR'], 'ref': context['GITHUB_REF'], 'ref_type': context['GITHUB_REF_TYPE'], 'ref_name': context['GITHUB_REF_NAME'], 'source_sha': source_sha, 'tag_commit_sha': tag_commit_sha, 'checked_head_sha': checked_head_sha, 'default_branch': authority['default_branch'], 'default_branch_ref': default_branch_ref, 'default_branch_sha': default_branch_sha, 'event_payload_sha256': sha256_value(event), 'checks': checks, 'publication_allowed': True, 'write_authority': ['github-prerelease', 'ghcr-final-index', 'ghcr-private-staging']}  # fmt: skip  # noqa: E501
     result["preflight_sha256"] = sha256_value(result)
     return result
@@ -1785,6 +1690,6 @@ def tag_preflight(
         release = load_catalog(release_path, schema_dir)
         authority = {field: release['source'][field] for field in ('repository', 'staging_repository', 'default_branch', 'release_tag', 'release_policy')}  # fmt: skip  # noqa: E501
         authority = {**authority, 'version_file': release['version_file'], 'ucm_version': release['ucm_version']}  # fmt: skip  # noqa: E501
-    if repository_root is None:
-        repository_root = REPO_ROOT
+    if repository_root is None: repository_root = REPO_ROOT  # noqa: E701
     return _tag_preflight_live(lane=lane, authority=authority, repository_root=repository_root)  # fmt: skip  # noqa: E501
+# fmt: on

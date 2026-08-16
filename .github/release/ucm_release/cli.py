@@ -1,3 +1,4 @@
+# fmt: off
 from __future__ import annotations
 
 import argparse
@@ -58,8 +59,7 @@ def _publish_github_release(args) -> dict[str, object]:
     if plan["resolved_plan_sha256"] != args.plan_sha256:
         raise ValueError("resolved plan hash differs from expected plan hash")
     repository = plan["source"]["repository"]
-    if repository != args.repository:
-        raise ValueError("plan repository differs from expected repository")
+    if repository != args.repository: raise ValueError('plan repository differs from expected repository')  # noqa: E701,E501
     tag = plan["source"]["release_tag"]
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -229,8 +229,7 @@ def main(argv: list[str] | None = None) -> int:
                 registry.validate_resolved_plan(resolved_plan)
                 if resolved_plan["resolved_plan_sha256"] != args.expected_plan_sha256:
                     raise ValueError('resolved plan hash differs from expected plan hash')  # fmt: skip  # noqa: E501
-                if resolved_plan["lane"] != args.lane:
-                    raise ValueError("tag preflight lane differs from frozen plan")
+                if resolved_plan['lane'] != args.lane: raise ValueError('tag preflight lane differs from frozen plan')  # noqa: E701,E501
                 result = core.tag_preflight(lane=args.lane, authority=resolved_plan['source'])  # fmt: skip  # noqa: E501
         elif (args.group, args.action) == ("registry", "validate-member-schema"):
             record = core.load_json(args.input)
@@ -252,5 +251,5 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+if __name__ == '__main__': sys.exit(main())  # noqa: E701
+# fmt: on

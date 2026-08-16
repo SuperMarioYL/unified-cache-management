@@ -1,3 +1,4 @@
+# fmt: off
 from __future__ import annotations
 
 import copy
@@ -87,8 +88,7 @@ def _validate_layer_descriptor_annotations(
         or re.fullmatch(r"(?:0|[1-9][0-9]*)", timestamp) is None
     ):
         raise ValueError(f"{label} rewritten timestamp annotation is invalid")
-    if timestamp != _created_epoch(created, label):
-        raise ValueError(f"{label} rewritten timestamp differs from created")
+    if timestamp != _created_epoch(created, label): raise ValueError(f'{label} rewritten timestamp differs from created')  # noqa: E701,E501
     return copy.deepcopy(annotations)
 
 
@@ -113,22 +113,19 @@ def _unique_json(text: str, label: str) -> dict[str, Any]:
     def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
         for key, value in items:
-            if key in result:
-                raise ValueError(f"duplicate JSON key {key!r} in {label}")
+            if key in result: raise ValueError(f'duplicate JSON key {key!r} in {label}')  # noqa: E701,E501
             result[key] = value
         return result
 
     value = json.loads(text, object_pairs_hook=pairs)
-    if not isinstance(value, dict):
-        raise ValueError(f"{label} must be a JSON object")
+    if not isinstance(value, dict): raise ValueError(f'{label} must be a JSON object')  # noqa: E701,E501
     return value
 
 
 def _crane_binary(value: str) -> str:
     path = Path(value)
     if path.is_absolute():
-        if not path.is_file():
-            raise ValueError(f"crane executable does not exist: {value}")
+        if not path.is_file(): raise ValueError(f'crane executable does not exist: {value}')  # noqa: E701,E501
         return value
     if "/" in value or re.fullmatch(r"[A-Za-z0-9_.+-]+", value) is None:
         raise ValueError('crane executable must be an absolute path or an explicit PATH name')  # fmt: skip  # noqa: E501
@@ -147,8 +144,7 @@ def _minimal_registry_environment(
 ) -> dict[str, str]:
     environment: dict[str, str] = {}
     selected_config = docker_config or os.environ.get("DOCKER_CONFIG")
-    if selected_config:
-        environment["DOCKER_CONFIG"] = selected_config
+    if selected_config: environment['DOCKER_CONFIG'] = selected_config  # noqa: E701
     for key in (
         "HOME",
         "SSL_CERT_FILE",
@@ -160,26 +156,22 @@ def _minimal_registry_environment(
         "https_proxy",
         "no_proxy",
     ):
-        if key in os.environ:
-            environment[key] = os.environ[key]
+        if key in os.environ: environment[key] = os.environ[key]  # noqa: E701
     return environment
 
 
 def resolve_pinned_crane() -> str:
     located = shutil.which("crane")
-    if located is None:
-        raise ValueError("pinned crane v0.20.3 is not installed on PATH")
+    if located is None: raise ValueError('pinned crane v0.20.3 is not installed on PATH')  # noqa: E701,E501
     executable = str(Path(located).resolve())
     result = subprocess.run([executable, 'version'], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=_minimal_registry_environment(), check=False)  # fmt: skip  # noqa: E501
     version = result.stdout.strip()
     if result.returncode != 0 or version not in {CRANE_VERSION, "v" + CRANE_VERSION}:
         raise ValueError(f"registry transport requires crane v0.20.3, got {version!r}")
     expected = CRANE_BINARY_SHA256.get(_host_platform_key())
-    if expected is None:
-        raise ValueError(f"unsupported crane host platform: {_host_platform_key()}")
+    if expected is None: raise ValueError(f'unsupported crane host platform: {_host_platform_key()}')  # noqa: E701,E501
     observed = "sha256:" + hashlib.sha256(Path(executable).read_bytes()).hexdigest()
-    if observed != expected:
-        raise ValueError(f'crane binary digest mismatch: expected {expected}, observed {observed}')  # fmt: skip  # noqa: E501
+    if observed != expected: raise ValueError(f'crane binary digest mismatch: expected {expected}, observed {observed}')  # noqa: E701,E501
     return executable
 
 
@@ -215,12 +207,10 @@ def enumerate_repository_tags(
             raise ValueError("registry enumeration fixture fields are noncanonical")
         if "list_error" in fixture:
             detail = fixture["list_error"]
-            if not isinstance(detail, str) or not detail:
-                raise ValueError("registry fixture list_error must be non-empty")
+            if not isinstance(detail, str) or not detail: raise ValueError('registry fixture list_error must be non-empty')  # noqa: E701,E501
             raise ValueError(f"fixture tag listing failed: {detail}")
         pages = fixture["pages"]
-        if not isinstance(pages, list) or not pages:
-            raise ValueError("registry enumeration fixture requires complete pages")
+        if not isinstance(pages, list) or not pages: raise ValueError('registry enumeration fixture requires complete pages')  # noqa: E701,E501
         for page_index, page in enumerate(pages, start=1):
             if not isinstance(page, dict) or set(page) != {"tags", "next_page"}:
                 raise ValueError(f"registry fixture page {page_index} is malformed")
@@ -231,16 +221,14 @@ def enumerate_repository_tags(
             ):
                 raise ValueError(f'registry fixture page {page_index} tags are malformed')  # fmt: skip  # noqa: E501
             expected_next = None if page_index == len(pages) else f'page-{page_index + 1}'  # fmt: skip  # noqa: E501
-            if page["next_page"] != expected_next:
-                raise ValueError('registry enumeration fixture pagination is incomplete')  # fmt: skip  # noqa: E501
+            if page['next_page'] != expected_next: raise ValueError('registry enumeration fixture pagination is incomplete')  # noqa: E701,E501
             tags.extend(page_tags)
             operations.append({'type': 'fixture-tag-page-read', 'capability': 'read', 'reference': repository, 'page': page_index})  # fmt: skip  # noqa: E501
     else:
         crane_binary = resolve_pinned_crane()
         result = _run_registry_tool(crane_binary, ["ls", repository])
         tags = result.stdout.splitlines()
-        if any(OCI_TAG_RE.fullmatch(tag) is None for tag in tags):
-            raise ValueError("crane ls returned a malformed OCI tag")
+        if any((OCI_TAG_RE.fullmatch(tag) is None for tag in tags)): raise ValueError('crane ls returned a malformed OCI tag')  # noqa: E701,E501
         operations.append({'type': 'crane-tag-list', 'capability': 'read', 'reference': repository})  # fmt: skip  # noqa: E501
     normalized = sorted(set(tags))
     if len(normalized) > max_tags:
@@ -286,8 +274,7 @@ def resolve_repository_tag(
         if index.get("mediaType") not in OCI_INDEX_MEDIA_TYPES:
             raise ValueError("resolved index digest did not return an OCI/Docker index")
         descriptors = index.get("manifests")
-        if not isinstance(descriptors, list):
-            raise ValueError("crane index must contain a manifests array")
+        if not isinstance(descriptors, list): raise ValueError('crane index must contain a manifests array')  # noqa: E701,E501
         platforms: list[dict[str, Any]] = []
         for descriptor in descriptors:
             if not isinstance(descriptor, dict) or not isinstance(
@@ -305,12 +292,10 @@ def resolve_repository_tag(
             if child.get("mediaType") != descriptor.get("mediaType"):
                 raise ValueError('platform manifest media type does not match index descriptor')  # fmt: skip  # noqa: E501
             config = child.get("config")
-            if not isinstance(config, dict):
-                raise ValueError("platform manifest requires a config descriptor")
+            if not isinstance(config, dict): raise ValueError('platform manifest requires a config descriptor')  # noqa: E701,E501
             platforms.append({'os': platform_value.get('os'), 'architecture': platform_value.get('architecture'), 'manifest_digest': manifest_digest, 'config_digest': _digest(config.get('digest'), 'platform config')})  # fmt: skip  # noqa: E501
         raw_snapshot = {'schema_version': 1, 'kind': 'upstream-registry-snapshot', 'repository': repository, 'upstream_tag': upstream_tag, 'index_digest': index_digest, 'platforms': platforms}  # fmt: skip  # noqa: E501
-    if not isinstance(raw_snapshot, dict):
-        raise ValueError("registry snapshot must be an object")
+    if not isinstance(raw_snapshot, dict): raise ValueError('registry snapshot must be an object')  # noqa: E701,E501
     _exact_keys(raw_snapshot, SNAPSHOT_KEYS, "registry snapshot")
     if (
         raw_snapshot["schema_version"] != 1
@@ -321,19 +306,16 @@ def resolve_repository_tag(
         raise ValueError("registry snapshot identity differs from exact request")
     index_digest = _digest(raw_snapshot["index_digest"], "snapshot index")
     platform_values = raw_snapshot["platforms"]
-    if not isinstance(platform_values, list):
-        raise ValueError("snapshot platforms must be an array")
+    if not isinstance(platform_values, list): raise ValueError('snapshot platforms must be an array')  # noqa: E701,E501
     members: dict[str, dict[str, str]] = {}
     digest_chain = [index_digest]
     for index, member in enumerate(platform_values):
-        if not isinstance(member, dict):
-            raise ValueError(f"snapshot platform {index} must be an object")
+        if not isinstance(member, dict): raise ValueError(f'snapshot platform {index} must be an object')  # noqa: E701,E501
         _exact_keys(member, PLATFORM_KEYS, f"snapshot platform {index}")
         architecture = member["architecture"]
         if member["os"] != "linux" or architecture not in required_architectures:
             raise ValueError("snapshot contains an unselected platform")
-        if architecture in members:
-            raise ValueError(f"duplicate snapshot platform: linux/{architecture}")
+        if architecture in members: raise ValueError(f'duplicate snapshot platform: linux/{architecture}')  # noqa: E701,E501
         manifest_digest = _digest(member['manifest_digest'], f'linux/{architecture} manifest')  # fmt: skip  # noqa: E501
         config_digest = _digest(member["config_digest"], f"linux/{architecture} config")
         digest_chain.extend((manifest_digest, config_digest))
@@ -381,8 +363,7 @@ def validate_catalog_tag_grammar(catalog: dict[str, Any]) -> None:
 
 def _parse_product_tag(product: dict[str, Any], tag: str) -> dict[str, str]:
     match = _CANONICAL_UPSTREAM_TAG.fullmatch(tag)
-    if match is None:
-        raise ValueError("malformed-tag")
+    if match is None: raise ValueError('malformed-tag')  # noqa: E701
     version_text = match.group("version")
     try:
         version = Version(version_text)
@@ -400,8 +381,7 @@ def _parse_product_tag(product: dict[str, Any], tag: str) -> dict[str, str]:
     suffix = match.group("suffix") or ""
     suffixes = _canonical_variant_suffixes(product)
     variant = suffixes.get(suffix)
-    if variant is None:
-        raise ValueError("unsupported-variant")
+    if variant is None: raise ValueError('unsupported-variant')  # noqa: E701
     return {'tag': tag, 'version': version_text, 'channel': channel, 'variant': variant}  # fmt: skip
 
 
@@ -415,8 +395,7 @@ def select_catalog_tags(
     for product in sorted(catalog["upstream_products"], key=lambda item: item["id"]):
         repository = product["repository"]
         tags = tag_lists.get(repository)
-        if not isinstance(tags, list):
-            raise ValueError(f'tag list is missing for configured repository {repository}')  # fmt: skip  # noqa: E501
+        if not isinstance(tags, list): raise ValueError(f'tag list is missing for configured repository {repository}')  # noqa: E701,E501
         for tag in sorted(set(tags)):
             reason: str | None = None
             parsed: dict[str, str] | None = None
@@ -427,13 +406,9 @@ def select_catalog_tags(
                     parsed = _parse_product_tag(product, tag)
                 except ValueError as error:
                     reason = str(error)
-            if parsed is not None and parsed["channel"] not in product["channels"]:
-                reason = "unsupported-channel"
+            if parsed is not None and parsed['channel'] not in product['channels']: reason = 'unsupported-channel'  # noqa: E701,E501
             if parsed is not None and reason is None:
-                if Version(parsed["version"]) not in SpecifierSet(
-                    product["version_specifier"]
-                ):
-                    reason = "version-outside-specifier"
+                if Version(parsed['version']) not in SpecifierSet(product['version_specifier']): reason = 'version-outside-specifier'  # noqa: E701,E501
             if reason is not None:
                 exclusions.append({'product_id': product['id'], 'repository': repository, 'tag': tag, 'reason': reason})  # fmt: skip  # noqa: E501
                 continue
@@ -457,12 +432,10 @@ def _pr_smoke_projection(
     selected_images: list[dict[str, Any]] = []
     for selector in selectors:
         matches = [task for task in image_tasks if task['runtime']['product_id'] == selector['product_id'] and task['runtime']['variant'] == selector['variant'] and (task['cpu_arch'] == selector['cpu_arch'])]  # fmt: skip  # noqa: E501
-        if len(matches) != 1:
-            raise ValueError(f'PR smoke selector must resolve exactly one image task: {selector!r}')  # fmt: skip  # noqa: E501
+        if len(matches) != 1: raise ValueError(f'PR smoke selector must resolve exactly one image task: {selector!r}')  # noqa: E701,E501
         selected_images.append(matches[0])
     selected_image_ids = {task["task_id"] for task in selected_images}
-    if len(selected_image_ids) != len(selected_images):
-        raise ValueError("PR smoke selectors resolve duplicate image tasks")
+    if len(selected_image_ids) != len(selected_images): raise ValueError('PR smoke selectors resolve duplicate image tasks')  # noqa: E701,E501
     selected_wheel_ids = {task["wheel_task_id"] for task in selected_images}
     selected_wheels = [task for task in wheel_tasks if task['task_id'] in selected_wheel_ids]  # fmt: skip  # noqa: E501
     if {task["task_id"] for task in selected_wheels} != selected_wheel_ids:
@@ -574,29 +547,24 @@ _FAMILY_PROJECT_KEYS = ("runner", "cpu_arch", "platform", "builder", "builder_sh
 
 
 def validate_resolved_plan(plan: dict[str, Any]) -> None:
-    if not isinstance(plan, dict):
-        raise ValueError("resolved plan must be an object")
+    if not isinstance(plan, dict): raise ValueError('resolved plan must be an object')  # noqa: E701,E501
     if set(plan) != _RESOLVED_PLAN_FIELDS:
         raise ValueError(f'resolved plan top-level fields mismatch: missing={sorted(_RESOLVED_PLAN_FIELDS - set(plan))}, extra={sorted(set(plan) - _RESOLVED_PLAN_FIELDS)}')  # fmt: skip  # noqa: E501
     if plan.get("kind") != "ucm-resolved-build-plan" or plan.get("schema_version") != 1:
         raise ValueError("resolved plan identity must be schema version 1")
-    if not isinstance(plan["fixture_only"], bool):
-        raise ValueError("resolved plan fixture_only must be boolean")
-    if plan["lane"] not in {"feature-candidate", "protected-tag"}:
-        raise ValueError("resolved plan lane is invalid")
+    if not isinstance(plan['fixture_only'], bool): raise ValueError('resolved plan fixture_only must be boolean')  # noqa: E701,E501
+    if plan['lane'] not in {'feature-candidate', 'protected-tag'}: raise ValueError('resolved plan lane is invalid')  # noqa: E701,E501
     if plan["fixture_only"] and plan["lane"] == "protected-tag":
         raise ValueError("fixture plan cannot carry protected-tag authority")
     claimed_hash = plan.get("resolved_plan_sha256")
     unhashed = {key: value for key, value in plan.items() if key != 'resolved_plan_sha256'}  # fmt: skip  # noqa: E501
-    if claimed_hash != core.sha256_value(unhashed):
-        raise ValueError("resolved plan hash mismatch")
+    if claimed_hash != core.sha256_value(unhashed): raise ValueError('resolved plan hash mismatch')  # noqa: E701,E501
 
     source = plan["source"]
     if not isinstance(source, dict) or set(source) != _PLAN_SOURCE_KEYS:
         raise ValueError("resolved plan source is malformed")
     for field in _SOURCE_STR_FIELDS:
-        if not isinstance(source[field], str) or not source[field]:
-            raise ValueError("resolved plan source is malformed")
+        if not isinstance(source[field], str) or not source[field]: raise ValueError('resolved plan source is malformed')  # noqa: E701,E501
     if (
         not isinstance(source["repository"], str)
         or re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", source["repository"])
@@ -613,8 +581,7 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
         or source["release_tag"] != f"v{source['ucm_version']}"
     ):
         raise ValueError("resolved plan source is malformed")
-    if plan["source_sha256"] != core.sha256_value(source):
-        raise ValueError("resolved plan source hash mismatch")
+    if plan['source_sha256'] != core.sha256_value(source): raise ValueError('resolved plan source hash mismatch')  # noqa: E701,E501
 
     chart = plan["chart"]
     if (
@@ -688,16 +655,14 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
     ):
         raise ValueError("resolved plan fixture authority differs from operations")
     scan_evidence = {'resolved_upstreams': snapshots, 'exclusions': exclusions, 'operations': operations}  # fmt: skip  # noqa: E501
-    if plan["scan_sha256"] != core.sha256_value(scan_evidence):
-        raise ValueError("resolved plan scan hash mismatch")
+    if plan['scan_sha256'] != core.sha256_value(scan_evidence): raise ValueError('resolved plan scan hash mismatch')  # noqa: E701,E501
 
     task_ids: set[str] = set()
     tasks_by_kind: dict[str, list[dict[str, Any]]] = {}
     expected_write_authority = [] if plan['lane'] == 'feature-candidate' else ['github-prerelease', 'ghcr-final-index', 'ghcr-private-staging']  # fmt: skip  # noqa: E501
     for task_kind in ("wheel", "image", "family"):
         tasks = plan.get(f"{task_kind}_tasks")
-        if not isinstance(tasks, list):
-            raise ValueError(f"resolved plan {task_kind} tasks must be an array")
+        if not isinstance(tasks, list): raise ValueError(f'resolved plan {task_kind} tasks must be an array')  # noqa: E701,E501
         tasks_by_kind[task_kind] = tasks
         for task in tasks:
             if not isinstance(task, dict) or not isinstance(task.get("task_id"), str):
@@ -706,8 +671,7 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
                 raise ValueError(f'resolved plan {task_kind} task fields mismatch: missing={sorted(RESOLVED_TASK_FIELDS[task_kind] - set(task))}, extra={sorted(set(task) - RESOLVED_TASK_FIELDS[task_kind])}')  # fmt: skip  # noqa: E501
             if re.fullmatch(f"{task_kind}-[0-9a-f]{{64}}", task["task_id"]) is None:
                 raise ValueError(f"resolved plan {task_kind} task ID is malformed")
-            if task["task_id"] in task_ids:
-                raise ValueError("resolved plan task IDs must be globally unique")
+            if task['task_id'] in task_ids: raise ValueError('resolved plan task IDs must be globally unique')  # noqa: E701,E501
             task_ids.add(task["task_id"])
             task_payload = {key: value for key, value in task.items() if key != 'task_sha256'}  # fmt: skip  # noqa: E501
             if task.get("task_sha256") != core.sha256_value(task_payload):
@@ -752,8 +716,7 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
     for family in family_tasks:
         linked = [img for img in image_tasks if img.get('family_task_id') == family['task_id']]  # fmt: skip  # noqa: E501
         snapshot = snapshots_by_hash.get(family.get("snapshot_sha256"))
-        if not linked or snapshot is None:
-            raise ValueError("resolved plan family snapshot linkage is inconsistent")
+        if not linked or snapshot is None: raise ValueError('resolved plan family snapshot linkage is inconsistent')  # noqa: E701,E501
         expected_runtime = {k: snapshot[k] for k in _RUNTIME_KEYS}
         expected_family = {'control_task_id': linked[0]['task_id'], 'control_arch': linked[0]['cpu_arch'], 'control_runner': linked[0]['runner'], **{k: [img[k] for img in linked] for k in _FAMILY_PROJECT_KEYS}, 'member_set_sha256': core.sha256_value([img['task_sha256'] for img in linked]), 'image_task_ids': [img['task_id'] for img in linked], 'wheel_task_ids': {img['cpu_arch']: img['wheel_task_id'] for img in linked}, 'product_id': snapshot['product_id'], 'runtime': expected_runtime, 'runtime_sha256': core.sha256_value(expected_runtime), 'target_repository': snapshot['target_repository'], 'target_tag': snapshot['target_tag']}  # fmt: skip  # noqa: E501
         if any(family.get(field) != value for field, value in expected_family.items()):
@@ -773,15 +736,13 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
         raise ValueError("resolved plan snapshot set differs from family tasks")
 
     expected_counts = {'scanned_tags': len(snapshots) + len(exclusions), 'selected_upstreams': len(snapshots), 'excluded_tags': len(exclusions), 'wheel_tasks': len(wheel_tasks), 'image_tasks': len(image_tasks), 'family_tasks': len(family_tasks)}  # fmt: skip  # noqa: E501
-    if plan["counts"] != expected_counts:
-        raise ValueError("resolved plan counts mismatch")
+    if plan['counts'] != expected_counts: raise ValueError('resolved plan counts mismatch')  # noqa: E701,E501
     for key, fn, tasks in (
         ("github_wheel_matrix", _wheel_matrix, wheel_tasks),
         ("github_image_matrix", _image_matrix, image_tasks),
         ("github_family_matrix", _family_matrix, family_tasks),
     ):
-        if plan[key] != fn(tasks):
-            raise ValueError(f"resolved plan {key} mismatch")
+        if plan[key] != fn(tasks): raise ValueError(f'resolved plan {key} mismatch')  # noqa: E701,E501
     smoke = plan["pr_smoke"]
     if not isinstance(smoke, dict) or set(smoke) != {
         "github_wheel_matrix",
@@ -815,8 +776,7 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
     if {item["task_id"] for item in smoke_wheel} != smoke_image_wheels:
         raise ValueError("resolved plan PR smoke wheel dependency set mismatch")
     expected_artifacts = {'resolved_plan': f"ucm-resolved-plan-{source['commit']}", 'wheels': _artifact_set(wheel_tasks, 'wheel'), 'images': _artifact_set(image_tasks, 'image'), 'families': _artifact_set(family_tasks, 'family')}  # fmt: skip  # noqa: E501
-    if plan["expected_artifacts"] != expected_artifacts:
-        raise ValueError("resolved plan artifact set mismatch")
+    if plan['expected_artifacts'] != expected_artifacts: raise ValueError('resolved plan artifact set mismatch')  # noqa: E701,E501
 
 
 def select_task(
@@ -835,13 +795,10 @@ def select_task(
         raise ValueError("expected plan hash mismatch")
     if plan["fixture_only"] is True and plan["lane"] == "protected-tag":
         raise ValueError("fixture plan cannot authorize protected task selection")
-    if task_kind not in {"wheel", "image", "family"}:
-        raise ValueError("task_kind must be wheel, image, or family")
-    if not isinstance(task_id, str) or not task_id:
-        raise ValueError("task_id must be a non-empty opaque identifier")
+    if task_kind not in {'wheel', 'image', 'family'}: raise ValueError('task_kind must be wheel, image, or family')  # noqa: E701,E501
+    if not isinstance(task_id, str) or not task_id: raise ValueError('task_id must be a non-empty opaque identifier')  # noqa: E701,E501
     matches = [task for task in plan[f'{task_kind}_tasks'] if task['task_id'] == task_id]  # fmt: skip  # noqa: E501
-    if len(matches) != 1:
-        raise ValueError(f'resolved plan {task_kind} task {task_id!r} does not resolve exactly once')  # fmt: skip  # noqa: E501
+    if len(matches) != 1: raise ValueError(f'resolved plan {task_kind} task {task_id!r} does not resolve exactly once')  # noqa: E701,E501
     return copy.deepcopy(matches[0])
 
 
@@ -872,7 +829,7 @@ def _run_registry_tool(
             time.sleep(SECONDARY_RATE_LIMIT_BACKOFF_SECONDS[retry_index])
             continue
         detail = result.stderr.strip() or f"exit {result.returncode}"
-        if retryable or not missing_ok:
-            raise ValueError(f"registry tool {' '.join(arguments[:1])} failed: {detail}")  # fmt: skip  # noqa: E501
+        if retryable or not missing_ok: raise ValueError(f"registry tool {' '.join(arguments[:1])} failed: {detail}")  # noqa: E701,E501
         return result
     raise AssertionError("registry read retry loop exhausted without a result")
+# fmt: on

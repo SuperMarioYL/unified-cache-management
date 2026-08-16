@@ -1,3 +1,4 @@
+# fmt: off
 from __future__ import annotations
 
 import copy
@@ -29,8 +30,7 @@ REAL_DETERMINISTIC_FLAGS = ['--provenance=false', '--sbom=false', 'oci-mediatype
 
 
 def _exact(value: object, keys: set[str], label: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{label} must be an object")
+    if not isinstance(value, dict): raise ValueError(f'{label} must be an object')  # noqa: E701,E501
     if set(value) != keys:
         raise ValueError(f'{label} fields mismatch: missing={sorted(keys - set(value))}, extra={sorted(set(value) - keys)}')  # fmt: skip  # noqa: E501
     return value
@@ -106,8 +106,7 @@ def _real_image_authority_from_selected_tasks(
     source_repository: str,
     docker_root: Path = DOCKER_ROOT,
 ) -> dict[str, Any]:
-    if not isinstance(task, dict):
-        raise ValueError("real image task must be an object")
+    if not isinstance(task, dict): raise ValueError('real image task must be an object')  # noqa: E701,E501
     payload = {key: value for key, value in task.items() if key != "task_sha256"}
     dependency_lock = task.get("dependency_lock")
     runtime = task.get("runtime")
@@ -160,8 +159,7 @@ def _real_image_authority_from_selected_tasks(
             raise ValueError("real image runtime requirement is invalid") from error
         name = canonicalize_name(requirement.name)
         specifiers = list(requirement.specifier)
-        if name in runtime_versions or len(specifiers) != 1:
-            raise ValueError("real image runtime requirement is not exact")
+        if name in runtime_versions or len(specifiers) != 1: raise ValueError('real image runtime requirement is not exact')  # noqa: E701,E501
         specifier = specifiers[0]
         if specifier.operator != "==" or "*" in specifier.version:
             raise ValueError("real image runtime requirement is not exact")
@@ -219,8 +217,7 @@ def _json_bytes(content: bytes, label: str) -> dict[str, Any]:
     def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
         value: dict[str, Any] = {}
         for key, item in items:
-            if key in value:
-                raise ValueError(f"duplicate JSON key {key!r} in {label}")
+            if key in value: raise ValueError(f'duplicate JSON key {key!r} in {label}')  # noqa: E701,E501
             value[key] = item
         return value
 
@@ -228,8 +225,7 @@ def _json_bytes(content: bytes, label: str) -> dict[str, Any]:
         value = json.loads(content, object_pairs_hook=pairs)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError(f"invalid JSON in {label}: {error}") from error
-    if not isinstance(value, dict):
-        raise ValueError(f"{label} must contain a JSON object")
+    if not isinstance(value, dict): raise ValueError(f'{label} must contain a JSON object')  # noqa: E701,E501
     return value
 
 
@@ -240,8 +236,7 @@ def _docker_stages(dockerfile: str) -> dict[str, dict[str, Any]]:
     for index, match in enumerate(matches):
         alias_value = match.group("alias")
         alias = alias_value.lower() if alias_value is not None else None
-        if alias is not None and alias in stages:
-            raise ValueError(f"Dockerfile has duplicate stage alias {alias!r}")
+        if alias is not None and alias in stages: raise ValueError(f'Dockerfile has duplicate stage alias {alias!r}')  # noqa: E701,E501
         end = matches[index + 1].start() if index + 1 < len(matches) else len(dockerfile)  # fmt: skip  # noqa: E501
         body = dockerfile[match.end() : end]
         dependencies: set[str] = set()
@@ -250,18 +245,15 @@ def _docker_stages(dockerfile: str) -> dict[str, dict[str, Any]]:
             dependencies.add(base)
         elif base.isdecimal() and int(base) < len(aliases_by_index):
             dependency = aliases_by_index[int(base)]
-            if dependency is not None:
-                dependencies.add(dependency)
+            if dependency is not None: dependencies.add(dependency)  # noqa: E701
         for copy_match in COPY_FROM_RE.finditer(body):
             reference = copy_match.group("stage").lower()
             if reference in stages:
                 dependencies.add(reference)
             elif reference.isdecimal() and int(reference) < len(aliases_by_index):
                 dependency = aliases_by_index[int(reference)]
-                if dependency is not None:
-                    dependencies.add(dependency)
-        if alias is not None:
-            stages[alias] = {'body': body, 'dependencies': dependencies}  # fmt: skip
+                if dependency is not None: dependencies.add(dependency)  # noqa: E701
+        if alias is not None: stages[alias] = {'body': body, 'dependencies': dependencies}  # noqa: E701,E501
         aliases_by_index.append(alias)
     return stages
 
@@ -325,8 +317,7 @@ def _project_dependency_closure(
             dependency = resolution["dependency"]
             direct = resolution.get("direct")
             kind = resolution.get("kind")
-            if type(direct) is not bool:
-                raise ValueError(f'dependency closure resolution direct flag is invalid: {member}')  # fmt: skip  # noqa: E501
+            if type(direct) is not bool: raise ValueError(f'dependency closure resolution direct flag is invalid: {member}')  # noqa: E701,E501
             if kind == "external":
                 path = resolution.get("path")
                 if (
@@ -397,8 +388,7 @@ def verify_real_runtime_evidence(recipe: object, evidence: object) -> dict[str, 
         or recipe["payload_sha256"] != sha256_value(payload)
     ):
         raise ValueError("real runtime recipe digest is invalid")
-    if not isinstance(evidence, dict):
-        raise ValueError("real runtime evidence must be an object")
+    if not isinstance(evidence, dict): raise ValueError('real runtime evidence must be an object')  # noqa: E701,E501
     install = evidence.get("install")
     runtime = evidence.get("runtime")
     if (
@@ -407,8 +397,7 @@ def verify_real_runtime_evidence(recipe: object, evidence: object) -> dict[str, 
         or install.get("status") != "passed"
     ):
         raise ValueError("real install gate did not pass")
-    if install.get("pip_check") != "passed":
-        raise ValueError("real pip check gate did not pass")
+    if install.get('pip_check') != 'passed': raise ValueError('real pip check gate did not pass')  # noqa: E701,E501
     wheel = payload.get("wheel")
     runtime_dependencies = payload.get("runtime_dependencies")
     if (
@@ -449,11 +438,9 @@ def verify_real_runtime_evidence(recipe: object, evidence: object) -> dict[str, 
         raise ValueError("real installed package versions do not match")
     expected_imports = {"ucm": "passed"}
     expected_imports.update({record['import_name']: 'passed' for record in runtime_dependencies})  # fmt: skip  # noqa: E501
-    if install.get("imports") != expected_imports:
-        raise ValueError("real import gate did not pass")
+    if install.get('imports') != expected_imports: raise ValueError('real import gate did not pass')  # noqa: E701,E501
     direct_urls = install.get("direct_urls")
-    if not isinstance(direct_urls, dict):
-        raise ValueError("real direct_url evidence is missing")
+    if not isinstance(direct_urls, dict): raise ValueError('real direct_url evidence is missing')  # noqa: E701,E501
     expected_direct = {'uc-manager': (wheel.get('filename'), wheel.get('sha256'))}  # fmt: skip
     expected_direct.update({record['name']: (record.get('filename'), record.get('sha256')) for record in runtime_dependencies})  # fmt: skip  # noqa: E501
     for distribution, (filename, digest) in expected_direct.items():
@@ -486,8 +473,7 @@ def verify_real_runtime_evidence(recipe: object, evidence: object) -> dict[str, 
     }:
         raise ValueError("real runtime ABI gate did not pass")
     expected_native = wheel.get("builder_evidence")
-    if not isinstance(expected_native, dict):
-        raise ValueError("real recipe lacks Task 2 native evidence")
+    if not isinstance(expected_native, dict): raise ValueError('real recipe lacks Task 2 native evidence')  # noqa: E701,E501
     if runtime.get("native_members") != expected_native.get("native_members"):
         raise ValueError("installed native member paths differ from Task 2 inspection")
     if runtime.get("elf_machines") != expected_native.get("elf_machines"):
@@ -509,8 +495,7 @@ def verify_real_runtime_evidence(recipe: object, evidence: object) -> dict[str, 
     same_root = builder_coordinate == base_subject
     expected_closure = _project_dependency_closure(expected_native.get('dependency_closure'), expected_native.get('native_members'), expected_native.get('dt_needed'), normalize_external_locations=not same_root)  # fmt: skip  # noqa: E501
     runtime_closure = _project_dependency_closure(runtime.get('dependency_closure'), runtime.get('native_members'), runtime.get('dt_needed'), normalize_external_locations=not same_root)  # fmt: skip  # noqa: E501
-    if runtime_closure != expected_closure:
-        raise ValueError("installed dependency closure differs from Task 2 inspection")
+    if runtime_closure != expected_closure: raise ValueError('installed dependency closure differs from Task 2 inspection')  # noqa: E701,E501
     for label in ("accelerator_runtime", "device"):
         state = runtime.get(label)
         if not isinstance(state, dict) or state.get("status") != "external-required":
@@ -540,8 +525,7 @@ def real_content_identity(recipe: object, closure: object) -> dict[str, Any]:
         or recipe["payload_sha256"] != sha256_value(payload)
     ):
         raise ValueError("real content recipe digest is invalid")
-    if not isinstance(closure, dict):
-        raise ValueError("real OCI closure must be an object")
+    if not isinstance(closure, dict): raise ValueError('real OCI closure must be an object')  # noqa: E701,E501
     source = payload.get("source")
     wheel = payload.get("wheel")
     base = payload.get("base")
@@ -569,8 +553,7 @@ def real_content_identity(recipe: object, closure: object) -> dict[str, Any]:
     expected_labels = copy.deepcopy(base_labels)
     expected_labels.update({'org.opencontainers.image.source': source.get('repository_url'), 'org.opencontainers.image.revision': source.get('commit'), 'io.ucm.release.source-tree': source.get('tree'), 'io.ucm.release.source-context-sha256': source.get('context_sha256'), 'io.ucm.release.task-sha256': payload.get('task_sha256'), 'io.ucm.release.build-key-sha256': payload.get('build_key_sha256'), 'io.ucm.release.wheel-sha256': wheel.get('sha256'), 'io.ucm.release.recipe-sha256': recipe.get('payload_sha256')})  # fmt: skip  # noqa: E501
     labels = closure.get("labels")
-    if labels != expected_labels:
-        raise ValueError("real OCI config labels do not bind recipe authority")
+    if labels != expected_labels: raise ValueError('real OCI config labels do not bind recipe authority')  # noqa: E701,E501
     expected_annotations = {'io.ucm.release.recipe-sha256': recipe.get('payload_sha256'), 'io.ucm.release.task-sha256': payload.get('task_sha256')}  # fmt: skip  # noqa: E501
     if closure.get("annotations") != expected_annotations:
         raise ValueError("real OCI manifest annotations do not bind recipe authority")
@@ -600,8 +583,7 @@ def real_content_identity(recipe: object, closure: object) -> dict[str, Any]:
     ):
         raise ValueError("real OCI layer/diff-id closure is invalid")
     for position, (layer, diff_id) in enumerate(zip(layers, diff_ids, strict=True)):
-        if not isinstance(layer, dict):
-            raise ValueError(f"real OCI layer {position} is invalid")
+        if not isinstance(layer, dict): raise ValueError(f'real OCI layer {position} is invalid')  # noqa: E701,E501
         registry._validate_layer_descriptor_annotations(layer, created=created, label=f'real OCI layer {position}')  # fmt: skip  # noqa: E501
         _digest(layer.get("digest"), f"real OCI layer {position}")
         if not isinstance(layer.get("size"), int) or layer["size"] < 1:
@@ -609,3 +591,4 @@ def real_content_identity(recipe: object, closure: object) -> dict[str, Any]:
         _digest(diff_id, f"real OCI diff-id {position}")
     stable = {'manifest_digest': _digest(closure.get('manifest_digest'), 'real OCI manifest digest'), 'config_digest': _digest(closure.get('config_digest'), 'real OCI config digest'), 'layers': copy.deepcopy(layers), 'diff_ids': copy.deepcopy(diff_ids), 'annotations': copy.deepcopy(expected_annotations), 'labels': copy.deepcopy(expected_labels), 'created': created, 'history': copy.deepcopy(history), 'source': copy.deepcopy(source), 'task_sha256': payload.get('task_sha256'), 'build_key_sha256': payload.get('build_key_sha256'), 'wheel_sha256': wheel.get('sha256'), 'recipe_sha256': recipe.get('payload_sha256')}  # fmt: skip  # noqa: E501
     return {**stable, "content_identity_sha256": sha256_value(stable)}
+# fmt: on
