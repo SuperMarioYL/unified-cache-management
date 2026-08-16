@@ -2140,6 +2140,17 @@ OPTIONAL_CATALOG_KEYS = {
     "python_runtime_dependencies",
     "python_build_lock",
 }
+SUPPLEMENTARY_TOP_LEVEL_KEYS = frozenset(
+    {
+        "pr_smoke",
+        "docker_recipes",
+        "runtime_patch_rules",
+        "matrix_limits",
+        "scan_limits",
+        "python_runtime_dependencies",
+        "python_build_lock",
+    }
+)
 LANES = ("feature-candidate", "protected-tag")
 
 
@@ -2214,6 +2225,7 @@ def _load_supplementary_configs(
     candidates = (
         DEFAULT_RELEASE.parents[1] / "docker-recipes.yaml",
         DEFAULT_RELEASE.parent / "toolchain.lock.yaml",
+        DEFAULT_RELEASE.parent / "native-contract.yaml",
         DEFAULT_RELEASE.parents[2] / "ucm" / "integration" / "runtime-patches.yaml",
     )
     for path in candidates:
@@ -2243,10 +2255,25 @@ def load_catalog(
     load_json(schema_dir / "release-manifest.schema.json")
     load_json(schema_dir / "image-result.schema.json")
     release = load_yaml(release_path)
-    for key, value in _load_supplementary_configs(
-        release_path, repository_root
-    ).items():
-        if key not in release:
+    supplementary = _load_supplementary_configs(release_path, repository_root)
+    profile_ids = {p["id"] for p in release.get("wheel_profiles", [])}
+    for key, value in supplementary.items():
+        if key == "builders" and isinstance(value, dict):
+            for profile in release.get("wheel_profiles", []):
+                pid = profile["id"]
+                if pid in value and "builders" not in profile:
+                    profile["builders"] = value[pid]
+        elif key in profile_ids and isinstance(value, dict):
+            for profile in release.get("wheel_profiles", []):
+                if profile["id"] == key:
+                    for field in (
+                        "required_native",
+                        "forbidden_native",
+                        "allowed_dt_needed",
+                    ):
+                        if field in value and field not in profile:
+                            profile[field] = value[field]
+        elif key not in release and key in SUPPLEMENTARY_TOP_LEVEL_KEYS:
             release[key] = value
     resolved_repository = resolve_repository(
         repository, repository_root=repository_root

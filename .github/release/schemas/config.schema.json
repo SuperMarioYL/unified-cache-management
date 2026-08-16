@@ -145,8 +145,7 @@
       "required": [
         "id", "build", "accelerator", "accelerator_runtime", "npu_arch", "os",
         "cpu_arch", "python_version", "python_abi", "wheel_local_version",
-        "wheel_platform", "binary_profile_id", "allowed_dt_needed", "external_required_dependencies", "validation_targets", "required_native",
-        "forbidden_native", "builders"
+        "wheel_platform", "binary_profile_id", "external_required_dependencies", "validation_targets"
       ],
       "properties": {
         "id": {"type": "string", "minLength": 1},
