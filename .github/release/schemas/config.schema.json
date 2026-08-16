@@ -176,6 +176,7 @@
         "python_abi": {"type": "string", "minLength": 1},
         "wheel_version": {"type": "string", "minLength": 1},
         "wheel_local_version": {"type": "string", "minLength": 1},
+        "dist_name": {"type": "string", "pattern": "^uc-manager(-[a-z0-9]+(-[a-z0-9]+)?)?$"},
         "wheel_platform": {"type": "string", "minLength": 1},
         "binary_profile_id": {"type": "string", "minLength": 1},
         "allowed_dt_needed": {

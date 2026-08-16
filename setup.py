@@ -539,7 +539,7 @@ def inject_pth():
 
 
 setup(
-    name="uc-manager",
+    name=os.environ.get("UCM_DIST_NAME", "uc-manager"),
     version=get_release_version(),
     description="Unified Cache Management",
     author="Unified Cache Team",

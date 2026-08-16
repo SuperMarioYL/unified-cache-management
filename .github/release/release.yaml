@@ -161,6 +161,7 @@ wheel_profiles:
   python_version: '3.12'
   python_abi: cp312
   wheel_local_version: cuda130
+  dist_name: uc-manager-cuda
   wheel_platform: manylinux_2_28
   binary_profile_id: release-cuda130
   external_required_dependencies: []
@@ -182,6 +183,7 @@ wheel_profiles:
   python_version: '3.12'
   python_abi: cp312
   wheel_local_version: cann900.a2
+  dist_name: uc-manager-cann-a2
   wheel_platform: linux
   binary_profile_id: release-cann900-a2
   external_required_dependencies:
@@ -208,6 +210,7 @@ wheel_profiles:
   python_version: '3.12'
   python_abi: cp312
   wheel_local_version: cann900.a3
+  dist_name: uc-manager-cann-a3
   wheel_platform: linux
   binary_profile_id: release-cann900-a3
   external_required_dependencies:

@@ -23,3 +23,31 @@
 #
 
 from ucm.integration.vllm.patch.logger_patch import patch_logger
+
+_UCM_BACKEND_DISTS = ("uc-manager-cuda", "uc-manager-cann-a2", "uc-manager-cann-a3")
+
+
+def _guard_single_backend() -> None:
+    """Prevent silent file overwrite when multiple backend dists co-exist."""
+    from importlib.metadata import distributions
+
+    found = sorted(
+        {
+            name
+            for dist in distributions()
+            if (
+                name := (dist.metadata["Name"] or "").lower().replace("_", "-")
+            )
+            in _UCM_BACKEND_DISTS
+        }
+    )
+    if len(found) > 1:
+        raise ImportError(
+            f"Multiple UCM backend distributions are installed: {', '.join(found)}.\n"
+            f"They provide the same top-level 'ucm' package and will overwrite each "
+            f"other's files. Keep only one:\n"
+            f"  pip uninstall -y {' '.join(found[1:])}"
+        )
+
+
+_guard_single_backend()
