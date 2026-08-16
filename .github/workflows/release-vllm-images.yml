@@ -91,8 +91,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
-          python -c 'import json,os; json.dump(json.loads(os.environ["WHEEL_MATRIX"]),open("out/selected-wheel-matrix.json","w"),sort_keys=True,separators=(",",":"))'
-          python -c 'import json,os; json.dump(json.loads(os.environ["IMAGE_MATRIX"]),open("out/selected-image-matrix.json","w"),sort_keys=True,separators=(",",":"))'
+          printf '%s' "${WHEEL_MATRIX}" | jq -cS . > out/selected-wheel-matrix.json
+          printf '%s' "${IMAGE_MATRIX}" | jq -cS . > out/selected-image-matrix.json
           PYTHONPATH=.github/release python -m ucm_release loop aggregate-real \
             --wheel-dir input/wheels --image-dir input/images \
             --repository "${GITHUB_REPOSITORY}" --ref "${GITHUB_REF}" \
@@ -104,7 +104,7 @@ jobs:
             --selected-image-matrix out/selected-image-matrix.json \
             --output out/real-image-loop-evidence.json >out/result.json
           logical="ucm-real-images-${SOURCE_SHA}"
-          physical="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(*sys.argv[1:3], int(sys.argv[3])))' "${logical}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
+          physical="${logical}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           echo "loop_artifact=${physical}" >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

@@ -108,14 +108,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out/parent/member-records
-          python -c 'import json,os; json.dump({"root":"input/members","output_dir":"out/parent/member-records","source_sha":os.environ["SOURCE_SHA"],"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"],"run":{"run_id":os.environ["GITHUB_RUN_ID"],"run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"])}},open("out/member-collection-request.json","w"),sort_keys=True,separators=(",",":"))'
+          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --arg github_run_id "${GITHUB_RUN_ID}" --argjson github_run_attempt "${GITHUB_RUN_ATTEMPT}" {root: "input/members", output_dir: "out/parent/member-records", source_sha: $source_sha, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256, run: {run_id: $github_run_id, run_attempt: $github_run_attempt}} > out/member-collection-request.json
           PYTHONPATH=.github/release python -m ucm_release artifact collect-members --input out/member-collection-request.json --output out/member-collection.json >/dev/null
-          python -c 'import json,os; p=json.load(open("out/member-collection.json")); records=[json.load(open(x)) for x in p["member_records"]]; json.dump({"lane":"protected-tag","members":records,"member_statuses":{task_id:"success" for task_id in p["member_record_sha256s"]},"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/plan-request.json","w"),sort_keys=True,separators=(",",":"))'
+          jq -cnS \
+            --argjson members "$(jq -r '.member_records[]' out/member-collection.json | xargs -r jq -c . | jq -s .)" \
+            --slurpfile coll out/member-collection.json \
+            --arg resolved_plan_sha256 "$RESOLVED_PLAN_SHA256" \
+            '{lane: "protected-tag", members: $members, member_statuses: ($coll[0].member_record_sha256s | map({(.): "success"}) | add), resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256}' \
+            > out/plan-request.json
           PYTHONPATH=.github/release python -m ucm_release registry plan-index --input out/plan-request.json --output out/parent/parent-plans.json >/dev/null
-          python -c 'import json; p=json.load(open("out/parent/parent-plans.json")); json.dump(p["inventory"],open("out/parent/inventory.json","w"),sort_keys=True,separators=(",",":"))'
+          jq -cS '.inventory' out/parent/parent-plans.json > out/parent/inventory.json
           cp out/member-collection.json out/parent/member-collection.json
           logical="ucm-index-parent-${SOURCE_SHA}"
-          physical="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(*sys.argv[1:3], int(sys.argv[3])))' "${logical}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
+          physical="${logical}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           echo "parent_artifact=${physical}" >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -241,7 +246,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
-          python -c 'import json,os; json.dump({"parent_plans":"input/parent/parent-plans.json","parent_artifact":os.environ["PARENT_ARTIFACT"],"source_sha":os.environ["SOURCE_SHA"],"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"],"run":{"run_id":os.environ["GITHUB_RUN_ID"],"run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"])}},open("out/parent-validation-request.json","w"),sort_keys=True,separators=(",",":"))'
+          jq -cnS --arg parent_artifact "${PARENT_ARTIFACT}" --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --arg github_run_id "${GITHUB_RUN_ID}" --argjson github_run_attempt "${GITHUB_RUN_ATTEMPT}" {parent_plans: "input/parent/parent-plans.json", parent_artifact: $parent_artifact, source_sha: $source_sha, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256, run: {run_id: $github_run_id, run_attempt: $github_run_attempt}} > out/parent-validation-request.json
           PYTHONPATH=.github/release python -m ucm_release artifact validate-index-parent --input out/parent-validation-request.json --output out/parent-validation.json >/dev/null
       - name: Authenticate GHCR publisher
         env:
@@ -270,10 +275,10 @@ jobs:
           PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
             --resolved-plan input/plan/resolved-plan.json \
             --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >out/provisional/preflight.json
-          PYTHONPATH=.github/release python -c 'import json,os; from pathlib import Path; from ucm_release import core; json.dump({"lane":"protected-tag","parent_plans":core.load_json(Path("input/parent/parent-plans.json")),"family_task_id":os.environ["FAMILY_TASK_ID"],"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/request.json","w"),sort_keys=True,separators=(",",":"))'
+          jq -cnS --slurpfile parent_plans input/parent/parent-plans.json --arg family_task_id "$FAMILY_TASK_ID" --arg resolved_plan_sha256 "$RESOLVED_PLAN_SHA256" '{lane: "protected-tag", parent_plans: $parent_plans[0], family_task_id: $family_task_id, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256}' > out/request.json
           PYTHONPATH=.github/release python -m ucm_release registry prepare-index --input out/request.json --output out/provisional/provisional.json >/dev/null
           logical="ucm-index-provisional-${FAMILY_TASK_ID}"
-          physical="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(*sys.argv[1:3], int(sys.argv[3])))' "${logical}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
+          physical="${logical}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           echo "artifact=${physical}" >>"${GITHUB_OUTPUT}"
       - name: Remove Registry credentials before evidence upload
         if: ${{ always() }}
@@ -339,13 +344,21 @@ jobs:
           cp input/parent/parent-plans.json out/evidence/parent-plans.json
           cp input/parent/member-collection.json out/evidence/member-collection.json
           cp input/parent/member-records/*.json out/evidence/member-records/
-          python -c 'import json,os; json.dump({"root":"input/provisionals","output_dir":"out/evidence/provisionals","source_sha":os.environ["SOURCE_SHA"],"parent_plans":"out/evidence/parent-plans.json","resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"],"run":{"run_id":os.environ["GITHUB_RUN_ID"],"run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"])}},open("out/provisional-collection-request.json","w"),sort_keys=True,separators=(",",":"))'
+          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --arg github_run_id "${GITHUB_RUN_ID}" --argjson github_run_attempt "${GITHUB_RUN_ATTEMPT}" {root: "input/provisionals", output_dir: "out/evidence/provisionals", source_sha: $source_sha, parent_plans: "out/evidence/parent-plans.json", resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256, run: {run_id: $github_run_id, run_attempt: $github_run_attempt}} > out/provisional-collection-request.json
           PYTHONPATH=.github/release python -m ucm_release artifact collect-provisionals --input out/provisional-collection-request.json --output out/provisional-collection.json >/dev/null
           cp out/provisional-collection.json out/evidence/provisional-collection.json
-          python -c 'import glob,json,os; p=json.load(open("out/provisional-collection.json")); json.dump({"member_records":sorted(glob.glob("out/evidence/member-records/*.json")),"member_collection":"out/evidence/member-collection.json","provisional_indexes":p["provisional_indexes"],"provisional_collection":"out/evidence/provisional-collection.json","parent_plans":"out/evidence/parent-plans.json","source_sha":os.environ["SOURCE_SHA"],"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"],"run":{"run_id":os.environ["GITHUB_RUN_ID"],"run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"])}},open("out/request.json","w"),sort_keys=True,separators=(",",":"))'
+          jq -cnS \
+            --argjson member_records "$(ls -1 out/evidence/member-records/*.json 2>/dev/null | jq -R . | jq -s .)" \
+            --slurpfile prov out/provisional-collection.json \
+            --arg source_sha "$SOURCE_SHA" \
+            --arg resolved_plan_sha256 "$RESOLVED_PLAN_SHA256" \
+            --arg github_run_id "$GITHUB_RUN_ID" \
+            --argjson github_run_attempt "$GITHUB_RUN_ATTEMPT" \
+            '{member_records: $member_records, member_collection: "out/evidence/member-collection.json", provisional_indexes: $prov[0].provisional_indexes, provisional_collection: "out/evidence/provisional-collection.json", parent_plans: "out/evidence/parent-plans.json", source_sha: $source_sha, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256, run: {run_id: $github_run_id, run_attempt: $github_run_attempt}}' \
+            > out/request.json
           PYTHONPATH=.github/release python -m ucm_release registry aggregate-authenticated --input out/request.json --output out/evidence/authenticated-publication.json >/dev/null
           logical="ucm-registry-authenticated-${SOURCE_SHA}"
-          physical="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(*sys.argv[1:3], int(sys.argv[3])))' "${logical}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
+          physical="${logical}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           echo "artifact=${physical}" >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

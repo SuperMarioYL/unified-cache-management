@@ -1050,7 +1050,8 @@ def test_pull_request_uses_one_generated_hosted_router_and_no_hardware_execution
     assert "catalog recipe-matrix" in planner_text
     assert "--lane pr-smoke" in planner_text
     assert "hardware-e2e" not in planner_text
-    assert 'github_matrix={"include":smoke["include"]}' in planner_text
+    assert "recipe_matrix=$(jq -cS" in planner_text
+    assert "{include: .include}" in planner_text
 
     hosted = jobs["repository-docker-smoke"]
     assert hosted["strategy"]["matrix"] == (
@@ -1192,9 +1193,10 @@ def test_hardware_e2e_workflow_is_dispatch_only_protected_and_catalog_routed() -
     planner_text = str(planner)
     assert planner["runs-on"] == "ubuntu-24.04"
     assert "--lane hardware-e2e" in planner_text
-    assert 'github_matrix={"include":hardware["include"]}' in planner_text
+    assert "hardware_matrix=$(jq -cS" in planner_text
+    assert "{include: .include}" in planner_text
     assert "protected_environment" in planner_text
-    assert 'hardware["protected_environment"]' in planner_text
+    assert ".protected_environment" in planner_text
     assert "core.load_catalog" not in planner_text
     assert "[0]" not in planner_text
     assert 'hardware["count"]' not in planner_text
@@ -1217,7 +1219,7 @@ def test_hardware_e2e_workflow_is_dispatch_only_protected_and_catalog_routed() -
     assert "--expected-task-sha256" in hardware_text
     assert "steps.hardware-recipe.outputs.path" in hardware_text
     assert "selected-hardware-recipe.json" in hardware_text
-    assert 'task["build_args"]' in hardware_text
+    assert ".build_args" in hardware_text
 
 
 def test_hardware_workflow_keeps_github_context_out_of_shell_and_bounds_tag(

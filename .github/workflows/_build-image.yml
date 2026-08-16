@@ -191,11 +191,11 @@ jobs:
           test "$(jq -r '.runner' out/selected-task.json)" = "${{ inputs.runner }}"
           logical_wheel_artifact="$(jq -r '.wheel_artifact_name' out/selected-task.json)"
           logical_image_artifact="$(jq -r '.artifact_name' out/selected-task.json)"
-          wheel_artifact="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(sys.argv[1], sys.argv[2], int(sys.argv[3])))' "${logical_wheel_artifact}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
-          image_artifact="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(sys.argv[1], sys.argv[2], int(sys.argv[3])))' "${logical_image_artifact}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
+          wheel_artifact="${logical_wheel_artifact}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          image_artifact="${logical_image_artifact}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           internal_logical="ucm-internal-oci-${TASK_ID}"
-          internal_oci_artifact="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(sys.argv[1], sys.argv[2], int(sys.argv[3])))' "${internal_logical}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
-          python -c 'import json; i=json.load(open("out/selected-task.json")); w=json.load(open("out/selected-wheel-task.json")); json.dump({"image_task_sha256":i["task_sha256"],"wheel_task_id":i["wheel_task_id"],"wheel_task_sha256":w["task_sha256"]},open("out/task-binding.json","w"),sort_keys=True,separators=(",",":")); open("out/task-binding.json","a").write("\n")'
+          internal_oci_artifact="${internal_logical}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          jq -cnS --slurpfile i out/selected-task.json --slurpfile w out/selected-wheel-task.json '{image_task_sha256: $i[0].task_sha256, wheel_task_id: $i[0].wheel_task_id, wheel_task_sha256: $w[0].task_sha256}' > out/task-binding.json
           {
             echo "wheel_artifact=${wheel_artifact}"
             echo "image_artifact=${image_artifact}"
@@ -234,7 +234,7 @@ jobs:
             aarch64|arm64) buildx_arch=arm64 ;;
             *) echo "unsupported Buildx architecture: $(uname -m)" >&2; exit 2 ;;
           esac
-          buildx_sha="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["toolchain"]["buildx_linux_sha256"][sys.argv[2]])' out/real-image-authority.json "${buildx_arch}")"
+          buildx_sha="$(jq -r --arg arch "$buildx_arch" '.toolchain.buildx_linux_sha256[$arch]' out/real-image-authority.json)"
           buildx_binary="${RUNNER_TEMP}/docker-buildx"
           curl -fsSL --retry 3 -o "${buildx_binary}" \
             "https://github.com/docker/buildx/releases/download/${buildx_version}/buildx-${buildx_version}.linux-${buildx_arch}"
@@ -320,8 +320,8 @@ jobs:
             test -f "input/runtime-download/${filename}"
             echo "${expected_sha256#sha256:}  input/runtime-download/${filename}" | sha256sum --check
             mv "input/runtime-download/${filename}" input/runtime-dependencies/
-          done < <(python -c 'import json; value=json.load(open("out/real-image-authority.json")); [print(item["requirement"], item["filename"], item["sha256"], sep="\t") for item in value["runtime_dependencies"]]')
-          expected_count="$(python -c 'import json; print(len(json.load(open("out/real-image-authority.json"))["runtime_dependencies"]))')"
+          done < <(jq -r '.runtime_dependencies[] | [.requirement, .filename, .sha256] | @tsv' out/real-image-authority.json)
+          expected_count="$(jq '(.runtime_dependencies) | length' out/real-image-authority.json)"
           test "$(find input/runtime-dependencies -maxdepth 1 -type f -name '*.whl' | wc -l | tr -d ' ')" = "${expected_count}"
       - name: Prepare the allowlisted offline runtime-real context
         shell: bash
@@ -351,7 +351,7 @@ jobs:
           build_args=()
           while IFS= read -r build_arg; do
             build_args+=(--build-arg "${build_arg}")
-          done < <(python -c 'import json; value=json.load(open("context/image-recipe.json"))["payload"]["build"]["build_args"]; [print(f"{key}={item}") for key,item in sorted(value.items())]')
+          done < <(jq -r '.payload.build.build_args | to_entries | sort_by(.key)[] | "\(.key)=\(.value)"' context/image-recipe.json)
           build_args+=(--build-arg "UCM_RECIPE_SHA256=${recipe_sha256}")
           docker buildx build \
             --platform "${target_platform}" \
@@ -421,8 +421,8 @@ jobs:
           set -euo pipefail
           preserved_archive=out/full-oci-preserved/image.oci.tar
           closure=out/oci-evidence/closure.json
-          expected_sha256="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["archive_sha256"])' "${closure}")"
-          expected_size="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["archive_size"])' "${closure}")"
+          expected_sha256="$(jq -r '.archive_sha256' "${closure}")"
+          expected_size="$(jq -r '.archive_size' "${closure}")"
           actual_sha256="sha256:$(sha256sum "${preserved_archive}" | cut -d' ' -f1)"
           actual_size="$(wc -c <"${preserved_archive}" | tr -d ' ')"
           read -r recorded_sha256 recorded_path <out/image-archive.sha256

@@ -316,6 +316,8 @@ def build_parser() -> argparse.ArgumentParser:
         command = registry_actions.add_parser(action)
         command.add_argument("--input", type=Path, required=True)
         command.add_argument("--output", type=Path, required=True)
+    validate_member = registry_actions.add_parser("validate-member-schema")
+    validate_member.add_argument("--input", type=Path, required=True)
 
     artifact_parser = groups.add_parser("artifact")
     artifact_actions = artifact_parser.add_subparsers(dest="action", required=True)
@@ -1077,6 +1079,15 @@ def main(argv: list[str] | None = None) -> int:
             }
             result = {**payload, "audit_sha256": core.sha256_value(payload)}
             _write(args.output, result)
+        elif (args.group, args.action) == ("registry", "validate-member-schema"):
+            record = core.load_json(args.input)
+            schema = core.load_json(
+                core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"
+            )
+            core.validate_schema(
+                record, schema["$defs"]["registryMemberRecord"], root=schema
+            )
+            result = {"kind": "ucm-member-schema-validation", "valid": True}
         elif (args.group, args.action) == ("artifact", "validate-image-bridge"):
             request = core.load_json(args.input)
             if set(request) != {

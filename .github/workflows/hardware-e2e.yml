@@ -35,7 +35,13 @@ jobs:
           set -euo pipefail
           PYTHONPATH=.github/release python -m ucm_release catalog recipe-matrix \
             --lane hardware-e2e --output hardware-e2e-recipes.json >/dev/null
-          PYTHONPATH=.github/release python -c 'import json,os; hardware=json.load(open("hardware-e2e-recipes.json")); assert set(hardware)=={"kind","schema_version","lane","catalog_sha256","protected_environment","count","include","matrix_sha256"}; github_matrix={"include":hardware["include"]}; output=open(os.environ["GITHUB_OUTPUT"],"a"); output.write("hardware_matrix="+json.dumps(github_matrix,sort_keys=True,separators=(",",":"))+"\n"); output.write("hardware_catalog_sha256="+hardware["catalog_sha256"]+"\n"); output.write("hardware_matrix_sha256="+hardware["matrix_sha256"]+"\n"); output.write("protected_environment="+hardware["protected_environment"]+"\n"); output.close()'
+          jq -e 'keys | sort == ["catalog_sha256","count","include","kind","lane","matrix_sha256","protected_environment","schema_version"]' hardware-e2e-recipes.json
+          {
+            echo "hardware_matrix=$(jq -cS '{include: .include}' hardware-e2e-recipes.json)"
+            echo "hardware_catalog_sha256=$(jq -r '.catalog_sha256' hardware-e2e-recipes.json)"
+            echo "hardware_matrix_sha256=$(jq -r '.matrix_sha256' hardware-e2e-recipes.json)"
+            echo "protected_environment=$(jq -r '.protected_environment' hardware-e2e-recipes.json)"
+          } >> "$GITHUB_OUTPUT"
 
   hardware-e2e:
     needs: [repository-recipe-plan]
@@ -89,7 +95,15 @@ jobs:
             --expected-matrix-sha256 "${EXPECTED_MATRIX_SHA256}" \
             --expected-task-sha256 "${EXPECTED_TASK_SHA256}" \
             --output selected-hardware-recipe.json >/dev/null
-          python -c 'import json,os; task=json.load(open("selected-hardware-recipe.json")); output=open(os.environ["GITHUB_OUTPUT"],"a"); output.write("task_id="+task["task_id"]+"\n"); output.write("path="+task["path"]+"\n"); output.write("image_source="+task["base_image"]["source"]+"\n"); output.write("image_name_version="+task["base_image"]["name_version"]+"\n"); output.write("build_args<<UCM_BUILD_ARGS\n"+"\n".join(task["build_args"])+"\nUCM_BUILD_ARGS\n"); output.close()'
+          {
+            echo "task_id=$(jq -r '.task_id' selected-hardware-recipe.json)"
+            echo "path=$(jq -r '.path' selected-hardware-recipe.json)"
+            echo "image_source=$(jq -r '.base_image.source' selected-hardware-recipe.json)"
+            echo "image_name_version=$(jq -r '.base_image.name_version' selected-hardware-recipe.json)"
+            echo "build_args<<UCM_BUILD_ARGS"
+            jq -r '.build_args | join("\n")' selected-hardware-recipe.json
+            echo "UCM_BUILD_ARGS"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install Docker CLI
         run: |

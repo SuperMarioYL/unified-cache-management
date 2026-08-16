@@ -127,7 +127,12 @@ jobs:
           set -euo pipefail
           PYTHONPATH=.github/release python -m ucm_release catalog recipe-matrix \
             --lane pr-smoke --output pr-smoke-recipes.json >/dev/null
-          python -c 'import json,os; smoke=json.load(open("pr-smoke-recipes.json")); assert set(smoke)=={"kind","schema_version","lane","catalog_sha256","count","include","matrix_sha256"}; github_matrix={"include":smoke["include"]}; output=open(os.environ["GITHUB_OUTPUT"],"a"); output.write("recipe_matrix="+json.dumps(github_matrix,sort_keys=True,separators=(",",":"))+"\n"); output.write("recipe_catalog_sha256="+smoke["catalog_sha256"]+"\n"); output.write("recipe_matrix_sha256="+smoke["matrix_sha256"]+"\n"); output.close()'
+          jq -e 'keys | sort == ["catalog_sha256","count","include","kind","lane","matrix_sha256","schema_version"]' pr-smoke-recipes.json
+          {
+            echo "recipe_matrix=$(jq -cS '{include: .include}' pr-smoke-recipes.json)"
+            echo "recipe_catalog_sha256=$(jq -r '.catalog_sha256' pr-smoke-recipes.json)"
+            echo "recipe_matrix_sha256=$(jq -r '.matrix_sha256' pr-smoke-recipes.json)"
+          } >> "$GITHUB_OUTPUT"
 
   repository-docker-smoke:
     needs: [pre-check, repository-recipe-plan]
@@ -166,7 +171,15 @@ jobs:
             --expected-matrix-sha256 "${EXPECTED_MATRIX_SHA256}" \
             --expected-task-sha256 "${EXPECTED_TASK_SHA256}" \
             --output selected-recipe.json >/dev/null
-          python -c 'import json,os; task=json.load(open("selected-recipe.json")); output=open(os.environ["GITHUB_OUTPUT"],"a"); output.write("task_id="+task["task_id"]+"\n"); output.write("path="+task["path"]+"\n"); output.write("platform="+task["platform"]+"\n"); output.write("cache_scope="+task["cache_scope"]+"\n"); output.write("build_args<<UCM_BUILD_ARGS\n"+"\n".join(task["build_args"])+"\nUCM_BUILD_ARGS\n"); output.close()'
+          {
+            echo "task_id=$(jq -r '.task_id' selected-recipe.json)"
+            echo "path=$(jq -r '.path' selected-recipe.json)"
+            echo "platform=$(jq -r '.platform' selected-recipe.json)"
+            echo "cache_scope=$(jq -r '.cache_scope' selected-recipe.json)"
+            echo "build_args<<UCM_BUILD_ARGS"
+            jq -r '.build_args | join("\n")' selected-recipe.json
+            echo "UCM_BUILD_ARGS"
+          } >> "$GITHUB_OUTPUT"
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
         with:

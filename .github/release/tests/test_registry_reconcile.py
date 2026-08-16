@@ -2881,11 +2881,17 @@ def test_protected_member_workflow_executes_postpublish_record_audit(
         for step in workflow["jobs"]["publish-member"]["steps"]
         if step.get("id") == "record"
     )
-    audit_command = next(
-        line.strip()
-        for line in record_step["run"].splitlines()
-        if "registry.validate_member_record" in line
+    run_lines = record_step["run"].splitlines()
+    redirect_idx = next(
+        i for i, line in enumerate(run_lines) if "member-audit-request.json" in line
     )
+    start_idx = redirect_idx
+    while start_idx > 0 and run_lines[start_idx - 1].strip().endswith("\\"):
+        start_idx -= 1
+    jq_lines = [
+        run_lines[i].strip().rstrip("\\") for i in range(start_idx, redirect_idx + 1)
+    ]
+    audit_command = " ".join(jq_lines)
 
     out_dir = tmp_path / "out"
     out_dir.mkdir()
@@ -2995,7 +3001,7 @@ def test_protected_index_workflow_embeds_reopened_parent_plan(
     request_command = next(
         line.strip()
         for line in publish_step["run"].splitlines()
-        if 'open("out/request.json"' in line
+        if "jq -cn" in line and "> out/request.json" in line
     )
 
     parent_path = tmp_path / "input" / "parent" / "parent-plans.json"

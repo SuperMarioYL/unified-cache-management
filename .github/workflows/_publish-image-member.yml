@@ -175,7 +175,7 @@ jobs:
           RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
         run: |
           set -euo pipefail
-          python -c 'import json,os; json.dump({"source_sha":os.environ["SOURCE_SHA"],"task_id":os.environ["TASK_ID"],"oci_artifact":os.environ["OCI_ARTIFACT"],"image_artifact":os.environ["IMAGE_ARTIFACT"],"hosted_task":"input/image/hosted-task.json","resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"],"run":{"run_id":os.environ["GITHUB_RUN_ID"],"run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"])}},open("out/bridge-request.json","w"),sort_keys=True,separators=(",",":"))'
+          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg task_id "${TASK_ID}" --arg oci_artifact "${OCI_ARTIFACT}" --arg image_artifact "${IMAGE_ARTIFACT}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --arg github_run_id "${GITHUB_RUN_ID}" --argjson github_run_attempt "${GITHUB_RUN_ATTEMPT}" {source_sha: $source_sha, task_id: $task_id, oci_artifact: $oci_artifact, image_artifact: $image_artifact, hosted_task: "input/image/hosted-task.json", resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256, run: {run_id: $github_run_id, run_attempt: $github_run_attempt}} > out/bridge-request.json
           PYTHONPATH=.github/release python -m ucm_release artifact validate-image-bridge --input out/bridge-request.json --output out/bridge-validation.json >/dev/null
       - name: Authenticate the pinned publisher to GHCR
         env:
@@ -207,11 +207,14 @@ jobs:
             --resolved-plan input/plan/resolved-plan.json \
             --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >out/member-mutation-preflight.json
           cmp input/oci/image-result.json input/image/image-result.json
-          python -c 'import json,os; json.dump({"image_result":"input/image/image-result.json","lane":"protected-tag","oci_archive":"input/oci/image.oci.tar","task_id":os.environ["TASK_ID"],"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/member-request.json","w"),sort_keys=True,separators=(",",":"))'
+          jq -cnS --arg task_id "${TASK_ID}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" {image_result: "input/image/image-result.json", lane: "protected-tag", oci_archive: "input/oci/image.oci.tar", task_id: $task_id, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256} > out/member-request.json
           PYTHONPATH=.github/release python -m ucm_release registry verify-member \
             --input out/member-request.json --output out/member-record.json >/dev/null
-          # shellcheck disable=SC2016
-          PYTHONPATH=.github/release python -c 'import json,os; from pathlib import Path; from ucm_release import core,registry; record=core.load_json(Path("out/member-record.json")); plan=core.load_json(Path("input/plan/resolved-plan.json")); registry.validate_member_record(record,resolved_plan=plan,expected_plan_sha256=os.environ["RESOLVED_PLAN_SHA256"]); schema=core.load_json(core.DEFAULT_SCHEMA_DIR/"release-manifest.schema.json"); core.validate_schema(record,schema["$defs"]["registryMemberRecord"],root=schema); open("out/member-audit-request.json","w").write(json.dumps({"lane":"protected-tag","operations":record["operations"],"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},sort_keys=True,separators=(",",":"))+"\n")'
+          PYTHONPATH=.github/release python -m ucm_release registry validate-member-schema \
+            --input out/member-record.json >/dev/null
+          jq -cnS --arg sha "${RESOLVED_PLAN_SHA256}" \
+            '{lane: "protected-tag", operations: $record[0].operations, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $sha}' \
+            --slurpfile record out/member-record.json > out/member-audit-request.json
           PYTHONPATH=.github/release python -m ucm_release registry audit-operations \
             --input out/member-audit-request.json --output out/member-audit.json >/dev/null
           member_artifact="ucm-member-${TASK_ID}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"

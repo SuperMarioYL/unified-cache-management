@@ -634,7 +634,7 @@ def _toolchain_pin_violations(
                 )
         required_buildx_fragments = (
             ".toolchain.buildx_version",
-            '["toolchain"]["buildx_linux_sha256"]',
+            ".toolchain.buildx_linux_sha256",
             ".toolchain.buildkit_image",
             "https://github.com/docker/buildx/releases/download/${buildx_version}/buildx-${buildx_version}.linux-${buildx_arch}",
             "sha256sum --check",
@@ -2578,7 +2578,7 @@ def test_github_release_io_uses_the_frozen_plan_repository_identity() -> None:
         command = str(step["run"])
         assert "repos/release-org/unified-cache-management" not in command
         assert plan_path in command
-        assert '["source"]["repository"]' in command
+        assert ".source.repository" in command
         assert 'test "${release_repository}" = "${GITHUB_REPOSITORY}"' in command
         assert "${release_repository}" in command
 
@@ -3620,7 +3620,7 @@ def test_task5_protected_route_has_static_permission_and_environment_boundaries(
     for fragment in (
         "core tag-preflight --lane protected-tag",
         "registry verify-member",
-        "registry.validate_member_record",
+        "registry validate-member-schema",
         "registry audit-operations",
         "member-mutation-preflight.json",
         "GITHUB_TOKEN",
@@ -3756,8 +3756,7 @@ def test_hosted_shellcheck_false_positives_are_narrowly_resolved() -> None:
     image = _load_workflow(WORKFLOW_DIR / "_publish-image-member.yml")
     member = _jobs(image)["publish-member"]
     member_run = "\n".join(str(step.get("run", "")) for step in _steps(member))
-    assert 'schema["$defs"]' in member_run
-    assert "# shellcheck disable=SC2016" in member_run
+    assert "validate-member-schema" in member_run
     entry_text = (WORKFLOW_DIR / "release-ucm.yml").read_text(encoding="utf-8")
     assert "origin/develop^{commit}" not in entry_text
 
@@ -3772,7 +3771,7 @@ def test_task5_artifacts_are_run_bound_and_barriers_are_transitive() -> None:
         text = "\n".join(_strings(_load_workflow(WORKFLOW_DIR / filename)))
         assert "GITHUB_RUN_ID" in text
         assert "GITHUB_RUN_ATTEMPT" in text
-        assert "run_bound_artifact_name" in text
+        assert "-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}" in text
 
     images = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
     feature_jobs = _jobs(images)
@@ -3949,9 +3948,9 @@ def test_task5_public_visibility_and_release_order_are_fail_closed() -> None:
         "release verify-assets --input out/verify-authenticated-assets-request.json"
     )
     request_lines = {
-        line.strip().split('open("', 1)[1].split('"', 1)[0]: line
+        line.strip().rsplit("> ", 1)[1]: line
         for line in release_text.splitlines()
-        if "json.dump(" in line and 'open("out/' in line
+        if "jq -cn" in line and "> out/" in line
     }
     for request_name in (
         "out/initial-download-request.json",
@@ -3965,13 +3964,13 @@ def test_task5_public_visibility_and_release_order_are_fail_closed() -> None:
         "out/verify-authenticated-assets-request.json",
     ):
         request_line = request_lines[request_name]
-        assert '"release"' in request_line
-        assert '"source_sha"' in request_line
+        assert "release:" in request_line
+        assert "source_sha:" in request_line
     for request_name in (
         "out/refresh-assets-request.json",
         "out/refresh-authenticated-assets-request.json",
     ):
-        assert '"prior_release"' in request_lines[request_name]
+        assert "prior_release:" in request_lines[request_name]
     for fragment in (
         "release assets-manifest",
         "release plan-state",
@@ -4005,10 +4004,10 @@ def test_task5_public_visibility_and_release_order_are_fail_closed() -> None:
     anonymous_request_line = next(
         line
         for line in public_text.splitlines()
-        if 'open("out/anonymous-download-request.json"' in line
+        if "> out/anonymous-download-request.json" in line
     )
-    assert '"release"' in anonymous_request_line
-    assert '"source_sha"' in anonymous_request_line
+    assert "release:" in anonymous_request_line
+    assert "source_sha:" in anonymous_request_line
 
 
 def test_task5_run_bound_artifact_identity_rejects_cross_attempt_reuse() -> None:

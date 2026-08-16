@@ -170,7 +170,7 @@ def test_build_consumers_bind_toolchain_and_image_runtime_to_selected_tasks() ->
     dependency_command = str(dependencies["run"])
     for field in ("python_version", "python_abi", "platform"):
         assert f".{field}" in dependency_command
-    assert '["runtime_dependencies"]' in dependency_command
+    assert ".runtime_dependencies" in dependency_command
     for forbidden in (
         "--python-version 312",
         "--abi cp312",
@@ -181,11 +181,8 @@ def test_build_consumers_bind_toolchain_and_image_runtime_to_selected_tasks() ->
         'test "${python_abi}" = "cp${python_minor}"',
     ):
         assert forbidden not in dependency_command
-    assert 'for item in value["runtime_dependencies"]' in dependency_command
-    assert (
-        'len(json.load(open("out/real-image-authority.json"))["runtime_dependencies"])'
-        in dependency_command
-    )
+    assert ".runtime_dependencies[]" in dependency_command
+    assert "(.runtime_dependencies) | length" in dependency_command
 
     context_step = next(
         step
@@ -389,10 +386,10 @@ def test_anonymous_closure_reopens_plan_and_uses_family_task_filenames() -> None
     anonymous = text[
         text.index("  anonymous-registry-readback:") : text.index("  publish-release:")
     ]
-    assert '"family_task_id"' in anonymous
-    assert '"resolved_plan":"input/plan/resolved-plan.json"' in anonymous
-    assert '"resolved_plan_sha256"' in anonymous
-    assert 'input/authenticated/provisionals/"+sys.argv[1]+".json' in anonymous
+    assert "family_task_id:" in anonymous
+    assert 'resolved_plan: "input/plan/resolved-plan.json"' in anonymous
+    assert "resolved_plan_sha256:" in anonymous
+    assert 'input/authenticated/provisionals/" + $family + ".json' in anonymous
 
 
 def test_release_asset_publication_exports_and_threads_the_frozen_plan_hash() -> None:
@@ -413,8 +410,8 @@ def test_release_asset_publication_exports_and_threads_the_frozen_plan_hash() ->
         "refresh-assets",
     ):
         assert f"release {action}" in run
-    assert run.count('"resolved_plan_sha256"') >= 9
-    assert run.count('"resolved_plan":"input/plan/resolved-plan.json"') >= 9
+    assert run.count("resolved_plan_sha256:") >= 9
+    assert run.count('resolved_plan: "input/plan/resolved-plan.json"') >= 9
 
 
 def test_release_draft_create_validates_downloaded_plan_before_write_request() -> None:
@@ -443,8 +440,8 @@ def test_release_draft_create_validates_downloaded_plan_before_write_request() -
     post_index = run.index("gh api --method POST")
     assert validation_index < first_gh_index < select_index < state_index < post_index
     before_post = run[:post_index]
-    assert before_post.count('"resolved_plan":"input/plan/resolved-plan.json"') >= 2
-    assert before_post.count('"resolved_plan_sha256"') >= 2
+    assert before_post.count('resolved_plan: "input/plan/resolved-plan.json"') >= 2
+    assert before_post.count("resolved_plan_sha256:") >= 2
 
 
 def test_protected_parent_uses_one_inventory_and_plan_bound_status_authority() -> None:
@@ -454,11 +451,11 @@ def test_protected_parent_uses_one_inventory_and_plan_bound_status_authority() -
     parent = text[text.index("  aggregate-members:") : text.index("  publish-indexes:")]
     assert parent.count("registry inventory") == 0
     assert parent.count("registry plan-index") == 1
-    assert 'p["member_record_sha256s"]' in parent
+    assert ".member_record_sha256s" in parent
     assert 'x["task_id"]' not in parent
-    assert 'p["inventory"]' in parent
+    assert ".inventory" in parent
     publisher = text[
         text.index("  publish-indexes:") : text.index("  authenticated-readback:")
     ]
-    assert '"resolved_plan":"input/plan/resolved-plan.json"' in publisher
-    assert '"resolved_plan_sha256"' in publisher
+    assert 'resolved_plan: "input/plan/resolved-plan.json"' in publisher
+    assert "resolved_plan_sha256:" in publisher

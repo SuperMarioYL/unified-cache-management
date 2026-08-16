@@ -171,14 +171,14 @@ jobs:
             --output-dir out/source-context >out/source-context-result.json
           cp out/selected-task.json out/source-context/wheel-task.json
           logical_artifact="$(jq -r '.wheel_artifact' out/hosted-task.json)"
-          wheel_artifact="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(sys.argv[1], sys.argv[2], int(sys.argv[3])))' "${logical_artifact}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
+          wheel_artifact="${logical_artifact}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           echo "wheel_artifact=${wheel_artifact}" >>"${GITHUB_OUTPUT}"
       - name: Materialize the task-bound offline build tool wheelhouse
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p out/source-context/build-wheels out/build-tool-download
-          python -c 'import json,pathlib; value=json.load(open("out/hosted-task.json")); pathlib.Path("out/source-context/build-requirements.lock").write_text(value["build_tool_lock"])'
+          jq -r '.build_tool_lock' out/hosted-task.json > out/source-context/build-requirements.lock
           test "sha256:$(sha256sum out/source-context/build-requirements.lock | cut -d' ' -f1)" = \
             "$(jq -r '.build_tool_lock_sha256' out/hosted-task.json)"
           while IFS=$'\t' read -r requirement filename expected_sha256; do
@@ -190,8 +190,8 @@ jobs:
             test -f "out/build-tool-download/${filename}"
             echo "${expected_sha256#sha256:}  out/build-tool-download/${filename}" | sha256sum --check
             mv "out/build-tool-download/${filename}" out/source-context/build-wheels/
-          done < <(python -c 'import json; value=json.load(open("out/hosted-task.json")); [print(item["requirement"], item["filename"], item["sha256"], sep="\t") for item in value["build_tools"]]')
-          expected_count="$(python -c 'import json; print(len(json.load(open("out/hosted-task.json"))["build_tools"]))')"
+          done < <(jq -r '.build_tools[] | [.requirement, .filename, .sha256] | @tsv' out/hosted-task.json)
+          expected_count="$(jq '(.build_tools) | length' out/hosted-task.json)"
           test "$(find out/source-context/build-wheels -maxdepth 1 -type f -name '*.whl' | wc -l | tr -d ' ')" = "${expected_count}"
       - name: Install checksum-pinned Buildx
         env:
@@ -213,7 +213,7 @@ jobs:
             aarch64|arm64) buildx_arch=arm64 ;;
             *) echo "unsupported Buildx architecture: $(uname -m)" >&2; exit 2 ;;
           esac
-          buildx_sha="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["toolchain"]["buildx_linux_sha256"][sys.argv[2]])' out/task-toolchain-authority.json "${buildx_arch}")"
+          buildx_sha="$(jq -r --arg arch "$buildx_arch" '.toolchain.buildx_linux_sha256[$arch]' out/task-toolchain-authority.json)"
           buildx_binary="${RUNNER_TEMP}/docker-buildx"
           curl -fsSL --retry 3 -o "${buildx_binary}" \
             "https://github.com/docker/buildx/releases/download/${buildx_version}/buildx-${buildx_version}.linux-${buildx_arch}"
@@ -235,7 +235,7 @@ jobs:
           build_args=()
           while IFS= read -r build_arg; do
             build_args+=(--build-arg "${build_arg}")
-          done < <(python -c 'import json; value=json.load(open("out/hosted-task.json")); [print(f"{key}={item}") for key,item in sorted(value["build_args"].items())]')
+          done < <(jq -r '.build_args | to_entries | sort_by(.key)[] | "\(.key)=\(.value)"' out/hosted-task.json)
           mkdir -p out
           : >out/build.log
           max_build_attempts=3
