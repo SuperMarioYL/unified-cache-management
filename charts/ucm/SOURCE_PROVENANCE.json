@@ -11,7 +11,7 @@
   "schema_version": 1,
   "source": {
     "commit": "33ac2a37f146a4515e232e4d7a8abaa14d8ef1d7",
-    "remote": "https://github.com/SuperMarioYL/uc-stack.git",
+    "remote": "https://github.com/modelengine-group/uc-stack.git",
     "tree_sha256": "sha256:5a0aa3113c14931e30c88c7f8508b3c742f985e5ede4a8ec48cac77c195c5a2e"
   },
   "source_files": [
