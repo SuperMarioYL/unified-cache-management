@@ -408,83 +408,6 @@ def parse_fixture_upstream_tag(product: str, tag: str) -> dict[str, str]:
     }
 
 
-def validate_fixture_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
-    """Require one immutable index with exact linux/amd64 and linux/arm64 chains."""
-    if not isinstance(snapshot, dict):
-        raise ValueError("registry snapshot must be an object")
-    _exact_keys(snapshot, SNAPSHOT_KEYS, "registry snapshot")
-    if (
-        snapshot["schema_version"] != 1
-        or snapshot["kind"] != "upstream-registry-snapshot"
-    ):
-        raise ValueError("registry snapshot identity must be schema version 1")
-    repository = _repository(snapshot["repository"])
-    parse_fixture_upstream_tag(
-        _fixture_product_for_repository(repository), snapshot["upstream_tag"]
-    )
-    index_digest = _digest(snapshot["index_digest"], "snapshot index")
-    platforms = snapshot["platforms"]
-    if not isinstance(platforms, list):
-        raise ValueError("snapshot platforms must be an array")
-    normalized: list[dict[str, str]] = []
-    seen: set[tuple[str, str]] = set()
-    for index, platform_entry in enumerate(platforms):
-        if not isinstance(platform_entry, dict):
-            raise ValueError(f"snapshot platform {index} must be an object")
-        _exact_keys(platform_entry, PLATFORM_KEYS, f"snapshot platform {index}")
-        if platform_entry["os"] not in {"linux"} or platform_entry[
-            "architecture"
-        ] not in {
-            "amd64",
-            "arm64",
-        }:
-            raise ValueError("snapshot platform must be linux/amd64 or linux/arm64")
-        identity = (platform_entry["os"], platform_entry["architecture"])
-        if identity in seen:
-            raise ValueError(
-                f"duplicate snapshot platform: {identity[0]}/{identity[1]}"
-            )
-        seen.add(identity)
-        normalized.append(
-            {
-                "os": platform_entry["os"],
-                "architecture": platform_entry["architecture"],
-                "manifest_digest": _digest(
-                    platform_entry["manifest_digest"], f"{identity} manifest"
-                ),
-                "config_digest": _digest(
-                    platform_entry["config_digest"], f"{identity} config"
-                ),
-            }
-        )
-    required = {("linux", "amd64"), ("linux", "arm64")}
-    if seen != required:
-        missing = sorted(required - seen)
-        extra = sorted(seen - required)
-        if missing == [("linux", "arm64")] and not extra:
-            raise RegistryBlocker(
-                "missing-linux-arm64",
-                "snapshot is missing required linux/arm64 platform",
-            )
-        raise ValueError(
-            f"snapshot requires exact linux platforms; missing={missing}, extra={extra}"
-        )
-    all_digests = [
-        index_digest,
-        *[
-            item[key]
-            for item in normalized
-            for key in ("manifest_digest", "config_digest")
-        ],
-    ]
-    if len(all_digests) != len(set(all_digests)):
-        raise ValueError("snapshot digest chain contains duplicate mutable identities")
-    normalized.sort(key=lambda item: item["architecture"])
-    result = copy.deepcopy(snapshot)
-    result["platforms"] = normalized
-    return result
-
-
 def _unique_json(text: str, label: str) -> dict[str, Any]:
     def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
@@ -941,17 +864,6 @@ def resolve_repository_tag(
         },
         "operations": operations,
     }
-
-
-def validate_public_tag(tag: object) -> str:
-    if not isinstance(tag, str) or OCI_TAG_RE.fullmatch(tag) is None:
-        raise ValueError(
-            "public tag must use strict OCI tag syntax and be at most 128 bytes"
-        )
-    match = re.fullmatch(r"(.+)-r([1-9][0-9]*)", tag)
-    if match is None:
-        raise ValueError("public tag must end in canonical -rN with N >= 1")
-    return tag
 
 
 _CANONICAL_UPSTREAM_TAG = re.compile(

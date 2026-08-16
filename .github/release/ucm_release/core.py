@@ -2392,38 +2392,6 @@ def publish_github_release(
     }
 
 
-def _resolved_locks(
-    release: dict[str, Any], profile: dict[str, Any], architecture: str
-) -> list[dict[str, Any]]:
-    builder = profile["builders"][architecture]["root"]
-    dependency = {
-        "build_tools": build_tool_dependency_records(
-            release,
-            profile["python_abi"],
-            architecture,
-        ),
-        "runtime_dependencies": runtime_dependency_records(
-            release,
-            profile["python_abi"],
-            architecture,
-        ),
-    }
-    return [
-        {
-            "subject": "builder",
-            "selector": f"builder://{profile['id']}/{architecture}",
-            "status": "resolved",
-            "identity": f"oci://{builder['repository']}@{builder['manifest_digest']}",
-        },
-        {
-            "subject": "python-build",
-            "selector": f"package-lock://{profile['id']}/{architecture}",
-            "status": "resolved",
-            "identity": f"package://pypi/ucm-build@{sha256_value(dependency)}",
-        },
-    ]
-
-
 def _git_output(repository_root: Path, *arguments: str) -> str | None:
     completed = subprocess.run(
         ["git", "-C", str(repository_root), *arguments],
