@@ -175,8 +175,26 @@ jobs:
           RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
         run: |
           set -euo pipefail
-          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg task_id "${TASK_ID}" --arg oci_artifact "${OCI_ARTIFACT}" --arg image_artifact "${IMAGE_ARTIFACT}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --arg github_run_id "${GITHUB_RUN_ID}" --argjson github_run_attempt "${GITHUB_RUN_ATTEMPT}" {source_sha: $source_sha, task_id: $task_id, oci_artifact: $oci_artifact, image_artifact: $image_artifact, hosted_task: "input/image/hosted-task.json", resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256, run: {run_id: $github_run_id, run_attempt: $github_run_attempt}} > out/bridge-request.json
-          PYTHONPATH=.github/release python -m ucm_release artifact validate-image-bridge --input out/bridge-request.json --output out/bridge-validation.json >/dev/null
+          plan=input/plan/resolved-plan.json
+          # Plan binding: the frozen plan hash matches the expected authority.
+          test "$(jq -r '.resolved_plan_sha256' "$plan")" = "${RESOLVED_PLAN_SHA256}"
+          # The image result's task_id matches the plan's task_id and the sha256 matches.
+          image_result=input/oci/image-result.json
+          plan_task_sha256="$(jq -r --arg tid "${TASK_ID}" \
+            '.image_tasks[] | select(.task_id == $tid) | .task_sha256' "$plan")"
+          test -n "$plan_task_sha256"
+          jq -e --arg tid "${TASK_ID}" --arg sha "$plan_task_sha256" \
+            '.task_id == $tid and .task_sha256 == $sha' "$image_result" >/dev/null
+          # Hosted task on disk is bound to the same source and task.
+          hosted_task=input/image/hosted-task.json
+          jq -e --arg sha "${SOURCE_SHA}" --arg tid "${TASK_ID}" \
+            '.source_sha == $sha and .task_id == $tid' "$hosted_task" >/dev/null
+          # Run-bound artifact names: reject stale or cross-attempt artifacts.
+          expected_oci="ucm-internal-oci-${TASK_ID}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          test "${OCI_ARTIFACT}" = "${expected_oci}"
+          logical_image="$(jq -r '.image_artifact' "$hosted_task")"
+          expected_image="${logical_image}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          test "${IMAGE_ARTIFACT}" = "${expected_image}"
       - name: Authenticate the pinned publisher to GHCR
         env:
           DOCKER_CONFIG: ${{ runner.temp }}/ucm-member-docker-config

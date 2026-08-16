@@ -258,12 +258,55 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out/chart out/artifact
-          PYTHONPATH=.github/release python -m ucm_release chart package \
-            --output-dir out/chart \
-            --resolved-plan input/plan/resolved-plan.json \
-            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
+          plan=input/plan/resolved-plan.json
+          # Plan binding assertion: the frozen plan hash must match the expected authority.
+          test "$(jq -r '.resolved_plan_sha256' "$plan")" = "${RESOLVED_PLAN_SHA256}"
+          chart_source="$(jq -r '.chart.source' "$plan")"
+          chart_version="$(jq -r '.chart.version' "$plan")"
+          chart_app_version="$(jq -r '.chart.app_version' "$plan")"
+          # Provenance assertion: the chart source tree is frozen with a recorded digest.
+          test -f "${chart_source}/SOURCE_PROVENANCE.json"
+          release_tree="$(jq -r '.release_tree_sha256' "${chart_source}/SOURCE_PROVENANCE.json")"
+          test -n "$release_tree"
+          # helm lint
+          helm lint "${chart_source}"
+          # helm template (validation cases): bind each case to its family runtime image
+          case_count="$(jq '.chart.validation_cases | length' "$plan")"
+          i=0
+          while [ "$i" -lt "$case_count" ]; do
+            case_name="$(jq -r ".chart.validation_cases[${i}].name" "$plan")"
+            values="$(jq -r ".chart.validation_cases[${i}].values" "$plan")"
+            product_id="$(jq -r ".chart.validation_cases[${i}].product_id" "$plan")"
+            variant="$(jq -r ".chart.validation_cases[${i}].variant" "$plan")"
+            expected_resource="$(jq -r ".chart.validation_cases[${i}].expected_resource" "$plan")"
+            repo="$(jq -r --arg pid "$product_id" --arg v "$variant" \
+              '.family_tasks[] | select(.product_id == $pid and .runtime.variant == $v) | .runtime.repository' "$plan")"
+            digest="$(jq -r --arg pid "$product_id" --arg v "$variant" \
+              '.family_tasks[] | select(.product_id == $pid and .runtime.variant == $v) | .runtime.index_digest' "$plan")"
+            test -n "$repo"
+            test -n "$digest"
+            image="${repo}@${digest}"
+            helm template "ucm-${case_name}" "${chart_source}" \
+              --values "${values}" \
+              --set-string "images.engine.repository=${repo}" \
+              --set-string "images.engine.digest=${digest}" \
+              >"out/chart/${case_name}.yaml"
+            grep -q 'kind: ModelServing' "out/chart/${case_name}.yaml"
+            grep -Fq "$image" "out/chart/${case_name}.yaml"
+            grep -Fq "$expected_resource" "out/chart/${case_name}.yaml"
+            i=$((i + 1))
+          done
+          # helm package
+          helm package "${chart_source}" --version "${chart_version}" \
+            --app-version "${chart_app_version}" --destination out/chart
+          package="$(find out/chart -maxdepth 1 -type f -name '*.tgz' -print)"
+          test -n "$package"
+          chart_sha="sha256:$(sha256sum "$package" | cut -d' ' -f1)"
+          filename="$(basename "$package")"
+          jq -nc --arg f "$filename" --arg s "$chart_sha" --arg r "$release_tree" \
+            '{filename:$f,sha256:$s,release_tree_sha256:$r,status:"candidate-verified"}' \
             >out/artifact/chart-result.json
-          cp out/chart/*.tgz out/artifact/
+          cp "$package" out/artifact/
           logical="ucm-chart-${SOURCE_SHA}"
           physical="${logical}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           echo "chart_artifact=${physical}" >>"${GITHUB_OUTPUT}"

@@ -93,39 +93,6 @@ def _source_sha(value: object) -> str:
     return value
 
 
-def run_bound_artifact_name(
-    logical_name: object, run_id: object, run_attempt: object
-) -> str:
-    """Bind physical Actions Artifact identity to one workflow run attempt."""
-    if (
-        not isinstance(logical_name, str)
-        or not logical_name
-        or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", logical_name) is None
-    ):
-        raise ValueError("logical artifact name is invalid")
-    if (
-        not isinstance(run_id, str)
-        or re.fullmatch(r"[1-9][0-9]*", run_id) is None
-        or not isinstance(run_attempt, int)
-        or isinstance(run_attempt, bool)
-        or run_attempt < 1
-    ):
-        raise ValueError("artifact run identity is invalid")
-    return f"{logical_name}-run-{run_id}-attempt-{run_attempt}"
-
-
-def validate_run_bound_artifact_name(
-    physical_name: object, logical_name: object, run: object
-) -> str:
-    """Reject stale/cross-attempt Artifact names before reopening payload bytes."""
-    if not isinstance(run, dict) or set(run) != {"run_id", "run_attempt"}:
-        raise ValueError("artifact run envelope is invalid")
-    expected = run_bound_artifact_name(logical_name, run["run_id"], run["run_attempt"])
-    if physical_name != expected:
-        raise ValueError("physical artifact name is not bound to this run attempt")
-    return expected
-
-
 def _validated_publication_members(
     *,
     member_records: object,

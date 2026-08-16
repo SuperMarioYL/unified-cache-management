@@ -267,9 +267,18 @@ jobs:
           RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
         run: |
           set -euo pipefail
-          mkdir -p out
-          jq -cnS --arg parent_artifact "${PARENT_ARTIFACT}" --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --arg github_run_id "${GITHUB_RUN_ID}" --argjson github_run_attempt "${GITHUB_RUN_ATTEMPT}" {parent_plans: "input/parent/parent-plans.json", parent_artifact: $parent_artifact, source_sha: $source_sha, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256, run: {run_id: $github_run_id, run_attempt: $github_run_attempt}} > out/parent-validation-request.json
-          PYTHONPATH=.github/release python -m ucm_release artifact validate-index-parent --input out/parent-validation-request.json --output out/parent-validation.json >/dev/null
+          plan=input/plan/resolved-plan.json
+          # Plan binding: the frozen plan hash matches the expected authority.
+          test "$(jq -r '.resolved_plan_sha256' "$plan")" = "${RESOLVED_PLAN_SHA256}"
+          # Run-bound parent artifact name: reject stale or cross-attempt artifacts.
+          expected_parent="ucm-index-parent-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          test "${PARENT_ARTIFACT}" = "${expected_parent}"
+          # Validate that the parent plan's sha256 is reproducible.
+          parent_plans=input/parent/parent-plans.json
+          recomputed="sha256:$(jq -jcS 'del(.plans_sha256)' "$parent_plans" | sha256sum | cut -d' ' -f1)"
+          test "$(jq -r '.plans_sha256' "$parent_plans")" = "$recomputed"
+          # Parent source matches the protected tag.
+          test "$(jq -r '.source_sha' "$parent_plans")" = "${SOURCE_SHA}"
       - name: Authenticate GHCR publisher
         env:
           DOCKER_CONFIG: ${{ runner.temp }}/ucm-index-docker-config

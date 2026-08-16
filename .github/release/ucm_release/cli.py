@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from . import chart, core, image, registry, verify
+from . import core, image, registry, verify
 
 catalog_resolution = registry
 
@@ -324,14 +324,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _paths(tag_preflight)
 
-    chart_parser = groups.add_parser("chart")
-    chart_actions = chart_parser.add_subparsers(dest="action", required=True)
-    package = chart_actions.add_parser("package")
-    package.add_argument("--output-dir", type=Path, required=True)
-    package.add_argument("--resolved-plan", type=Path, required=True)
-    package.add_argument("--expected-plan-sha256", required=True)
-    _paths(package)
-
     registry_parser = groups.add_parser("registry")
     registry_actions = registry_parser.add_subparsers(dest="action", required=True)
     for action in (
@@ -348,16 +340,6 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--output", type=Path, required=True)
     validate_member = registry_actions.add_parser("validate-member-schema")
     validate_member.add_argument("--input", type=Path, required=True)
-
-    artifact_parser = groups.add_parser("artifact")
-    artifact_actions = artifact_parser.add_subparsers(dest="action", required=True)
-    for action in (
-        "validate-image-bridge",
-        "validate-index-parent",
-    ):
-        command = artifact_actions.add_parser(action)
-        command.add_argument("--input", type=Path, required=True)
-        command.add_argument("--output", type=Path, required=True)
 
     image_parser = groups.add_parser("image")
     image_actions = image_parser.add_subparsers(dest="action", required=True)
@@ -562,12 +544,6 @@ def main(argv: list[str] | None = None) -> int:
                     lane=args.lane,
                     authority=resolved_plan["source"],
                 )
-        elif (args.group, args.action) == ("chart", "package"):
-            result = chart.package_chart(
-                args.output_dir,
-                resolved_plan=core.load_json(args.resolved_plan),
-                expected_plan_sha256=args.expected_plan_sha256,
-            )
         elif (args.group, args.action) == ("registry", "verify-member"):
             request = core.load_json(args.input)
             if set(request) != {
@@ -850,113 +826,6 @@ def main(argv: list[str] | None = None) -> int:
                 record, schema["$defs"]["registryMemberRecord"], root=schema
             )
             result = {"kind": "ucm-member-schema-validation", "valid": True}
-        elif (args.group, args.action) == ("artifact", "validate-image-bridge"):
-            request = core.load_json(args.input)
-            if set(request) != {
-                "source_sha",
-                "task_id",
-                "oci_artifact",
-                "image_artifact",
-                "hosted_task",
-                "resolved_plan",
-                "resolved_plan_sha256",
-                "run",
-            } or any(
-                not isinstance(request[key], str)
-                for key in (
-                    "source_sha",
-                    "task_id",
-                    "oci_artifact",
-                    "image_artifact",
-                    "hosted_task",
-                    "resolved_plan",
-                    "resolved_plan_sha256",
-                )
-            ):
-                raise ValueError("image bridge artifact input is malformed")
-            resolved_plan = core.load_json(Path(request["resolved_plan"]))
-            selected_task = registry.select_task(
-                resolved_plan,
-                task_kind="image",
-                task_id=request["task_id"],
-                expected_plan_sha256=request["resolved_plan_sha256"],
-            )
-            task = core.load_json(Path(request["hosted_task"]))
-            if (
-                not isinstance(task, dict)
-                or task.get("source_sha") != request["source_sha"]
-                or task.get("task_id") != request["task_id"]
-                or not isinstance(task.get("source_date_epoch"), int)
-                or isinstance(task.get("source_date_epoch"), bool)
-            ):
-                raise ValueError("image bridge hosted task is malformed")
-            expected = verify.hosted_image_task(
-                selected_task,
-                request["source_sha"],
-                task["source_date_epoch"],
-                resolved_plan=resolved_plan,
-                expected_plan_sha256=request["resolved_plan_sha256"],
-            )
-            if task != expected:
-                raise ValueError("image bridge hosted task differs from authority")
-            result = {
-                "schema_version": 1,
-                "kind": "ucm-image-artifact-bridge-validation",
-                "task_id": selected_task["task_id"],
-                "image_task_sha256": selected_task["task_sha256"],
-                "resolved_plan_sha256": resolved_plan["resolved_plan_sha256"],
-                "oci_artifact": verify.validate_run_bound_artifact_name(
-                    request["oci_artifact"],
-                    f"ucm-internal-oci-{request['task_id']}",
-                    request["run"],
-                ),
-                "image_artifact": verify.validate_run_bound_artifact_name(
-                    request["image_artifact"], task["image_artifact"], request["run"]
-                ),
-            }
-            _write(args.output, result)
-        elif (args.group, args.action) == ("artifact", "validate-index-parent"):
-            request = core.load_json(args.input)
-            if set(request) != {
-                "parent_plans",
-                "parent_artifact",
-                "source_sha",
-                "resolved_plan",
-                "resolved_plan_sha256",
-                "run",
-            } or any(
-                not isinstance(request[key], str)
-                for key in (
-                    "parent_plans",
-                    "parent_artifact",
-                    "source_sha",
-                    "resolved_plan",
-                    "resolved_plan_sha256",
-                )
-            ):
-                raise ValueError("index parent artifact input is malformed")
-            artifact = verify.validate_run_bound_artifact_name(
-                request["parent_artifact"],
-                f"ucm-index-parent-{request['source_sha']}",
-                request["run"],
-            )
-            resolved_plan = core.load_json(Path(request["resolved_plan"]))
-            parent = registry.validate_index_plans(
-                core.load_json(Path(request["parent_plans"])),
-                resolved_plan=resolved_plan,
-                expected_plan_sha256=request["resolved_plan_sha256"],
-            )
-            if parent["source_sha"] != request["source_sha"]:
-                raise ValueError("index parent source differs from protected tag")
-            result = {
-                "schema_version": 1,
-                "kind": "ucm-index-parent-artifact-validation",
-                "parent_artifact": artifact,
-                "source_sha": request["source_sha"],
-                "resolved_plan_sha256": resolved_plan["resolved_plan_sha256"],
-                "plans_sha256": parent["plans_sha256"],
-            }
-            _write(args.output, result)
         elif (args.group, args.action) == ("image", "task-toolchain-authority"):
             result = image.task_toolchain_authority(
                 core.load_json(args.resolved_plan),
