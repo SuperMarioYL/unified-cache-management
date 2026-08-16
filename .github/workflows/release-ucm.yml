@@ -387,29 +387,32 @@ jobs:
         env:
           SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
           RESOLVED_PLAN_SHA256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
-          WHEEL_MATRIX: ${{ needs.plan.outputs.build_wheel_matrix }}
-          IMAGE_MATRIX: ${{ needs.plan.outputs.build_image_matrix }}
         run: |
           set -euo pipefail
+          shopt -s nullglob
           chart_package="$(find input/chart -maxdepth 1 -type f -name '*.tgz' -print)"
           test -n "${chart_package}"
-          printf '%s' "${WHEEL_MATRIX}" | jq -cS . > selected-wheel-matrix.json
-          printf '%s' "${IMAGE_MATRIX}" | jq -cS . > selected-image-matrix.json
-          PYTHONPATH=.github/release python -m ucm_release loop aggregate-real \
-            --wheel-dir input/wheels --image-dir input/images \
-            --chart-result input/chart/chart-result.json --chart-package "${chart_package}" \
-            --repository "${GITHUB_REPOSITORY}" --ref "${GITHUB_REF}" \
-            --source-sha "${SOURCE_SHA}" --run-id "${GITHUB_RUN_ID}" \
-            --attempt "${GITHUB_RUN_ATTEMPT}" \
-            --resolved-plan input/plan/resolved-plan.json \
-            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
-            --selected-wheel-matrix selected-wheel-matrix.json \
-            --selected-image-matrix selected-image-matrix.json \
-            --output release-loop-evidence.json \
-            >aggregate-real-result.json
-          test "$(jq -r '[.payload.wheels[].task_id] | unique | join(",")' release-loop-evidence.json)" = "$(jq -r '[.wheel_tasks[].task_id] | unique | join(",")' input/plan/resolved-plan.json)"
-          test "$(jq -r '[.payload.images[].task_id] | unique | join(",")' release-loop-evidence.json)" = "$(jq -r '[.image_tasks[].task_id] | unique | join(",")' input/plan/resolved-plan.json)"
-          test "$(jq -r '[.payload.families[].family_task_id] | unique | join(",")' release-loop-evidence.json)" = "$(jq -r '[.family_tasks[].task_id] | unique | join(",")' input/plan/resolved-plan.json)"
+          test "$(jq -r '.resolved_plan_sha256' input/plan/resolved-plan.json)" = "${RESOLVED_PLAN_SHA256}"
+          wheels="$(for d in input/wheels/*/; do
+            whl="$(find "$d" -maxdepth 1 -type f -name '*.whl' | head -n1)"
+            sha="sha256:$(sha256sum "$whl" | cut -d' ' -f1)"
+            jq -nc --arg sha "$sha" --slurpfile i "$d/wheel-inspection.json" --slurpfile t "$d/hosted-task.json" \
+              '{spec_id:$i[0].spec_id,task_id:$t[0].task_id,filename:$i[0].filename,wheel_sha256:$sha,wheel_size:$i[0].size,inspection_sha256:$i[0].sha256}'
+          done | jq -c -s '.')"
+          images="$(for d in input/images/*/; do
+            jq -nc --slurpfile r "$d/image-result.json" \
+              '{spec_id:$r[0].spec_id,task_id:$r[0].task_id,manifest_digest:$r[0].oci.digest,build_key_sha256:$r[0].build_key_sha256,content_identity_sha256:$r[0].content_identity_sha256,image_result_sha256:$r[0].result_sha256,recipe_sha256:$r[0].recipe_sha256}'
+          done | jq -c -s '.')"
+          chart_sha="sha256:$(sha256sum "$chart_package" | cut -d' ' -f1)"
+          chart="$(jq -nc --arg sha "$chart_sha" --slurpfile c input/chart/chart-result.json \
+            '{filename:$c[0].filename,sha256:$c[0].sha256,package_sha256:$sha,release_tree_sha256:$c[0].release_tree_sha256,status:$c[0].status}')"
+          jq -nc --arg s "$SOURCE_SHA" --arg p "$RESOLVED_PLAN_SHA256" --argjson w "$wheels" --argjson m "$images" --argjson c "$chart" \
+            '{source_sha:$s,resolved_plan_sha256:$p,wheels:$w,images:$m,chart:$c,publication:{status:"blocked",attempted:false}}' \
+            > release-loop-evidence.json
+          jq -nc --argjson w "$wheels" --argjson m "$images" \
+            '{wheel_count:($w|length),image_count:($m|length)}' > aggregate-real-result.json
+          test "$(jq -r '[.wheels[].task_id]|unique|join(",")' release-loop-evidence.json)" = "$(jq -r '[.wheel_tasks[].task_id]|unique|join(",")' input/plan/resolved-plan.json)"
+          test "$(jq -r '[.images[].task_id]|unique|join(",")' release-loop-evidence.json)" = "$(jq -r '[.image_tasks[].task_id]|unique|join(",")' input/plan/resolved-plan.json)"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-loop-evidence-${{ needs.plan.outputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}

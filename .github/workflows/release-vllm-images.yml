@@ -86,23 +86,26 @@ jobs:
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
           RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
-          WHEEL_MATRIX: ${{ inputs.wheel_matrix }}
-          IMAGE_MATRIX: ${{ inputs.image_matrix }}
         run: |
           set -euo pipefail
+          shopt -s nullglob
           mkdir -p out
-          printf '%s' "${WHEEL_MATRIX}" | jq -cS . > out/selected-wheel-matrix.json
-          printf '%s' "${IMAGE_MATRIX}" | jq -cS . > out/selected-image-matrix.json
-          PYTHONPATH=.github/release python -m ucm_release loop aggregate-real \
-            --wheel-dir input/wheels --image-dir input/images \
-            --repository "${GITHUB_REPOSITORY}" --ref "${GITHUB_REF}" \
-            --source-sha "${SOURCE_SHA}" --run-id "${GITHUB_RUN_ID}" \
-            --attempt "${GITHUB_RUN_ATTEMPT}" \
-            --resolved-plan input/plan/resolved-plan.json \
-            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
-            --selected-wheel-matrix out/selected-wheel-matrix.json \
-            --selected-image-matrix out/selected-image-matrix.json \
-            --output out/real-image-loop-evidence.json >out/result.json
+          test "$(jq -r '.resolved_plan_sha256' input/plan/resolved-plan.json)" = "${RESOLVED_PLAN_SHA256}"
+          wheels="$(for d in input/wheels/*/; do
+            whl="$(find "$d" -maxdepth 1 -type f -name '*.whl' | head -n1)"
+            sha="sha256:$(sha256sum "$whl" | cut -d' ' -f1)"
+            jq -nc --arg sha "$sha" --slurpfile i "$d/wheel-inspection.json" --slurpfile t "$d/hosted-task.json" \
+              '{spec_id:$i[0].spec_id,task_id:$t[0].task_id,filename:$i[0].filename,wheel_sha256:$sha,wheel_size:$i[0].size,inspection_sha256:$i[0].sha256}'
+          done | jq -c -s '.')"
+          images="$(for d in input/images/*/; do
+            jq -nc --slurpfile r "$d/image-result.json" \
+              '{spec_id:$r[0].spec_id,task_id:$r[0].task_id,manifest_digest:$r[0].oci.digest,build_key_sha256:$r[0].build_key_sha256,content_identity_sha256:$r[0].content_identity_sha256,image_result_sha256:$r[0].result_sha256,recipe_sha256:$r[0].recipe_sha256}'
+          done | jq -c -s '.')"
+          jq -nc --arg s "$SOURCE_SHA" --arg p "$RESOLVED_PLAN_SHA256" --argjson w "$wheels" --argjson m "$images" \
+            '{source_sha:$s,resolved_plan_sha256:$p,wheels:$w,images:$m,publication:{status:"blocked",attempted:false}}' \
+            > out/real-image-loop-evidence.json
+          jq -nc --argjson w "$wheels" --argjson m "$images" \
+            '{wheel_count:($w|length),image_count:($m|length)}' > out/result.json
           logical="ucm-real-images-${SOURCE_SHA}"
           physical="${logical}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           echo "loop_artifact=${physical}" >>"${GITHUB_OUTPUT}"

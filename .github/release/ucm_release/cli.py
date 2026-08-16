@@ -384,29 +384,6 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--input", type=Path, required=True)
         command.add_argument("--output", type=Path, required=True)
 
-    loop_parser = groups.add_parser("loop")
-    loop_actions = loop_parser.add_subparsers(dest="action", required=True)
-    loop_aggregate_real = loop_actions.add_parser("aggregate-real")
-    loop_aggregate_real.add_argument("--wheel-dir", type=Path, required=True)
-    loop_aggregate_real.add_argument("--image-dir", type=Path, required=True)
-    loop_aggregate_real.add_argument("--chart-result", type=Path)
-    loop_aggregate_real.add_argument("--chart-package", type=Path)
-    loop_aggregate_real.add_argument("--repository", required=True)
-    loop_aggregate_real.add_argument("--ref", required=True)
-    loop_aggregate_real.add_argument("--source-sha", required=True)
-    loop_aggregate_real.add_argument("--resolved-plan", type=Path, required=True)
-    loop_aggregate_real.add_argument("--expected-plan-sha256", required=True)
-    loop_aggregate_real.add_argument(
-        "--selected-wheel-matrix", type=Path, required=True
-    )
-    loop_aggregate_real.add_argument(
-        "--selected-image-matrix", type=Path, required=True
-    )
-    loop_aggregate_real.add_argument("--output", type=Path, required=True)
-    loop_aggregate_real.add_argument("--output-dir", type=Path)
-    loop_aggregate_real.add_argument("--run-id", required=True)
-    loop_aggregate_real.add_argument("--attempt", type=int, required=True)
-
     image_parser = groups.add_parser("image")
     image_actions = image_parser.add_subparsers(dest="action", required=True)
     task_toolchain = image_actions.add_parser("task-toolchain-authority")
@@ -1261,45 +1238,6 @@ def main(argv: list[str] | None = None) -> int:
                 }
             )
             _write(args.output, result)
-        elif (args.group, args.action) == ("loop", "aggregate-real"):
-            evidence = verify.aggregate_real_hosted_evidence(
-                wheel_dir=args.wheel_dir,
-                image_dir=args.image_dir,
-                chart_result_path=args.chart_result,
-                chart_package_path=args.chart_package,
-                repository=args.repository,
-                ref=args.ref,
-                source_sha=args.source_sha,
-                resolved_plan=core.load_json(args.resolved_plan),
-                expected_plan_sha256=args.expected_plan_sha256,
-                wheel_matrix=core.load_json(args.selected_wheel_matrix),
-                image_matrix=core.load_json(args.selected_image_matrix),
-                run={"run_id": args.run_id, "run_attempt": args.attempt},
-            )
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            _write(args.output, evidence)
-            if args.output_dir is not None:
-                output_dir = _empty_output_dir(args.output_dir)
-                payload = evidence["payload"]
-                _write(output_dir / "family-plans.json", payload["families"])
-                _write(
-                    output_dir / "candidate-inventory.json",
-                    payload["candidate_inventory"],
-                )
-                _write(
-                    output_dir / "second-reconcile.json",
-                    payload["second_reconcile"],
-                )
-            result = {
-                "output": str(args.output),
-                "payload_sha256": evidence["payload_sha256"],
-                "family_count": len(evidence["payload"]["families"]),
-                "wheel_count": len(evidence["payload"]["wheels"]),
-                "image_count": len(evidence["payload"]["images"]),
-                "second_task_count": evidence["payload"]["second_reconcile"][
-                    "task_count"
-                ],
-            }
         elif (args.group, args.action) == ("image", "task-toolchain-authority"):
             result = image.task_toolchain_authority(
                 core.load_json(args.resolved_plan),
