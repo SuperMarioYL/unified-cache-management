@@ -16,25 +16,7 @@ from .core import (
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
-_WHEEL_DECLARATION_FIELDS = (
-    "spec_id",
-    "profile_id",
-    "accelerator",
-    "accelerator_runtime",
-    "npu_arch_or_na",
-    "os",
-    "cpu_arch",
-    "python_version",
-    "python_abi",
-    "wheel_version",
-    "wheel_platform",
-    "binary_profile_id",
-    "validation_targets",
-    "required_native",
-    "forbidden_native",
-    "allowed_dt_needed",
-    "external_required_dependencies",
-)
+_WHEEL_DECLARATION_FIELDS = ('spec_id', 'profile_id', 'accelerator', 'accelerator_runtime', 'npu_arch_or_na', 'os', 'cpu_arch', 'python_version', 'python_abi', 'wheel_version', 'wheel_platform', 'binary_profile_id', 'validation_targets', 'required_native', 'forbidden_native', 'allowed_dt_needed', 'external_required_dependencies')  # fmt: skip  # noqa: E501
 
 
 def _validate_wheel_task(value: object) -> dict[str, Any]:
@@ -49,9 +31,7 @@ def _validate_wheel_task(value: object) -> dict[str, Any]:
     missing = [field for field in _WHEEL_DECLARATION_FIELDS if field not in task]
     if missing:
         raise ValueError(f"wheel task declaration fields are missing: {missing}")
-    declaration = {
-        field: copy.deepcopy(task[field]) for field in _WHEEL_DECLARATION_FIELDS
-    }
+    declaration = {field: copy.deepcopy(task[field]) for field in _WHEEL_DECLARATION_FIELDS}  # fmt: skip  # noqa: E501
     if task.get("declaration_sha256") != sha256_value(declaration):
         raise ValueError("wheel task declaration hash mismatch")
     dependency_lock = task.get("dependency_lock")

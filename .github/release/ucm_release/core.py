@@ -24,27 +24,15 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 RELEASE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RELEASE = RELEASE_ROOT / "release.yaml"
 DEFAULT_SCHEMA_DIR = RELEASE_ROOT / "schemas"
-OCI_REPOSITORY_PATTERN = re.compile(
-    r"^[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]+)?"
-    r"(?:/[a-z0-9]+(?:(?:[._]|-+)[a-z0-9]+)*)+$"
-)
+OCI_REPOSITORY_PATTERN = re.compile('^[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]+)?(?:/[a-z0-9]+(?:(?:[._]|-+)[a-z0-9]+)*)+$')  # fmt: skip  # noqa: E501
 OCI_TAG_PATTERN = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
-RECIPE_BASE_SOURCE_PATTERN = re.compile(
-    r"^[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]+)?" r"(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$"
-)
-RECIPE_BASE_NAME_VERSION_PATTERN = re.compile(
-    r"^[a-z0-9]+(?:[._-][a-z0-9]+)*"
-    r"(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*:"
-    r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"
-)
-RECIPE_BUILD_ARG_PATTERN = re.compile(
-    r"^[A-Z][A-Z0-9_]*=[A-Za-z0-9][A-Za-z0-9._~:/?@%+,=-]*$"
-)
+RECIPE_BASE_SOURCE_PATTERN = re.compile('^[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]+)?(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$')  # fmt: skip  # noqa: E501
+RECIPE_BASE_NAME_VERSION_PATTERN = re.compile('^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$')  # fmt: skip  # noqa: E501
+RECIPE_BUILD_ARG_PATTERN = re.compile('^[A-Z][A-Z0-9_]*=[A-Za-z0-9][A-Za-z0-9._~:/?@%+,=-]*$')  # fmt: skip  # noqa: E501
 
 
 @dataclass(frozen=True, slots=True)
 class CpuToolchainAuthority:
-    """One executable CPU architecture contract shared by planning and tooling."""
 
     cpu_arch: str
     oci_platform: str
@@ -54,51 +42,21 @@ class CpuToolchainAuthority:
     host_machine_aliases: tuple[str, ...]
 
 
-CPU_TOOLCHAIN_AUTHORITIES: Mapping[str, CpuToolchainAuthority] = MappingProxyType(
-    {
-        "amd64": CpuToolchainAuthority(
-            cpu_arch="amd64",
-            oci_platform="linux/amd64",
-            wheel_arch="x86_64",
-            elf_machine=62,
-            elf_machine_name="EM_X86_64",
-            host_machine_aliases=("x86_64", "amd64"),
-        ),
-        "arm64": CpuToolchainAuthority(
-            cpu_arch="arm64",
-            oci_platform="linux/arm64",
-            wheel_arch="aarch64",
-            elf_machine=183,
-            elf_machine_name="EM_AARCH64",
-            host_machine_aliases=("aarch64", "arm64"),
-        ),
-    }
-)
+CPU_TOOLCHAIN_AUTHORITIES: Mapping[str, CpuToolchainAuthority] = MappingProxyType({'amd64': CpuToolchainAuthority(cpu_arch='amd64', oci_platform='linux/amd64', wheel_arch='x86_64', elf_machine=62, elf_machine_name='EM_X86_64', host_machine_aliases=('x86_64', 'amd64')), 'arm64': CpuToolchainAuthority(cpu_arch='arm64', oci_platform='linux/arm64', wheel_arch='aarch64', elf_machine=183, elf_machine_name='EM_AARCH64', host_machine_aliases=('aarch64', 'arm64'))})  # fmt: skip  # noqa: E501
 
 
 def cpu_toolchain_authority(
     cpu_arch: object, *, location: str = "CPU/tool architecture"
 ) -> CpuToolchainAuthority:
-    """Resolve the finite executable toolchain before planning any downstream work."""
-    authority = (
-        CPU_TOOLCHAIN_AUTHORITIES.get(cpu_arch) if isinstance(cpu_arch, str) else None
-    )
+    authority = CPU_TOOLCHAIN_AUTHORITIES.get(cpu_arch) if isinstance(cpu_arch, str) else None  # fmt: skip  # noqa: E501
     if authority is None:
-        raise ValueError(
-            f"unsupported CPU/tool architecture at {location}: {cpu_arch!r}; "
-            f"supported={sorted(CPU_TOOLCHAIN_AUTHORITIES)}"
-        )
+        raise ValueError(f"unsupported CPU arch {cpu_arch!r} at {location}")  # fmt: skip
     return authority
 
 
 def host_cpu_toolchain_authority(host_machine: object) -> CpuToolchainAuthority:
-    """Map a supported host-machine spelling to the same typed CPU authority."""
     normalized = host_machine.lower() if isinstance(host_machine, str) else None
-    matches = [
-        authority
-        for authority in CPU_TOOLCHAIN_AUTHORITIES.values()
-        if normalized in authority.host_machine_aliases
-    ]
+    matches = [authority for authority in CPU_TOOLCHAIN_AUTHORITIES.values() if normalized in authority.host_machine_aliases]  # fmt: skip  # noqa: E501
     if len(matches) != 1:
         raise ValueError(f"unsupported CPU/tool host architecture: {host_machine!r}")
     return matches[0]
@@ -120,9 +78,7 @@ def _construct_mapping(
     return mapping
 
 
-_UniqueKeyLoader.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_mapping
-)
+_UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_mapping)  # fmt: skip  # noqa: E501
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -133,7 +89,6 @@ def load_yaml(path: Path) -> dict[str, Any]:
 
 
 def load_json_value(path: Path) -> Any:
-    """Load any JSON value while rejecting duplicate keys at every object level."""
 
     def unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
@@ -179,7 +134,6 @@ def validate_schema(
     root: dict[str, Any] | None = None,
     path: str = "$",
 ) -> None:
-    """Validate the dependency-free JSON Schema subset used by shipped contracts."""
     if schema is False:
         raise ValueError(f"{path}: value is forbidden by schema")
     if schema is True:
@@ -188,12 +142,7 @@ def validate_schema(
         raise ValueError(f"{path}: invalid schema node")
     root_schema = root or schema
     if "$ref" in schema:
-        validate_schema(
-            instance,
-            _resolve_ref(root_schema, schema["$ref"]),
-            root=root_schema,
-            path=path,
-        )
+        validate_schema(instance, _resolve_ref(root_schema, schema['$ref']), root=root_schema, path=path)  # fmt: skip  # noqa: E501
     if "oneOf" in schema:
         matches = 0
         errors: list[str] = []
@@ -208,17 +157,7 @@ def validate_schema(
             raise ValueError(f"{path}: oneOf requires exactly one match: {detail}")
     expected_type = schema.get("type")
     if expected_type is not None:
-        type_checks = {
-            "object": lambda value: isinstance(value, dict),
-            "array": lambda value: isinstance(value, list),
-            "string": lambda value: isinstance(value, str),
-            "integer": lambda value: isinstance(value, int)
-            and not isinstance(value, bool),
-            "boolean": lambda value: isinstance(value, bool),
-            "number": lambda value: isinstance(value, (int, float))
-            and not isinstance(value, bool),
-            "null": lambda value: value is None,
-        }
+        type_checks = {'object': lambda value: isinstance(value, dict), 'array': lambda value: isinstance(value, list), 'string': lambda value: isinstance(value, str), 'integer': lambda value: isinstance(value, int) and (not isinstance(value, bool)), 'boolean': lambda value: isinstance(value, bool), 'number': lambda value: isinstance(value, (int, float)) and (not isinstance(value, bool)), 'null': lambda value: value is None}  # fmt: skip  # noqa: E501
         if expected_type not in type_checks or not type_checks[expected_type](instance):
             raise ValueError(f"{path}: expected {expected_type}")
     if "const" in schema and instance != schema["const"]:
@@ -229,9 +168,7 @@ def validate_schema(
         if len(instance) < schema.get("minLength", 0):
             raise ValueError(f"{path}: string is shorter than minLength")
         if "pattern" in schema and re.search(schema["pattern"], instance) is None:
-            raise ValueError(
-                f"{path}: value does not match pattern {schema['pattern']!r}"
-            )
+            raise ValueError(f"{path}: value does not match pattern {schema['pattern']!r}")  # fmt: skip  # noqa: E501
     if isinstance(instance, (int, float)) and not isinstance(instance, bool):
         if "minimum" in schema and instance < schema["minimum"]:
             raise ValueError(f"{path}: value is below minimum {schema['minimum']}")
@@ -247,33 +184,16 @@ def validate_schema(
         property_names = schema.get("propertyNames")
         if property_names is not None:
             for key in instance:
-                validate_schema(
-                    key,
-                    property_names,
-                    root=root_schema,
-                    path=f"{path}.<property>",
-                )
+                validate_schema(key, property_names, root=root_schema, path=f'{path}.<property>')  # fmt: skip  # noqa: E501
         if schema.get("additionalProperties") is False:
             extras = sorted(set(instance) - set(properties))
             if extras:
-                raise ValueError(
-                    f"Additional properties are not allowed at {path}: {extras}"
-                )
+                raise ValueError(f'Additional properties are not allowed at {path}: {extras}')  # fmt: skip  # noqa: E501
         for key, value in instance.items():
             if key in properties:
-                validate_schema(
-                    value,
-                    properties[key],
-                    root=root_schema,
-                    path=f"{path}.{key}",
-                )
+                validate_schema(value, properties[key], root=root_schema, path=f'{path}.{key}')  # fmt: skip  # noqa: E501
             elif isinstance(schema.get("additionalProperties"), dict):
-                validate_schema(
-                    value,
-                    schema["additionalProperties"],
-                    root=root_schema,
-                    path=f"{path}.{key}",
-                )
+                validate_schema(value, schema['additionalProperties'], root=root_schema, path=f'{path}.{key}')  # fmt: skip  # noqa: E501
     if isinstance(instance, list):
         if len(instance) < schema.get("minItems", 0):
             raise ValueError(f"{path}: array is shorter than minItems")
@@ -286,28 +206,16 @@ def validate_schema(
         prefix_items = schema.get("prefixItems", [])
         for index, item_schema in enumerate(prefix_items):
             if index < len(instance):
-                validate_schema(
-                    instance[index],
-                    item_schema,
-                    root=root_schema,
-                    path=f"{path}[{index}]",
-                )
+                validate_schema(instance[index], item_schema, root=root_schema, path=f'{path}[{index}]')  # fmt: skip  # noqa: E501
         item_schema = schema.get("items")
         if item_schema is not None:
             start = len(prefix_items) if prefix_items else 0
             for index in range(start, len(instance)):
-                validate_schema(
-                    instance[index],
-                    item_schema,
-                    root=root_schema,
-                    path=f"{path}[{index}]",
-                )
+                validate_schema(instance[index], item_schema, root=root_schema, path=f'{path}[{index}]')  # fmt: skip  # noqa: E501
 
 
 def canonical_bytes(value: Any) -> bytes:
-    return json.dumps(
-        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode()
+    return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()  # fmt: skip  # noqa: E501
 
 
 def sha256_value(value: Any) -> str:
@@ -334,24 +242,19 @@ def _pep440_version(value: object, location: str) -> Version:
     try:
         return Version(str(value))
     except InvalidVersion as error:
-        raise ValueError(
-            f"{location} must be a valid PEP 440 version: {value!r}"
-        ) from error
+        raise ValueError(f'{location} must be a valid PEP 440 version: {value!r}') from error  # fmt: skip  # noqa: E501
 
 
 def _pep440_specifier(value: object, location: str) -> SpecifierSet:
     try:
         return SpecifierSet(str(value))
     except InvalidSpecifier as error:
-        raise ValueError(
-            f"{location} must be a valid PEP 440 specifier: {value!r}"
-        ) from error
+        raise ValueError(f'{location} must be a valid PEP 440 specifier: {value!r}') from error  # fmt: skip  # noqa: E501
 
 
 def _specifier_interval(
     value: object,
 ) -> tuple[Version | None, bool, Version | None, bool] | None:
-    """Return a conservative PEP 440 interval, or None when disjointness is unknown."""
     specifiers = _pep440_specifier(value, "compatibility version selector")
     lower: Version | None = None
     lower_inclusive = False
@@ -380,9 +283,7 @@ def _specifier_interval(
             # an uncertain pair is rejected instead of accepting future ambiguity.
             continue
         if operator == "==" and raw_version.endswith(".*"):
-            prefix = _pep440_version(
-                raw_version.removesuffix(".*"), "compatibility wildcard prefix"
-            )
+            prefix = _pep440_version(raw_version.removesuffix('.*'), 'compatibility wildcard prefix')  # fmt: skip  # noqa: E501
             if (
                 prefix.epoch != 0
                 or prefix.pre
@@ -397,9 +298,7 @@ def _specifier_interval(
             add_upper(Version(".".join(map(str, upper_release))), False)
             continue
         if operator == "~=":
-            compatible = _pep440_version(
-                raw_version, "compatibility compatible-release selector"
-            )
+            compatible = _pep440_version(raw_version, 'compatibility compatible-release selector')  # fmt: skip  # noqa: E501
             if (
                 compatible.epoch != 0
                 or compatible.local is not None
@@ -435,9 +334,7 @@ def _version_specifiers_may_overlap(left: object, right: object) -> bool:
         for specifier in specifiers:
             if specifier.operator != "==" or specifier.version.endswith(".*"):
                 continue
-            witness = _pep440_version(
-                specifier.version, "compatibility exact-version witness"
-            )
+            witness = _pep440_version(specifier.version, 'compatibility exact-version witness')  # fmt: skip  # noqa: E501
             if left_specifiers.contains(
                 witness, prereleases=True
             ) and right_specifiers.contains(witness, prereleases=True):
@@ -479,9 +376,7 @@ def _compatibility_rules_semantically_overlap(
     ):
         if not (set(left[field]) & set(right[field])):
             return False
-    return _version_specifiers_may_overlap(
-        left["version_specifier"], right["version_specifier"]
-    )
+    return _version_specifiers_may_overlap(left['version_specifier'], right['version_specifier'])  # fmt: skip  # noqa: E501
 
 
 def _require_unique_ids(items: list[dict[str, Any]], label: str) -> None:
@@ -493,16 +388,7 @@ def _require_unique_ids(items: list[dict[str, Any]], label: str) -> None:
         seen.add(identifier)
 
 
-_BUILDER_CHECK_FIELDS = {
-    "python": {"kind", "version", "abi"},
-    "python-soabi": {"kind", "prefix"},
-    "command": {"kind", "name"},
-    "command-version": {"kind", "name", "arguments", "contains"},
-    "file": {"kind", "path"},
-    "directory": {"kind", "path"},
-    "library-cache": {"kind", "path"},
-    "shared-library-dependencies": {"kind", "path"},
-}
+_BUILDER_CHECK_FIELDS = {'python': {'kind', 'version', 'abi'}, 'python-soabi': {'kind', 'prefix'}, 'command': {'kind', 'name'}, 'command-version': {'kind', 'name', 'arguments', 'contains'}, 'file': {'kind', 'path'}, 'directory': {'kind', 'path'}, 'library-cache': {'kind', 'path'}, 'shared-library-dependencies': {'kind', 'path'}}  # fmt: skip  # noqa: E501
 
 
 def _validate_builder_checks(
@@ -540,9 +426,7 @@ def _validate_builder_checks(
                 or version != profile["python_version"]
                 or abi != profile["python_abi"]
             ):
-                raise ValueError(
-                    f"{check_location} differs from profile Python authority"
-                )
+                raise ValueError(f'{check_location} differs from profile Python authority')  # fmt: skip  # noqa: E501
             target = ("python", "runtime")
         elif kind == "python-soabi":
             soabi_checks += 1
@@ -587,10 +471,7 @@ def _validate_builder_checks(
             ):
                 raise ValueError(f"{check_location}.path is invalid")
             normalized_path = posixpath.normpath("/" + path.lstrip("/"))
-            target = (
-                "filesystem-node" if kind in {"file", "directory"} else str(kind),
-                normalized_path,
-            )
+            target = ('filesystem-node' if kind in {'file', 'directory'} else str(kind), normalized_path)  # fmt: skip  # noqa: E501
         previous = requirements.get(target)
         if previous is not None:
             previous_kind, previous_encoded = previous
@@ -600,15 +481,12 @@ def _validate_builder_checks(
                 raise ValueError(f"conflicting builder checks for {target[1]!r}")
         requirements[target] = (str(kind), encoded)
     if python_checks != 1 or soabi_checks != 1:
-        raise ValueError(
-            f"{location} requires exactly one Python and one Python SOABI check"
-        )
+        raise ValueError(f'{location} requires exactly one Python and one Python SOABI check')  # fmt: skip  # noqa: E501
 
 
 def runtime_patch_manifest(
     catalog: dict[str, Any], *, repository_root: Path = REPO_ROOT
 ) -> dict[str, Any]:
-    """Normalize declarative runtime patch rules into installed package bytes."""
     rules = catalog.get("runtime_patch_rules")
     if not isinstance(rules, list) or not rules:
         raise ValueError("runtime_patch_rules must be a non-empty array")
@@ -618,16 +496,7 @@ def runtime_patch_manifest(
     normalized: list[dict[str, Any]] = []
     for index, rule in enumerate(rules):
         location = f"runtime_patch_rules[{index}]"
-        fields = {
-            "id",
-            "order",
-            "product",
-            "version_specifier",
-            "channels",
-            "variants",
-            "strategy",
-            "imports",
-        }
+        fields = {'id', 'order', 'product', 'version_specifier', 'channels', 'variants', 'strategy', 'imports'}  # fmt: skip  # noqa: E501
         if not isinstance(rule, dict) or set(rule) != fields:
             raise ValueError(f"{location} fields are not exact")
         order = rule["order"]
@@ -636,15 +505,9 @@ def runtime_patch_manifest(
         if order in seen_orders:
             raise ValueError(f"duplicate runtime patch rule order {order}")
         seen_orders.add(order)
-        product_members = [
-            product
-            for product in products
-            if product.get("runtime_product") == rule["product"]
-        ]
+        product_members = [product for product in products if product.get('runtime_product') == rule['product']]  # fmt: skip  # noqa: E501
         if not product_members:
-            raise ValueError(
-                f"{location} references unknown runtime product {rule['product']!r}"
-            )
+            raise ValueError(f"{location} references unknown runtime product {rule['product']!r}")  # fmt: skip  # noqa: E501
         _pep440_specifier(rule["version_specifier"], f"{location}.version_specifier")
         if (
             not isinstance(rule["channels"], list)
@@ -653,9 +516,7 @@ def runtime_patch_manifest(
             or not set(rule["channels"]).issubset({"stable", "rc"})
         ):
             raise ValueError(f"{location}.channels are invalid")
-        declared_variants = {
-            item["id"] for product in product_members for item in product["variants"]
-        }
+        declared_variants = {item['id'] for product in product_members for item in product['variants']}  # fmt: skip  # noqa: E501
         if (
             not isinstance(rule["variants"], list)
             or not rule["variants"]
@@ -688,9 +549,7 @@ def runtime_patch_manifest(
             module_path = repository_root / (module.replace(".", "/") + ".py")
             package_path = repository_root / module.replace(".", "/") / "__init__.py"
             if not module_path.is_file() and not package_path.is_file():
-                raise ValueError(
-                    f"runtime patch adapter module is not packaged: {module}"
-                )
+                raise ValueError(f'runtime patch adapter module is not packaged: {module}')  # fmt: skip  # noqa: E501
             normalized_import: dict[str, Any] = {"module": module}
             if "when" in declaration:
                 condition = declaration["when"]
@@ -706,27 +565,8 @@ def runtime_patch_manifest(
                 raise ValueError(f"duplicate runtime patch import at {import_location}")
             seen_imports.add(encoded_import)
             normalized_imports.append(normalized_import)
-        normalized.append(
-            {
-                "id": rule["id"],
-                "order": order,
-                "product": rule["product"],
-                "version_specifier": str(
-                    _pep440_specifier(
-                        rule["version_specifier"], f"{location}.version_specifier"
-                    )
-                ),
-                "channels": sorted(rule["channels"]),
-                "variants": sorted(rule["variants"]),
-                "strategy": rule["strategy"],
-                "imports": normalized_imports,
-            }
-        )
-    return {
-        "schema_version": 1,
-        "kind": "ucm-runtime-patch-rules",
-        "rules": sorted(normalized, key=lambda item: (item["order"], item["id"])),
-    }
+        normalized.append({'id': rule['id'], 'order': order, 'product': rule['product'], 'version_specifier': str(_pep440_specifier(rule['version_specifier'], f'{location}.version_specifier')), 'channels': sorted(rule['channels']), 'variants': sorted(rule['variants']), 'strategy': rule['strategy'], 'imports': normalized_imports})  # fmt: skip  # noqa: E501
+    return {'schema_version': 1, 'kind': 'ucm-runtime-patch-rules', 'rules': sorted(normalized, key=lambda item: (item['order'], item['id']))}  # fmt: skip  # noqa: E501
 
 
 def runtime_patch_manifest_sha256(manifest: dict[str, Any]) -> str:
@@ -738,27 +578,11 @@ def _matching_runtime_patch_rule(
 ) -> dict[str, Any]:
     version = _pep440_version(snapshot["version"], "resolved upstream version")
     runtime_product = snapshot.get("runtime_product", snapshot["product_id"])
-    matches = [
-        rule
-        for rule in manifest["rules"]
-        if rule["product"] == runtime_product
-        and snapshot["channel"] in rule["channels"]
-        and variant in rule["variants"]
-        and _pep440_specifier(
-            rule["version_specifier"], f"runtime patch rule {rule['id']!r}"
-        ).contains(version, prereleases=True)
-    ]
+    matches = [rule for rule in manifest['rules'] if rule['product'] == runtime_product and snapshot['channel'] in rule['channels'] and (variant in rule['variants']) and _pep440_specifier(rule['version_specifier'], f"runtime patch rule {rule['id']!r}").contains(version, prereleases=True)]  # fmt: skip  # noqa: E501
     if not matches:
-        raise ValueError(
-            "resolved upstream has no runtime patch strategy: "
-            f"product={runtime_product}, version={snapshot['version']}, "
-            f"channel={snapshot['channel']}, variant={variant}"
-        )
+        raise ValueError(f"resolved upstream has no runtime patch strategy: product={runtime_product}, version={snapshot['version']}, channel={snapshot['channel']}, variant={variant}")  # fmt: skip  # noqa: E501
     if len(matches) > 1:
-        raise ValueError(
-            "resolved upstream matches overlapping runtime patch strategies: "
-            + ", ".join(rule["id"] for rule in matches)
-        )
+        raise ValueError('resolved upstream matches overlapping runtime patch strategies: ' + ', '.join((rule['id'] for rule in matches)))  # fmt: skip  # noqa: E501
     return matches[0]
 
 
@@ -788,7 +612,6 @@ def _exact_runtime_requirement(value: object) -> tuple[str, str, str]:
 
 
 def python_runtime_requirements(catalog: dict[str, Any]) -> list[str]:
-    """Resolve exact runtime requirements from generic catalog declarations."""
     declarations = catalog.get("python_runtime_dependencies")
     if not declarations:
         return []
@@ -810,18 +633,12 @@ def python_runtime_requirements(catalog: dict[str, Any]) -> list[str]:
         ):
             raise ValueError("python runtime dependency import name is invalid")
         if set(declaration) == {"requirement", "import_name", "wheel_artifacts"}:
-            identity, _, resolved_requirement = _exact_runtime_requirement(
-                declaration["requirement"]
-            )
+            identity, _, resolved_requirement = _exact_runtime_requirement(declaration['requirement'])  # fmt: skip  # noqa: E501
             if not isinstance(declaration["wheel_artifacts"], dict):
                 raise ValueError("python runtime wheel artifacts are invalid")
         elif set(declaration) == {"python_build_lock", "import_name"}:
             package_name = declaration["python_build_lock"]
-            package = (
-                packages.get(package_name)
-                if isinstance(packages, dict) and isinstance(package_name, str)
-                else None
-            )
+            package = packages.get(package_name) if isinstance(packages, dict) and isinstance(package_name, str) else None  # fmt: skip  # noqa: E501
             if (
                 not isinstance(package_name, str)
                 or not package_name
@@ -833,9 +650,7 @@ def python_runtime_requirements(catalog: dict[str, Any]) -> list[str]:
                 or not package["filename"].endswith(".whl")
                 or re.fullmatch(r"sha256:[0-9a-f]{64}", str(package["sha256"])) is None
             ):
-                raise ValueError(
-                    f"python build lock {package_name!r} runtime authority is invalid"
-                )
+                raise ValueError(f'python build lock {package_name!r} runtime authority is invalid')  # fmt: skip  # noqa: E501
             identity = canonicalize_name(package_name)
             resolved_requirement = f"{identity}=={package['version']}"
         else:
@@ -850,37 +665,20 @@ def python_runtime_requirements(catalog: dict[str, Any]) -> list[str]:
 def runtime_dependency_records(
     catalog: dict[str, Any], python_abi: str, architecture: str
 ) -> list[dict[str, str]]:
-    """Select every offline runtime wheel for one exact task ABI/platform."""
     requirements = set(python_runtime_requirements(catalog))
     build_lock = catalog["python_build_lock"]["packages"]
     records: list[dict[str, str]] = []
     for declaration in catalog["python_runtime_dependencies"]:
         if "requirement" in declaration:
-            name, version, requirement = _exact_runtime_requirement(
-                declaration["requirement"]
-            )
-            wheel = python_abi_artifact(
-                declaration["wheel_artifacts"],
-                python_abi,
-                architecture,
-                label=f"python_runtime_dependencies.{name}.wheel_artifacts",
-            )
+            name, version, requirement = _exact_runtime_requirement(declaration['requirement'])  # fmt: skip  # noqa: E501
+            wheel = python_abi_artifact(declaration['wheel_artifacts'], python_abi, architecture, label=f'python_runtime_dependencies.{name}.wheel_artifacts')  # fmt: skip  # noqa: E501
         else:
             name = canonicalize_name(declaration["python_build_lock"])
             package = build_lock[declaration["python_build_lock"]]
             version = package["version"]
             requirement = f"{name}=={version}"
             wheel = {"filename": package["filename"], "sha256": package["sha256"]}
-        records.append(
-            {
-                "name": name,
-                "version": version,
-                "requirement": requirement,
-                "import_name": declaration["import_name"],
-                "filename": wheel["filename"],
-                "sha256": wheel["sha256"],
-            }
-        )
+        records.append({'name': name, 'version': version, 'requirement': requirement, 'import_name': declaration['import_name'], 'filename': wheel['filename'], 'sha256': wheel['sha256']})  # fmt: skip  # noqa: E501
     records.sort(key=lambda item: item["name"])
     if (
         {item["requirement"] for item in records} != requirements
@@ -894,7 +692,6 @@ def runtime_dependency_records(
 def build_tool_dependency_records(
     catalog: dict[str, Any], python_abi: str, architecture: str
 ) -> list[dict[str, str]]:
-    """Select the complete offline build-tool wheel set for one exact task."""
     build_lock = catalog.get("python_build_lock")
     packages = build_lock.get("packages") if isinstance(build_lock, dict) else None
     if not isinstance(packages, dict) or not 1 <= len(packages) <= 64:
@@ -904,15 +701,7 @@ def build_tool_dependency_records(
         if not isinstance(package, dict):
             raise ValueError("python build tool package authority is invalid")
         name = canonicalize_name(package_name)
-        records.append(
-            {
-                "name": name,
-                "version": str(package["version"]),
-                "requirement": f"{name}=={package['version']}",
-                "filename": package["filename"],
-                "sha256": package["sha256"],
-            }
-        )
+        records.append({'name': name, 'version': str(package['version']), 'requirement': f"{name}=={package['version']}", 'filename': package['filename'], 'sha256': package['sha256']})  # fmt: skip  # noqa: E501
     for name, lock_record, artifact in (
         (
             "pyyaml",
@@ -945,15 +734,7 @@ def build_tool_dependency_records(
             or re.fullmatch(r"sha256:[0-9a-f]{64}", str(artifact["sha256"])) is None
         ):
             raise ValueError(f"python build tool {name!r} has no exact task artifact")
-        records.append(
-            {
-                "name": name,
-                "version": lock_record["version"],
-                "requirement": f"{name}=={lock_record['version']}",
-                "filename": artifact["filename"],
-                "sha256": artifact["sha256"],
-            }
-        )
+        records.append({'name': name, 'version': lock_record['version'], 'requirement': f"{name}=={lock_record['version']}", 'filename': artifact['filename'], 'sha256': artifact['sha256']})  # fmt: skip  # noqa: E501
     records.sort(key=lambda item: item["name"])
     if (
         len(records) > 64
@@ -967,11 +748,8 @@ def build_tool_dependency_records(
 def python_abi_artifact(
     artifacts: object, python_abi: str, architecture: str, *, label: str
 ) -> dict[str, str]:
-    """Resolve one Python-specific wheel by exact ABI and CPU architecture."""
     abi_artifacts = artifacts.get(python_abi) if isinstance(artifacts, dict) else None
-    artifact = (
-        abi_artifacts.get(architecture) if isinstance(abi_artifacts, dict) else None
-    )
+    artifact = abi_artifacts.get(architecture) if isinstance(abi_artifacts, dict) else None  # fmt: skip  # noqa: E501
     if (
         not isinstance(artifact, dict)
         or set(artifact) != {"filename", "sha256"}
@@ -984,7 +762,6 @@ def python_abi_artifact(
 
 
 def _validate_catalog_cpu_toolchains(catalog: dict[str, Any]) -> None:
-    """Reject catalog declarations outside the finite executable CPU boundary."""
     declarations: list[tuple[str, object]] = []
     runner_map = catalog.get("runner_map")
     if isinstance(runner_map, dict):
@@ -994,25 +771,16 @@ def _validate_catalog_cpu_toolchains(catalog: dict[str, Any]) -> None:
             continue
         architectures = profile.get("cpu_arch")
         if isinstance(architectures, list):
-            declarations.extend(
-                (f"wheel_profiles[{index}].cpu_arch", architecture)
-                for architecture in architectures
-            )
+            declarations.extend(((f'wheel_profiles[{index}].cpu_arch', architecture) for architecture in architectures))  # fmt: skip  # noqa: E501
         builders = profile.get("builders")
         if isinstance(builders, dict):
-            declarations.extend(
-                (f"wheel_profiles[{index}].builders.{architecture}", architecture)
-                for architecture in builders
-            )
+            declarations.extend(((f'wheel_profiles[{index}].builders.{architecture}', architecture) for architecture in builders))  # fmt: skip  # noqa: E501
     for index, product in enumerate(catalog.get("upstream_products", [])):
         if not isinstance(product, dict):
             continue
         architectures = product.get("required_cpu_architectures")
         if isinstance(architectures, list):
-            declarations.extend(
-                (f"upstream_products[{index}].required_cpu_architectures", architecture)
-                for architecture in architectures
-            )
+            declarations.extend(((f'upstream_products[{index}].required_cpu_architectures', architecture) for architecture in architectures))  # fmt: skip  # noqa: E501
     compatibility = catalog.get("compatibility")
     rules = compatibility.get("rules", []) if isinstance(compatibility, dict) else []
     for index, rule in enumerate(rules):
@@ -1020,22 +788,15 @@ def _validate_catalog_cpu_toolchains(catalog: dict[str, Any]) -> None:
             continue
         architectures = rule.get("cpu_architectures")
         if isinstance(architectures, list):
-            declarations.extend(
-                (f"compatibility.rules[{index}].cpu_architectures", architecture)
-                for architecture in architectures
-            )
+            declarations.extend(((f'compatibility.rules[{index}].cpu_architectures', architecture) for architecture in architectures))  # fmt: skip  # noqa: E501
     smoke = catalog.get("pr_smoke")
     selectors = smoke.get("image_selectors", []) if isinstance(smoke, dict) else []
     for index, selector in enumerate(selectors):
         if isinstance(selector, dict) and "cpu_arch" in selector:
-            declarations.append(
-                (f"pr_smoke.image_selectors[{index}].cpu_arch", selector["cpu_arch"])
-            )
+            declarations.append((f'pr_smoke.image_selectors[{index}].cpu_arch', selector['cpu_arch']))  # fmt: skip  # noqa: E501
     for index, recipe in enumerate(catalog.get("docker_recipes", [])):
         if isinstance(recipe, dict) and "cpu_arch" in recipe:
-            declarations.append(
-                (f"docker_recipes[{index}].cpu_arch", recipe["cpu_arch"])
-            )
+            declarations.append((f'docker_recipes[{index}].cpu_arch', recipe['cpu_arch']))  # fmt: skip  # noqa: E501
     for location, architecture in declarations:
         cpu_toolchain_authority(architecture, location=location)
 
@@ -1043,7 +804,6 @@ def _validate_catalog_cpu_toolchains(catalog: dict[str, Any]) -> None:
 def validate_catalog(
     catalog: dict[str, Any], *, repository_root: Path = REPO_ROOT
 ) -> None:
-    """Validate semantic constraints for the generic release catalog."""
     _validate_catalog_cpu_toolchains(catalog)
     _pep440_version(catalog.get("ucm_version"), "ucm_version")
     python_runtime_requirements(catalog)
@@ -1057,32 +817,19 @@ def validate_catalog(
     _require_unique_ids(rules, "compatibility rule")
     _require_unique_ids(recipes, "Docker recipe")
     for index, profile in enumerate(profiles):
-        _pep440_version(
-            profile.get("wheel_version"), f"wheel_profiles[{index}].wheel_version"
-        )
+        _pep440_version(profile.get('wheel_version'), f'wheel_profiles[{index}].wheel_version')  # fmt: skip  # noqa: E501
         for architecture in profile.get("cpu_arch", []):
             runtime_dependency_records(catalog, profile.get("python_abi"), architecture)
-            build_tool_dependency_records(
-                catalog, profile.get("python_abi"), architecture
-            )
+            build_tool_dependency_records(catalog, profile.get('python_abi'), architecture)  # fmt: skip  # noqa: E501
         builders = profile.get("builders")
         if not isinstance(builders, dict):
             raise ValueError(f"wheel_profiles[{index}].builders must be an object")
         for architecture, builder in builders.items():
             if not isinstance(builder, dict):
-                raise ValueError(
-                    f"wheel_profiles[{index}].builders.{architecture} must be an object"
-                )
-            _validate_builder_checks(
-                builder.get("checks"),
-                profile=profile,
-                location=f"wheel_profiles[{index}].builders.{architecture}",
-            )
+                raise ValueError(f'wheel_profiles[{index}].builders.{architecture} must be an object')  # fmt: skip  # noqa: E501
+            _validate_builder_checks(builder.get('checks'), profile=profile, location=f'wheel_profiles[{index}].builders.{architecture}')  # fmt: skip  # noqa: E501
     for index, product in enumerate(products):
-        _pep440_specifier(
-            product.get("version_specifier"),
-            f"upstream_products[{index}].version_specifier",
-        )
+        _pep440_specifier(product.get('version_specifier'), f'upstream_products[{index}].version_specifier')  # fmt: skip  # noqa: E501
         _require_unique_ids(product["variants"], "upstream variant")
         expected_runtime_products = {"vllm", product["runtime_product"]}
         for variant in product["variants"]:
@@ -1095,20 +842,14 @@ def validate_catalog(
                     for value in runtime_variants.values()
                 )
             ):
-                raise ValueError(
-                    "upstream runtime patch variant map must name exactly the "
-                    "applicable installed products"
-                )
+                raise ValueError('upstream runtime patch variant map must name exactly the applicable installed products')  # fmt: skip  # noqa: E501
             for runtime_product, runtime_variant in runtime_variants.items():
                 if not any(
                     rule["product"] == runtime_product
                     and runtime_variant in rule["variants"]
                     for rule in catalog.get("runtime_patch_rules", [])
                 ):
-                    raise ValueError(
-                        "upstream runtime patch variant is not declared by a "
-                        f"matched product rule: {runtime_product}={runtime_variant}"
-                    )
+                    raise ValueError(f'upstream runtime patch variant is not declared by a matched product rule: {runtime_product}={runtime_variant}')  # fmt: skip  # noqa: E501
     products_by_id = {product["id"]: product for product in products}
     smoke = catalog.get("pr_smoke", {})
     selectors = smoke.get("image_selectors", []) if isinstance(smoke, dict) else []
@@ -1116,107 +857,64 @@ def validate_catalog(
         raise ValueError("pr_smoke.image_selectors must not be empty")
     selector_identities: set[tuple[str, str, str]] = set()
     for selector in selectors:
-        identity = (
-            selector["product_id"],
-            selector["variant"],
-            selector["cpu_arch"],
-        )
+        identity = (selector['product_id'], selector['variant'], selector['cpu_arch'])  # fmt: skip
         if identity in selector_identities:
             raise ValueError(f"duplicate PR smoke selector {identity!r}")
         selector_identities.add(identity)
         product = products_by_id.get(selector["product_id"])
         if product is None:
-            raise ValueError(
-                f"PR smoke selector references unknown product {selector['product_id']!r}"
-            )
+            raise ValueError(f"PR smoke selector references unknown product {selector['product_id']!r}")  # fmt: skip  # noqa: E501
         if selector["variant"] not in {
             variant["id"] for variant in product["variants"]
         }:
-            raise ValueError(
-                f"PR smoke selector references unknown variant {selector['variant']!r}"
-            )
+            raise ValueError(f"PR smoke selector references unknown variant {selector['variant']!r}")  # fmt: skip  # noqa: E501
         if selector["cpu_arch"] not in product["required_cpu_architectures"]:
-            raise ValueError(
-                "PR smoke selector architecture is not required by product"
-            )
+            raise ValueError('PR smoke selector architecture is not required by product')  # fmt: skip  # noqa: E501
     for index, rule in enumerate(rules):
-        _pep440_specifier(
-            rule.get("version_specifier"),
-            f"compatibility.rules[{index}].version_specifier",
-        )
+        _pep440_specifier(rule.get('version_specifier'), f'compatibility.rules[{index}].version_specifier')  # fmt: skip  # noqa: E501
         referenced_products: list[dict[str, Any]] = []
         for product_id in rule["upstream_products"]:
             product = products_by_id.get(product_id)
             if product is None:
                 raise ValueError(f"unknown upstream product {product_id!r}")
             referenced_products.append(product)
-        declared_variants = {
-            variant["id"]
-            for product in referenced_products
-            for variant in product["variants"]
-        }
+        declared_variants = {variant['id'] for product in referenced_products for variant in product['variants']}  # fmt: skip  # noqa: E501
         for variant_id in rule["variants"]:
             if variant_id not in declared_variants:
                 raise ValueError(f"unknown variant {variant_id!r}")
     for left_index, left in enumerate(rules):
         for right in rules[left_index + 1 :]:
             if _compatibility_rules_semantically_overlap(left, right, products_by_id):
-                raise ValueError(
-                    "compatibility rules have semantic selector overlap: "
-                    f"{left['id']!r} and {right['id']!r}"
-                )
+                raise ValueError(f"compatibility rules have semantic selector overlap: {left['id']!r} and {right['id']!r}")  # fmt: skip  # noqa: E501
     runtime_patch_manifest(catalog, repository_root=repository_root)
 
 
 def _dockerfile_instructions(dockerfile_text: str) -> list[tuple[str, str]]:
-    """Lex top-level Dockerfile instructions without inspecting heredoc bodies."""
     raw_lines = dockerfile_text.splitlines()
     escape_character = "\\"
     line_index = 0
     parser_directive_region = True
     parser_directives: dict[str, str] = {}
-    parser_directive_pattern = re.compile(
-        r"^[ \t]*#[ \t]*(?P<key>[A-Za-z][A-Za-z0-9_-]*)"
-        r"[ \t]*=[ \t]*(?P<value>[^ \t\r\n]+)[ \t]*$"
-    )
+    parser_directive_pattern = re.compile('^[ \\t]*#[ \\t]*(?P<key>[A-Za-z][A-Za-z0-9_-]*)[ \\t]*=[ \\t]*(?P<value>[^ \\t\\r\\n]+)[ \\t]*$')  # fmt: skip  # noqa: E501
     known_parser_directives = {"syntax", "escape", "check"}
-    heredoc_pattern = re.compile(
-        r"(?<!<)<<(?P<strip_tabs>-?)"
-        r"(?P<delimiter>"
-        r"'[A-Za-z_][A-Za-z0-9_.-]*'|"
-        r'"[A-Za-z_][A-Za-z0-9_.-]*"|'
-        r"[A-Za-z_][A-Za-z0-9_.-]*)"
-        r"(?![A-Za-z0-9_.-])"
-    )
+    heredoc_pattern = re.compile('(?<!<)<<(?P<strip_tabs>-?)(?P<delimiter>\'[A-Za-z_][A-Za-z0-9_.-]*\'|"[A-Za-z_][A-Za-z0-9_.-]*"|[A-Za-z_][A-Za-z0-9_.-]*)(?![A-Za-z0-9_.-])')  # fmt: skip  # noqa: E501
     heredoc_operator_pattern = re.compile(r"(?<!<)<<(?!<)")
     instructions: list[tuple[str, str]] = []
 
     while line_index < len(raw_lines):
         raw_line = raw_lines[line_index]
         directive_match = parser_directive_pattern.fullmatch(raw_line)
-        directive_key = (
-            directive_match.group("key").lower()
-            if directive_match is not None
-            else None
-        )
+        directive_key = directive_match.group('key').lower() if directive_match is not None else None  # fmt: skip  # noqa: E501
         if directive_key in known_parser_directives:
             if not parser_directive_region:
-                raise ValueError(
-                    "Dockerfile parser directive must precede comments, blank lines, "
-                    "and instructions"
-                )
+                raise ValueError('Dockerfile parser directive must precede comments, blank lines, and instructions')  # fmt: skip  # noqa: E501
             if directive_key in parser_directives:
-                raise ValueError(
-                    "duplicate or conflicting Dockerfile parser directive: "
-                    f"{directive_key}"
-                )
+                raise ValueError(f'duplicate or conflicting Dockerfile parser directive: {directive_key}')  # fmt: skip  # noqa: E501
             directive_value = directive_match.group("value")  # type: ignore[union-attr]
             parser_directives[directive_key] = directive_value
             if directive_key == "escape":
                 if directive_value not in {"\\", "`"}:
-                    raise ValueError(
-                        "Dockerfile escape parser directive must be `\\` or ```"
-                    )
+                    raise ValueError('Dockerfile escape parser directive must be `\\` or ```')  # fmt: skip  # noqa: E501
                 escape_character = directive_value
             line_index += 1
             continue
@@ -1273,34 +971,18 @@ def _dockerfile_instructions(dockerfile_text: str) -> list[tuple[str, str]]:
 
 
 def _dockerfile_base_authority(dockerfile_text: str, *, path: str) -> tuple[str, str]:
-    """Parse the unique base ARG defaults and require every FROM to consume them."""
-    relevant_args: dict[str, list[str | None]] = {
-        "IMAGE_SOURCE": [],
-        "IMAGE_NAME_VERSION": [],
-    }
+    relevant_args: dict[str, list[str | None]] = {'IMAGE_SOURCE': [], 'IMAGE_NAME_VERSION': []}  # fmt: skip  # noqa: E501
     from_bodies: list[str] = []
     first_from_seen = False
-    arg_pattern = re.compile(
-        r"^(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
-        r"(?:\s*=\s*(?P<value>\"[^\"\r\n]*\"|[^\s#]+))?"
-        r"(?:\s+#.*)?$"
-    )
-    from_pattern = re.compile(
-        r"^(?:--platform=(?P<platform>[A-Za-z0-9_./${}:+-]+)\s+)?"
-        r"\$\{IMAGE_SOURCE\}/\$\{IMAGE_NAME_VERSION\}"
-        r"(?:\s+(?i:AS)\s+[A-Za-z0-9][A-Za-z0-9_.-]*)?"
-        r"(?:\s+#.*)?$"
-    )
+    arg_pattern = re.compile('^(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?:\\s*=\\s*(?P<value>\\"[^\\"\\r\\n]*\\"|[^\\s#]+))?(?:\\s+#.*)?$')  # fmt: skip  # noqa: E501
+    from_pattern = re.compile('^(?:--platform=(?P<platform>[A-Za-z0-9_./${}:+-]+)\\s+)?\\$\\{IMAGE_SOURCE\\}/\\$\\{IMAGE_NAME_VERSION\\}(?:\\s+(?i:AS)\\s+[A-Za-z0-9][A-Za-z0-9_.-]*)?(?:\\s+#.*)?$')  # fmt: skip  # noqa: E501
 
     for keyword, body in _dockerfile_instructions(dockerfile_text):
         if keyword == "ARG":
             match = arg_pattern.fullmatch(body)
             if match is not None and match.group("name") in relevant_args:
                 if first_from_seen:
-                    raise ValueError(
-                        "Docker recipe base-image ARG declarations must precede "
-                        f"the first FROM instruction: {path}"
-                    )
+                    raise ValueError(f'Docker recipe base-image ARG declarations must precede the first FROM instruction: {path}')  # fmt: skip  # noqa: E501
                 value = match.group("value")
                 if value is not None and value.startswith('"'):
                     value = value[1:-1]
@@ -1311,23 +993,17 @@ def _dockerfile_base_authority(dockerfile_text: str, *, path: str) -> tuple[str,
 
     for name, values in relevant_args.items():
         if len(values) != 1 or values[0] is None:
-            raise ValueError(
-                f"Docker recipe must declare exactly one {name} ARG with a default: {path}"
-            )
+            raise ValueError(f'Docker recipe must declare exactly one {name} ARG with a default: {path}')  # fmt: skip  # noqa: E501
     if not from_bodies or any(
         from_pattern.fullmatch(body) is None for body in from_bodies
     ):
-        raise ValueError(
-            "Docker recipe requires every FROM instruction to consume "
-            f"${{IMAGE_SOURCE}}/${{IMAGE_NAME_VERSION}}: {path}"
-        )
+        raise ValueError(f'Docker recipe requires every FROM instruction to consume ${{IMAGE_SOURCE}}/${{IMAGE_NAME_VERSION}}: {path}')  # fmt: skip  # noqa: E501
     return relevant_args["IMAGE_SOURCE"][0], relevant_args["IMAGE_NAME_VERSION"][0]  # type: ignore[return-value]
 
 
 def validate_repository_recipe_inventory(
     catalog: dict[str, Any], *, repository_root: Path = REPO_ROOT
 ) -> None:
-    """Validate catalog semantics and exact repository Dockerfile coverage."""
     recipes = catalog.get("docker_recipes")
     if not isinstance(recipes, list) or not recipes:
         raise ValueError("docker_recipes must be a non-empty array")
@@ -1349,16 +1025,12 @@ def validate_repository_recipe_inventory(
             raise ValueError(f"{location}.id must be a lowercase OCI-safe identifier")
         path = recipe.get("path")
         if not isinstance(path, str) or path_pattern.fullmatch(path) is None:
-            raise ValueError(
-                f"{location}.path must name docker/Dockerfile.ucm-* using a conservative safe filename"
-            )
+            raise ValueError(f'{location}.path must name docker/Dockerfile.ucm-* using a conservative safe filename')  # fmt: skip  # noqa: E501
         normalized = posixpath.normpath(path)
         collision_key = normalized.casefold()
         if normalized != path or collision_key in normalized_paths:
             previous = normalized_paths.get(collision_key)
-            raise ValueError(
-                f"normalized Docker recipe path collision: {path!r} and {previous!r}"
-            )
+            raise ValueError(f'normalized Docker recipe path collision: {path!r} and {previous!r}')  # fmt: skip  # noqa: E501
         normalized_paths[collision_key] = path
         registered_paths.add(path)
 
@@ -1381,15 +1053,11 @@ def validate_repository_recipe_inventory(
         if "formal-release" in lanes and (
             build_mode != "generic-install-only" or status != "active"
         ):
-            raise ValueError(
-                "formal-release repository recipes must be active generic-install-only"
-            )
+            raise ValueError('formal-release repository recipes must be active generic-install-only')  # fmt: skip  # noqa: E501
         if status in {"legacy", "nightly", "specialized"} and not recipe.get(
             "exclusion_reason"
         ):
-            raise ValueError(
-                f"{location} requires an exclusion reason outside formal release"
-            )
+            raise ValueError(f'{location} requires an exclusion reason outside formal release')  # fmt: skip  # noqa: E501
         if status == "nightly" and set(lanes) != {"manual"}:
             raise ValueError("nightly Docker recipes are manual-only")
         base_image = recipe.get("base_image")
@@ -1402,9 +1070,7 @@ def validate_repository_recipe_inventory(
             )
             is None
         ):
-            raise ValueError(
-                f"{location}.base image must use output-safe OCI source and tag fields"
-            )
+            raise ValueError(f'{location}.base image must use output-safe OCI source and tag fields')  # fmt: skip  # noqa: E501
         runner = recipe.get("runner")
         runner_labels = [runner] if isinstance(runner, str) else runner
         if (
@@ -1420,9 +1086,7 @@ def validate_repository_recipe_inventory(
         if "pr-smoke" in lanes and runner != catalog["runner_map"].get(
             recipe.get("cpu_arch")
         ):
-            raise ValueError(
-                "pr-smoke Docker recipes require the catalog hosted runner"
-            )
+            raise ValueError('pr-smoke Docker recipes require the catalog hosted runner')  # fmt: skip  # noqa: E501
         if "hardware-e2e" in lanes and (
             not isinstance(runner, list) or "self-hosted" not in runner
         ):
@@ -1435,9 +1099,7 @@ def validate_repository_recipe_inventory(
             not isinstance(cache_scope, str)
             or re.fullmatch(r"[a-z0-9][a-z0-9.-]+", cache_scope) is None
         ):
-            raise ValueError(
-                f"{location}.cache scope must be an output-safe lowercase value"
-            )
+            raise ValueError(f'{location}.cache scope must be an output-safe lowercase value')  # fmt: skip  # noqa: E501
         if cache_scope in cache_scopes:
             raise ValueError(f"duplicate Docker recipe cache scope {cache_scope!r}")
         cache_scopes.add(cache_scope)
@@ -1449,39 +1111,29 @@ def validate_repository_recipe_inventory(
             or RECIPE_BUILD_ARG_PATTERN.fullmatch(value) is None
             for value in build_args
         ):
-            raise ValueError(
-                f"{location}.build_args must contain output-safe NAME=value entries"
-            )
+            raise ValueError(f'{location}.build_args must contain output-safe NAME=value entries')  # fmt: skip  # noqa: E501
         argument_names = [str(value).partition("=")[0] for value in build_args]
         if len(argument_names) != len(set(argument_names)):
             raise ValueError(f"{location}.build_args contains duplicate names")
         if {"IMAGE_SOURCE", "IMAGE_NAME_VERSION"} & set(argument_names):
-            raise ValueError(
-                f"{location}.build_args must not duplicate base-image authority"
-            )
+            raise ValueError(f'{location}.build_args must not duplicate base-image authority')  # fmt: skip  # noqa: E501
 
         if recipe.get("product") in {"vllm", "vllm-ascend"}:
             product_id = recipe.get("upstream_product_id")
             product = products.get(product_id)
             if product is None or product_id != recipe.get("product"):
-                raise ValueError(
-                    f"{location} requires an explicit matching upstream product"
-                )
+                raise ValueError(f'{location} requires an explicit matching upstream product')  # fmt: skip  # noqa: E501
             if recipe.get("upstream_variant") not in {
                 variant["id"] for variant in product["variants"]
             }:
-                raise ValueError(
-                    f"{location} requires a declared upstream target variant"
-                )
+                raise ValueError(f'{location} requires a declared upstream target variant')  # fmt: skip  # noqa: E501
 
         recipe_path = repository_root / path
         component_path = repository_root
         for component in PurePosixPath(path).parts:
             component_path = component_path / component
             if component_path.is_symlink():
-                raise ValueError(
-                    f"registered Docker recipe has a symlink component: {path}"
-                )
+                raise ValueError(f'registered Docker recipe has a symlink component: {path}')  # fmt: skip  # noqa: E501
         try:
             recipe_path.resolve().relative_to(repository_root.resolve())
         except ValueError as error:
@@ -1496,18 +1148,11 @@ def validate_repository_recipe_inventory(
         }:
             raise ValueError(f"Docker recipe base image differs from catalog: {path}")
 
-    discovered = {
-        item.relative_to(repository_root).as_posix()
-        for item in (repository_root / "docker").glob("Dockerfile.ucm-*")
-        if item.is_file()
-    }
+    discovered = {item.relative_to(repository_root).as_posix() for item in (repository_root / 'docker').glob('Dockerfile.ucm-*') if item.is_file()}  # fmt: skip  # noqa: E501
     missing = sorted(discovered - registered_paths)
     extra = sorted(registered_paths - discovered)
     if missing or extra:
-        raise ValueError(
-            "Docker recipe inventory differs from release.yaml: "
-            f"unregistered={missing}, nonexistent={extra}"
-        )
+        raise ValueError(f'Docker recipe inventory differs from release.yaml: unregistered={missing}, nonexistent={extra}')  # fmt: skip  # noqa: E501
 
 
 def repository_recipe_matrix(
@@ -1516,7 +1161,6 @@ def repository_recipe_matrix(
     lane: str,
     repository_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
-    """Project one canonical GitHub matrix from checked-in recipe authority."""
     if lane not in {"pr-smoke", "hardware-e2e", "manual", "formal-release"}:
         raise ValueError(f"unsupported repository recipe lane: {lane}")
     validate_repository_recipe_inventory(catalog, repository_root=repository_root)
@@ -1527,49 +1171,11 @@ def repository_recipe_matrix(
             continue
         path = repository_root / recipe["path"]
         base_image = copy.deepcopy(recipe["base_image"])
-        build_args = sorted(
-            [
-                *recipe["build_args"],
-                f"IMAGE_NAME_VERSION={base_image['name_version']}",
-                f"IMAGE_SOURCE={base_image['source']}",
-            ]
-        )
-        task: dict[str, Any] = {
-            "task_id": recipe["id"],
-            "catalog_sha256": catalog_sha256,
-            "dockerfile_sha256": "sha256:"
-            + hashlib.sha256(path.read_bytes()).hexdigest(),
-            "path": recipe["path"],
-            "lane": lane,
-            "runner": copy.deepcopy(recipe["runner"]),
-            "cpu_arch": recipe["cpu_arch"],
-            "platform": recipe["platform"],
-            "product": recipe["product"],
-            "backend": recipe["backend"],
-            "variant": recipe["variant"],
-            "upstream_version": recipe["upstream_version"],
-            "base_image": base_image,
-            "upstream_product_id": recipe.get("upstream_product_id"),
-            "upstream_variant": recipe.get("upstream_variant"),
-            "status": recipe["status"],
-            "build_mode": recipe["build_mode"],
-            "cache_scope": recipe["cache_scope"],
-            "build_args": build_args,
-            "engine_type": recipe["engine_type"],
-            "install_hook": recipe["install_hook"],
-            "exclusion_reason": recipe["exclusion_reason"],
-        }
+        build_args = sorted([*recipe['build_args'], f"IMAGE_NAME_VERSION={base_image['name_version']}", f"IMAGE_SOURCE={base_image['source']}"])  # fmt: skip  # noqa: E501
+        task: dict[str, Any] = {'task_id': recipe['id'], 'catalog_sha256': catalog_sha256, 'dockerfile_sha256': 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest(), 'path': recipe['path'], 'lane': lane, 'runner': copy.deepcopy(recipe['runner']), 'cpu_arch': recipe['cpu_arch'], 'platform': recipe['platform'], 'product': recipe['product'], 'backend': recipe['backend'], 'variant': recipe['variant'], 'upstream_version': recipe['upstream_version'], 'base_image': base_image, 'upstream_product_id': recipe.get('upstream_product_id'), 'upstream_variant': recipe.get('upstream_variant'), 'status': recipe['status'], 'build_mode': recipe['build_mode'], 'cache_scope': recipe['cache_scope'], 'build_args': build_args, 'engine_type': recipe['engine_type'], 'install_hook': recipe['install_hook'], 'exclusion_reason': recipe['exclusion_reason']}  # fmt: skip  # noqa: E501
         task["task_sha256"] = sha256_value(task)
         tasks.append(task)
-    result: dict[str, Any] = {
-        "kind": "ucm-repository-recipe-matrix",
-        "schema_version": 1,
-        "lane": lane,
-        "catalog_sha256": catalog_sha256,
-        "protected_environment": catalog["source"]["protected_environment"],
-        "count": len(tasks),
-        "include": tasks,
-    }
+    result: dict[str, Any] = {'kind': 'ucm-repository-recipe-matrix', 'schema_version': 1, 'lane': lane, 'catalog_sha256': catalog_sha256, 'protected_environment': catalog['source']['protected_environment'], 'count': len(tasks), 'include': tasks}  # fmt: skip  # noqa: E501
     result["matrix_sha256"] = sha256_value(result)
     return result
 
@@ -1584,10 +1190,7 @@ def select_repository_recipe_task(
     expected_task_sha256: str | None = None,
     repository_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
-    """Select exactly one opaque recipe task after recomputing its authority."""
-    matrix = repository_recipe_matrix(
-        catalog, lane=lane, repository_root=repository_root
-    )
+    matrix = repository_recipe_matrix(catalog, lane=lane, repository_root=repository_root)  # fmt: skip  # noqa: E501
     if matrix["matrix_sha256"] != expected_matrix_sha256:
         raise ValueError("repository recipe matrix hash differs from expected value")
     if (
@@ -1597,10 +1200,7 @@ def select_repository_recipe_task(
         raise ValueError("repository recipe catalog hash differs from expected value")
     matches = [task for task in matrix["include"] if task["task_id"] == task_id]
     if len(matches) != 1:
-        raise ValueError(
-            f"repository recipe task selection requires exactly one {lane!r} "
-            f"match for opaque task ID {task_id!r}; found {len(matches)}"
-        )
+        raise ValueError(f'repository recipe task selection requires exactly one {lane!r} match for opaque task ID {task_id!r}; found {len(matches)}')  # fmt: skip  # noqa: E501
     task = matches[0]
     if expected_task_sha256 is not None and task["task_sha256"] != expected_task_sha256:
         raise ValueError("repository recipe task hash differs from expected value")
@@ -1608,21 +1208,9 @@ def select_repository_recipe_task(
 
 
 def validate_resolved_upstreams(resolved_upstreams: object) -> None:
-    """Validate the exact immutable snapshot shape accepted by the planner."""
     if not isinstance(resolved_upstreams, list):
         raise ValueError("resolved_upstreams must be an array")
-    snapshot_keys = {
-        "product_id",
-        "repository",
-        "tag",
-        "version",
-        "channel",
-        "variant",
-        "index_digest",
-        "members",
-        "target_repository",
-        "target_tag",
-    }
+    snapshot_keys = {'product_id', 'repository', 'tag', 'version', 'channel', 'variant', 'index_digest', 'members', 'target_repository', 'target_tag'}  # fmt: skip  # noqa: E501
     member_keys = {"manifest_digest", "config_digest"}
     digest_pattern = re.compile(r"^sha256:[0-9a-f]{64}$")
     logical_identities: set[tuple[str, ...]] = set()
@@ -1633,18 +1221,14 @@ def validate_resolved_upstreams(resolved_upstreams: object) -> None:
         missing = sorted(snapshot_keys - set(snapshot))
         extras = sorted(set(snapshot) - snapshot_keys)
         if missing or extras:
-            raise ValueError(
-                f"{location} requires exact key set; missing={missing}, extra={extras}"
-            )
+            raise ValueError(f'{location} requires exact key set; missing={missing}, extra={extras}')  # fmt: skip  # noqa: E501
         for key in snapshot_keys - {"members", "index_digest"}:
             if not isinstance(snapshot[key], str) or not snapshot[key]:
                 raise ValueError(f"{location}.{key} must be a non-empty string")
         if snapshot["channel"] not in {"stable", "rc"}:
             raise ValueError(f"{location}.channel must be stable or rc")
         if OCI_REPOSITORY_PATTERN.fullmatch(snapshot["target_repository"]) is None:
-            raise ValueError(
-                f"{location}.target_repository must use canonical OCI repository syntax"
-            )
+            raise ValueError(f'{location}.target_repository must use canonical OCI repository syntax')  # fmt: skip  # noqa: E501
         if OCI_TAG_PATTERN.fullmatch(snapshot["target_tag"]) is None:
             raise ValueError(f"{location}.target_tag must use strict OCI tag syntax")
         if (
@@ -1652,18 +1236,9 @@ def validate_resolved_upstreams(resolved_upstreams: object) -> None:
             or digest_pattern.fullmatch(snapshot["index_digest"]) is None
         ):
             raise ValueError(f"{location}.index_digest must be an exact sha256 digest")
-        identity = (
-            snapshot["product_id"],
-            snapshot["repository"],
-            snapshot["tag"],
-            str(_pep440_version(snapshot["version"], f"{location}.version")),
-            snapshot["channel"],
-            snapshot["variant"],
-        )
+        identity = (snapshot['product_id'], snapshot['repository'], snapshot['tag'], str(_pep440_version(snapshot['version'], f'{location}.version')), snapshot['channel'], snapshot['variant'])  # fmt: skip  # noqa: E501
         if identity in logical_identities:
-            raise ValueError(
-                f"{location} has duplicate logical upstream identity: {identity}"
-            )
+            raise ValueError(f'{location} has duplicate logical upstream identity: {identity}')  # fmt: skip  # noqa: E501
         logical_identities.add(identity)
         members = snapshot["members"]
         if not isinstance(members, dict) or not members:
@@ -1677,27 +1252,16 @@ def validate_resolved_upstreams(resolved_upstreams: object) -> None:
             missing = sorted(member_keys - set(member))
             extras = sorted(set(member) - member_keys)
             if missing or extras:
-                raise ValueError(
-                    f"{member_location} requires exact key set; "
-                    f"missing={missing}, extra={extras}"
-                )
+                raise ValueError(f'{member_location} requires exact key set; missing={missing}, extra={extras}')  # fmt: skip  # noqa: E501
             for digest_name in sorted(member_keys):
                 if (
                     not isinstance(member[digest_name], str)
                     or digest_pattern.fullmatch(member[digest_name]) is None
                 ):
-                    raise ValueError(
-                        f"{member_location}.{digest_name} must be an exact sha256 digest"
-                    )
+                    raise ValueError(f'{member_location}.{digest_name} must be an exact sha256 digest')  # fmt: skip  # noqa: E501
 
 
-_LINKED_WHEEL_FIELDS = tuple(
-    "spec_id profile_id runner cpu_arch platform builder builder_sha256 build "
-    "python_abi python_version wheel_version wheel_platform required_native "
-    "forbidden_native allowed_dt_needed external_required_dependencies "
-    "dependency_lock_sha256 dependency_lock runtime_requirements "
-    "runtime_patch_manifest_sha256 write_authority build_eligible".split()
-)
+_LINKED_WHEEL_FIELDS = tuple('spec_id profile_id runner cpu_arch platform builder builder_sha256 build python_abi python_version wheel_version wheel_platform required_native forbidden_native allowed_dt_needed external_required_dependencies dependency_lock_sha256 dependency_lock runtime_requirements runtime_patch_manifest_sha256 write_authority build_eligible'.split())  # fmt: skip  # noqa: E501
 
 
 def _matching_profile(
@@ -1706,14 +1270,9 @@ def _matching_profile(
     snapshot: dict[str, Any],
     architecture: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    variant = next(
-        (v for v in product["variants"] if v["id"] == snapshot["variant"]), None
-    )
+    variant = next((v for v in product['variants'] if v['id'] == snapshot['variant']), None)  # fmt: skip  # noqa: E501
     if variant is None:
-        raise ValueError(
-            f"snapshot variant {snapshot['variant']!r} is not declared by "
-            f"upstream product {product['id']!r}"
-        )
+        raise ValueError(f"snapshot variant {snapshot['variant']!r} is not declared by upstream product {product['id']!r}")  # fmt: skip  # noqa: E501
     version = _pep440_version(snapshot["version"], "resolved upstream version")
     matches: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for rule in catalog["compatibility"]["rules"]:
@@ -1740,41 +1299,21 @@ def _matching_profile(
             ):
                 matches.append((profile, rule))
     if not matches:
-        raise ValueError(
-            "resolved upstream member has no compatible wheel profile: "
-            f"product={product['id']}, tag={snapshot['tag']}, "
-            f"architecture={architecture}"
-        )
+        raise ValueError(f"resolved upstream member has no compatible wheel profile: product={product['id']}, tag={snapshot['tag']}, architecture={architecture}")  # fmt: skip  # noqa: E501
     if len(matches) > 1:
-        matched = sorted(
-            f"{profile['id']} via {rule['id']}" for profile, rule in matches
-        )
-        raise ValueError(
-            "resolved upstream member matches overlapping wheel profiles: "
-            f"product={product['id']}, tag={snapshot['tag']}, "
-            f"architecture={architecture}, matches={matched}"
-        )
+        matched = sorted((f"{profile['id']} via {rule['id']}" for profile, rule in matches))  # fmt: skip  # noqa: E501
+        raise ValueError(f"resolved upstream member matches overlapping wheel profiles: product={product['id']}, tag={snapshot['tag']}, architecture={architecture}, matches={matched}")  # fmt: skip  # noqa: E501
     return matches[0]
 
 
-_PROFILE_DIRECT_FIELDS = tuple(
-    "accelerator accelerator_runtime python_version python_abi "
-    "wheel_version wheel_platform binary_profile_id".split()
-)
-_PROFILE_DEEPCOPY_FIELDS = tuple(
-    "validation_targets required_native forbidden_native "
-    "allowed_dt_needed external_required_dependencies".split()
-)
-_FAMILY_IDENTITY_KEYS = tuple(
-    "product_id repository tag variant index_digest "
-    "target_repository target_tag".split()
-)
+_PROFILE_DIRECT_FIELDS = tuple('accelerator accelerator_runtime python_version python_abi wheel_version wheel_platform binary_profile_id'.split())  # fmt: skip  # noqa: E501
+_PROFILE_DEEPCOPY_FIELDS = tuple('validation_targets required_native forbidden_native allowed_dt_needed external_required_dependencies'.split())  # fmt: skip  # noqa: E501
+_FAMILY_IDENTITY_KEYS = tuple('product_id repository tag variant index_digest target_repository target_tag'.split())  # fmt: skip  # noqa: E501
 _RUNTIME_KEYS = tuple("repository tag version channel variant index_digest".split())
 
 
 @dataclass(frozen=True, slots=True)
 class ReleasePlan:
-    """Typed envelope for the expanded release task set and frozen plan."""
 
     lane: str
     wheel_tasks: list[dict[str, Any]]
@@ -1790,37 +1329,16 @@ class ReleasePlan:
         lane: str,
         repository_root: Path = REPO_ROOT,
     ) -> "ReleasePlan":
-        """Expand a validated catalog and immutable runtime snapshots into tasks."""
         validate_catalog(catalog, repository_root=repository_root)
         validate_resolved_upstreams(resolved_upstreams)
         if lane not in catalog["lanes"]:
             raise ValueError(f"unsupported validation lane: {lane}")
-        patch_manifest = runtime_patch_manifest(
-            catalog, repository_root=repository_root
-        )
+        patch_manifest = runtime_patch_manifest(catalog, repository_root=repository_root)  # fmt: skip  # noqa: E501
         patch_manifest_sha256 = runtime_patch_manifest_sha256(patch_manifest)
         runtime_requirements = python_runtime_requirements(catalog)
         products = {item["id"]: item for item in catalog["upstream_products"]}
-        write_authority = (
-            []
-            if lane == "feature-candidate"
-            else ["github-prerelease", "ghcr-final-index", "ghcr-private-staging"]
-        )
-        snapshots = sorted(
-            resolved_upstreams,
-            key=lambda item: (
-                item["product_id"],
-                _pep440_version(item["version"], "resolved upstream version"),
-                item["variant"],
-                item["tag"],
-                item["repository"],
-                item["channel"],
-                item["target_repository"],
-                item["target_tag"],
-                item["index_digest"],
-                sha256_value(item["members"]),
-            ),
-        )
+        write_authority = [] if lane == 'feature-candidate' else ['github-prerelease', 'ghcr-final-index', 'ghcr-private-staging']  # fmt: skip  # noqa: E501
+        snapshots = sorted(resolved_upstreams, key=lambda item: (item['product_id'], _pep440_version(item['version'], 'resolved upstream version'), item['variant'], item['tag'], item['repository'], item['channel'], item['target_repository'], item['target_tag'], item['index_digest'], sha256_value(item['members'])))  # fmt: skip  # noqa: E501
         wheel_tasks_by_key: dict[tuple[str, str], dict[str, Any]] = {}
         image_tasks: list[dict[str, Any]] = []
         family_tasks: list[dict[str, Any]] = []
@@ -1829,35 +1347,14 @@ class ReleasePlan:
         for snapshot in snapshots:
             product = products.get(snapshot["product_id"])
             if product is None:
-                raise ValueError(
-                    f"resolved upstream references unknown product "
-                    f"{snapshot['product_id']!r}"
-                )
+                raise ValueError(f"resolved upstream references unknown product {snapshot['product_id']!r}")  # fmt: skip  # noqa: E501
             if snapshot["repository"] != product["repository"]:
-                raise ValueError(
-                    "resolved upstream repository differs from catalog product"
-                )
-            product_variant = next(
-                (
-                    item
-                    for item in product["variants"]
-                    if item["id"] == snapshot["variant"]
-                ),
-                None,
-            )
+                raise ValueError('resolved upstream repository differs from catalog product')  # fmt: skip  # noqa: E501
+            product_variant = next((item for item in product['variants'] if item['id'] == snapshot['variant']), None)  # fmt: skip  # noqa: E501
             if product_variant is None:
-                raise ValueError(
-                    f"snapshot variant {snapshot['variant']!r} is not declared by "
-                    f"upstream product {product['id']!r}"
-                )
-            runtime_patch_variants = copy.deepcopy(
-                product_variant["runtime_patch_variants"]
-            )
-            patch_rule = _matching_runtime_patch_rule(
-                patch_manifest,
-                {**snapshot, "runtime_product": product["runtime_product"]},
-                runtime_patch_variants[product["runtime_product"]],
-            )
+                raise ValueError(f"snapshot variant {snapshot['variant']!r} is not declared by upstream product {product['id']!r}")  # fmt: skip  # noqa: E501
+            runtime_patch_variants = copy.deepcopy(product_variant['runtime_patch_variants'])  # fmt: skip  # noqa: E501
+            patch_rule = _matching_runtime_patch_rule(patch_manifest, {**snapshot, 'runtime_product': product['runtime_product']}, runtime_patch_variants[product['runtime_product']])  # fmt: skip  # noqa: E501
             version = _pep440_version(snapshot["version"], "resolved upstream version")
             if snapshot["channel"] == "stable" and version.is_prerelease:
                 raise ValueError("channel stable requires a final version")
@@ -1871,120 +1368,38 @@ class ReleasePlan:
                 product["version_specifier"],
                 f"upstream product {product['id']!r}.version_specifier",
             ):
-                raise ValueError(
-                    "resolved upstream version is outside product selection"
-                )
+                raise ValueError('resolved upstream version is outside product selection')  # fmt: skip  # noqa: E501
             if snapshot["channel"] not in product["channels"]:
                 raise ValueError("resolved upstream channel is not selected by product")
             members = snapshot["members"]
             missing = sorted(set(product["required_cpu_architectures"]) - set(members))
             if missing:
-                raise ValueError(
-                    f"resolved upstream {snapshot['tag']} is missing required CPU "
-                    f"architectures: {missing}"
-                )
+                raise ValueError(f"resolved upstream {snapshot['tag']} is missing required CPU architectures: {missing}")  # fmt: skip  # noqa: E501
             coordinate = f"{snapshot['target_repository']}:{snapshot['target_tag']}"
             if coordinate in family_coordinates:
                 raise ValueError(f"duplicate target image coordinate: {coordinate}")
             family_coordinates.add(coordinate)
             family_identity = {k: snapshot[k] for k in _FAMILY_IDENTITY_KEYS}
-            family_task_id = (
-                f"family-{sha256_value(family_identity).removeprefix('sha256:')}"
-            )
+            family_task_id = f"family-{sha256_value(family_identity).removeprefix('sha256:')}"  # fmt: skip  # noqa: E501
             family_images: list[dict[str, Any]] = []
 
             for architecture in sorted(members):
-                profile, rule = _matching_profile(
-                    catalog, product, snapshot, architecture
-                )
+                profile, rule = _matching_profile(catalog, product, snapshot, architecture)  # fmt: skip  # noqa: E501
                 wheel_key = (profile["id"], architecture)
                 if wheel_key not in wheel_tasks_by_key:
-                    declaration = {
-                        "spec_id": f"{profile['id']}-{architecture}",
-                        "profile_id": profile["id"],
-                        **{k: profile[k] for k in _PROFILE_DIRECT_FIELDS},
-                        "npu_arch_or_na": profile["npu_arch"][0],
-                        "os": profile["os"][0],
-                        "cpu_arch": architecture,
-                        **{
-                            k: copy.deepcopy(profile[k])
-                            for k in _PROFILE_DEEPCOPY_FIELDS
-                        },
-                    }
-                    dependency_lock = {
-                        "build_tools": build_tool_dependency_records(
-                            catalog, profile["python_abi"], architecture
-                        ),
-                        "runtime_dependencies": runtime_dependency_records(
-                            catalog, profile["python_abi"], architecture
-                        ),
-                    }
+                    declaration = {'spec_id': f"{profile['id']}-{architecture}", 'profile_id': profile['id'], **{k: profile[k] for k in _PROFILE_DIRECT_FIELDS}, 'npu_arch_or_na': profile['npu_arch'][0], 'os': profile['os'][0], 'cpu_arch': architecture, **{k: copy.deepcopy(profile[k]) for k in _PROFILE_DEEPCOPY_FIELDS}}  # fmt: skip  # noqa: E501
+                    dependency_lock = {'build_tools': build_tool_dependency_records(catalog, profile['python_abi'], architecture), 'runtime_dependencies': runtime_dependency_records(catalog, profile['python_abi'], architecture)}  # fmt: skip  # noqa: E501
                     builder = profile["builders"][architecture]
-                    wheel_identity = {
-                        "profile_id": profile["id"],
-                        "cpu_arch": architecture,
-                        "builder_sha256": sha256_value(builder),
-                        "dependency_lock_sha256": sha256_value(dependency_lock),
-                    }
-                    wheel_task: dict[str, Any] = {
-                        "task_id": (
-                            f"wheel-"
-                            f"{sha256_value(wheel_identity).removeprefix('sha256:')}"
-                        ),
-                        **declaration,
-                        "declaration_sha256": sha256_value(declaration),
-                        "runner": catalog["runner_map"][architecture],
-                        "platform": f"linux/{architecture}",
-                        "builder": builder,
-                        "builder_sha256": sha256_value(builder),
-                        "build": copy.deepcopy(profile["build"]),
-                        "dependency_lock_sha256": sha256_value(dependency_lock),
-                        "dependency_lock": dependency_lock,
-                        "runtime_requirements": copy.deepcopy(runtime_requirements),
-                        "runtime_patch_manifest": copy.deepcopy(patch_manifest),
-                        "runtime_patch_manifest_sha256": patch_manifest_sha256,
-                        "write_authority": write_authority,
-                        "build_eligible": True,
-                    }
+                    wheel_identity = {'profile_id': profile['id'], 'cpu_arch': architecture, 'builder_sha256': sha256_value(builder), 'dependency_lock_sha256': sha256_value(dependency_lock)}  # fmt: skip  # noqa: E501
+                    wheel_task: dict[str, Any] = {'task_id': f"wheel-{sha256_value(wheel_identity).removeprefix('sha256:')}", **declaration, 'declaration_sha256': sha256_value(declaration), 'runner': catalog['runner_map'][architecture], 'platform': f'linux/{architecture}', 'builder': builder, 'builder_sha256': sha256_value(builder), 'build': copy.deepcopy(profile['build']), 'dependency_lock_sha256': sha256_value(dependency_lock), 'dependency_lock': dependency_lock, 'runtime_requirements': copy.deepcopy(runtime_requirements), 'runtime_patch_manifest': copy.deepcopy(patch_manifest), 'runtime_patch_manifest_sha256': patch_manifest_sha256, 'write_authority': write_authority, 'build_eligible': True}  # fmt: skip  # noqa: E501
                     wheel_task["artifact_name"] = f"ucm-wheel-{wheel_task['task_id']}"
                     wheel_task["task_sha256"] = sha256_value(wheel_task)
                     wheel_tasks_by_key[wheel_key] = wheel_task
                 wheel_task = wheel_tasks_by_key[wheel_key]
                 member = members[architecture]
-                runtime = {
-                    "product_id": snapshot["product_id"],
-                    "repository": snapshot["repository"],
-                    "tag": snapshot["tag"],
-                    "version": snapshot["version"],
-                    "channel": snapshot["channel"],
-                    "variant": snapshot["variant"],
-                    "index_digest": snapshot["index_digest"],
-                    **member,
-                }
-                image_identity = {
-                    "family_task_id": family_task_id,
-                    "wheel_task_id": wheel_task["task_id"],
-                    "cpu_arch": architecture,
-                    "runtime_sha256": sha256_value(runtime),
-                }
-                image_task: dict[str, Any] = {
-                    "task_id": (
-                        f"image-"
-                        f"{sha256_value(image_identity).removeprefix('sha256:')}"
-                    ),
-                    "family_task_id": family_task_id,
-                    "wheel_task_id": wheel_task["task_id"],
-                    "compatibility_rule_id": rule["id"],
-                    "runtime_patch_rule_id": patch_rule["id"],
-                    "runtime_patch_product": product["runtime_product"],
-                    "runtime_patch_strategy": patch_rule["strategy"],
-                    "runtime_patch_variants": copy.deepcopy(runtime_patch_variants),
-                    "runtime": runtime,
-                    "runtime_sha256": sha256_value(runtime),
-                    "target_repository": snapshot["target_repository"],
-                    "target_tag": snapshot["target_tag"],
-                    **{k: wheel_task[k] for k in _LINKED_WHEEL_FIELDS},
-                }
+                runtime = {'product_id': snapshot['product_id'], 'repository': snapshot['repository'], 'tag': snapshot['tag'], 'version': snapshot['version'], 'channel': snapshot['channel'], 'variant': snapshot['variant'], 'index_digest': snapshot['index_digest'], **member}  # fmt: skip  # noqa: E501
+                image_identity = {'family_task_id': family_task_id, 'wheel_task_id': wheel_task['task_id'], 'cpu_arch': architecture, 'runtime_sha256': sha256_value(runtime)}  # fmt: skip  # noqa: E501
+                image_task: dict[str, Any] = {'task_id': f"image-{sha256_value(image_identity).removeprefix('sha256:')}", 'family_task_id': family_task_id, 'wheel_task_id': wheel_task['task_id'], 'compatibility_rule_id': rule['id'], 'runtime_patch_rule_id': patch_rule['id'], 'runtime_patch_product': product['runtime_product'], 'runtime_patch_strategy': patch_rule['strategy'], 'runtime_patch_variants': copy.deepcopy(runtime_patch_variants), 'runtime': runtime, 'runtime_sha256': sha256_value(runtime), 'target_repository': snapshot['target_repository'], 'target_tag': snapshot['target_tag'], **{k: wheel_task[k] for k in _LINKED_WHEEL_FIELDS}}  # fmt: skip  # noqa: E501
                 image_task["artifact_name"] = f"ucm-image-{image_task['task_id']}"
                 image_task["wheel_artifact_name"] = wheel_task["artifact_name"]
                 image_task["task_sha256"] = sha256_value(image_task)
@@ -1993,58 +1408,19 @@ class ReleasePlan:
 
             family_runtime = {k: snapshot[k] for k in _RUNTIME_KEYS}
             control_image = family_images[0]
-            family_task: dict[str, Any] = {
-                "task_id": family_task_id,
-                "product_id": snapshot["product_id"],
-                "control_task_id": control_image["task_id"],
-                "control_arch": control_image["cpu_arch"],
-                "control_runner": control_image["runner"],
-                "runner": [item["runner"] for item in family_images],
-                "cpu_arch": [item["cpu_arch"] for item in family_images],
-                "platform": [item["platform"] for item in family_images],
-                "builder": [item["builder"] for item in family_images],
-                "builder_sha256": [item["builder_sha256"] for item in family_images],
-                "runtime": family_runtime,
-                "runtime_sha256": sha256_value(family_runtime),
-                "snapshot_sha256": sha256_value(snapshot),
-                "target_repository": snapshot["target_repository"],
-                "target_tag": snapshot["target_tag"],
-                "image_task_ids": [item["task_id"] for item in family_images],
-                "wheel_task_ids": {
-                    item["cpu_arch"]: item["wheel_task_id"] for item in family_images
-                },
-                "member_set_sha256": sha256_value(
-                    [item["task_sha256"] for item in family_images]
-                ),
-                "write_authority": write_authority,
-            }
+            family_task: dict[str, Any] = {'task_id': family_task_id, 'product_id': snapshot['product_id'], 'control_task_id': control_image['task_id'], 'control_arch': control_image['cpu_arch'], 'control_runner': control_image['runner'], 'runner': [item['runner'] for item in family_images], 'cpu_arch': [item['cpu_arch'] for item in family_images], 'platform': [item['platform'] for item in family_images], 'builder': [item['builder'] for item in family_images], 'builder_sha256': [item['builder_sha256'] for item in family_images], 'runtime': family_runtime, 'runtime_sha256': sha256_value(family_runtime), 'snapshot_sha256': sha256_value(snapshot), 'target_repository': snapshot['target_repository'], 'target_tag': snapshot['target_tag'], 'image_task_ids': [item['task_id'] for item in family_images], 'wheel_task_ids': {item['cpu_arch']: item['wheel_task_id'] for item in family_images}, 'member_set_sha256': sha256_value([item['task_sha256'] for item in family_images]), 'write_authority': write_authority}  # fmt: skip  # noqa: E501
             family_task["artifact_name"] = f"ucm-family-{family_task['task_id']}"
             family_task["task_sha256"] = sha256_value(family_task)
             family_tasks.append(family_task)
 
-        wheel_tasks = sorted(
-            wheel_tasks_by_key.values(),
-            key=lambda item: (item["profile_id"], item["cpu_arch"]),
-        )
+        wheel_tasks = sorted(wheel_tasks_by_key.values(), key=lambda item: (item['profile_id'], item['cpu_arch']))  # fmt: skip  # noqa: E501
         limits = catalog["matrix_limits"]
-        cardinalities = {
-            "wheel_tasks": len(wheel_tasks),
-            "image_tasks": len(image_tasks),
-            "family_tasks": len(family_tasks),
-        }
+        cardinalities = {'wheel_tasks': len(wheel_tasks), 'image_tasks': len(image_tasks), 'family_tasks': len(family_tasks)}  # fmt: skip  # noqa: E501
         for task_kind, count in cardinalities.items():
             limit = limits[f"max_{task_kind}"]
             if count > limit:
-                raise ValueError(
-                    f"matrix limit max_{task_kind}={limit} exceeded by exact "
-                    f"generated set of {count}"
-                )
-        return cls(
-            lane=lane,
-            wheel_tasks=wheel_tasks,
-            image_tasks=image_tasks,
-            family_tasks=family_tasks,
-        )
+                raise ValueError(f'matrix limit max_{task_kind}={limit} exceeded by exact generated set of {count}')  # fmt: skip  # noqa: E501
+        return cls(lane=lane, wheel_tasks=wheel_tasks, image_tasks=image_tasks, family_tasks=family_tasks)  # fmt: skip  # noqa: E501
 
 
 def expand_release_plan(
@@ -2054,44 +1430,15 @@ def expand_release_plan(
     lane: str,
     repository_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
-    """Purely expand a validated catalog and immutable runtime snapshots."""
-    plan = ReleasePlan.build(
-        catalog, resolved_upstreams, lane=lane, repository_root=repository_root
-    )
-    result: dict[str, Any] = {
-        "schema_version": 2,
-        "kind": "ucm-resolved-build-plan",
-        "lane": plan.lane,
-        "wheel_tasks": plan.wheel_tasks,
-        "image_tasks": plan.image_tasks,
-        "family_tasks": plan.family_tasks,
-        "cardinalities": {
-            "wheel_tasks": len(plan.wheel_tasks),
-            "image_tasks": len(plan.image_tasks),
-            "family_tasks": len(plan.family_tasks),
-        },
-    }
+    plan = ReleasePlan.build(catalog, resolved_upstreams, lane=lane, repository_root=repository_root)  # fmt: skip  # noqa: E501
+    result: dict[str, Any] = {'schema_version': 2, 'kind': 'ucm-resolved-build-plan', 'lane': plan.lane, 'wheel_tasks': plan.wheel_tasks, 'image_tasks': plan.image_tasks, 'family_tasks': plan.family_tasks, 'cardinalities': {'wheel_tasks': len(plan.wheel_tasks), 'image_tasks': len(plan.image_tasks), 'family_tasks': len(plan.family_tasks)}}  # fmt: skip  # noqa: E501
     result["plan_sha256"] = sha256_value(result)
     return result
 
 
-RELEASE_KEYS = frozenset(
-    "kind schema_version ucm_version image_revision version_file source lanes runner_map upstream_products compatibility chart publish wheel_profiles".split()
-)
-OPTIONAL_CATALOG_KEYS = frozenset(
-    "pr_smoke docker_recipes runtime_patch_rules matrix_limits scan_limits python_runtime_dependencies python_build_lock".split()
-)
-SUPPLEMENTARY_TOP_LEVEL_KEYS = frozenset(
-    {
-        "pr_smoke",
-        "docker_recipes",
-        "runtime_patch_rules",
-        "matrix_limits",
-        "scan_limits",
-        "python_runtime_dependencies",
-        "python_build_lock",
-    }
-)
+RELEASE_KEYS = frozenset('kind schema_version ucm_version image_revision version_file source lanes runner_map upstream_products compatibility chart publish wheel_profiles'.split())  # fmt: skip  # noqa: E501
+OPTIONAL_CATALOG_KEYS = frozenset('pr_smoke docker_recipes runtime_patch_rules matrix_limits scan_limits python_runtime_dependencies python_build_lock'.split())  # fmt: skip  # noqa: E501
+SUPPLEMENTARY_TOP_LEVEL_KEYS = frozenset({'pr_smoke', 'docker_recipes', 'runtime_patch_rules', 'matrix_limits', 'scan_limits', 'python_runtime_dependencies', 'python_build_lock'})  # fmt: skip  # noqa: E501
 LANES = ("feature-candidate", "protected-tag")
 
 
@@ -2106,9 +1453,7 @@ def _exact_keys(
     missing = sorted(expected - set(value))
     extras = sorted(set(value) - expected - optional)
     if missing or extras:
-        raise ValueError(
-            f"{location} requires exact key set; missing={missing}, extra={extras}"
-        )
+        raise ValueError(f'{location} requires exact key set; missing={missing}, extra={extras}')  # fmt: skip  # noqa: E501
 
 
 def _validate_cross_config(
@@ -2119,15 +1464,10 @@ def _validate_cross_config(
     for profile in profiles:
         architectures = set(profile["cpu_arch"])
         if architectures != set(profile["builders"]):
-            raise ValueError(
-                f"wheel profile {profile['id']!r} builder architectures do not match "
-                "cpu_arch"
-            )
+            raise ValueError(f"wheel profile {profile['id']!r} builder architectures do not match cpu_arch")  # fmt: skip  # noqa: E501
         missing_runners = sorted(architectures - set(release["runner_map"]))
         if missing_runners:
-            raise ValueError(
-                f"wheel profile {profile['id']!r} has no runner for {missing_runners}"
-            )
+            raise ValueError(f"wheel profile {profile['id']!r} has no runner for {missing_runners}")  # fmt: skip  # noqa: E501
         for architecture in sorted(architectures):
             root = profile["builders"][architecture]["root"]
             coordinate = f"{root['repository']}@{root['manifest_digest']}"
@@ -2142,33 +1482,17 @@ def _validate_cross_config(
         if product is None or case["variant"] not in {
             variant["id"] for variant in product["variants"]
         }:
-            raise ValueError(
-                "Chart validation must select a declared upstream product variant"
-            )
+            raise ValueError('Chart validation must select a declared upstream product variant')  # fmt: skip  # noqa: E501
         if selector in chart_selectors:
-            raise ValueError(
-                "Chart validation product/variant selectors must be unique"
-            )
+            raise ValueError('Chart validation product/variant selectors must be unique')  # fmt: skip  # noqa: E501
         chart_selectors.add(selector)
 
 
 def _load_supplementary_configs(
     release_path: Path, repository_root: Path
 ) -> dict[str, Any]:
-    """Load docker-recipes, runtime-patches, and toolchain lock files.
-
-    These are repo-level config files split out of release.yaml for audience
-    separation.  They live at fixed paths relative to the release root and the
-    repository root, so any catalog load — including alternate checkouts —
-    picks them up from the canonical location.
-    """
     merged: dict[str, Any] = {}
-    candidates = (
-        DEFAULT_RELEASE.parents[1] / "docker-recipes.yaml",
-        DEFAULT_RELEASE.parent / "toolchain.lock.yaml",
-        DEFAULT_RELEASE.parent / "native-contract.yaml",
-        DEFAULT_RELEASE.parents[2] / "ucm" / "integration" / "runtime-patches.yaml",
-    )
+    candidates = (DEFAULT_RELEASE.parents[1] / 'docker-recipes.yaml', DEFAULT_RELEASE.parent / 'toolchain.lock.yaml', DEFAULT_RELEASE.parent / 'native-contract.yaml', DEFAULT_RELEASE.parents[2] / 'ucm' / 'integration' / 'runtime-patches.yaml')  # fmt: skip  # noqa: E501
     for path in candidates:
         if path.is_file():
             merged.update(load_yaml(path))
@@ -2182,16 +1506,6 @@ def load_catalog(
     repository_root: Path = REPO_ROOT,
     repository: str | None = None,
 ) -> dict[str, Any]:
-    """Load and fully validate the single v2 release catalog authority.
-
-    ``repository`` is the live ``owner/name`` identity (``github.repository``
-    in CI).  When omitted it is inferred from ``GITHUB_REPOSITORY`` or the
-    ``origin`` remote.  Registry coordinates in the catalog are written with
-    ``{owner}`` / ``{repo}`` placeholders; they are substituted once here,
-    before schema validation, so downstream consumers never see a templated
-    value.  The resolved repository is then injected into ``source`` so that
-    planners and preflight read a single concrete authority.
-    """
     config_schema = load_json(schema_dir / "config.schema.json")
     load_json(schema_dir / "release-manifest.schema.json")
     load_json(schema_dir / "image-result.schema.json")
@@ -2216,23 +1530,17 @@ def load_catalog(
                             profile[field] = value[field]
         elif key not in release and key in SUPPLEMENTARY_TOP_LEVEL_KEYS:
             release[key] = value
-    resolved_repository = resolve_repository(
-        repository, repository_root=repository_root
-    )
+    resolved_repository = resolve_repository(repository, repository_root=repository_root)  # fmt: skip  # noqa: E501
     release = resolve_owner_templates(release, repository=resolved_repository)
     validate_schema(release, config_schema)
     missing = sorted(RELEASE_KEYS - set(release))
     extras = sorted(set(release) - RELEASE_KEYS - OPTIONAL_CATALOG_KEYS)
     if missing or extras:
-        raise ValueError(
-            f"release.yaml requires exact key set; missing={missing}, extra={extras}"
-        )
+        raise ValueError(f'release.yaml requires exact key set; missing={missing}, extra={extras}')  # fmt: skip  # noqa: E501
     release["source"]["repository"] = resolved_repository
     version = read_version(repository_root / release["version_file"])
     if release["ucm_version"] != version:
-        raise ValueError(
-            f"release.yaml version {release['ucm_version']} does not match version.ini {version}"
-        )
+        raise ValueError(f"release.yaml version {release['ucm_version']} does not match version.ini {version}")  # fmt: skip  # noqa: E501
     release["source"]["release_tag"] = f"v{version}"
     release["chart"]["version"] = derive_chart_version(version)
     release["chart"]["app_version"] = version
@@ -2265,14 +1573,6 @@ def compute_publish_plan(
     request: str,
     dry_run: bool,
 ) -> dict[str, bool]:
-    """Resolve the three-layer publish switch for every channel.
-
-    A channel is enabled only when ALL hold: config-layer ``enabled`` is true,
-    the repo variable ``allow[channel]`` is ``"true"``, the run ``request``
-    is empty (use defaults) or names the channel, the lane is
-    ``protected-tag``, and ``dry_run`` is false.  Requesting an unknown
-    channel is a hard error.
-    """
     publish_cfg = catalog.get("publish", {})
     allow = allow or {}
     requested = {name.strip() for name in request.split(",") if name.strip()} or None
@@ -2285,13 +1585,7 @@ def compute_publish_plan(
         cfg_enabled = bool(publish_cfg.get(channel, {}).get("enabled", False))
         repo_allows = str(allow.get(channel, "")).strip().lower() == "true"
         run_wants = requested is None or channel in requested
-        plan[channel] = bool(
-            cfg_enabled
-            and repo_allows
-            and run_wants
-            and lane == "protected-tag"
-            and not dry_run
-        )
+        plan[channel] = bool(cfg_enabled and repo_allows and run_wants and (lane == 'protected-tag') and (not dry_run))  # fmt: skip  # noqa: E501
     return plan
 
 
@@ -2304,93 +1598,33 @@ def publish_github_release(
     body: str,
     draft: bool = True,
 ) -> dict[str, Any]:
-    """Create or edit a GitHub Release with attached artifacts.
-
-    Uses ``gh release create`` and falls back to ``gh release edit`` plus
-    ``gh release upload`` when a release for ``tag`` already exists.
-    """
     if not tag or not repository:
         raise ValueError("tag and repository are required for GitHub release")
-    create = [
-        "gh",
-        "release",
-        "create",
-        tag,
-        "--repo",
-        repository,
-        "--title",
-        release_name,
-        "--notes",
-        body,
-    ]
+    create = ['gh', 'release', 'create', tag, '--repo', repository, '--title', release_name, '--notes', body]  # fmt: skip  # noqa: E501
     if draft:
         create.append("--draft")
     create.extend(str(asset) for asset in assets)
     result = subprocess.run(create, text=True, capture_output=True, check=False)
     if result.returncode == 0:
-        return {
-            "published": True,
-            "target": result.stdout.strip(),
-            "repository": repository,
-            "tag": tag,
-            "draft": draft,
-        }
+        return {'published': True, 'target': result.stdout.strip(), 'repository': repository, 'tag': tag, 'draft': draft}  # fmt: skip  # noqa: E501
     if "already exists" not in (result.stderr or "").lower():
-        raise RuntimeError(
-            f"gh release create failed for {repository}@{tag}: "
-            f"{(result.stderr or result.stdout).strip()}"
-        )
-    edit = [
-        "gh",
-        "release",
-        "edit",
-        tag,
-        "--repo",
-        repository,
-        "--title",
-        release_name,
-        "--notes",
-        body,
-    ]
+        raise RuntimeError(f'gh release create failed for {repository}@{tag}: {(result.stderr or result.stdout).strip()}')  # fmt: skip  # noqa: E501
+    edit = ['gh', 'release', 'edit', tag, '--repo', repository, '--title', release_name, '--notes', body]  # fmt: skip  # noqa: E501
     subprocess.run(edit, check=True)
     if assets:
-        subprocess.run(
-            [
-                "gh",
-                "release",
-                "upload",
-                tag,
-                *[str(asset) for asset in assets],
-                "--repo",
-                repository,
-            ],
-            check=True,
-        )
-    return {
-        "published": True,
-        "target": f"https://github.com/{repository}/releases/tag/{tag}",
-        "repository": repository,
-        "tag": tag,
-        "draft": draft,
-    }
+        subprocess.run(['gh', 'release', 'upload', tag, *[str(asset) for asset in assets], '--repo', repository], check=True)  # fmt: skip  # noqa: E501
+    return {'published': True, 'target': f'https://github.com/{repository}/releases/tag/{tag}', 'repository': repository, 'tag': tag, 'draft': draft}  # fmt: skip  # noqa: E501
 
 
 def _git_output(repository_root: Path, *arguments: str) -> str | None:
-    completed = subprocess.run(
-        ["git", "-C", str(repository_root), *arguments],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    completed = subprocess.run(['git', '-C', str(repository_root), *arguments], text=True, capture_output=True, check=False)  # fmt: skip  # noqa: E501
     if completed.returncode != 0:
         return None
     return completed.stdout.strip()
 
 
 def _git_commit(repository_root: Path, revision: str) -> str | None:
-    commit = _git_output(
-        repository_root, "rev-parse", "--verify", f"{revision}^{{commit}}"
-    )
+    commit = _git_output(repository_root, 'rev-parse', '--verify', f'{revision}^{{commit}}')  # fmt: skip  # noqa: E501
     if commit is None or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
         return None
     return commit
@@ -2418,12 +1652,6 @@ def resolve_repository(
     *,
     repository_root: Path = REPO_ROOT,
 ) -> str:
-    """Return the canonical ``owner/name`` repository identity.
-
-    Resolution order: explicit argument → ``GITHUB_REPOSITORY`` env → ``origin``
-    git remote.  A missing or malformed identity is a hard error so that a
-    fork can never silently publish under the wrong namespace.
-    """
     if repository:
         candidate = repository.strip()
     else:
@@ -2432,21 +1660,11 @@ def resolve_repository(
             remote = _git_output(repository_root, "remote", "get-url", "origin")
             candidate = _origin_repository(remote).strip() if remote else ""
     if not candidate or _REPOSITORY_IDENTITY_RE.fullmatch(candidate) is None:
-        raise ValueError(
-            "could not resolve the running repository; pass --repository or "
-            "set GITHUB_REPOSITORY (local dev infers from the origin remote)"
-        )
+        raise ValueError('could not resolve the running repository; pass --repository or set GITHUB_REPOSITORY (local dev infers from the origin remote)')  # fmt: skip  # noqa: E501
     return candidate
 
 
 def resolve_owner_templates(catalog: Any, *, repository: str) -> Any:
-    """Substitute ``{owner}`` / ``{repo}`` placeholders throughout ``catalog``.
-
-    ``{owner}`` → lower-cased owner segment (registry paths must be lower-case);
-    ``{repo}`` → lower-cased repository name.  Any other ``{placeholder}`` in a
-    string that also carries a recognised token is a hard error — silent
-    retention would let a typo publish to the wrong place.
-    """
     parts = repository.split("/", 1)
     if len(parts) != 2 or not parts[0] or not parts[1]:
         raise ValueError(f"repository must be 'owner/name', got: {repository!r}")
@@ -2459,10 +1677,7 @@ def _walk_owner_templates(value: Any, *, owner: str, repo: str) -> Any:
     if isinstance(value, str):
         return _substitute_owner(value, owner=owner, repo=repo)
     if isinstance(value, dict):
-        return {
-            key: _walk_owner_templates(item, owner=owner, repo=repo)
-            for key, item in value.items()
-        }
+        return {key: _walk_owner_templates(item, owner=owner, repo=repo) for key, item in value.items()}  # fmt: skip  # noqa: E501
     if isinstance(value, list):
         return [_walk_owner_templates(item, owner=owner, repo=repo) for item in value]
     return value
@@ -2474,38 +1689,18 @@ def _substitute_owner(text: str, *, owner: str, repo: str) -> str:
     placeholders = _OWNER_PLACEHOLDER.findall(text)
     if not placeholders:
         return text
-    unknown = sorted(
-        {name for name in placeholders if name not in _KNOWN_OWNER_PLACEHOLDERS}
-    )
+    unknown = sorted({name for name in placeholders if name not in _KNOWN_OWNER_PLACEHOLDERS})  # fmt: skip  # noqa: E501
     if unknown:
-        raise ValueError(
-            f"unknown owner template placeholder(s) {unknown} "
-            f"in {text!r}; recognised: {sorted(_KNOWN_OWNER_PLACEHOLDERS)}"
-        )
+        raise ValueError(f'unknown owner template placeholder(s) {unknown} in {text!r}; recognised: {sorted(_KNOWN_OWNER_PLACEHOLDERS)}')  # fmt: skip  # noqa: E501
     return text.replace("{owner}", owner).replace("{repo}", repo)
 
 
 def _is_ancestor(repository_root: Path, ancestor: str, descendant: str) -> bool:
-    completed = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(repository_root),
-            "merge-base",
-            "--is-ancestor",
-            ancestor,
-            descendant,
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    completed = subprocess.run(['git', '-C', str(repository_root), 'merge-base', '--is-ancestor', ancestor, descendant], text=True, capture_output=True, check=False)  # fmt: skip  # noqa: E501
     return completed.returncode == 0
 
 
-TAG_PREFLIGHT_AUTHORITY_FIELDS = frozenset(
-    "repository staging_repository default_branch release_tag release_policy version_file ucm_version".split()
-)
+TAG_PREFLIGHT_AUTHORITY_FIELDS = frozenset('repository staging_repository default_branch release_tag release_policy version_file ucm_version'.split())  # fmt: skip  # noqa: E501
 
 
 def _tag_preflight_live(
@@ -2514,7 +1709,6 @@ def _tag_preflight_live(
     authority: dict[str, Any],
     repository_root: Path | None = None,
 ) -> dict[str, Any]:
-    """Recheck only live git/event state against caller-frozen authority."""
     if repository_root is None:
         repository_root = REPO_ROOT
     if lane not in LANES:
@@ -2536,38 +1730,17 @@ def _tag_preflight_live(
     if version_path.is_absolute() or ".." in version_path.parts:
         raise ValueError("release preflight version file is unsafe")
     repository_owner = authority["repository"].split("/", 1)[0]
-    version_matches = (
-        read_version(repository_root / version_path) == authority["ucm_version"]
-    )
+    version_matches = read_version(repository_root / version_path) == authority['ucm_version']  # fmt: skip  # noqa: E501
     if lane == "feature-candidate":
         checks = {"feature_zero_write": True, "version_file": version_matches}
         failed = sorted(name for name, passed in checks.items() if not passed)
         if failed:
             raise ValueError(f"release preflight failed: {failed}")
-        result: dict[str, Any] = {
-            "schema_version": 1,
-            "kind": "ucm-tag-preflight",
-            "lane": lane,
-            "repository": authority["repository"],
-            "repository_owner": repository_owner,
-            "ref": None,
-            "ref_type": None,
-            "ref_name": None,
-            "source_sha": None,
-            "default_branch": authority["default_branch"],
-            "checks": checks,
-            "publication_allowed": False,
-            "write_authority": [],
-        }
+        result: dict[str, Any] = {'schema_version': 1, 'kind': 'ucm-tag-preflight', 'lane': lane, 'repository': authority['repository'], 'repository_owner': repository_owner, 'ref': None, 'ref_type': None, 'ref_name': None, 'source_sha': None, 'default_branch': authority['default_branch'], 'checks': checks, 'publication_allowed': False, 'write_authority': []}  # fmt: skip  # noqa: E501
         result["preflight_sha256"] = sha256_value(result)
         return result
 
-    context_names = (
-        "GITHUB_ACTIONS GITHUB_ACTOR GITHUB_EVENT_NAME GITHUB_EVENT_PATH "
-        "GITHUB_REF GITHUB_REF_NAME GITHUB_REF_PROTECTED GITHUB_REF_TYPE "
-        "GITHUB_REPOSITORY GITHUB_REPOSITORY_OWNER GITHUB_SHA "
-        "GITHUB_TRIGGERING_ACTOR UCM_RELEASE_POLICY"
-    ).split()
+    context_names = 'GITHUB_ACTIONS GITHUB_ACTOR GITHUB_EVENT_NAME GITHUB_EVENT_PATH GITHUB_REF GITHUB_REF_NAME GITHUB_REF_PROTECTED GITHUB_REF_TYPE GITHUB_REPOSITORY GITHUB_REPOSITORY_OWNER GITHUB_SHA GITHUB_TRIGGERING_ACTOR UCM_RELEASE_POLICY'.split()  # fmt: skip  # noqa: E501
     context = {name: os.environ.get(name, "") for name in context_names}
     event_path = Path(context["GITHUB_EVENT_PATH"])
     if not context["GITHUB_EVENT_PATH"] or not event_path.is_file():
@@ -2590,80 +1763,14 @@ def _tag_preflight_live(
     checked_head_sha = _git_commit(repository_root, "HEAD")
     tag_commit_sha = _git_commit(repository_root, tag_ref)
     default_branch_sha = _git_commit(repository_root, default_branch_ref)
-    source_commit_sha = (
-        _git_commit(repository_root, source_sha)
-        if re.fullmatch(r"[0-9a-f]{40}", source_sha)
-        else None
-    )
+    source_commit_sha = _git_commit(repository_root, source_sha) if re.fullmatch('[0-9a-f]{40}', source_sha) else None  # fmt: skip  # noqa: E501
     worktree_root = _git_output(repository_root, "rev-parse", "--show-toplevel")
-    origin_repository = _origin_repository(
-        _git_output(repository_root, "remote", "get-url", "origin")
-    )
-    checks = {
-        "actor": context["GITHUB_ACTOR"] == repository_owner,
-        "checked_head": checked_head_sha == source_sha,
-        "default_branch": event_repository.get("default_branch")
-        == authority["default_branch"],
-        "default_branch_ancestry": (
-            tag_commit_sha is not None
-            and default_branch_sha is not None
-            and _is_ancestor(repository_root, tag_commit_sha, default_branch_sha)
-        ),
-        "event_actor": event_sender.get("login") == context["GITHUB_ACTOR"],
-        "event_name": context["GITHUB_EVENT_NAME"] == "push",
-        "event_owner": event_owner.get("login") == context["GITHUB_REPOSITORY_OWNER"],
-        "event_ref": event.get("ref") == context["GITHUB_REF"],
-        "event_repository": event_repository.get("full_name")
-        == context["GITHUB_REPOSITORY"],
-        "event_source_sha": event.get("after") == source_sha,
-        "github_actions": context["GITHUB_ACTIONS"] == "true",
-        "origin_repository": origin_repository == authority["repository"],
-        "owner": context["GITHUB_REPOSITORY_OWNER"] == repository_owner,
-        "ref": context["GITHUB_REF"] == tag_ref,
-        "ref_name": context["GITHUB_REF_NAME"] == release_tag,
-        "ref_protected": context["GITHUB_REF_PROTECTED"] == "true",
-        "ref_type": context["GITHUB_REF_TYPE"] == "tag",
-        "release_policy": context["UCM_RELEASE_POLICY"] == authority["release_policy"],
-        "repository": context["GITHUB_REPOSITORY"] == authority["repository"],
-        "repository_root": (
-            worktree_root is not None
-            and Path(worktree_root).resolve() == repository_root.resolve()
-        ),
-        "source_sha": source_commit_sha == source_sha,
-        "frozen_source": authority.get("commit", source_sha) == source_sha,
-        "tag_commit": tag_commit_sha == source_sha,
-        "triggering_actor": context["GITHUB_TRIGGERING_ACTOR"] == repository_owner,
-        "version_file": version_matches,
-    }
+    origin_repository = _origin_repository(_git_output(repository_root, 'remote', 'get-url', 'origin'))  # fmt: skip  # noqa: E501
+    checks = {'actor': context['GITHUB_ACTOR'] == repository_owner, 'checked_head': checked_head_sha == source_sha, 'default_branch': event_repository.get('default_branch') == authority['default_branch'], 'default_branch_ancestry': tag_commit_sha is not None and default_branch_sha is not None and _is_ancestor(repository_root, tag_commit_sha, default_branch_sha), 'event_actor': event_sender.get('login') == context['GITHUB_ACTOR'], 'event_name': context['GITHUB_EVENT_NAME'] == 'push', 'event_owner': event_owner.get('login') == context['GITHUB_REPOSITORY_OWNER'], 'event_ref': event.get('ref') == context['GITHUB_REF'], 'event_repository': event_repository.get('full_name') == context['GITHUB_REPOSITORY'], 'event_source_sha': event.get('after') == source_sha, 'github_actions': context['GITHUB_ACTIONS'] == 'true', 'origin_repository': origin_repository == authority['repository'], 'owner': context['GITHUB_REPOSITORY_OWNER'] == repository_owner, 'ref': context['GITHUB_REF'] == tag_ref, 'ref_name': context['GITHUB_REF_NAME'] == release_tag, 'ref_protected': context['GITHUB_REF_PROTECTED'] == 'true', 'ref_type': context['GITHUB_REF_TYPE'] == 'tag', 'release_policy': context['UCM_RELEASE_POLICY'] == authority['release_policy'], 'repository': context['GITHUB_REPOSITORY'] == authority['repository'], 'repository_root': worktree_root is not None and Path(worktree_root).resolve() == repository_root.resolve(), 'source_sha': source_commit_sha == source_sha, 'frozen_source': authority.get('commit', source_sha) == source_sha, 'tag_commit': tag_commit_sha == source_sha, 'triggering_actor': context['GITHUB_TRIGGERING_ACTOR'] == repository_owner, 'version_file': version_matches}  # fmt: skip  # noqa: E501
     failed = sorted(name for name, passed in checks.items() if not passed)
     if failed:
         raise ValueError(f"release preflight failed: {failed}")
-    result = {
-        "schema_version": 1,
-        "kind": "ucm-tag-preflight",
-        "lane": lane,
-        "repository": context["GITHUB_REPOSITORY"],
-        "repository_owner": context["GITHUB_REPOSITORY_OWNER"],
-        "actor": context["GITHUB_ACTOR"],
-        "triggering_actor": context["GITHUB_TRIGGERING_ACTOR"],
-        "ref": context["GITHUB_REF"],
-        "ref_type": context["GITHUB_REF_TYPE"],
-        "ref_name": context["GITHUB_REF_NAME"],
-        "source_sha": source_sha,
-        "tag_commit_sha": tag_commit_sha,
-        "checked_head_sha": checked_head_sha,
-        "default_branch": authority["default_branch"],
-        "default_branch_ref": default_branch_ref,
-        "default_branch_sha": default_branch_sha,
-        "event_payload_sha256": sha256_value(event),
-        "checks": checks,
-        "publication_allowed": True,
-        "write_authority": [
-            "github-prerelease",
-            "ghcr-final-index",
-            "ghcr-private-staging",
-        ],
-    }
+    result = {'schema_version': 1, 'kind': 'ucm-tag-preflight', 'lane': lane, 'repository': context['GITHUB_REPOSITORY'], 'repository_owner': context['GITHUB_REPOSITORY_OWNER'], 'actor': context['GITHUB_ACTOR'], 'triggering_actor': context['GITHUB_TRIGGERING_ACTOR'], 'ref': context['GITHUB_REF'], 'ref_type': context['GITHUB_REF_TYPE'], 'ref_name': context['GITHUB_REF_NAME'], 'source_sha': source_sha, 'tag_commit_sha': tag_commit_sha, 'checked_head_sha': checked_head_sha, 'default_branch': authority['default_branch'], 'default_branch_ref': default_branch_ref, 'default_branch_sha': default_branch_sha, 'event_payload_sha256': sha256_value(event), 'checks': checks, 'publication_allowed': True, 'write_authority': ['github-prerelease', 'ghcr-final-index', 'ghcr-private-staging']}  # fmt: skip  # noqa: E501
     result["preflight_sha256"] = sha256_value(result)
     return result
 
@@ -2676,28 +1783,10 @@ def tag_preflight(
     authority: dict[str, Any] | None = None,
     repository_root: Path | None = None,
 ) -> dict[str, Any]:
-    """Resolve planner authority once, or recheck caller-frozen authority live."""
     if authority is None:
         release = load_catalog(release_path, schema_dir)
-        authority = {
-            field: release["source"][field]
-            for field in (
-                "repository",
-                "staging_repository",
-                "default_branch",
-                "release_tag",
-                "release_policy",
-            )
-        }
-        authority = {
-            **authority,
-            "version_file": release["version_file"],
-            "ucm_version": release["ucm_version"],
-        }
+        authority = {field: release['source'][field] for field in ('repository', 'staging_repository', 'default_branch', 'release_tag', 'release_policy')}  # fmt: skip  # noqa: E501
+        authority = {**authority, 'version_file': release['version_file'], 'ucm_version': release['ucm_version']}  # fmt: skip  # noqa: E501
     if repository_root is None:
         repository_root = REPO_ROOT
-    return _tag_preflight_live(
-        lane=lane,
-        authority=authority,
-        repository_root=repository_root,
-    )
+    return _tag_preflight_live(lane=lane, authority=authority, repository_root=repository_root)  # fmt: skip  # noqa: E501

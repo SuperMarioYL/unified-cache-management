@@ -37,15 +37,7 @@ def _gh_release_api(
     content_type: str | None = None,
     allow_missing: bool = False,
 ) -> dict[str, object] | None:
-    """Invoke ``gh api`` and return the decoded JSON response."""
-    cmd = [
-        "gh",
-        "api",
-        "-H",
-        "Accept: application/vnd.github+json",
-        "-H",
-        "X-GitHub-Api-Version: 2022-11-28",
-    ]
+    cmd = ['gh', 'api', '-H', 'Accept: application/vnd.github+json', '-H', 'X-GitHub-Api-Version: 2022-11-28']  # fmt: skip  # noqa: E501
     if content_type is not None:
         cmd += ["-H", f"Content-Type: {content_type}"]
     if method is not None:
@@ -64,7 +56,6 @@ def _gh_release_api(
 
 
 def _publish_github_release(args) -> dict[str, object]:
-    """Create-or-reuse a draft release (draft) then upload and publish it (finalize)."""
     plan = core.load_json(args.plan)
     if plan["resolved_plan_sha256"] != args.plan_sha256:
         raise ValueError("resolved plan hash differs from expected plan hash")
@@ -76,111 +67,35 @@ def _publish_github_release(args) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     api_root = f"repos/{repository}"
     if args.stage == "draft":
-        operations = [
-            {
-                "type": "github-release-read",
-                "capability": "read",
-                "reference": f"https://api.github.com/{api_root}/releases/tags/{tag}",
-                "authenticated": True,
-            }
-        ]
-        existing = _gh_release_api(
-            f"{api_root}/releases/tags/{tag}", allow_missing=True
-        )
+        operations = [{'type': 'github-release-read', 'capability': 'read', 'reference': f'https://api.github.com/{api_root}/releases/tags/{tag}', 'authenticated': True}]  # fmt: skip  # noqa: E501
+        existing = _gh_release_api(f'{api_root}/releases/tags/{tag}', allow_missing=True)  # fmt: skip  # noqa: E501
         if existing is not None:
             release = existing
             just_created = False
         else:
-            body = {
-                "tag_name": tag,
-                "target_commitish": args.source_sha,
-                "name": f"UCM {tag}",
-                "body": (
-                    f"Protected UCM {tag} release from reviewed source commit "
-                    f"{args.source_sha}. Frozen plan "
-                    f"{plan['resolved_plan_sha256']}."
-                ),
-                "draft": True,
-                "prerelease": True,
-                "make_latest": "false",
-            }
-            release = _gh_release_api(
-                f"{api_root}/releases",
-                method="POST",
-                input_bytes=core.canonical_bytes(body),
-            )
+            body = {'tag_name': tag, 'target_commitish': args.source_sha, 'name': f'UCM {tag}', 'body': f"Protected UCM {tag} release from reviewed source commit {args.source_sha}. Frozen plan {plan['resolved_plan_sha256']}.", 'draft': True, 'prerelease': True, 'make_latest': 'false'}  # fmt: skip  # noqa: E501
+            release = _gh_release_api(f'{api_root}/releases', method='POST', input_bytes=core.canonical_bytes(body))  # fmt: skip  # noqa: E501
             just_created = True
-            operations.append(
-                {
-                    "type": "github-release-create",
-                    "capability": "write",
-                    "reference": f"https://api.github.com/{api_root}/releases",
-                    "authenticated": True,
-                }
-            )
-        state = {
-            "release_id": release["id"],
-            "tag": tag,
-            "draft": True,
-            "just_created": just_created,
-        }
+            operations.append({'type': 'github-release-create', 'capability': 'write', 'reference': f'https://api.github.com/{api_root}/releases', 'authenticated': True})  # fmt: skip  # noqa: E501
+        state = {'release_id': release['id'], 'tag': tag, 'draft': True, 'just_created': just_created}  # fmt: skip  # noqa: E501
         _write(output_dir / "release-state.json", state)
         _write(output_dir / "operations.json", operations)
         return {"kind": "ucm-github-release-draft", "stage": "draft", **state}
     draft_state = core.load_json(output_dir / "release-state.json")
     release_id = draft_state["release_id"]
-    operations = [
-        {
-            "type": "github-release-read",
-            "capability": "read",
-            "reference": f"https://api.github.com/{api_root}/releases/{release_id}",
-            "authenticated": True,
-        }
-    ]
+    operations = [{'type': 'github-release-read', 'capability': 'read', 'reference': f'https://api.github.com/{api_root}/releases/{release_id}', 'authenticated': True}]  # fmt: skip  # noqa: E501
     artifacts_dir = output_dir / "artifacts"
     if artifacts_dir.is_dir():
         for asset in sorted(artifacts_dir.iterdir()):
             if not asset.is_file():
                 continue
             encoded = urllib.parse.quote(asset.name, safe="")
-            _gh_release_api(
-                f"https://uploads.github.com/{api_root}/releases/"
-                f"{release_id}/assets?name={encoded}",
-                method="POST",
-                input_bytes=asset.read_bytes(),
-                content_type="application/octet-stream",
-            )
-            operations.append(
-                {
-                    "type": "github-release-asset-upload",
-                    "capability": "write",
-                    "reference": (
-                        f"https://uploads.github.com/{api_root}/releases/"
-                        f"{release_id}/assets"
-                    ),
-                    "authenticated": True,
-                }
-            )
+            _gh_release_api(f'https://uploads.github.com/{api_root}/releases/{release_id}/assets?name={encoded}', method='POST', input_bytes=asset.read_bytes(), content_type='application/octet-stream')  # fmt: skip  # noqa: E501
+            operations.append({'type': 'github-release-asset-upload', 'capability': 'write', 'reference': f'https://uploads.github.com/{api_root}/releases/{release_id}/assets', 'authenticated': True})  # fmt: skip  # noqa: E501
     publish_body = {"draft": False, "prerelease": True, "make_latest": "false"}
-    _gh_release_api(
-        f"{api_root}/releases/{release_id}",
-        method="PATCH",
-        input_bytes=core.canonical_bytes(publish_body),
-    )
-    operations.append(
-        {
-            "type": "github-release-publish",
-            "capability": "write",
-            "reference": f"https://api.github.com/{api_root}/releases/{release_id}",
-            "authenticated": True,
-        }
-    )
-    final = {
-        "release_id": release_id,
-        "tag": tag,
-        "draft": False,
-        "just_created": False,
-    }
+    _gh_release_api(f'{api_root}/releases/{release_id}', method='PATCH', input_bytes=core.canonical_bytes(publish_body))  # fmt: skip  # noqa: E501
+    operations.append({'type': 'github-release-publish', 'capability': 'write', 'reference': f'https://api.github.com/{api_root}/releases/{release_id}', 'authenticated': True})  # fmt: skip  # noqa: E501
+    final = {'release_id': release_id, 'tag': tag, 'draft': False, 'just_created': False}  # fmt: skip  # noqa: E501
     _write(output_dir / "release-state.json", final)
     _write(output_dir / "operations.json", operations)
     return {"kind": "ucm-github-release-finalize", "stage": "finalize", **final}
@@ -199,46 +114,26 @@ def build_parser() -> argparse.ArgumentParser:
     catalog_actions = catalog_parser.add_subparsers(dest="action", required=True)
     catalog_validate = catalog_actions.add_parser("validate")
     catalog_validate.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
-    catalog_validate.add_argument(
-        "--schema-dir", type=Path, default=core.DEFAULT_SCHEMA_DIR
-    )
-    catalog_validate.add_argument(
-        "--repository-root", type=Path, default=core.REPO_ROOT
-    )
+    catalog_validate.add_argument('--schema-dir', type=Path, default=core.DEFAULT_SCHEMA_DIR)  # fmt: skip  # noqa: E501
+    catalog_validate.add_argument('--repository-root', type=Path, default=core.REPO_ROOT)  # fmt: skip  # noqa: E501
     catalog_resolve = catalog_actions.add_parser("resolve")
     catalog_resolve.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
-    catalog_resolve.add_argument(
-        "--schema-dir", type=Path, default=core.DEFAULT_SCHEMA_DIR
-    )
-    catalog_resolve.add_argument(
-        "--lane", choices=("feature-candidate", "protected-tag"), required=True
-    )
+    catalog_resolve.add_argument('--schema-dir', type=Path, default=core.DEFAULT_SCHEMA_DIR)  # fmt: skip  # noqa: E501
+    catalog_resolve.add_argument('--lane', choices=('feature-candidate', 'protected-tag'), required=True)  # fmt: skip  # noqa: E501
     catalog_resolve.add_argument("--source-sha", required=True)
     catalog_resolve.add_argument("--fixture", type=Path)
     catalog_resolve.add_argument("--output", type=Path, required=True)
     recipe_matrix = catalog_actions.add_parser("recipe-matrix")
     recipe_matrix.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
-    recipe_matrix.add_argument(
-        "--schema-dir", type=Path, default=core.DEFAULT_SCHEMA_DIR
-    )
+    recipe_matrix.add_argument('--schema-dir', type=Path, default=core.DEFAULT_SCHEMA_DIR)  # fmt: skip  # noqa: E501
     recipe_matrix.add_argument("--repository-root", type=Path, default=core.REPO_ROOT)
-    recipe_matrix.add_argument(
-        "--lane",
-        choices=("pr-smoke", "hardware-e2e", "manual", "formal-release"),
-        required=True,
-    )
+    recipe_matrix.add_argument('--lane', choices=('pr-smoke', 'hardware-e2e', 'manual', 'formal-release'), required=True)  # fmt: skip  # noqa: E501
     recipe_matrix.add_argument("--output", type=Path, required=True)
     select_recipe = catalog_actions.add_parser("select-recipe")
     select_recipe.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
-    select_recipe.add_argument(
-        "--schema-dir", type=Path, default=core.DEFAULT_SCHEMA_DIR
-    )
+    select_recipe.add_argument('--schema-dir', type=Path, default=core.DEFAULT_SCHEMA_DIR)  # fmt: skip  # noqa: E501
     select_recipe.add_argument("--repository-root", type=Path, default=core.REPO_ROOT)
-    select_recipe.add_argument(
-        "--lane",
-        choices=("pr-smoke", "hardware-e2e", "manual", "formal-release"),
-        required=True,
-    )
+    select_recipe.add_argument('--lane', choices=('pr-smoke', 'hardware-e2e', 'manual', 'formal-release'), required=True)  # fmt: skip  # noqa: E501
     select_recipe.add_argument("--task-id", required=True)
     select_recipe.add_argument("--expected-catalog-sha256", required=True)
     select_recipe.add_argument("--expected-matrix-sha256", required=True)
@@ -249,14 +144,10 @@ def build_parser() -> argparse.ArgumentParser:
     publish_actions = publish_parser.add_subparsers(dest="action", required=True)
     publish_plan = publish_actions.add_parser("plan")
     publish_plan.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
-    publish_plan.add_argument(
-        "--schema-dir", type=Path, default=core.DEFAULT_SCHEMA_DIR
-    )
+    publish_plan.add_argument('--schema-dir', type=Path, default=core.DEFAULT_SCHEMA_DIR)  # fmt: skip  # noqa: E501
     publish_plan.add_argument("--repository-root", type=Path, default=core.REPO_ROOT)
     publish_plan.add_argument("--repository", default=None)
-    publish_plan.add_argument(
-        "--lane", choices=("feature-candidate", "protected-tag"), required=True
-    )
+    publish_plan.add_argument('--lane', choices=('feature-candidate', 'protected-tag'), required=True)  # fmt: skip  # noqa: E501
     publish_plan.add_argument("--allow", required=True)
     publish_plan.add_argument("--request", default="")
     publish_plan.add_argument("--dry-run", default="true")
@@ -265,25 +156,17 @@ def build_parser() -> argparse.ArgumentParser:
     publish_github_release.add_argument("--plan", type=Path, required=True)
     publish_github_release.add_argument("--plan-sha256", required=True)
     publish_github_release.add_argument("--repository", required=True)
-    publish_github_release.add_argument(
-        "--stage", choices=("draft", "finalize"), required=True
-    )
+    publish_github_release.add_argument('--stage', choices=('draft', 'finalize'), required=True)  # fmt: skip  # noqa: E501
     publish_github_release.add_argument("--output-dir", type=Path, required=True)
     publish_github_release.add_argument("--source-sha", required=True)
 
     core_parser = groups.add_parser("core")
     core_actions = core_parser.add_subparsers(dest="action", required=True)
     tag_preflight = core_actions.add_parser("tag-preflight")
-    tag_preflight.add_argument(
-        "--lane", choices=("feature-candidate", "protected-tag"), required=True
-    )
+    tag_preflight.add_argument('--lane', choices=('feature-candidate', 'protected-tag'), required=True)  # fmt: skip  # noqa: E501
     tag_preflight.add_argument("--resolved-plan", type=Path)
     tag_preflight.add_argument("--expected-plan-sha256")
-    tag_preflight.add_argument(
-        "--catalog-planner",
-        action="store_true",
-        help="resolve current catalog authority only in the initial planning job",
-    )
+    tag_preflight.add_argument('--catalog-planner', action='store_true', help='resolve current catalog authority only in the initial planning job')  # fmt: skip  # noqa: E501
     _paths(tag_preflight)
 
     registry_parser = groups.add_parser("registry")
@@ -299,80 +182,30 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if (args.group, args.action) == ("config", "validate"):
             release = core.load_catalog(args.release, args.schema_dir)
-            result = {
-                "schema_version": 1,
-                "wheel_profiles": len(release["wheel_profiles"]),
-                "compatibility_rules": len(release["compatibility"]["rules"]),
-            }
+            result = {'schema_version': 1, 'wheel_profiles': len(release['wheel_profiles']), 'compatibility_rules': len(release['compatibility']['rules'])}  # fmt: skip  # noqa: E501
         elif (args.group, args.action) == ("catalog", "validate"):
-            release = core.load_catalog(
-                args.catalog,
-                args.schema_dir,
-                repository_root=args.repository_root,
-            )
+            release = core.load_catalog(args.catalog, args.schema_dir, repository_root=args.repository_root)  # fmt: skip  # noqa: E501
             catalog_resolution.validate_catalog_tag_grammar(release)
-            result = {
-                "kind": "ucm-catalog-validation",
-                "schema_version": 1,
-                "config_sha256": core.sha256_value(release),
-                "upstream_products": len(release["upstream_products"]),
-                "compatibility_rules": len(release["compatibility"]["rules"]),
-            }
+            result = {'kind': 'ucm-catalog-validation', 'schema_version': 1, 'config_sha256': core.sha256_value(release), 'upstream_products': len(release['upstream_products']), 'compatibility_rules': len(release['compatibility']['rules'])}  # fmt: skip  # noqa: E501
         elif (args.group, args.action) == ("catalog", "resolve"):
             release = core.load_catalog(args.catalog, args.schema_dir)
             fixture = core.load_json(args.fixture) if args.fixture else None
-            result = catalog_resolution.resolve_catalog(
-                release,
-                source_sha=args.source_sha,
-                lane=args.lane,
-                fixture=fixture,
-            )
+            result = catalog_resolution.resolve_catalog(release, source_sha=args.source_sha, lane=args.lane, fixture=fixture)  # fmt: skip  # noqa: E501
             args.output.parent.mkdir(parents=True, exist_ok=True)
             _write(args.output, result)
         elif (args.group, args.action) == ("catalog", "recipe-matrix"):
-            release = core.load_catalog(
-                args.catalog,
-                args.schema_dir,
-                repository_root=args.repository_root,
-            )
-            result = core.repository_recipe_matrix(
-                release,
-                lane=args.lane,
-                repository_root=args.repository_root,
-            )
+            release = core.load_catalog(args.catalog, args.schema_dir, repository_root=args.repository_root)  # fmt: skip  # noqa: E501
+            result = core.repository_recipe_matrix(release, lane=args.lane, repository_root=args.repository_root)  # fmt: skip  # noqa: E501
             args.output.parent.mkdir(parents=True, exist_ok=True)
             _write(args.output, result)
         elif (args.group, args.action) == ("catalog", "select-recipe"):
-            release = core.load_catalog(
-                args.catalog,
-                args.schema_dir,
-                repository_root=args.repository_root,
-            )
-            result = core.select_repository_recipe_task(
-                release,
-                lane=args.lane,
-                task_id=args.task_id,
-                expected_catalog_sha256=args.expected_catalog_sha256,
-                expected_matrix_sha256=args.expected_matrix_sha256,
-                expected_task_sha256=args.expected_task_sha256,
-                repository_root=args.repository_root,
-            )
+            release = core.load_catalog(args.catalog, args.schema_dir, repository_root=args.repository_root)  # fmt: skip  # noqa: E501
+            result = core.select_repository_recipe_task(release, lane=args.lane, task_id=args.task_id, expected_catalog_sha256=args.expected_catalog_sha256, expected_matrix_sha256=args.expected_matrix_sha256, expected_task_sha256=args.expected_task_sha256, repository_root=args.repository_root)  # fmt: skip  # noqa: E501
             args.output.parent.mkdir(parents=True, exist_ok=True)
             _write(args.output, result)
         elif (args.group, args.action) == ("publish", "plan"):
-            release = core.load_catalog(
-                args.catalog,
-                args.schema_dir,
-                repository_root=args.repository_root,
-                repository=args.repository,
-            )
-            plan = core.compute_publish_plan(
-                release,
-                lane=args.lane,
-                allow=json.loads(args.allow),
-                request=args.request,
-                dry_run=args.dry_run.strip().lower() == "true",
-            )
+            release = core.load_catalog(args.catalog, args.schema_dir, repository_root=args.repository_root, repository=args.repository)  # fmt: skip  # noqa: E501
+            plan = core.compute_publish_plan(release, lane=args.lane, allow=json.loads(args.allow), request=args.request, dry_run=args.dry_run.strip().lower() == 'true')  # fmt: skip  # noqa: E501
             payload = json.dumps(plan, sort_keys=True, separators=(",", ":"))
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(payload + "\n", encoding="utf-8")
@@ -385,43 +218,26 @@ def main(argv: list[str] | None = None) -> int:
                     args.resolved_plan is not None
                     or args.expected_plan_sha256 is not None
                 ):
-                    raise ValueError(
-                        "catalog planner mode cannot consume a frozen plan binding"
-                    )
-                result = core.tag_preflight(
-                    lane=args.lane,
-                    release_path=args.release,
-                    schema_dir=args.schema_dir,
-                )
+                    raise ValueError('catalog planner mode cannot consume a frozen plan binding')  # fmt: skip  # noqa: E501
+                result = core.tag_preflight(lane=args.lane, release_path=args.release, schema_dir=args.schema_dir)  # fmt: skip  # noqa: E501
             else:
                 if (
                     args.resolved_plan is None
                     or not isinstance(args.expected_plan_sha256, str)
                     or not args.expected_plan_sha256
                 ):
-                    raise ValueError(
-                        "tag preflight requires an exact frozen plan and expected plan hash"
-                    )
+                    raise ValueError('tag preflight requires an exact frozen plan and expected plan hash')  # fmt: skip  # noqa: E501
                 resolved_plan = core.load_json(args.resolved_plan)
                 registry.validate_resolved_plan(resolved_plan)
                 if resolved_plan["resolved_plan_sha256"] != args.expected_plan_sha256:
-                    raise ValueError(
-                        "resolved plan hash differs from expected plan hash"
-                    )
+                    raise ValueError('resolved plan hash differs from expected plan hash')  # fmt: skip  # noqa: E501
                 if resolved_plan["lane"] != args.lane:
                     raise ValueError("tag preflight lane differs from frozen plan")
-                result = core.tag_preflight(
-                    lane=args.lane,
-                    authority=resolved_plan["source"],
-                )
+                result = core.tag_preflight(lane=args.lane, authority=resolved_plan['source'])  # fmt: skip  # noqa: E501
         elif (args.group, args.action) == ("registry", "validate-member-schema"):
             record = core.load_json(args.input)
-            schema = core.load_json(
-                core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json"
-            )
-            core.validate_schema(
-                record, schema["$defs"]["registryMemberRecord"], root=schema
-            )
+            schema = core.load_json(core.DEFAULT_SCHEMA_DIR / 'release-manifest.schema.json')  # fmt: skip  # noqa: E501
+            core.validate_schema(record, schema['$defs']['registryMemberRecord'], root=schema)  # fmt: skip  # noqa: E501
             result = {"kind": "ucm-member-schema-validation", "valid": True}
         else:  # pragma: no cover - argparse owns this branch.
             parser.error("unsupported command")
