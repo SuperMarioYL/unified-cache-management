@@ -1695,8 +1695,13 @@ def validate_resolved_upstreams(resolved_upstreams: object) -> None:
                     )
 
 
-def _opaque_task_id(kind: str, identity: dict[str, Any]) -> str:
-    return f"{kind}-{sha256_value(identity).removeprefix('sha256:')}"
+_LINKED_WHEEL_FIELDS = tuple(
+    "spec_id profile_id runner cpu_arch platform builder builder_sha256 build "
+    "python_abi python_version wheel_version wheel_platform required_native "
+    "forbidden_native allowed_dt_needed external_required_dependencies "
+    "dependency_lock_sha256 dependency_lock runtime_requirements "
+    "runtime_patch_manifest_sha256 write_authority build_eligible".split()
+)
 
 
 def _matching_profile(
@@ -1706,8 +1711,7 @@ def _matching_profile(
     architecture: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     variant = next(
-        (item for item in product["variants"] if item["id"] == snapshot["variant"]),
-        None,
+        (v for v in product["variants"] if v["id"] == snapshot["variant"]), None
     )
     if variant is None:
         raise ValueError(
@@ -1721,8 +1725,7 @@ def _matching_profile(
             product["id"] not in rule["upstream_products"]
             or version
             not in _pep440_specifier(
-                rule["version_specifier"],
-                f"compatibility rule {rule['id']!r}",
+                rule["version_specifier"], f"compatibility rule {rule['id']!r}"
             )
             or snapshot["channel"] not in rule["upstream_channels"]
             or snapshot["variant"] not in rule["variants"]
@@ -1758,6 +1761,296 @@ def _matching_profile(
     return matches[0]
 
 
+_PROFILE_DIRECT_FIELDS = tuple(
+    "accelerator accelerator_runtime python_version python_abi "
+    "wheel_version wheel_platform binary_profile_id".split()
+)
+_PROFILE_DEEPCOPY_FIELDS = tuple(
+    "validation_targets required_native forbidden_native "
+    "allowed_dt_needed external_required_dependencies".split()
+)
+_FAMILY_IDENTITY_KEYS = tuple(
+    "product_id repository tag variant index_digest "
+    "target_repository target_tag".split()
+)
+_RUNTIME_KEYS = tuple("repository tag version channel variant index_digest".split())
+
+
+@dataclass(frozen=True, slots=True)
+class ReleasePlan:
+    """Typed envelope for the expanded release task set and frozen plan."""
+
+    lane: str
+    wheel_tasks: list[dict[str, Any]]
+    image_tasks: list[dict[str, Any]]
+    family_tasks: list[dict[str, Any]]
+
+    @classmethod
+    def build(
+        cls,
+        catalog: dict[str, Any],
+        resolved_upstreams: list[dict[str, Any]],
+        *,
+        lane: str,
+        repository_root: Path = REPO_ROOT,
+    ) -> "ReleasePlan":
+        """Expand a validated catalog and immutable runtime snapshots into tasks."""
+        validate_catalog(catalog, repository_root=repository_root)
+        validate_resolved_upstreams(resolved_upstreams)
+        if lane not in catalog["lanes"]:
+            raise ValueError(f"unsupported validation lane: {lane}")
+        patch_manifest = runtime_patch_manifest(
+            catalog, repository_root=repository_root
+        )
+        patch_manifest_sha256 = runtime_patch_manifest_sha256(patch_manifest)
+        runtime_requirements = python_runtime_requirements(catalog)
+        products = {item["id"]: item for item in catalog["upstream_products"]}
+        write_authority = (
+            []
+            if lane == "feature-candidate"
+            else ["github-prerelease", "ghcr-final-index", "ghcr-private-staging"]
+        )
+        snapshots = sorted(
+            resolved_upstreams,
+            key=lambda item: (
+                item["product_id"],
+                _pep440_version(item["version"], "resolved upstream version"),
+                item["variant"],
+                item["tag"],
+                item["repository"],
+                item["channel"],
+                item["target_repository"],
+                item["target_tag"],
+                item["index_digest"],
+                sha256_value(item["members"]),
+            ),
+        )
+        wheel_tasks_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+        image_tasks: list[dict[str, Any]] = []
+        family_tasks: list[dict[str, Any]] = []
+        family_coordinates: set[str] = set()
+
+        for snapshot in snapshots:
+            product = products.get(snapshot["product_id"])
+            if product is None:
+                raise ValueError(
+                    f"resolved upstream references unknown product "
+                    f"{snapshot['product_id']!r}"
+                )
+            if snapshot["repository"] != product["repository"]:
+                raise ValueError(
+                    "resolved upstream repository differs from catalog product"
+                )
+            product_variant = next(
+                (
+                    item
+                    for item in product["variants"]
+                    if item["id"] == snapshot["variant"]
+                ),
+                None,
+            )
+            if product_variant is None:
+                raise ValueError(
+                    f"snapshot variant {snapshot['variant']!r} is not declared by "
+                    f"upstream product {product['id']!r}"
+                )
+            runtime_patch_variants = copy.deepcopy(
+                product_variant["runtime_patch_variants"]
+            )
+            patch_rule = _matching_runtime_patch_rule(
+                patch_manifest,
+                {**snapshot, "runtime_product": product["runtime_product"]},
+                runtime_patch_variants[product["runtime_product"]],
+            )
+            version = _pep440_version(snapshot["version"], "resolved upstream version")
+            if snapshot["channel"] == "stable" and version.is_prerelease:
+                raise ValueError("channel stable requires a final version")
+            if snapshot["channel"] == "rc" and not (
+                version.pre
+                and version.pre[0] == "rc"
+                and not (version.epoch or version.dev or version.post or version.local)
+            ):
+                raise ValueError("channel rc requires a plain rcN version")
+            if version not in _pep440_specifier(
+                product["version_specifier"],
+                f"upstream product {product['id']!r}.version_specifier",
+            ):
+                raise ValueError(
+                    "resolved upstream version is outside product selection"
+                )
+            if snapshot["channel"] not in product["channels"]:
+                raise ValueError("resolved upstream channel is not selected by product")
+            members = snapshot["members"]
+            missing = sorted(set(product["required_cpu_architectures"]) - set(members))
+            if missing:
+                raise ValueError(
+                    f"resolved upstream {snapshot['tag']} is missing required CPU "
+                    f"architectures: {missing}"
+                )
+            coordinate = f"{snapshot['target_repository']}:{snapshot['target_tag']}"
+            if coordinate in family_coordinates:
+                raise ValueError(f"duplicate target image coordinate: {coordinate}")
+            family_coordinates.add(coordinate)
+            family_identity = {k: snapshot[k] for k in _FAMILY_IDENTITY_KEYS}
+            family_task_id = (
+                f"family-{sha256_value(family_identity).removeprefix('sha256:')}"
+            )
+            family_images: list[dict[str, Any]] = []
+
+            for architecture in sorted(members):
+                profile, rule = _matching_profile(
+                    catalog, product, snapshot, architecture
+                )
+                wheel_key = (profile["id"], architecture)
+                if wheel_key not in wheel_tasks_by_key:
+                    declaration = {
+                        "spec_id": f"{profile['id']}-{architecture}",
+                        "profile_id": profile["id"],
+                        **{k: profile[k] for k in _PROFILE_DIRECT_FIELDS},
+                        "npu_arch_or_na": profile["npu_arch"][0],
+                        "os": profile["os"][0],
+                        "cpu_arch": architecture,
+                        **{
+                            k: copy.deepcopy(profile[k])
+                            for k in _PROFILE_DEEPCOPY_FIELDS
+                        },
+                    }
+                    dependency_lock = {
+                        "build_tools": build_tool_dependency_records(
+                            catalog, profile["python_abi"], architecture
+                        ),
+                        "runtime_dependencies": runtime_dependency_records(
+                            catalog, profile["python_abi"], architecture
+                        ),
+                    }
+                    builder = profile["builders"][architecture]
+                    wheel_identity = {
+                        "profile_id": profile["id"],
+                        "cpu_arch": architecture,
+                        "builder_sha256": sha256_value(builder),
+                        "dependency_lock_sha256": sha256_value(dependency_lock),
+                    }
+                    wheel_task: dict[str, Any] = {
+                        "task_id": (
+                            f"wheel-"
+                            f"{sha256_value(wheel_identity).removeprefix('sha256:')}"
+                        ),
+                        **declaration,
+                        "declaration_sha256": sha256_value(declaration),
+                        "runner": catalog["runner_map"][architecture],
+                        "platform": f"linux/{architecture}",
+                        "builder": builder,
+                        "builder_sha256": sha256_value(builder),
+                        "build": copy.deepcopy(profile["build"]),
+                        "dependency_lock_sha256": sha256_value(dependency_lock),
+                        "dependency_lock": dependency_lock,
+                        "runtime_requirements": copy.deepcopy(runtime_requirements),
+                        "runtime_patch_manifest": copy.deepcopy(patch_manifest),
+                        "runtime_patch_manifest_sha256": patch_manifest_sha256,
+                        "write_authority": write_authority,
+                        "build_eligible": True,
+                    }
+                    wheel_task["artifact_name"] = f"ucm-wheel-{wheel_task['task_id']}"
+                    wheel_task["task_sha256"] = sha256_value(wheel_task)
+                    wheel_tasks_by_key[wheel_key] = wheel_task
+                wheel_task = wheel_tasks_by_key[wheel_key]
+                member = members[architecture]
+                runtime = {
+                    "product_id": snapshot["product_id"],
+                    "repository": snapshot["repository"],
+                    "tag": snapshot["tag"],
+                    "version": snapshot["version"],
+                    "channel": snapshot["channel"],
+                    "variant": snapshot["variant"],
+                    "index_digest": snapshot["index_digest"],
+                    **member,
+                }
+                image_identity = {
+                    "family_task_id": family_task_id,
+                    "wheel_task_id": wheel_task["task_id"],
+                    "cpu_arch": architecture,
+                    "runtime_sha256": sha256_value(runtime),
+                }
+                image_task: dict[str, Any] = {
+                    "task_id": (
+                        f"image-"
+                        f"{sha256_value(image_identity).removeprefix('sha256:')}"
+                    ),
+                    "family_task_id": family_task_id,
+                    "wheel_task_id": wheel_task["task_id"],
+                    "compatibility_rule_id": rule["id"],
+                    "runtime_patch_rule_id": patch_rule["id"],
+                    "runtime_patch_product": product["runtime_product"],
+                    "runtime_patch_strategy": patch_rule["strategy"],
+                    "runtime_patch_variants": copy.deepcopy(runtime_patch_variants),
+                    "runtime": runtime,
+                    "runtime_sha256": sha256_value(runtime),
+                    "target_repository": snapshot["target_repository"],
+                    "target_tag": snapshot["target_tag"],
+                    **{k: wheel_task[k] for k in _LINKED_WHEEL_FIELDS},
+                }
+                image_task["artifact_name"] = f"ucm-image-{image_task['task_id']}"
+                image_task["wheel_artifact_name"] = wheel_task["artifact_name"]
+                image_task["task_sha256"] = sha256_value(image_task)
+                image_tasks.append(image_task)
+                family_images.append(image_task)
+
+            family_runtime = {k: snapshot[k] for k in _RUNTIME_KEYS}
+            control_image = family_images[0]
+            family_task: dict[str, Any] = {
+                "task_id": family_task_id,
+                "product_id": snapshot["product_id"],
+                "control_task_id": control_image["task_id"],
+                "control_arch": control_image["cpu_arch"],
+                "control_runner": control_image["runner"],
+                "runner": [item["runner"] for item in family_images],
+                "cpu_arch": [item["cpu_arch"] for item in family_images],
+                "platform": [item["platform"] for item in family_images],
+                "builder": [item["builder"] for item in family_images],
+                "builder_sha256": [item["builder_sha256"] for item in family_images],
+                "runtime": family_runtime,
+                "runtime_sha256": sha256_value(family_runtime),
+                "snapshot_sha256": sha256_value(snapshot),
+                "target_repository": snapshot["target_repository"],
+                "target_tag": snapshot["target_tag"],
+                "image_task_ids": [item["task_id"] for item in family_images],
+                "wheel_task_ids": {
+                    item["cpu_arch"]: item["wheel_task_id"] for item in family_images
+                },
+                "member_set_sha256": sha256_value(
+                    [item["task_sha256"] for item in family_images]
+                ),
+                "write_authority": write_authority,
+            }
+            family_task["artifact_name"] = f"ucm-family-{family_task['task_id']}"
+            family_task["task_sha256"] = sha256_value(family_task)
+            family_tasks.append(family_task)
+
+        wheel_tasks = sorted(
+            wheel_tasks_by_key.values(),
+            key=lambda item: (item["profile_id"], item["cpu_arch"]),
+        )
+        limits = catalog["matrix_limits"]
+        cardinalities = {
+            "wheel_tasks": len(wheel_tasks),
+            "image_tasks": len(image_tasks),
+            "family_tasks": len(family_tasks),
+        }
+        for task_kind, count in cardinalities.items():
+            limit = limits[f"max_{task_kind}"]
+            if count > limit:
+                raise ValueError(
+                    f"matrix limit max_{task_kind}={limit} exceeded by exact "
+                    f"generated set of {count}"
+                )
+        return cls(
+            lane=lane,
+            wheel_tasks=wheel_tasks,
+            image_tasks=image_tasks,
+            family_tasks=family_tasks,
+        )
+
+
 def expand_release_plan(
     catalog: dict[str, Any],
     resolved_upstreams: list[dict[str, Any]],
@@ -1766,294 +2059,21 @@ def expand_release_plan(
     repository_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
     """Purely expand a validated catalog and immutable runtime snapshots."""
-    validate_catalog(catalog, repository_root=repository_root)
-    validate_resolved_upstreams(resolved_upstreams)
-    if lane not in catalog["lanes"]:
-        raise ValueError(f"unsupported validation lane: {lane}")
-    patch_manifest = runtime_patch_manifest(catalog, repository_root=repository_root)
-    patch_manifest_sha256 = runtime_patch_manifest_sha256(patch_manifest)
-    runtime_requirements = python_runtime_requirements(catalog)
-    products = {item["id"]: item for item in catalog["upstream_products"]}
-    write_authority = (
-        []
-        if lane == "feature-candidate"
-        else ["github-prerelease", "ghcr-final-index", "ghcr-private-staging"]
+    plan = ReleasePlan.build(
+        catalog, resolved_upstreams, lane=lane, repository_root=repository_root
     )
-    snapshots = sorted(
-        resolved_upstreams,
-        key=lambda item: (
-            item["product_id"],
-            _pep440_version(item["version"], "resolved upstream version"),
-            item["variant"],
-            item["tag"],
-            item["repository"],
-            item["channel"],
-            item["target_repository"],
-            item["target_tag"],
-            item["index_digest"],
-            sha256_value(item["members"]),
-        ),
-    )
-    wheel_tasks_by_key: dict[tuple[str, str], dict[str, Any]] = {}
-    image_tasks: list[dict[str, Any]] = []
-    family_tasks: list[dict[str, Any]] = []
-    family_coordinates: set[str] = set()
-
-    for snapshot in snapshots:
-        product = products.get(snapshot["product_id"])
-        if product is None:
-            raise ValueError(
-                f"resolved upstream references unknown product {snapshot['product_id']!r}"
-            )
-        if snapshot["repository"] != product["repository"]:
-            raise ValueError(
-                "resolved upstream repository differs from catalog product"
-            )
-        product_variant = next(
-            (item for item in product["variants"] if item["id"] == snapshot["variant"]),
-            None,
-        )
-        if product_variant is None:
-            raise ValueError(
-                f"snapshot variant {snapshot['variant']!r} is not declared by "
-                f"upstream product {product['id']!r}"
-            )
-        runtime_patch_variants = copy.deepcopy(
-            product_variant["runtime_patch_variants"]
-        )
-        patch_rule = _matching_runtime_patch_rule(
-            patch_manifest,
-            {**snapshot, "runtime_product": product["runtime_product"]},
-            runtime_patch_variants[product["runtime_product"]],
-        )
-        version = _pep440_version(snapshot["version"], "resolved upstream version")
-        if snapshot["channel"] == "stable" and version.is_prerelease:
-            raise ValueError("channel stable requires a final version")
-        if snapshot["channel"] == "rc" and not (
-            version.pre
-            and version.pre[0] == "rc"
-            and not (version.epoch or version.dev or version.post or version.local)
-        ):
-            raise ValueError("channel rc requires a plain rcN version")
-        if version not in _pep440_specifier(
-            product["version_specifier"],
-            f"upstream product {product['id']!r}.version_specifier",
-        ):
-            raise ValueError("resolved upstream version is outside product selection")
-        if snapshot["channel"] not in product["channels"]:
-            raise ValueError("resolved upstream channel is not selected by product")
-        members = snapshot["members"]
-        missing = sorted(set(product["required_cpu_architectures"]) - set(members))
-        if missing:
-            raise ValueError(
-                f"resolved upstream {snapshot['tag']} is missing required CPU "
-                f"architectures: {missing}"
-            )
-        coordinate = f"{snapshot['target_repository']}:{snapshot['target_tag']}"
-        if coordinate in family_coordinates:
-            raise ValueError(f"duplicate target image coordinate: {coordinate}")
-        family_coordinates.add(coordinate)
-        family_identity = {
-            "product_id": snapshot["product_id"],
-            "repository": snapshot["repository"],
-            "tag": snapshot["tag"],
-            "variant": snapshot["variant"],
-            "index_digest": snapshot["index_digest"],
-            "target_repository": snapshot["target_repository"],
-            "target_tag": snapshot["target_tag"],
-        }
-        family_task_id = _opaque_task_id("family", family_identity)
-        family_images: list[dict[str, Any]] = []
-
-        for architecture in sorted(members):
-            profile, rule = _matching_profile(catalog, product, snapshot, architecture)
-            wheel_key = (profile["id"], architecture)
-            if wheel_key not in wheel_tasks_by_key:
-                declaration = {
-                    "spec_id": f"{profile['id']}-{architecture}",
-                    "profile_id": profile["id"],
-                    "accelerator": profile["accelerator"],
-                    "accelerator_runtime": profile["accelerator_runtime"],
-                    "npu_arch_or_na": profile["npu_arch"][0],
-                    "os": profile["os"][0],
-                    "cpu_arch": architecture,
-                    "python_version": profile["python_version"],
-                    "python_abi": profile["python_abi"],
-                    "wheel_version": profile["wheel_version"],
-                    "wheel_platform": profile["wheel_platform"],
-                    "binary_profile_id": profile["binary_profile_id"],
-                    "validation_targets": copy.deepcopy(profile["validation_targets"]),
-                    "required_native": copy.deepcopy(profile["required_native"]),
-                    "forbidden_native": copy.deepcopy(profile["forbidden_native"]),
-                    "allowed_dt_needed": copy.deepcopy(profile["allowed_dt_needed"]),
-                    "external_required_dependencies": copy.deepcopy(
-                        profile["external_required_dependencies"]
-                    ),
-                }
-                dependency_lock = {
-                    "build_tools": build_tool_dependency_records(
-                        catalog,
-                        profile["python_abi"],
-                        architecture,
-                    ),
-                    "runtime_dependencies": runtime_dependency_records(
-                        catalog,
-                        profile["python_abi"],
-                        architecture,
-                    ),
-                }
-                builder = profile["builders"][architecture]
-                wheel_identity = {
-                    "profile_id": profile["id"],
-                    "cpu_arch": architecture,
-                    "builder_sha256": sha256_value(builder),
-                    "dependency_lock_sha256": sha256_value(dependency_lock),
-                }
-                wheel_task: dict[str, Any] = {
-                    "task_id": _opaque_task_id("wheel", wheel_identity),
-                    **declaration,
-                    "declaration_sha256": sha256_value(declaration),
-                    "runner": catalog["runner_map"][architecture],
-                    "platform": f"linux/{architecture}",
-                    "builder": builder,
-                    "builder_sha256": sha256_value(builder),
-                    "build": copy.deepcopy(profile["build"]),
-                    "dependency_lock_sha256": sha256_value(dependency_lock),
-                    "dependency_lock": dependency_lock,
-                    "runtime_requirements": copy.deepcopy(runtime_requirements),
-                    "runtime_patch_manifest": copy.deepcopy(patch_manifest),
-                    "runtime_patch_manifest_sha256": patch_manifest_sha256,
-                    "write_authority": write_authority,
-                    "build_eligible": True,
-                }
-                wheel_task["artifact_name"] = f"ucm-wheel-{wheel_task['task_id']}"
-                wheel_task["task_sha256"] = sha256_value(wheel_task)
-                wheel_tasks_by_key[wheel_key] = wheel_task
-            wheel_task = wheel_tasks_by_key[wheel_key]
-            member = members[architecture]
-            runtime = {
-                "product_id": snapshot["product_id"],
-                "repository": snapshot["repository"],
-                "tag": snapshot["tag"],
-                "version": snapshot["version"],
-                "channel": snapshot["channel"],
-                "variant": snapshot["variant"],
-                "index_digest": snapshot["index_digest"],
-                **member,
-            }
-            image_identity = {
-                "family_task_id": family_task_id,
-                "wheel_task_id": wheel_task["task_id"],
-                "cpu_arch": architecture,
-                "runtime_sha256": sha256_value(runtime),
-            }
-            image_task: dict[str, Any] = {
-                "task_id": _opaque_task_id("image", image_identity),
-                "family_task_id": family_task_id,
-                "wheel_task_id": wheel_task["task_id"],
-                "spec_id": wheel_task["spec_id"],
-                "profile_id": profile["id"],
-                "compatibility_rule_id": rule["id"],
-                "runtime_patch_rule_id": patch_rule["id"],
-                "runtime_patch_product": product["runtime_product"],
-                "runtime_patch_strategy": patch_rule["strategy"],
-                "runtime_patch_variants": copy.deepcopy(runtime_patch_variants),
-                "runner": catalog["runner_map"][architecture],
-                "cpu_arch": architecture,
-                "platform": f"linux/{architecture}",
-                "builder": profile["builders"][architecture],
-                "builder_sha256": wheel_task["builder_sha256"],
-                "build": copy.deepcopy(profile["build"]),
-                "runtime": runtime,
-                "runtime_sha256": sha256_value(runtime),
-                "target_repository": snapshot["target_repository"],
-                "target_tag": snapshot["target_tag"],
-                "python_abi": profile["python_abi"],
-                "python_version": profile["python_version"],
-                "wheel_version": profile["wheel_version"],
-                "wheel_platform": profile["wheel_platform"],
-                "required_native": profile["required_native"],
-                "forbidden_native": profile["forbidden_native"],
-                "allowed_dt_needed": profile["allowed_dt_needed"],
-                "external_required_dependencies": profile[
-                    "external_required_dependencies"
-                ],
-                "dependency_lock_sha256": wheel_task["dependency_lock_sha256"],
-                "dependency_lock": copy.deepcopy(wheel_task["dependency_lock"]),
-                "runtime_requirements": copy.deepcopy(runtime_requirements),
-                "runtime_patch_manifest_sha256": patch_manifest_sha256,
-                "write_authority": write_authority,
-                "build_eligible": True,
-            }
-            image_task["artifact_name"] = f"ucm-image-{image_task['task_id']}"
-            image_task["wheel_artifact_name"] = wheel_task["artifact_name"]
-            image_task["task_sha256"] = sha256_value(image_task)
-            image_tasks.append(image_task)
-            family_images.append(image_task)
-
-        family_runtime = {
-            "repository": snapshot["repository"],
-            "tag": snapshot["tag"],
-            "version": snapshot["version"],
-            "channel": snapshot["channel"],
-            "variant": snapshot["variant"],
-            "index_digest": snapshot["index_digest"],
-        }
-        control_image = family_images[0]
-        family_task: dict[str, Any] = {
-            "task_id": family_task_id,
-            "product_id": snapshot["product_id"],
-            "control_task_id": control_image["task_id"],
-            "control_arch": control_image["cpu_arch"],
-            "control_runner": control_image["runner"],
-            "runner": [item["runner"] for item in family_images],
-            "cpu_arch": [item["cpu_arch"] for item in family_images],
-            "platform": [item["platform"] for item in family_images],
-            "builder": [item["builder"] for item in family_images],
-            "builder_sha256": [item["builder_sha256"] for item in family_images],
-            "runtime": family_runtime,
-            "runtime_sha256": sha256_value(family_runtime),
-            "snapshot_sha256": sha256_value(snapshot),
-            "target_repository": snapshot["target_repository"],
-            "target_tag": snapshot["target_tag"],
-            "image_task_ids": [item["task_id"] for item in family_images],
-            "wheel_task_ids": {
-                item["cpu_arch"]: item["wheel_task_id"] for item in family_images
-            },
-            "member_set_sha256": sha256_value(
-                [item["task_sha256"] for item in family_images]
-            ),
-            "write_authority": write_authority,
-        }
-        family_task["artifact_name"] = f"ucm-family-{family_task['task_id']}"
-        family_task["task_sha256"] = sha256_value(family_task)
-        family_tasks.append(family_task)
-
-    wheel_tasks = sorted(
-        wheel_tasks_by_key.values(),
-        key=lambda item: (item["profile_id"], item["cpu_arch"]),
-    )
-    limits = catalog["matrix_limits"]
-    cardinalities = {
-        "wheel_tasks": len(wheel_tasks),
-        "image_tasks": len(image_tasks),
-        "family_tasks": len(family_tasks),
-    }
-    for task_kind, count in cardinalities.items():
-        limit = limits[f"max_{task_kind}"]
-        if count > limit:
-            raise ValueError(
-                f"matrix limit max_{task_kind}={limit} exceeded by exact "
-                f"generated set of {count}"
-            )
     result: dict[str, Any] = {
         "schema_version": 2,
         "kind": "ucm-resolved-build-plan",
-        "lane": lane,
-        "wheel_tasks": wheel_tasks,
-        "image_tasks": image_tasks,
-        "family_tasks": family_tasks,
-        "cardinalities": cardinalities,
+        "lane": plan.lane,
+        "wheel_tasks": plan.wheel_tasks,
+        "image_tasks": plan.image_tasks,
+        "family_tasks": plan.family_tasks,
+        "cardinalities": {
+            "wheel_tasks": len(plan.wheel_tasks),
+            "image_tasks": len(plan.image_tasks),
+            "family_tasks": len(plan.family_tasks),
+        },
     }
     result["plan_sha256"] = sha256_value(result)
     return result

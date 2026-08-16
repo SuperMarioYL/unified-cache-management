@@ -28,6 +28,8 @@ from packaging.version import InvalidVersion, Version
 
 from . import core
 from .core import (
+    _LINKED_WHEEL_FIELDS,
+    _RUNTIME_KEYS,
     canonical_bytes,
     sha256_value,
 )
@@ -73,13 +75,6 @@ _RESOLVED_PLAN_FIELDS = frozenset(
     "family_tasks github_wheel_matrix github_image_matrix github_family_matrix "
     "pr_smoke expected_artifacts exclusions operations counts "
     "resolved_plan_sha256".split()
-)
-_LINKED_WHEEL_FIELDS = frozenset(
-    "spec_id profile_id runner cpu_arch platform builder builder_sha256 build "
-    "python_abi python_version wheel_version wheel_platform required_native "
-    "forbidden_native allowed_dt_needed external_required_dependencies "
-    "dependency_lock_sha256 dependency_lock runtime_requirements "
-    "runtime_patch_manifest_sha256 write_authority build_eligible".split()
 )
 _PLAN_SOURCE_KEYS = frozenset(
     "repository staging_repository default_branch release_tag release_policy "
@@ -820,24 +815,6 @@ def select_catalog_tags(
     return selected, exclusions
 
 
-def _target_coordinate(
-    catalog: dict[str, Any], selected: dict[str, str]
-) -> tuple[str, str]:
-    matches = [
-        product
-        for product in catalog["upstream_products"]
-        if product["id"] == selected["product_id"]
-    ]
-    if len(matches) != 1:
-        raise ValueError("selected product must have exactly one target configuration")
-    product = matches[0]
-    target_repository = product.get("target_repository")
-    target_tag_suffix = product.get("target_tag_suffix")
-    if not isinstance(target_repository, str) or not isinstance(target_tag_suffix, str):
-        raise ValueError("selected product target configuration is malformed")
-    return target_repository, selected["tag"] + target_tag_suffix
-
-
 def _artifact_set(tasks: list[dict[str, Any]], prefix: str) -> list[dict[str, str]]:
     return [
         {"task_id": task["task_id"], "name": task["artifact_name"]} for task in tasks
@@ -1026,14 +1003,13 @@ def resolve_catalog(
             fixture=snapshot_fixture,
         )
         operations.extend(scan["operations"])
-        target_repository, target_tag = _target_coordinate(catalog, item)
         resolved_upstreams.append(
             {
                 **copy.deepcopy(item),
                 "index_digest": scan["snapshot"]["index_digest"],
                 "members": scan["snapshot"]["members"],
-                "target_repository": target_repository,
-                "target_tag": target_tag,
+                "target_repository": product["target_repository"],
+                "target_tag": item["tag"] + product["target_tag_suffix"],
             }
         )
     if repositories_fixture is not None:
@@ -1041,19 +1017,21 @@ def resolve_catalog(
             snapshots = repositories_fixture[repository]["snapshots"]
             if set(snapshots) != selected_fixture_tags[repository]:
                 raise ValueError(
-                    f"registry fixture snapshots are not the exact selected set for {repository}"
+                    f"registry fixture snapshots are not the exact selected set "
+                    f"for {repository}"
                 )
 
-    expanded = core.expand_release_plan(catalog, resolved_upstreams, lane=lane)
-    wheel_tasks = expanded["wheel_tasks"]
-    image_tasks = expanded["image_tasks"]
-    family_tasks = expanded["family_tasks"]
+    plan = core.ReleasePlan.build(catalog, resolved_upstreams, lane=lane)
+    wheel_tasks = plan.wheel_tasks
+    image_tasks = plan.image_tasks
+    family_tasks = plan.family_tasks
+    _src = catalog["source"]
     source = {
-        "repository": catalog["source"]["repository"],
-        "staging_repository": catalog["source"]["staging_repository"],
-        "default_branch": catalog["source"]["default_branch"],
-        "release_tag": catalog["source"]["release_tag"],
-        "release_policy": catalog["source"]["release_policy"],
+        "repository": _src["repository"],
+        "staging_repository": _src["staging_repository"],
+        "default_branch": _src["default_branch"],
+        "release_tag": _src["release_tag"],
+        "release_policy": _src["release_policy"],
         "version_file": catalog["version_file"],
         "ucm_version": catalog["ucm_version"],
         "commit": source_sha,
@@ -1102,6 +1080,11 @@ def resolve_catalog(
     return result
 
 
+_SOURCE_STR_FIELDS = ("default_branch", "release_policy", "version_file", "ucm_version")
+_CHART_STR_FIELDS = ("source", "name", "version", "app_version", "publication_target")
+_FAMILY_PROJECT_KEYS = ("runner", "cpu_arch", "platform", "builder", "builder_sha256")
+
+
 def validate_resolved_plan(plan: dict[str, Any]) -> None:
     """Validate the immutable envelope and every task hash before consumption."""
     if not isinstance(plan, dict):
@@ -1126,11 +1109,15 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
     }
     if claimed_hash != core.sha256_value(unhashed):
         raise ValueError("resolved plan hash mismatch")
+
     source = plan["source"]
+    if not isinstance(source, dict) or set(source) != _PLAN_SOURCE_KEYS:
+        raise ValueError("resolved plan source is malformed")
+    for field in _SOURCE_STR_FIELDS:
+        if not isinstance(source[field], str) or not source[field]:
+            raise ValueError("resolved plan source is malformed")
     if (
-        not isinstance(source, dict)
-        or set(source) != _PLAN_SOURCE_KEYS
-        or not isinstance(source["repository"], str)
+        not isinstance(source["repository"], str)
         or re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", source["repository"])
         is None
         or not isinstance(source["staging_repository"], str)
@@ -1140,36 +1127,22 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
         is None
         or not isinstance(source["commit"], str)
         or re.fullmatch(r"[0-9a-f]{40}", source["commit"]) is None
-        or not isinstance(source["default_branch"], str)
-        or not source["default_branch"]
-        or not isinstance(source["release_policy"], str)
-        or not source["release_policy"]
-        or not isinstance(source["version_file"], str)
-        or not source["version_file"]
         or Path(source["version_file"]).is_absolute()
         or ".." in Path(source["version_file"]).parts
-        or not isinstance(source["ucm_version"], str)
-        or not source["ucm_version"]
         or source["release_tag"] != f"v{source['ucm_version']}"
     ):
         raise ValueError("resolved plan source is malformed")
     if plan["source_sha256"] != core.sha256_value(source):
         raise ValueError("resolved plan source hash mismatch")
+
     chart = plan["chart"]
     if (
         not isinstance(chart, dict)
         or set(chart) - {"provenance"} != _PLAN_CHART_KEYS
         or any(
-            not isinstance(chart[field], str) or not chart[field]
-            for field in (
-                "source",
-                "name",
-                "version",
-                "app_version",
-                "publication_target",
-            )
+            not isinstance(chart.get(f), str) or not chart[f] for f in _CHART_STR_FIELDS
         )
-        or not isinstance(chart["validation_cases"], list)
+        or not isinstance(chart.get("validation_cases"), list)
         or not chart["validation_cases"]
     ):
         raise ValueError("resolved plan Chart authority is malformed")
@@ -1220,13 +1193,11 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
                 if operation.get("type") == "fixture-tag-page-read"
                 else {"type", "capability", "reference"}
             )
-            or (
-                "page" in operation
-                and (
-                    not isinstance(operation["page"], int)
-                    or isinstance(operation["page"], bool)
-                    or operation["page"] < 1
-                )
+            or "page" in operation
+            and (
+                not isinstance(operation["page"], int)
+                or isinstance(operation["page"], bool)
+                or operation["page"] < 1
             )
         ):
             raise ValueError("resolved plan operation is malformed")
@@ -1276,6 +1247,10 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
             }
             if task.get("task_sha256") != core.sha256_value(task_payload):
                 raise ValueError(f"resolved plan {task_kind} task hash mismatch")
+            if task.get("write_authority") != expected_write_authority:
+                raise ValueError(
+                    f"resolved plan {task_kind} task lane authority mismatch"
+                )
             if task_kind in {"wheel", "image"}:
                 cpu_authority = core.cpu_toolchain_authority(
                     task.get("cpu_arch"),
@@ -1312,98 +1287,62 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
                     task.get("control_arch"),
                     location="resolved plan family control_arch",
                 )
-            if task.get("write_authority") != expected_write_authority:
-                raise ValueError(
-                    f"resolved plan {task_kind} task lane authority mismatch"
-                )
 
     wheel_tasks = tasks_by_kind["wheel"]
     image_tasks = tasks_by_kind["image"]
     family_tasks = tasks_by_kind["family"]
     wheels_by_id = {task["task_id"]: task for task in wheel_tasks}
-    families_by_id = {task["task_id"]: task for task in family_tasks}
+    snapshots_by_hash = {
+        core.sha256_value(snapshot): snapshot for snapshot in snapshots
+    }
     for image in image_tasks:
-        if image.get("wheel_task_id") not in wheels_by_id:
-            raise ValueError("resolved plan image references an unknown wheel task")
-        if image.get("family_task_id") not in families_by_id:
-            raise ValueError("resolved plan image references an unknown family task")
-        wheel = wheels_by_id[image["wheel_task_id"]]
-        if any(image[field] != wheel[field] for field in _LINKED_WHEEL_FIELDS) or (
-            image["wheel_artifact_name"] != wheel["artifact_name"]
-        ):
+        wheel = wheels_by_id.get(image.get("wheel_task_id"))
+        if wheel is None or image.get("family_task_id") not in {
+            task["task_id"] for task in family_tasks
+        }:
+            raise ValueError("resolved plan image references an unknown task")
+        if any(
+            image[field] != wheel[field] for field in _LINKED_WHEEL_FIELDS
+        ) or image.get("wheel_artifact_name") != wheel.get("artifact_name"):
             raise ValueError("resolved plan image/wheel linkage is inconsistent")
+
     for family in family_tasks:
         linked = [
-            image
-            for image in image_tasks
-            if image["family_task_id"] == family["task_id"]
+            img for img in image_tasks if img.get("family_task_id") == family["task_id"]
         ]
-        if not linked or family.get("image_task_ids") != [
-            image["task_id"] for image in linked
-        ]:
-            raise ValueError("resolved plan family/image linkage is inconsistent")
-        expected_family_projection = {
+        snapshot = snapshots_by_hash.get(family.get("snapshot_sha256"))
+        if not linked or snapshot is None:
+            raise ValueError("resolved plan family snapshot linkage is inconsistent")
+        expected_runtime = {k: snapshot[k] for k in _RUNTIME_KEYS}
+        expected_family = {
             "control_task_id": linked[0]["task_id"],
             "control_arch": linked[0]["cpu_arch"],
             "control_runner": linked[0]["runner"],
-            "runner": [image["runner"] for image in linked],
-            "cpu_arch": [image["cpu_arch"] for image in linked],
-            "platform": [image["platform"] for image in linked],
-            "builder": [image["builder"] for image in linked],
-            "builder_sha256": [image["builder_sha256"] for image in linked],
+            **{k: [img[k] for img in linked] for k in _FAMILY_PROJECT_KEYS},
             "member_set_sha256": core.sha256_value(
-                [image["task_sha256"] for image in linked]
+                [img["task_sha256"] for img in linked]
             ),
+            "image_task_ids": [img["task_id"] for img in linked],
+            "wheel_task_ids": {img["cpu_arch"]: img["wheel_task_id"] for img in linked},
+            "product_id": snapshot["product_id"],
+            "runtime": expected_runtime,
+            "runtime_sha256": core.sha256_value(expected_runtime),
+            "target_repository": snapshot["target_repository"],
+            "target_tag": snapshot["target_tag"],
         }
-        if any(
-            family[field] != value
-            for field, value in expected_family_projection.items()
-        ):
+        if any(family.get(field) != value for field, value in expected_family.items()):
             raise ValueError("resolved plan family/image projection is inconsistent")
-        if family.get("wheel_task_ids") != {
-            image["cpu_arch"]: image["wheel_task_id"] for image in linked
-        }:
-            raise ValueError("resolved plan family/wheel linkage is inconsistent")
-        snapshot_matches = [
-            snapshot
-            for snapshot in snapshots
-            if core.sha256_value(snapshot) == family.get("snapshot_sha256")
-        ]
-        if len(snapshot_matches) != 1:
-            raise ValueError("resolved plan family snapshot linkage is inconsistent")
-        snapshot = snapshot_matches[0]
-        expected_family_runtime = {
-            "repository": snapshot["repository"],
-            "tag": snapshot["tag"],
-            "version": snapshot["version"],
-            "channel": snapshot["channel"],
-            "variant": snapshot["variant"],
-            "index_digest": snapshot["index_digest"],
-        }
-        if (
-            family.get("product_id") != snapshot["product_id"]
-            or family.get("runtime") != expected_family_runtime
-            or family.get("runtime_sha256")
-            != core.sha256_value(expected_family_runtime)
-            or family.get("target_repository") != snapshot["target_repository"]
-            or family.get("target_tag") != snapshot["target_tag"]
-        ):
-            raise ValueError("resolved plan family/snapshot linkage is inconsistent")
         for image in linked:
             member = snapshot["members"].get(image["cpu_arch"])
-            expected_runtime = {
+            expected_img_runtime = {
                 "product_id": snapshot["product_id"],
-                "repository": snapshot["repository"],
-                "tag": snapshot["tag"],
-                "version": snapshot["version"],
-                "channel": snapshot["channel"],
-                "variant": snapshot["variant"],
-                "index_digest": snapshot["index_digest"],
+                **expected_runtime,
                 **(member or {}),
             }
             if (
-                image.get("runtime") != expected_runtime
-                or image.get("runtime_sha256") != core.sha256_value(expected_runtime)
+                image.get("runtime") != expected_img_runtime
+                or image.get("runtime_sha256")
+                != core.sha256_value(expected_img_runtime)
                 or image.get("target_repository") != family["target_repository"]
                 or image.get("target_tag") != family["target_tag"]
             ):
@@ -1421,52 +1360,48 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
     }
     if plan["counts"] != expected_counts:
         raise ValueError("resolved plan counts mismatch")
-    expected_wheel_matrix = _wheel_matrix(wheel_tasks)
-    expected_image_matrix = _image_matrix(image_tasks)
-    expected_family_matrix = _family_matrix(family_tasks)
-    if plan["github_wheel_matrix"] != expected_wheel_matrix:
-        raise ValueError("resolved plan wheel matrix mismatch")
-    if plan["github_image_matrix"] != expected_image_matrix:
-        raise ValueError("resolved plan image matrix mismatch")
-    if plan["github_family_matrix"] != expected_family_matrix:
-        raise ValueError("resolved plan family matrix mismatch")
+    for key, fn, tasks in (
+        ("github_wheel_matrix", _wheel_matrix, wheel_tasks),
+        ("github_image_matrix", _image_matrix, image_tasks),
+        ("github_family_matrix", _family_matrix, family_tasks),
+    ):
+        if plan[key] != fn(tasks):
+            raise ValueError(f"resolved plan {key} mismatch")
     smoke = plan["pr_smoke"]
     if not isinstance(smoke, dict) or set(smoke) != {
         "github_wheel_matrix",
         "github_image_matrix",
     }:
         raise ValueError("resolved plan PR smoke projection is malformed")
-    smoke_wheel = smoke["github_wheel_matrix"]
-    smoke_image = smoke["github_image_matrix"]
-    if (
-        not isinstance(smoke_wheel, dict)
-        or set(smoke_wheel) != {"include"}
-        or not isinstance(smoke_wheel["include"], list)
-        or not smoke_wheel["include"]
-        or not isinstance(smoke_image, dict)
-        or set(smoke_image) != {"include"}
-        or not isinstance(smoke_image["include"], list)
-        or not smoke_image["include"]
-    ):
-        raise ValueError("resolved plan PR smoke matrices are malformed")
+    for key in ("github_wheel_matrix", "github_image_matrix"):
+        matrix = smoke[key]
+        if (
+            not isinstance(matrix, dict)
+            or set(matrix) != {"include"}
+            or not isinstance(matrix["include"], list)
+            or not matrix["include"]
+        ):
+            raise ValueError("resolved plan PR smoke matrices are malformed")
     expected_wheels_by_id = {
-        item["task_id"]: item for item in expected_wheel_matrix["include"]
+        i["task_id"]: i for i in _wheel_matrix(wheel_tasks)["include"]
     }
     expected_images_by_id = {
-        item["task_id"]: item for item in expected_image_matrix["include"]
+        i["task_id"]: i for i in _image_matrix(image_tasks)["include"]
     }
+    smoke_wheel = smoke["github_wheel_matrix"]["include"]
+    smoke_image = smoke["github_image_matrix"]["include"]
     if any(
         item != expected_wheels_by_id.get(item.get("task_id"))
-        for item in smoke_wheel["include"]
+        for item in smoke_wheel
         if isinstance(item, dict)
     ) or any(
         item != expected_images_by_id.get(item.get("task_id"))
-        for item in smoke_image["include"]
+        for item in smoke_image
         if isinstance(item, dict)
     ):
         raise ValueError("resolved plan PR smoke matrices differ from full plan")
-    smoke_image_wheels = {item["wheel_task_id"] for item in smoke_image["include"]}
-    if {item["task_id"] for item in smoke_wheel["include"]} != smoke_image_wheels:
+    smoke_image_wheels = {item["wheel_task_id"] for item in smoke_image}
+    if {item["task_id"] for item in smoke_wheel} != smoke_image_wheels:
         raise ValueError("resolved plan PR smoke wheel dependency set mismatch")
     expected_artifacts = {
         "resolved_plan": f"ucm-resolved-plan-{source['commit']}",
