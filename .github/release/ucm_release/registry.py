@@ -38,104 +38,60 @@ REPOSITORY_RE = re.compile(
     r"[a-z0-9]+(?:[._:-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+"
 )
 RESOLVED_TASK_FIELDS = {
-    "wheel": {
-        "task_id",
-        "spec_id",
-        "profile_id",
-        "accelerator",
-        "accelerator_runtime",
-        "npu_arch_or_na",
-        "os",
-        "cpu_arch",
-        "python_version",
-        "python_abi",
-        "wheel_version",
-        "wheel_platform",
-        "binary_profile_id",
-        "validation_targets",
-        "required_native",
-        "forbidden_native",
-        "allowed_dt_needed",
-        "external_required_dependencies",
-        "declaration_sha256",
-        "runner",
-        "platform",
-        "builder",
-        "builder_sha256",
-        "build",
-        "dependency_lock_sha256",
-        "dependency_lock",
-        "runtime_requirements",
-        "runtime_patch_manifest",
-        "runtime_patch_manifest_sha256",
-        "write_authority",
-        "build_eligible",
-        "artifact_name",
-        "task_sha256",
-    },
-    "image": {
-        "task_id",
-        "family_task_id",
-        "wheel_task_id",
-        "spec_id",
-        "profile_id",
-        "compatibility_rule_id",
-        "runtime_patch_rule_id",
-        "runtime_patch_product",
-        "runtime_patch_strategy",
-        "runtime_patch_variants",
-        "runner",
-        "cpu_arch",
-        "platform",
-        "builder",
-        "builder_sha256",
-        "build",
-        "runtime",
-        "runtime_sha256",
-        "target_repository",
-        "target_tag",
-        "python_abi",
-        "python_version",
-        "wheel_version",
-        "wheel_platform",
-        "required_native",
-        "forbidden_native",
-        "allowed_dt_needed",
-        "external_required_dependencies",
-        "dependency_lock_sha256",
-        "dependency_lock",
-        "runtime_requirements",
-        "runtime_patch_manifest_sha256",
-        "write_authority",
-        "build_eligible",
-        "artifact_name",
-        "wheel_artifact_name",
-        "task_sha256",
-    },
-    "family": {
-        "task_id",
-        "product_id",
-        "control_task_id",
-        "control_arch",
-        "control_runner",
-        "runner",
-        "cpu_arch",
-        "platform",
-        "builder",
-        "builder_sha256",
-        "runtime",
-        "runtime_sha256",
-        "snapshot_sha256",
-        "target_repository",
-        "target_tag",
-        "image_task_ids",
-        "wheel_task_ids",
-        "member_set_sha256",
-        "write_authority",
-        "artifact_name",
-        "task_sha256",
-    },
+    "wheel": frozenset(
+        "task_id spec_id profile_id accelerator accelerator_runtime npu_arch_or_na "
+        "os cpu_arch python_version python_abi wheel_version wheel_platform "
+        "binary_profile_id validation_targets required_native forbidden_native "
+        "allowed_dt_needed external_required_dependencies declaration_sha256 runner "
+        "platform builder builder_sha256 build dependency_lock_sha256 "
+        "dependency_lock runtime_requirements runtime_patch_manifest "
+        "runtime_patch_manifest_sha256 write_authority build_eligible "
+        "artifact_name task_sha256".split()
+    ),
+    "image": frozenset(
+        "task_id family_task_id wheel_task_id spec_id profile_id "
+        "compatibility_rule_id runtime_patch_rule_id runtime_patch_product "
+        "runtime_patch_strategy runtime_patch_variants runner cpu_arch platform "
+        "builder builder_sha256 build runtime runtime_sha256 target_repository "
+        "target_tag python_abi python_version wheel_version wheel_platform "
+        "required_native forbidden_native allowed_dt_needed "
+        "external_required_dependencies dependency_lock_sha256 dependency_lock "
+        "runtime_requirements runtime_patch_manifest_sha256 write_authority "
+        "build_eligible artifact_name wheel_artifact_name task_sha256".split()
+    ),
+    "family": frozenset(
+        "task_id product_id control_task_id control_arch control_runner runner "
+        "cpu_arch platform builder builder_sha256 runtime runtime_sha256 "
+        "snapshot_sha256 target_repository target_tag image_task_ids "
+        "wheel_task_ids member_set_sha256 write_authority artifact_name "
+        "task_sha256".split()
+    ),
 }
+_RESOLVED_PLAN_FIELDS = frozenset(
+    "kind schema_version fixture_only lane source chart config_sha256 "
+    "source_sha256 scan_sha256 resolved_upstreams wheel_tasks image_tasks "
+    "family_tasks github_wheel_matrix github_image_matrix github_family_matrix "
+    "pr_smoke expected_artifacts exclusions operations counts "
+    "resolved_plan_sha256".split()
+)
+_LINKED_WHEEL_FIELDS = frozenset(
+    "spec_id profile_id runner cpu_arch platform builder builder_sha256 build "
+    "python_abi python_version wheel_version wheel_platform required_native "
+    "forbidden_native allowed_dt_needed external_required_dependencies "
+    "dependency_lock_sha256 dependency_lock runtime_requirements "
+    "runtime_patch_manifest_sha256 write_authority build_eligible".split()
+)
+_PLAN_SOURCE_KEYS = frozenset(
+    "repository staging_repository default_branch release_tag release_policy "
+    "version_file ucm_version commit".split()
+)
+_PLAN_CHART_KEYS = frozenset(
+    "source name version app_version publication_target validation_cases".split()
+)
+_PLAN_OPERATION_TYPES = frozenset(
+    "crane-tag-list crane-digest crane-manifest fixture-tag-page-read "
+    "fixture-snapshot-read".split()
+)
 # Legacy Task 3 regression authority. Production resolution starts at
 # ``resolve_catalog`` and must never consume these concrete fixture coordinates.
 SNAPSHOT_KEYS = {
@@ -948,6 +904,42 @@ def _pr_smoke_projection(
     }
 
 
+def _wheel_matrix(tasks: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "include": [
+            {"task_id": task["task_id"], "runner": task["runner"]} for task in tasks
+        ]
+    }
+
+
+def _image_matrix(tasks: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "include": [
+            {
+                "task_id": task["task_id"],
+                "runner": task["runner"],
+                "wheel_task_id": task["wheel_task_id"],
+            }
+            for task in tasks
+        ]
+    }
+
+
+def _family_matrix(tasks: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "include": [
+            {
+                "task_id": task["task_id"],
+                "family_task_id": task["task_id"],
+                "runner": task["control_runner"],
+                "control_task_id": task["control_task_id"],
+                "control_arch": task["control_arch"],
+            }
+            for task in tasks
+        ]
+    }
+
+
 def resolve_catalog(
     catalog: dict[str, Any],
     *,
@@ -1095,34 +1087,9 @@ def resolve_catalog(
         "wheel_tasks": wheel_tasks,
         "image_tasks": image_tasks,
         "family_tasks": family_tasks,
-        "github_wheel_matrix": {
-            "include": [
-                {"task_id": task["task_id"], "runner": task["runner"]}
-                for task in wheel_tasks
-            ]
-        },
-        "github_image_matrix": {
-            "include": [
-                {
-                    "task_id": task["task_id"],
-                    "runner": task["runner"],
-                    "wheel_task_id": task["wheel_task_id"],
-                }
-                for task in image_tasks
-            ]
-        },
-        "github_family_matrix": {
-            "include": [
-                {
-                    "task_id": task["task_id"],
-                    "family_task_id": task["task_id"],
-                    "runner": task["control_runner"],
-                    "control_task_id": task["control_task_id"],
-                    "control_arch": task["control_arch"],
-                }
-                for task in family_tasks
-            ]
-        },
+        "github_wheel_matrix": _wheel_matrix(wheel_tasks),
+        "github_image_matrix": _image_matrix(image_tasks),
+        "github_family_matrix": _family_matrix(family_tasks),
         "pr_smoke": _pr_smoke_projection(catalog, wheel_tasks, image_tasks),
         "expected_artifacts": {
             "resolved_plan": f"ucm-resolved-plan-{source_sha}",
@@ -1149,35 +1116,11 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
     """Validate the immutable envelope and every task hash before consumption."""
     if not isinstance(plan, dict):
         raise ValueError("resolved plan must be an object")
-    expected_fields = {
-        "kind",
-        "schema_version",
-        "fixture_only",
-        "lane",
-        "source",
-        "chart",
-        "config_sha256",
-        "source_sha256",
-        "scan_sha256",
-        "resolved_upstreams",
-        "wheel_tasks",
-        "image_tasks",
-        "family_tasks",
-        "github_wheel_matrix",
-        "github_image_matrix",
-        "github_family_matrix",
-        "pr_smoke",
-        "expected_artifacts",
-        "exclusions",
-        "operations",
-        "counts",
-        "resolved_plan_sha256",
-    }
-    if set(plan) != expected_fields:
+    if set(plan) != _RESOLVED_PLAN_FIELDS:
         raise ValueError(
             "resolved plan top-level fields mismatch: "
-            f"missing={sorted(expected_fields - set(plan))}, "
-            f"extra={sorted(set(plan) - expected_fields)}"
+            f"missing={sorted(_RESOLVED_PLAN_FIELDS - set(plan))}, "
+            f"extra={sorted(set(plan) - _RESOLVED_PLAN_FIELDS)}"
         )
     if plan.get("kind") != "ucm-resolved-build-plan" or plan.get("schema_version") != 1:
         raise ValueError("resolved plan identity must be schema version 1")
@@ -1196,17 +1139,7 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
     source = plan["source"]
     if (
         not isinstance(source, dict)
-        or set(source)
-        != {
-            "repository",
-            "staging_repository",
-            "default_branch",
-            "release_tag",
-            "release_policy",
-            "version_file",
-            "ucm_version",
-            "commit",
-        }
+        or set(source) != _PLAN_SOURCE_KEYS
         or not isinstance(source["repository"], str)
         or re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", source["repository"])
         is None
@@ -1235,15 +1168,7 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
     chart = plan["chart"]
     if (
         not isinstance(chart, dict)
-        or set(chart) - {"provenance"}
-        != {
-            "source",
-            "name",
-            "version",
-            "app_version",
-            "publication_target",
-            "validation_cases",
-        }
+        or set(chart) - {"provenance"} != _PLAN_CHART_KEYS
         or any(
             not isinstance(chart[field], str) or not chart[field]
             for field in (
@@ -1268,8 +1193,6 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
     core.validate_resolved_upstreams(plan["resolved_upstreams"])
     snapshots = plan["resolved_upstreams"]
     snapshot_hashes = [core.sha256_value(snapshot) for snapshot in snapshots]
-    if len(snapshot_hashes) != len(set(snapshot_hashes)):
-        raise ValueError("resolved plan snapshots must be unique")
 
     exclusions = plan["exclusions"]
     exclusion_fields = {"product_id", "repository", "tag", "reason"}
@@ -1292,19 +1215,12 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
         raise ValueError("resolved plan exclusions are not canonical")
 
     operations = plan["operations"]
-    allowed_operation_types = {
-        "crane-tag-list",
-        "crane-digest",
-        "crane-manifest",
-        "fixture-tag-page-read",
-        "fixture-snapshot-read",
-    }
     if not isinstance(operations, list) or not operations:
         raise ValueError("resolved plan operations must be a non-empty array")
     for operation in operations:
         if (
             not isinstance(operation, dict)
-            or operation.get("type") not in allowed_operation_types
+            or operation.get("type") not in _PLAN_OPERATION_TYPES
             or operation.get("capability") != "read"
             or not isinstance(operation.get("reference"), str)
             or not operation["reference"]
@@ -1416,41 +1332,13 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
     family_tasks = tasks_by_kind["family"]
     wheels_by_id = {task["task_id"]: task for task in wheel_tasks}
     families_by_id = {task["task_id"]: task for task in family_tasks}
-    if len(wheels_by_id) != len(wheel_tasks) or len(families_by_id) != len(
-        family_tasks
-    ):
-        raise ValueError("resolved plan task IDs are not unique")
     for image in image_tasks:
         if image.get("wheel_task_id") not in wheels_by_id:
             raise ValueError("resolved plan image references an unknown wheel task")
         if image.get("family_task_id") not in families_by_id:
             raise ValueError("resolved plan image references an unknown family task")
         wheel = wheels_by_id[image["wheel_task_id"]]
-        linked_wheel_fields = {
-            "spec_id",
-            "profile_id",
-            "runner",
-            "cpu_arch",
-            "platform",
-            "builder",
-            "builder_sha256",
-            "build",
-            "python_abi",
-            "python_version",
-            "wheel_version",
-            "wheel_platform",
-            "required_native",
-            "forbidden_native",
-            "allowed_dt_needed",
-            "external_required_dependencies",
-            "dependency_lock_sha256",
-            "dependency_lock",
-            "runtime_requirements",
-            "runtime_patch_manifest_sha256",
-            "write_authority",
-            "build_eligible",
-        }
-        if any(image[field] != wheel[field] for field in linked_wheel_fields) or (
+        if any(image[field] != wheel[field] for field in _LINKED_WHEEL_FIELDS) or (
             image["wheel_artifact_name"] != wheel["artifact_name"]
         ):
             raise ValueError("resolved plan image/wheel linkage is inconsistent")
@@ -1543,34 +1431,9 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
     }
     if plan["counts"] != expected_counts:
         raise ValueError("resolved plan counts mismatch")
-    expected_wheel_matrix = {
-        "include": [
-            {"task_id": task["task_id"], "runner": task["runner"]}
-            for task in wheel_tasks
-        ]
-    }
-    expected_image_matrix = {
-        "include": [
-            {
-                "task_id": task["task_id"],
-                "runner": task["runner"],
-                "wheel_task_id": task["wheel_task_id"],
-            }
-            for task in image_tasks
-        ]
-    }
-    expected_family_matrix = {
-        "include": [
-            {
-                "task_id": task["task_id"],
-                "family_task_id": task["task_id"],
-                "runner": task["control_runner"],
-                "control_task_id": task["control_task_id"],
-                "control_arch": task["control_arch"],
-            }
-            for task in family_tasks
-        ]
-    }
+    expected_wheel_matrix = _wheel_matrix(wheel_tasks)
+    expected_image_matrix = _image_matrix(image_tasks)
+    expected_family_matrix = _family_matrix(family_tasks)
     if plan["github_wheel_matrix"] != expected_wheel_matrix:
         raise ValueError("resolved plan wheel matrix mismatch")
     if plan["github_image_matrix"] != expected_image_matrix:

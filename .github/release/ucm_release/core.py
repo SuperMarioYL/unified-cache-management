@@ -1829,13 +1829,10 @@ def expand_release_plan(
         version = _pep440_version(snapshot["version"], "resolved upstream version")
         if snapshot["channel"] == "stable" and version.is_prerelease:
             raise ValueError("channel stable requires a final version")
-        if snapshot["channel"] == "rc" and (
-            version.epoch != 0
-            or version.pre is None
-            or version.pre[0] != "rc"
-            or version.dev is not None
-            or version.post is not None
-            or version.local is not None
+        if snapshot["channel"] == "rc" and not (
+            version.pre
+            and version.pre[0] == "rc"
+            and not (version.epoch or version.dev or version.post or version.local)
         ):
             raise ValueError("channel rc requires a plain rcN version")
         if version not in _pep440_specifier(
@@ -1917,21 +1914,10 @@ def expand_release_plan(
                     **declaration,
                     "declaration_sha256": sha256_value(declaration),
                     "runner": catalog["runner_map"][architecture],
-                    "cpu_arch": architecture,
                     "platform": f"linux/{architecture}",
                     "builder": builder,
                     "builder_sha256": sha256_value(builder),
                     "build": copy.deepcopy(profile["build"]),
-                    "python_version": profile["python_version"],
-                    "python_abi": profile["python_abi"],
-                    "wheel_version": profile["wheel_version"],
-                    "wheel_platform": profile["wheel_platform"],
-                    "required_native": profile["required_native"],
-                    "forbidden_native": profile["forbidden_native"],
-                    "allowed_dt_needed": profile["allowed_dt_needed"],
-                    "external_required_dependencies": profile[
-                        "external_required_dependencies"
-                    ],
                     "dependency_lock_sha256": sha256_value(dependency_lock),
                     "dependency_lock": dependency_lock,
                     "runtime_requirements": copy.deepcopy(runtime_requirements),
@@ -2054,12 +2040,11 @@ def expand_release_plan(
         "family_tasks": len(family_tasks),
     }
     for task_kind, count in cardinalities.items():
-        limit_name = f"max_{task_kind}"
-        limit = limits[limit_name]
+        limit = limits[f"max_{task_kind}"]
         if count > limit:
             raise ValueError(
-                f"matrix limit {limit_name}={limit} exceeded by exact generated "
-                f"set of {count}"
+                f"matrix limit max_{task_kind}={limit} exceeded by exact "
+                f"generated set of {count}"
             )
     result: dict[str, Any] = {
         "schema_version": 2,
