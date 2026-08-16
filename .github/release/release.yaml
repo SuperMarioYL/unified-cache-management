@@ -3,161 +3,88 @@ schema_version: 2
 ucm_version: 0.5.0rc1
 image_revision: 1
 version_file: version.ini
-source:
-  staging_repository: ghcr.io/{owner}/ucm-release-staging
-  default_branch: develop
-  release_policy: owner-reviewed-v1
-  protected_environment: release-production
-lanes:
-- feature-candidate
-- protected-tag
-runner_map:
-  amd64: ubuntu-24.04
-  arm64: ubuntu-24.04-arm
+source: {staging_repository: 'ghcr.io/{owner}/ucm-release-staging', default_branch: develop, release_policy: owner-reviewed-v1, protected_environment: release-production}
+lanes: [feature-candidate, protected-tag]
+runner_map: {amd64: ubuntu-24.04, arm64: ubuntu-24.04-arm}
 publish:
   pypi:
     enabled: true
     index: https://upload.pypi.org/legacy/
-    dists:
-    - uc-manager-cuda
-    - uc-manager-cann-a2
-    - uc-manager-cann-a3
-  ghcr:
-    enabled: true
-    namespace: ghcr.io/{owner}
-  dockerhub:
-    enabled: false
-    namespace: docker.io/{owner}
-  chart_oci:
-    enabled: true
-    namespace: ghcr.io/{owner}/charts
-  github_release:
-    enabled: true
+    dists: [uc-manager-cuda, uc-manager-cann-a2, uc-manager-cann-a3]
+  ghcr: {enabled: true, namespace: 'ghcr.io/{owner}'}
+  dockerhub: {enabled: false, namespace: 'docker.io/{owner}'}
+  chart_oci: {enabled: true, namespace: 'ghcr.io/{owner}/charts'}
+  github_release: {enabled: true}
 upstream_products:
 - id: vllm
   runtime_product: vllm
   repository: docker.io/vllm/vllm-openai
   target_repository: ghcr.io/{owner}/vllm-openai
   version_specifier: '>=0.21,<0.22'
-  channels:
-  - stable
+  channels: [stable]
   variants:
   - id: default
     tag_suffix: ''
     npu_arch: na
-    runtime_patch_variants:
-      vllm: default
-  required_cpu_architectures:
-  - amd64
-  - arm64
+    runtime_patch_variants: {vllm: default}
+  required_cpu_architectures: [amd64, arm64]
 - id: vllm-ascend
   runtime_product: vllm-ascend
   repository: quay.io/ascend/vllm-ascend
   target_repository: ghcr.io/{owner}/vllm-ascend
   version_specifier: '>=0.22.1rc1,<0.23'
-  channels:
-  - rc
+  channels: [rc]
   variants:
   - id: a2
     tag_suffix: ''
     npu_arch: a2
-    runtime_patch_variants:
-      vllm: default
-      vllm-ascend: a2
+    runtime_patch_variants: {vllm: default, vllm-ascend: a2}
   - id: a3
     tag_suffix: -a3
     npu_arch: a3
-    runtime_patch_variants:
-      vllm: default
-      vllm-ascend: a3
-  required_cpu_architectures:
-  - amd64
-  - arm64
+    runtime_patch_variants: {vllm: default, vllm-ascend: a3}
+  required_cpu_architectures: [amd64, arm64]
 compatibility:
   rules:
   - id: cuda-supported
-    upstream_products:
-    - vllm
+    upstream_products: [vllm]
     version_specifier: '>=0.21,<0.22'
-    variants:
-    - default
+    variants: [default]
     accelerator: cuda
-    accelerator_runtimes:
-    - cuda-13.0
-    npu_architectures:
-    - na
-    operating_systems:
-    - ubuntu-22.04
-    cpu_architectures:
-    - amd64
-    - arm64
-    python_abis:
-    - cp312
-    upstream_channels:
-    - stable
+    accelerator_runtimes: [cuda-13.0]
+    npu_architectures: [na]
+    operating_systems: [ubuntu-22.04]
+    cpu_architectures: [amd64, arm64]
+    python_abis: [cp312]
+    upstream_channels: [stable]
   - id: ascend-supported
-    upstream_products:
-    - vllm-ascend
+    upstream_products: [vllm-ascend]
     version_specifier: '>=0.22.1rc1,<0.23'
-    variants:
-    - a2
-    - a3
+    variants: [a2, a3]
     accelerator: ascend
-    accelerator_runtimes:
-    - cann-9.0.0
-    npu_architectures:
-    - a2
-    - a3
-    operating_systems:
-    - ubuntu-22.04
-    cpu_architectures:
-    - amd64
-    - arm64
-    python_abis:
-    - cp312
-    upstream_channels:
-    - rc
-  excluded_upstream_patterns:
-  - nightly
-  - dev
-  - custom
-  - 310p
-  - a5
-  - -a2
+    accelerator_runtimes: [cann-9.0.0]
+    npu_architectures: [a2, a3]
+    operating_systems: [ubuntu-22.04]
+    cpu_architectures: [amd64, arm64]
+    python_abis: [cp312]
+    upstream_channels: [rc]
+  excluded_upstream_patterns: [nightly, dev, custom, 310p, a5, -a2]
 chart:
   source: charts/ucm
   name: unified-cache-pd
   publication_target: github-release
   validation_cases:
-  - name: cuda
-    values: charts/ucm/models/cuda/values-qwen3-0p6b-1e1.yaml
-    product_id: vllm
-    variant: default
-    expected_resource: nvidia.com/gpu
-  - name: a2
-    values: charts/ucm/models/ascend/values-qwen3-0p6b-1e1.yaml
-    product_id: vllm-ascend
-    variant: a2
-    expected_resource: huawei.com/Ascend910
-  - name: a3
-    values: charts/ucm/models/ascend/values-qwen3-0p6b-1e1.yaml
-    product_id: vllm-ascend
-    variant: a3
-    expected_resource: huawei.com/Ascend910
+  - {name: cuda, values: charts/ucm/models/cuda/values-qwen3-0p6b-1e1.yaml, product_id: vllm, variant: default, expected_resource: nvidia.com/gpu}
+  - {name: a2, values: charts/ucm/models/ascend/values-qwen3-0p6b-1e1.yaml, product_id: vllm-ascend, variant: a2, expected_resource: huawei.com/Ascend910}
+  - {name: a3, values: charts/ucm/models/ascend/values-qwen3-0p6b-1e1.yaml, product_id: vllm-ascend, variant: a3, expected_resource: huawei.com/Ascend910}
 wheel_profiles:
 - id: cuda130
-  build:
-    docker_target: wheel
-    platform_arg: cuda
+  build: {docker_target: wheel, platform_arg: cuda}
   accelerator: cuda
   accelerator_runtime: cuda-13.0
-  npu_arch:
-  - na
-  os:
-  - ubuntu-22.04
-  cpu_arch:
-  - amd64
-  - arm64
+  npu_arch: [na]
+  os: [ubuntu-22.04]
+  cpu_arch: [amd64, arm64]
   python_version: '3.12'
   python_abi: cp312
   wheel_local_version: cuda130
@@ -165,21 +92,14 @@ wheel_profiles:
   wheel_platform: manylinux_2_28
   binary_profile_id: release-cuda130
   external_required_dependencies: []
-  validation_targets:
-  - cuda-13.0
+  validation_targets: [cuda-13.0]
 - id: cann900-a2
-  build:
-    docker_target: wheel
-    platform_arg: ascend
+  build: {docker_target: wheel, platform_arg: ascend}
   accelerator: ascend
   accelerator_runtime: cann-9.0.0
-  npu_arch:
-  - a2
-  os:
-  - ubuntu-22.04
-  cpu_arch:
-  - amd64
-  - arm64
+  npu_arch: [a2]
+  os: [ubuntu-22.04]
+  cpu_arch: [amd64, arm64]
   python_version: '3.12'
   python_abi: cp312
   wheel_local_version: cann900.a2
@@ -187,26 +107,15 @@ wheel_profiles:
   wheel_platform: linux
   binary_profile_id: release-cann900-a2
   external_required_dependencies:
-  - dependency: libascend_hal.so
-    provider: host-ascend-driver
-    expected_mount_root: /usr/local/Ascend/driver/lib64
-    relation: transitive
-    required_at: device-runtime
-  validation_targets:
-  - a2
+  - {dependency: libascend_hal.so, provider: host-ascend-driver, expected_mount_root: /usr/local/Ascend/driver/lib64, relation: transitive, required_at: device-runtime}
+  validation_targets: [a2]
 - id: cann900-a3
-  build:
-    docker_target: wheel
-    platform_arg: ascend-a3
+  build: {docker_target: wheel, platform_arg: ascend-a3}
   accelerator: ascend
   accelerator_runtime: cann-9.0.0
-  npu_arch:
-  - a3
-  os:
-  - ubuntu-22.04
-  cpu_arch:
-  - amd64
-  - arm64
+  npu_arch: [a3]
+  os: [ubuntu-22.04]
+  cpu_arch: [amd64, arm64]
   python_version: '3.12'
   python_abi: cp312
   wheel_local_version: cann900.a3
@@ -214,10 +123,5 @@ wheel_profiles:
   wheel_platform: linux
   binary_profile_id: release-cann900-a3
   external_required_dependencies:
-  - dependency: libascend_hal.so
-    provider: host-ascend-driver
-    expected_mount_root: /usr/local/Ascend/driver/lib64
-    relation: transitive
-    required_at: device-runtime
-  validation_targets:
-  - a3
+  - {dependency: libascend_hal.so, provider: host-ascend-driver, expected_mount_root: /usr/local/Ascend/driver/lib64, relation: transitive, required_at: device-runtime}
+  validation_targets: [a3]
