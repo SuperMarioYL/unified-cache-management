@@ -478,7 +478,7 @@ jobs:
             out/available-gib.txt
           if-no-files-found: error
           overwrite: false
-          retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref_protected == true && 90 || 3 }}
+          retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref_protected == true && 90 || 7 }}
       - name: Upload manually requested full OCI artifact
         if: ${{ inputs.deliver_full_oci }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -488,7 +488,7 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           overwrite: false
-          retention-days: 1
+          retention-days: 7
       - name: Upload protected internal OCI bridge
         if: >-
           ${{

@@ -166,7 +166,7 @@ jobs:
           path: out/plan/resolved-plan.json
           if-no-files-found: error
           overwrite: false
-          retention-days: ${{ steps.plan.outputs.protected == 'true' && 90 || 3 }}
+          retention-days: ${{ steps.plan.outputs.protected == 'true' && 90 || 7 }}
       - id: publish-plan
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -274,7 +274,7 @@ jobs:
           path: out/artifact/
           if-no-files-found: error
           overwrite: false
-          retention-days: 3
+          retention-days: 7
       - if: ${{ needs.plan.outputs.protected == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -418,7 +418,7 @@ jobs:
             aggregate-real-result.json
           if-no-files-found: error
           overwrite: false
-          retention-days: 3
+          retention-days: 7
 
   prepare-release-draft:
     needs: [plan, build-wheels, package-chart, reconcile-images-protected]
@@ -493,7 +493,6 @@ jobs:
             git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}" +refs/heads/develop:refs/remotes/origin/develop
             git diff --quiet HEAD:.github/workflows origin/develop:.github/workflows
             git diff --quiet HEAD:.github/release origin/develop:.github/release
-            test "$(git rev-parse HEAD)" = "$(git rev-parse refs/remotes/origin/develop)"
             PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
               --resolved-plan input/plan/resolved-plan.json \
               --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >/dev/null

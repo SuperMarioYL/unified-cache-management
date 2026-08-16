@@ -112,4 +112,4 @@ jobs:
           path: out/
           if-no-files-found: error
           overwrite: false
-          retention-days: 3
+          retention-days: 7
