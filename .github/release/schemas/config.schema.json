@@ -349,8 +349,8 @@
       "additionalProperties": false,
       "required": [
         "kind", "schema_version", "ucm_version", "image_revision", "version_file", "source",
-        "lanes", "runner_map", "pr_smoke", "docker_recipes", "upstream_products", "compatibility", "runtime_patch_rules", "matrix_limits", "scan_limits", "python_runtime_dependencies",
-        "python_build_lock", "chart", "wheel_profiles"
+        "lanes", "runner_map", "upstream_products", "compatibility",
+        "chart", "wheel_profiles"
       ],
       "properties": {
         "kind": {"const": "release-config"},

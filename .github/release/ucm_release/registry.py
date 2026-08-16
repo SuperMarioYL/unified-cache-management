@@ -1968,7 +1968,12 @@ def resolve_catalog(
     fixture: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Snapshot configured repositories once and emit one immutable build plan."""
-    core._exact_keys(catalog, core.RELEASE_KEYS, "release catalog")
+    core._exact_keys(
+        catalog,
+        core.RELEASE_KEYS,
+        "release catalog",
+        optional=core.OPTIONAL_CATALOG_KEYS,
+    )
     core.validate_catalog(catalog)
     if fixture is not None and lane == "protected-tag":
         raise ValueError("fixture resolution cannot acquire protected-tag authority")

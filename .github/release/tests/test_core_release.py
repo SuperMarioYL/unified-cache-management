@@ -777,7 +777,7 @@ def test_fixture_plan_projects_platform_loaders_and_driver_boundary() -> None:
 def test_release_authority_mutations_fail_closed(
     tmp_path: Path, mutation: str, message: str
 ) -> None:
-    release = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text())
+    release = copy.deepcopy(release_core.load_catalog())
     if mutation == "missing-profile":
         release["wheel_profiles"].pop()
     elif mutation == "extra-profile":
@@ -1163,9 +1163,7 @@ def test_setup_chart_and_configuration_share_version_authority() -> None:
         capture_output=True,
         check=True,
     ).stdout.strip()
-    release_config = yaml.safe_load(
-        (RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8")
-    )
+    release_config = release_core.load_catalog()
     chart = yaml.safe_load((ROOT / "charts" / "ucm" / "Chart.yaml").read_text())
     assert setup_version == version == release_config["ucm_version"]
     assert str(chart["appVersion"]) == version

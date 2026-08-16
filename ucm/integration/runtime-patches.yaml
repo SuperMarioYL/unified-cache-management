@@ -1,0 +1,212 @@
+# runtime-patches.yaml — vLLM version patch rules (moved from release.yaml)
+runtime_patch_rules:
+- id: vllm-0110
+  order: 10
+  product: vllm
+  version_specifier: ==0.11.0.*
+  channels:
+  - stable
+  variants:
+  - default
+  strategy: imports
+  imports:
+  - module: ucm.integration.vllm.patch.v0110.vllm.pc_patch
+  - module: ucm.integration.vllm.patch.v0110.vllm.sparse_patch
+    when:
+      sparse: true
+- id: vllm-0170
+  order: 20
+  product: vllm
+  version_specifier: ==0.17.0.*
+  channels:
+  - stable
+  variants:
+  - default
+  strategy: none
+  imports: []
+- id: vllm-0180
+  order: 30
+  product: vllm
+  version_specifier: ==0.18.0.*
+  channels:
+  - stable
+  variants:
+  - default
+  strategy: imports
+  imports:
+  - module: ucm.integration.vllm.patch.v0180.vllm.pc_patch
+  - module: ucm.integration.vllm.patch.load_failure_patch
+- id: vllm-0191
+  order: 40
+  product: vllm
+  version_specifier: ==0.19.1.*
+  channels:
+  - stable
+  variants:
+  - default
+  strategy: imports
+  imports:
+  - module: ucm.integration.vllm.patch.v0191.vllm.pc_patch
+  - module: ucm.integration.vllm.patch.load_failure_patch
+- id: vllm-0202
+  order: 50
+  product: vllm
+  version_specifier: ==0.20.2.*
+  channels:
+  - stable
+  variants:
+  - default
+  strategy: imports
+  imports:
+  - module: ucm.integration.vllm.patch.load_failure_patch
+- id: vllm-021x
+  order: 60
+  product: vllm
+  version_specifier: '>=0.21,<0.22'
+  channels:
+  - stable
+  variants:
+  - default
+  strategy: imports
+  imports:
+  - module: ucm.integration.vllm.patch.load_failure_patch
+- id: vllm-0221
+  order: 70
+  product: vllm
+  version_specifier: ==0.22.1.*
+  channels:
+  - stable
+  variants:
+  - default
+  strategy: imports
+  imports:
+  - module: ucm.integration.vllm.patch.load_failure_patch
+- id: vllm-0230
+  order: 80
+  product: vllm
+  version_specifier: ==0.23.0.*
+  channels:
+  - stable
+  variants:
+  - default
+  strategy: imports
+  imports:
+  - module: ucm.integration.vllm.patch.load_failure_patch
+- id: vllm-ascend-0110
+  order: 90
+  product: vllm-ascend
+  version_specifier: ==0.11.0.*
+  channels:
+  - stable
+  - rc
+  variants:
+  - a2
+  - a3
+  strategy: imports
+  imports:
+  - module: ucm.integration.vllm.patch.v0110.vllm_ascend.pc_ascend_patch
+  - module: ucm.integration.vllm.patch.v0110.vllm_ascend.sparse_ascend_patch
+    when:
+      sparse: true
+- id: vllm-ascend-0170
+  order: 100
+  product: vllm-ascend
+  version_specifier: ==0.17.0.*
+  channels:
+  - stable
+  - rc
+  variants:
+  - a2
+  - a3
+  strategy: imports
+  imports:
+  - module: ucm.integration.vllm.patch.v0180.vllm_ascend.ucm_connector_patch
+- id: vllm-ascend-0180
+  order: 110
+  product: vllm-ascend
+  version_specifier: ==0.18.0.*
+  channels:
+  - stable
+  - rc
+  variants:
+  - a2
+  - a3
+  strategy: imports
+  imports:
+  - module: ucm.integration.vllm.patch.ucm_connector_registration_patch
+  - module: ucm.integration.vllm.patch.v0180.vllm_ascend.pc_ascend_patch
+- id: vllm-ascend-0191
+  order: 120
+  product: vllm-ascend
+  version_specifier: ==0.19.1.*
+  channels:
+  - stable
+  - rc
+  variants:
+  - a2
+  - a3
+  strategy: imports
+  imports:
+  - module: ucm.integration.vllm.patch.ucm_connector_registration_patch
+  - module: ucm.integration.vllm.patch.v0191.vllm_ascend.cpu_binding_patch
+  - module: ucm.integration.vllm.patch.v0191.vllm_ascend.pc_ascend_patch
+- id: vllm-ascend-0202
+  order: 130
+  product: vllm-ascend
+  version_specifier: ==0.20.2.*
+  channels:
+  - stable
+  - rc
+  variants:
+  - a2
+  - a3
+  strategy: imports
+  imports:
+  - module: ucm.integration.vllm.patch.ucm_connector_registration_patch
+  - module: ucm.integration.vllm.patch.v0202.vllm_ascend.ascend_hybrid_cache_patch
+  - module: ucm.integration.vllm.patch.v0202.vllm_ascend.cpu_binding_patch
+- id: vllm-ascend-0210
+  order: 140
+  product: vllm-ascend
+  version_specifier: ==0.21.0.*
+  channels:
+  - stable
+  - rc
+  variants:
+  - a2
+  - a3
+  strategy: imports
+  imports:
+  - module: ucm.integration.vllm.patch.v0210.vllm_ascend.ascend_hybrid_cache_patch
+  - module: ucm.integration.vllm.patch.v0210.vllm_ascend.cpu_binding_patch
+- id: vllm-ascend-0221
+  order: 150
+  product: vllm-ascend
+  version_specifier: '>=0.22.1rc1,<0.22.2'
+  channels:
+  - stable
+  - rc
+  variants:
+  - a2
+  - a3
+  strategy: imports
+  imports:
+  - module: ucm.integration.vllm.patch.ucm_connector_registration_patch
+  - module: ucm.integration.vllm.patch.v0221.vllm_ascend.ascend_hybrid_cache_patch
+  - module: ucm.integration.vllm.patch.v0221.vllm_ascend.cpu_binding_patch
+- id: vllm-ascend-0230
+  order: 160
+  product: vllm-ascend
+  version_specifier: ==0.23.0.*
+  channels:
+  - stable
+  - rc
+  variants:
+  - a2
+  - a3
+  strategy: imports
+  imports:
+  - module: ucm.integration.vllm.patch.ucm_connector_registration_patch
+  - module: ucm.integration.vllm.patch.v0230.vllm_ascend.ascend_hybrid_cache_patch
+  - module: ucm.integration.vllm.patch.v0230.vllm_ascend.cpu_binding_patch
+  - module: ucm.integration.vllm.patch.v0230.vllm_ascend.sfa_kv_transfer_patch

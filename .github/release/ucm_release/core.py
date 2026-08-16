@@ -790,6 +790,8 @@ def _exact_runtime_requirement(value: object) -> tuple[str, str, str]:
 def python_runtime_requirements(catalog: dict[str, Any]) -> list[str]:
     """Resolve exact runtime requirements from generic catalog declarations."""
     declarations = catalog.get("python_runtime_dependencies")
+    if not declarations:
+        return []
     if (
         not isinstance(declarations, list)
         or not 1 <= len(declarations) <= 64
@@ -1101,7 +1103,7 @@ def validate_catalog(
                 if not any(
                     rule["product"] == runtime_product
                     and runtime_variant in rule["variants"]
-                    for rule in catalog["runtime_patch_rules"]
+                    for rule in catalog.get("runtime_patch_rules", [])
                 ):
                     raise ValueError(
                         "upstream runtime patch variant is not declared by a "
@@ -2123,25 +2125,34 @@ RELEASE_KEYS = {
     "source",
     "lanes",
     "runner_map",
-    "pr_smoke",
-    "docker_recipes",
     "upstream_products",
     "compatibility",
+    "chart",
+    "publish",
+    "wheel_profiles",
+}
+OPTIONAL_CATALOG_KEYS = {
+    "pr_smoke",
+    "docker_recipes",
     "runtime_patch_rules",
     "matrix_limits",
     "scan_limits",
     "python_runtime_dependencies",
     "python_build_lock",
-    "chart",
-    "publish",
-    "wheel_profiles",
 }
 LANES = ("feature-candidate", "protected-tag")
 
 
-def _exact_keys(value: dict[str, Any], expected: set[str], location: str) -> None:
+def _exact_keys(
+    value: dict[str, Any],
+    expected: set[str],
+    location: str,
+    *,
+    optional: set[str] | None = None,
+) -> None:
+    optional = optional or set()
     missing = sorted(expected - set(value))
-    extras = sorted(set(value) - expected)
+    extras = sorted(set(value) - expected - optional)
     if missing or extras:
         raise ValueError(
             f"{location} requires exact key set; missing={missing}, extra={extras}"
@@ -2189,6 +2200,28 @@ def _validate_cross_config(
         chart_selectors.add(selector)
 
 
+def _load_supplementary_configs(
+    release_path: Path, repository_root: Path
+) -> dict[str, Any]:
+    """Load docker-recipes, runtime-patches, and toolchain lock files.
+
+    These are repo-level config files split out of release.yaml for audience
+    separation.  They live at fixed paths relative to the release root and the
+    repository root, so any catalog load — including alternate checkouts —
+    picks them up from the canonical location.
+    """
+    merged: dict[str, Any] = {}
+    candidates = (
+        DEFAULT_RELEASE.parents[1] / "docker-recipes.yaml",
+        DEFAULT_RELEASE.parent / "toolchain.lock.yaml",
+        DEFAULT_RELEASE.parents[2] / "ucm" / "integration" / "runtime-patches.yaml",
+    )
+    for path in candidates:
+        if path.is_file():
+            merged.update(load_yaml(path))
+    return merged
+
+
 def load_catalog(
     release_path: Path = DEFAULT_RELEASE,
     schema_dir: Path = DEFAULT_SCHEMA_DIR,
@@ -2210,12 +2243,22 @@ def load_catalog(
     load_json(schema_dir / "release-manifest.schema.json")
     load_json(schema_dir / "image-result.schema.json")
     release = load_yaml(release_path)
+    for key, value in _load_supplementary_configs(
+        release_path, repository_root
+    ).items():
+        if key not in release:
+            release[key] = value
     resolved_repository = resolve_repository(
         repository, repository_root=repository_root
     )
     release = resolve_owner_templates(release, repository=resolved_repository)
     validate_schema(release, config_schema)
-    _exact_keys(release, RELEASE_KEYS, "release.yaml")
+    missing = sorted(RELEASE_KEYS - set(release))
+    extras = sorted(set(release) - RELEASE_KEYS - OPTIONAL_CATALOG_KEYS)
+    if missing or extras:
+        raise ValueError(
+            f"release.yaml requires exact key set; missing={missing}, extra={extras}"
+        )
     release["source"]["repository"] = resolved_repository
     version = read_version(repository_root / release["version_file"])
     if release["ucm_version"] != version:
