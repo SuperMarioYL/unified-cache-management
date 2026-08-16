@@ -1,5 +1,3 @@
-"""Inspect a wheel and bind its bytes and metadata to one declared wheel spec."""
-
 from __future__ import annotations
 
 import copy

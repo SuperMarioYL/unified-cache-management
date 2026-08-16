@@ -1,5 +1,3 @@
-"""Deterministic, fixture-only install-image context and result verification."""
-
 from __future__ import annotations
 
 import copy

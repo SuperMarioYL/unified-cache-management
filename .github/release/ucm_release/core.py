@@ -1,5 +1,3 @@
-"""Strict configuration, immutable authority, and real release planning."""
-
 from __future__ import annotations
 
 import copy

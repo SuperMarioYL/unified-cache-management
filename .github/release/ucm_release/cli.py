@@ -1,5 +1,3 @@
-"""Command-line interface for the compact UCM release package."""
-
 from __future__ import annotations
 
 import argparse
