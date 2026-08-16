@@ -2132,6 +2132,7 @@ RELEASE_KEYS = {
     "python_runtime_dependencies",
     "python_build_lock",
     "chart",
+    "publish",
     "wheel_profiles",
 }
 LANES = ("feature-candidate", "protected-tag")
@@ -2239,6 +2240,47 @@ def load_catalog(
     _validate_cross_config(release, repository_root=repository_root)
     validate_repository_recipe_inventory(release, repository_root=repository_root)
     return release
+
+
+PUBLISH_CHANNELS = ("pypi", "ghcr", "dockerhub", "chart_oci", "github_release")
+
+
+def compute_publish_plan(
+    catalog: dict[str, Any],
+    *,
+    lane: str,
+    allow: dict[str, str] | None,
+    request: str,
+    dry_run: bool,
+) -> dict[str, bool]:
+    """Resolve the three-layer publish switch for every channel.
+
+    A channel is enabled only when ALL hold: config-layer ``enabled`` is true,
+    the repo variable ``allow[channel]`` is ``"true"``, the run ``request``
+    is empty (use defaults) or names the channel, the lane is
+    ``protected-tag``, and ``dry_run`` is false.  Requesting an unknown
+    channel is a hard error.
+    """
+    publish_cfg = catalog.get("publish", {})
+    allow = allow or {}
+    requested = {name.strip() for name in request.split(",") if name.strip()} or None
+    if requested:
+        unknown = sorted(requested - set(PUBLISH_CHANNELS))
+        if unknown:
+            raise ValueError(f"unknown publish channels: {unknown}")
+    plan: dict[str, bool] = {}
+    for channel in PUBLISH_CHANNELS:
+        cfg_enabled = bool(publish_cfg.get(channel, {}).get("enabled", False))
+        repo_allows = str(allow.get(channel, "")).strip().lower() == "true"
+        run_wants = requested is None or channel in requested
+        plan[channel] = bool(
+            cfg_enabled
+            and repo_allows
+            and run_wants
+            and lane == "protected-tag"
+            and not dry_run
+        )
+    return plan
 
 
 def _resolved_locks(

@@ -6,8 +6,10 @@ legacy release subsystem has been replaced by the compact package.
 
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -180,3 +182,106 @@ def test_release_config_profiles_are_dynamic_and_have_no_runner_escape_hatch() -
     assert set(release["runner_map"]) == {
         architecture for profile in profiles for architecture in profile["cpu_arch"]
     }
+
+
+def _publish_catalog() -> dict:
+    core = importlib.import_module("ucm_release.core")
+    return core.load_catalog()
+
+
+_ALL_ALLOW = {
+    "pypi": "true",
+    "ghcr": "true",
+    "dockerhub": "true",
+    "chart_oci": "true",
+    "github_release": "true",
+}
+
+
+def test_publish_plan_defaults_to_all_off_when_dry_run() -> None:
+    """dry_run=true blocks every channel regardless of other layers."""
+    core = importlib.import_module("ucm_release.core")
+    plan = core.compute_publish_plan(
+        _publish_catalog(),
+        lane="protected-tag",
+        allow=_ALL_ALLOW,
+        request="",
+        dry_run=True,
+    )
+    assert all(value is False for value in plan.values())
+
+
+def test_publish_plan_feature_lane_never_publishes() -> None:
+    """Feature lanes are build-only; publication requires protected-tag."""
+    core = importlib.import_module("ucm_release.core")
+    plan = core.compute_publish_plan(
+        _publish_catalog(),
+        lane="feature-candidate",
+        allow=_ALL_ALLOW,
+        request="",
+        dry_run=False,
+    )
+    assert all(value is False for value in plan.values())
+
+
+def test_publish_plan_respects_config_repo_and_run_layers() -> None:
+    """Config-disabled channels stay off even when repo vars allow them."""
+    core = importlib.import_module("ucm_release.core")
+    plan = core.compute_publish_plan(
+        _publish_catalog(),
+        lane="protected-tag",
+        allow={
+            "pypi": "true",
+            "ghcr": "true",
+            "chart_oci": "true",
+            "github_release": "true",
+        },
+        request="",
+        dry_run=False,
+    )
+    assert plan["pypi"] is True
+    assert plan["ghcr"] is True
+    assert plan["dockerhub"] is False
+    assert plan["chart_oci"] is True
+    assert plan["github_release"] is True
+
+
+def test_publish_plan_request_subset_only_enables_named_channels() -> None:
+    """A non-empty request narrows to only the named channels."""
+    core = importlib.import_module("ucm_release.core")
+    plan = core.compute_publish_plan(
+        _publish_catalog(),
+        lane="protected-tag",
+        allow=_ALL_ALLOW,
+        request="ghcr",
+        dry_run=False,
+    )
+    assert plan["ghcr"] is True
+    assert plan["pypi"] is False
+    assert plan["chart_oci"] is False
+
+
+def test_publish_plan_repo_variable_unset_means_disabled() -> None:
+    """A missing repo variable (empty string) blocks the channel."""
+    core = importlib.import_module("ucm_release.core")
+    plan = core.compute_publish_plan(
+        _publish_catalog(),
+        lane="protected-tag",
+        allow={},
+        request="",
+        dry_run=False,
+    )
+    assert all(value is False for value in plan.values())
+
+
+def test_publish_plan_rejects_unknown_channel() -> None:
+    """An unknown channel in the request is a hard error, not a silent skip."""
+    core = importlib.import_module("ucm_release.core")
+    with pytest.raises(ValueError, match="unknown publish channels"):
+        core.compute_publish_plan(
+            _publish_catalog(),
+            lane="protected-tag",
+            allow={},
+            request="pypi,unknown",
+            dry_run=False,
+        )

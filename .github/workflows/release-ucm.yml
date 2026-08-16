@@ -11,6 +11,16 @@ on:
         type: boolean
         required: false
         default: false
+      publish_channels:
+        description: "Comma-separated subset; empty = use repo variable defaults. Options: pypi,ghcr,dockerhub,chart_oci,github_release"
+        type: string
+        required: false
+        default: ""
+      dry_run:
+        description: "Compute the publish plan only; do not publish"
+        type: boolean
+        required: false
+        default: true
   workflow_call:
     inputs:
       deliver_full_oci:
@@ -46,6 +56,7 @@ jobs:
       smoke_image_matrix: ${{ steps.plan.outputs.smoke_image_matrix }}
       build_wheel_matrix: ${{ steps.plan.outputs.build_wheel_matrix }}
       build_image_matrix: ${{ steps.plan.outputs.build_image_matrix }}
+      publish: ${{ steps.publish-plan.outputs.publish }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -156,6 +167,35 @@ jobs:
           if-no-files-found: error
           overwrite: false
           retention-days: ${{ steps.plan.outputs.protected == 'true' && 90 || 3 }}
+      - id: publish-plan
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ALLOW: >-
+            {"pypi":"${{ vars.UCM_PUBLISH_PYPI }}",
+             "ghcr":"${{ vars.UCM_PUBLISH_GHCR }}",
+             "dockerhub":"${{ vars.UCM_PUBLISH_DOCKERHUB }}",
+             "chart_oci":"${{ vars.UCM_PUBLISH_CHART_OCI }}",
+             "github_release":"${{ vars.UCM_PUBLISH_GITHUB_RELEASE }}"}
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.plan.outputs.protected }}" == "true" ]]; then
+            lane=protected-tag
+          else
+            lane=feature-candidate
+          fi
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            dry_run_val="${{ inputs.dry_run }}"
+          else
+            dry_run_val=false
+          fi
+          PYTHONPATH=.github/release python -m ucm_release publish plan \
+            --lane "${lane}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --allow "${ALLOW}" \
+            --request "${{ inputs.publish_channels }}" \
+            --dry-run "${dry_run_val}" \
+            --output out/plan/publish-plan.json
+          echo "publish=$(cat out/plan/publish-plan.json)" >>"${GITHUB_OUTPUT}"
 
   build-wheels:
     needs: plan

@@ -177,6 +177,23 @@ def build_parser() -> argparse.ArgumentParser:
     render_recipes.add_argument("--repository-root", type=Path, default=core.REPO_ROOT)
     render_recipes.add_argument("--output", type=Path, required=True)
 
+    publish_parser = groups.add_parser("publish")
+    publish_actions = publish_parser.add_subparsers(dest="action", required=True)
+    publish_plan = publish_actions.add_parser("plan")
+    publish_plan.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
+    publish_plan.add_argument(
+        "--schema-dir", type=Path, default=core.DEFAULT_SCHEMA_DIR
+    )
+    publish_plan.add_argument("--repository-root", type=Path, default=core.REPO_ROOT)
+    publish_plan.add_argument("--repository", default=None)
+    publish_plan.add_argument(
+        "--lane", choices=("feature-candidate", "protected-tag"), required=True
+    )
+    publish_plan.add_argument("--allow", required=True)
+    publish_plan.add_argument("--request", default="")
+    publish_plan.add_argument("--dry-run", default="true")
+    publish_plan.add_argument("--output", type=Path, required=True)
+
     core_parser = groups.add_parser("core")
     core_actions = core_parser.add_subparsers(dest="action", required=True)
     hosted_task = core_actions.add_parser("hosted-task")
@@ -558,6 +575,24 @@ def main(argv: list[str] | None = None) -> int:
                 "catalog_sha256": core.sha256_value(release),
                 "content_sha256": core.sha256_value(rendered),
             }
+        elif (args.group, args.action) == ("publish", "plan"):
+            release = core.load_catalog(
+                args.catalog,
+                args.schema_dir,
+                repository_root=args.repository_root,
+                repository=args.repository,
+            )
+            plan = core.compute_publish_plan(
+                release,
+                lane=args.lane,
+                allow=json.loads(args.allow),
+                request=args.request,
+                dry_run=args.dry_run.strip().lower() == "true",
+            )
+            payload = json.dumps(plan, sort_keys=True, separators=(",", ":"))
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(payload + "\n", encoding="utf-8")
+            result = {"kind": "ucm-publish-plan", "schema_version": 1, "publish": plan}
         elif (args.group, args.action) == ("core", "hosted-task"):
             result = verify.hosted_wheel_task(
                 core.load_json(args.task),

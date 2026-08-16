@@ -1058,7 +1058,11 @@ def test_full_oci_delivery_opt_in_is_resolved_then_explicitly_forwarded() -> Non
     assert isinstance(dispatch, dict)
     dispatch_inputs = dispatch.get("inputs")
     assert isinstance(dispatch_inputs, dict)
-    assert set(dispatch_inputs) == {"deliver_full_oci"}
+    assert set(dispatch_inputs) == {
+        "deliver_full_oci",
+        "publish_channels",
+        "dry_run",
+    }
     assert dispatch_inputs["deliver_full_oci"] == {
         "description": "Upload complete feature OCI archives for this attempt",
         "type": "boolean",

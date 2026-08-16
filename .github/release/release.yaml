@@ -12,6 +12,22 @@ lanes: [feature-candidate, protected-tag]
 runner_map:
   amd64: ubuntu-24.04
   arm64: ubuntu-24.04-arm
+publish:
+  pypi:
+    enabled: true
+    index: https://upload.pypi.org/legacy/
+    dists: [uc-manager-cuda, uc-manager-cann-a2, uc-manager-cann-a3]
+  ghcr:
+    enabled: true
+    namespace: ghcr.io/{owner}
+  dockerhub:
+    enabled: false
+    namespace: docker.io/{owner}
+  chart_oci:
+    enabled: true
+    namespace: ghcr.io/{owner}/charts
+  github_release:
+    enabled: true
 pr_smoke:
   image_selectors:
     - product_id: vllm
