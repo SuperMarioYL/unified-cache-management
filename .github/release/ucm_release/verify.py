@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import re
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
 from .core import (
-    canonical_bytes,
     sha256_value,
 )
 from .registry import (
@@ -642,180 +640,6 @@ def _envelope(payload: dict[str, Any], run: dict[str, Any] | None) -> dict[str, 
         "payload_sha256": sha256_value(payload),
         "github": copy.deepcopy(run or {}),
     }
-
-
-def _require_plan_bound_hosted_task(
-    task: object,
-    *,
-    task_kind: str,
-    source_sha: str,
-    resolved_plan: dict[str, Any],
-    expected_plan_sha256: str,
-) -> dict[str, Any]:
-    from . import registry
-
-    if not isinstance(task, dict) or not isinstance(task.get("task_id"), str):
-        raise ValueError(f"hosted {task_kind} task must be an object")
-    selected = registry.select_task(
-        resolved_plan,
-        task_kind=task_kind,
-        task_id=task["task_id"],
-        expected_plan_sha256=expected_plan_sha256,
-    )
-    if selected != task:
-        raise ValueError(f"hosted {task_kind} task differs from the frozen plan")
-    if resolved_plan["source"]["commit"] != source_sha:
-        raise ValueError(f"hosted {task_kind} source differs from the frozen plan")
-    return selected
-
-
-def hosted_wheel_task(
-    task: dict[str, Any],
-    source_sha: str,
-    source_date_epoch: int,
-    *,
-    resolved_plan: dict[str, Any],
-    expected_plan_sha256: str,
-) -> dict[str, Any]:
-    """Materialize one frozen wheel task into Docker build inputs."""
-    source_sha = _source_sha(source_sha)
-    task = _require_plan_bound_hosted_task(
-        task,
-        task_kind="wheel",
-        source_sha=source_sha,
-        resolved_plan=resolved_plan,
-        expected_plan_sha256=expected_plan_sha256,
-    )
-    if (
-        not isinstance(source_date_epoch, int)
-        or isinstance(source_date_epoch, bool)
-        or not 315532800 <= source_date_epoch <= 4354819199
-    ):
-        raise ValueError("hosted source date epoch is outside the ZIP timestamp range")
-    if not isinstance(task, dict):
-        raise ValueError("hosted wheel task must be an object")
-    task_payload = {key: value for key, value in task.items() if key != "task_sha256"}
-    if re.fullmatch(
-        r"wheel-[0-9a-f]{64}", str(task.get("task_id"))
-    ) is None or task.get("task_sha256") != sha256_value(task_payload):
-        raise ValueError("hosted wheel task identity is invalid")
-    build = task.get("build")
-    dependency_lock = task.get("dependency_lock")
-    if (
-        not isinstance(build, dict)
-        or set(build) != {"docker_target", "platform_arg"}
-        or not isinstance(dependency_lock, dict)
-        or set(dependency_lock) != {"build_tools", "runtime_dependencies"}
-        or task.get("dependency_lock_sha256") != sha256_value(dependency_lock)
-    ):
-        raise ValueError("hosted wheel task build authority is invalid")
-    build_tools = dependency_lock["build_tools"]
-    if (
-        not isinstance(build_tools, list)
-        or not build_tools
-        or any(not isinstance(record, dict) for record in build_tools)
-    ):
-        raise ValueError("hosted wheel build tool authority is invalid")
-    profile_id = task["profile_id"]
-    root = task["builder"]["root"]
-    build_args = {
-        "SOURCE_DATE_EPOCH": str(source_date_epoch),
-        "UCM_BUILDER_IMAGE": f"{root['repository']}@{root['manifest_digest']}",
-        "PLATFORM": build["platform_arg"],
-        "UCM_RELEASE_TASK_ID": task["task_id"],
-        "UCM_RELEASE_SPEC_ID": task["spec_id"],
-        "UCM_RELEASE_PROFILE": profile_id,
-        "UCM_RELEASE_SOURCE_SHA": source_sha,
-        "UCM_RELEASE_VERSION": task["wheel_version"],
-        "UCM_RELEASE_BUILD_KEY": task["task_sha256"],
-        "UCM_RELEASE_PYTHON_VERSION": task["python_version"],
-        "UCM_RELEASE_PYTHON_ABI": task["python_abi"],
-        "UCM_RELEASE_WHEEL_PLATFORM": task["wheel_platform"],
-        "UCM_RELEASE_BUILD_SETTINGS": canonical_bytes(build).decode("utf-8"),
-        "UCM_RUNTIME_PATCH_MANIFEST_SHA256": task["runtime_patch_manifest_sha256"],
-        "UCM_RELEASE_REQUIRED_TARGETS": ",".join(task["required_native"]),
-        "UCM_RELEASE_FORBIDDEN_TARGETS": ",".join(task["forbidden_native"]),
-    }
-    build_tool_lock = "".join(
-        f"{record['name']} @ file:///wheelhouse/{record['filename']} "
-        f"--hash={record['sha256']}\n"
-        for record in build_tools
-    )
-    result = {
-        "task_id": task["task_id"],
-        "spec_id": task["spec_id"],
-        "profile_id": profile_id,
-        "cpu_arch": task["cpu_arch"],
-        "platform": task["platform"],
-        "runner": task["runner"],
-        "task_sha256": task["task_sha256"],
-        "builder_coordinate": build_args["UCM_BUILDER_IMAGE"],
-        "docker_target": build["docker_target"],
-        "source_sha": source_sha,
-        "source_date_epoch": source_date_epoch,
-        "wheel_artifact": task["artifact_name"],
-        "build_tools": copy.deepcopy(build_tools),
-        "build_tool_lock": build_tool_lock,
-        "build_tool_lock_sha256": "sha256:"
-        + hashlib.sha256(build_tool_lock.encode()).hexdigest(),
-        "build_args": dict(sorted(build_args.items())),
-    }
-    result["hosted_task_sha256"] = sha256_value(result)
-    return result
-
-
-def hosted_image_task(
-    task: dict[str, Any],
-    source_sha: str,
-    source_date_epoch: int,
-    *,
-    resolved_plan: dict[str, Any],
-    expected_plan_sha256: str,
-) -> dict[str, Any]:
-    """Materialize one frozen image task's artifact and dependency bindings."""
-    source_sha = _source_sha(source_sha)
-    task = _require_plan_bound_hosted_task(
-        task,
-        task_kind="image",
-        source_sha=source_sha,
-        resolved_plan=resolved_plan,
-        expected_plan_sha256=expected_plan_sha256,
-    )
-    if (
-        not isinstance(source_date_epoch, int)
-        or isinstance(source_date_epoch, bool)
-        or not 315532800 <= source_date_epoch <= 4354819199
-        or not isinstance(task, dict)
-    ):
-        raise ValueError("hosted image task input is invalid")
-    payload = {key: value for key, value in task.items() if key != "task_sha256"}
-    if (
-        re.fullmatch(r"image-[0-9a-f]{64}", str(task.get("task_id"))) is None
-        or task.get("task_sha256") != sha256_value(payload)
-        or re.fullmatch(r"wheel-[0-9a-f]{64}", str(task.get("wheel_task_id"))) is None
-    ):
-        raise ValueError("hosted image task identity is invalid")
-    result = {
-        "task_id": task["task_id"],
-        "spec_id": task["spec_id"],
-        "profile_id": task["profile_id"],
-        "family_task_id": task["family_task_id"],
-        "wheel_task_id": task["wheel_task_id"],
-        "runner": task["runner"],
-        "source_sha": source_sha,
-        "source_date_epoch": source_date_epoch,
-        "task_sha256": task["task_sha256"],
-        "runtime_patch_variants": copy.deepcopy(task["runtime_patch_variants"]),
-        "wheel_artifact": task["wheel_artifact_name"],
-        "image_artifact": task["artifact_name"],
-        "build_args": {
-            "UCM_RUNTIME_PATCH_VARIANTS": canonical_bytes(
-                task["runtime_patch_variants"]
-            ).decode("utf-8"),
-        },
-    }
-    result["hosted_task_sha256"] = sha256_value(result)
-    return result
 
 
 def _validate_operation_reference(

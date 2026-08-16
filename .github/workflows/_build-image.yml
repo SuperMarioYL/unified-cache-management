@@ -176,13 +176,35 @@ jobs:
             --task-id "${wheel_task_id}" \
             --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
             --output out/selected-wheel-task.json >/dev/null
-          PYTHONPATH=.github/release python -m ucm_release core hosted-image-task \
-            --task out/selected-task.json \
-            --source-sha "${SOURCE_SHA}" \
-            --source-date-epoch "${source_date_epoch}" \
-            --resolved-plan input/plan/resolved-plan.json \
-            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
-            --output out/hosted-task.json >/dev/null
+          # Materialize the hosted image task: artifact and dependency bindings.
+          # Mirrors verify.hosted_image_task so out/hosted-task.json is byte-faithful.
+          runtime_patch_canonical="$(jq -cS '.runtime_patch_variants' out/selected-task.json)"
+          jq -ncS \
+            --slurpfile t out/selected-task.json \
+            --arg source_sha "${SOURCE_SHA}" \
+            --arg source_date_epoch "${source_date_epoch}" \
+            --arg runtime_patch_canonical "${runtime_patch_canonical}" \
+            '{
+              task_id: $t[0].task_id,
+              spec_id: $t[0].spec_id,
+              profile_id: $t[0].profile_id,
+              family_task_id: $t[0].family_task_id,
+              wheel_task_id: $t[0].wheel_task_id,
+              runner: $t[0].runner,
+              source_sha: $source_sha,
+              source_date_epoch: ($source_date_epoch | tonumber),
+              task_sha256: $t[0].task_sha256,
+              runtime_patch_variants: $t[0].runtime_patch_variants,
+              wheel_artifact: $t[0].wheel_artifact_name,
+              image_artifact: $t[0].artifact_name,
+              build_args: {
+                UCM_RUNTIME_PATCH_VARIANTS: $runtime_patch_canonical
+              }
+            }' > out/hosted-task.json
+          hosted_task_sha256="sha256:$(jq -cjS . out/hosted-task.json | sha256sum | cut -d' ' -f1)"
+          jq -cS --arg h "${hosted_task_sha256}" '.hosted_task_sha256 = $h' \
+            out/hosted-task.json > out/hosted-task.json.tmp
+          mv out/hosted-task.json.tmp out/hosted-task.json
           PYTHONPATH=.github/release python -m ucm_release image real-authorities \
             --resolved-plan input/plan/resolved-plan.json \
             --task-id "${TASK_ID}" \

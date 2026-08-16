@@ -297,20 +297,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     core_parser = groups.add_parser("core")
     core_actions = core_parser.add_subparsers(dest="action", required=True)
-    hosted_task = core_actions.add_parser("hosted-task")
-    hosted_task.add_argument("--task", required=True, type=Path)
-    hosted_task.add_argument("--source-sha", required=True)
-    hosted_task.add_argument("--source-date-epoch", required=True, type=int)
-    hosted_task.add_argument("--resolved-plan", required=True, type=Path)
-    hosted_task.add_argument("--expected-plan-sha256", required=True)
-    hosted_task.add_argument("--output", required=True, type=Path)
-    hosted_image_task = core_actions.add_parser("hosted-image-task")
-    hosted_image_task.add_argument("--task", required=True, type=Path)
-    hosted_image_task.add_argument("--source-sha", required=True)
-    hosted_image_task.add_argument("--source-date-epoch", required=True, type=int)
-    hosted_image_task.add_argument("--resolved-plan", required=True, type=Path)
-    hosted_image_task.add_argument("--expected-plan-sha256", required=True)
-    hosted_image_task.add_argument("--output", required=True, type=Path)
     tag_preflight = core_actions.add_parser("tag-preflight")
     tag_preflight.add_argument(
         "--lane", choices=("feature-candidate", "protected-tag"), required=True
@@ -489,26 +475,6 @@ def main(argv: list[str] | None = None) -> int:
             result = {"kind": "ucm-publish-plan", "schema_version": 1, "publish": plan}
         elif (args.group, args.action) == ("publish", "github-release"):
             result = _publish_github_release(args)
-        elif (args.group, args.action) == ("core", "hosted-task"):
-            result = verify.hosted_wheel_task(
-                core.load_json(args.task),
-                args.source_sha,
-                args.source_date_epoch,
-                resolved_plan=core.load_json(args.resolved_plan),
-                expected_plan_sha256=args.expected_plan_sha256,
-            )
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            _write(args.output, result)
-        elif (args.group, args.action) == ("core", "hosted-image-task"):
-            result = verify.hosted_image_task(
-                core.load_json(args.task),
-                args.source_sha,
-                args.source_date_epoch,
-                resolved_plan=core.load_json(args.resolved_plan),
-                expected_plan_sha256=args.expected_plan_sha256,
-            )
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            _write(args.output, result)
         elif (args.group, args.action) == ("core", "tag-preflight"):
             if args.catalog_planner:
                 if (

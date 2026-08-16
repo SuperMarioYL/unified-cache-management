@@ -158,13 +158,68 @@ jobs:
             --task-id "${TASK_ID}" \
             --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
             --output out/selected-task.json >/dev/null
-          PYTHONPATH=.github/release python -m ucm_release core hosted-task \
-            --task out/selected-task.json \
-            --source-sha "${SOURCE_SHA}" \
-            --source-date-epoch "${source_date_epoch}" \
-            --resolved-plan input/plan/resolved-plan.json \
-            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
-            --output out/hosted-task.json >/dev/null
+          # Materialize the hosted wheel task: canonical build inputs, lock, and identity.
+          # Mirrors verify.hosted_wheel_task so out/hosted-task.json is byte-faithful.
+          build_tool_lock_sha256="sha256:$(jq -jr \
+            '.dependency_lock.build_tools[]
+             | .name + " @ file:///wheelhouse/" + .filename + " --hash=" + .sha256 + "\n"' \
+            out/selected-task.json | sha256sum | cut -d' ' -f1)"
+          build_settings="$(jq -cS '.build' out/selected-task.json)"
+          builder_coordinate="$(jq -r \
+            '.builder.root.repository + "@" + .builder.root.manifest_digest' \
+            out/selected-task.json)"
+          jq -ncS \
+            --slurpfile t out/selected-task.json \
+            --arg source_sha "${SOURCE_SHA}" \
+            --arg source_date_epoch "${source_date_epoch}" \
+            --arg builder_coordinate "${builder_coordinate}" \
+            --arg build_settings "${build_settings}" \
+            --arg build_tool_lock_sha256 "${build_tool_lock_sha256}" \
+            --arg required_targets "$(jq -r '.required_native | join(",")' out/selected-task.json)" \
+            --arg forbidden_targets "$(jq -r '.forbidden_native | join(",")' out/selected-task.json)" \
+            '{
+              task_id: $t[0].task_id,
+              spec_id: $t[0].spec_id,
+              profile_id: $t[0].profile_id,
+              cpu_arch: $t[0].cpu_arch,
+              platform: $t[0].platform,
+              runner: $t[0].runner,
+              task_sha256: $t[0].task_sha256,
+              builder_coordinate: $builder_coordinate,
+              docker_target: $t[0].build.docker_target,
+              source_sha: $source_sha,
+              source_date_epoch: ($source_date_epoch | tonumber),
+              wheel_artifact: $t[0].artifact_name,
+              build_tools: $t[0].dependency_lock.build_tools,
+              build_tool_lock: (
+                $t[0].dependency_lock.build_tools
+                | map(.name + " @ file:///wheelhouse/" + .filename + " --hash=" + .sha256 + "\n")
+                | join("")
+              ),
+              build_tool_lock_sha256: $build_tool_lock_sha256,
+              build_args: {
+                SOURCE_DATE_EPOCH: $source_date_epoch,
+                UCM_BUILDER_IMAGE: $builder_coordinate,
+                PLATFORM: $t[0].build.platform_arg,
+                UCM_RELEASE_TASK_ID: $t[0].task_id,
+                UCM_RELEASE_SPEC_ID: $t[0].spec_id,
+                UCM_RELEASE_PROFILE: $t[0].profile_id,
+                UCM_RELEASE_SOURCE_SHA: $source_sha,
+                UCM_RELEASE_VERSION: $t[0].wheel_version,
+                UCM_RELEASE_BUILD_KEY: $t[0].task_sha256,
+                UCM_RELEASE_PYTHON_VERSION: $t[0].python_version,
+                UCM_RELEASE_PYTHON_ABI: $t[0].python_abi,
+                UCM_RELEASE_WHEEL_PLATFORM: $t[0].wheel_platform,
+                UCM_RELEASE_BUILD_SETTINGS: $build_settings,
+                UCM_RUNTIME_PATCH_MANIFEST_SHA256: $t[0].runtime_patch_manifest_sha256,
+                UCM_RELEASE_REQUIRED_TARGETS: $required_targets,
+                UCM_RELEASE_FORBIDDEN_TARGETS: $forbidden_targets
+              }
+            }' > out/hosted-task.json
+          hosted_task_sha256="sha256:$(jq -cjS . out/hosted-task.json | sha256sum | cut -d' ' -f1)"
+          jq -cS --arg h "${hosted_task_sha256}" '.hosted_task_sha256 = $h' \
+            out/hosted-task.json > out/hosted-task.json.tmp
+          mv out/hosted-task.json.tmp out/hosted-task.json
           test "$(jq -r '.runner' out/selected-task.json)" = "${{ inputs.runner }}"
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
           source_tree="$(git rev-parse "${SOURCE_SHA}^{tree}")"
