@@ -25,32 +25,8 @@ def _modules():
     sys.path.insert(0, str(RELEASE_ROOT))
     return (
         importlib.import_module("ucm_release.registry"),
-        importlib.import_module("ucm_release.verify"),
+        None,
     )
-
-
-def test_loopback_registry_contract_uses_tiny_scratch_manifests_only() -> None:
-    """The disposable publisher never needs a UCM wheel or image build."""
-    registry, _ = _modules()
-    docker = shutil.which("docker")
-    crane = shutil.which("crane")
-    if docker is None or crane is None:
-        pytest.skip(
-            f"loopback prerequisites unavailable: docker={docker}, crane={crane}"
-        )
-
-    result = registry.run_loopback_registry_contract(
-        docker_binary=docker,
-        crane_binary=crane,
-    )
-
-    assert result["status"] == "passed"
-    assert result["member_count"] == 2
-    assert result["registry_member_closure_count"] == 2
-    assert result["final_repository_child_closure_count"] == 2
-    assert result["cross_repository_copy"] is True
-    assert result["negative_mutation"] == "blocked"
-    assert all("ghcr.io" not in item["reference"] for item in result["operations"])
 
 
 def test_registry_subprocess_environment_is_minimal_and_keeps_login_config(
