@@ -276,13 +276,6 @@ def build_parser() -> argparse.ArgumentParser:
     select_recipe.add_argument("--expected-matrix-sha256", required=True)
     select_recipe.add_argument("--expected-task-sha256", required=True)
     select_recipe.add_argument("--output", type=Path, required=True)
-    render_recipes = catalog_actions.add_parser("render-recipes")
-    render_recipes.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
-    render_recipes.add_argument(
-        "--schema-dir", type=Path, default=core.DEFAULT_SCHEMA_DIR
-    )
-    render_recipes.add_argument("--repository-root", type=Path, default=core.REPO_ROOT)
-    render_recipes.add_argument("--output", type=Path, required=True)
 
     publish_parser = groups.add_parser("publish")
     publish_actions = publish_parser.add_subparsers(dest="action", required=True)
@@ -350,54 +343,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     inspect.add_argument("--task-file", type=Path)
     _paths(inspect)
-    seal = wheel_actions.add_parser("seal")
-    seal.add_argument("wheel", type=Path)
-    seal.add_argument("--spec-id", required=True)
-    seal.add_argument("--source-sha", required=True)
-    seal.add_argument("--build-key", required=True)
-    seal.add_argument("--source-date-epoch", required=True, type=int)
-    seal.add_argument("--authority-file", required=True, type=Path)
-    seal.add_argument("--dependency-closure", required=True, type=Path)
-    seal.add_argument("--task-file", required=True, type=Path)
-    seal.add_argument("--output-dir", required=True, type=Path)
-    _paths(seal)
-    authority = wheel_actions.add_parser("authority")
-    authority.add_argument("--spec-id", required=True)
-    authority.add_argument("--source-sha", required=True)
-    authority.add_argument("--source-date-epoch", required=True, type=int)
-    authority.add_argument("--builder-coordinate", required=True)
-    authority.add_argument("--wheelhouse", required=True, type=Path)
-    authority.add_argument("--source-archive", required=True, type=Path)
-    authority.add_argument("--source-commit-payload", required=True, type=Path)
-    authority.add_argument("--source-manifest", required=True, type=Path)
-    authority.add_argument("--source-root", required=True, type=Path)
-    authority.add_argument("--task-file", required=True, type=Path)
-    authority.add_argument("--output", required=True, type=Path)
-    _paths(authority)
     context = wheel_actions.add_parser("context")
     context.add_argument("--source-sha", required=True)
     context.add_argument("--output-dir", required=True, type=Path)
-    verify_context = wheel_actions.add_parser("verify-context")
-    verify_context.add_argument("--archive", required=True, type=Path)
-    verify_context.add_argument("--commit-payload", required=True, type=Path)
-    verify_context.add_argument("--expected-source-sha", required=True)
-    verify_context.add_argument("--manifest", required=True, type=Path)
-    verify_context.add_argument("--source-root", required=True, type=Path)
-    closure = wheel_actions.add_parser("closure")
-    closure.add_argument("wheel", type=Path)
-    closure.add_argument("--spec-id", required=True)
-    closure.add_argument("--authority-file", required=True, type=Path)
-    closure.add_argument("--output", required=True, type=Path)
-    closure.add_argument("--task-file", required=True, type=Path)
-    _paths(closure)
-    preflight_dependencies = wheel_actions.add_parser("preflight-dependencies")
-    preflight_dependencies.add_argument("--binary", required=True, type=Path)
-    preflight_dependencies.add_argument("--spec-id", required=True)
-    preflight_dependencies.add_argument("--task-file", required=True, type=Path)
-    _paths(preflight_dependencies)
-    check_environment = wheel_actions.add_parser("check-environment")
-    check_environment.add_argument("--task", required=True, type=Path)
-    check_environment.add_argument("--python-executable", required=True, type=Path)
 
     chart_parser = groups.add_parser("chart")
     chart_actions = chart_parser.add_subparsers(dest="action", required=True)
@@ -410,10 +358,8 @@ def build_parser() -> argparse.ArgumentParser:
     registry_parser = groups.add_parser("registry")
     registry_actions = registry_parser.add_subparsers(dest="action", required=True)
     for action in (
-        "inventory",
         "verify-member",
         "plan-index",
-        "verify-index",
         "prepare-index",
         "finalize-index",
         "aggregate-authenticated",
@@ -463,8 +409,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     image_parser = groups.add_parser("image")
     image_actions = image_parser.add_subparsers(dest="action", required=True)
-    image_actions.add_parser("base-authority")
-    image_actions.add_parser("toolchain-authority")
     task_toolchain = image_actions.add_parser("task-toolchain-authority")
     task_toolchain.add_argument("--resolved-plan", type=Path, required=True)
     task_toolchain.add_argument(
@@ -485,15 +429,6 @@ def build_parser() -> argparse.ArgumentParser:
     image_verify.add_argument("--resolved-plan", type=Path)
     image_verify.add_argument("--task-id")
     image_verify.add_argument("--expected-plan-sha256")
-    image_prepare = image_actions.add_parser("prepare")
-    image_prepare.add_argument("--input", type=Path, required=True)
-    image_prepare.add_argument("--wheel-dir", type=Path, required=True)
-    image_prepare.add_argument("--expected-source-sha", required=True)
-    image_prepare.add_argument("--base-authority", type=Path, required=True)
-    image_prepare.add_argument("--base-index", type=Path, required=True)
-    image_prepare.add_argument("--base-manifest", type=Path, required=True)
-    image_prepare.add_argument("--base-config", type=Path, required=True)
-    image_prepare.add_argument("--output-dir", type=Path, required=True)
     real_authorities = image_actions.add_parser("real-authorities")
     real_authorities.add_argument("--resolved-plan", type=Path, required=True)
     real_authorities.add_argument("--task-id", required=True)
@@ -600,23 +535,6 @@ def main(argv: list[str] | None = None) -> int:
             )
             args.output.parent.mkdir(parents=True, exist_ok=True)
             _write(args.output, result)
-        elif (args.group, args.action) == ("catalog", "render-recipes"):
-            release = core.load_catalog(
-                args.catalog,
-                args.schema_dir,
-                repository_root=args.repository_root,
-            )
-            rendered = core.render_repository_recipe_markdown(
-                release, repository_root=args.repository_root
-            )
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_text(rendered, encoding="utf-8")
-            result = {
-                "kind": "ucm-repository-recipe-reference",
-                "schema_version": 1,
-                "catalog_sha256": core.sha256_value(release),
-                "content_sha256": core.sha256_value(rendered),
-            }
         elif (args.group, args.action) == ("publish", "plan"):
             release = core.load_catalog(
                 args.catalog,
@@ -702,88 +620,14 @@ def main(argv: list[str] | None = None) -> int:
                 release_path=args.release,
                 schema_dir=args.schema_dir,
             )
-        elif (args.group, args.action) == ("wheel", "seal"):
-            result = wheel.seal_wheel(
-                args.wheel,
-                args.output_dir,
-                args.spec_id,
-                args.source_sha,
-                args.build_key,
-                args.source_date_epoch,
-                args.authority_file,
-                args.dependency_closure,
-                task_path=args.task_file,
-            )
-        elif (args.group, args.action) == ("wheel", "authority"):
-            result = wheel.build_authority_record(
-                args.output,
-                args.spec_id,
-                args.source_sha,
-                args.source_date_epoch,
-                args.builder_coordinate,
-                args.wheelhouse,
-                args.source_archive,
-                args.source_commit_payload,
-                args.source_manifest,
-                args.source_root,
-                args.task_file,
-            )
         elif (args.group, args.action) == ("wheel", "context"):
             result = wheel.prepare_source_context(args.output_dir, args.source_sha)
-        elif (args.group, args.action) == ("wheel", "verify-context"):
-            result = wheel.verify_source_context(
-                args.archive,
-                args.manifest,
-                args.source_root,
-                args.commit_payload,
-                args.expected_source_sha,
-            )
-        elif (args.group, args.action) == ("wheel", "closure"):
-            result = wheel.audit_dependency_closure(
-                args.wheel,
-                args.output,
-                args.spec_id,
-                args.authority_file,
-                task_path=args.task_file,
-            )
-        elif (args.group, args.action) == ("wheel", "preflight-dependencies"):
-            result = wheel.preflight_dependencies(
-                args.binary,
-                args.spec_id,
-                task_path=args.task_file,
-            )
-        elif (args.group, args.action) == ("wheel", "check-environment"):
-            result = wheel.check_build_environment(
-                core.load_json(args.task),
-                python_executable=args.python_executable,
-            )
         elif (args.group, args.action) == ("chart", "package"):
             result = chart.package_chart(
                 args.output_dir,
                 resolved_plan=core.load_json(args.resolved_plan),
                 expected_plan_sha256=args.expected_plan_sha256,
             )
-        elif (args.group, args.action) == ("registry", "inventory"):
-            request = core.load_json(args.input)
-            if set(request) != {"resolved_plan", "resolved_plan_sha256"} or any(
-                not isinstance(request[key], str) for key in request
-            ):
-                raise ValueError("inventory input requires one frozen resolved plan")
-            resolved_plan = core.load_json(Path(request["resolved_plan"]))
-            contract = registry.resolved_registry_contract(
-                resolved_plan,
-                expected_plan_sha256=request["resolved_plan_sha256"],
-            )
-            result = registry.inventory_registry(
-                targets=[
-                    {
-                        "repository": item["target_repository"],
-                        "tag": item["target_tag"],
-                    }
-                    for item in contract["indexes"]
-                ]
-            )
-            _write(args.output, result)
         elif (args.group, args.action) == ("registry", "verify-member"):
             request = core.load_json(args.input)
             if set(request) != {
@@ -858,55 +702,6 @@ def main(argv: list[str] | None = None) -> int:
                 request["members"],
                 inventory,
                 member_statuses=request["member_statuses"],
-                lane=request["lane"],
-                resolved_plan=resolved_plan,
-                expected_plan_sha256=request["resolved_plan_sha256"],
-            )
-            _write(args.output, result)
-        elif (args.group, args.action) == ("registry", "verify-index"):
-            request = core.load_json(args.input)
-            if set(request) != {
-                "lane",
-                "parent_plans",
-                "family_task_id",
-                "resolved_plan",
-                "resolved_plan_sha256",
-            } or not all(
-                isinstance(request[key], str)
-                for key in (
-                    "lane",
-                    "family_task_id",
-                    "resolved_plan",
-                    "resolved_plan_sha256",
-                )
-            ):
-                raise ValueError(
-                    "verify-index input requires lane/parent/family task/frozen plan"
-                )
-            parent = request["parent_plans"]
-            if not isinstance(parent, dict) or not isinstance(
-                parent.get("plans"), list
-            ):
-                raise ValueError("verify-index parent_plans is malformed")
-            resolved_plan = core.load_json(Path(request["resolved_plan"]))
-            registry.validate_index_plans(
-                parent,
-                resolved_plan=resolved_plan,
-                expected_plan_sha256=request["resolved_plan_sha256"],
-            )
-            matches = [
-                item
-                for item in parent["plans"]
-                if isinstance(item, dict)
-                and item.get("family_task_id") == request["family_task_id"]
-            ]
-            if len(matches) != 1:
-                raise ValueError(
-                    "verify-index family task does not resolve exactly once"
-                )
-            result = registry.create_index(
-                matches[0],
-                parent_plans=parent,
                 lane=request["lane"],
                 resolved_plan=resolved_plan,
                 expected_plan_sha256=request["resolved_plan_sha256"],
@@ -1505,10 +1300,6 @@ def main(argv: list[str] | None = None) -> int:
                     "task_count"
                 ],
             }
-        elif (args.group, args.action) == ("image", "base-authority"):
-            result = image.fixture_base_authority()
-        elif (args.group, args.action) == ("image", "toolchain-authority"):
-            result = image.fixture_image_toolchain_authority()
         elif (args.group, args.action) == ("image", "task-toolchain-authority"):
             result = image.task_toolchain_authority(
                 core.load_json(args.resolved_plan),
@@ -1530,17 +1321,6 @@ def main(argv: list[str] | None = None) -> int:
                 ),
                 expected_plan_sha256=args.expected_plan_sha256,
                 task_id=args.task_id,
-            )
-        elif (args.group, args.action) == ("image", "prepare"):
-            result = image.prepare_context_bundle(
-                core.load_json(args.input),
-                wheel_dir=args.wheel_dir,
-                expected_source_sha=args.expected_source_sha,
-                base_authority=core.load_json(args.base_authority),
-                base_index_path=args.base_index,
-                base_manifest_path=args.base_manifest,
-                base_config_path=args.base_config,
-                output_dir=args.output_dir,
             )
         elif (args.group, args.action) == ("image", "real-authorities"):
             result = image.real_image_authority_from_plan(

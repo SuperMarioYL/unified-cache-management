@@ -1581,21 +1581,6 @@ def repository_recipe_matrix(
     return result
 
 
-def validate_repository_recipe_matrix(
-    catalog: dict[str, Any],
-    matrix: dict[str, Any],
-    *,
-    lane: str,
-    repository_root: Path = REPO_ROOT,
-) -> None:
-    """Recompute and compare the complete canonical recipe matrix."""
-    expected = repository_recipe_matrix(
-        catalog, lane=lane, repository_root=repository_root
-    )
-    if matrix != expected:
-        raise ValueError("repository recipe matrix differs from catalog authority")
-
-
 def select_repository_recipe_task(
     catalog: dict[str, Any],
     *,
@@ -1627,33 +1612,6 @@ def select_repository_recipe_task(
     if expected_task_sha256 is not None and task["task_sha256"] != expected_task_sha256:
         raise ValueError("repository recipe task hash differs from expected value")
     return task
-
-
-def render_repository_recipe_markdown(
-    catalog: dict[str, Any], *, repository_root: Path = REPO_ROOT
-) -> str:
-    """Render the checked-in repository recipe reference from the catalog."""
-    validate_repository_recipe_inventory(catalog, repository_root=repository_root)
-    lines = [
-        "# Repository Docker recipes",
-        "",
-        "<!-- Generated from .github/release/release.yaml; do not edit manually. -->",
-        "",
-        "These repository recipes are compatibility source builds. They do not own the formal release flow, which uses `.github/release/docker/Dockerfile` with a sealed wheel.",
-        "",
-        "| ID | Recipe | Base image | Status | Lanes | Build mode | Formal-release boundary |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
-    ]
-    for recipe in sorted(catalog["docker_recipes"], key=lambda item: item["id"]):
-        base_image = recipe["base_image"]
-        reason = recipe["exclusion_reason"].replace("|", "\\|")
-        lines.append(
-            f"| `{recipe['id']}` | `{recipe['path']}` | "
-            f"`{base_image['source']}/{base_image['name_version']}` | "
-            f"{recipe['status']} | {', '.join(recipe['lanes'])} | "
-            f"{recipe['build_mode']} | {reason} |"
-        )
-    return "\n".join(lines) + "\n"
 
 
 def validate_resolved_upstreams(resolved_upstreams: object) -> None:
@@ -3027,43 +2985,3 @@ def require_default_head_for_create(
         raise ValueError(
             f"first publication of {resource} requires the protected tag at default branch HEAD"
         )
-
-
-def _build_fixture_release_manifest(
-    release_path: Path = DEFAULT_RELEASE,
-    schema_dir: Path = DEFAULT_SCHEMA_DIR,
-) -> dict[str, Any]:
-    """Build the legacy fixture-loop manifest; never a production plan authority."""
-    release = load_catalog(release_path, schema_dir)
-    specs = _fixture_wheel_specs(release)
-    assets = [
-        {
-            "id": f"wheel:{item['spec_id']}",
-            "type": "wheel",
-            "required": True,
-            "status": "candidate",
-        }
-        for item in specs
-    ]
-    assets.append(
-        {
-            "id": f"chart:{release['chart']['name']}:{release['chart']['version']}",
-            "type": "helm-chart",
-            "required": True,
-            "status": "candidate",
-        }
-    )
-    manifest = {
-        "schema_version": 1,
-        "kind": "ucm-core-release-manifest",
-        "ucm_version": release["ucm_version"],
-        "config_sha256": sha256_value(release),
-        "declared_wheel_count": len(specs),
-        "eligible_wheel_count": len(specs),
-        "wheel_specs": specs,
-        "blockers": [],
-        "publication": {"target": "github-release", "assets": assets},
-        "status": "candidate",
-    }
-    validate_schema(manifest, load_json(schema_dir / "release-manifest.schema.json"))
-    return manifest

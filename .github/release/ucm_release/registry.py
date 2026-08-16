@@ -263,7 +263,6 @@ OCI_MANIFEST_MEDIA_TYPES = {
     "application/vnd.oci.image.manifest.v1+json",
     "application/vnd.docker.distribution.manifest.v2+json",
 }
-FIXTURE_STAGING_REPOSITORY = "ghcr.io/release-org/ucm-release-staging"
 CRANE_VERSION = "0.20.3"
 SECONDARY_RATE_LIMIT_BACKOFF_SECONDS = (60.0, 120.0, 240.0)
 IDEMPOTENT_REGISTRY_READ_OPERATIONS = frozenset(
@@ -1086,35 +1085,6 @@ def read_repository_tag_digest(
             "capability": "read",
             "reference": reference,
         },
-    }
-
-
-def scan_fixture_registry(
-    repository: str,
-    upstream_tag: str,
-    *,
-    fixture: dict[str, Any],
-) -> dict[str, Any]:
-    """Validate one legacy Task 3 snapshot fixture without Registry access."""
-    repository = _repository(repository)
-    parse_fixture_upstream_tag(
-        _fixture_product_for_repository(repository), upstream_tag
-    )
-    snapshot = validate_fixture_snapshot(fixture)
-    if snapshot["repository"] != repository or snapshot["upstream_tag"] != upstream_tag:
-        raise ValueError("fixture snapshot repository/tag does not match the request")
-    return {
-        "schema_version": 1,
-        "kind": "registry-scan-result",
-        "fixture_only": True,
-        "snapshot": snapshot,
-        "operations": [
-            {
-                "type": "fixture-read",
-                "capability": "read",
-                "reference": f"{repository}:{upstream_tag}",
-            }
-        ],
     }
 
 
@@ -3968,16 +3938,6 @@ def _missing_manifest(result: subprocess.CompletedProcess[str]) -> bool:
     )
 
 
-def _fresh_digest(reference: str, crane_binary: str) -> str | None:
-    result = _run_registry_tool(crane_binary, ["digest", reference], missing_ok=True)
-    if result.returncode == 0:
-        return _digest(result.stdout.strip(), "fresh registry tag")
-    if _missing_manifest(result):
-        return None
-    detail = result.stderr.strip() or str(result.returncode)
-    raise ValueError(f"fresh Registry read failed for {reference}: {detail}")
-
-
 def _transport_arguments(
     operation: str, *arguments: str, insecure: bool = False
 ) -> list[str]:
@@ -4915,135 +4875,6 @@ def publish_member(
     return record
 
 
-def _require_member_record_for_selected_image_task(
-    record: dict[str, Any], selected_task: dict[str, Any]
-) -> None:
-    """Bind a validated publication record to the caller-selected image task."""
-    expected = {
-        "spec_id": selected_task.get("spec_id"),
-        "profile_id": selected_task.get("profile_id"),
-        "family_id": selected_task.get("family_task_id"),
-        "platform": selected_task.get("platform"),
-        "target_repository": selected_task.get("target_repository"),
-        "target_tag": selected_task.get("target_tag"),
-        "candidate_task_sha256": selected_task.get("task_sha256"),
-        "publication_task_sha256": selected_task.get("task_sha256"),
-    }
-    if any(record.get(field) != value for field, value in expected.items()):
-        raise ValueError("member record differs from the selected image task")
-
-
-def push_member_by_digest(
-    archive_path: Path,
-    member_record: object,
-    *,
-    lane: str,
-    resolved_plan: dict[str, Any],
-    expected_plan_sha256: str,
-    task_id: str,
-) -> dict[str, Any]:
-    """Push one safely reopened Buildx OCI layout to the staging content digest."""
-    authority = _fresh_write_authority(
-        lane,
-        resolved_plan=resolved_plan,
-        expected_plan_sha256=expected_plan_sha256,
-        task_kind="image",
-        task_id=task_id,
-    )
-    record = validate_member_record(
-        member_record,
-        resolved_plan=resolved_plan,
-        expected_plan_sha256=expected_plan_sha256,
-    )
-    _require_member_record_for_selected_image_task(record, authority["selected_task"])
-    staging_repository = _repository(resolved_plan["source"].get("staging_repository"))
-    crane_binary = resolve_pinned_crane()
-    with materialize_oci_layout(archive_path) as materialized:
-        descriptor = materialized["index"]["manifests"][0]
-        if (
-            materialized["manifest_digest"] != record["member_digest"]
-            or descriptor.get("size") != record["member_size"]
-            or materialized["config_digest"] != record["config_digest"]
-            or materialized["manifest"].get("annotations")
-            != record["manifest"]["annotations"]
-            or materialized["config"].get("config", {}).get("Labels", {})
-            != record["config"]["labels"]
-            or materialized["manifest"].get("layers")
-            != [
-                {
-                    "mediaType": item["media_type"],
-                    "digest": item["digest"],
-                    "size": item["size"],
-                    **(
-                        {"annotations": copy.deepcopy(item["annotations"])}
-                        if "annotations" in item
-                        else {}
-                    ),
-                }
-                for item in record["layers"]
-            ]
-        ):
-            raise ValueError("Buildx OCI layout differs from member publication record")
-        push = _push_materialized_member(
-            materialized,
-            repository=staging_repository,
-            crane_binary=crane_binary,
-        )
-    payload = {
-        "schema_version": 1,
-        "kind": "ucm-registry-member-push",
-        "digest": push["digest"],
-        "record_sha256": record["record_sha256"],
-        "preflight_sha256": authority["preflight"].get("preflight_sha256"),
-        "resolved_plan_sha256": authority["resolved_plan_sha256"],
-        "operations": push["operations"],
-    }
-    return {**payload, "push_sha256": sha256_value(payload)}
-
-
-def apply_staging_tag(
-    member_record: object,
-    *,
-    lane: str,
-    resolved_plan: dict[str, Any],
-    expected_plan_sha256: str,
-    task_id: str,
-) -> dict[str, Any]:
-    """Create a GC tag only when absent; identity is a read-only reuse."""
-    authority = _fresh_write_authority(
-        lane,
-        resolved_plan=resolved_plan,
-        expected_plan_sha256=expected_plan_sha256,
-        task_kind="image",
-        task_id=task_id,
-    )
-    record = validate_member_record(
-        member_record,
-        resolved_plan=resolved_plan,
-        expected_plan_sha256=expected_plan_sha256,
-    )
-    _require_member_record_for_selected_image_task(record, authority["selected_task"])
-    staging_repository = _repository(resolved_plan["source"].get("staging_repository"))
-    crane_binary = resolve_pinned_crane()
-    transport = _apply_digest_tag(
-        repository=staging_repository,
-        digest=record["member_digest"],
-        tag=record["staging_tag"],
-        crane_binary=crane_binary,
-    )
-    plan = plan_staging_tag(
-        record["build_key_sha256"],
-        record["member_digest"],
-        record["member_digest"] if transport["decision"] == "reuse" else None,
-        staging_repository=staging_repository,
-    )
-    return {
-        **plan,
-        "collision_model": copy.deepcopy(transport["collision_model"]),
-        "operations": transport["operations"],
-    }
-
-
 def _run_imagetools(
     buildx_command: str | tuple[str, ...],
     arguments: list[str],
@@ -5964,38 +5795,6 @@ def validate_finalized_index(
     return copy.deepcopy(finalized)
 
 
-def create_index(
-    plan: object,
-    *,
-    parent_plans: object,
-    lane: str,
-    resolved_plan: dict[str, Any],
-    expected_plan_sha256: str,
-) -> dict[str, Any]:
-    """Compatibility wrapper: prepare then immediately close anonymous readback."""
-    provisional = prepare_index(
-        plan,
-        parent_plans=parent_plans,
-        lane=lane,
-        resolved_plan=resolved_plan,
-        expected_plan_sha256=expected_plan_sha256,
-    )
-    finalized = finalize_index(
-        provisional,
-        parent_plans=parent_plans,
-        resolved_plan=resolved_plan,
-        expected_plan_sha256=expected_plan_sha256,
-    )
-    record = finalized["record"]
-    return {
-        **record,
-        "decision": provisional["decision"],
-        "postwrite_manifest_sha256": provisional["postwrite_manifest_sha256"],
-        "preflight_sha256": provisional["preflight_sha256"],
-        "verification_sha256": provisional["verification_sha256"],
-    }
-
-
 def _loopback_request(
     base_url: str,
     method: str,
@@ -6014,48 +5813,6 @@ def _loopback_request(
         request.add_header("Content-Type", content_type)
     with urllib.request.urlopen(request, timeout=5) as response:
         return response.status, response.read(), dict(response.headers.items())
-
-
-def _loopback_upload_blob(base_url: str, repository: str, payload: bytes) -> str:
-    digest = "sha256:" + hashlib.sha256(payload).hexdigest()
-    status, _, headers = _loopback_request(
-        base_url, "POST", f"/v2/{repository}/blobs/uploads/"
-    )
-    if status != 202 or "Location" not in headers:
-        raise ValueError("loopback Registry did not open a blob upload")
-    location = headers["Location"]
-    separator = "&" if "?" in location else "?"
-    upload_url = location + separator + urllib.parse.urlencode({"digest": digest})
-    status, _, _ = _loopback_request(
-        base_url,
-        "PUT",
-        upload_url,
-        data=payload,
-        content_type="application/octet-stream",
-    )
-    if status != 201:
-        raise ValueError("loopback Registry did not commit the exact blob digest")
-    return digest
-
-
-def _loopback_push_manifest(
-    base_url: str,
-    repository: str,
-    reference: str,
-    manifest: dict[str, Any],
-) -> tuple[str, int]:
-    raw = canonical_bytes(manifest)
-    digest = "sha256:" + hashlib.sha256(raw).hexdigest()
-    status, _, _ = _loopback_request(
-        base_url,
-        "PUT",
-        f"/v2/{repository}/manifests/{reference}",
-        data=raw,
-        content_type=manifest["mediaType"],
-    )
-    if status != 201:
-        raise ValueError("loopback Registry did not commit the manifest")
-    return digest, len(raw)
 
 
 def run_loopback_registry_contract(
