@@ -9,7 +9,6 @@ from typing import Any
 
 
 from .core import (
-    cpu_toolchain_authority,
     runtime_patch_manifest_sha256,
     sha256_value,
 )
@@ -124,26 +123,6 @@ def _unique_json(data: bytes, label: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"{label} must be a JSON object")
     return value
-
-
-def _python_extension_suffix(spec: dict[str, Any], task: dict[str, Any]) -> str:
-    architecture = cpu_toolchain_authority(spec["cpu_arch"]).wheel_arch
-    checks = task.get("builder", {}).get("checks", [])
-    soabi_checks = [item for item in checks if item.get("kind") == "python-soabi"]
-    if len(soabi_checks) != 1:
-        raise ValueError("wheel task requires one Python SOABI authority")
-    prefix = soabi_checks[0].get("prefix")
-    version = task.get("python_version")
-    abi = task.get("python_abi")
-    if (
-        not isinstance(prefix, str)
-        or not isinstance(version, str)
-        or not isinstance(abi, str)
-        or abi != "cp" + version.replace(".", "")
-        or abi != spec.get("python_abi")
-    ):
-        raise ValueError("wheel task Python ABI/SOABI authority is inconsistent")
-    return f".{prefix}-{abi.removeprefix('cp')}-{architecture}-linux-gnu.so"
 
 
 def _elf_string(data: bytes, offset: int, size: int, label: str) -> str:
