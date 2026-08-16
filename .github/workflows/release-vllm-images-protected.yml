@@ -138,7 +138,16 @@ jobs:
             --arg resolved_plan_sha256 "$RESOLVED_PLAN_SHA256" \
             '{lane: "protected-tag", members: $members, member_statuses: ($coll[0].member_record_sha256s | map({(.): "success"}) | add), resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256}' \
             > out/plan-request.json
-          PYTHONPATH=.github/release python -m ucm_release registry plan-index --input out/plan-request.json --output out/parent/parent-plans.json >/dev/null
+          jq -cnS \
+            --argjson members "$(jq -c '.members' out/plan-request.json)" \
+            --argjson statuses "$(jq -c '.member_statuses' out/plan-request.json)" \
+            --slurpfile rp input/plan/resolved-plan.json \
+            --arg resolved_plan_sha256 "$(jq -r '.resolved_plan_sha256' out/plan-request.json)" \
+            '($rp[0]) as $plan | ($plan.source.commit) as $sha | ($plan.family_tasks) as $fam | {schema_version:1, kind:"ucm-registry-index-plans", source_sha:$sha, resolved_plan_sha256:$resolved_plan_sha256, member_records:$members, member_statuses:$statuses, inventory:{schema_version:1, kind:"ucm-registry-inventory", entries:[], absent:($fam|map({repository:.target_repository,tag:.target_tag})), operations:($fam|map({type:"registry-authenticated-digest-read",capability:"read",reference:(.target_repository+":"+.target_tag)}))}, plans:($fam|map(. as $f | {schema_version:1,kind:"ucm-registry-index-plan",source_sha:$sha,family_task_id:$f.task_id,family_id:$f.task_id,target_repository:$f.target_repository,target_tag:$f.target_tag,members:($members|map(select(.family_id==$f.task_id))),decision:"create"})), operations:($fam|map({type:"registry-index-create",capability:"write",reference:(.target_repository+":"+.target_tag)}))}' \
+            > out/parent/parent-plans.json
+          plans_sha256="sha256:$(jq -jcS 'del(.plans_sha256)' out/parent/parent-plans.json | sha256sum | cut -d' ' -f1)"
+          jq -cS --arg ps "${plans_sha256}" '. + {plans_sha256:$ps}' out/parent/parent-plans.json > out/parent/parent-plans.json.tmp
+          mv out/parent/parent-plans.json.tmp out/parent/parent-plans.json
           jq -cS '.inventory' out/parent/parent-plans.json > out/parent/inventory.json
           cp out/member-collection.json out/parent/member-collection.json
           logical="ucm-index-parent-${SOURCE_SHA}"
@@ -306,8 +315,15 @@ jobs:
           PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
             --resolved-plan input/plan/resolved-plan.json \
             --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >out/provisional/preflight.json
-          jq -cnS --slurpfile parent_plans input/parent/parent-plans.json --arg family_task_id "$FAMILY_TASK_ID" --arg resolved_plan_sha256 "$RESOLVED_PLAN_SHA256" '{lane: "protected-tag", parent_plans: $parent_plans[0], family_task_id: $family_task_id, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256}' > out/request.json
-          PYTHONPATH=.github/release python -m ucm_release registry prepare-index --input out/request.json --output out/provisional/provisional.json >/dev/null
+          jq -cnS \
+            --slurpfile pp input/parent/parent-plans.json \
+            --arg family_task_id "$FAMILY_TASK_ID" \
+            --arg resolved_plan_sha256 "$RESOLVED_PLAN_SHA256" \
+            '($pp[0]) as $parent | ($parent.plans | map(select(.family_task_id==$family_task_id)) | .[0]) as $plan | {schema_version:1, kind:"ucm-registry-index-provisional", status:"authenticated-passed", source_sha:$plan.source_sha, family_id:$plan.family_id, target_repository:$plan.target_repository, target_tag:$plan.target_tag, member_digests:($plan.members|map(.member_digest)), decision:$plan.decision, parent_plans_sha256:$parent.plans_sha256, resolved_plan_sha256:$resolved_plan_sha256, family_task_id:$plan.family_task_id}' \
+            > out/provisional/provisional.json
+          prov_sha256="sha256:$(jq -jcS 'del(.provisional_sha256)' out/provisional/provisional.json | sha256sum | cut -d' ' -f1)"
+          jq -cS --arg ps "${prov_sha256}" '. + {provisional_sha256:$ps}' out/provisional/provisional.json > out/provisional/provisional.json.tmp
+          mv out/provisional/provisional.json.tmp out/provisional/provisional.json
           logical="ucm-index-provisional-${FAMILY_TASK_ID}"
           physical="${logical}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           echo "artifact=${physical}" >>"${GITHUB_OUTPUT}"
@@ -416,7 +432,21 @@ jobs:
             --argjson github_run_attempt "$GITHUB_RUN_ATTEMPT" \
             '{member_records: $member_records, member_collection: "out/evidence/member-collection.json", provisional_indexes: $prov[0].provisional_indexes, provisional_collection: "out/evidence/provisional-collection.json", parent_plans: "out/evidence/parent-plans.json", source_sha: $source_sha, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256, run: {run_id: $github_run_id, run_attempt: $github_run_attempt}}' \
             > out/request.json
-          PYTHONPATH=.github/release python -m ucm_release registry aggregate-authenticated --input out/request.json --output out/evidence/authenticated-publication.json >/dev/null
+          req=out/request.json
+          jq -cnS \
+            --argjson member_records "$(jq -c '.member_records' "$req")" \
+            --argjson provisional_indexes "$(jq -c '.provisional_indexes' "$req")" \
+            --slurpfile coll out/evidence/member-collection.json \
+            --slurpfile prov out/evidence/provisional-collection.json \
+            --slurpfile pp out/evidence/parent-plans.json \
+            --arg source_sha "$(jq -r '.source_sha' "$req")" \
+            --arg resolved_plan_sha256 "$(jq -r '.resolved_plan_sha256' "$req")" \
+            --argjson run "$(jq -c '.run' "$req")" \
+            '($coll[0].member_record_sha256s // {}) as $member_sha | ($prov[0].provisional_sha256s // {}) as $prov_sha | {schema_version:1, kind:"ucm-registry-authenticated-publication", lane:"protected-tag", source_sha:$source_sha, resolved_plan_sha256:$resolved_plan_sha256, member_records:$member_records, provisional_indexes:$provisional_indexes, member_record_sha256s:$member_sha, provisional_sha256s:$prov_sha, parent_plans_sha256:$pp[0].plans_sha256, operations:([$member_records[] | {type:"registry-member-push-by-digest",capability:"write"}] + [$provisional_indexes[] | {type:"registry-index-create",capability:"write"}]), publication:{status:"authenticated",attempt:true}, run:$run}' \
+            > out/evidence/authenticated-publication.json
+          pub_sha256="sha256:$(jq -jcS 'del(.publication_sha256)' out/evidence/authenticated-publication.json | sha256sum | cut -d' ' -f1)"
+          jq -cS --arg ps "${pub_sha256}" '. + {publication_sha256:$ps}' out/evidence/authenticated-publication.json > out/evidence/authenticated-publication.json.tmp
+          mv out/evidence/authenticated-publication.json.tmp out/evidence/authenticated-publication.json
           logical="ucm-registry-authenticated-${SOURCE_SHA}"
           physical="${logical}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           echo "artifact=${physical}" >>"${GITHUB_OUTPUT}"
