@@ -2312,30 +2312,6 @@ def compute_publish_plan(
     return plan
 
 
-def _oci_tag(reference: str) -> str:
-    """Extract the tag from a ``host/path:tag`` OCI reference."""
-    if "@" in reference:
-        raise ValueError(f"digest references carry no tag: {reference!r}")
-    head, sep, tail = reference.rpartition(":")
-    if not sep or "/" in tail or not tail:
-        raise ValueError(f"OCI reference has no tag component: {reference!r}")
-    return tail
-
-
-def _oci_digest(reference: str) -> str | None:
-    """Query the manifest digest of an OCI reference via ``crane digest``."""
-    result = subprocess.run(
-        ["crane", "digest", reference],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        return None
-    digest = result.stdout.strip()
-    return digest or None
-
-
 def publish_github_release(
     assets: list[Path],
     *,
@@ -2446,57 +2422,6 @@ def _resolved_locks(
             "identity": f"package://pypi/ucm-build@{sha256_value(dependency)}",
         },
     ]
-
-
-def _fixture_wheel_specs(release: dict[str, Any]) -> list[dict[str, Any]]:
-    """Project the synthetic fixture-wheel declarations without Registry state."""
-    specs: list[dict[str, Any]] = []
-    for profile in sorted(release["wheel_profiles"], key=lambda item: item["id"]):
-        npu_arch = profile["npu_arch"][0]
-        operating_system = profile["os"][0]
-        for architecture in sorted(profile["cpu_arch"]):
-            spec: dict[str, Any] = {
-                "spec_id": f"{profile['id']}-{architecture}",
-                "accelerator": profile["accelerator"],
-                "accelerator_runtime": profile["accelerator_runtime"],
-                "npu_arch_or_na": npu_arch,
-                "os": operating_system,
-                "cpu_arch": architecture,
-                "python_version": profile["python_version"],
-                "python_abi": profile["python_abi"],
-                "wheel_version": profile["wheel_version"],
-                "wheel_platform": profile["wheel_platform"],
-                "binary_profile_id": profile["binary_profile_id"],
-                "validation_targets": profile["validation_targets"],
-                "required_native": profile["required_native"],
-                "forbidden_native": profile["forbidden_native"],
-                "allowed_dt_needed": profile["allowed_dt_needed"],
-                "external_required_dependencies": profile[
-                    "external_required_dependencies"
-                ],
-                "locks": _resolved_locks(release, profile, architecture),
-                "runner": {
-                    "selector": f"runner-map://{architecture}",
-                    "status": "resolved",
-                    "identity": (
-                        f"runner://github-hosted/{release['runner_map'][architecture]}@"
-                        f"{sha256_value({'architecture': architecture, 'label': release['runner_map'][architecture]})}"
-                    ),
-                },
-                "build_eligible": True,
-                "blocked_reasons": [],
-            }
-            spec["declaration_sha256"] = sha256_value(spec)
-            specs.append(spec)
-    expected_ids = {
-        f"{profile['id']}-{architecture}"
-        for profile in release["wheel_profiles"]
-        for architecture in profile["cpu_arch"]
-    }
-    actual_ids = {item["spec_id"] for item in specs}
-    if actual_ids != expected_ids or len(specs) != len(expected_ids):
-        raise ValueError("wheel specification set differs from catalog declaration")
-    return specs
 
 
 def _git_output(repository_root: Path, *arguments: str) -> str | None:
