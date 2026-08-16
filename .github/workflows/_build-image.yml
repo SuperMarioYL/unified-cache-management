@@ -371,7 +371,6 @@ jobs:
           ${{
             inputs.deliver_full_oci ||
             (github.event_name == 'push' &&
-            github.repository == 'SuperMarioYL/unified-cache-management' &&
             github.ref_type == 'tag' &&
             github.ref_protected == true)
           }}
@@ -395,7 +394,6 @@ jobs:
           set -euo pipefail
           output_mode=feature
           if [[ "${EVENT_NAME}" == push && \
-                "${REPOSITORY}" == SuperMarioYL/unified-cache-management && \
                 "${REF_TYPE}" == tag && \
                 "${REF_PROTECTED}" == true ]]; then
             output_mode=production
@@ -415,7 +413,6 @@ jobs:
           ${{
             inputs.deliver_full_oci ||
             (github.event_name == 'push' &&
-            github.repository == 'SuperMarioYL/unified-cache-management' &&
             github.ref_type == 'tag' &&
             github.ref_protected == true)
           }}
@@ -481,7 +478,7 @@ jobs:
             out/available-gib.txt
           if-no-files-found: error
           overwrite: false
-          retention-days: ${{ github.event_name == 'push' && github.repository == 'SuperMarioYL/unified-cache-management' && github.ref_type == 'tag' && github.ref_protected == true && 90 || 3 }}
+          retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref_protected == true && 90 || 3 }}
       - name: Upload manually requested full OCI artifact
         if: ${{ inputs.deliver_full_oci }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -496,7 +493,6 @@ jobs:
         if: >-
           ${{
             github.event_name == 'push' &&
-            github.repository == 'SuperMarioYL/unified-cache-management' &&
             github.ref_type == 'tag' &&
             github.ref_protected == true
           }}

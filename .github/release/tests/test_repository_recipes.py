@@ -1209,9 +1209,6 @@ def test_hardware_e2e_workflow_is_dispatch_only_protected_and_catalog_routed() -
         "${{ needs.repository-recipe-plan.outputs.protected_environment }}"
     )
     assert "github.event_name == 'workflow_dispatch'" in hardware["if"]
-    assert (
-        "github.repository == 'SuperMarioYL/unified-cache-management'" in hardware["if"]
-    )
     assert hardware["permissions"] == {"contents": "read"}
     assert "catalog select-recipe" in hardware_text
     assert "--lane hardware-e2e" in hardware_text

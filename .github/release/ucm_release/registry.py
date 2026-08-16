@@ -263,7 +263,7 @@ OCI_MANIFEST_MEDIA_TYPES = {
     "application/vnd.oci.image.manifest.v1+json",
     "application/vnd.docker.distribution.manifest.v2+json",
 }
-FIXTURE_STAGING_REPOSITORY = "ghcr.io/supermarioyl/ucm-release-staging"
+FIXTURE_STAGING_REPOSITORY = "ghcr.io/release-org/ucm-release-staging"
 CRANE_VERSION = "0.20.3"
 SECONDARY_RATE_LIMIT_BACKOFF_SECONDS = (60.0, 120.0, 240.0)
 IDEMPOTENT_REGISTRY_READ_OPERATIONS = frozenset(
@@ -2242,7 +2242,7 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
     chart = plan["chart"]
     if (
         not isinstance(chart, dict)
-        or set(chart)
+        or set(chart) - {"provenance"}
         != {
             "source",
             "name",

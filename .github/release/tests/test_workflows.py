@@ -580,7 +580,7 @@ def _aggregate(closure: dict[str, object], *, attempt: int = 1) -> dict[str, obj
         completed_loop_path=paths["completed_loop"],
         second_reconcile_path=paths["second_reconcile"],
         image_loop_path=paths["image_loop"],
-        repository="SuperMarioYL/unified-cache-management",
+        repository="release-org/unified-cache-management",
         ref="refs/heads/feature/cicd",
         source_sha=closure["source_sha"],
         resolved_plan=closure["resolved_plan"],
@@ -800,18 +800,11 @@ def _has_upstream_guard(job: dict[object, object]) -> bool:
         fragment in condition
         for fragment in (
             "github.event_name == 'push'",
-            "github.repository == 'SuperMarioYL/unified-cache-management'",
             "github.ref_type == 'tag'",
             "github.ref_protected == true",
         )
     )
-    protected_dispatch_guard = all(
-        fragment in condition
-        for fragment in (
-            "github.event_name == 'workflow_dispatch'",
-            "github.repository == 'SuperMarioYL/unified-cache-management'",
-        )
-    )
+    protected_dispatch_guard = "github.event_name == 'workflow_dispatch'" in condition
     return protected_tag_guard or protected_dispatch_guard
 
 
@@ -1266,7 +1259,7 @@ def test_full_oci_delivery_resolver_routes_each_explicit_opt_in(
         env={
             **os.environ,
             "EVENT_NAME": event_name,
-            "REPOSITORY": "SuperMarioYL/unified-cache-management",
+            "REPOSITORY": "release-org/unified-cache-management",
             "REF": "refs/heads/feature/cicd",
             "REF_TYPE": "branch",
             "REF_PROTECTED": "false",
@@ -1740,10 +1733,9 @@ def test_release_workflow_topology_runs_split_files_at_the_pushed_sha() -> None:
 
 
 def test_workflow_safety_literals_match_catalog_source_authority() -> None:
-    """Static GitHub guards may be duplicated only when they match the catalog."""
+    """No release workflow hard-codes a repository owner; protection is lane-based."""
     release_core = _release_modules()[0]
     catalog = release_core.load_catalog()
-    repository = catalog["source"]["repository"]
     protected_environment = catalog["source"]["protected_environment"]
     repository_guards: list[str] = []
     literal_environments: list[str] = []
@@ -1766,8 +1758,7 @@ def test_workflow_safety_literals_match_catalog_source_authority() -> None:
             and not environment.startswith("${{")
         )
 
-    assert repository_guards
-    assert set(repository_guards) == {repository}
+    assert repository_guards == []
     assert literal_environments
     assert set(literal_environments) == {protected_environment}
 
@@ -1833,7 +1824,6 @@ def test_reusable_workflow_inputs_outputs_and_artifacts_are_exact() -> None:
             elif isinstance(retention, str):
                 for fragment in (
                     "github.event_name == 'push'",
-                    "SuperMarioYL/unified-cache-management",
                     "github.ref_type == 'tag'",
                     "github.ref_protected == true",
                     "90 || 3",
@@ -1948,7 +1938,6 @@ def test_reusable_entry_contracts_reject_empty_partial_and_illegal_calls() -> No
     entry = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
     plan_text = "\n".join(_strings(_jobs(entry)["plan"]))
     for fragment in (
-        "SuperMarioYL/unified-cache-management",
         "refs/heads/feature/",
         "REF_TYPE",
         "REF_PROTECTED",
@@ -2418,7 +2407,6 @@ def test_reusable_image_routers_split_feature_and_protected_authority() -> None:
     protected_build = "\n".join(_strings(_jobs(protected)["build-images-protected"]))
     for authority in (
         "github.event_name",
-        "github.repository",
         "github.ref_type",
         "github.ref_protected",
     ):
@@ -2541,9 +2529,7 @@ def test_release_entry_router_fails_closed_inside_the_always_run_plan_job() -> N
     command = "\n".join(_strings(plan))
     for fragment in (
         "EVENT_NAME",
-        "REPOSITORY",
         "REF_PROTECTED",
-        "SuperMarioYL/unified-cache-management",
         "refs/heads/feature/",
         "REF_TYPE",
         "release invocation is outside feature/protected authority",
@@ -2554,13 +2540,12 @@ def test_release_entry_router_fails_closed_inside_the_always_run_plan_job() -> N
 
 
 def test_only_protected_version_tags_can_enter_the_publication_route() -> None:
-    """The generic trigger remains repository and protected-tag gated."""
+    """The generic trigger remains protected-tag gated via ref protection."""
     document = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
     assert _trigger(document)["push"]["tags"] == ["v*"]
     plan_text = "\n".join(_strings(_jobs(document)["plan"]))
     for fragment in (
         '"${EVENT_NAME}" == push',
-        '"${REPOSITORY}" == SuperMarioYL/unified-cache-management',
         '"${REF_TYPE}" == tag',
         '"${REF_PROTECTED}" == true',
     ):
@@ -2632,7 +2617,7 @@ def test_github_release_io_uses_the_frozen_plan_repository_identity() -> None:
             )
         )
         command = str(step["run"])
-        assert "repos/SuperMarioYL/unified-cache-management" not in command
+        assert "repos/release-org/unified-cache-management" not in command
         assert plan_path in command
         assert '["source"]["repository"]' in command
         assert 'test "${release_repository}" = "${GITHUB_REPOSITORY}"' in command
@@ -3261,7 +3246,7 @@ def test_aggregate_cli_reopens_files_and_exits_two_for_mutation(
                 "--image-loop",
                 str(paths["image_loop"]),
                 "--repository",
-                "SuperMarioYL/unified-cache-management",
+                "release-org/unified-cache-management",
                 "--ref",
                 "refs/heads/feature/cicd",
                 "--source-sha",
@@ -3649,7 +3634,6 @@ def test_task5_protected_route_has_static_permission_and_environment_boundaries(
     protected_call_if = str(entry_jobs["reconcile-images-protected"]["if"])
     for fragment in (
         "github.event_name == 'push'",
-        "github.repository == 'SuperMarioYL/unified-cache-management'",
         "github.ref_type == 'tag'",
         "github.ref_protected == true",
     ):
@@ -4179,11 +4163,11 @@ def test_task5_release_state_is_create_or_exact_idempotent_reuse(
         "prerelease": True,
         "assets": [],
         "author": {"login": "github-actions[bot]", "type": "Bot"},
-        "upload_url": "https://uploads.github.com/repos/SuperMarioYL/unified-cache-management/releases/41/assets{?name,label}",
-        "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/releases/41",
-        "assets_url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/releases/41/assets",
+        "upload_url": "https://uploads.github.com/repos/release-org/unified-cache-management/releases/41/assets{?name,label}",
+        "url": "https://api.github.com/repos/release-org/unified-cache-management/releases/41",
+        "assets_url": "https://api.github.com/repos/release-org/unified-cache-management/releases/41/assets",
         "html_url": (
-            "https://github.com/SuperMarioYL/unified-cache-management/"
+            "https://github.com/release-org/unified-cache-management/"
             "releases/tag/untagged-a2d19fd21f8e2f4f9847"
         ),
     }
@@ -4197,7 +4181,7 @@ def test_task5_release_state_is_create_or_exact_idempotent_reuse(
     published = copy.deepcopy(remote)
     published["draft"] = False
     published["html_url"] = (
-        "https://github.com/SuperMarioYL/unified-cache-management/"
+        "https://github.com/release-org/unified-cache-management/"
         "releases/tag/v0.5.0rc1"
     )
     assert verify_module.plan_github_release(published, source_sha, **plan_binding)[
@@ -4260,12 +4244,12 @@ def test_task5_release_state_is_create_or_exact_idempotent_reuse(
         verify_module.plan_github_release(foreign_author, source_sha, **plan_binding)
 
     for bad_html_url in (
-        "http://github.com/SuperMarioYL/unified-cache-management/releases/tag/untagged-a2d19fd21f8e2f4f9847",
-        "https://example.invalid/SuperMarioYL/unified-cache-management/releases/tag/untagged-a2d19fd21f8e2f4f9847",
-        "https://github.com/SuperMarioYL/unified-cache-management/releases/tag/untagged-a2d19fd21f8e2f4f9847?foreign=1",
-        "https://github.com/SuperMarioYL/unified-cache-management/releases/tag/untagged-a2d19fd21f8e2f4f9847#foreign",
-        "https://github.com/SuperMarioYL/unified-cache-management/releases/tag/untagged-a2d19fd21f8e2f4f9847/foreign",
-        "https://github.com/SuperMarioYL/unified-cache-management/releases/tag/v0.5.0rc1",
+        "http://github.com/release-org/unified-cache-management/releases/tag/untagged-a2d19fd21f8e2f4f9847",
+        "https://example.invalid/release-org/unified-cache-management/releases/tag/untagged-a2d19fd21f8e2f4f9847",
+        "https://github.com/release-org/unified-cache-management/releases/tag/untagged-a2d19fd21f8e2f4f9847?foreign=1",
+        "https://github.com/release-org/unified-cache-management/releases/tag/untagged-a2d19fd21f8e2f4f9847#foreign",
+        "https://github.com/release-org/unified-cache-management/releases/tag/untagged-a2d19fd21f8e2f4f9847/foreign",
+        "https://github.com/release-org/unified-cache-management/releases/tag/v0.5.0rc1",
     ):
         with pytest.raises(ValueError, match="HTML transport"):
             verify_module.plan_github_release(
@@ -4276,7 +4260,7 @@ def test_task5_release_state_is_create_or_exact_idempotent_reuse(
             {
                 **published,
                 "html_url": (
-                    "https://github.com/SuperMarioYL/unified-cache-management/"
+                    "https://github.com/release-org/unified-cache-management/"
                     "releases/tag/untagged-a2d19fd21f8e2f4f9847"
                 ),
             },
@@ -4402,11 +4386,11 @@ def test_task5_release_asset_plan_never_overwrites_or_ignores_conflicts(
             "state": "uploaded",
             "digest": asset["sha256"],
             "api_url": (
-                "https://api.github.com/repos/SuperMarioYL/"
+                "https://api.github.com/repos/release-org/"
                 f"unified-cache-management/releases/assets/{asset_id}"
             ),
             "browser_download_url": (
-                "https://github.com/SuperMarioYL/unified-cache-management/"
+                "https://github.com/release-org/unified-cache-management/"
                 f"releases/download/v0.5.0rc1/{asset['name']}"
             ),
             "uploader": {"login": "github-actions[bot]", "type": "Bot"},
@@ -5015,11 +4999,11 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
         "prerelease": True,
         "assets": [{"id": 600 + index} for index in range(len(assets))],
         "author": {"login": "github-actions[bot]", "type": "Bot"},
-        "upload_url": "https://uploads.github.com/repos/SuperMarioYL/unified-cache-management/releases/41/assets{?name,label}",
-        "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/releases/41",
-        "assets_url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/releases/41/assets",
+        "upload_url": "https://uploads.github.com/repos/release-org/unified-cache-management/releases/41/assets{?name,label}",
+        "url": "https://api.github.com/repos/release-org/unified-cache-management/releases/41",
+        "assets_url": "https://api.github.com/repos/release-org/unified-cache-management/releases/41/assets",
         "html_url": (
-            "https://github.com/SuperMarioYL/unified-cache-management/"
+            "https://github.com/release-org/unified-cache-management/"
             "releases/tag/v0.5.0rc1"
         ),
     }
@@ -5034,11 +5018,11 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
             "state": "uploaded",
             "digest": asset["sha256"],
             "api_url": (
-                "https://api.github.com/repos/SuperMarioYL/"
+                "https://api.github.com/repos/release-org/"
                 f"unified-cache-management/releases/assets/{asset_id}"
             ),
             "browser_download_url": (
-                "https://github.com/SuperMarioYL/unified-cache-management/"
+                "https://github.com/release-org/unified-cache-management/"
                 f"releases/download/v0.5.0rc1/{asset['name']}"
             ),
             "uploader": {"login": "github-actions[bot]", "type": "Bot"},
@@ -5066,7 +5050,7 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
             "draft": True,
             "assets": [],
             "html_url": (
-                "https://github.com/SuperMarioYL/unified-cache-management/"
+                "https://github.com/release-org/unified-cache-management/"
                 f"releases/tag/{draft_slug}"
             ),
         }
@@ -5079,7 +5063,7 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
             **copy.deepcopy(published_release),
             "draft": True,
             "html_url": (
-                "https://github.com/SuperMarioYL/unified-cache-management/"
+                "https://github.com/release-org/unified-cache-management/"
                 f"releases/tag/{draft_slug}"
             ),
         }
@@ -5089,7 +5073,7 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
             "draft": True,
             "assets": copy.deepcopy(published_release["assets"][:3]),
             "html_url": (
-                "https://github.com/SuperMarioYL/unified-cache-management/"
+                "https://github.com/release-org/unified-cache-management/"
                 f"releases/tag/{draft_slug}"
             ),
         }
@@ -5102,7 +5086,7 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
             **copy.deepcopy(published_release),
             "draft": True,
             "html_url": (
-                "https://github.com/SuperMarioYL/unified-cache-management/"
+                "https://github.com/release-org/unified-cache-management/"
                 f"releases/tag/{draft_slug}"
             ),
         }
@@ -5240,7 +5224,7 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
         "protected_registry_publication_evidence",
         lambda **_kwargs: copy.deepcopy(protected),
     )
-    api_root = "https://api.github.com/repos/SuperMarioYL/unified-cache-management"
+    api_root = "https://api.github.com/repos/release-org/unified-cache-management"
     operations: list[dict[str, object]] = [
         {
             "type": "github-release-list",
@@ -5312,7 +5296,7 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
                     "type": "github-release-asset-upload",
                     "capability": "write",
                     "reference": (
-                        "https://uploads.github.com/repos/SuperMarioYL/"
+                        "https://uploads.github.com/repos/release-org/"
                         "unified-cache-management/releases/41/assets?name="
                         + urllib.parse.quote(str(name), safe="")
                     ),
@@ -5464,7 +5448,7 @@ def test_task5_final_release_evidence_reopens_authenticated_and_anonymous_bytes(
                 "type": "github-release-asset-upload",
                 "capability": "write",
                 "reference": (
-                    "https://uploads.github.com/repos/SuperMarioYL/"
+                    "https://uploads.github.com/repos/release-org/"
                     "unified-cache-management/releases/41/assets?name="
                     + urllib.parse.quote(str(assets[0]["name"]), safe="")
                 ),

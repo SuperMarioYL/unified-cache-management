@@ -32,7 +32,6 @@ jobs:
       ${{
         !cancelled() &&
         github.event_name == 'push' &&
-        github.repository == 'SuperMarioYL/unified-cache-management' &&
         github.ref_type == 'tag' && github.ref_protected == true
       }}
     strategy:
@@ -154,7 +153,6 @@ jobs:
       ${{
         !cancelled() && needs.aggregate-members.result == 'success' &&
         github.event_name == 'push' &&
-        github.repository == 'SuperMarioYL/unified-cache-management' &&
         github.ref_type == 'tag' && github.ref_protected == true
       }}
     strategy:

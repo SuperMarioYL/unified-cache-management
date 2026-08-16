@@ -36,24 +36,22 @@ def _tree_sha(entries: list[dict[str, str]], digest_field: str) -> str:
     return "sha256:" + hashlib.sha256(canonical_bytes(normalized)).hexdigest()
 
 
-def verify_provenance(chart_dir: Path) -> dict[str, Any]:
+def verify_provenance(
+    chart_dir: Path, *, expected: dict[str, Any] | None = None
+) -> dict[str, Any]:
     provenance_path = chart_dir / "SOURCE_PROVENANCE.json"
     provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
     if "/Users/" in json.dumps(provenance):
         raise ValueError("Chart provenance contains an absolute local path")
-    expected_source = {
-        "commit": "33ac2a37f146a4515e232e4d7a8abaa14d8ef1d7",
-        "remote": "https://github.com/SuperMarioYL/uc-stack.git",
-        "tree_sha256": "sha256:5a0aa3113c14931e30c88c7f8508b3c742f985e5ede4a8ec48cac77c195c5a2e",
-    }
-    if provenance.get("source") != expected_source:
-        raise ValueError(
-            "Chart provenance does not retain the immutable source identity"
-        )
-    if provenance.get("source_tree_sha256") != expected_source["tree_sha256"]:
-        raise ValueError(
-            "Chart source tree digest disagrees with immutable source identity"
-        )
+    if expected is not None:
+        if provenance.get("source") != expected:
+            raise ValueError(
+                "Chart provenance does not retain the immutable source identity"
+            )
+        if provenance.get("source_tree_sha256") != expected["tree_sha256"]:
+            raise ValueError(
+                "Chart source tree digest disagrees with immutable source identity"
+            )
     source_files = provenance.get("source_files", [])
     additions = provenance.get("release_additions", [])
     entries = source_files + additions
@@ -184,7 +182,7 @@ def package_chart(
         expected_plan_sha256=expected_plan_sha256,
     )
     chart_dir = REPO_ROOT / chart_config["source"]
-    provenance = verify_provenance(chart_dir)
+    provenance = verify_provenance(chart_dir, expected=chart_config.get("provenance"))
     rendered_cases: list[str] = []
     rendered_evidence: dict[str, dict[str, str]] = {}
     _run(["helm", "lint", str(chart_dir)])

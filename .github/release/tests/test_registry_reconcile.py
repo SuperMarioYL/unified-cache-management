@@ -841,7 +841,7 @@ def _publication_members() -> list[dict[str, object]]:
         config_labels = {
             "base.label": f"preserved-{index}",
             "org.opencontainers.image.source": (
-                "https://github.com/SuperMarioYL/unified-cache-management"
+                "https://github.com/release-org/unified-cache-management"
             ),
             "org.opencontainers.image.revision": "a" * 40,
             "io.ucm.release.source-tree": source_tree,
@@ -891,9 +891,9 @@ def _publication_members() -> list[dict[str, object]]:
                 },
             ],
             "source": {
-                "repository": "SuperMarioYL/unified-cache-management",
+                "repository": "release-org/unified-cache-management",
                 "repository_url": (
-                    "https://github.com/SuperMarioYL/unified-cache-management"
+                    "https://github.com/release-org/unified-cache-management"
                 ),
                 "commit": "a" * 40,
                 "tree": source_tree,
@@ -909,7 +909,7 @@ def _publication_members() -> list[dict[str, object]]:
             **content_identity_payload,
             "content_identity_sha256": core.sha256_value(content_identity_payload),
         }
-        member_reference = "ghcr.io/supermarioyl/ucm-release-staging@" + digest
+        member_reference = "ghcr.io/release-org/ucm-release-staging@" + digest
         readback_operations = [
             {
                 "type": "registry-authenticated-digest-read",
@@ -925,21 +925,21 @@ def _publication_members() -> list[dict[str, object]]:
                 "type": "registry-authenticated-config-blob-read",
                 "capability": "read",
                 "reference": (
-                    "ghcr.io/supermarioyl/ucm-release-staging@" + config_digest
+                    "ghcr.io/release-org/ucm-release-staging@" + config_digest
                 ),
             },
             {
                 "type": "registry-authenticated-layer-blob-read",
                 "capability": "read",
                 "reference": (
-                    "ghcr.io/supermarioyl/ucm-release-staging@" + layer_digest
+                    "ghcr.io/release-org/ucm-release-staging@" + layer_digest
                 ),
             },
         ]
         readback_payload = {
             "schema_version": 1,
             "kind": "ucm-registry-readback",
-            "reference": "ghcr.io/supermarioyl/ucm-release-staging@" + digest,
+            "reference": "ghcr.io/release-org/ucm-release-staging@" + digest,
             "digest": digest,
             "manifest": manifest,
             "config": config,
@@ -958,7 +958,7 @@ def _publication_members() -> list[dict[str, object]]:
             "platform": task["platform"],
             "target_repository": task["target_repository"],
             "target_tag": task["target_tag"],
-            "staging_repository": "ghcr.io/supermarioyl/ucm-release-staging",
+            "staging_repository": "ghcr.io/release-org/ucm-release-staging",
             "staging_visibility": "private",
             "staging_tag": f"staging-{build_key.removeprefix('sha256:')}",
             "candidate_task_sha256": task["task_sha256"],
@@ -1001,7 +1001,7 @@ def _publication_members() -> list[dict[str, object]]:
                     "type": "registry-anonymous-prewrite-visibility-read",
                     "capability": "read",
                     "reference": (
-                        "ghcr.io/supermarioyl/ucm-release-staging:"
+                        "ghcr.io/release-org/ucm-release-staging:"
                         f"staging-{build_key.removeprefix('sha256:')}"
                     ),
                 },
@@ -1009,7 +1009,7 @@ def _publication_members() -> list[dict[str, object]]:
                     "type": "registry-authenticated-staging-prewrite-read",
                     "capability": "read",
                     "reference": (
-                        "ghcr.io/supermarioyl/ucm-release-staging:"
+                        "ghcr.io/release-org/ucm-release-staging:"
                         f"staging-{build_key.removeprefix('sha256:')}"
                     ),
                 },
@@ -1018,7 +1018,7 @@ def _publication_members() -> list[dict[str, object]]:
                     "type": "registry-anonymous-visibility-read",
                     "capability": "read",
                     "reference": (
-                        "ghcr.io/supermarioyl/ucm-release-staging:"
+                        "ghcr.io/release-org/ucm-release-staging:"
                         f"staging-{build_key.removeprefix('sha256:')}"
                     ),
                 },
@@ -1067,7 +1067,7 @@ def _protected_resolved_plan(
             {
                 "id": "vllm-extra",
                 "repository": "docker.io/vllm/vllm-openai-extra",
-                "target_repository": "ghcr.io/supermarioyl/vllm-openai-extra",
+                "target_repository": "ghcr.io/release-org/vllm-openai-extra",
                 "target_tag_suffix": "-extra-ucm-0.5.0rc1-r1",
             }
         )
@@ -2228,7 +2228,7 @@ def test_plan_index_cli_inventories_only_frozen_family_targets(
         targets=[
             *targets,
             {
-                "repository": "ghcr.io/supermarioyl/foreign-image",
+                "repository": "ghcr.io/release-org/foreign-image",
                 "tag": plan["family_tasks"][0]["target_tag"],
             },
         ]
@@ -3606,7 +3606,7 @@ def test_planned_member_barrier_emits_zero_index_writes_for_any_unsuccessful_mem
 def test_feature_and_protected_operation_audits_are_typed_and_allowlisted() -> None:
     """Feature rejects every write type; protected accepts only exact coordinates."""
     _, verify = _modules()
-    staging = "ghcr.io/supermarioyl/ucm-release-staging"
+    staging = "ghcr.io/release-org/ucm-release-staging"
     member_digest = "sha256:" + "1" * 64
     protected_operations = [
         {
@@ -3622,9 +3622,7 @@ def test_feature_and_protected_operation_audits_are_typed_and_allowlisted() -> N
         {
             "type": "registry-index-create",
             "capability": "write",
-            "reference": (
-                "ghcr.io/supermarioyl/vllm-openai:" "v0.21.0-ucm-0.5.0rc1-r1"
-            ),
+            "reference": ("ghcr.io/release-org/vllm-openai:" "v0.21.0-ucm-0.5.0rc1-r1"),
         },
     ]
 
@@ -3661,7 +3659,7 @@ def test_feature_and_protected_operation_audits_are_typed_and_allowlisted() -> N
 def test_extended_registry_read_operations_audit_exact_roles() -> None:
     """Config/layer/visibility evidence has exact typed reference contracts."""
     _, verify = _modules()
-    staging = "ghcr.io/supermarioyl/ucm-release-staging"
+    staging = "ghcr.io/release-org/ucm-release-staging"
     operations = [
         {
             "type": "registry-authenticated-config-blob-read",
@@ -3716,7 +3714,7 @@ def test_extended_registry_read_operations_audit_exact_roles() -> None:
     wrong_visibility_reference = copy.deepcopy(operations)
     wrong_visibility_reference[-1][
         "reference"
-    ] = "ghcr.io/supermarioyl/vllm-openai:v0.21.0-ucm-0.5.0rc1-r1"
+    ] = "ghcr.io/release-org/vllm-openai:v0.21.0-ucm-0.5.0rc1-r1"
     invalid.append(wrong_visibility_reference)
     duplicate = copy.deepcopy(operations)
     duplicate.append(copy.deepcopy(duplicate[0]))
@@ -3920,21 +3918,21 @@ def _valid_oci_archive(
         "content_identity_sha256"
     ]
     member_reference = (
-        "ghcr.io/supermarioyl/ucm-release-staging@" + updated["member_digest"]
+        "ghcr.io/release-org/ucm-release-staging@" + updated["member_digest"]
     )
     updated["operations"] = [
         {
             "type": "registry-anonymous-prewrite-visibility-read",
             "capability": "read",
             "reference": (
-                "ghcr.io/supermarioyl/ucm-release-staging:" + updated["staging_tag"]
+                "ghcr.io/release-org/ucm-release-staging:" + updated["staging_tag"]
             ),
         },
         {
             "type": "registry-authenticated-staging-prewrite-read",
             "capability": "read",
             "reference": (
-                "ghcr.io/supermarioyl/ucm-release-staging:" + updated["staging_tag"]
+                "ghcr.io/release-org/ucm-release-staging:" + updated["staging_tag"]
             ),
         },
         {
@@ -3951,14 +3949,14 @@ def _valid_oci_archive(
             "type": "registry-authenticated-config-blob-read",
             "capability": "read",
             "reference": (
-                "ghcr.io/supermarioyl/ucm-release-staging@" + updated["config_digest"]
+                "ghcr.io/release-org/ucm-release-staging@" + updated["config_digest"]
             ),
         },
         {
             "type": "registry-authenticated-layer-blob-read",
             "capability": "read",
             "reference": (
-                "ghcr.io/supermarioyl/ucm-release-staging@"
+                "ghcr.io/release-org/ucm-release-staging@"
                 + updated["layers"][0]["digest"]
             ),
         },
@@ -3966,7 +3964,7 @@ def _valid_oci_archive(
             "type": "registry-anonymous-visibility-read",
             "capability": "read",
             "reference": (
-                "ghcr.io/supermarioyl/ucm-release-staging:" + updated["staging_tag"]
+                "ghcr.io/release-org/ucm-release-staging:" + updated["staging_tag"]
             ),
         },
     ]
@@ -4046,7 +4044,7 @@ def test_inventory_and_anonymous_readback_use_real_subprocess_transport(
     public_target_refs = {f"{item['repository']}:{item['tag']}" for item in targets}
     assert [(item["repository"], item["tag"]) for item in inventory["entries"]] == [
         (
-            "ghcr.io/supermarioyl/vllm-openai",
+            "ghcr.io/release-org/vllm-openai",
             "v0.21.0-ucm-0.5.0rc1-r1",
         )
     ]
@@ -4095,7 +4093,7 @@ else:
     anonymous_tool.chmod(0o755)
     monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: str(anonymous_tool))
     readback = registry.readback_reference(
-        "ghcr.io/supermarioyl/vllm-openai:v0.21.0-ucm-0.5.0rc1-r1",
+        "ghcr.io/release-org/vllm-openai:v0.21.0-ucm-0.5.0rc1-r1",
         anonymous=True,
         public_targets=public_target_refs,
     )
@@ -4872,7 +4870,7 @@ def _expanded_member_and_readback(
         "labels": config_labels,
     }
     member_reference = (
-        "ghcr.io/supermarioyl/ucm-release-staging@" + base["member_digest"]
+        "ghcr.io/release-org/ucm-release-staging@" + base["member_digest"]
     )
     readback_operations = [
         {
@@ -4889,20 +4887,20 @@ def _expanded_member_and_readback(
             "type": "registry-authenticated-config-blob-read",
             "capability": "read",
             "reference": (
-                "ghcr.io/supermarioyl/ucm-release-staging@" + base["config_digest"]
+                "ghcr.io/release-org/ucm-release-staging@" + base["config_digest"]
             ),
         },
         {
             "type": "registry-authenticated-layer-blob-read",
             "capability": "read",
-            "reference": "ghcr.io/supermarioyl/ucm-release-staging@" + layer["digest"],
+            "reference": "ghcr.io/release-org/ucm-release-staging@" + layer["digest"],
         },
     ]
     readback_payload = {
         "schema_version": 1,
         "kind": "ucm-registry-readback",
         "reference": (
-            "ghcr.io/supermarioyl/ucm-release-staging@" + base["member_digest"]
+            "ghcr.io/release-org/ucm-release-staging@" + base["member_digest"]
         ),
         "digest": base["member_digest"],
         "manifest": manifest,
@@ -4956,14 +4954,14 @@ def _expanded_member_and_readback(
                 "type": "registry-anonymous-prewrite-visibility-read",
                 "capability": "read",
                 "reference": (
-                    "ghcr.io/supermarioyl/ucm-release-staging:" + base["staging_tag"]
+                    "ghcr.io/release-org/ucm-release-staging:" + base["staging_tag"]
                 ),
             },
             {
                 "type": "registry-authenticated-staging-prewrite-read",
                 "capability": "read",
                 "reference": (
-                    "ghcr.io/supermarioyl/ucm-release-staging:" + base["staging_tag"]
+                    "ghcr.io/release-org/ucm-release-staging:" + base["staging_tag"]
                 ),
             },
             *copy.deepcopy(readback["operations"]),
@@ -4971,7 +4969,7 @@ def _expanded_member_and_readback(
                 "type": "registry-anonymous-visibility-read",
                 "capability": "read",
                 "reference": (
-                    "ghcr.io/supermarioyl/ucm-release-staging:" + base["staging_tag"]
+                    "ghcr.io/release-org/ucm-release-staging:" + base["staging_tag"]
                 ),
             },
         ],
@@ -5120,7 +5118,7 @@ else:
 
     monkeypatch.setattr(registry, "_run_registry_tool_bytes", bounded_runner)
     result = registry.readback_reference(
-        "ghcr.io/supermarioyl/ucm-release-staging@" + manifest_digest,
+        "ghcr.io/release-org/ucm-release-staging@" + manifest_digest,
         staging_repository=registry.FIXTURE_STAGING_REPOSITORY,
     )
 
@@ -5556,7 +5554,7 @@ def test_published_registry_schema_defers_index_identity_to_frozen_plan() -> Non
         ("profile_id", "cann900-a2"),
         ("family_id", "cann900-a2"),
         ("platform", "linux/arm64"),
-        ("target_repository", "ghcr.io/supermarioyl/vllm-ascend"),
+        ("target_repository", "ghcr.io/release-org/vllm-ascend"),
         ("target_tag", "v0.22.1rc1-ucm-0.5.0rc1-r1"),
     ],
 )
@@ -5805,8 +5803,8 @@ def test_registry_schema_rejects_cross_role_and_duplicate_operations(
     manifest = core._build_fixture_release_manifest()
     evidence = _published_registry_evidence()
     record = evidence[record_kind][0]
-    staging_digest = "ghcr.io/supermarioyl/ucm-release-staging@" + "sha256:" + "1" * 64
-    public_target = "ghcr.io/supermarioyl/vllm-ascend:" "v0.22.1rc1-a3-ucm-0.5.0rc1-r1"
+    staging_digest = "ghcr.io/release-org/ucm-release-staging@" + "sha256:" + "1" * 64
+    public_target = "ghcr.io/release-org/vllm-ascend:" "v0.22.1rc1-a3-ucm-0.5.0rc1-r1"
     if mutation == "index-create":
         record["operations"] = [
             {
@@ -5868,7 +5866,7 @@ def test_member_python_validator_rejects_cross_role_and_duplicate_operations(
     registry, _ = _modules()
     resolved_plan = _protected_resolved_plan(monkeypatch)
     record = _publication_members_for_plan(resolved_plan)[0]
-    public_target = "ghcr.io/supermarioyl/vllm-ascend:" "v0.22.1rc1-a3-ucm-0.5.0rc1-r1"
+    public_target = "ghcr.io/release-org/vllm-ascend:" "v0.22.1rc1-a3-ucm-0.5.0rc1-r1"
     if mutation == "index-create":
         record["operations"] = [
             {
@@ -5897,7 +5895,7 @@ def test_member_python_validator_rejects_cross_role_and_duplicate_operations(
             if item["type"] == "registry-authenticated-config-blob-read"
         )
         operation["reference"] = (
-            "ghcr.io/supermarioyl/ucm-release-staging@" + record["member_digest"]
+            "ghcr.io/release-org/ucm-release-staging@" + record["member_digest"]
         )
     else:
         operation = next(
@@ -5965,9 +5963,7 @@ def test_validate_index_record_reopens_only_canonical_role_ledger(
         {
             "type": "registry-authenticated-manifest-read",
             "capability": "read",
-            "reference": (
-                "ghcr.io/supermarioyl/ucm-release-staging@sha256:" + "1" * 64
-            ),
+            "reference": ("ghcr.io/release-org/ucm-release-staging@sha256:" + "1" * 64),
         }
     ]
     mutations.append(member_read)
@@ -6924,7 +6920,7 @@ else:
         "write_capable_operations": record["operations"][2:4],
         "write_count": 2,
     }
-    staging_reference = "ghcr.io/supermarioyl/ucm-release-staging:staging-" + expected[
+    staging_reference = "ghcr.io/release-org/ucm-release-staging:staging-" + expected[
         "build_key_sha256"
     ].removeprefix("sha256:")
     assert invocation_log.read_text(encoding="utf-8").splitlines()[0] == (
@@ -7132,11 +7128,11 @@ if [ {mode!r} = unauthorized ]; then
   exit 1
 fi
 if [ {mode!r} = ghcr-token-denied ]; then
-  echo 'Error: GET https://ghcr.io/token?scope=repository%3Asupermarioyl%2Fucm-release-staging%3Apull&service=ghcr.io: DENIED: requested access to the resource is denied' >&2
+  echo 'Error: GET https://ghcr.io/token?scope=repository%3Arelease-org%2Fucm-release-staging%3Apull&service=ghcr.io: DENIED: requested access to the resource is denied' >&2
   exit 1
 fi
 if [ {mode!r} = ghcr-manifest-denied ]; then
-  echo 'Error: fetching manifest: GET https://ghcr.io/v2/supermarioyl/ucm-release-staging/manifests/staging-{'2' * 64}: UNAUTHORIZED: authentication required' >&2
+  echo 'Error: fetching manifest: GET https://ghcr.io/v2/release-org/ucm-release-staging/manifests/staging-{'2' * 64}: UNAUTHORIZED: authentication required' >&2
   exit 1
 fi
 if [ {mode!r} = network ]; then
@@ -7169,7 +7165,7 @@ echo 'sha256:{'1' * 64}'
     )
     crane.chmod(0o755)
     monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: str(crane))
-    reference = "ghcr.io/supermarioyl/ucm-release-staging:staging-" + "2" * 64
+    reference = "ghcr.io/release-org/ucm-release-staging:staging-" + "2" * 64
 
     if accepted:
         evidence = registry.verify_private_staging(
@@ -7394,6 +7390,6 @@ def test_member_push_requires_crane_full_reference_stdout(
         with pytest.raises(ValueError, match="full reference|stdout|coordinate"):
             registry._push_materialized_member(
                 materialized,
-                repository="ghcr.io/supermarioyl/ucm-release-staging",
+                repository="ghcr.io/release-org/ucm-release-staging",
                 crane_binary="/pinned/crane",
             )

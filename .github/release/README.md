@@ -9,12 +9,12 @@ machine.
 
 The then-current six-task hosted path and its same-SHA determinism check
 completed at source
-commit [`b9de1b3a29ae094e4c6d3895b0b642e92aa8ab42`](https://github.com/SuperMarioYL/unified-cache-management/commit/b9de1b3a29ae094e4c6d3895b0b642e92aa8ab42):
+commit [`b9de1b3a29ae094e4c6d3895b0b642e92aa8ab42`](https://github.com/{owner}/unified-cache-management/commit/b9de1b3a29ae094e4c6d3895b0b642e92aa8ab42):
 
-- [Push Commit Checks run 31329098122](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098122)
+- [Push Commit Checks run 31329098122](https://github.com/{owner}/unified-cache-management/actions/runs/31329098122)
   succeeded.
-- [Release UCM core artifacts run 31329098205, attempt 1](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/attempts/1)
-  and [attempt 2](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/attempts/2)
+- [Release UCM core artifacts run 31329098205, attempt 1](https://github.com/{owner}/unified-cache-management/actions/runs/31329098205/attempts/1)
+  and [attempt 2](https://github.com/{owner}/unified-cache-management/actions/runs/31329098205/attempts/2)
   both succeeded. Each produced 15 Actions Artifacts: six real wheels, one
   Chart, six real compact image artifacts, one three-family image aggregate,
   and one final evidence aggregate.
@@ -98,9 +98,9 @@ page:
 - `ucm-real-images-<source-sha>`: one image-family aggregate;
 - `release-loop-evidence-<source-sha>`: one final aggregate.
 
-Direct links for the latest attempt are the [Chart](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/artifacts/9042724281),
-[image aggregate](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/artifacts/9042832261),
-and [final aggregate](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/artifacts/9042839761).
+Direct links for the latest attempt are the [Chart](https://github.com/{owner}/unified-cache-management/actions/runs/31329098205/artifacts/9042724281),
+[image aggregate](https://github.com/{owner}/unified-cache-management/actions/runs/31329098205/artifacts/9042832261),
+and [final aggregate](https://github.com/{owner}/unified-cache-management/actions/runs/31329098205/artifacts/9042839761).
 For that snapshot, use the API below for the six wheel and six image links because every rerun
 replaces the current artifact IDs.
 
@@ -111,7 +111,7 @@ a prior attempt:
 ```bash
 set -euo pipefail
 
-readonly REPOSITORY=SuperMarioYL/unified-cache-management
+readonly REPOSITORY={owner}/unified-cache-management
 readonly RUN_ID=31329098205
 readonly SOURCE_SHA=b9de1b3a29ae094e4c6d3895b0b642e92aa8ab42
 
@@ -187,12 +187,12 @@ comparison, not from the zero marker alone.
 
 ## Historical determinism failure and fix
 
-The earlier [run 31324468754](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31324468754)
+The earlier [run 31324468754](https://github.com/{owner}/unified-cache-management/actions/runs/31324468754)
 at `166e0f474a3adab88917d65b7af61ea948f7492c` remains useful negative
 evidence. Both attempts completed, and their wheels and Chart matched, but all
 six image identities drifted. The shared cause was the generated
 `/var/cache/ldconfig/aux-cache` in both runtime stages. Commit
-[`ea931a95c231835a4bb4af353821084af9b998e6`](https://github.com/SuperMarioYL/unified-cache-management/commit/ea931a95c231835a4bb4af353821084af9b998e6)
+[`ea931a95c231835a4bb4af353821084af9b998e6`](https://github.com/{owner}/unified-cache-management/commit/ea931a95c231835a4bb4af353821084af9b998e6)
 removes that cache in the same layer that runs `ldconfig`; the new two-attempt
 comparison is the hosted proof that the image identities now repeat.
 

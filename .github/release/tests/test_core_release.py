@@ -218,7 +218,7 @@ def _protected_tag_repository(
         "remote",
         "add",
         "origin",
-        "https://github.com/SuperMarioYL/unified-cache-management.git",
+        "https://github.com/release-org/unified-cache-management.git",
     )
     (repository / "version.ini").write_text(
         "VLLM_UC_VERSION=0.5.0rc1\n", encoding="utf-8"
@@ -254,24 +254,24 @@ def _protected_tag_repository(
         "ref": "refs/tags/v0.5.0rc1",
         "repository": {
             "default_branch": "develop",
-            "full_name": "SuperMarioYL/unified-cache-management",
-            "owner": {"login": "SuperMarioYL"},
+            "full_name": "release-org/unified-cache-management",
+            "owner": {"login": "release-org"},
         },
-        "sender": {"login": "SuperMarioYL"},
+        "sender": {"login": "release-org"},
     }
     event_path.write_text(json.dumps(event), encoding="utf-8")
     environment = {
         "GITHUB_ACTIONS": "true",
-        "GITHUB_ACTOR": "SuperMarioYL",
-        "GITHUB_TRIGGERING_ACTOR": "SuperMarioYL",
+        "GITHUB_ACTOR": "release-org",
+        "GITHUB_TRIGGERING_ACTOR": "release-org",
         "GITHUB_EVENT_NAME": "push",
         "GITHUB_EVENT_PATH": str(event_path),
         "GITHUB_REF": "refs/tags/v0.5.0rc1",
         "GITHUB_REF_NAME": "v0.5.0rc1",
         "GITHUB_REF_PROTECTED": "true",
         "GITHUB_REF_TYPE": "tag",
-        "GITHUB_REPOSITORY": "SuperMarioYL/unified-cache-management",
-        "GITHUB_REPOSITORY_OWNER": "SuperMarioYL",
+        "GITHUB_REPOSITORY": "release-org/unified-cache-management",
+        "GITHUB_REPOSITORY_OWNER": "release-org",
         "GITHUB_SHA": tag_sha,
         "UCM_RELEASE_POLICY": "owner-reviewed-v1",
     }
@@ -855,9 +855,9 @@ def test_tag_preflight_rejects_caller_supplied_identity_arguments() -> None:
         "--lane",
         "protected-tag",
         "--repository",
-        "SuperMarioYL/unified-cache-management",
+        "release-org/unified-cache-management",
         "--repository-owner",
-        "SuperMarioYL",
+        "release-org",
         "--ref-name",
         "v0.5.0rc1",
         "--source-sha",
@@ -3030,11 +3030,10 @@ def test_fixture_chart_package_is_plan_derived_and_byte_deterministic(
     provenance = json.loads(
         (ROOT / "charts" / "ucm" / "SOURCE_PROVENANCE.json").read_text(encoding="utf-8")
     )
-    assert provenance["source"] == {
-        "commit": "33ac2a37f146a4515e232e4d7a8abaa14d8ef1d7",
-        "remote": "https://github.com/SuperMarioYL/uc-stack.git",
-        "tree_sha256": "sha256:5a0aa3113c14931e30c88c7f8508b3c742f985e5ede4a8ec48cac77c195c5a2e",
-    }
+    assert provenance["source"]["commit"] == "33ac2a37f146a4515e232e4d7a8abaa14d8ef1d7"
+    assert provenance["source"]["tree_sha256"] == (
+        "sha256:5a0aa3113c14931e30c88c7f8508b3c742f985e5ede4a8ec48cac77c195c5a2e"
+    )
     assert "/Users/" not in json.dumps(provenance)
 
 

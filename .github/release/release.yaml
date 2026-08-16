@@ -3,8 +3,7 @@ schema_version: 2
 ucm_version: 0.5.0rc1
 version_file: version.ini
 source:
-  repository: SuperMarioYL/unified-cache-management
-  staging_repository: ghcr.io/supermarioyl/ucm-release-staging
+  staging_repository: ghcr.io/{owner}/ucm-release-staging
   default_branch: develop
   release_tag: v0.5.0rc1
   release_policy: owner-reviewed-v1
@@ -382,7 +381,7 @@ upstream_products:
   - id: vllm
     runtime_product: vllm
     repository: docker.io/vllm/vllm-openai
-    target_repository: ghcr.io/supermarioyl/vllm-openai
+    target_repository: ghcr.io/{owner}/vllm-openai
     target_tag_suffix: -ucm-0.5.0rc1-r1
     version_specifier: ">=0.21,<0.22"
     channels: [stable]
@@ -395,7 +394,7 @@ upstream_products:
   - id: vllm-ascend
     runtime_product: vllm-ascend
     repository: quay.io/ascend/vllm-ascend
-    target_repository: ghcr.io/supermarioyl/vllm-ascend
+    target_repository: ghcr.io/{owner}/vllm-ascend
     target_tag_suffix: -ucm-0.5.0rc1-r1
     version_specifier: ">=0.22.1rc1,<0.23"
     channels: [rc]

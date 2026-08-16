@@ -93,8 +93,7 @@ jobs:
             route=pr
             PYTHONPATH=.github/release python -m ucm_release core tag-preflight \
               --lane feature-candidate --catalog-planner >feature-preflight.json
-          elif [[ "${REPOSITORY}" == SuperMarioYL/unified-cache-management && \
-                "${REF}" == refs/heads/feature/* && \
+          elif [[ "${REF}" == refs/heads/feature/* && \
                 ( "${EVENT_NAME}" == push || "${EVENT_NAME}" == workflow_dispatch ) ]]; then
             route=feature
             feature=true
@@ -104,7 +103,6 @@ jobs:
             fi
             PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane feature-candidate --catalog-planner >feature-preflight.json
           elif [[ "${EVENT_NAME}" == push && "${REF_TYPE}" == tag && \
-                  "${REPOSITORY}" == SuperMarioYL/unified-cache-management && \
                   "${REF_PROTECTED}" == true ]]; then
             route=protected
             protected=true
@@ -271,7 +269,6 @@ jobs:
       ${{
         !cancelled() && needs.plan.outputs.protected == 'true' &&
         github.event_name == 'push' &&
-        github.repository == 'SuperMarioYL/unified-cache-management' &&
         github.ref_type == 'tag' && github.ref_protected == true &&
         needs.build-wheels.result == 'success' &&
         needs.package-chart.result == 'success'
@@ -406,7 +403,6 @@ jobs:
       ${{
         !cancelled() && needs.plan.outputs.protected == 'true' &&
         github.event_name == 'push' &&
-        github.repository == 'SuperMarioYL/unified-cache-management' &&
         github.ref_type == 'tag' && github.ref_protected == true &&
         needs.build-wheels.result == 'success' &&
         needs.package-chart.result == 'success' &&
@@ -583,7 +579,6 @@ jobs:
       ${{
         !cancelled() &&
         github.event_name == 'push' &&
-        github.repository == 'SuperMarioYL/unified-cache-management' &&
         github.ref_type == 'tag' && github.ref_protected == true &&
         needs.build-wheels.result == 'success' &&
         needs.package-chart.result == 'success' &&

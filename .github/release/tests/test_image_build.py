@@ -937,7 +937,7 @@ def test_real_runtime_oci_labels_bind_the_planned_source_repository() -> None:
         )
         == 1
     )
-    assert "SuperMarioYL/unified-cache-management" not in runtime_real_install
+    assert "release-org/unified-cache-management" not in runtime_real_install
 
 
 def test_runtime_stages_invoke_all_python_helpers_through_python3() -> None:
@@ -2216,8 +2216,8 @@ def test_current_catalog_fixture_real_authorities_match_the_resolved_plan() -> N
         (item["runtime"]["repository"], item["target_repository"])
         for item in authorities
     } == {
-        ("docker.io/vllm/vllm-openai", "ghcr.io/supermarioyl/vllm-openai"),
-        ("quay.io/ascend/vllm-ascend", "ghcr.io/supermarioyl/vllm-ascend"),
+        ("docker.io/vllm/vllm-openai", "ghcr.io/release-org/vllm-openai"),
+        ("quay.io/ascend/vllm-ascend", "ghcr.io/release-org/vllm-ascend"),
     }
     assert {
         (
@@ -3020,9 +3020,9 @@ def test_real_content_identity_rejects_mutable_or_missing_oci_authority() -> Non
                 }
             },
             "source": {
-                "repository": "SuperMarioYL/unified-cache-management",
+                "repository": "release-org/unified-cache-management",
                 "repository_url": (
-                    "https://github.com/SuperMarioYL/unified-cache-management"
+                    "https://github.com/release-org/unified-cache-management"
                 ),
                 "commit": "1" * 40,
                 "tree": "2" * 40,
@@ -3063,7 +3063,7 @@ def test_real_content_identity_rejects_mutable_or_missing_oci_authority() -> Non
         "labels": {
             "base.label": "preserved",
             "org.opencontainers.image.source": (
-                "https://github.com/SuperMarioYL/unified-cache-management"
+                "https://github.com/release-org/unified-cache-management"
             ),
             "org.opencontainers.image.revision": "1" * 40,
             "io.ucm.release.source-tree": "2" * 40,
@@ -3081,7 +3081,7 @@ def test_real_content_identity_rejects_mutable_or_missing_oci_authority() -> Non
     }
     first = image.real_content_identity(recipe, closure)
     assert first["labels"]["org.opencontainers.image.source"] == (
-        "https://github.com/SuperMarioYL/unified-cache-management"
+        "https://github.com/release-org/unified-cache-management"
     )
     assert first["layers"][0]["annotations"] == {
         "buildkit/rewritten-timestamp": "1700000000"

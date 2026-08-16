@@ -1001,7 +1001,7 @@ def test_non_string_resolved_digests_raise_value_error(mutation) -> None:
 
 def test_catalog_schema_accepts_future_catalog_owned_values_and_cardinalities() -> None:
     """The schema checks shape; catalog semantics bind the selected plan later."""
-    catalog = core.load_yaml(core.DEFAULT_RELEASE)
+    catalog = core.load_catalog()
     catalog["source"] = {
         "repository": "FutureOrg/unified-cache-next",
         "staging_repository": "registry.example/future/private-staging",

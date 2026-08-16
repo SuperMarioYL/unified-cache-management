@@ -2192,14 +2192,29 @@ def load_catalog(
     schema_dir: Path = DEFAULT_SCHEMA_DIR,
     *,
     repository_root: Path = REPO_ROOT,
+    repository: str | None = None,
 ) -> dict[str, Any]:
-    """Load and fully validate the single v2 release catalog authority."""
+    """Load and fully validate the single v2 release catalog authority.
+
+    ``repository`` is the live ``owner/name`` identity (``github.repository``
+    in CI).  When omitted it is inferred from ``GITHUB_REPOSITORY`` or the
+    ``origin`` remote.  Registry coordinates in the catalog are written with
+    ``{owner}`` / ``{repo}`` placeholders; they are substituted once here,
+    before schema validation, so downstream consumers never see a templated
+    value.  The resolved repository is then injected into ``source`` so that
+    planners and preflight read a single concrete authority.
+    """
     config_schema = load_json(schema_dir / "config.schema.json")
     load_json(schema_dir / "release-manifest.schema.json")
     load_json(schema_dir / "image-result.schema.json")
     release = load_yaml(release_path)
+    resolved_repository = resolve_repository(
+        repository, repository_root=repository_root
+    )
+    release = resolve_owner_templates(release, repository=resolved_repository)
     validate_schema(release, config_schema)
     _exact_keys(release, RELEASE_KEYS, "release.yaml")
+    release["source"]["repository"] = resolved_repository
     version = read_version(repository_root / release["version_file"])
     if release["ucm_version"] != version:
         raise ValueError(
@@ -2340,6 +2355,83 @@ def _origin_repository(remote_url: str | None) -> str | None:
             if re.fullmatch(r"[^/]+/[^/]+", repository):
                 return repository
     return None
+
+
+_OWNER_PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
+_KNOWN_OWNER_PLACEHOLDERS = frozenset({"owner", "repo"})
+_REPOSITORY_IDENTITY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
+
+def resolve_repository(
+    repository: str | None = None,
+    *,
+    repository_root: Path = REPO_ROOT,
+) -> str:
+    """Return the canonical ``owner/name`` repository identity.
+
+    Resolution order: explicit argument → ``GITHUB_REPOSITORY`` env → ``origin``
+    git remote.  A missing or malformed identity is a hard error so that a
+    fork can never silently publish under the wrong namespace.
+    """
+    if repository:
+        candidate = repository.strip()
+    else:
+        candidate = os.environ.get("GITHUB_REPOSITORY", "").strip()
+        if not candidate:
+            remote = _git_output(repository_root, "remote", "get-url", "origin")
+            candidate = _origin_repository(remote).strip() if remote else ""
+    if not candidate or _REPOSITORY_IDENTITY_RE.fullmatch(candidate) is None:
+        raise ValueError(
+            "could not resolve the running repository; pass --repository or "
+            "set GITHUB_REPOSITORY (local dev infers from the origin remote)"
+        )
+    return candidate
+
+
+def resolve_owner_templates(catalog: Any, *, repository: str) -> Any:
+    """Substitute ``{owner}`` / ``{repo}`` placeholders throughout ``catalog``.
+
+    ``{owner}`` → lower-cased owner segment (registry paths must be lower-case);
+    ``{repo}`` → lower-cased repository name.  Any other ``{placeholder}`` in a
+    string that also carries a recognised token is a hard error — silent
+    retention would let a typo publish to the wrong place.
+    """
+    parts = repository.split("/", 1)
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise ValueError(f"repository must be 'owner/name', got: {repository!r}")
+    owner = parts[0].lower()
+    repo = parts[1].lower()
+    return _walk_owner_templates(catalog, owner=owner, repo=repo)
+
+
+def _walk_owner_templates(value: Any, *, owner: str, repo: str) -> Any:
+    if isinstance(value, str):
+        return _substitute_owner(value, owner=owner, repo=repo)
+    if isinstance(value, dict):
+        return {
+            key: _walk_owner_templates(item, owner=owner, repo=repo)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_walk_owner_templates(item, owner=owner, repo=repo) for item in value]
+    return value
+
+
+def _substitute_owner(text: str, *, owner: str, repo: str) -> str:
+    if "{" not in text:
+        return text
+    placeholders = _OWNER_PLACEHOLDER.findall(text)
+    if not placeholders:
+        return text
+    unknown = sorted(
+        {name for name in placeholders if name not in _KNOWN_OWNER_PLACEHOLDERS}
+    )
+    if unknown:
+        raise ValueError(
+            f"unknown owner template placeholder(s) {unknown} "
+            f"in {text!r}; recognised: {sorted(_KNOWN_OWNER_PLACEHOLDERS)}"
+        )
+    return text.replace("{owner}", owner).replace("{repo}", repo)
 
 
 def _is_ancestor(repository_root: Path, ancestor: str, descendant: str) -> bool:

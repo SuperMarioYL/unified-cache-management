@@ -325,4 +325,4 @@ jobs:
           path: out/wheel-artifact/
           if-no-files-found: error
           overwrite: false
-          retention-days: ${{ github.event_name == 'push' && github.repository == 'SuperMarioYL/unified-cache-management' && github.ref_type == 'tag' && github.ref_protected == true && 90 || 3 }}
+          retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref_protected == true && 90 || 3 }}

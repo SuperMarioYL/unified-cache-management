@@ -39,7 +39,7 @@ jobs:
 
   hardware-e2e:
     needs: [repository-recipe-plan]
-    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'SuperMarioYL/unified-cache-management' }}
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     timeout-minutes: 20
     strategy:
       fail-fast: false

@@ -1087,7 +1087,7 @@ def test_aggregate_real_cli_executes_with_exact_selected_projection(
                 "--image-dir",
                 str(tmp_path / "images"),
                 "--repository",
-                "SuperMarioYL/unified-cache-management",
+                "release-org/unified-cache-management",
                 "--ref",
                 "refs/heads/feature/test",
                 "--source-sha",
@@ -1431,7 +1431,7 @@ def test_release_asset_validation_uses_frozen_chart_without_catalog_reopen(
 
 
 def test_catalog_source_owner_is_derived_from_repository_identity() -> None:
-    catalog = core.load_yaml(core.DEFAULT_RELEASE)
+    catalog = core.load_catalog()
     catalog["source"].pop("owner", None)
     catalog["source"]["repository"] = "FutureOrg/unified-cache-next"
 
@@ -1679,8 +1679,8 @@ def test_target_coordinates_are_product_configuration_not_embedded_snapshot() ->
     )
 
     assert {task["target_repository"] for task in plan["family_tasks"]} == {
-        "ghcr.io/supermarioyl/vllm-openai",
-        "ghcr.io/supermarioyl/vllm-ascend",
+        "ghcr.io/release-org/vllm-openai",
+        "ghcr.io/release-org/vllm-ascend",
     }
     assert {task["target_tag"] for task in plan["family_tasks"]} == {
         "v0.21.0-ucm-0.5.0rc1-r1",
@@ -1851,12 +1851,12 @@ def test_sparse_self_hashed_plan_is_not_a_valid_canonical_envelope() -> None:
         "fixture_only": False,
         "lane": "feature-candidate",
         "source": {
-            "repository": "SuperMarioYL/unified-cache-management",
+            "repository": "release-org/unified-cache-management",
             "commit": "3" * 40,
         },
         "source_sha256": core.sha256_value(
             {
-                "repository": "SuperMarioYL/unified-cache-management",
+                "repository": "release-org/unified-cache-management",
                 "commit": "3" * 40,
             }
         ),

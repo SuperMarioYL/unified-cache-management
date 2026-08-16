@@ -49,7 +49,6 @@ jobs:
         !cancelled() &&
         needs.build.result == 'success' &&
         github.event_name == 'push' &&
-        github.repository == 'SuperMarioYL/unified-cache-management' &&
         github.ref_type == 'tag' &&
         github.ref_protected == true
       }}
