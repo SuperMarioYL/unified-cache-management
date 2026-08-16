@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import subprocess
 import sys
+import urllib.parse
 from pathlib import Path
 
 import yaml
@@ -35,37 +37,6 @@ def _write(path: Path, value: object) -> None:
     path.write_bytes(core.canonical_bytes(value) + b"\n")
 
 
-def _release_asset_manifest(
-    request: dict[str, object], *, manifest_key: str = "manifest"
-) -> dict[str, object]:
-    manifest_path = request.get(manifest_key)
-    allowed_root = request.get("allowed_root")
-    source_sha = request.get("source_sha")
-    resolved_plan_path = request.get("resolved_plan")
-    expected_plan_sha256 = request.get("resolved_plan_sha256")
-    if not all(
-        isinstance(value, str)
-        for value in (
-            manifest_path,
-            allowed_root,
-            source_sha,
-            resolved_plan_path,
-            expected_plan_sha256,
-        )
-    ):
-        raise ValueError("release asset manifest binding is malformed")
-    resolved_plan = core.load_json(Path(resolved_plan_path))
-    manifest = verify.validate_release_asset_manifest(
-        core.load_json(Path(manifest_path)),
-        allowed_root=Path(allowed_root),
-        resolved_plan=resolved_plan,
-        expected_plan_sha256=expected_plan_sha256,
-    )
-    if manifest["source_sha"] != source_sha:
-        raise ValueError("release asset manifest source differs from live Release")
-    return manifest
-
-
 def _release_plan_binding(
     request: dict[str, object],
 ) -> tuple[dict[str, object], str]:
@@ -78,25 +49,161 @@ def _release_plan_binding(
     return plan, expected
 
 
-def _release_asset_state(
-    request: dict[str, object], *, release_key: str = "release"
-) -> dict[str, object]:
-    release_path = request.get(release_key)
-    source_sha = request.get("source_sha")
-    release_id = request.get("release_id")
-    if not isinstance(release_path, str) or not isinstance(source_sha, str):
-        raise ValueError("release asset state binding is malformed")
-    _release_asset_manifest(request)
-    resolved_plan, plan_sha256 = _release_plan_binding(request)
-    state = verify.plan_github_release(
-        core.load_json(Path(release_path)),
-        source_sha,
-        resolved_plan=resolved_plan,
-        expected_plan_sha256=plan_sha256,
+def _gh_release_api(
+    path: str,
+    *,
+    method: str | None = None,
+    input_bytes: bytes | None = None,
+    content_type: str | None = None,
+    allow_missing: bool = False,
+) -> dict[str, object] | None:
+    """Invoke ``gh api`` and return the decoded JSON response."""
+    cmd = [
+        "gh",
+        "api",
+        "-H",
+        "Accept: application/vnd.github+json",
+        "-H",
+        "X-GitHub-Api-Version: 2022-11-28",
+    ]
+    if content_type is not None:
+        cmd += ["-H", f"Content-Type: {content_type}"]
+    if method is not None:
+        cmd += ["--method", method]
+    cmd.append(path)
+    if input_bytes is not None:
+        cmd += ["--input", "-"]
+    completed = subprocess.run(cmd, input=input_bytes, capture_output=True)
+    if completed.returncode != 0:
+        message = completed.stderr.decode(encoding="utf-8", errors="replace").strip()
+        if allow_missing and "not found" in message.lower():
+            return None
+        raise ValueError(f"gh api {path} failed: {message}")
+    stdout = completed.stdout.strip()
+    return json.loads(stdout) if stdout else {}
+
+
+def _publish_github_release(args) -> dict[str, object]:
+    """Create-or-reuse a draft release (draft) then upload and publish it (finalize)."""
+    plan = core.load_json(args.plan)
+    if plan["resolved_plan_sha256"] != args.plan_sha256:
+        raise ValueError("resolved plan hash differs from expected plan hash")
+    repository = plan["source"]["repository"]
+    if repository != args.repository:
+        raise ValueError("plan repository differs from expected repository")
+    tag = plan["source"]["release_tag"]
+    output_dir = args.output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+    api_root = f"repos/{repository}"
+    if args.stage == "draft":
+        operations = [
+            {
+                "type": "github-release-read",
+                "capability": "read",
+                "reference": f"https://api.github.com/{api_root}/releases/tags/{tag}",
+                "authenticated": True,
+            }
+        ]
+        existing = _gh_release_api(
+            f"{api_root}/releases/tags/{tag}", allow_missing=True
+        )
+        if existing is not None:
+            release = existing
+            just_created = False
+        else:
+            body = {
+                "tag_name": tag,
+                "target_commitish": args.source_sha,
+                "name": f"UCM {tag}",
+                "body": (
+                    f"Protected UCM {tag} release from reviewed source commit "
+                    f"{args.source_sha}. Frozen plan "
+                    f"{plan['resolved_plan_sha256']}."
+                ),
+                "draft": True,
+                "prerelease": True,
+                "make_latest": "false",
+            }
+            release = _gh_release_api(
+                f"{api_root}/releases",
+                method="POST",
+                input_bytes=core.canonical_bytes(body),
+            )
+            just_created = True
+            operations.append(
+                {
+                    "type": "github-release-create",
+                    "capability": "write",
+                    "reference": f"https://api.github.com/{api_root}/releases",
+                    "authenticated": True,
+                }
+            )
+        state = {
+            "release_id": release["id"],
+            "tag": tag,
+            "draft": True,
+            "just_created": just_created,
+        }
+        _write(output_dir / "release-state.json", state)
+        _write(output_dir / "operations.json", operations)
+        return {"kind": "ucm-github-release-draft", "stage": "draft", **state}
+    draft_state = core.load_json(output_dir / "release-state.json")
+    release_id = draft_state["release_id"]
+    operations = [
+        {
+            "type": "github-release-read",
+            "capability": "read",
+            "reference": f"https://api.github.com/{api_root}/releases/{release_id}",
+            "authenticated": True,
+        }
+    ]
+    artifacts_dir = output_dir / "artifacts"
+    if artifacts_dir.is_dir():
+        for asset in sorted(artifacts_dir.iterdir()):
+            if not asset.is_file():
+                continue
+            encoded = urllib.parse.quote(asset.name, safe="")
+            _gh_release_api(
+                f"https://uploads.github.com/{api_root}/releases/"
+                f"{release_id}/assets?name={encoded}",
+                method="POST",
+                input_bytes=asset.read_bytes(),
+                content_type="application/octet-stream",
+            )
+            operations.append(
+                {
+                    "type": "github-release-asset-upload",
+                    "capability": "write",
+                    "reference": (
+                        f"https://uploads.github.com/{api_root}/releases/"
+                        f"{release_id}/assets"
+                    ),
+                    "authenticated": True,
+                }
+            )
+    publish_body = {"draft": False, "prerelease": True, "make_latest": "false"}
+    _gh_release_api(
+        f"{api_root}/releases/{release_id}",
+        method="PATCH",
+        input_bytes=core.canonical_bytes(publish_body),
     )
-    if state["release_id"] != release_id:
-        raise ValueError("release asset state binding changed release id")
-    return state
+    operations.append(
+        {
+            "type": "github-release-publish",
+            "capability": "write",
+            "reference": f"https://api.github.com/{api_root}/releases/{release_id}",
+            "authenticated": True,
+        }
+    )
+    final = {
+        "release_id": release_id,
+        "tag": tag,
+        "draft": False,
+        "just_created": False,
+    }
+    _write(output_dir / "release-state.json", final)
+    _write(output_dir / "operations.json", operations)
+    return {"kind": "ucm-github-release-finalize", "stage": "finalize", **final}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -193,6 +300,15 @@ def build_parser() -> argparse.ArgumentParser:
     publish_plan.add_argument("--request", default="")
     publish_plan.add_argument("--dry-run", default="true")
     publish_plan.add_argument("--output", type=Path, required=True)
+    publish_github_release = publish_actions.add_parser("github-release")
+    publish_github_release.add_argument("--plan", type=Path, required=True)
+    publish_github_release.add_argument("--plan-sha256", required=True)
+    publish_github_release.add_argument("--repository", required=True)
+    publish_github_release.add_argument(
+        "--stage", choices=("draft", "finalize"), required=True
+    )
+    publish_github_release.add_argument("--output-dir", type=Path, required=True)
+    publish_github_release.add_argument("--source-sha", required=True)
 
     core_parser = groups.add_parser("core")
     core_actions = core_parser.add_subparsers(dest="action", required=True)
@@ -319,27 +435,6 @@ def build_parser() -> argparse.ArgumentParser:
         "collect-provisionals",
     ):
         command = artifact_actions.add_parser(action)
-        command.add_argument("--input", type=Path, required=True)
-        command.add_argument("--output", type=Path, required=True)
-
-    release_parser = groups.add_parser("release")
-    release_actions = release_parser.add_subparsers(dest="action", required=True)
-    for action in (
-        "assets-manifest",
-        "plan-state",
-        "plan-assets",
-        "verify-assets",
-        "select-pages",
-        "plan-downloads",
-        "complete-downloads",
-        "refresh-assets",
-        "verify-upload-prefix",
-        "record-upload-response",
-        "rebase-manifest",
-        "operation-ledger",
-        "publication-evidence",
-    ):
-        command = release_actions.add_parser(action)
         command.add_argument("--input", type=Path, required=True)
         command.add_argument("--output", type=Path, required=True)
 
@@ -582,6 +677,8 @@ def main(argv: list[str] | None = None) -> int:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(payload + "\n", encoding="utf-8")
             result = {"kind": "ucm-publish-plan", "schema_version": 1, "publish": plan}
+        elif (args.group, args.action) == ("publish", "github-release"):
+            result = _publish_github_release(args)
         elif (args.group, args.action) == ("core", "hosted-task"):
             result = verify.hosted_wheel_task(
                 core.load_json(args.task),
@@ -1409,433 +1506,6 @@ def main(argv: list[str] | None = None) -> int:
                     for key, value in result.items()
                     if key != "provisional_indexes"
                 }
-            )
-            _write(args.output, result)
-        elif (args.group, args.action) == ("release", "assets-manifest"):
-            request = core.load_json(args.input)
-            if set(request) != {
-                "wheel_dir",
-                "chart_result",
-                "chart_package",
-                "output_dir",
-                "source_sha",
-                "resolved_plan",
-                "resolved_plan_sha256",
-                "run",
-            } or any(
-                not isinstance(request[key], str)
-                for key in (
-                    "wheel_dir",
-                    "chart_result",
-                    "chart_package",
-                    "output_dir",
-                    "source_sha",
-                    "resolved_plan",
-                    "resolved_plan_sha256",
-                )
-            ):
-                raise ValueError("release assets-manifest input is malformed")
-            resolved_plan = core.load_json(Path(request["resolved_plan"]))
-            registry.resolved_registry_contract(
-                resolved_plan,
-                expected_plan_sha256=request["resolved_plan_sha256"],
-            )
-            result = verify.build_release_asset_manifest(
-                wheel_dir=Path(request["wheel_dir"]),
-                chart_result_path=Path(request["chart_result"]),
-                chart_package_path=Path(request["chart_package"]),
-                output_dir=Path(request["output_dir"]),
-                source_sha=request["source_sha"],
-                resolved_plan=resolved_plan,
-                expected_plan_sha256=request["resolved_plan_sha256"],
-                run=request["run"],
-            )
-            _write(args.output, result)
-        elif (args.group, args.action) == ("release", "plan-state"):
-            request = core.load_json(args.input)
-            if set(request) != {
-                "remote",
-                "source_sha",
-                "just_created",
-                "resolved_plan",
-                "resolved_plan_sha256",
-            }:
-                raise ValueError("release plan-state input fields are noncanonical")
-            resolved_plan, plan_sha256 = _release_plan_binding(request)
-            result = verify.plan_github_release(
-                request["remote"],
-                request["source_sha"],
-                resolved_plan=resolved_plan,
-                expected_plan_sha256=plan_sha256,
-                just_created=request["just_created"],
-            )
-            _write(args.output, result)
-        elif (args.group, args.action) == ("release", "select-pages"):
-            request = core.load_json(args.input)
-            if set(request) != {
-                "pages",
-                "source_sha",
-                "resolved_plan",
-                "resolved_plan_sha256",
-            } or not all(isinstance(request[key], str) for key in request):
-                raise ValueError("release select-pages input is malformed")
-            resolved_plan, plan_sha256 = _release_plan_binding(request)
-            result = verify.select_github_release_pages(
-                core.load_json_array(Path(request["pages"])),
-                request["source_sha"],
-                resolved_plan=resolved_plan,
-                expected_plan_sha256=plan_sha256,
-            )
-            _write(args.output, result)
-        elif (args.group, args.action) == ("release", "plan-downloads"):
-            request = core.load_json(args.input)
-            if set(request) != {
-                "manifest",
-                "raw_assets",
-                "release",
-                "source_sha",
-                "release_id",
-                "allowed_root",
-                "require_complete",
-                "resolved_plan",
-                "resolved_plan_sha256",
-            } or any(
-                not isinstance(request[key], str)
-                for key in (
-                    "manifest",
-                    "raw_assets",
-                    "release",
-                    "source_sha",
-                    "allowed_root",
-                    "resolved_plan",
-                    "resolved_plan_sha256",
-                )
-            ):
-                raise ValueError("release plan-downloads input is malformed")
-            release_state = _release_asset_state(request)
-            resolved_plan, plan_sha256 = _release_plan_binding(request)
-            result = verify.plan_release_asset_downloads(
-                core.load_json(Path(request["manifest"])),
-                core.load_json_array(Path(request["raw_assets"])),
-                release_id=request["release_id"],
-                allowed_root=Path(request["allowed_root"]),
-                require_complete=request["require_complete"],
-                resolved_plan=resolved_plan,
-                expected_plan_sha256=plan_sha256,
-                asset_download_slug=release_state["asset_download_slug"],
-            )
-            _write(args.output, result)
-        elif (args.group, args.action) == ("release", "complete-downloads"):
-            request = core.load_json(args.input)
-            if set(request) != {"download_plan", "download_root"} or any(
-                not isinstance(request[key], str) for key in request
-            ):
-                raise ValueError("release complete-downloads input is malformed")
-            result = verify.complete_release_asset_downloads(
-                core.load_json(Path(request["download_plan"])),
-                Path(request["download_root"]),
-            )
-            _write(args.output, result)
-        elif (args.group, args.action) == ("release", "refresh-assets"):
-            request = core.load_json(args.input)
-            if set(request) != {
-                "manifest",
-                "prior_assets",
-                "raw_assets",
-                "prior_release",
-                "release",
-                "source_sha",
-                "release_id",
-                "allowed_root",
-                "resolved_plan",
-                "resolved_plan_sha256",
-            } or any(
-                not isinstance(request[key], str)
-                for key in (
-                    "manifest",
-                    "prior_assets",
-                    "raw_assets",
-                    "prior_release",
-                    "release",
-                    "source_sha",
-                    "allowed_root",
-                    "resolved_plan",
-                    "resolved_plan_sha256",
-                )
-            ):
-                raise ValueError("release refresh-assets input is malformed")
-            prior_state = _release_asset_state(request, release_key="prior_release")
-            release_state = _release_asset_state(request)
-            resolved_plan, plan_sha256 = _release_plan_binding(request)
-            result = verify.refresh_release_asset_metadata(
-                core.load_json(Path(request["manifest"])),
-                core.load_json_array(Path(request["prior_assets"])),
-                core.load_json_array(Path(request["raw_assets"])),
-                release_id=request["release_id"],
-                allowed_root=Path(request["allowed_root"]),
-                resolved_plan=resolved_plan,
-                expected_plan_sha256=plan_sha256,
-                prior_asset_download_slug=prior_state["asset_download_slug"],
-                asset_download_slug=release_state["asset_download_slug"],
-            )
-            _write(args.output, result)
-        elif (args.group, args.action) == ("release", "verify-upload-prefix"):
-            request = core.load_json(args.input)
-            path_keys = {
-                "manifest",
-                "initial_asset_plan",
-                "uploaded_assets",
-                "current_assets",
-                "allowed_root",
-                "resolved_plan",
-                "resolved_plan_sha256",
-            }
-            if set(request) != path_keys | {
-                "next_name",
-                "release_id",
-                "release",
-                "source_sha",
-            } or any(
-                not isinstance(request[key], str)
-                for key in path_keys | {"next_name", "release", "source_sha"}
-            ):
-                raise ValueError("release verify-upload-prefix input is malformed")
-            release_state = _release_asset_state(request)
-            resolved_plan, plan_sha256 = _release_plan_binding(request)
-            if release_state["decision"] != "resume-draft":
-                raise ValueError("release upload prefix requires a live draft")
-            result = verify.verify_release_upload_prefix(
-                core.load_json(Path(request["manifest"])),
-                core.load_json(Path(request["initial_asset_plan"])),
-                core.load_json_array(Path(request["uploaded_assets"])),
-                core.load_json_array(Path(request["current_assets"])),
-                next_name=request["next_name"],
-                release_id=request["release_id"],
-                allowed_root=Path(request["allowed_root"]),
-                resolved_plan=resolved_plan,
-                expected_plan_sha256=plan_sha256,
-                asset_download_slug=release_state["asset_download_slug"],
-            )
-            _write(args.output, result)
-        elif (args.group, args.action) == ("release", "record-upload-response"):
-            request = core.load_json(args.input)
-            path_keys = {
-                "manifest",
-                "raw_response",
-                "allowed_root",
-                "resolved_plan",
-                "resolved_plan_sha256",
-            }
-            if set(request) != path_keys | {
-                "expected_name",
-                "release_id",
-                "release",
-                "source_sha",
-            } or any(
-                not isinstance(request[key], str)
-                for key in path_keys | {"expected_name", "release", "source_sha"}
-            ):
-                raise ValueError("release record-upload-response input is malformed")
-            release_state = _release_asset_state(request)
-            resolved_plan, plan_sha256 = _release_plan_binding(request)
-            if release_state["decision"] != "resume-draft":
-                raise ValueError("release upload response requires a live draft")
-            result = verify.record_release_upload_response(
-                core.load_json(Path(request["manifest"])),
-                core.load_json(Path(request["raw_response"])),
-                expected_name=request["expected_name"],
-                release_id=request["release_id"],
-                allowed_root=Path(request["allowed_root"]),
-                resolved_plan=resolved_plan,
-                expected_plan_sha256=plan_sha256,
-                asset_download_slug=release_state["asset_download_slug"],
-            )
-            _write(args.output, result)
-        elif (args.group, args.action) == ("release", "rebase-manifest"):
-            request = core.load_json(args.input)
-            if set(request) != {
-                "manifest",
-                "allowed_root",
-                "resolved_plan",
-                "resolved_plan_sha256",
-            } or any(not isinstance(request[key], str) for key in request):
-                raise ValueError("release rebase-manifest input is malformed")
-            resolved_plan, plan_sha256 = _release_plan_binding(request)
-            result = verify.rebase_release_asset_manifest(
-                core.load_json(Path(request["manifest"])),
-                allowed_root=Path(request["allowed_root"]),
-                resolved_plan=resolved_plan,
-                expected_plan_sha256=plan_sha256,
-            )
-            _write(args.output, result)
-        elif (args.group, args.action) == ("release", "operation-ledger"):
-            request = core.load_json(args.input)
-            path_keys = {
-                "prepare_initial_plan",
-                "initial_release",
-                "initial_asset_plan",
-                "authenticated_assets",
-                "asset_manifest",
-                "upload_transcript",
-                "allowed_root",
-                "resolved_plan",
-                "resolved_plan_sha256",
-            }
-            if set(request) != path_keys | {"source_sha"} or any(
-                not isinstance(request[key], str) for key in path_keys | {"source_sha"}
-            ):
-                raise ValueError("release operation-ledger input is malformed")
-            asset_manifest = _release_asset_manifest(
-                request, manifest_key="asset_manifest"
-            )
-            resolved_plan, plan_sha256 = _release_plan_binding(request)
-            result = verify.build_github_release_operation_ledger(
-                prepare_initial_plan=core.load_json(
-                    Path(request["prepare_initial_plan"])
-                ),
-                initial_release=core.load_json(Path(request["initial_release"])),
-                initial_asset_plan=core.load_json(Path(request["initial_asset_plan"])),
-                authenticated_assets=core.load_json_array(
-                    Path(request["authenticated_assets"])
-                ),
-                upload_transcript=verify.validate_release_upload_transcript(
-                    asset_manifest,
-                    core.load_json(Path(request["initial_asset_plan"])),
-                    core.load_json_array(Path(request["upload_transcript"])),
-                    source_sha=request["source_sha"],
-                    release_id=core.load_json(Path(request["initial_asset_plan"]))[
-                        "release_id"
-                    ],
-                    allowed_root=Path(request["allowed_root"]),
-                    resolved_plan=resolved_plan,
-                    expected_plan_sha256=plan_sha256,
-                ),
-                source_sha=request["source_sha"],
-                resolved_plan=resolved_plan,
-                expected_plan_sha256=plan_sha256,
-            )
-            _write(args.output, result)
-        elif (args.group, args.action) in {
-            ("release", "plan-assets"),
-            ("release", "verify-assets"),
-        }:
-            request = core.load_json(args.input)
-            base_keys = {
-                "manifest",
-                "observed_assets",
-                "release",
-                "source_sha",
-                "release_id",
-                "allowed_root",
-                "resolved_plan",
-                "resolved_plan_sha256",
-            }
-            expected_keys = (
-                base_keys | {"release_published"}
-                if args.action == "plan-assets"
-                else base_keys
-            )
-            if set(request) != expected_keys or any(
-                not isinstance(request[key], str)
-                for key in (
-                    "manifest",
-                    "observed_assets",
-                    "release",
-                    "source_sha",
-                    "allowed_root",
-                )
-            ):
-                raise ValueError(f"release {args.action} input fields are noncanonical")
-            release_state = _release_asset_state(request)
-            resolved_plan, plan_sha256 = _release_plan_binding(request)
-            kwargs = {
-                "release_id": request["release_id"],
-                "allowed_root": Path(request["allowed_root"]),
-                "asset_download_slug": release_state["asset_download_slug"],
-                "resolved_plan": resolved_plan,
-                "expected_plan_sha256": plan_sha256,
-            }
-            if args.action == "plan-assets":
-                if request["release_published"] != (
-                    release_state["decision"] == "inspect-published-prerelease"
-                ):
-                    raise ValueError("release asset phase differs from live Release")
-                result = verify.plan_release_assets(
-                    core.load_json(Path(request["manifest"])),
-                    core.load_json_array(Path(request["observed_assets"])),
-                    release_published=request["release_published"],
-                    **kwargs,
-                )
-            else:
-                result = verify.verify_release_assets(
-                    core.load_json(Path(request["manifest"])),
-                    core.load_json_array(Path(request["observed_assets"])),
-                    **kwargs,
-                )
-            _write(args.output, result)
-        elif (args.group, args.action) == ("release", "publication-evidence"):
-            request = core.load_json(args.input)
-            path_keys = {
-                "protected_registry",
-                "asset_manifest",
-                "allowed_root",
-                "prepare_initial_plan",
-                "prepare_release",
-                "initial_release",
-                "initial_assets",
-                "initial_asset_plan",
-                "upload_transcript",
-                "prepublish_release",
-                "prepublish_assets",
-                "authenticated_release",
-                "authenticated_assets",
-                "anonymous_release",
-                "anonymous_assets",
-                "operations",
-                "resolved_plan",
-                "resolved_plan_sha256",
-            }
-            if set(request) != path_keys | {"source_sha", "run"} or any(
-                not isinstance(request[key], str) for key in path_keys
-            ):
-                raise ValueError("release publication-evidence input is malformed")
-            asset_manifest = _release_asset_manifest(
-                request, manifest_key="asset_manifest"
-            )
-            resolved_plan, plan_sha256 = _release_plan_binding(request)
-            result = verify.github_release_publication_evidence(
-                protected_registry=core.load_json(Path(request["protected_registry"])),
-                asset_manifest=asset_manifest,
-                allowed_root=Path(request["allowed_root"]),
-                prepare_initial_plan=core.load_json(
-                    Path(request["prepare_initial_plan"])
-                ),
-                prepare_release=core.load_json(Path(request["prepare_release"])),
-                initial_release=core.load_json(Path(request["initial_release"])),
-                initial_assets=core.load_json_array(Path(request["initial_assets"])),
-                initial_asset_plan=core.load_json(Path(request["initial_asset_plan"])),
-                upload_transcript=core.load_json_array(
-                    Path(request["upload_transcript"])
-                ),
-                prepublish_release=core.load_json(Path(request["prepublish_release"])),
-                prepublish_assets=core.load_json_array(
-                    Path(request["prepublish_assets"])
-                ),
-                authenticated_release=core.load_json(
-                    Path(request["authenticated_release"])
-                ),
-                authenticated_assets=core.load_json_array(
-                    Path(request["authenticated_assets"])
-                ),
-                anonymous_release=core.load_json(Path(request["anonymous_release"])),
-                anonymous_assets=core.load_json_array(
-                    Path(request["anonymous_assets"])
-                ),
-                operations=core.load_json_array(Path(request["operations"])),
-                source_sha=request["source_sha"],
-                resolved_plan=resolved_plan,
-                expected_plan_sha256=plan_sha256,
-                run=request["run"],
             )
             _write(args.output, result)
         elif (args.group, args.action) == ("loop", "verify"):

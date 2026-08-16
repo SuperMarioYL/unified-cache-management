@@ -474,50 +474,17 @@ jobs:
           PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
             --resolved-plan input/plan/resolved-plan.json \
             --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >out/draft/preflight.json
-          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" {remote: null, source_sha: $source_sha, just_created: false, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256} > out/validate-plan-request.json
-          PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/validate-plan-request.json --output out/validated-plan.json >/dev/null
-          gh api --paginate --slurp \
-            -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
-            "repos/${release_repository}/releases?per_page=100" >out/pages.json
-          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" {pages: "out/pages.json", source_sha: $source_sha, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256} > out/select-pages-request.json
-          PYTHONPATH=.github/release python -m ucm_release release select-pages --input out/select-pages-request.json --output out/selection.json >/dev/null
-          test "$(jq -r '.plan_request.resolved_plan_sha256' out/selection.json)" = "$RESOLVED_PLAN_SHA256"
-          jq -cS '.remote' out/selection.json > out/draft/observed-release.json
-          jq -cS '.plan_request + {resolved_plan: "input/plan/resolved-plan.json"}' out/selection.json > out/plan-state-request.json
-          jq -cS '.create_request' out/selection.json > out/create-request.json
-          jq -cS '.operations' out/selection.json > out/draft/operations.json
-          PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/plan-state-request.json --output out/initial-plan.json >/dev/null
-          cp out/initial-plan.json out/draft/initial-plan.json
-          decision="$(jq -r '.decision' out/initial-plan.json)"
-          if [[ "${decision}" == create ]]; then
-            git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}" +refs/heads/develop:refs/remotes/origin/develop
-            git diff --quiet HEAD:.github/workflows origin/develop:.github/workflows
-            git diff --quiet HEAD:.github/release origin/develop:.github/release
-            PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
-              --resolved-plan input/plan/resolved-plan.json \
-              --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >/dev/null
-            gh api --method POST \
-              -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "repos/${release_repository}/releases" \
-              --input out/create-request.json >out/draft/create-response.json
-            release_id="$(jq -r '.id' out/draft/create-response.json)"
-            gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "repos/${release_repository}/releases/${release_id}" >out/draft/observed-release.json
-            jq -cS --slurpfile p out/draft/observed-release.json '. + {remote: $p[0], just_created: true}' out/plan-state-request.json > out/created-state-request.json
-            PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/created-state-request.json --output out/draft/state-plan.json >/dev/null
-            jq -cS --arg repo "$release_repository" --slurpfile obs out/draft/observed-release.json '
-              ($repo) as $repo | ("https://api.github.com/repos/" + $repo + "/releases") as $root | . + [
-                {type: "github-release-create", capability: "write", reference: $root, authenticated: true},
-                {type: "github-release-read", capability: "read", reference: ($root + "/" + ($obs[0].id | tostring)), authenticated: true}
-              ]' out/draft/operations.json > out/draft/operations.json.tmp && mv out/draft/operations.json.tmp out/draft/operations.json
-            git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}"
-            PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
-              --resolved-plan input/plan/resolved-plan.json \
-              --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >/dev/null
-          else
-            cp out/initial-plan.json out/draft/state-plan.json
-          fi
-          release_id="$(jq -r '.release_id' out/draft/state-plan.json)"
+          git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}" +refs/heads/develop:refs/remotes/origin/develop
+          git diff --quiet HEAD:.github/workflows origin/develop:.github/workflows
+          git diff --quiet HEAD:.github/release origin/develop:.github/release
+          PYTHONPATH=.github/release python -m ucm_release publish github-release \
+            --plan input/plan/resolved-plan.json \
+            --plan-sha256 "${RESOLVED_PLAN_SHA256}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --stage draft \
+            --source-sha "${SOURCE_SHA}" \
+            --output-dir out/draft
+          release_id="$(jq -r '.release_id' out/draft/release-state.json)"
           logical="ucm-release-draft-${SOURCE_SHA}"
           physical="${logical}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           echo "artifact=${physical}" >>"${GITHUB_OUTPUT}"
@@ -678,175 +645,33 @@ jobs:
           test "$(jq -r '.resolved_plan_sha256' input/plan/resolved-plan.json)" = "$RESOLVED_PLAN_SHA256"
           release_repository="$(jq -r '.source.repository' input/plan/resolved-plan.json)"
           test "${release_repository}" = "${GITHUB_REPOSITORY}"
-          mkdir -p out/state/release-assets out/downloads
+          mkdir -p out out/artifacts
           git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}"
           PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
             --resolved-plan input/plan/resolved-plan.json \
-            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >out/state/preflight.json
+            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >out/preflight.json
+          cp input/draft/release-state.json out/release-state.json
+          find input/wheels -type f -name '*.whl' -exec cp -p {} out/artifacts/ \;
           chart_package="$(find input/chart -maxdepth 1 -type f -name '*.tgz' -print)"
           test -n "${chart_package}"
-          jq -cnS --arg chart_package "${chart_package}" --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --arg github_run_id "${GITHUB_RUN_ID}" --argjson github_run_attempt "${GITHUB_RUN_ATTEMPT}" {wheel_dir: "input/wheels", chart_result: "input/chart/chart-result.json", chart_package: $chart_package, output_dir: "out/state/release-assets", source_sha: $source_sha, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256, run: {run_id: $github_run_id, run_attempt: $github_run_attempt}} > out/assets-request.json
-          PYTHONPATH=.github/release python -m ucm_release release assets-manifest --input out/assets-request.json --output out/state/assets-manifest.json >/dev/null
-          gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
-            "repos/${release_repository}/releases/${RELEASE_ID}" >out/live-release.json
-          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --slurpfile live_release_json out/live-release.json {remote: $live_release_json[0], source_sha: $source_sha, just_created: false, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256} > out/live-state-request.json
-          PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/live-state-request.json --output out/live-state-plan.json >/dev/null
-          test "$(jq -r '.release_id' out/live-state-plan.json)" = "${RELEASE_ID}"
-          gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}/assets?per_page=100" >out/assets-pages.json
-          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --argjson release_id "${RELEASE_ID}" {manifest: "out/state/assets-manifest.json", raw_assets: "out/assets-pages.json", release: "out/live-release.json", source_sha: $source_sha, release_id: $release_id, allowed_root: "out/state/release-assets", require_complete: false, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256} > out/initial-download-request.json
-          PYTHONPATH=.github/release python -m ucm_release release plan-downloads --input out/initial-download-request.json --output out/initial-download-plan.json >/dev/null
-          while IFS=$'\t' read -r asset_id name; do
-            gh api -H 'Accept: application/octet-stream' -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "repos/${release_repository}/releases/assets/${asset_id}" >"out/downloads/${name}"
-          done < <(jq -r '.downloads[] | [.asset_id, .name] | @tsv' out/initial-download-plan.json)
-          printf '%s\n' '{"download_plan":"out/initial-download-plan.json","download_root":"out/downloads"}' >out/complete-initial-request.json
-          PYTHONPATH=.github/release python -m ucm_release release complete-downloads --input out/complete-initial-request.json --output out/observed-assets.json >/dev/null
-          published="$(jq -r '(.draft) | not | tostring' out/live-release.json)"
-          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --argjson release_id "${RELEASE_ID}" --argjson published_b "$([ "${published}" = "true" ] && echo true || echo false)" {manifest: "out/state/assets-manifest.json", observed_assets: "out/observed-assets.json", release: "out/live-release.json", source_sha: $source_sha, release_id: $release_id, allowed_root: "out/state/release-assets", release_published: $published_b, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256} > out/asset-plan-request.json
-          PYTHONPATH=.github/release python -m ucm_release release plan-assets --input out/asset-plan-request.json --output out/asset-plan.json >/dev/null
-          cp input/draft/initial-plan.json out/state/prepare-initial-plan.json
-          cp input/draft/observed-release.json out/state/prepare-release.json
-          cp out/live-release.json out/state/initial-release.json
-          cp out/observed-assets.json out/state/initial-assets.json
-          cp out/asset-plan.json out/state/initial-asset-plan.json
-          printf '[]\n' >out/uploaded-assets.json
-          printf '[]\n' >out/state/upload-transcript.json
-          if [[ "${published}" != true ]]; then
-            git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}" +refs/heads/develop:refs/remotes/origin/develop
-            git diff --quiet HEAD:.github/workflows origin/develop:.github/workflows
-            git diff --quiet HEAD:.github/release origin/develop:.github/release
-            PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
-              --resolved-plan input/plan/resolved-plan.json \
-              --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >/dev/null
-            while IFS= read -r name; do
-              gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}" >out/preupload-release.json
-              jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --slurpfile preupload_release_json out/preupload-release.json {remote: $preupload_release_json[0], source_sha: $source_sha, just_created: false, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256} > out/preupload-state-request.json
-              PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/preupload-state-request.json --output out/preupload-plan.json >/dev/null
-              test "$(jq -r '.decision' out/preupload-plan.json)" = resume-draft
-              gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}/assets?per_page=100" >out/preupload-assets-pages.json
-              jq -cnS --arg source_sha "${SOURCE_SHA}" --arg next_name "${name}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --argjson release_id "${RELEASE_ID}" {manifest: "out/state/assets-manifest.json", initial_asset_plan: "out/asset-plan.json", uploaded_assets: "out/uploaded-assets.json", current_assets: "out/preupload-assets-pages.json", release: "out/preupload-release.json", source_sha: $source_sha, allowed_root: "out/state/release-assets", next_name: $next_name, release_id: $release_id, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256} > out/upload-prefix-request.json
-              PYTHONPATH=.github/release python -m ucm_release release verify-upload-prefix --input out/upload-prefix-request.json --output out/upload-prefix.json >/dev/null
-              path="out/state/release-assets/${name}"
-              encoded="$(printf '%s' "${name}" | jq -rR '@uri')"
-              gh api --method POST -H 'Accept: application/vnd.github+json' -H 'Content-Type: application/octet-stream' -H 'X-GitHub-Api-Version: 2022-11-28' --input "${path}" "https://uploads.github.com/repos/${release_repository}/releases/${RELEASE_ID}/assets?name=${encoded}" >out/upload-response.json
-              jq -cnS --arg source_sha "${SOURCE_SHA}" --arg next_name "${name}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --argjson release_id "${RELEASE_ID}" {manifest: "out/state/assets-manifest.json", raw_response: "out/upload-response.json", release: "out/preupload-release.json", source_sha: $source_sha, expected_name: $next_name, release_id: $release_id, allowed_root: "out/state/release-assets", resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256} > out/upload-response-request.json
-              PYTHONPATH=.github/release python -m ucm_release release record-upload-response --input out/upload-response-request.json --output out/upload-record.json >/dev/null
-              jq -cS --arg next_name "${name}" --slurpfile rel out/preupload-release.json --slurpfile pre out/upload-prefix.json --slurpfile rec out/upload-record.json '. + [{ordinal: length, name: $next_name, release: $rel[0], prefix: $pre[0], response: $rec[0]}]' out/state/upload-transcript.json > out/state/upload-transcript.json.tmp && mv out/state/upload-transcript.json.tmp out/state/upload-transcript.json
-              jq -cS --slurpfile resp out/upload-response.json '. + [$resp[0]]' out/uploaded-assets.json > out/uploaded-assets.json.tmp && mv out/uploaded-assets.json.tmp out/uploaded-assets.json
-          done < <(jq -r '.upload_names[]' out/asset-plan.json)
-          fi
-          gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}/assets?per_page=100" >out/final-assets-pages.json
-          rm -rf out/final-downloads && mkdir out/final-downloads
-          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --argjson release_id "${RELEASE_ID}" {manifest: "out/state/assets-manifest.json", raw_assets: "out/final-assets-pages.json", release: "out/live-release.json", source_sha: $source_sha, release_id: $release_id, allowed_root: "out/state/release-assets", require_complete: true, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256} > out/final-download-request.json
-          PYTHONPATH=.github/release python -m ucm_release release plan-downloads --input out/final-download-request.json --output out/final-download-plan.json >/dev/null
-          while IFS=$'\t' read -r asset_id name; do
-            gh api -H 'Accept: application/octet-stream' -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "repos/${release_repository}/releases/assets/${asset_id}" >"out/final-downloads/${name}"
-          done < <(jq -r '.downloads[] | [.asset_id, .name] | @tsv' out/final-download-plan.json)
-          printf '%s\n' '{"download_plan":"out/final-download-plan.json","download_root":"out/final-downloads"}' >out/complete-final-request.json
-          PYTHONPATH=.github/release python -m ucm_release release complete-downloads --input out/complete-final-request.json --output out/prepublish-downloaded-assets.json >/dev/null
-          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --argjson release_id "${RELEASE_ID}" {manifest: "out/state/assets-manifest.json", observed_assets: "out/prepublish-downloaded-assets.json", release: "out/live-release.json", source_sha: $source_sha, release_id: $release_id, allowed_root: "out/state/release-assets", resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256} > out/verify-prepublish-assets-request.json
-          PYTHONPATH=.github/release python -m ucm_release release verify-assets --input out/verify-prepublish-assets-request.json --output out/state/prepublish-verification.json >/dev/null
-          if [[ "${published}" != true ]]; then
-            git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}" +refs/heads/develop:refs/remotes/origin/develop
-            git diff --quiet HEAD:.github/workflows origin/develop:.github/workflows
-            git diff --quiet HEAD:.github/release origin/develop:.github/release
-            PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
-              --resolved-plan input/plan/resolved-plan.json \
-              --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >/dev/null
-            gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}" >out/prepublish-release.json
-            jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --slurpfile prepublish_release_json out/prepublish-release.json {remote: $prepublish_release_json[0], source_sha: $source_sha, just_created: false, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256} > out/prepublish-state-request.json
-            PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/prepublish-state-request.json --output out/prepublish-plan.json >/dev/null
-            test "$(jq -r '.decision' out/prepublish-plan.json)" = resume-draft
-            gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}/assets?per_page=100" >out/prepublish-assets-pages.json
-            jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --argjson release_id "${RELEASE_ID}" {manifest: "out/state/assets-manifest.json", prior_assets: "out/prepublish-downloaded-assets.json", raw_assets: "out/prepublish-assets-pages.json", prior_release: "out/live-release.json", release: "out/prepublish-release.json", source_sha: $source_sha, release_id: $release_id, allowed_root: "out/state/release-assets", resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256} > out/refresh-assets-request.json
-            PYTHONPATH=.github/release python -m ucm_release release refresh-assets --input out/refresh-assets-request.json --output out/state/prepublish-assets.json >/dev/null
-            cp out/prepublish-release.json out/state/prepublish-release.json
-            printf '%s\n' '{"draft":false,"prerelease":true,"make_latest":"false"}' >out/publish-request.json
-            gh api --method PATCH -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}" --input out/publish-request.json >out/state/publish-response.json
-            gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}" >out/state/authenticated-release.json
-          else
-            gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}" >out/state/authenticated-release.json
-            cp out/live-release.json out/state/prepublish-release.json
-            cp out/prepublish-downloaded-assets.json out/state/prepublish-assets.json
-          fi
-          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --slurpfile state_authenticated_release_json out/state/authenticated-release.json {remote: $state_authenticated_release_json[0], source_sha: $source_sha, just_created: false, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256} > out/final-state-request.json
-          PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/final-state-request.json --output out/state/final-state-plan.json >/dev/null
-          test "$(jq -r '.decision' out/state/final-state-plan.json)" = inspect-published-prerelease
-          gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}/assets?per_page=100" >out/authenticated-assets-pages.json
-          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --argjson release_id "${RELEASE_ID}" {manifest: "out/state/assets-manifest.json", prior_assets: "out/state/prepublish-assets.json", raw_assets: "out/authenticated-assets-pages.json", prior_release: "out/state/prepublish-release.json", release: "out/state/authenticated-release.json", source_sha: $source_sha, release_id: $release_id, allowed_root: "out/state/release-assets", resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256} > out/refresh-authenticated-assets-request.json
-          PYTHONPATH=.github/release python -m ucm_release release refresh-assets --input out/refresh-authenticated-assets-request.json --output out/state/authenticated-assets.json >/dev/null
-          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --argjson release_id "${RELEASE_ID}" {manifest: "out/state/assets-manifest.json", observed_assets: "out/state/authenticated-assets.json", release: "out/state/authenticated-release.json", source_sha: $source_sha, release_id: $release_id, allowed_root: "out/state/release-assets", resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256} > out/verify-authenticated-assets-request.json
-          PYTHONPATH=.github/release python -m ucm_release release verify-assets --input out/verify-authenticated-assets-request.json --output out/state/authenticated-verification.json >/dev/null
-          cp input/protected/protected-publication.json out/state/protected-publication.json
-          cp input/protected/member-collection.json out/state/member-collection.json
-          cp input/protected/provisional-collection.json out/state/provisional-collection.json
+          cp "${chart_package}" out/artifacts/
+          git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}" +refs/heads/develop:refs/remotes/origin/develop
+          git diff --quiet HEAD:.github/workflows origin/develop:.github/workflows
+          git diff --quiet HEAD:.github/release origin/develop:.github/release
+          PYTHONPATH=.github/release python -m ucm_release publish github-release \
+            --plan input/plan/resolved-plan.json \
+            --plan-sha256 "${RESOLVED_PLAN_SHA256}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --stage finalize \
+            --source-sha "${SOURCE_SHA}" \
+            --output-dir out
           logical="ucm-release-authenticated-${SOURCE_SHA}"
           physical="${logical}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           echo "artifact=${physical}" >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ steps.publish.outputs.artifact }}
-          path: out/state/
-          if-no-files-found: error
-          overwrite: false
-          retention-days: 90
-
-  anonymous-release-readback:
-    needs: [plan, prepare-release-draft, publish-release]
-    if: ${{ !cancelled() && needs.publish-release.result == 'success' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: ${{ needs.plan.outputs.source_sha }}
-          fetch-depth: 1
-          persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-        with:
-          python-version: "3.12"
-      - run: >-
-          python -m pip install --disable-pip-version-check --no-cache-dir
-          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: ucm-release-authenticated-${{ needs.plan.outputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: input/state
-      - name: Anonymous exact release and planner-selected asset byte readback
-        env:
-          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
-          RELEASE_ID: ${{ needs.prepare-release-draft.outputs.release_id }}
-          RESOLVED_PLAN_SHA256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
-        run: |
-          set -euo pipefail
-          test "$(jq -r '.resolved_plan_sha256' input/state/release-assets/resolved-plan.json)" = "$RESOLVED_PLAN_SHA256"
-          release_repository="$(jq -r '.source.repository' input/state/release-assets/resolved-plan.json)"
-          test "${release_repository}" = "${GITHUB_REPOSITORY}"
-          mkdir -p out/publication out/anonymous-downloads
-          curl -fsSL --retry 3 -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "https://api.github.com/repos/${release_repository}/releases/tags/${GITHUB_REF_NAME}" >out/anonymous-release.json
-          test "$(jq -r '.id' out/anonymous-release.json)" = "${RELEASE_ID}"
-          curl -fsSL --retry 3 -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "https://api.github.com/repos/${release_repository}/releases/${RELEASE_ID}/assets?per_page=100" >out/anonymous-assets-raw.json
-          jq -cnS --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" {manifest: "input/state/assets-manifest.json", allowed_root: "input/state/release-assets", resolved_plan: "input/state/release-assets/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256} > out/rebase-request.json
-          PYTHONPATH=.github/release python -m ucm_release release rebase-manifest --input out/rebase-request.json --output out/assets-manifest.json >/dev/null
-          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --argjson release_id "${RELEASE_ID}" {manifest: "out/assets-manifest.json", raw_assets: "out/anonymous-assets-raw.json", release: "out/anonymous-release.json", source_sha: $source_sha, release_id: $release_id, allowed_root: "input/state/release-assets", require_complete: true, resolved_plan: "input/state/release-assets/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256} > out/anonymous-download-request.json
-          PYTHONPATH=.github/release python -m ucm_release release plan-downloads --input out/anonymous-download-request.json --output out/anonymous-download-plan.json >/dev/null
-          while IFS=$'\t' read -r api_url name; do
-            curl -fsSL --retry 3 -H 'Accept: application/octet-stream' -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "${api_url}" >"out/anonymous-downloads/${name}"
-          done < <(jq -r '.downloads[] | [.api_url, .name] | @tsv' out/anonymous-download-plan.json)
-          printf '%s\n' '{"download_plan":"out/anonymous-download-plan.json","download_root":"out/anonymous-downloads"}' >out/complete-anonymous-request.json
-          PYTHONPATH=.github/release python -m ucm_release release complete-downloads --input out/complete-anonymous-request.json --output out/anonymous-assets.json >/dev/null
-          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" {prepare_initial_plan: "input/state/prepare-initial-plan.json", initial_release: "input/state/initial-release.json", initial_asset_plan: "input/state/initial-asset-plan.json", authenticated_assets: "input/state/authenticated-assets.json", asset_manifest: "out/assets-manifest.json", upload_transcript: "input/state/upload-transcript.json", allowed_root: "input/state/release-assets", source_sha: $source_sha, resolved_plan: "input/state/release-assets/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256} > out/ledger-request.json
-          PYTHONPATH=.github/release python -m ucm_release release operation-ledger --input out/ledger-request.json --output out/operations.json >/dev/null
-          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --arg github_run_id "${GITHUB_RUN_ID}" --argjson github_run_attempt "${GITHUB_RUN_ATTEMPT}" {protected_registry: "input/state/protected-publication.json", asset_manifest: "out/assets-manifest.json", allowed_root: "input/state/release-assets", prepare_initial_plan: "input/state/prepare-initial-plan.json", prepare_release: "input/state/prepare-release.json", initial_release: "input/state/initial-release.json", initial_assets: "input/state/initial-assets.json", initial_asset_plan: "input/state/initial-asset-plan.json", upload_transcript: "input/state/upload-transcript.json", prepublish_release: "input/state/prepublish-release.json", prepublish_assets: "input/state/prepublish-assets.json", authenticated_release: "input/state/authenticated-release.json", authenticated_assets: "input/state/authenticated-assets.json", anonymous_release: "out/anonymous-release.json", anonymous_assets: "out/anonymous-assets.json", operations: "out/operations.json", source_sha: $source_sha, resolved_plan: "input/state/release-assets/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256, run: {run_id: $github_run_id, run_attempt: $github_run_attempt}} > out/publication-request.json
-          PYTHONPATH=.github/release python -m ucm_release release publication-evidence --input out/publication-request.json --output out/publication/github-release-publication.json >/dev/null
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: ucm-github-release-publication-${{ needs.plan.outputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: out/publication/
+          path: out/
           if-no-files-found: error
           overwrite: false
           retention-days: 90
