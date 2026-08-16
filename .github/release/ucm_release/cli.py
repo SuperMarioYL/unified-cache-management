@@ -352,10 +352,6 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--input", type=Path, required=True)
         command.add_argument("--output", type=Path, required=True)
 
-    reconcile_parser = groups.add_parser("fixture-reconcile")
-    reconcile_parser.set_defaults(action=None)
-    reconcile_parser.add_argument("--input", type=Path, required=True)
-
     loop_parser = groups.add_parser("loop")
     loop_actions = loop_parser.add_subparsers(dest="action", required=True)
     loop_verify = loop_actions.add_parser("verify")
@@ -1866,15 +1862,6 @@ def main(argv: list[str] | None = None) -> int:
                 run=request["run"],
             )
             _write(args.output, result)
-        elif args.group == "fixture-reconcile":
-            request = core.load_json(args.input)
-            if set(request) != {"candidate", "inventory"}:
-                raise ValueError(
-                    "reconcile input requires exactly candidate and inventory"
-                )
-            result = registry.reconcile_fixture_candidate(
-                request["candidate"], request["inventory"]
-            )
         elif (args.group, args.action) == ("loop", "verify"):
             result = verify.verify_loop(
                 core.load_json(args.input),
