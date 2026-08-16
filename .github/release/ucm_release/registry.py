@@ -33,7 +33,6 @@ from .core import (
 )
 
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
-VERSION = r"v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:rc[1-9][0-9]*)?"
 OCI_TAG_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}")
 REPOSITORY_RE = re.compile(
     r"[a-z0-9]+(?:[._:-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+"
@@ -139,14 +138,6 @@ RESOLVED_TASK_FIELDS = {
 }
 # Legacy Task 3 regression authority. Production resolution starts at
 # ``resolve_catalog`` and must never consume these concrete fixture coordinates.
-FIXTURE_TARGET_REPOSITORIES = {
-    "vllm-openai": "ghcr.io/modelengine-group/vllm-openai",
-    "vllm-ascend": "ghcr.io/modelengine-group/vllm-ascend",
-}
-FIXTURE_UPSTREAM_REPOSITORIES = {
-    "vllm-openai": "docker.io/vllm/vllm-openai",
-    "vllm-ascend": "quay.io/ascend/vllm-ascend",
-}
 SNAPSHOT_KEYS = {
     "schema_version",
     "kind",
@@ -160,60 +151,6 @@ PLATFORM_KEYS = {
     "architecture",
     "manifest_digest",
     "config_digest",
-}
-INVENTORY_KEYS = {
-    "schema_version",
-    "kind",
-    "repositories",
-    "entries",
-    "inventory_sha256",
-}
-ENTRY_KEYS = {
-    "repository",
-    "tag",
-    "build_key_sha256",
-    "observed_digest",
-    "evidence_digest",
-}
-CANDIDATE_KEYS = {
-    "schema_version",
-    "kind",
-    "fixture_only",
-    "unpublished",
-    "ucm_version",
-    "target_repository",
-    "tag_base",
-    "tag_family_sha256",
-    "build_key_sha256",
-    "build_inputs",
-}
-BUILD_INPUT_KEYS = {
-    "release_manifest_sha256",
-    "wheel",
-    "upstream",
-    "compatibility_rule_id",
-    "compatibility_rule",
-    "compatibility_rule_sha256",
-    "implementation_digest",
-}
-WHEEL_INPUT_KEYS = {
-    "spec_id",
-    "sha256",
-    "declaration_sha256",
-    "version",
-    "accelerator",
-    "accelerator_runtime",
-    "npu_arch_or_na",
-    "os",
-    "cpu_arch",
-    "python_abi",
-    "binary_profile_id",
-}
-UPSTREAM_INPUT_KEYS = {
-    "repository",
-    "exact_upstream_tag",
-    "index_digest",
-    "platforms",
 }
 COMMON_WHEEL_RECORD_KEYS = {
     "schema_version",
@@ -234,23 +171,6 @@ COMMON_WHEEL_RECORD_KEYS = {
     "trust_level",
     "published",
     "publication_eligible",
-}
-WHEEL_RECORD_KEYS_BY_SOURCE = {
-    "fixture": COMMON_WHEEL_RECORD_KEYS | {"fixture_binding"},
-    "builder-candidate": COMMON_WHEEL_RECORD_KEYS | {"builder_evidence"},
-}
-COMPATIBILITY_RULE_KEYS = {
-    "id",
-    "upstream_products",
-    "version_specifier",
-    "variants",
-    "accelerator",
-    "accelerator_runtimes",
-    "npu_architectures",
-    "operating_systems",
-    "cpu_architectures",
-    "python_abis",
-    "upstream_channels",
 }
 OCI_INDEX_MEDIA_TYPES = {
     "application/vnd.oci.image.index.v1+json",
