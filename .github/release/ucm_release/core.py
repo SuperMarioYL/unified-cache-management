@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import copy
 import hashlib
 import json
@@ -10,8 +9,6 @@ import os
 import posixpath
 import re
 import subprocess
-import sys
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
@@ -2339,121 +2336,6 @@ def _oci_digest(reference: str) -> str | None:
     return digest or None
 
 
-def publish_pypi(
-    wheels: list[Path],
-    *,
-    repository: str = "https://upload.pypi.org/legacy/",
-) -> dict[str, Any]:
-    """Publish wheels to PyPI via OIDC trusted publishing (twine).
-
-    Trusted publishing uses OIDC, so no username/password is required.
-    """
-    if not wheels:
-        raise ValueError("at least one wheel must be provided for PyPI publication")
-    command = [
-        sys.executable,
-        "-m",
-        "twine",
-        "upload",
-        "--repository-url",
-        repository,
-        "--non-interactive",
-        *[str(wheel) for wheel in wheels],
-    ]
-    subprocess.run(command, check=True)
-    return {
-        "published": True,
-        "target": repository,
-        "artifacts": [str(wheel) for wheel in wheels],
-    }
-
-
-def publish_ghcr(
-    source_ref: str,
-    *,
-    target_namespace: str,
-) -> dict[str, Any]:
-    """Copy a multi-arch OCI index from staging to the target GHCR namespace.
-
-    ``crane copy`` preserves the manifest digest verbatim, so the source
-    and target references share the same digest after publication.
-    """
-    if not source_ref:
-        raise ValueError("source_ref must be a non-empty OCI reference")
-    if not target_namespace:
-        raise ValueError("target_namespace must be a non-empty GHCR namespace")
-    tag = _oci_tag(source_ref)
-    target = f"ghcr.io/{target_namespace}:{tag}"
-    subprocess.run(["crane", "copy", source_ref, target], check=True)
-    return {"published": True, "target": target, "digest": _oci_digest(target)}
-
-
-def publish_dockerhub(
-    source_ref: str,
-    *,
-    target_namespace: str,
-    username: str,
-    token: str,
-) -> dict[str, Any]:
-    """Copy from GHCR to Docker Hub, preserving the manifest digest.
-
-    Credentials are supplied to ``crane`` through a temporary
-    ``DOCKER_CONFIG`` directory so the registry secret never lands in the
-    process arguments or the persistent docker config.
-    """
-    if not source_ref:
-        raise ValueError("source_ref must be a non-empty OCI reference")
-    if not target_namespace:
-        raise ValueError("target_namespace must be a non-empty Docker Hub namespace")
-    if not username or not token:
-        raise ValueError("Docker Hub username and token are required")
-    tag = _oci_tag(source_ref)
-    target = f"docker.io/{target_namespace}:{tag}"
-    auth = base64.b64encode(f"{username}:{token}".encode("utf-8")).decode("ascii")
-    with tempfile.TemporaryDirectory() as config_dir:
-        config_path = Path(config_dir) / "config.json"
-        config_path.write_text(
-            json.dumps({"auths": {"https://index.docker.io/v1/": {"auth": auth}}}),
-            encoding="utf-8",
-        )
-        env = {**os.environ, "DOCKER_CONFIG": config_dir}
-        subprocess.run(
-            ["crane", "copy", "--insecure", source_ref, target],
-            check=True,
-            env=env,
-        )
-    return {"published": True, "target": target, "digest": _oci_digest(target)}
-
-
-def publish_chart_oci(
-    chart_archive: Path,
-    *,
-    namespace: str,
-) -> dict[str, Any]:
-    """Push a Helm chart package to an OCI registry.
-
-    ``helm push`` prints the canonical ``oci://`` reference of the pushed
-    chart, which is captured and returned alongside the chart archive path.
-    """
-    if not chart_archive.is_file():
-        raise ValueError(f"chart archive is not a regular file: {chart_archive}")
-    if not namespace:
-        raise ValueError("namespace must be a non-empty OCI repository path")
-    target = f"oci://{namespace}"
-    result = subprocess.run(
-        ["helm", "push", str(chart_archive), target],
-        text=True,
-        capture_output=True,
-        check=True,
-    )
-    pushed = result.stdout.strip()
-    return {
-        "published": True,
-        "target": pushed or target,
-        "chart": str(chart_archive),
-    }
-
-
 def publish_github_release(
     assets: list[Path],
     *,
@@ -2958,30 +2840,3 @@ def tag_preflight(
         authority=authority,
         repository_root=repository_root,
     )
-
-
-def require_default_head_for_create(
-    preflight: object, decision: object, *, resource: str
-) -> None:
-    """Allow durable reuse from an ancestor, but only create from current develop."""
-    if (
-        decision not in {"create", "reuse"}
-        or not isinstance(resource, str)
-        or not resource
-    ):
-        raise ValueError("first publication decision is malformed")
-    if not isinstance(preflight, dict):
-        raise ValueError("first publication preflight is malformed")
-    source_sha = preflight.get("source_sha")
-    default_branch_sha = preflight.get("default_branch_sha")
-    if (
-        not isinstance(source_sha, str)
-        or re.fullmatch(r"[0-9a-f]{40}", source_sha) is None
-        or not isinstance(default_branch_sha, str)
-        or re.fullmatch(r"[0-9a-f]{40}", default_branch_sha) is None
-    ):
-        raise ValueError("first publication source authority is malformed")
-    if decision == "create" and source_sha != default_branch_sha:
-        raise ValueError(
-            f"first publication of {resource} requires the protected tag at default branch HEAD"
-        )

@@ -15,21 +15,14 @@ import struct
 import subprocess
 import time
 import zipfile
-import zlib
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from packaging.utils import canonicalize_name, parse_wheel_filename
 
 from .core import (
-    DEFAULT_RELEASE,
-    DEFAULT_SCHEMA_DIR,
     REPO_ROOT,
-    _fixture_wheel_specs,
     canonical_bytes,
     cpu_toolchain_authority,
-    load_catalog,
-    python_runtime_requirements,
     runtime_patch_manifest_sha256,
     sha256_value,
 )
@@ -162,10 +155,6 @@ def _sha256(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _write_canonical(path: Path, value: object) -> None:
-    path.write_bytes(canonical_bytes(value) + b"\n")
-
-
 def _external_required_by_dependency(
     declarations: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
@@ -194,115 +183,6 @@ def _external_required_resolution(declaration: dict[str, Any]) -> dict[str, Any]
         **declaration,
         "direct": False,
         "kind": "external-required",
-    }
-
-
-def build_fixture_wheel(
-    output_dir: Path,
-    source_sha: str,
-    profile_id: str,
-    *,
-    release_path: Path = DEFAULT_RELEASE,
-    schema_dir: Path = DEFAULT_SCHEMA_DIR,
-) -> dict[str, Any]:
-    """Build one deterministic, source-bound wheel for the fork candidate lane."""
-    if re.fullmatch(r"[0-9a-f]{40}", source_sha) is None:
-        raise ValueError("fixture wheel source SHA must be a full lowercase Git commit")
-    release = load_catalog(release_path, schema_dir)
-    specs = {item["spec_id"]: item for item in _fixture_wheel_specs(release)}
-    if profile_id not in specs:
-        raise ValueError(f"unknown fixture wheel profile: {profile_id}")
-    spec = specs[profile_id]
-    output_dir = Path(output_dir)
-    if output_dir.exists() and any(output_dir.iterdir()):
-        raise ValueError("fixture wheel output directory must be absent or empty")
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    version = release["ucm_version"]
-    platform = cpu_toolchain_authority(spec["cpu_arch"]).wheel_arch
-    tag = f"{spec['python_abi']}-{spec['python_abi']}-linux_{platform}"
-    filename = f"uc_manager-{version}-{tag}.whl"
-    dist_info = f"uc_manager-{version}.dist-info"
-    members = {
-        "ucm/__init__.py": f"__version__ = {version!r}\n",
-        "ucm/_fixture_build.py": (
-            f"SOURCE_SHA = {source_sha!r}\nPROFILE_ID = {profile_id!r}\n"
-        ),
-        f"{dist_info}/METADATA": "\n".join(
-            [
-                "Metadata-Version: 2.1",
-                "Name: uc-manager",
-                f"Version: {version}",
-                *(
-                    f"Requires-Dist: {requirement}"
-                    for requirement in python_runtime_requirements(release)
-                ),
-                "",
-            ]
-        ),
-        f"{dist_info}/WHEEL": "\n".join(
-            [
-                "Wheel-Version: 1.0",
-                "Generator: ucm-fork-fixture-only",
-                "Root-Is-Purelib: false",
-                f"Tag: {tag}",
-                "",
-            ]
-        ),
-    }
-    record_rows: list[list[str]] = []
-    for name, content in members.items():
-        raw = content.encode("utf-8")
-        digest = (
-            base64.urlsafe_b64encode(hashlib.sha256(raw).digest())
-            .decode("ascii")
-            .rstrip("=")
-        )
-        record_rows.append([name, f"sha256={digest}", str(len(raw))])
-    record_name = f"{dist_info}/RECORD"
-    record_rows.append([record_name, "", ""])
-    record_buffer = io.StringIO(newline="")
-    csv.writer(record_buffer, lineterminator="\n").writerows(record_rows)
-    members[record_name] = record_buffer.getvalue()
-
-    wheel_path = output_dir / filename
-    with zipfile.ZipFile(wheel_path, "w") as archive:
-        for name in sorted(members):
-            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
-            info.compress_type = zipfile.ZIP_DEFLATED
-            info.external_attr = 0o644 << 16
-            archive.writestr(info, members[name])
-    wheel_sha256 = _sha256(wheel_path)
-    inspection = inspect_wheel(
-        wheel_path,
-        profile_id,
-        wheel_sha256,
-        "fixture",
-        release_path=release_path,
-        schema_dir=schema_dir,
-    )
-    inspection_path = output_dir / "wheel-inspection.json"
-    _write_canonical(inspection_path, inspection)
-    inspection_sha256 = _sha256(inspection_path)
-    build_record = {
-        "schema_version": 1,
-        "kind": "ucm-fixture-wheel-build",
-        "fixture_only": True,
-        "publication_status": "unpublished",
-        "publication_eligible": False,
-        "source_sha": source_sha,
-        "profile_id": profile_id,
-        "wheel_sha256": wheel_sha256,
-        "inspection_sha256": inspection_sha256,
-    }
-    _write_canonical(output_dir / "fixture-build.json", build_record)
-    (output_dir / "wheel.sha256").write_text(wheel_sha256 + "\n", encoding="utf-8")
-    return {
-        "wheel_path": str(wheel_path),
-        "wheel_sha256": wheel_sha256,
-        "inspection_sha256": inspection_sha256,
-        "inspection": inspection,
-        "build_record": build_record,
     }
 
 
@@ -1277,177 +1157,3 @@ def _verify_fixture_binding(
         "profile_id": profile_id,
         "marker_status": "passed",
     }
-
-
-def inspect_wheel(
-    path: Path,
-    spec_id: str,
-    expected_sha256: str,
-    source_kind: str,
-    *,
-    task: dict[str, Any] | None = None,
-    task_path: Path | None = None,
-    release_path: Path = DEFAULT_RELEASE,
-    schema_dir: Path = DEFAULT_SCHEMA_DIR,
-) -> dict[str, Any]:
-    if source_kind not in {"fixture", "builder-candidate"}:
-        raise ValueError("source_kind must be fixture or builder-candidate")
-    if DIGEST_RE.fullmatch(expected_sha256) is None:
-        raise ValueError("expected SHA256 must be sha256:<64 lowercase hex>")
-    release: dict[str, Any] | None = None
-    selected_task: dict[str, Any] | None = None
-    if source_kind == "builder-candidate":
-        selected_task = _selected_wheel_task(spec_id, task=task, task_path=task_path)
-        spec = _wheel_spec_from_task(selected_task)
-        runtime_requirements = selected_task["runtime_requirements"]
-        expected_version = selected_task["wheel_version"]
-        profile_id = selected_task["profile_id"]
-    else:
-        if task is not None or task_path is not None:
-            raise ValueError("fixture wheel inspection does not accept a real task")
-        release = load_catalog(release_path, schema_dir)
-        specs = {item["spec_id"]: item for item in _fixture_wheel_specs(release)}
-        if spec_id not in specs:
-            raise ValueError(f"unknown fixture wheel spec: {spec_id}")
-        spec = specs[spec_id]
-        runtime_requirements = python_runtime_requirements(release)
-        expected_version = release["ucm_version"]
-        profile_id = spec_id
-    if source_kind == "builder-candidate" and not spec["build_eligible"]:
-        raise ValueError(
-            "builder candidate planned spec has unresolved locks or runner"
-        )
-    actual_sha256 = _sha256(path)
-    if actual_sha256 != expected_sha256:
-        raise ValueError(
-            f"wheel SHA256 mismatch: expected {expected_sha256}, got {actual_sha256}"
-        )
-    raw_wheel = Path(path).read_bytes()
-    end_record = raw_wheel.rfind(b"PK\x05\x06")
-    if end_record < 0 or end_record + 22 > len(raw_wheel):
-        raise ValueError("wheel ZIP end record is missing")
-    comment_size = int.from_bytes(
-        raw_wheel[end_record + 20 : end_record + 22], "little"
-    )
-    if end_record + 22 + comment_size != len(raw_wheel):
-        raise ValueError("wheel contains trailing bytes after the ZIP end record")
-    try:
-        with zipfile.ZipFile(path) as integrity_archive:
-            bad_member = integrity_archive.testzip()
-    except (zipfile.BadZipFile, zlib.error) as error:
-        raise ValueError(f"wheel ZIP is corrupt: {error}") from error
-    if bad_member is not None:
-        raise ValueError(f"wheel CRC is corrupt: {bad_member}")
-    try:
-        filename_name, filename_version, _, filename_tags = parse_wheel_filename(
-            path.name
-        )
-    except Exception as error:
-        raise ValueError(f"invalid wheel filename: {error}") from error
-    builder_evidence: dict[str, Any] | None = None
-    fixture_binding: dict[str, str] | None = None
-    with zipfile.ZipFile(path) as archive:
-        metadata_names = [
-            name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
-        ]
-        wheel_names = [
-            name for name in archive.namelist() if name.endswith(".dist-info/WHEEL")
-        ]
-        if len(metadata_names) != 1 or len(wheel_names) != 1:
-            raise ValueError(
-                "wheel must contain exactly one METADATA and one WHEEL file"
-            )
-        parser = email.parser.Parser()
-        metadata = parser.parsestr(archive.read(metadata_names[0]).decode("utf-8"))
-        wheel_metadata = parser.parsestr(archive.read(wheel_names[0]).decode("utf-8"))
-        if source_kind == "builder-candidate":
-            assert selected_task is not None
-            builder_evidence = _verify_builder_candidate_evidence(
-                archive, wheel_metadata, spec, profile_id, selected_task
-            )
-            build_name = next(
-                name
-                for name in archive.namelist()
-                if name.endswith(".dist-info/ucm-build.json")
-            )
-            record_name = next(
-                name
-                for name in archive.namelist()
-                if name.endswith(".dist-info/RECORD")
-            )
-            binding = _unique_json(archive.read(build_name), build_name)
-            _verify_canonical_builder_archive(
-                archive,
-                binding,
-                metadata_names[0],
-                wheel_names[0],
-                record_name,
-                runtime_requirements,
-            )
-            for name in archive.namelist():
-                if not name.endswith(".dist-info/RECORD"):
-                    _check_member_path_leakage(name, archive.read(name))
-        else:
-            fixture_binding = _verify_fixture_binding(archive, spec)
-    distribution = metadata.get("Name", "")
-    version = metadata.get("Version", "")
-    if canonicalize_name(distribution) != "uc-manager":
-        raise ValueError(f"unexpected wheel distribution: {distribution}")
-    if canonicalize_name(distribution) != canonicalize_name(str(filename_name)):
-        raise ValueError("METADATA distribution does not match wheel filename")
-    if version != str(filename_version):
-        raise ValueError("METADATA version does not match wheel filename")
-    if version != expected_version:
-        raise ValueError(
-            f"wheel version {version} does not match planned version {expected_version}"
-        )
-    filename_tag_strings = {str(tag) for tag in filename_tags}
-    metadata_tags = set(wheel_metadata.get_all("Tag", []))
-    if not metadata_tags or metadata_tags != filename_tag_strings:
-        raise ValueError("WHEEL tags do not match wheel filename tags")
-    if source_kind == "builder-candidate":
-        expected_tags = {_expected_wheel_tag(spec)}
-    else:
-        architecture = cpu_toolchain_authority(spec["cpu_arch"]).wheel_arch
-        expected_tags = {
-            f"{spec['python_abi']}-{spec['python_abi']}-linux_{architecture}"
-        }
-    if filename_tag_strings != expected_tags:
-        raise ValueError(
-            "wheel tags do not match declared Python ABI and CPU architecture"
-        )
-    requires_dist = metadata.get_all("Requires-Dist", [])
-    if requires_dist != runtime_requirements:
-        raise ValueError("wheel runtime dependencies do not match selected authority")
-    result = {
-        "schema_version": 1,
-        "kind": "ucm-wheel-inspection",
-        "source_kind": source_kind,
-        "spec_id": spec_id,
-        "filename": path.name,
-        "sha256": actual_sha256,
-        "size": path.stat().st_size,
-        "distribution": distribution,
-        "version": version,
-        "tags": sorted(filename_tag_strings),
-        "requires_dist": requires_dist,
-        "python_abi": spec["python_abi"],
-        "cpu_arch": spec["cpu_arch"],
-        "declaration_sha256": spec["declaration_sha256"],
-        "status": "fixture-only" if source_kind == "fixture" else "candidate-inspected",
-        "trust_level": (
-            "fixture-only"
-            if source_kind == "fixture"
-            else "unpublished-builder-candidate"
-        ),
-        "published": False,
-        "publication_eligible": False,
-    }
-    if builder_evidence is not None:
-        result["builder_evidence"] = builder_evidence
-        result["runtime_patch_manifest_sha256"] = builder_evidence[
-            "runtime_patch_manifest_sha256"
-        ]
-    if fixture_binding is not None:
-        result["fixture_binding"] = fixture_binding
-    return result
