@@ -1,0 +1,44 @@
+name: UCM PR Artifact Cleanup
+
+on:
+  pull_request:
+    types: [closed]
+  schedule:
+    - cron: "0 3 * * *"  # Daily at 03:00 UTC — sweep expired PR tags
+
+permissions:
+  packages: write
+  contents: read
+
+jobs:
+  cleanup-pr-artifacts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Delete PR-tagged GHCR images
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          owner="${{ github.repository_owner }}"
+          repo="${{ github.event.repository.name }}"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            pr_number="${{ github.event.pull_request.number }}"
+            prefix="pr-${pr_number}-"
+          else
+            prefix="pr-"
+          fi
+          echo "Cleaning up GHCR images with prefix '${prefix}' for ${owner}/${repo}"
+          # List all package versions and delete those matching the PR prefix
+          for pkg in $(gh api "user/packages?package_type=container" --jq '.[].name' 2>/dev/null || true); do
+            if [[ "${pkg}" == "ucm-pr" ]]; then
+              versions="$(gh api "user/packages/container/${pkg}/versions?per_page=100" --jq '.[] | select(.metadata.container.tags[0] // "" | startswith("'"${prefix}"'")) | "\(.id) \(.metadata.container.tags[0])"')"
+              while IFS=' ' read -r version_id tag; do
+                if [[ -n "${version_id}" ]]; then
+                  echo "Deleting ${pkg}:${tag} (version ${version_id})"
+                  gh api --method DELETE "user/packages/container/${pkg}/versions/${version_id}" || true
+                fi
+              done <<< "${versions}"
+            fi
+          done
+          echo "PR artifact cleanup complete"
