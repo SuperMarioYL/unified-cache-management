@@ -94,20 +94,10 @@ _PLAN_OPERATION_TYPES = frozenset(
 )
 # Legacy Task 3 regression authority. Production resolution starts at
 # ``resolve_catalog`` and must never consume these concrete fixture coordinates.
-SNAPSHOT_KEYS = {
-    "schema_version",
-    "kind",
-    "repository",
-    "upstream_tag",
-    "index_digest",
-    "platforms",
-}
-PLATFORM_KEYS = {
-    "os",
-    "architecture",
-    "manifest_digest",
-    "config_digest",
-}
+SNAPSHOT_KEYS = frozenset(
+    "schema_version kind repository upstream_tag index_digest platforms".split()
+)
+PLATFORM_KEYS = frozenset("os architecture manifest_digest config_digest".split())
 OCI_INDEX_MEDIA_TYPES = {
     "application/vnd.oci.image.index.v1+json",
     "application/vnd.docker.distribution.manifest.list.v2+json",

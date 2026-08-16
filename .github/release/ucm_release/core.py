@@ -2059,30 +2059,12 @@ def expand_release_plan(
     return result
 
 
-RELEASE_KEYS = {
-    "kind",
-    "schema_version",
-    "ucm_version",
-    "image_revision",
-    "version_file",
-    "source",
-    "lanes",
-    "runner_map",
-    "upstream_products",
-    "compatibility",
-    "chart",
-    "publish",
-    "wheel_profiles",
-}
-OPTIONAL_CATALOG_KEYS = {
-    "pr_smoke",
-    "docker_recipes",
-    "runtime_patch_rules",
-    "matrix_limits",
-    "scan_limits",
-    "python_runtime_dependencies",
-    "python_build_lock",
-}
+RELEASE_KEYS = frozenset(
+    "kind schema_version ucm_version image_revision version_file source lanes runner_map upstream_products compatibility chart publish wheel_profiles".split()
+)
+OPTIONAL_CATALOG_KEYS = frozenset(
+    "pr_smoke docker_recipes runtime_patch_rules matrix_limits scan_limits python_runtime_dependencies python_build_lock".split()
+)
 SUPPLEMENTARY_TOP_LEVEL_KEYS = frozenset(
     {
         "pr_smoke",
@@ -2505,15 +2487,9 @@ def _is_ancestor(repository_root: Path, ancestor: str, descendant: str) -> bool:
     return completed.returncode == 0
 
 
-TAG_PREFLIGHT_AUTHORITY_FIELDS = {
-    "repository",
-    "staging_repository",
-    "default_branch",
-    "release_tag",
-    "release_policy",
-    "version_file",
-    "ucm_version",
-}
+TAG_PREFLIGHT_AUTHORITY_FIELDS = frozenset(
+    "repository staging_repository default_branch release_tag release_policy version_file ucm_version".split()
+)
 
 
 def _tag_preflight_live(
