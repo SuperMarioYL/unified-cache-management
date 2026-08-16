@@ -40,8 +40,6 @@ COMPONENT_MANIFEST = "ucm/ucm-native-components.json"
 RUNTIME_PATCH_MANIFEST = "ucm/integration/vllm/patch/runtime_patch_rules.json"
 AUTHORITY_KIND = "ucm-native-build-authority"
 CLOSURE_KIND = "ucm-linux-dependency-closure"
-SOURCE_CONTEXT_KIND = "ucm-canonical-source-context"
-SOURCE_CONTEXT_PREFIX = b"ucm-build-context-v2\0"
 HOST_PATH_MARKERS = (
     b"/Users/",
     b"/home/runner/",
@@ -398,110 +396,6 @@ def _git_value(*arguments: str) -> str | None:
         check=False,
     )
     return completed.stdout.strip() if completed.returncode == 0 else None
-
-
-def _git_object_digest(kind: str, data: bytes) -> bytes:
-    header = f"{kind} {len(data)}\0".encode("ascii")
-    return hashlib.sha1(header + data).digest()  # noqa: S324 - Git SHA-1 object ID
-
-
-def _source_context_digest(archive: bytes, commit_payload: bytes) -> str:
-    material = (
-        SOURCE_CONTEXT_PREFIX
-        + len(archive).to_bytes(8, byteorder="big")
-        + archive
-        + commit_payload
-    )
-    return "sha256:" + hashlib.sha256(material).hexdigest()
-
-
-def _commit_tree(commit_payload: bytes) -> str:
-    """Strictly parse the one tree identity carried by a raw Git commit payload."""
-    if b"\0" in commit_payload or b"\r" in commit_payload:
-        raise ValueError("source commit payload contains invalid control bytes")
-    header_block, separator, _ = commit_payload.partition(b"\n\n")
-    if not separator or not header_block:
-        raise ValueError("source commit payload has no complete header block")
-
-    headers: list[tuple[bytes, bytes]] = []
-    has_header = False
-    for line in header_block.split(b"\n"):
-        if line.startswith(b" "):
-            if not has_header:
-                raise ValueError("source commit payload has an orphan continuation")
-            continue
-        match = re.fullmatch(rb"([a-z][a-z0-9-]*) (.+)", line)
-        if match is None:
-            raise ValueError("source commit payload has a malformed header")
-        headers.append((match.group(1), match.group(2)))
-        has_header = True
-
-    tree_headers = [value for name, value in headers if name == b"tree"]
-    if not headers or headers[0][0] != b"tree" or len(tree_headers) != 1:
-        raise ValueError(
-            "source commit payload must have exactly one leading tree header"
-        )
-    tree = tree_headers[0]
-    if re.fullmatch(rb"[0-9a-f]{40}", tree) is None:
-        raise ValueError("source commit payload tree is invalid")
-    return tree.decode("ascii")
-
-
-def prepare_source_context(output_dir: Path, source_sha: str) -> dict[str, Any]:
-    """Create the only accepted wheel-build context from exact Git objects."""
-    if re.fullmatch(r"[0-9a-f]{40}", source_sha) is None:
-        raise ValueError("source context requires a full lowercase Git commit")
-    if _git_value("rev-parse", "HEAD") != source_sha:
-        raise ValueError("source context SHA does not match checked HEAD")
-    source_tree = _git_value("rev-parse", f"{source_sha}^{{tree}}")
-    if source_tree is None:
-        raise ValueError("source context tree cannot be resolved")
-    completed = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "archive", "--format=tar", source_sha],
-        capture_output=True,
-        check=False,
-    )
-    if completed.returncode != 0:
-        raise ValueError("git archive failed for source context")
-    output_dir = Path(output_dir)
-    if output_dir.exists() and any(output_dir.iterdir()):
-        raise ValueError("source context output directory must be absent or empty")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    archive_path = output_dir / "ucm-source.tar"
-    archive_path.write_bytes(completed.stdout)
-    commit = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "cat-file", "commit", source_sha],
-        capture_output=True,
-        check=False,
-    )
-    if commit.returncode != 0:
-        raise ValueError("Git commit payload cannot be exported for source context")
-    if _git_object_digest("commit", commit.stdout).hex() != source_sha:
-        raise ValueError("exported Git commit payload differs from source SHA")
-    if _commit_tree(commit.stdout) != source_tree:
-        raise ValueError("exported Git commit tree differs from source tree")
-    commit_payload_path = output_dir / "source-commit.payload"
-    commit_payload_path.write_bytes(commit.stdout)
-    manifest = {
-        "schema_version": 1,
-        "kind": SOURCE_CONTEXT_KIND,
-        "source_sha": source_sha,
-        "source_tree": source_tree,
-        "source_object_type": "commit",
-        "source_commit_payload_sha256": "sha256:"
-        + hashlib.sha256(commit.stdout).hexdigest(),
-        "source_archive_sha256": "sha256:"
-        + hashlib.sha256(completed.stdout).hexdigest(),
-        "build_context_sha256": _source_context_digest(completed.stdout, commit.stdout),
-    }
-    manifest_path = output_dir / "source-context.json"
-    _write_canonical(manifest_path, manifest)
-    return {
-        **manifest,
-        "source_archive_path": str(archive_path),
-        "source_commit_payload_path": str(commit_payload_path),
-        "source_manifest_path": str(manifest_path),
-    }
 
 
 def _validate_build_authority(

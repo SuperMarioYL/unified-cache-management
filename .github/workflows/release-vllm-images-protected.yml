@@ -109,7 +109,29 @@ jobs:
           set -euo pipefail
           mkdir -p out/parent/member-records
           jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --arg github_run_id "${GITHUB_RUN_ID}" --argjson github_run_attempt "${GITHUB_RUN_ATTEMPT}" {root: "input/members", output_dir: "out/parent/member-records", source_sha: $source_sha, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256, run: {run_id: $github_run_id, run_attempt: $github_run_attempt}} > out/member-collection-request.json
-          PYTHONPATH=.github/release python -m ucm_release artifact collect-members --input out/member-collection-request.json --output out/member-collection.json >/dev/null
+          root="$(jq -r '.root' out/member-collection-request.json)"
+          output_dir="$(jq -r '.output_dir' out/member-collection-request.json)"
+          source_sha="$(jq -r '.source_sha' out/member-collection-request.json)"
+          resolved_plan_sha256="$(jq -r '.resolved_plan_sha256' out/member-collection-request.json)"
+          run_id="$(jq -r '.run.run_id' out/member-collection-request.json)"
+          run_attempt="$(jq -r '.run.run_attempt' out/member-collection-request.json)"
+          mkdir -p "${output_dir}"
+          member_records="[]"
+          member_record_sha256s="{}"
+          for task_id in $(jq -r '.image_tasks[].task_id' input/plan/resolved-plan.json); do
+            physical="ucm-member-${task_id}-run-${run_id}-attempt-${run_attempt}"
+            cp "${root}/${physical}/member-record.json" "${output_dir}/${task_id}.json"
+            record_sha256="$(jq -r '.record_sha256' "${output_dir}/${task_id}.json")"
+            member_records="$(jq -cnS --arg p "${output_dir}/${task_id}.json" --argjson a "${member_records}" '$a + [$p]')"
+            member_record_sha256s="$(jq -cnS --arg k "${task_id}" --arg v "${record_sha256}" --argjson m "${member_record_sha256s}" '$m + {($k): $v}')"
+          done
+          jq -cnS \
+            --argjson member_records "${member_records}" \
+            --argjson member_record_sha256s "${member_record_sha256s}" \
+            --arg source_sha "${source_sha}" \
+            --arg resolved_plan_sha256 "${resolved_plan_sha256}" \
+            '{schema_version:1, kind:"ucm-member-artifact-collection", source_sha:$source_sha, resolved_plan_sha256:$resolved_plan_sha256, member_records:$member_records, member_record_sha256s:$member_record_sha256s}' \
+            >out/member-collection.json
           jq -cnS \
             --argjson members "$(jq -r '.member_records[]' out/member-collection.json | xargs -r jq -c . | jq -s .)" \
             --slurpfile coll out/member-collection.json \
@@ -345,7 +367,36 @@ jobs:
           cp input/parent/member-collection.json out/evidence/member-collection.json
           cp input/parent/member-records/*.json out/evidence/member-records/
           jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --arg github_run_id "${GITHUB_RUN_ID}" --argjson github_run_attempt "${GITHUB_RUN_ATTEMPT}" {root: "input/provisionals", output_dir: "out/evidence/provisionals", source_sha: $source_sha, parent_plans: "out/evidence/parent-plans.json", resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256, run: {run_id: $github_run_id, run_attempt: $github_run_attempt}} > out/provisional-collection-request.json
-          PYTHONPATH=.github/release python -m ucm_release artifact collect-provisionals --input out/provisional-collection-request.json --output out/provisional-collection.json >/dev/null
+          root="$(jq -r '.root' out/provisional-collection-request.json)"
+          output_dir="$(jq -r '.output_dir' out/provisional-collection-request.json)"
+          source_sha="$(jq -r '.source_sha' out/provisional-collection-request.json)"
+          resolved_plan_sha256="$(jq -r '.resolved_plan_sha256' out/provisional-collection-request.json)"
+          parent_plans="$(jq -r '.parent_plans' out/provisional-collection-request.json)"
+          run_id="$(jq -r '.run.run_id' out/provisional-collection-request.json)"
+          run_attempt="$(jq -r '.run.run_attempt' out/provisional-collection-request.json)"
+          parent_plans_sha256="$(jq -r '.plans_sha256' "${parent_plans}")"
+          mkdir -p "${output_dir}"
+          provisional_indexes="[]"
+          provisional_sha256s="{}"
+          provisional_preflight_sha256s="{}"
+          for task_id in $(jq -r '.family_tasks[].task_id' input/plan/resolved-plan.json); do
+            physical="ucm-index-provisional-${task_id}-run-${run_id}-attempt-${run_attempt}"
+            cp "${root}/${physical}/provisional.json" "${output_dir}/${task_id}.json"
+            prov_sha256="$(jq -r '.provisional_sha256' "${output_dir}/${task_id}.json")"
+            preflight_sha256="$(jq -r '.preflight_sha256' "${root}/${physical}/preflight.json")"
+            provisional_indexes="$(jq -cnS --arg p "${output_dir}/${task_id}.json" --argjson a "${provisional_indexes}" '$a + [$p]')"
+            provisional_sha256s="$(jq -cnS --arg k "${task_id}" --arg v "${prov_sha256}" --argjson m "${provisional_sha256s}" '$m + {($k): $v}')"
+            provisional_preflight_sha256s="$(jq -cnS --arg k "${task_id}" --arg v "${preflight_sha256}" --argjson m "${provisional_preflight_sha256s}" '$m + {($k): $v}')"
+          done
+          jq -cnS \
+            --argjson provisional_indexes "${provisional_indexes}" \
+            --argjson provisional_sha256s "${provisional_sha256s}" \
+            --argjson provisional_preflight_sha256s "${provisional_preflight_sha256s}" \
+            --arg source_sha "${source_sha}" \
+            --arg resolved_plan_sha256 "${resolved_plan_sha256}" \
+            --arg parent_plans_sha256 "${parent_plans_sha256}" \
+            '{schema_version:1, kind:"ucm-provisional-artifact-collection", source_sha:$source_sha, resolved_plan_sha256:$resolved_plan_sha256, parent_plans_sha256:$parent_plans_sha256, provisional_indexes:$provisional_indexes, provisional_sha256s:$provisional_sha256s, provisional_preflight_sha256s:$provisional_preflight_sha256s}' \
+            >out/provisional-collection.json
           cp out/provisional-collection.json out/evidence/provisional-collection.json
           jq -cnS \
             --argjson member_records "$(ls -1 out/evidence/member-records/*.json 2>/dev/null | jq -R . | jq -s .)" \

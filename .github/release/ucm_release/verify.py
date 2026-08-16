@@ -126,52 +126,6 @@ def validate_run_bound_artifact_name(
     return expected
 
 
-def resolve_run_bound_artifact_directories(
-    root: Path,
-    logical_names: object,
-    *,
-    run: object,
-    label: str,
-) -> dict[str, Path]:
-    """Resolve an exact set of downloaded Artifact directories for one attempt."""
-    root = Path(root)
-    if (
-        not root.is_dir()
-        or root.is_symlink()
-        or not isinstance(logical_names, list)
-        or not logical_names
-        or any(not isinstance(item, str) for item in logical_names)
-        or len(set(logical_names)) != len(logical_names)
-        or not isinstance(label, str)
-        or not label
-    ):
-        raise ValueError(f"{label or 'run-bound'} artifact root/set is invalid")
-    physical_by_logical = {
-        logical_name: validate_run_bound_artifact_name(
-            run_bound_artifact_name(
-                logical_name,
-                run.get("run_id") if isinstance(run, dict) else None,
-                run.get("run_attempt") if isinstance(run, dict) else None,
-            ),
-            logical_name,
-            run,
-        )
-        for logical_name in logical_names
-    }
-    observed = {
-        path.name for path in root.iterdir() if path.is_dir() and not path.is_symlink()
-    }
-    expected = set(physical_by_logical.values())
-    if observed != expected:
-        raise ValueError(
-            f"{label} artifact directories are missing, stale, or extra for this attempt"
-        )
-    return {
-        logical_name: root / physical_name
-        for logical_name, physical_name in physical_by_logical.items()
-    }
-
-
 def _validated_publication_members(
     *,
     member_records: object,

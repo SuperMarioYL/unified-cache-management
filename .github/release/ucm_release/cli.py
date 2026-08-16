@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import subprocess
 import sys
 import urllib.parse
@@ -12,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from . import chart, core, image, registry, verify, wheel
+from . import chart, core, image, registry, verify
 
 catalog_resolution = registry
 
@@ -24,13 +23,6 @@ def _json(value: object) -> str:
 def _paths(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--release", type=Path, default=core.DEFAULT_RELEASE)
     parser.add_argument("--schema-dir", type=Path, default=core.DEFAULT_SCHEMA_DIR)
-
-
-def _empty_output_dir(path: Path) -> Path:
-    if path.exists() and any(path.iterdir()):
-        raise ValueError(f"output directory must be absent or empty: {path}")
-    path.mkdir(parents=True, exist_ok=True)
-    return path
 
 
 def _write(path: Path, value: object) -> None:
@@ -332,21 +324,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _paths(tag_preflight)
 
-    wheel_parser = groups.add_parser("wheel")
-    wheel_actions = wheel_parser.add_subparsers(dest="action", required=True)
-    inspect = wheel_actions.add_parser("inspect")
-    inspect.add_argument("wheel", type=Path)
-    inspect.add_argument("--spec-id", required=True)
-    inspect.add_argument("--expected-sha256", required=True)
-    inspect.add_argument(
-        "--source-kind", choices=("fixture", "builder-candidate"), required=True
-    )
-    inspect.add_argument("--task-file", type=Path)
-    _paths(inspect)
-    context = wheel_actions.add_parser("context")
-    context.add_argument("--source-sha", required=True)
-    context.add_argument("--output-dir", required=True, type=Path)
-
     chart_parser = groups.add_parser("chart")
     chart_actions = chart_parser.add_subparsers(dest="action", required=True)
     package = chart_actions.add_parser("package")
@@ -377,8 +354,6 @@ def build_parser() -> argparse.ArgumentParser:
     for action in (
         "validate-image-bridge",
         "validate-index-parent",
-        "collect-members",
-        "collect-provisionals",
     ):
         command = artifact_actions.add_parser(action)
         command.add_argument("--input", type=Path, required=True)
@@ -587,18 +562,6 @@ def main(argv: list[str] | None = None) -> int:
                     lane=args.lane,
                     authority=resolved_plan["source"],
                 )
-        elif (args.group, args.action) == ("wheel", "inspect"):
-            result = wheel.inspect_wheel(
-                args.wheel,
-                args.spec_id,
-                args.expected_sha256,
-                args.source_kind,
-                task_path=args.task_file,
-                release_path=args.release,
-                schema_dir=args.schema_dir,
-            )
-        elif (args.group, args.action) == ("wheel", "context"):
-            result = wheel.prepare_source_context(args.output_dir, args.source_sha)
         elif (args.group, args.action) == ("chart", "package"):
             result = chart.package_chart(
                 args.output_dir,
@@ -993,250 +956,6 @@ def main(argv: list[str] | None = None) -> int:
                 "resolved_plan_sha256": resolved_plan["resolved_plan_sha256"],
                 "plans_sha256": parent["plans_sha256"],
             }
-            _write(args.output, result)
-        elif (args.group, args.action) == ("artifact", "collect-members"):
-            request = core.load_json(args.input)
-            if set(request) != {
-                "root",
-                "output_dir",
-                "source_sha",
-                "resolved_plan",
-                "resolved_plan_sha256",
-                "run",
-            } or any(
-                not isinstance(request[key], str)
-                for key in (
-                    "root",
-                    "output_dir",
-                    "source_sha",
-                    "resolved_plan",
-                    "resolved_plan_sha256",
-                )
-            ):
-                raise ValueError("member artifact collection input is malformed")
-            resolved_plan = core.load_json(Path(request["resolved_plan"]))
-            registry.validate_resolved_plan(resolved_plan)
-            if (
-                resolved_plan["resolved_plan_sha256"] != request["resolved_plan_sha256"]
-                or resolved_plan["source"]["commit"] != request["source_sha"]
-            ):
-                raise ValueError("member collection differs from frozen plan")
-            image_tasks = resolved_plan["image_tasks"]
-            logical = [f"ucm-member-{task['task_id']}" for task in image_tasks]
-            directories = verify.resolve_run_bound_artifact_directories(
-                Path(request["root"]), logical, run=request["run"], label="member"
-            )
-            output_dir = _empty_output_dir(Path(request["output_dir"]))
-            paths: list[str] = []
-            preflight_sha256s: dict[str, str] = {}
-            for task, name in zip(image_tasks, logical, strict=True):
-                spec = task["spec_id"]
-                directory = directories[name]
-                expected_files = {
-                    "member-record.json",
-                    "member-audit.json",
-                    "member-preflight.json",
-                    "member-mutation-preflight.json",
-                    "selected-task.json",
-                    "upstream-drift.json",
-                }
-                if {path.name for path in directory.iterdir()} != expected_files:
-                    raise ValueError("member artifact file set is noncanonical")
-                source = directory / "member-record.json"
-                record = registry.validate_member_record(
-                    core.load_json(source),
-                    resolved_plan=resolved_plan,
-                    expected_plan_sha256=request["resolved_plan_sha256"],
-                )
-                if (
-                    record["spec_id"] != spec
-                    or core.load_json(directory / "selected-task.json") != task
-                ):
-                    raise ValueError("member artifact/spec mismatch")
-                early_preflight = core.load_json(directory / "member-preflight.json")
-                mutation_preflight = core.load_json(
-                    directory / "member-mutation-preflight.json"
-                )
-                for preflight in (early_preflight, mutation_preflight):
-                    if (
-                        preflight.get("schema_version") != 1
-                        or isinstance(preflight.get("schema_version"), bool)
-                        or preflight.get("kind") != "ucm-tag-preflight"
-                        or preflight.get("lane") != "protected-tag"
-                        or preflight.get("source_sha") != request["source_sha"]
-                        or preflight.get("publication_allowed") is not True
-                        or preflight.get("write_authority")
-                        != [
-                            "github-prerelease",
-                            "ghcr-final-index",
-                            "ghcr-private-staging",
-                        ]
-                        or not isinstance(preflight.get("checks"), dict)
-                        or not preflight["checks"]
-                        or any(
-                            value is not True for value in preflight["checks"].values()
-                        )
-                        or preflight.get("preflight_sha256")
-                        != core.sha256_value(
-                            {
-                                key: value
-                                for key, value in preflight.items()
-                                if key != "preflight_sha256"
-                            }
-                        )
-                    ):
-                        raise ValueError("member protected preflight is invalid")
-                if early_preflight != mutation_preflight:
-                    raise ValueError("member mutation preflight changed unexpectedly")
-                target = output_dir / f"{task['task_id']}.json"
-                shutil.copyfile(source, target)
-                paths.append(str(target))
-                preflight_sha256s[task["task_id"]] = mutation_preflight[
-                    "preflight_sha256"
-                ]
-            result = {
-                "schema_version": 1,
-                "kind": "ucm-member-artifact-collection",
-                "source_sha": request["source_sha"],
-                "resolved_plan_sha256": resolved_plan["resolved_plan_sha256"],
-                "member_records": paths,
-                "member_record_sha256s": {
-                    task["task_id"]: registry.validate_member_record(
-                        core.load_json(output_dir / f"{task['task_id']}.json"),
-                        resolved_plan=resolved_plan,
-                        expected_plan_sha256=request["resolved_plan_sha256"],
-                    )["record_sha256"]
-                    for task in image_tasks
-                },
-                "member_preflight_sha256s": preflight_sha256s,
-            }
-            result["collection_sha256"] = core.sha256_value(
-                {key: value for key, value in result.items() if key != "member_records"}
-            )
-            _write(args.output, result)
-        elif (args.group, args.action) == ("artifact", "collect-provisionals"):
-            request = core.load_json(args.input)
-            if set(request) != {
-                "root",
-                "output_dir",
-                "source_sha",
-                "parent_plans",
-                "resolved_plan",
-                "resolved_plan_sha256",
-                "run",
-            } or any(
-                not isinstance(request[key], str)
-                for key in (
-                    "root",
-                    "output_dir",
-                    "source_sha",
-                    "parent_plans",
-                    "resolved_plan",
-                    "resolved_plan_sha256",
-                )
-            ):
-                raise ValueError("provisional artifact collection input is malformed")
-            resolved_plan = core.load_json(Path(request["resolved_plan"]))
-            contract = registry.resolved_registry_contract(
-                resolved_plan,
-                expected_plan_sha256=request["resolved_plan_sha256"],
-            )
-            if contract["source_sha"] != request["source_sha"]:
-                raise ValueError(
-                    "provisional collection source differs from frozen plan"
-                )
-            families = resolved_plan["family_tasks"]
-            logical = [
-                f"ucm-index-provisional-{family['task_id']}" for family in families
-            ]
-            directories = verify.resolve_run_bound_artifact_directories(
-                Path(request["root"]),
-                logical,
-                run=request["run"],
-                label="provisional index",
-            )
-            parent = core.load_json(Path(request["parent_plans"]))
-            registry.validate_index_plans(
-                parent,
-                resolved_plan=resolved_plan,
-                expected_plan_sha256=request["resolved_plan_sha256"],
-            )
-            output_dir = _empty_output_dir(Path(request["output_dir"]))
-            paths: list[str] = []
-            provisional_sha256s: dict[str, str] = {}
-            preflight_sha256s: dict[str, str] = {}
-            for family, name in zip(families, logical, strict=True):
-                family_task_id = family["task_id"]
-                parent_matches = [
-                    item
-                    for item in parent["plans"]
-                    if item.get("family_task_id") == family_task_id
-                ]
-                if len(parent_matches) != 1:
-                    raise ValueError(
-                        "provisional family task is absent from parent plans"
-                    )
-                directory = directories[name]
-                if {path.name for path in directory.iterdir()} != {
-                    "provisional.json",
-                    "preflight.json",
-                }:
-                    raise ValueError("provisional artifact file set is noncanonical")
-                source = directory / "provisional.json"
-                provisional = registry.validate_provisional_index(
-                    core.load_json(source),
-                    parent_plans=parent,
-                    resolved_plan=resolved_plan,
-                    expected_plan_sha256=request["resolved_plan_sha256"],
-                )
-                if (
-                    provisional["family_id"] != parent_matches[0]["family_id"]
-                    or provisional.get("family_task_id", family_task_id)
-                    != family_task_id
-                ):
-                    raise ValueError("provisional artifact/family mismatch")
-                preflight = core.load_json(directory / "preflight.json")
-                if (
-                    preflight.get("schema_version") != 1
-                    or isinstance(preflight.get("schema_version"), bool)
-                    or preflight.get("kind") != "ucm-tag-preflight"
-                    or preflight.get("lane") != "protected-tag"
-                    or preflight.get("source_sha") != request["source_sha"]
-                    or preflight.get("publication_allowed") is not True
-                    or preflight.get("preflight_sha256")
-                    != provisional["preflight_sha256"]
-                    or preflight.get("preflight_sha256")
-                    != core.sha256_value(
-                        {
-                            key: value
-                            for key, value in preflight.items()
-                            if key != "preflight_sha256"
-                        }
-                    )
-                ):
-                    raise ValueError("provisional protected preflight is invalid")
-                target = output_dir / f"{family_task_id}.json"
-                shutil.copyfile(source, target)
-                paths.append(str(target))
-                provisional_sha256s[family_task_id] = provisional["provisional_sha256"]
-                preflight_sha256s[family_task_id] = preflight["preflight_sha256"]
-            result = {
-                "schema_version": 1,
-                "kind": "ucm-provisional-artifact-collection",
-                "source_sha": request["source_sha"],
-                "resolved_plan_sha256": request["resolved_plan_sha256"],
-                "parent_plans_sha256": parent["plans_sha256"],
-                "provisional_indexes": paths,
-                "provisional_sha256s": provisional_sha256s,
-                "provisional_preflight_sha256s": preflight_sha256s,
-            }
-            result["collection_sha256"] = core.sha256_value(
-                {
-                    key: value
-                    for key, value in result.items()
-                    if key != "provisional_indexes"
-                }
-            )
             _write(args.output, result)
         elif (args.group, args.action) == ("image", "task-toolchain-authority"):
             result = image.task_toolchain_authority(

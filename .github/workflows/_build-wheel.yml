@@ -166,9 +166,25 @@ jobs:
             --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
             --output out/hosted-task.json >/dev/null
           test "$(jq -r '.runner' out/selected-task.json)" = "${{ inputs.runner }}"
-          PYTHONPATH=.github/release python -m ucm_release wheel context \
-            --source-sha "${SOURCE_SHA}" \
-            --output-dir out/source-context >out/source-context-result.json
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          source_tree="$(git rev-parse "${SOURCE_SHA}^{tree}")"
+          mkdir -p out/source-context
+          git archive --format=tar "${SOURCE_SHA}" >out/source-context/ucm-source.tar
+          git cat-file commit "${SOURCE_SHA}" >out/source-context/source-commit.payload
+          archive_sha256="sha256:$(sha256sum out/source-context/ucm-source.tar | cut -d' ' -f1)"
+          payload_sha256="sha256:$(sha256sum out/source-context/source-commit.payload | cut -d' ' -f1)"
+          context_sha256="sha256:$(cat out/source-context/ucm-source.tar out/source-context/source-commit.payload | sha256sum | cut -d' ' -f1)"
+          jq -cnS \
+            --arg source_sha "${SOURCE_SHA}" \
+            --arg source_tree "${source_tree}" \
+            --arg source_archive_sha256 "${archive_sha256}" \
+            --arg source_commit_payload_sha256 "${payload_sha256}" \
+            --arg build_context_sha256 "${context_sha256}" \
+            '{schema_version:1, kind:"ucm-canonical-source-context", source_sha:$source_sha, source_tree:$source_tree, source_object_type:"commit", source_commit_payload_sha256:$source_commit_payload_sha256, source_archive_sha256:$source_archive_sha256, build_context_sha256:$build_context_sha256}' \
+            >out/source-context/source-context.json
+          jq -cnS --slurpfile m out/source-context/source-context.json \
+            '{source_archive_path:"out/source-context/ucm-source.tar", source_commit_payload_path:"out/source-context/source-commit.payload", source_manifest_path:"out/source-context/source-context.json"} * $m[0]' \
+            >out/source-context-result.json
           cp out/selected-task.json out/source-context/wheel-task.json
           logical_artifact="$(jq -r '.wheel_artifact' out/hosted-task.json)"
           wheel_artifact="${logical_artifact}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
@@ -291,12 +307,25 @@ jobs:
           test "$(jq -r '.wheel_sha256' out/wheel/wheel-seal.json)" = "${wheel_sha256}"
           runtime_patch_manifest_sha256="$(jq -r '.runtime_patch_manifest_sha256' out/selected-task.json)"
           test "$(jq -r '.runtime_patch_manifest_sha256' out/wheel/wheel-seal.json)" = "${runtime_patch_manifest_sha256}"
-          PYTHONPATH=.github/release python -m ucm_release wheel inspect \
-            "${wheel_path}" \
-            --spec-id "${spec_id}" \
-            --expected-sha256 "${wheel_sha256}" \
-            --source-kind builder-candidate \
-            --task-file out/selected-task.json >out/reopened-wheel-inspection.json
+          actual_sha256="sha256:$(sha256sum "${wheel_path}" | cut -d' ' -f1)"
+          test "${actual_sha256}" = "${wheel_sha256}"
+          metadata="$(unzip -p "${wheel_path}" '*.dist-info/METADATA')"
+          dist="$(printf '%s\n' "${metadata}" | awk -F': ' '/^Name:/{print $2; exit}')"
+          version="$(printf '%s\n' "${metadata}" | awk -F': ' '/^Version:/{print $2; exit}')"
+          requires_dist="$(printf '%s\n' "${metadata}" | awk -F': ' '/^Requires-Dist:/{sub(/^Requires-Dist: /,""); print}' | jq -R -s 'split("\n") | map(select(length>0))')"
+          patch_sha256="sha256:$(unzip -p "${wheel_path}" 'ucm/integration/vllm/patch/runtime_patch_rules.json' | sha256sum | cut -d' ' -f1)"
+          wheel_size="$(wc -c < "${wheel_path}" | tr -d ' ')"
+          jq -cnS \
+            --arg spec_id "${spec_id}" \
+            --arg filename "$(basename "${wheel_path}")" \
+            --arg sha256 "${actual_sha256}" \
+            --argjson size "${wheel_size}" \
+            --arg distribution "${dist}" \
+            --arg version "${version}" \
+            --argjson requires_dist "${requires_dist}" \
+            --arg runtime_patch_manifest_sha256 "${patch_sha256}" \
+            '{schema_version:1, kind:"ucm-wheel-inspection", source_kind:"builder-candidate", spec_id:$spec_id, filename:$filename, sha256:$sha256, size:$size, distribution:$distribution, version:$version, requires_dist:$requires_dist, runtime_patch_manifest_sha256:$runtime_patch_manifest_sha256, published:false, publication_eligible:false}' \
+            >out/reopened-wheel-inspection.json
           cmp out/wheel/wheel-inspection.json out/reopened-wheel-inspection.json
           test "$(jq -r '.runtime_patch_manifest_sha256' out/reopened-wheel-inspection.json)" = "${runtime_patch_manifest_sha256}"
           inspection_sha256="sha256:$(sha256sum out/wheel/wheel-inspection.json | cut -d' ' -f1)"
