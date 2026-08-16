@@ -440,48 +440,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     loop_parser = groups.add_parser("loop")
     loop_actions = loop_parser.add_subparsers(dest="action", required=True)
-    loop_verify = loop_actions.add_parser("verify")
-    loop_verify.add_argument("--input", type=Path, required=True)
-    loop_verify.add_argument("--run-id", required=True)
-    loop_verify.add_argument("--attempt", type=int, required=True)
-    loop_prepare = loop_actions.add_parser("prepare")
-    loop_prepare.add_argument("--build-record", type=Path, required=True)
-    loop_prepare.add_argument("--wheel-inspection", type=Path, required=True)
-    loop_prepare.add_argument("--source-sha", required=True)
-    loop_prepare.add_argument("--output-dir", type=Path, required=True)
-    loop_prepare.add_argument("--run-id", required=True)
-    loop_prepare.add_argument("--attempt", type=int, required=True)
-    loop_complete = loop_actions.add_parser("complete")
-    loop_complete.add_argument("--prepared", type=Path, required=True)
-    loop_complete.add_argument("--image-result", type=Path, required=True)
-    loop_complete.add_argument("--source-sha", required=True)
-    loop_complete.add_argument("--output-dir", type=Path, required=True)
-    loop_complete.add_argument("--run-id", required=True)
-    loop_complete.add_argument("--attempt", type=int, required=True)
-    loop_aggregate = loop_actions.add_parser("aggregate")
-    loop_aggregate.add_argument("--build-record", type=Path, required=True)
-    loop_aggregate.add_argument("--wheel-inspection", type=Path, required=True)
-    loop_aggregate.add_argument("--wheel", type=Path, required=True)
-    loop_aggregate.add_argument("--chart-result", type=Path, required=True)
-    loop_aggregate.add_argument("--chart-package", type=Path, required=True)
-    loop_aggregate.add_argument("--image-result", type=Path, required=True)
-    loop_aggregate.add_argument("--oci-evidence-dir", type=Path, required=True)
-    loop_aggregate.add_argument("--image-recipe", type=Path, required=True)
-    loop_aggregate.add_argument("--image-metadata", type=Path, required=True)
-    loop_aggregate.add_argument("--image-prepare", type=Path, required=True)
-    loop_aggregate.add_argument("--buildkit-metadata", type=Path, required=True)
-    loop_aggregate.add_argument("--image-archive-sha256", type=Path, required=True)
-    loop_aggregate.add_argument("--completed-loop", type=Path, required=True)
-    loop_aggregate.add_argument("--second-reconcile", type=Path, required=True)
-    loop_aggregate.add_argument("--image-loop", type=Path, required=True)
-    loop_aggregate.add_argument("--repository", required=True)
-    loop_aggregate.add_argument("--ref", required=True)
-    loop_aggregate.add_argument("--source-sha", required=True)
-    loop_aggregate.add_argument("--resolved-plan", type=Path, required=True)
-    loop_aggregate.add_argument("--expected-plan-sha256", required=True)
-    loop_aggregate.add_argument("--output", type=Path, required=True)
-    loop_aggregate.add_argument("--run-id", required=True)
-    loop_aggregate.add_argument("--attempt", type=int, required=True)
     loop_aggregate_real = loop_actions.add_parser("aggregate-real")
     loop_aggregate_real.add_argument("--wheel-dir", type=Path, required=True)
     loop_aggregate_real.add_argument("--image-dir", type=Path, required=True)
@@ -1508,90 +1466,6 @@ def main(argv: list[str] | None = None) -> int:
                 }
             )
             _write(args.output, result)
-        elif (args.group, args.action) == ("loop", "verify"):
-            result = verify.verify_loop(
-                core.load_json(args.input),
-                run={"id": args.run_id, "attempt": args.attempt},
-            )
-        elif (args.group, args.action) == ("loop", "prepare"):
-            prepared = verify.prepare_candidate_loop(
-                core.load_json(args.build_record),
-                core.load_json(args.wheel_inspection),
-                source_sha=args.source_sha,
-                run={"id": args.run_id, "attempt": args.attempt},
-            )
-            output_dir = _empty_output_dir(args.output_dir)
-            documents = {
-                "prepared-loop.json": prepared,
-                "image-input.json": prepared["image_input"],
-                "candidate.json": prepared["candidate"],
-                "first-reconcile.json": prepared["first_reconcile"],
-                "loop-verification.json": prepared["loop_verification"],
-            }
-            for filename, value in documents.items():
-                _write(output_dir / filename, value)
-            first_sha256 = core.sha256_value(prepared["first_reconcile"])
-            (output_dir / "first-reconcile.sha256").write_text(
-                first_sha256 + "\n", encoding="utf-8"
-            )
-            result = {
-                "image_input": str(output_dir / "image-input.json"),
-                "candidate_build_key_sha256": prepared["candidate"]["build_key_sha256"],
-                "first_reconcile_sha256": first_sha256,
-                "upstream_index_digest": prepared["candidate"]["build_inputs"][
-                    "upstream"
-                ]["index_digest"],
-                "loop_payload_sha256": prepared["loop_verification"]["payload_sha256"],
-            }
-        elif (args.group, args.action) == ("loop", "complete"):
-            completed = verify.complete_candidate_loop(
-                core.load_json(args.prepared),
-                core.load_json(args.image_result),
-                source_sha=args.source_sha,
-                run={"id": args.run_id, "attempt": args.attempt},
-            )
-            output_dir = _empty_output_dir(args.output_dir)
-            _write(output_dir / "completed-loop.json", completed)
-            _write(output_dir / "second-reconcile.json", completed["second_reconcile"])
-            _write(output_dir / "vllm-loop-evidence.json", completed["evidence"])
-            result = {
-                "loop_payload_sha256": completed["evidence"]["payload_sha256"],
-                "image_result_sha256": completed["evidence"]["payload"][
-                    "image_result_sha256"
-                ],
-                "oci_digest": completed["evidence"]["payload"]["oci_digest"],
-                "second_task_count": completed["second_reconcile"]["task_count"],
-            }
-        elif (args.group, args.action) == ("loop", "aggregate"):
-            evidence = verify.aggregate_release_evidence(
-                build_record_path=args.build_record,
-                wheel_record_path=args.wheel_inspection,
-                wheel_path=args.wheel,
-                chart_result_path=args.chart_result,
-                chart_package_path=args.chart_package,
-                image_result_path=args.image_result,
-                oci_evidence_dir=args.oci_evidence_dir,
-                image_recipe_path=args.image_recipe,
-                image_metadata_path=args.image_metadata,
-                image_prepare_path=args.image_prepare,
-                buildkit_metadata_path=args.buildkit_metadata,
-                image_archive_sha256_path=args.image_archive_sha256,
-                completed_loop_path=args.completed_loop,
-                second_reconcile_path=args.second_reconcile,
-                image_loop_path=args.image_loop,
-                repository=args.repository,
-                ref=args.ref,
-                source_sha=args.source_sha,
-                resolved_plan=core.load_json(args.resolved_plan),
-                expected_plan_sha256=args.expected_plan_sha256,
-                run={"run_id": args.run_id, "run_attempt": args.attempt},
-            )
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            _write(args.output, evidence)
-            result = {
-                "output": str(args.output),
-                "payload_sha256": evidence["payload_sha256"],
-            }
         elif (args.group, args.action) == ("loop", "aggregate-real"):
             evidence = verify.aggregate_real_hosted_evidence(
                 wheel_dir=args.wheel_dir,
