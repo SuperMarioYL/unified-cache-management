@@ -14,51 +14,6 @@ from .core import (
 )
 
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
-FIXTURE_MARKER = "ucm/_fixture_build.py"
-COMPONENT_MANIFEST = "ucm/ucm-native-components.json"
-RUNTIME_PATCH_MANIFEST = "ucm/integration/vllm/patch/runtime_patch_rules.json"
-AUTHORITY_KIND = "ucm-native-build-authority"
-CLOSURE_KIND = "ucm-linux-dependency-closure"
-HOST_PATH_MARKERS = (
-    b"/Users/",
-    b"/home/runner/",
-    b"/private/var/",
-    b"/var/folders/",
-    b"/tmp/",
-)
-NATIVE_MEMBER_DIRECTORIES = {
-    "ucmtrans": "ucm/shared/trans",
-    "metrics": "ucm/shared/metrics",
-    "ucmmetrics": "ucm/shared/metrics",
-    "ucmlogger": "ucm/shared/infra",
-    "ucmnfsstore": "ucm/store/nfsstore",
-    "ucmpcstore": "ucm/store/pcstore",
-    "posixstore": "ucm/store/posix",
-    "compressor": "ucm/store/compress",
-    "cachestore": "ucm/store/cache",
-    "emptystore": "ucm/store/empty",
-    "fakestore": "ucm/store/fake",
-    "ucmpipelinestore": "ucm/store/pipeline",
-    "mooncakestore": "ucm/store/mooncakestore",
-    "ds3fsstore": "ucm/store/ds3fs",
-}
-SHARED_LIBRARY_COMPONENTS = {
-    "metrics",
-    "posixstore",
-    "compressor",
-    "cachestore",
-    "emptystore",
-    "fakestore",
-    "mooncakestore",
-    "ds3fsstore",
-}
-EXTERNAL_REQUIRED_FIELDS = {
-    "dependency",
-    "provider",
-    "expected_mount_root",
-    "relation",
-    "required_at",
-}
 
 
 _WHEEL_DECLARATION_FIELDS = (

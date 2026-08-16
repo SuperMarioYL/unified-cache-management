@@ -19,25 +19,9 @@ from . import wheel as wheel_artifact
 from .core import sha256_value
 
 DOCKER_ROOT = Path(__file__).resolve().parents[1] / "docker"
-DOCKER_FILES = (
-    "Dockerfile",
-    "install_ucm.py",
-    "inspect_runtime.py",
-    "verify_base_image.py",
-)
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 REPOSITORY_RE = re.compile(
     r"[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]+)?" r"(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+"
-)
-COMPILE_COMMAND_RE = re.compile(
-    r"(?im)^\s*(?:RUN\s+)?[^#\n]*(?:\bcmake\b|\bninja\b|\bmake\b|\bgcc\b|g\+\+|\bclang\b|\bpip\s+wheel\b|python[^\n]*\s-m\s+build\b)"
-)
-SOURCE_BUILD_COMMAND_RE = re.compile(
-    r"(?im)^\s*(?:RUN\s+)?[^#\n]*(?:"
-    r"python[^\n]*\bsetup\.py\b|"
-    r"\bpip\s+install\s+(?:\.|/workspace/ucm)(?:\s|$)|"
-    r"\bucm_release\s+wheel\s+(?:native-)?build\b|"
-    r"\bbuild_ext\b)"
 )
 FROM_RE = re.compile(
     r"(?im)^\s*FROM(?:\s+--[^\s]+)*\s+(?P<base>[^\s]+)"
@@ -46,15 +30,8 @@ FROM_RE = re.compile(
 COPY_FROM_RE = re.compile(
     r"(?im)^\s*COPY\s+(?:--[^\s]+\s+)*--from=(?P<stage>[^\s]+)\s+"
 )
-SOURCE_COPY_RE = re.compile(
-    r"(?im)^\s*(?:COPY|ADD)\s+(?:--[^\s]+\s+)*(?:"
-    r"\.(?:/)?\s+|"
-    r"(?:setup\.py|pyproject\.toml|CMakeLists\.txt)(?:\s|$)|"
-    r"(?:ucm|scripts)(?:/|\s))"
-)
 INSTALL_IMAGE_TARGET = "runtime"
 REAL_INSTALL_TARGET = "runtime-real"
-INSTALL_IMAGE_TARGETS = (INSTALL_IMAGE_TARGET, REAL_INSTALL_TARGET)
 OCI_INDEX_MEDIA_TYPES = {
     "application/vnd.oci.image.index.v1+json",
     "application/vnd.docker.distribution.manifest.list.v2+json",
@@ -62,19 +39,6 @@ OCI_INDEX_MEDIA_TYPES = {
 OCI_MANIFEST_MEDIA_TYPES = {
     "application/vnd.oci.image.manifest.v1+json",
     "application/vnd.docker.distribution.manifest.v2+json",
-}
-OCI_CONFIG_MEDIA_TYPES = {
-    "application/vnd.oci.image.config.v1+json",
-    "application/vnd.docker.container.image.v1+json",
-}
-FIXTURE_BASE_AUTHORITY = {
-    "schema_version": 1,
-    "kind": "ucm-fixture-base-authority",
-    "repository": "docker.io/library/python",
-    "target_platform": "linux/amd64",
-    "index_digest": "sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7",
-    "manifest_digest": "sha256:c00fc7b44d844b6da22861ec24af43968a5200eac4ec607b4725d585165d6b49",
-    "config_digest": "sha256:688a685f6a1fa9250d7c6cee916889cbca364e4b027520110e0fce80c64a13e0",
 }
 FIXTURE_IMAGE_TOOLCHAIN_AUTHORITY = {
     "schema_version": 1,

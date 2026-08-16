@@ -152,26 +152,6 @@ PLATFORM_KEYS = {
     "manifest_digest",
     "config_digest",
 }
-COMMON_WHEEL_RECORD_KEYS = {
-    "schema_version",
-    "kind",
-    "source_kind",
-    "spec_id",
-    "filename",
-    "sha256",
-    "size",
-    "distribution",
-    "version",
-    "tags",
-    "requires_dist",
-    "python_abi",
-    "cpu_arch",
-    "declaration_sha256",
-    "status",
-    "trust_level",
-    "published",
-    "publication_eligible",
-}
 OCI_INDEX_MEDIA_TYPES = {
     "application/vnd.oci.image.index.v1+json",
     "application/vnd.docker.distribution.manifest.list.v2+json",
