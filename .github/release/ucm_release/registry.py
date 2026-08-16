@@ -373,41 +373,6 @@ def _repository(value: object) -> str:
     return value
 
 
-def _fixture_product_for_repository(repository: str) -> str:
-    product = repository.rsplit("/", 1)[-1]
-    if FIXTURE_UPSTREAM_REPOSITORIES.get(product) != repository:
-        raise ValueError(f"unsupported exact upstream repository: {repository}")
-    return product
-
-
-def parse_fixture_upstream_tag(product: str, tag: str) -> dict[str, str]:
-    """Parse only canonical stable/RC tags and the supported Ascend suffixes."""
-    if product not in FIXTURE_TARGET_REPOSITORIES or not isinstance(tag, str):
-        raise ValueError("product must be vllm-openai or vllm-ascend")
-    if product == "vllm-openai":
-        match = re.fullmatch(f"({VERSION})", tag)
-        if match is None:
-            raise ValueError(f"unsupported vllm-openai upstream tag: {tag}")
-        npu_arch = "na"
-        operating_system = "ubuntu-22.04"
-    else:
-        match = re.fullmatch(f"({VERSION})(-a3)?(-openeuler)?", tag)
-        if match is None:
-            raise ValueError(f"unsupported vllm-ascend upstream tag: {tag}")
-        npu_arch = "a3" if match.group(2) else "a2"
-        operating_system = "openEuler-24.03" if match.group(3) else "ubuntu-22.04"
-    version = match.group(1)
-    return {
-        "product": product,
-        "exact_upstream_tag": tag,
-        "upstream_version": version,
-        "channel": "rc" if "rc" in version else "stable",
-        "npu_arch": npu_arch,
-        "operating_system": operating_system,
-        "target_repository": FIXTURE_TARGET_REPOSITORIES[product],
-    }
-
-
 def _unique_json(text: str, label: str) -> dict[str, Any]:
     def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
