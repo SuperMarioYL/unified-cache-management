@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import copy
 import hashlib
 import json
@@ -9,6 +10,8 @@ import os
 import posixpath
 import re
 import subprocess
+import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
@@ -2352,6 +2355,225 @@ def compute_publish_plan(
             and not dry_run
         )
     return plan
+
+
+def _oci_tag(reference: str) -> str:
+    """Extract the tag from a ``host/path:tag`` OCI reference."""
+    if "@" in reference:
+        raise ValueError(f"digest references carry no tag: {reference!r}")
+    head, sep, tail = reference.rpartition(":")
+    if not sep or "/" in tail or not tail:
+        raise ValueError(f"OCI reference has no tag component: {reference!r}")
+    return tail
+
+
+def _oci_digest(reference: str) -> str | None:
+    """Query the manifest digest of an OCI reference via ``crane digest``."""
+    result = subprocess.run(
+        ["crane", "digest", reference],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    digest = result.stdout.strip()
+    return digest or None
+
+
+def publish_pypi(
+    wheels: list[Path],
+    *,
+    repository: str = "https://upload.pypi.org/legacy/",
+) -> dict[str, Any]:
+    """Publish wheels to PyPI via OIDC trusted publishing (twine).
+
+    Trusted publishing uses OIDC, so no username/password is required.
+    """
+    if not wheels:
+        raise ValueError("at least one wheel must be provided for PyPI publication")
+    command = [
+        sys.executable,
+        "-m",
+        "twine",
+        "upload",
+        "--repository-url",
+        repository,
+        "--non-interactive",
+        *[str(wheel) for wheel in wheels],
+    ]
+    subprocess.run(command, check=True)
+    return {
+        "published": True,
+        "target": repository,
+        "artifacts": [str(wheel) for wheel in wheels],
+    }
+
+
+def publish_ghcr(
+    source_ref: str,
+    *,
+    target_namespace: str,
+) -> dict[str, Any]:
+    """Copy a multi-arch OCI index from staging to the target GHCR namespace.
+
+    ``crane copy`` preserves the manifest digest verbatim, so the source
+    and target references share the same digest after publication.
+    """
+    if not source_ref:
+        raise ValueError("source_ref must be a non-empty OCI reference")
+    if not target_namespace:
+        raise ValueError("target_namespace must be a non-empty GHCR namespace")
+    tag = _oci_tag(source_ref)
+    target = f"ghcr.io/{target_namespace}:{tag}"
+    subprocess.run(["crane", "copy", source_ref, target], check=True)
+    return {"published": True, "target": target, "digest": _oci_digest(target)}
+
+
+def publish_dockerhub(
+    source_ref: str,
+    *,
+    target_namespace: str,
+    username: str,
+    token: str,
+) -> dict[str, Any]:
+    """Copy from GHCR to Docker Hub, preserving the manifest digest.
+
+    Credentials are supplied to ``crane`` through a temporary
+    ``DOCKER_CONFIG`` directory so the registry secret never lands in the
+    process arguments or the persistent docker config.
+    """
+    if not source_ref:
+        raise ValueError("source_ref must be a non-empty OCI reference")
+    if not target_namespace:
+        raise ValueError("target_namespace must be a non-empty Docker Hub namespace")
+    if not username or not token:
+        raise ValueError("Docker Hub username and token are required")
+    tag = _oci_tag(source_ref)
+    target = f"docker.io/{target_namespace}:{tag}"
+    auth = base64.b64encode(f"{username}:{token}".encode("utf-8")).decode("ascii")
+    with tempfile.TemporaryDirectory() as config_dir:
+        config_path = Path(config_dir) / "config.json"
+        config_path.write_text(
+            json.dumps({"auths": {"https://index.docker.io/v1/": {"auth": auth}}}),
+            encoding="utf-8",
+        )
+        env = {**os.environ, "DOCKER_CONFIG": config_dir}
+        subprocess.run(
+            ["crane", "copy", "--insecure", source_ref, target],
+            check=True,
+            env=env,
+        )
+    return {"published": True, "target": target, "digest": _oci_digest(target)}
+
+
+def publish_chart_oci(
+    chart_archive: Path,
+    *,
+    namespace: str,
+) -> dict[str, Any]:
+    """Push a Helm chart package to an OCI registry.
+
+    ``helm push`` prints the canonical ``oci://`` reference of the pushed
+    chart, which is captured and returned alongside the chart archive path.
+    """
+    if not chart_archive.is_file():
+        raise ValueError(f"chart archive is not a regular file: {chart_archive}")
+    if not namespace:
+        raise ValueError("namespace must be a non-empty OCI repository path")
+    target = f"oci://{namespace}"
+    result = subprocess.run(
+        ["helm", "push", str(chart_archive), target],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    pushed = result.stdout.strip()
+    return {
+        "published": True,
+        "target": pushed or target,
+        "chart": str(chart_archive),
+    }
+
+
+def publish_github_release(
+    assets: list[Path],
+    *,
+    repository: str,
+    tag: str,
+    release_name: str,
+    body: str,
+    draft: bool = True,
+) -> dict[str, Any]:
+    """Create or edit a GitHub Release with attached artifacts.
+
+    Uses ``gh release create`` and falls back to ``gh release edit`` plus
+    ``gh release upload`` when a release for ``tag`` already exists.
+    """
+    if not tag or not repository:
+        raise ValueError("tag and repository are required for GitHub release")
+    create = [
+        "gh",
+        "release",
+        "create",
+        tag,
+        "--repo",
+        repository,
+        "--title",
+        release_name,
+        "--notes",
+        body,
+    ]
+    if draft:
+        create.append("--draft")
+    create.extend(str(asset) for asset in assets)
+    result = subprocess.run(create, text=True, capture_output=True, check=False)
+    if result.returncode == 0:
+        return {
+            "published": True,
+            "target": result.stdout.strip(),
+            "repository": repository,
+            "tag": tag,
+            "draft": draft,
+        }
+    if "already exists" not in (result.stderr or "").lower():
+        raise RuntimeError(
+            f"gh release create failed for {repository}@{tag}: "
+            f"{(result.stderr or result.stdout).strip()}"
+        )
+    edit = [
+        "gh",
+        "release",
+        "edit",
+        tag,
+        "--repo",
+        repository,
+        "--title",
+        release_name,
+        "--notes",
+        body,
+    ]
+    subprocess.run(edit, check=True)
+    if assets:
+        subprocess.run(
+            [
+                "gh",
+                "release",
+                "upload",
+                tag,
+                *[str(asset) for asset in assets],
+                "--repo",
+                repository,
+            ],
+            check=True,
+        )
+    return {
+        "published": True,
+        "target": f"https://github.com/{repository}/releases/tag/{tag}",
+        "repository": repository,
+        "tag": tag,
+        "draft": draft,
+    }
 
 
 def _resolved_locks(

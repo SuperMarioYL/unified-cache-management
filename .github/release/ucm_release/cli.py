@@ -282,11 +282,6 @@ def build_parser() -> argparse.ArgumentParser:
     check_environment = wheel_actions.add_parser("check-environment")
     check_environment.add_argument("--task", required=True, type=Path)
     check_environment.add_argument("--python-executable", required=True, type=Path)
-    fixture_build = wheel_actions.add_parser("fixture-build")
-    fixture_build.add_argument("--output-dir", type=Path, required=True)
-    fixture_build.add_argument("--source-sha", required=True)
-    fixture_build.add_argument("--profile-id", required=True)
-    _paths(fixture_build)
 
     chart_parser = groups.add_parser("chart")
     chart_actions = chart_parser.add_subparsers(dest="action", required=True)
@@ -298,10 +293,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     registry_parser = groups.add_parser("registry")
     registry_actions = registry_parser.add_subparsers(dest="action", required=True)
-    scan = registry_actions.add_parser("fixture-scan")
-    scan.add_argument("--repository", required=True)
-    scan.add_argument("--tag", required=True)
-    scan.add_argument("--fixture", type=Path, required=True)
     for action in (
         "inventory",
         "verify-member",
@@ -711,26 +702,11 @@ def main(argv: list[str] | None = None) -> int:
                 core.load_json(args.task),
                 python_executable=args.python_executable,
             )
-        elif (args.group, args.action) == ("wheel", "fixture-build"):
-            result = wheel.build_fixture_wheel(
-                args.output_dir,
-                args.source_sha,
-                args.profile_id,
-                release_path=args.release,
-                schema_dir=args.schema_dir,
-            )
         elif (args.group, args.action) == ("chart", "package"):
             result = chart.package_chart(
                 args.output_dir,
                 resolved_plan=core.load_json(args.resolved_plan),
                 expected_plan_sha256=args.expected_plan_sha256,
-            )
-        elif (args.group, args.action) == ("registry", "fixture-scan"):
-            fixture = core.load_json(args.fixture)
-            result = registry.scan_fixture_registry(
-                args.repository,
-                args.tag,
-                fixture=fixture,
             )
         elif (args.group, args.action) == ("registry", "inventory"):
             request = core.load_json(args.input)
