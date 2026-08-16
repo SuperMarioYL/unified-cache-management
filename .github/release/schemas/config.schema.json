@@ -144,7 +144,6 @@
       "additionalProperties": false,
       "required": [
         "id", "build", "accelerator", "accelerator_runtime", "npu_arch", "os",
-        "cpu_arch", "python_version", "python_abi", "wheel_local_version",
         "wheel_platform", "binary_profile_id", "external_required_dependencies", "validation_targets"
       ],
       "properties": {
@@ -175,7 +174,6 @@
         "python_version": {"type": "string", "minLength": 1},
         "python_abi": {"type": "string", "minLength": 1},
         "wheel_version": {"type": "string", "minLength": 1},
-        "wheel_local_version": {"type": "string", "minLength": 1},
         "dist_name": {"type": "string", "pattern": "^uc-manager(-[a-z0-9]+(-[a-z0-9]+)?)?$"},
         "wheel_platform": {"type": "string", "minLength": 1},
         "binary_profile_id": {"type": "string", "minLength": 1},

@@ -1464,8 +1464,8 @@ def load_catalog(
     for product in release.get("upstream_products", []):
         product["target_tag_suffix"] = image_suffix
     for profile in release.get("wheel_profiles", []):
-        local = profile.get("wheel_local_version")
-        profile["wheel_version"] = f"{version}+{local}" if local else version
+
+        profile["wheel_version"] = version  # fmt: skip  # noqa: E501
     chart = load_yaml(repository_root / release["chart"]["source"] / "Chart.yaml")
     if chart.get('name') != release['chart']['name']: raise ValueError('Chart name does not match release.yaml')  # noqa: E701,E501
     if chart.get('version') != release['chart']['version']: raise ValueError('Chart version does not match release.yaml')  # noqa: E701,E501
