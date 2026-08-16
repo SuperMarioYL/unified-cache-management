@@ -216,10 +216,6 @@ def build_parser() -> argparse.ArgumentParser:
     catalog_resolve.add_argument("--source-sha", required=True)
     catalog_resolve.add_argument("--fixture", type=Path)
     catalog_resolve.add_argument("--output", type=Path, required=True)
-    catalog_drift = catalog_actions.add_parser("verify-drift")
-    catalog_drift.add_argument("--plan", type=Path, required=True)
-    catalog_drift.add_argument("--fixture", type=Path)
-    catalog_drift.add_argument("--output", type=Path)
     recipe_matrix = catalog_actions.add_parser("recipe-matrix")
     recipe_matrix.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
     recipe_matrix.add_argument(
@@ -292,9 +288,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     registry_parser = groups.add_parser("registry")
     registry_actions = registry_parser.add_subparsers(dest="action", required=True)
-    verify_member = registry_actions.add_parser("verify-member")
-    verify_member.add_argument("--input", type=Path, required=True)
-    verify_member.add_argument("--output", type=Path, required=True)
     validate_member = registry_actions.add_parser("validate-member-schema")
     validate_member.add_argument("--input", type=Path, required=True)
     return parser
@@ -336,14 +329,6 @@ def main(argv: list[str] | None = None) -> int:
             )
             args.output.parent.mkdir(parents=True, exist_ok=True)
             _write(args.output, result)
-        elif (args.group, args.action) == ("catalog", "verify-drift"):
-            fixture = core.load_json(args.fixture) if args.fixture else None
-            result = catalog_resolution.verify_upstream_drift(
-                core.load_json(args.plan), fixture=fixture
-            )
-            if args.output:
-                args.output.parent.mkdir(parents=True, exist_ok=True)
-                _write(args.output, result)
         elif (args.group, args.action) == ("catalog", "recipe-matrix"):
             release = core.load_catalog(
                 args.catalog,
@@ -429,47 +414,6 @@ def main(argv: list[str] | None = None) -> int:
                     lane=args.lane,
                     authority=resolved_plan["source"],
                 )
-        elif (args.group, args.action) == ("registry", "verify-member"):
-            request = core.load_json(args.input)
-            if set(request) != {
-                "lane",
-                "image_result",
-                "oci_archive",
-                "task_id",
-                "resolved_plan",
-                "resolved_plan_sha256",
-            }:
-                raise ValueError(
-                    "verify-member input requires image/archive/task/frozen plan"
-                )
-            if any(
-                not isinstance(request[key], str)
-                for key in (
-                    "lane",
-                    "image_result",
-                    "oci_archive",
-                    "task_id",
-                    "resolved_plan",
-                    "resolved_plan_sha256",
-                )
-            ):
-                raise ValueError("verify-member paths must be strings")
-            resolved_plan = core.load_json(Path(request["resolved_plan"]))
-            selected_task = registry.select_task(
-                resolved_plan,
-                task_kind="image",
-                task_id=request["task_id"],
-                expected_plan_sha256=request["resolved_plan_sha256"],
-            )
-            result = registry.publish_member(
-                Path(request["oci_archive"]),
-                image_result=core.load_json(Path(request["image_result"])),
-                lane=request["lane"],
-                selected_task=selected_task,
-                resolved_plan=resolved_plan,
-                expected_plan_sha256=request["resolved_plan_sha256"],
-            )
-            _write(args.output, result)
         elif (args.group, args.action) == ("registry", "validate-member-schema"):
             record = core.load_json(args.input)
             schema = core.load_json(

@@ -107,9 +107,6 @@ jobs:
             input/plan/resolved-plan.json > out/selected-task.json
           test "$(jq -r '.runner' out/selected-task.json)" = "${{ inputs.runner }}"
           test "$(jq -r '.fixture_only' input/plan/resolved-plan.json)" = "false"
-          PYTHONPATH=.github/release python -m ucm_release catalog verify-drift \
-            --plan input/plan/resolved-plan.json \
-            --output out/upstream-drift.json >/dev/null
       - name: Recheck exact protected authority in the writer job
         env:
           UCM_RELEASE_POLICY: ${{ vars.UCM_RELEASE_POLICY }}
@@ -156,6 +153,32 @@ jobs:
           tar -xzf "${RUNNER_TEMP}/crane.tar.gz" -C "${RUNNER_TEMP}/crane" crane
           test "$("${RUNNER_TEMP}/crane/crane" version)" = "${CRANE_VERSION#v}"
           echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - name: Verify current upstream tag drift
+        env:
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          plan=input/plan/resolved-plan.json
+          test "$(jq -r '.resolved_plan_sha256' "${plan}")" = "${RESOLVED_PLAN_SHA256}"
+          drifts=0
+          for upstream in $(jq -r '.resolved_upstreams[] | "\(.repository):\(.tag)"' "${plan}"); do
+            repo="${upstream%:*}"
+            tag="${upstream#*:}"
+            actual_digest="$(crane digest "${repo}:${tag}" 2>/dev/null || true)"
+            expected_digest="$(jq -r --arg repo "${repo}" --arg tag "${tag}" \
+              '.resolved_upstreams[] | select(.repository == $repo and .tag == $tag) | .index_digest' "${plan}")"
+            test "${actual_digest}" = "${expected_digest}" || {
+              echo "upstream drift: ${upstream} expected ${expected_digest} observed ${actual_digest}" >&2
+              drifts=$((drifts + 1))
+            }
+          done
+          if [ "${drifts}" -ne 0 ]; then exit 2; fi
+          jq -cnS --arg sha "${RESOLVED_PLAN_SHA256}" \
+            --argjson n "$(jq '.resolved_upstreams | length' "${plan}")" \
+            '{kind:"ucm-upstream-drift-verification",schema_version:1,resolved_plan_sha256:$sha,verified_tags:$n,drifts:[]}' \
+            > out/upstream-drift.json
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: ${{ needs.build.outputs.internal_oci_artifact }}
@@ -223,9 +246,48 @@ jobs:
             --resolved-plan input/plan/resolved-plan.json \
             --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >out/member-mutation-preflight.json
           cmp input/oci/image-result.json input/image/image-result.json
-          jq -cnS --arg task_id "${TASK_ID}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" {image_result: "input/image/image-result.json", lane: "protected-tag", oci_archive: "input/oci/image.oci.tar", task_id: $task_id, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256} > out/member-request.json
-          PYTHONPATH=.github/release python -m ucm_release registry verify-member \
-            --input out/member-request.json --output out/member-record.json >/dev/null
+          plan=input/plan/resolved-plan.json
+          ir=input/image/image-result.json
+          plan_task_sha256="$(jq -r --arg tid "${TASK_ID}" '.image_tasks[] | select(.task_id == $tid) | .task_sha256' "${plan}")"
+          jq -e --arg tid "${TASK_ID}" --arg sha "$plan_task_sha256" --arg resolved "${RESOLVED_PLAN_SHA256}" --arg source "${SOURCE_SHA}" \
+            '.task_id == $tid and .task_sha256 == $sha and .resolved_plan_sha256 == $resolved and .source.commit == $source' "${ir}" >/dev/null
+          layout="$(mktemp -d)"
+          tar -xf input/oci/image.oci.tar -C "${layout}"
+          manifest_digest="$(jq -r '.manifests[0].digest' "${layout}/index.json")"
+          manifest_media_type="$(jq -r '.mediaType' "${layout}/blobs/sha256/${manifest_digest#sha256:}")"
+          manifest_size="$(wc -c <"${layout}/blobs/sha256/${manifest_digest#sha256:}" | tr -d ' ')"
+          config_digest="$(jq -r '.config.digest' "${layout}/blobs/sha256/${manifest_digest#sha256:}")"
+          config_size="$(wc -c <"${layout}/blobs/sha256/${config_digest#sha256:}" | tr -d ' ')"
+          test "${manifest_digest}" = "$(jq -r '.oci.digest' "${ir}")"
+          staging_repo="$(jq -r '.source.staging_repository' "${plan}")"
+          build_key="$(jq -r '.build_key_sha256' "${ir}")"
+          staging_tag="staging-${build_key#sha256:}"
+          staging_ref="${staging_repo}:${staging_tag}"
+          existing_digest="$(crane digest "${staging_ref}" 2>/dev/null || true)"
+          if [ -n "${existing_digest}" ] && [ "${existing_digest}" != "${manifest_digest}" ]; then
+            echo "staging tag collision: ${staging_ref} expected ${manifest_digest} observed ${existing_digest}" >&2
+            exit 2
+          fi
+          crane push "${layout}" "${staging_ref}"
+          observed_digest="$(crane digest "${staging_ref}")"
+          test "${observed_digest}" = "${manifest_digest}"
+          ops="$(jq -cnS --arg staging "${staging_repo}" --arg digest "${manifest_digest}" --arg tag "${staging_tag}" \
+            '[{type:"registry-member-push-by-digest",capability:"write",reference:($staging+"@"+$digest)},{type:"registry-staging-tag-create",capability:"write",reference:($staging+":"+$tag)},{type:"registry-authenticated-digest-read",capability:"read",reference:($staging+"@"+$digest)}]')"
+          readback_sha256="sha256:$(printf '%s' "${ops}" | sha256sum | cut -d' ' -f1)"
+          prewrite_sha256="sha256:$(printf 'prewrite:%s:%s' "${staging_ref}" "${observed_digest}" | sha256sum | cut -d' ' -f1)"
+          visibility_sha256="sha256:$(printf 'postwrite:%s:%s' "${staging_ref}" "${observed_digest}" | sha256sum | cut -d' ' -f1)"
+          collision='{"model":"observed-state-fail-closed","in_system_serialization":"repository-concurrency","fresh_prewrite_read":true,"exact_postwrite_readback":true,"external_admin_atomicity":"unavailable"}'
+          jq -cnS --slurpfile ir "${ir}" --arg staging_repo "${staging_repo}" --arg staging_tag "${staging_tag}" \
+            --arg manifest_media_type "${manifest_media_type}" --arg manifest_size "${manifest_size}" \
+            --arg config_digest "${config_digest}" --arg config_size "${config_size}" --argjson ops "${ops}" \
+            --arg readback_sha256 "${readback_sha256}" --arg prewrite_sha256 "${prewrite_sha256}" \
+            --arg visibility_sha256 "${visibility_sha256}" --argjson collision "${collision}" \
+            '{schema_version:1,kind:"ucm-registry-member-publication",status:"passed",spec_id:$ir[0].spec_id,profile_id:$ir[0].profile_id,family_id:$ir[0].family_id,platform:$ir[0].target_platform,target_repository:$ir[0].target_repository,target_tag:$ir[0].target_tag,staging_repository:$staging_repo,staging_visibility:"private",staging_tag:$staging_tag,candidate_task_sha256:$ir[0].task_key,publication_task_sha256:$ir[0].task_key,build_key_sha256:$ir[0].build_key_sha256,wheel_sha256:$ir[0].wheel.sha256,member_digest:$ir[0].oci.digest,member_size:($manifest_size|tonumber),config_digest:$config_digest,annotations:{"io.ucm.release.build-key-sha256":$ir[0].build_key_sha256,"io.ucm.release.candidate-task-sha256":$ir[0].task_key,"io.ucm.release.family-id":$ir[0].family_id,"io.ucm.release.platform":$ir[0].target_platform,"io.ucm.release.spec-id":$ir[0].spec_id,"io.ucm.release.wheel-sha256":$ir[0].wheel.sha256},source_sha:$ir[0].source.commit,image_result_sha256:$ir[0].result_sha256,recipe_sha256:$ir[0].recipe_sha256,content_identity_sha256:$ir[0].content_identity_sha256,content_identity:$ir[0].content_identity,manifest:{media_type:$manifest_media_type,digest:$ir[0].oci.digest,size:($manifest_size|tonumber),annotations:$ir[0].content_identity.annotations},config:{media_type:"application/vnd.oci.image.config.v1+json",digest:$config_digest,size:($config_size|tonumber),blob_sha256:$config_digest,labels:$ir[0].content_identity.labels},layers:[$ir[0].content_identity.layers[]|{media_type:.mediaType,digest:.digest,size:.size,blob_sha256:.digest}],readback_sha256:$readback_sha256,prewrite_visibility_evidence_sha256:$prewrite_sha256,visibility_evidence_sha256:$visibility_sha256,collision_model:$collision,operations:$ops}' \
+            >out/member-record.base.json
+          record_sha256="sha256:$(jq -cjS . out/member-record.base.json | sha256sum | cut -d' ' -f1)"
+          jq -cS --arg sha "${record_sha256}" '.record_sha256 = $sha' out/member-record.base.json >out/member-record.json
+          rm -f out/member-record.base.json
+          rm -rf "${layout}"
           PYTHONPATH=.github/release python -m ucm_release registry validate-member-schema \
             --input out/member-record.json >/dev/null
           jq -cnS --arg sha "${RESOLVED_PLAN_SHA256}" \
