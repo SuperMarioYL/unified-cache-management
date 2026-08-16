@@ -2118,6 +2118,7 @@ RELEASE_KEYS = {
     "kind",
     "schema_version",
     "ucm_version",
+    "image_revision",
     "version_file",
     "source",
     "lanes",
@@ -2221,15 +2222,15 @@ def load_catalog(
         raise ValueError(
             f"release.yaml version {release['ucm_version']} does not match version.ini {version}"
         )
-    if release["source"]["release_tag"] != f"v{version}":
-        raise ValueError("release tag must be derived from version.ini")
-    if release["chart"]["app_version"] != version:
-        raise ValueError("release.yaml Chart app_version does not match version.ini")
-    expected_chart_version = derive_chart_version(version)
-    if release["chart"]["version"] != expected_chart_version:
-        raise ValueError(
-            f"release.yaml Chart version must be derived as {expected_chart_version}"
-        )
+    release["source"]["release_tag"] = f"v{version}"
+    release["chart"]["version"] = derive_chart_version(version)
+    release["chart"]["app_version"] = version
+    image_suffix = f"-ucm-{version}-r{release.get('image_revision', 1)}"
+    for product in release.get("upstream_products", []):
+        product["target_tag_suffix"] = image_suffix
+    for profile in release.get("wheel_profiles", []):
+        local = profile.get("wheel_local_version")
+        profile["wheel_version"] = f"{version}+{local}" if local else version
     chart = load_yaml(repository_root / release["chart"]["source"] / "Chart.yaml")
     if chart.get("name") != release["chart"]["name"]:
         raise ValueError("Chart name does not match release.yaml")

@@ -144,7 +144,7 @@
       "additionalProperties": false,
       "required": [
         "id", "build", "accelerator", "accelerator_runtime", "npu_arch", "os",
-        "cpu_arch", "python_version", "python_abi", "wheel_version",
+        "cpu_arch", "python_version", "python_abi", "wheel_local_version",
         "wheel_platform", "binary_profile_id", "allowed_dt_needed", "external_required_dependencies", "validation_targets", "required_native",
         "forbidden_native", "builders"
       ],
@@ -176,6 +176,7 @@
         "python_version": {"type": "string", "minLength": 1},
         "python_abi": {"type": "string", "minLength": 1},
         "wheel_version": {"type": "string", "minLength": 1},
+        "wheel_local_version": {"type": "string", "minLength": 1},
         "wheel_platform": {"type": "string", "minLength": 1},
         "binary_profile_id": {"type": "string", "minLength": 1},
         "allowed_dt_needed": {
@@ -244,7 +245,7 @@
     "chart": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["source", "name", "version", "app_version", "publication_target", "validation_cases"],
+      "required": ["source", "name", "publication_target", "validation_cases"],
       "properties": {
         "source": {"type": "string", "minLength": 1},
         "name": {"type": "string", "minLength": 1},
@@ -347,7 +348,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "kind", "schema_version", "ucm_version", "version_file", "source",
+        "kind", "schema_version", "ucm_version", "image_revision", "version_file", "source",
         "lanes", "runner_map", "pr_smoke", "docker_recipes", "upstream_products", "compatibility", "runtime_patch_rules", "matrix_limits", "scan_limits", "python_runtime_dependencies",
         "python_build_lock", "chart", "wheel_profiles"
       ],
@@ -355,11 +356,12 @@
         "kind": {"const": "release-config"},
         "schema_version": {"type": "integer", "const": 2},
         "ucm_version": {"type": "string", "minLength": 1},
+        "image_revision": {"type": "integer", "minimum": 1},
         "version_file": {"type": "string", "minLength": 1},
         "source": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["staging_repository", "default_branch", "release_tag", "release_policy", "protected_environment"],
+          "required": ["staging_repository", "default_branch", "release_policy", "protected_environment"],
           "properties": {
             "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
             "staging_repository": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-z0-9_.-]+(?:/[a-z0-9_.-]+)*$"},
@@ -513,7 +515,7 @@
     "upstreamProduct": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "runtime_product", "repository", "target_repository", "target_tag_suffix", "version_specifier", "channels", "variants", "required_cpu_architectures"],
+      "required": ["id", "runtime_product", "repository", "target_repository", "version_specifier", "channels", "variants", "required_cpu_architectures"],
       "properties": {
         "id": {"type": "string", "minLength": 1},
         "runtime_product": {"enum": ["vllm", "vllm-ascend"]},

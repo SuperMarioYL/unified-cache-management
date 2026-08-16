@@ -1,11 +1,11 @@
 kind: release-config
 schema_version: 2
 ucm_version: 0.5.0rc1
+image_revision: 1
 version_file: version.ini
 source:
   staging_repository: ghcr.io/{owner}/ucm-release-staging
   default_branch: develop
-  release_tag: v0.5.0rc1
   release_policy: owner-reviewed-v1
   protected_environment: release-production
 lanes: [feature-candidate, protected-tag]
@@ -398,7 +398,6 @@ upstream_products:
     runtime_product: vllm
     repository: docker.io/vllm/vllm-openai
     target_repository: ghcr.io/{owner}/vllm-openai
-    target_tag_suffix: -ucm-0.5.0rc1-r1
     version_specifier: ">=0.21,<0.22"
     channels: [stable]
     variants:
@@ -411,7 +410,6 @@ upstream_products:
     runtime_product: vllm-ascend
     repository: quay.io/ascend/vllm-ascend
     target_repository: ghcr.io/{owner}/vllm-ascend
-    target_tag_suffix: -ucm-0.5.0rc1-r1
     version_specifier: ">=0.22.1rc1,<0.23"
     channels: [rc]
     variants:
@@ -681,8 +679,6 @@ python_build_lock:
 chart:
   source: charts/ucm
   name: unified-cache-pd
-  version: 0.5.0-rc.1
-  app_version: 0.5.0rc1
   publication_target: github-release
   validation_cases:
     - name: cuda
@@ -712,7 +708,7 @@ wheel_profiles:
     cpu_arch: [amd64, arm64]
     python_version: "3.12"
     python_abi: cp312
-    wheel_version: 0.5.0rc1+cuda130
+    wheel_local_version: cuda130
     wheel_platform: manylinux_2_28
     binary_profile_id: release-cuda130
     allowed_dt_needed: [ld-linux-aarch64.so.1, ld-linux-x86-64.so.2, libc.so.6, libcuda.so.1, libcudart.so.13, libdl.so.2, libgcc_s.so.1, libm.so.6, libmetrics.so, libpthread.so.0, librt.so.1, libstdc++.so.6]
@@ -800,7 +796,7 @@ wheel_profiles:
     cpu_arch: [amd64, arm64]
     python_version: "3.12"
     python_abi: cp312
-    wheel_version: 0.5.0rc1+cann900.a2
+    wheel_local_version: cann900.a2
     wheel_platform: linux
     binary_profile_id: release-cann900-a2
     allowed_dt_needed: [ascend_transport.so, ld-linux-aarch64.so.1, ld-linux-x86-64.so.2, libc.so.6, libascendcl.so, libasio.so, libcurl.so.4, libdl.so.2, libgcc_s.so.1, libglog.so.1, libibverbs.so.1, libjsoncpp.so.25, libm.so.6, libmetrics.so, libmooncake_store.so, libnuma.so.1, libpthread.so.0, librt.so.1, libruntime.so, libstdc++.so.6, libtransfer_engine.so, libunwind.so.8]
@@ -888,7 +884,7 @@ wheel_profiles:
     cpu_arch: [amd64, arm64]
     python_version: "3.12"
     python_abi: cp312
-    wheel_version: 0.5.0rc1+cann900.a3
+    wheel_local_version: cann900.a3
     wheel_platform: linux
     binary_profile_id: release-cann900-a3
     allowed_dt_needed: [ascend_transport.so, ld-linux-aarch64.so.1, ld-linux-x86-64.so.2, libc.so.6, libascendcl.so, libasio.so, libcurl.so.4, libdl.so.2, libgcc_s.so.1, libglog.so.1, libibverbs.so.1, libjsoncpp.so.25, libm.so.6, libmetrics.so, libmooncake_store.so, libnuma.so.1, libpthread.so.0, librt.so.1, libruntime.so, libstdc++.so.6, libtransfer_engine.so, libunwind.so.8]
