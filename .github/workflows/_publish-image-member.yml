@@ -107,8 +107,8 @@ jobs:
             --task-id "${TASK_ID}" \
             --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
             --output out/selected-task.json >/dev/null
-          test "$(python -c 'import json; print(json.load(open("out/selected-task.json"))["runner"])')" = "${{ inputs.runner }}"
-          test "$(python -c 'import json; print(json.load(open("input/plan/resolved-plan.json"))["fixture_only"])')" = "False"
+          test "$(jq -r '.runner' out/selected-task.json)" = "${{ inputs.runner }}"
+          test "$(jq -r '.fixture_only' input/plan/resolved-plan.json)" = "false"
           PYTHONPATH=.github/release python -m ucm_release catalog verify-drift \
             --plan input/plan/resolved-plan.json \
             --output out/upstream-drift.json >/dev/null
@@ -217,7 +217,7 @@ jobs:
           member_artifact="ucm-member-${TASK_ID}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           {
             echo "member_artifact=${member_artifact}"
-            echo "member_record_sha256=$(python -c 'import json; print(json.load(open("out/member-record.json"))["record_sha256"])')"
+            echo "member_record_sha256=$(jq -r '.record_sha256' out/member-record.json)"
           } >>"${GITHUB_OUTPUT}"
       - name: Remove Registry credentials before evidence upload
         if: ${{ always() }}

@@ -169,7 +169,7 @@ jobs:
             --task-id "${TASK_ID}" \
             --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
             --output out/selected-task.json >/dev/null
-          wheel_task_id="$(python -c 'import json; print(json.load(open("out/selected-task.json"))["wheel_task_id"])')"
+          wheel_task_id="$(jq -r '.wheel_task_id' out/selected-task.json)"
           PYTHONPATH=.github/release python -m ucm_release catalog select \
             --plan input/plan/resolved-plan.json \
             --task-kind wheel \
@@ -188,9 +188,9 @@ jobs:
             --task-id "${TASK_ID}" \
             --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
             >out/real-image-authority.json
-          test "$(python -c 'import json; print(json.load(open("out/selected-task.json"))["runner"])')" = "${{ inputs.runner }}"
-          logical_wheel_artifact="$(python -c 'import json; print(json.load(open("out/selected-task.json"))["wheel_artifact_name"])')"
-          logical_image_artifact="$(python -c 'import json; print(json.load(open("out/selected-task.json"))["artifact_name"])')"
+          test "$(jq -r '.runner' out/selected-task.json)" = "${{ inputs.runner }}"
+          logical_wheel_artifact="$(jq -r '.wheel_artifact_name' out/selected-task.json)"
+          logical_image_artifact="$(jq -r '.artifact_name' out/selected-task.json)"
           wheel_artifact="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(sys.argv[1], sys.argv[2], int(sys.argv[3])))' "${logical_wheel_artifact}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
           image_artifact="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(sys.argv[1], sys.argv[2], int(sys.argv[3])))' "${logical_image_artifact}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
           internal_logical="ucm-internal-oci-${TASK_ID}"
@@ -214,7 +214,7 @@ jobs:
           mapfile -t wheel_paths < <(find input/wheel -maxdepth 1 -type f -name '*.whl' -print | sort)
           test "${#wheel_paths[@]}" = 1
           wheel_path="${wheel_paths[0]}"
-          spec_id="$(python -c 'import json; print(json.load(open("out/selected-task.json"))["spec_id"])')"
+          spec_id="$(jq -r '.spec_id' out/selected-task.json)"
           wheel_sha256="sha256:$(sha256sum "${wheel_path}" | cut -d' ' -f1)"
           PYTHONPATH=.github/release python -m ucm_release wheel inspect \
             "${wheel_path}" \
@@ -227,8 +227,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          buildx_version="$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["toolchain"]["buildx_version"])')"
-          buildkit_image="$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["toolchain"]["buildkit_image"])')"
+          buildx_version="$(jq -r '.toolchain.buildx_version' out/real-image-authority.json)"
+          buildkit_image="$(jq -r '.toolchain.buildkit_image' out/real-image-authority.json)"
           case "$(uname -m)" in
             x86_64) buildx_arch=amd64 ;;
             aarch64|arm64) buildx_arch=arm64 ;;
@@ -280,10 +280,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out/base
-          repository="$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["runtime"]["repository"])')"
-          index_digest="$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["runtime"]["index_digest"])')"
-          manifest_digest="$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["runtime"]["manifest_digest"])')"
-          config_digest="$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["runtime"]["config_digest"])')"
+          repository="$(jq -r '.runtime.repository' out/real-image-authority.json)"
+          index_digest="$(jq -r '.runtime.index_digest' out/real-image-authority.json)"
+          manifest_digest="$(jq -r '.runtime.manifest_digest' out/real-image-authority.json)"
+          config_digest="$(jq -r '.runtime.config_digest' out/real-image-authority.json)"
           test "$(crane digest "${repository}@${index_digest}")" = "${index_digest}"
           crane manifest "${repository}@${index_digest}" >out/base/index.json
           crane manifest "${repository}@${manifest_digest}" >out/base/manifest.json
@@ -300,13 +300,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          architecture="$(python -c 'import json; print(json.load(open("out/selected-task.json"))["cpu_arch"])')"
-          target_platform="$(python -c 'import json; print(json.load(open("out/selected-task.json"))["platform"])')"
-          python_version="$(python -c 'import json; print(json.load(open("out/selected-task.json"))["python_version"])')"
-          python_abi="$(python -c 'import json; print(json.load(open("out/selected-task.json"))["python_abi"])')"
-          test "$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["cpu_arch"])')" = "${architecture}"
-          test "$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["platform"])')" = "${target_platform}"
-          test "$(python -c 'import json; print(json.load(open("out/real-image-authority.json"))["python_abi"])')" = "${python_abi}"
+          architecture="$(jq -r '.cpu_arch' out/selected-task.json)"
+          target_platform="$(jq -r '.platform' out/selected-task.json)"
+          python_version="$(jq -r '.python_version' out/selected-task.json)"
+          python_abi="$(jq -r '.python_abi' out/selected-task.json)"
+          test "$(jq -r '.cpu_arch' out/real-image-authority.json)" = "${architecture}"
+          test "$(jq -r '.platform' out/real-image-authority.json)" = "${target_platform}"
+          test "$(jq -r '.python_abi' out/real-image-authority.json)" = "${python_abi}"
           python_minor="${python_version//./}"
           mkdir -p input/runtime-dependencies input/runtime-download
           while IFS=$'\t' read -r requirement filename expected_sha256; do
@@ -343,11 +343,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SOURCE_DATE_EPOCH="$(python -c 'import json; print(json.load(open("context/image-recipe.json"))["payload"]["source_date_epoch"])')"
+          SOURCE_DATE_EPOCH="$(jq -r '.payload.source_date_epoch' context/image-recipe.json)"
           export SOURCE_DATE_EPOCH
-          recipe_sha256="$(python -c 'import json; print(json.load(open("context/image-recipe.json"))["payload_sha256"])')"
-          task_sha256="$(python -c 'import json; print(json.load(open("context/image-recipe.json"))["payload"]["task_sha256"])')"
-          target_platform="$(python -c 'import json; print(json.load(open("context/image-recipe.json"))["payload"]["target_platform"])')"
+          recipe_sha256="$(jq -r '.payload_sha256' context/image-recipe.json)"
+          task_sha256="$(jq -r '.payload.task_sha256' context/image-recipe.json)"
+          target_platform="$(jq -r '.payload.target_platform' context/image-recipe.json)"
           build_args=()
           while IFS= read -r build_arg; do
             build_args+=(--build-arg "${build_arg}")
@@ -444,8 +444,8 @@ jobs:
         run: |
           set -euo pipefail
           {
-            echo "image_result_sha256=$(python -c 'import json; print(json.load(open("out/image-result.json"))["result_sha256"])')"
-            echo "oci_digest=$(python -c 'import json; print(json.load(open("out/image-result.json"))["oci"]["digest"])')"
+            echo "image_result_sha256=$(jq -r '.result_sha256' out/image-result.json)"
+            echo "oci_digest=$(jq -r '.oci.digest' out/image-result.json)"
           } >>"${GITHUB_OUTPUT}"
           cp context/image-recipe.json out/image-recipe.json
           cp context/image-authority.json out/image-authority.json

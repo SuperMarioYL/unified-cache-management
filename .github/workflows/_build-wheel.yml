@@ -165,12 +165,12 @@ jobs:
             --resolved-plan input/plan/resolved-plan.json \
             --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
             --output out/hosted-task.json >/dev/null
-          test "$(python -c 'import json; print(json.load(open("out/selected-task.json"))["runner"])')" = "${{ inputs.runner }}"
+          test "$(jq -r '.runner' out/selected-task.json)" = "${{ inputs.runner }}"
           PYTHONPATH=.github/release python -m ucm_release wheel context \
             --source-sha "${SOURCE_SHA}" \
             --output-dir out/source-context >out/source-context-result.json
           cp out/selected-task.json out/source-context/wheel-task.json
-          logical_artifact="$(python -c 'import json; print(json.load(open("out/hosted-task.json"))["wheel_artifact"])')"
+          logical_artifact="$(jq -r '.wheel_artifact' out/hosted-task.json)"
           wheel_artifact="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(sys.argv[1], sys.argv[2], int(sys.argv[3])))' "${logical_artifact}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
           echo "wheel_artifact=${wheel_artifact}" >>"${GITHUB_OUTPUT}"
       - name: Materialize the task-bound offline build tool wheelhouse
@@ -180,7 +180,7 @@ jobs:
           mkdir -p out/source-context/build-wheels out/build-tool-download
           python -c 'import json,pathlib; value=json.load(open("out/hosted-task.json")); pathlib.Path("out/source-context/build-requirements.lock").write_text(value["build_tool_lock"])'
           test "sha256:$(sha256sum out/source-context/build-requirements.lock | cut -d' ' -f1)" = \
-            "$(python -c 'import json; print(json.load(open("out/hosted-task.json"))["build_tool_lock_sha256"])')"
+            "$(jq -r '.build_tool_lock_sha256' out/hosted-task.json)"
           while IFS=$'\t' read -r requirement filename expected_sha256; do
             rm -rf out/build-tool-download/*
             python -m pip download --disable-pip-version-check --no-cache-dir \
@@ -206,8 +206,8 @@ jobs:
             --task-id "${TASK_ID}" \
             --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
             >out/task-toolchain-authority.json
-          buildx_version="$(python -c 'import json; print(json.load(open("out/task-toolchain-authority.json"))["toolchain"]["buildx_version"])')"
-          buildkit_image="$(python -c 'import json; print(json.load(open("out/task-toolchain-authority.json"))["toolchain"]["buildkit_image"])')"
+          buildx_version="$(jq -r '.toolchain.buildx_version' out/task-toolchain-authority.json)"
+          buildkit_image="$(jq -r '.toolchain.buildkit_image' out/task-toolchain-authority.json)"
           case "$(uname -m)" in
             x86_64) buildx_arch=amd64 ;;
             aarch64|arm64) buildx_arch=arm64 ;;
@@ -230,8 +230,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker_target="$(python -c 'import json; print(json.load(open("out/hosted-task.json"))["docker_target"])')"
-          platform="$(python -c 'import json; print(json.load(open("out/hosted-task.json"))["platform"])')"
+          docker_target="$(jq -r '.docker_target' out/hosted-task.json)"
+          platform="$(jq -r '.platform' out/hosted-task.json)"
           build_args=()
           while IFS= read -r build_arg; do
             build_args+=(--build-arg "${build_arg}")
@@ -286,11 +286,11 @@ jobs:
           mapfile -t wheel_paths < <(find out/wheel -maxdepth 1 -type f -name '*.whl' -print | sort)
           test "${#wheel_paths[@]}" = 1
           wheel_path="${wheel_paths[0]}"
-          spec_id="$(python -c 'import json; print(json.load(open("out/selected-task.json"))["spec_id"])')"
+          spec_id="$(jq -r '.spec_id' out/selected-task.json)"
           wheel_sha256="sha256:$(sha256sum "${wheel_path}" | cut -d' ' -f1)"
-          test "$(python -c 'import json; print(json.load(open("out/wheel/wheel-seal.json"))["wheel_sha256"])')" = "${wheel_sha256}"
-          runtime_patch_manifest_sha256="$(python -c 'import json; print(json.load(open("out/selected-task.json"))["runtime_patch_manifest_sha256"])')"
-          test "$(python -c 'import json; print(json.load(open("out/wheel/wheel-seal.json"))["runtime_patch_manifest_sha256"])')" = "${runtime_patch_manifest_sha256}"
+          test "$(jq -r '.wheel_sha256' out/wheel/wheel-seal.json)" = "${wheel_sha256}"
+          runtime_patch_manifest_sha256="$(jq -r '.runtime_patch_manifest_sha256' out/selected-task.json)"
+          test "$(jq -r '.runtime_patch_manifest_sha256' out/wheel/wheel-seal.json)" = "${runtime_patch_manifest_sha256}"
           PYTHONPATH=.github/release python -m ucm_release wheel inspect \
             "${wheel_path}" \
             --spec-id "${spec_id}" \
@@ -298,7 +298,7 @@ jobs:
             --source-kind builder-candidate \
             --task-file out/selected-task.json >out/reopened-wheel-inspection.json
           cmp out/wheel/wheel-inspection.json out/reopened-wheel-inspection.json
-          test "$(python -c 'import json; print(json.load(open("out/reopened-wheel-inspection.json"))["runtime_patch_manifest_sha256"])')" = "${runtime_patch_manifest_sha256}"
+          test "$(jq -r '.runtime_patch_manifest_sha256' out/reopened-wheel-inspection.json)" = "${runtime_patch_manifest_sha256}"
           inspection_sha256="sha256:$(sha256sum out/wheel/wheel-inspection.json | cut -d' ' -f1)"
           mkdir -p out/wheel-artifact
           cp "${wheel_path}" out/wheel-artifact/

@@ -130,8 +130,8 @@ jobs:
           PYTHONPATH=.github/release python -m ucm_release catalog resolve \
             --lane "${lane}" --source-sha "${GITHUB_SHA}" \
             --output out/plan/resolved-plan.json >/dev/null
-          resolved_plan_sha256="$(python -c 'import json; print(json.load(open("out/plan/resolved-plan.json"))["resolved_plan_sha256"])')"
-          logical_artifact="$(python -c 'import json; print(json.load(open("out/plan/resolved-plan.json"))["expected_artifacts"]["resolved_plan"])')"
+          resolved_plan_sha256="$(jq -r '.resolved_plan_sha256' out/plan/resolved-plan.json)"
+          logical_artifact="$(jq -r '.expected_artifacts.resolved_plan' out/plan/resolved-plan.json)"
           resolved_plan_artifact="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(sys.argv[1],sys.argv[2],int(sys.argv[3])))' "${logical_artifact}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
           wheel_matrix="$(python -c 'import json; print(json.dumps(json.load(open("out/plan/resolved-plan.json"))["github_wheel_matrix"],separators=(",",":")))')"
           image_matrix="$(python -c 'import json; print(json.dumps(json.load(open("out/plan/resolved-plan.json"))["github_image_matrix"],separators=(",",":")))')"
@@ -481,7 +481,7 @@ jobs:
           python -c 'import json,os; p=json.load(open("out/selection.json")); q=p["plan_request"]; assert q["resolved_plan_sha256"]==os.environ["RESOLVED_PLAN_SHA256"]; q.update({"resolved_plan":"input/plan/resolved-plan.json"}); json.dump(p["remote"],open("out/draft/observed-release.json","w"),sort_keys=True,separators=(",",":")); json.dump(q,open("out/plan-state-request.json","w"),sort_keys=True,separators=(",",":")); json.dump(p["create_request"],open("out/create-request.json","w"),sort_keys=True,separators=(",",":")); json.dump(p["operations"],open("out/draft/operations.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/plan-state-request.json --output out/initial-plan.json >/dev/null
           cp out/initial-plan.json out/draft/initial-plan.json
-          decision="$(python -c 'import json; print(json.load(open("out/initial-plan.json"))["decision"])')"
+          decision="$(jq -r '.decision' out/initial-plan.json)"
           if [[ "${decision}" == create ]]; then
             git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}" +refs/heads/develop:refs/remotes/origin/develop
             git diff --quiet HEAD:.github/workflows origin/develop:.github/workflows
@@ -494,7 +494,7 @@ jobs:
               -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
               "repos/${release_repository}/releases" \
               --input out/create-request.json >out/draft/create-response.json
-            release_id="$(python -c 'import json; print(json.load(open("out/draft/create-response.json"))["id"])')"
+            release_id="$(jq -r '.id' out/draft/create-response.json)"
             gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
               "repos/${release_repository}/releases/${release_id}" >out/draft/observed-release.json
             python -c 'import json; p=json.load(open("out/draft/observed-release.json")); q=json.load(open("out/plan-state-request.json")); q.update({"remote":p,"just_created":True}); json.dump(q,open("out/created-state-request.json","w"),sort_keys=True,separators=(",",":"))'
@@ -507,7 +507,7 @@ jobs:
           else
             cp out/initial-plan.json out/draft/state-plan.json
           fi
-          release_id="$(python -c 'import json; print(json.load(open("out/draft/state-plan.json"))["release_id"])')"
+          release_id="$(jq -r '.release_id' out/draft/state-plan.json)"
           logical="ucm-release-draft-${SOURCE_SHA}"
           physical="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(*sys.argv[1:3], int(sys.argv[3])))' "${logical}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
           echo "artifact=${physical}" >>"${GITHUB_OUTPUT}"
@@ -672,7 +672,7 @@ jobs:
             "repos/${release_repository}/releases/${RELEASE_ID}" >out/live-release.json
           python -c 'import json,os; p={"remote":json.load(open("out/live-release.json")),"source_sha":os.environ["SOURCE_SHA"],"just_created":False,"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]}; json.dump(p,open("out/live-state-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/live-state-request.json --output out/live-state-plan.json >/dev/null
-          test "$(python -c 'import json; print(json.load(open("out/live-state-plan.json"))["release_id"])')" = "${RELEASE_ID}"
+          test "$(jq -r '.release_id' out/live-state-plan.json)" = "${RELEASE_ID}"
           gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}/assets?per_page=100" >out/assets-pages.json
           python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","raw_assets":"out/assets-pages.json","release":"out/live-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets","require_complete":False,"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/initial-download-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release plan-downloads --input out/initial-download-request.json --output out/initial-download-plan.json >/dev/null
@@ -703,7 +703,7 @@ jobs:
               gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}" >out/preupload-release.json
               python -c 'import json,os; p={"remote":json.load(open("out/preupload-release.json")),"source_sha":os.environ["SOURCE_SHA"],"just_created":False,"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]}; json.dump(p,open("out/preupload-state-request.json","w"),sort_keys=True,separators=(",",":"))'
               PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/preupload-state-request.json --output out/preupload-plan.json >/dev/null
-              test "$(python -c 'import json; print(json.load(open("out/preupload-plan.json"))["decision"])')" = resume-draft
+              test "$(jq -r '.decision' out/preupload-plan.json)" = resume-draft
               gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}/assets?per_page=100" >out/preupload-assets-pages.json
               NEXT_NAME="${name}" python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","initial_asset_plan":"out/asset-plan.json","uploaded_assets":"out/uploaded-assets.json","current_assets":"out/preupload-assets-pages.json","release":"out/preupload-release.json","source_sha":os.environ["SOURCE_SHA"],"allowed_root":"out/state/release-assets","next_name":os.environ["NEXT_NAME"],"release_id":int(os.environ["RELEASE_ID"]),"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/upload-prefix-request.json","w"),sort_keys=True,separators=(",",":"))'
               PYTHONPATH=.github/release python -m ucm_release release verify-upload-prefix --input out/upload-prefix-request.json --output out/upload-prefix.json >/dev/null
@@ -738,7 +738,7 @@ jobs:
             gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}" >out/prepublish-release.json
             python -c 'import json,os; p={"remote":json.load(open("out/prepublish-release.json")),"source_sha":os.environ["SOURCE_SHA"],"just_created":False,"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]}; json.dump(p,open("out/prepublish-state-request.json","w"),sort_keys=True,separators=(",",":"))'
             PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/prepublish-state-request.json --output out/prepublish-plan.json >/dev/null
-            test "$(python -c 'import json; print(json.load(open("out/prepublish-plan.json"))["decision"])')" = resume-draft
+            test "$(jq -r '.decision' out/prepublish-plan.json)" = resume-draft
             gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}/assets?per_page=100" >out/prepublish-assets-pages.json
             python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","prior_assets":"out/prepublish-downloaded-assets.json","raw_assets":"out/prepublish-assets-pages.json","prior_release":"out/live-release.json","release":"out/prepublish-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets","resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/refresh-assets-request.json","w"),sort_keys=True,separators=(",",":"))'
             PYTHONPATH=.github/release python -m ucm_release release refresh-assets --input out/refresh-assets-request.json --output out/state/prepublish-assets.json >/dev/null
@@ -753,7 +753,7 @@ jobs:
           fi
           python -c 'import json,os; p={"remote":json.load(open("out/state/authenticated-release.json")),"source_sha":os.environ["SOURCE_SHA"],"just_created":False,"resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]}; json.dump(p,open("out/final-state-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release plan-state --input out/final-state-request.json --output out/state/final-state-plan.json >/dev/null
-          test "$(python -c 'import json; print(json.load(open("out/state/final-state-plan.json"))["decision"])')" = inspect-published-prerelease
+          test "$(jq -r '.decision' out/state/final-state-plan.json)" = inspect-published-prerelease
           gh api --paginate --slurp -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${release_repository}/releases/${RELEASE_ID}/assets?per_page=100" >out/authenticated-assets-pages.json
           python -c 'import json,os; json.dump({"manifest":"out/state/assets-manifest.json","prior_assets":"out/state/prepublish-assets.json","raw_assets":"out/authenticated-assets-pages.json","prior_release":"out/state/prepublish-release.json","release":"out/state/authenticated-release.json","source_sha":os.environ["SOURCE_SHA"],"release_id":int(os.environ["RELEASE_ID"]),"allowed_root":"out/state/release-assets","resolved_plan":"input/plan/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/refresh-authenticated-assets-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release refresh-assets --input out/refresh-authenticated-assets-request.json --output out/state/authenticated-assets.json >/dev/null
@@ -807,7 +807,7 @@ jobs:
           test "${release_repository}" = "${GITHUB_REPOSITORY}"
           mkdir -p out/publication out/anonymous-downloads
           curl -fsSL --retry 3 -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "https://api.github.com/repos/${release_repository}/releases/tags/${GITHUB_REF_NAME}" >out/anonymous-release.json
-          test "$(python -c 'import json; print(json.load(open("out/anonymous-release.json"))["id"])')" = "${RELEASE_ID}"
+          test "$(jq -r '.id' out/anonymous-release.json)" = "${RELEASE_ID}"
           curl -fsSL --retry 3 -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "https://api.github.com/repos/${release_repository}/releases/${RELEASE_ID}/assets?per_page=100" >out/anonymous-assets-raw.json
           python -c 'import json,os; json.dump({"manifest":"input/state/assets-manifest.json","allowed_root":"input/state/release-assets","resolved_plan":"input/state/release-assets/resolved-plan.json","resolved_plan_sha256":os.environ["RESOLVED_PLAN_SHA256"]},open("out/rebase-request.json","w"),sort_keys=True,separators=(",",":"))'
           PYTHONPATH=.github/release python -m ucm_release release rebase-manifest --input out/rebase-request.json --output out/assets-manifest.json >/dev/null

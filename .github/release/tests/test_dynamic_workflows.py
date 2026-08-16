@@ -169,7 +169,7 @@ def test_build_consumers_bind_toolchain_and_image_runtime_to_selected_tasks() ->
     )
     dependency_command = str(dependencies["run"])
     for field in ("python_version", "python_abi", "platform"):
-        assert f'["{field}"]' in dependency_command
+        assert f".{field}" in dependency_command
     assert '["runtime_dependencies"]' in dependency_command
     for forbidden in (
         "--python-version 312",
@@ -320,7 +320,7 @@ def test_downstream_image_workflows_only_consume_parent_plan_and_matrices() -> N
     )
     assert family_steps.index(select_family) < family_steps.index(install_tools)
     assert "--task-kind family" in select_family["run"]
-    assert '"control_arch"' in select_family["run"]
+    assert ".control_arch" in select_family["run"]
     assert 'case "${CONTROL_ARCH}"' in install_tools["run"]
     assert "Linux_${crane_arch}" in install_tools["run"]
     assert "linux-${buildx_arch}" in install_tools["run"]

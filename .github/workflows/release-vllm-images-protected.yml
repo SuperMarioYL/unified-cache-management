@@ -180,9 +180,9 @@ jobs:
             --task-id "${FAMILY_TASK_ID}" \
             --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" \
             --output out/selected-family.json >/dev/null
-          test "$(python -c 'import json; print(json.load(open("out/selected-family.json"))["control_task_id"])')" = "${CONTROL_TASK_ID}"
-          test "$(python -c 'import json; print(json.load(open("out/selected-family.json"))["control_arch"])')" = "${CONTROL_ARCH}"
-          test "$(python -c 'import json; print(json.load(open("out/selected-family.json"))["control_runner"])')" = "${{ matrix.runner }}"
+          test "$(jq -r '.control_task_id' out/selected-family.json)" = "${CONTROL_TASK_ID}"
+          test "$(jq -r '.control_arch' out/selected-family.json)" = "${CONTROL_ARCH}"
+          test "$(jq -r '.control_runner' out/selected-family.json)" = "${{ matrix.runner }}"
       - name: Reject missing policy before Registry authentication
         env:
           UCM_RELEASE_POLICY: ${{ vars.UCM_RELEASE_POLICY }}

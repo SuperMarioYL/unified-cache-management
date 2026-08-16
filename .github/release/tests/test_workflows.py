@@ -633,9 +633,9 @@ def _toolchain_pin_violations(
                     "_build-image.yml: image toolchain authority is duplicated in YAML"
                 )
         required_buildx_fragments = (
-            '["toolchain"]["buildx_version"]',
+            ".toolchain.buildx_version",
             '["toolchain"]["buildx_linux_sha256"]',
-            '["toolchain"]["buildkit_image"]',
+            ".toolchain.buildkit_image",
             "https://github.com/docker/buildx/releases/download/${buildx_version}/buildx-${buildx_version}.linux-${buildx_arch}",
             "sha256sum --check",
             '"${HOME}/.docker/cli-plugins/docker-buildx"',
@@ -2311,7 +2311,7 @@ def test_clean_image_build_rewrites_timestamps_without_disabling_dependencies() 
         in workflow
     )
     assert 'export SOURCE_DATE_EPOCH="$(python' not in workflow
-    assert 'SOURCE_DATE_EPOCH="$(python' in workflow
+    assert 'SOURCE_DATE_EPOCH="$(jq' in workflow
     assert "export SOURCE_DATE_EPOCH" in workflow
     assert '"--no-cache-dir"' in installer
     assert '"--disable-pip-version-check"' in installer
