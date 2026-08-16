@@ -107,6 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
     config_actions = config.add_subparsers(dest="action", required=True)
     validate = config_actions.add_parser("validate")
     _paths(validate)
+    validate.set_defaults(func=lambda a: {'schema_version': 1, 'wheel_profiles': len(core.load_catalog(a.release, a.schema_dir)['wheel_profiles']), 'compatibility_rules': len(core.load_catalog(a.release, a.schema_dir)['compatibility']['rules'])})  # fmt: skip  # noqa: E501
 
     catalog_parser = groups.add_parser("catalog")
     catalog_actions = catalog_parser.add_subparsers(dest="action", required=True)
@@ -114,6 +115,8 @@ def build_parser() -> argparse.ArgumentParser:
     catalog_validate.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
     catalog_validate.add_argument('--schema-dir', type=Path, default=core.DEFAULT_SCHEMA_DIR)  # fmt: skip  # noqa: E501
     catalog_validate.add_argument('--repository-root', type=Path, default=core.REPO_ROOT)  # fmt: skip  # noqa: E501
+    catalog_validate.set_defaults(func=lambda a: {'kind': 'ucm-catalog-validation', 'schema_version': 1, 'config_sha256': core.sha256_value((lambda r: (catalog_resolution.validate_catalog_tag_grammar(r), r)[1])(core.load_catalog(a.catalog, a.schema_dir, repository_root=a.repository_root))), 'upstream_products': len(core.load_catalog(a.catalog, a.schema_dir, repository_root=a.repository_root)['upstream_products']), 'compatibility_rules': len(core.load_catalog(a.catalog, a.schema_dir, repository_root=a.repository_root)['compatibility']['rules'])})  # fmt: skip  # noqa: E501
+
     catalog_resolve = catalog_actions.add_parser("resolve")
     catalog_resolve.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
     catalog_resolve.add_argument('--schema-dir', type=Path, default=core.DEFAULT_SCHEMA_DIR)  # fmt: skip  # noqa: E501
@@ -121,12 +124,31 @@ def build_parser() -> argparse.ArgumentParser:
     catalog_resolve.add_argument("--source-sha", required=True)
     catalog_resolve.add_argument("--fixture", type=Path)
     catalog_resolve.add_argument("--output", type=Path, required=True)
+
+    def _cmd_resolve(a):
+        release = core.load_catalog(a.catalog, a.schema_dir)
+        fixture = core.load_json(a.fixture) if a.fixture else None
+        result = catalog_resolution.resolve_catalog(release, source_sha=a.source_sha, lane=a.lane, fixture=fixture)  # fmt: skip  # noqa: E501
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.output, result)
+        return result
+    catalog_resolve.set_defaults(func=_cmd_resolve)
+
     recipe_matrix = catalog_actions.add_parser("recipe-matrix")
     recipe_matrix.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
     recipe_matrix.add_argument('--schema-dir', type=Path, default=core.DEFAULT_SCHEMA_DIR)  # fmt: skip  # noqa: E501
     recipe_matrix.add_argument("--repository-root", type=Path, default=core.REPO_ROOT)
     recipe_matrix.add_argument('--lane', choices=('pr-smoke', 'hardware-e2e', 'manual', 'formal-release'), required=True)  # fmt: skip  # noqa: E501
     recipe_matrix.add_argument("--output", type=Path, required=True)
+
+    def _cmd_recipe_matrix(a):
+        release = core.load_catalog(a.catalog, a.schema_dir, repository_root=a.repository_root)  # fmt: skip  # noqa: E501
+        result = core.repository_recipe_matrix(release, lane=a.lane, repository_root=a.repository_root)  # fmt: skip  # noqa: E501
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.output, result)
+        return result
+    recipe_matrix.set_defaults(func=_cmd_recipe_matrix)
+
     select_recipe = catalog_actions.add_parser("select-recipe")
     select_recipe.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
     select_recipe.add_argument('--schema-dir', type=Path, default=core.DEFAULT_SCHEMA_DIR)  # fmt: skip  # noqa: E501
@@ -137,6 +159,14 @@ def build_parser() -> argparse.ArgumentParser:
     select_recipe.add_argument("--expected-matrix-sha256", required=True)
     select_recipe.add_argument("--expected-task-sha256", required=True)
     select_recipe.add_argument("--output", type=Path, required=True)
+
+    def _cmd_select_recipe(a):
+        release = core.load_catalog(a.catalog, a.schema_dir, repository_root=a.repository_root)  # fmt: skip  # noqa: E501
+        result = core.select_repository_recipe_task(release, lane=a.lane, task_id=a.task_id, expected_catalog_sha256=a.expected_catalog_sha256, expected_matrix_sha256=a.expected_matrix_sha256, expected_task_sha256=a.expected_task_sha256, repository_root=a.repository_root)  # fmt: skip  # noqa: E501
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.output, result)
+        return result
+    select_recipe.set_defaults(func=_cmd_select_recipe)
 
     publish_parser = groups.add_parser("publish")
     publish_actions = publish_parser.add_subparsers(dest="action", required=True)
@@ -150,6 +180,16 @@ def build_parser() -> argparse.ArgumentParser:
     publish_plan.add_argument("--request", default="")
     publish_plan.add_argument("--dry-run", default="true")
     publish_plan.add_argument("--output", type=Path, required=True)
+
+    def _cmd_publish_plan(a):
+        release = core.load_catalog(a.catalog, a.schema_dir, repository_root=a.repository_root, repository=a.repository)  # fmt: skip  # noqa: E501
+        plan = core.compute_publish_plan(release, lane=a.lane, allow=json.loads(a.allow), request=a.request, dry_run=a.dry_run.strip().lower() == 'true')  # fmt: skip  # noqa: E501
+        payload = json.dumps(plan, sort_keys=True, separators=(",", ":"))
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        a.output.write_text(payload + "\n", encoding="utf-8")
+        return {"kind": "ucm-publish-plan", "schema_version": 1, "publish": plan}
+    publish_plan.set_defaults(func=_cmd_publish_plan)
+
     publish_github_release = publish_actions.add_parser("github-release")
     publish_github_release.add_argument("--plan", type=Path, required=True)
     publish_github_release.add_argument("--plan-sha256", required=True)
@@ -157,6 +197,7 @@ def build_parser() -> argparse.ArgumentParser:
     publish_github_release.add_argument('--stage', choices=('draft', 'finalize'), required=True)  # fmt: skip  # noqa: E501
     publish_github_release.add_argument("--output-dir", type=Path, required=True)
     publish_github_release.add_argument("--source-sha", required=True)
+    publish_github_release.set_defaults(func=_publish_github_release)
 
     core_parser = groups.add_parser("core")
     core_actions = core_parser.add_subparsers(dest="action", required=True)
@@ -167,10 +208,33 @@ def build_parser() -> argparse.ArgumentParser:
     tag_preflight.add_argument('--catalog-planner', action='store_true', help='resolve current catalog authority only in the initial planning job')  # fmt: skip  # noqa: E501
     _paths(tag_preflight)
 
+    def _cmd_tag_preflight(a):
+        if a.catalog_planner:
+            if a.resolved_plan is not None or a.expected_plan_sha256 is not None:
+                raise ValueError('catalog planner mode cannot consume a frozen plan binding')  # fmt: skip  # noqa: E501
+            return core.tag_preflight(lane=a.lane, release_path=a.release, schema_dir=a.schema_dir)  # fmt: skip  # noqa: E501
+        if a.resolved_plan is None or not isinstance(a.expected_plan_sha256, str) or not a.expected_plan_sha256:
+            raise ValueError('tag preflight requires an exact frozen plan and expected plan hash')  # fmt: skip  # noqa: E501
+        resolved_plan = core.load_json(a.resolved_plan)
+        registry.validate_resolved_plan(resolved_plan)
+        if resolved_plan["resolved_plan_sha256"] != a.expected_plan_sha256:
+            raise ValueError('resolved plan hash differs from expected plan hash')  # fmt: skip  # noqa: E501
+        if resolved_plan['lane'] != a.lane: raise ValueError('tag preflight lane differs from frozen plan')  # noqa: E701,E501
+        return core.tag_preflight(lane=a.lane, authority=resolved_plan['source'])  # fmt: skip  # noqa: E501
+    tag_preflight.set_defaults(func=_cmd_tag_preflight)
+
     registry_parser = groups.add_parser("registry")
     registry_actions = registry_parser.add_subparsers(dest="action", required=True)
     validate_member = registry_actions.add_parser("validate-member-schema")
     validate_member.add_argument("--input", type=Path, required=True)
+
+    def _cmd_validate_member_schema(a):
+        record = core.load_json(a.input)
+        schema = core.load_json(core.DEFAULT_SCHEMA_DIR / 'release-manifest.schema.json')  # fmt: skip  # noqa: E501
+        core.validate_schema(record, schema['$defs']['registryMemberRecord'], root=schema)  # fmt: skip  # noqa: E501
+        return {"kind": "ucm-member-schema-validation", "valid": True}
+    validate_member.set_defaults(func=_cmd_validate_member_schema)
+
     return parser
 
 
@@ -178,74 +242,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        if (args.group, args.action) == ("config", "validate"):
-            release = core.load_catalog(args.release, args.schema_dir)
-            result = {'schema_version': 1, 'wheel_profiles': len(release['wheel_profiles']), 'compatibility_rules': len(release['compatibility']['rules'])}  # fmt: skip  # noqa: E501
-        elif (args.group, args.action) == ("catalog", "validate"):
-            release = core.load_catalog(args.catalog, args.schema_dir, repository_root=args.repository_root)  # fmt: skip  # noqa: E501
-            catalog_resolution.validate_catalog_tag_grammar(release)
-            result = {'kind': 'ucm-catalog-validation', 'schema_version': 1, 'config_sha256': core.sha256_value(release), 'upstream_products': len(release['upstream_products']), 'compatibility_rules': len(release['compatibility']['rules'])}  # fmt: skip  # noqa: E501
-        elif (args.group, args.action) == ("catalog", "resolve"):
-            release = core.load_catalog(args.catalog, args.schema_dir)
-            fixture = core.load_json(args.fixture) if args.fixture else None
-            result = catalog_resolution.resolve_catalog(release, source_sha=args.source_sha, lane=args.lane, fixture=fixture)  # fmt: skip  # noqa: E501
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            _write(args.output, result)
-        elif (args.group, args.action) == ("catalog", "recipe-matrix"):
-            release = core.load_catalog(args.catalog, args.schema_dir, repository_root=args.repository_root)  # fmt: skip  # noqa: E501
-            result = core.repository_recipe_matrix(release, lane=args.lane, repository_root=args.repository_root)  # fmt: skip  # noqa: E501
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            _write(args.output, result)
-        elif (args.group, args.action) == ("catalog", "select-recipe"):
-            release = core.load_catalog(args.catalog, args.schema_dir, repository_root=args.repository_root)  # fmt: skip  # noqa: E501
-            result = core.select_repository_recipe_task(release, lane=args.lane, task_id=args.task_id, expected_catalog_sha256=args.expected_catalog_sha256, expected_matrix_sha256=args.expected_matrix_sha256, expected_task_sha256=args.expected_task_sha256, repository_root=args.repository_root)  # fmt: skip  # noqa: E501
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            _write(args.output, result)
-        elif (args.group, args.action) == ("publish", "plan"):
-            release = core.load_catalog(args.catalog, args.schema_dir, repository_root=args.repository_root, repository=args.repository)  # fmt: skip  # noqa: E501
-            plan = core.compute_publish_plan(release, lane=args.lane, allow=json.loads(args.allow), request=args.request, dry_run=args.dry_run.strip().lower() == 'true')  # fmt: skip  # noqa: E501
-            payload = json.dumps(plan, sort_keys=True, separators=(",", ":"))
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_text(payload + "\n", encoding="utf-8")
-            result = {"kind": "ucm-publish-plan", "schema_version": 1, "publish": plan}
-        elif (args.group, args.action) == ("publish", "github-release"):
-            result = _publish_github_release(args)
-        elif (args.group, args.action) == ("core", "tag-preflight"):
-            if args.catalog_planner:
-                if (
-                    args.resolved_plan is not None
-                    or args.expected_plan_sha256 is not None
-                ):
-                    raise ValueError('catalog planner mode cannot consume a frozen plan binding')  # fmt: skip  # noqa: E501
-                result = core.tag_preflight(lane=args.lane, release_path=args.release, schema_dir=args.schema_dir)  # fmt: skip  # noqa: E501
-            else:
-                if (
-                    args.resolved_plan is None
-                    or not isinstance(args.expected_plan_sha256, str)
-                    or not args.expected_plan_sha256
-                ):
-                    raise ValueError('tag preflight requires an exact frozen plan and expected plan hash')  # fmt: skip  # noqa: E501
-                resolved_plan = core.load_json(args.resolved_plan)
-                registry.validate_resolved_plan(resolved_plan)
-                if resolved_plan["resolved_plan_sha256"] != args.expected_plan_sha256:
-                    raise ValueError('resolved plan hash differs from expected plan hash')  # fmt: skip  # noqa: E501
-                if resolved_plan['lane'] != args.lane: raise ValueError('tag preflight lane differs from frozen plan')  # noqa: E701,E501
-                result = core.tag_preflight(lane=args.lane, authority=resolved_plan['source'])  # fmt: skip  # noqa: E501
-        elif (args.group, args.action) == ("registry", "validate-member-schema"):
-            record = core.load_json(args.input)
-            schema = core.load_json(core.DEFAULT_SCHEMA_DIR / 'release-manifest.schema.json')  # fmt: skip  # noqa: E501
-            core.validate_schema(record, schema['$defs']['registryMemberRecord'], root=schema)  # fmt: skip  # noqa: E501
-            result = {"kind": "ucm-member-schema-validation", "valid": True}
-        else:  # pragma: no cover - argparse owns this branch.
-            parser.error("unsupported command")
-    except (
-        OSError,
-        ValueError,
-        KeyError,
-        TypeError,
-        json.JSONDecodeError,
-        yaml.YAMLError,
-    ) as error:
+        result = args.func(args)
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError, yaml.YAMLError) as error:
         parser.exit(2, f"error: {error}\n")
     print(_json(result))
     return 0
