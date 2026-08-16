@@ -30,7 +30,6 @@ FROM_RE = re.compile(
 COPY_FROM_RE = re.compile(
     r"(?im)^\s*COPY\s+(?:--[^\s]+\s+)*--from=(?P<stage>[^\s]+)\s+"
 )
-INSTALL_IMAGE_TARGET = "runtime"
 REAL_INSTALL_TARGET = "runtime-real"
 OCI_INDEX_MEDIA_TYPES = {
     "application/vnd.oci.image.index.v1+json",

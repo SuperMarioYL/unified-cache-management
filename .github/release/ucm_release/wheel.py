@@ -78,16 +78,3 @@ def _unique_json(data: bytes, label: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"{label} must be a JSON object")
     return value
-
-
-def _elf_string(data: bytes, offset: int, size: int, label: str) -> str:
-    if offset < 0 or offset >= len(data):
-        raise ValueError(f"ELF string offset is invalid in {label}")
-    limit = min(len(data), offset + size)
-    end = data.find(b"\0", offset, limit)
-    if end < 0:
-        raise ValueError(f"ELF string is unterminated in {label}")
-    try:
-        return data[offset:end].decode("utf-8")
-    except UnicodeDecodeError as error:
-        raise ValueError(f"ELF dynamic string is not UTF-8 in {label}") from error
