@@ -457,6 +457,8 @@ def test_protected_parent_uses_one_inventory_and_plan_bound_status_authority() -
     assert 'p["member_record_sha256s"]' in parent
     assert 'x["task_id"]' not in parent
     assert 'p["inventory"]' in parent
-    publisher = text[text.index("  publish-indexes:") : text.index("  index-barrier:")]
+    publisher = text[
+        text.index("  publish-indexes:") : text.index("  authenticated-readback:")
+    ]
     assert '"resolved_plan":"input/plan/resolved-plan.json"' in publisher
     assert '"resolved_plan_sha256"' in publisher

@@ -1017,11 +1017,6 @@ def test_workflows_fan_out_the_planner_selected_native_tasks() -> None:
         "${{ fromJSON(inputs.image_matrix) }}"
     )
     assert image_matrix["uses"] == "./.github/workflows/_build-image.yml"
-    assert "feature-barrier" in image_jobs
-    barrier = image_jobs["feature-barrier"]
-    assert set(barrier["needs"]) == {"build-images-feature"}
-    assert "always()" in str(barrier["if"])
-    assert "needs.build-images-feature.result" in "\n".join(_strings(barrier))
 
     image_workflow = _load_workflow(WORKFLOW_DIR / "_build-image.yml")
     image_build = _jobs(image_workflow)["build"]
@@ -1702,12 +1697,6 @@ def test_release_workflow_topology_runs_split_files_at_the_pushed_sha() -> None:
     assert all("@" not in reference for reference in local_calls)
     assert any("chart package" in value for value in _strings(entry))
     assert "loop aggregate-real" in "\n".join(_strings(entry))
-    assert set(entry_jobs["feature-barrier"]["needs"]) == {
-        "plan",
-        "build-wheels",
-        "package-chart",
-        "reconcile-images-feature",
-    }
 
     image_release = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
     image_triggers = _trigger(image_release)
@@ -1724,7 +1713,6 @@ def test_release_workflow_topology_runs_split_files_at_the_pushed_sha() -> None:
     )
     assert set(image_jobs["aggregate-feature"]["needs"]) == {
         "build-images-feature",
-        "feature-barrier",
     }
     protected_release = _load_workflow(
         WORKFLOW_DIR / "release-vllm-images-protected.yml"
@@ -2424,18 +2412,11 @@ def test_callable_image_chain_overrides_skipped_standalone_ancestor() -> None:
         _load_workflow(WORKFLOW_DIR / "release-vllm-images-protected.yml")
     )
     dependencies = {
-        "aggregate-feature": ["build-images-feature", "feature-barrier"],
+        "aggregate-feature": ["build-images-feature"],
     }
     protected_dependencies = {
-        "aggregate-members": [
-            "build-images-protected",
-            "member-barrier",
-        ],
-        "authenticated-readback": [
-            "aggregate-members",
-            "publish-indexes",
-            "index-barrier",
-        ],
+        "aggregate-members": ["build-images-protected"],
+        "authenticated-readback": ["aggregate-members", "publish-indexes"],
     }
     for job_name, direct_needs in dependencies.items():
         condition = str(feature_jobs[job_name]["if"])
@@ -2449,41 +2430,15 @@ def test_callable_image_chain_overrides_skipped_standalone_ancestor() -> None:
             assert f"needs.{dependency}.result == 'success'" in condition
 
 
-def test_callable_image_chain_fails_closed_for_direct_needs_and_cancellation() -> None:
-    """The always barrier converts failed, skipped, or cancelled matrix state to failure."""
+def test_callable_image_chain_has_no_redundant_barrier_jobs() -> None:
+    """Barrier jobs were removed; needs + if-gates provide the same guarantee."""
     feature_jobs = _jobs(_load_workflow(WORKFLOW_DIR / "release-vllm-images.yml"))
     protected_jobs = _jobs(
         _load_workflow(WORKFLOW_DIR / "release-vllm-images-protected.yml")
     )
-    barriers = (
-        (
-            feature_jobs,
-            "feature-barrier",
-            {"build-images-feature"},
-            {"IMAGE_RESULT"},
-        ),
-        (
-            protected_jobs,
-            "member-barrier",
-            {"build-images-protected"},
-            {"MEMBERS_RESULT"},
-        ),
-        (
-            protected_jobs,
-            "index-barrier",
-            {"aggregate-members", "publish-indexes"},
-            {"MEMBERS_RESULT", "INDEXES_RESULT"},
-        ),
-    )
-    for jobs, barrier_name, expected_needs, result_names in barriers:
-        barrier = jobs[barrier_name]
-        assert set(barrier["needs"]) == expected_needs
-        assert "always()" in str(barrier["if"])
-        command = "\n".join(_strings(barrier))
-        assert result_names <= set(re.findall(r"[A-Z_]+_RESULT", command))
-        for result in ("skipped", "failure", "cancelled"):
-            assert result in command
-        assert "exit 2" in command
+    entry_jobs = _jobs(_load_workflow(WORKFLOW_DIR / "release-ucm.yml"))
+    for jobs in (feature_jobs, protected_jobs, entry_jobs):
+        assert not any("-barrier" in name for name in jobs)
 
 
 def test_multi_output_steps_use_one_grouped_github_output_append() -> None:
@@ -3808,7 +3763,11 @@ def test_hosted_shellcheck_false_positives_are_narrowly_resolved() -> None:
 
 
 def test_task5_artifacts_are_run_bound_and_barriers_are_transitive() -> None:
-    """A stale artifact or skipped/cancelled matrix cannot open an index write gate."""
+    """A stale artifact or skipped/cancelled matrix cannot open an index write gate.
+
+    Barrier jobs were removed; the protected chain now relies on direct
+    needs + if-gates, which provide the same transitive success guarantee.
+    """
     for filename in ("_build-wheel.yml", "_build-image.yml"):
         text = "\n".join(_strings(_load_workflow(WORKFLOW_DIR / filename)))
         assert "GITHUB_RUN_ID" in text
@@ -3898,31 +3857,16 @@ def test_task5_artifacts_are_run_bound_and_barriers_are_transitive() -> None:
     assert f'"{fixed_buildx}" version' in index_install_command
     assert f'rm -f "{fixed_buildx}"' in str(index_steps[index_cleanup]["run"])
 
-    for barrier in (
-        feature_jobs["feature-barrier"],
-        jobs["member-barrier"],
-        jobs["index-barrier"],
-    ):
-        barrier_text = "\n".join(_strings(barrier))
-        for status in ("success", "skipped", "failure", "cancelled"):
-            assert status in barrier_text
-
-        protected_chain = {
-            "aggregate-members": {"build-images-protected", "member-barrier"},
-            "publish-indexes": {"aggregate-members"},
-            "index-barrier": {"aggregate-members", "publish-indexes"},
-            "authenticated-readback": {
-                "aggregate-members",
-                "publish-indexes",
-                "index-barrier",
-            },
-        }
+    protected_chain = {
+        "aggregate-members": {"build-images-protected"},
+        "publish-indexes": {"aggregate-members"},
+        "authenticated-readback": {"aggregate-members", "publish-indexes"},
+    }
     for job_name, direct_needs in protected_chain.items():
         job = jobs[job_name]
         assert set(job["needs"]) == direct_needs
         condition = str(job["if"])
-        if job_name not in {"index-barrier"}:
-            assert "!cancelled()" in condition
+        assert "!cancelled()" in condition
         if "always()" not in condition:
             for dependency in direct_needs - {"plan"}:
                 assert f"needs.{dependency}.result == 'success'" in condition

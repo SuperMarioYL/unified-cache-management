@@ -324,33 +324,14 @@ jobs:
       resolved_plan_artifact: ${{ needs.plan.outputs.resolved_plan_artifact }}
       resolved_plan_sha256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
 
-  feature-barrier:
-    needs: [plan, build-wheels, package-chart, reconcile-images-feature]
-    if: ${{ always() && needs.plan.outputs.feature == 'true' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - env:
-          WHEELS: ${{ needs.build-wheels.result }}
-          CHART: ${{ needs.package-chart.result }}
-          IMAGES: ${{ needs.reconcile-images-feature.result }}
-        run: |
-          set -euo pipefail
-          test "${WHEELS}" = success
-          test "${CHART}" = success
-          test "${IMAGES}" = success
-
   aggregate-evidence:
-    needs: [plan, build-wheels, package-chart, reconcile-images-feature, feature-barrier]
+    needs: [plan, build-wheels, package-chart, reconcile-images-feature]
     if: >-
       ${{
         !cancelled() && needs.plan.outputs.feature == 'true' &&
         needs.build-wheels.result == 'success' &&
         needs.package-chart.result == 'success' &&
-        needs.reconcile-images-feature.result == 'success' &&
-        needs.feature-barrier.result == 'success'
+        needs.reconcile-images-feature.result == 'success'
       }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30

@@ -48,34 +48,12 @@ jobs:
       resolved_plan_artifact: ${{ inputs.resolved_plan_artifact }}
       resolved_plan_sha256: ${{ inputs.resolved_plan_sha256 }}
 
-  member-barrier:
-    needs: [build-images-protected]
-    if: ${{ always() }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - name: Block skipped cancelled or failed member publication
-        env:
-          MEMBERS_RESULT: ${{ needs.build-images-protected.result }}
-        run: |
-          set -euo pipefail
-          for result in "${MEMBERS_RESULT}"; do
-            case "${result}" in
-              success) ;;
-              skipped|failure|cancelled) echo "protected member result=${result}" >&2; exit 2 ;;
-              *) echo "unknown protected member result=${result}" >&2; exit 2 ;;
-            esac
-          done
-
   aggregate-members:
-    needs: [build-images-protected, member-barrier]
+    needs: [build-images-protected]
     if: >-
       ${{
         !cancelled() &&
-        needs.build-images-protected.result == 'success' &&
-        needs.member-barrier.result == 'success'
+        needs.build-images-protected.result == 'success'
       }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -314,35 +292,12 @@ jobs:
           overwrite: false
           retention-days: 90
 
-  index-barrier:
-    needs: [aggregate-members, publish-indexes]
-    if: ${{ always() }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - name: Require every planner-selected authenticated index preparation
-        env:
-          MEMBERS_RESULT: ${{ needs.aggregate-members.result }}
-          INDEXES_RESULT: ${{ needs.publish-indexes.result }}
-        run: |
-          set -euo pipefail
-          for result in "${MEMBERS_RESULT}" "${INDEXES_RESULT}"; do
-            case "${result}" in
-              success) ;;
-              skipped|failure|cancelled) echo "protected index result=${result}" >&2; exit 2 ;;
-              *) echo "unknown protected index result=${result}" >&2; exit 2 ;;
-            esac
-          done
-
   authenticated-readback:
-    needs: [aggregate-members, publish-indexes, index-barrier]
+    needs: [aggregate-members, publish-indexes]
     if: >-
       ${{
         !cancelled() && needs.aggregate-members.result == 'success' &&
-        needs.publish-indexes.result == 'success' &&
-        needs.index-barrier.result == 'success'
+        needs.publish-indexes.result == 'success'
       }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20

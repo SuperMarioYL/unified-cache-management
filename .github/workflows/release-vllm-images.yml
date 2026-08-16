@@ -45,34 +45,12 @@ jobs:
       resolved_plan_sha256: ${{ inputs.resolved_plan_sha256 }}
       deliver_full_oci: ${{ inputs.deliver_full_oci }}
 
-  feature-barrier:
-    needs: [build-images-feature]
-    if: ${{ always() }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - name: Require every selected feature candidate
-        env:
-          IMAGE_RESULT: ${{ needs.build-images-feature.result }}
-        run: |
-          set -euo pipefail
-          for result in "${IMAGE_RESULT}"; do
-            case "${result}" in
-              success) ;;
-              skipped|failure|cancelled) echo "feature member result=${result}" >&2; exit 2 ;;
-              *) echo "unknown feature member result=${result}" >&2; exit 2 ;;
-            esac
-          done
-
   aggregate-feature:
-    needs: [build-images-feature, feature-barrier]
+    needs: [build-images-feature]
     if: >-
       ${{
         !cancelled() &&
-        needs.build-images-feature.result == 'success' &&
-        needs.feature-barrier.result == 'success'
+        needs.build-images-feature.result == 'success'
       }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
