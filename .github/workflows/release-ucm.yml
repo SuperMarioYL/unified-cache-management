@@ -738,6 +738,26 @@ jobs:
           logical="ucm-release-authenticated-${SOURCE_SHA}"
           physical="${logical}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           echo "artifact=${physical}" >>"${GITHUB_OUTPUT}"
+      - name: Publish wheels to PyPI
+        if: fromJSON(needs.plan.outputs.publish).pypi
+        # download-artifact materializes each wheel one directory deep, so the wheel files live at
+        # input/wheels/<artifact-name>/*.whl (the job's own find ... -name '*.whl' confirms this).
+        run: python -m twine upload --non-interactive input/wheels/*/*.whl
+
+      - name: Push chart to OCI registry
+        if: fromJSON(needs.plan.outputs.publish).chart_oci
+        run: helm push input/chart/*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+
+      - name: Copy images to Docker Hub
+        if: fromJSON(needs.plan.outputs.publish).dockerhub
+        run: |
+          set -euo pipefail
+          # The frozen resolved plan lists selected upstreams under .resolved_upstreams (not
+          # .upstream_products); each entry carries .target_repository (ghcr.io/<owner>/<name>)
+          # and .target_tag (the strict OCI tag the family image was published under).
+          while IFS=$'\t' read -r repo tag; do
+            crane copy "${repo}:${tag}" "docker.io/${{ github.repository_owner }}/$(basename "${repo}"):${tag}"
+          done < <(jq -r '.resolved_upstreams[] | "\(.target_repository)\t\(.target_tag)"' input/plan/resolved-plan.json)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ steps.publish.outputs.artifact }}

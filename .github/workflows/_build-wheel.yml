@@ -38,6 +38,7 @@ jobs:
     timeout-minutes: 180
     permissions:
       contents: read
+      id-token: write
     outputs:
       wheel_artifact: ${{ steps.task.outputs.wheel_artifact }}
       wheel_sha256: ${{ steps.record.outputs.wheel_sha256 }}
@@ -418,3 +419,10 @@ jobs:
           if-no-files-found: error
           overwrite: false
           retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref_protected == true && 90 || 7 }}
+      - name: Attest wheel provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: "github-actions/${{ github.repository }}"
+          # steps.record.outputs.wheel_sha256 already carries the sha256: prefix, so it is used
+          # directly as the subject-digest (the action expects <algorithm>:<hex> form).
+          subject-digest: ${{ steps.record.outputs.wheel_sha256 }}
