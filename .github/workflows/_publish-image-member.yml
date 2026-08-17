@@ -179,6 +179,17 @@ jobs:
         with:
           name: ${{ needs.build.outputs.image_artifact }}
           path: input/image
+      - name: Flatten image artifact layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          # download-artifact@v4 preserves the artifact's internal directory
+          # structure (out/hosted-task.json lands at input/image/out/); flatten
+          # so downstream reads input/image/<file> directly.
+          if [ -d input/image/out ]; then
+            find input/image/out -mindepth 1 -maxdepth 1 -exec mv -t input/image/ {} +
+            rmdir input/image/out
+          fi
       - name: Validate exact current-attempt bridge names
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
