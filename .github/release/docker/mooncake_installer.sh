@@ -213,7 +213,7 @@ fi
 # Download yalantinglibs
 YALANTINGLIBS_ZIPFILE="yalantinglibs-${YALANTINGLIBS_VERSION}.zip"
 echo "Downloading yalantinglibs ${YALANTINGLIBS_VERSION} from ${GITHUB_PROXY}/alibaba/yalantinglibs/archive/refs/tags/${YALANTINGLIBS_VERSION}.zip"
-wget -q --show-progress -O ${YALANTINGLIBS_ZIPFILE} ${GITHUB_PROXY}/alibaba/yalantinglibs/archive/refs/tags/${YALANTINGLIBS_VERSION}.zip
+wget -q --show-progress --tries=5 --waitretry=5 --retry-connrefused -O ${YALANTINGLIBS_ZIPFILE} ${GITHUB_PROXY}/alibaba/yalantinglibs/archive/refs/tags/${YALANTINGLIBS_VERSION}.zip
 check_success "Failed to download yalantinglibs"
 
 # Extract yalantinglibs
