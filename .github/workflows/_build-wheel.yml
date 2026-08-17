@@ -251,7 +251,7 @@ jobs:
           git cat-file commit "${SOURCE_SHA}" >out/source-context/source-commit.payload
           archive_sha256="sha256:$(sha256sum out/source-context/ucm-source.tar | cut -d' ' -f1)"
           payload_sha256="sha256:$(sha256sum out/source-context/source-commit.payload | cut -d' ' -f1)"
-          context_sha256="sha256:$(cat out/source-context/ucm-source.tar out/source-context/source-commit.payload | sha256sum | cut -d' ' -f1)"
+          context_sha256="sha256:$(python3 -c 'import hashlib,pathlib;a=pathlib.Path("out/source-context/ucm-source.tar").read_bytes();p=pathlib.Path("out/source-context/source-commit.payload").read_bytes();m=b"ucm-build-context-v2\0"+len(a).to_bytes(8,"big")+a+p;print(hashlib.sha256(m).hexdigest())')"
           jq -cnS \
             --arg source_sha "${SOURCE_SHA}" \
             --arg source_tree "${source_tree}" \
