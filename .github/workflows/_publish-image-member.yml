@@ -49,8 +49,7 @@ jobs:
         !cancelled() &&
         needs.build.result == 'success' &&
         github.event_name == 'push' &&
-        github.ref_type == 'tag' &&
-        github.ref_protected == true
+        github.ref_type == 'tag'
       }}
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 120

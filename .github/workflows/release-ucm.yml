@@ -113,8 +113,7 @@ jobs:
               delivery=true
             fi
             PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane feature-candidate --catalog-planner >feature-preflight.json
-          elif [[ "${EVENT_NAME}" == push && "${REF_TYPE}" == tag && \
-                  "${REF_PROTECTED}" == true ]]; then
+          elif [[ "${EVENT_NAME}" == push && "${REF_TYPE}" == tag ]]; then
             route=protected
             protected=true
             lane=protected-tag
@@ -352,7 +351,7 @@ jobs:
       ${{
         !cancelled() && needs.plan.outputs.protected == 'true' &&
         github.event_name == 'push' &&
-        github.ref_type == 'tag' && github.ref_protected == true &&
+        
         needs.build-wheels.result == 'success' &&
         needs.package-chart.result == 'success'
       }}
@@ -472,7 +471,7 @@ jobs:
       ${{
         !cancelled() && needs.plan.outputs.protected == 'true' &&
         github.event_name == 'push' &&
-        github.ref_type == 'tag' && github.ref_protected == true &&
+        
         needs.build-wheels.result == 'success' &&
         needs.package-chart.result == 'success' &&
         needs.reconcile-images-protected.result == 'success'
@@ -655,7 +654,7 @@ jobs:
       ${{
         !cancelled() &&
         github.event_name == 'push' &&
-        github.ref_type == 'tag' && github.ref_protected == true &&
+        
         needs.build-wheels.result == 'success' &&
         needs.package-chart.result == 'success' &&
         needs.prepare-release-draft.result == 'success' &&

@@ -503,8 +503,8 @@ jobs:
           ${{
             inputs.deliver_full_oci ||
             (github.event_name == 'push' &&
-            github.ref_type == 'tag' &&
-            github.ref_protected == true)
+            github.ref_type == 'tag'
+            )
           }}
         shell: bash
         run: |
@@ -595,8 +595,8 @@ jobs:
           ${{
             inputs.deliver_full_oci ||
             (github.event_name == 'push' &&
-            github.ref_type == 'tag' &&
-            github.ref_protected == true)
+            github.ref_type == 'tag'
+            )
           }}
         shell: bash
         run: |
@@ -660,7 +660,7 @@ jobs:
             out/available-gib.txt
           if-no-files-found: error
           overwrite: false
-          retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref_protected == true && 90 || 7 }}
+          retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}
       - name: Attest image provenance
         uses: actions/attest-build-provenance@v1
         with:
@@ -683,8 +683,8 @@ jobs:
         if: >-
           ${{
             github.event_name == 'push' &&
-            github.ref_type == 'tag' &&
-            github.ref_protected == true
+            github.ref_type == 'tag'
+
           }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
