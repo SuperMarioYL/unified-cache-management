@@ -413,7 +413,7 @@ jobs:
           builder_config_digest="$(printf '%s' "${whl_authority}" | jq -r '.builder_config_digest')"
           base_subject="$(jq -r '.subject' "${base}")"
           runtime_patch_canonical="$(printf '%s' "${task}" | jq -c '.runtime_patch_variants' | jq -cjS '.')"
-          deps="$(printf '%s' "${task}" | jq -c '.dependency_lock.runtime_dependencies')"
+          deps="$(printf '%s' "${task}" | jq -c '.dependency_lock.runtime_dependencies // []')"
           mkdir -p context
           # Generate the exact offline hashed runtime dependency lock.
           requirements="$(printf '%s' "${deps}" | jq -r --arg wheel "${wheel_name}" --arg whl_sha "${wheel_sha256}" \
