@@ -1690,6 +1690,10 @@ def tag_preflight(
         release = load_catalog(release_path, schema_dir)
         authority = {field: release['source'][field] for field in ('repository', 'staging_repository', 'default_branch', 'release_tag', 'release_policy')}  # fmt: skip  # noqa: E501
         authority = {**authority, 'version_file': release['version_file'], 'ucm_version': release['ucm_version']}  # fmt: skip  # noqa: E501
+        # catalog-planner mode: return resolved authority without live git/event checks
+        result = {'schema_version': 1, 'kind': 'ucm-tag-preflight', 'lane': lane, 'authority': authority, 'publication_allowed': False, 'write_authority': []}  # fmt: skip  # noqa: E501
+        result['preflight_sha256'] = sha256_value(result)
+        return result
     if repository_root is None: repository_root = REPO_ROOT  # noqa: E701
     return _tag_preflight_live(lane=lane, authority=authority, repository_root=repository_root)  # fmt: skip  # noqa: E501
 # fmt: on
