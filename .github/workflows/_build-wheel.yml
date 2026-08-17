@@ -272,7 +272,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out/source-context/build-wheels out/build-tool-download
-          jq -r '.build_tool_lock' out/hosted-task.json > out/source-context/build-requirements.lock
+          jq -jr '.build_tool_lock' out/hosted-task.json > out/source-context/build-requirements.lock
           test "sha256:$(sha256sum out/source-context/build-requirements.lock | cut -d' ' -f1)" = \
             "$(jq -r '.build_tool_lock_sha256' out/hosted-task.json)"
           while IFS=$'\t' read -r requirement filename expected_sha256; do
