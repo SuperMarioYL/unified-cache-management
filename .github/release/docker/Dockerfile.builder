@@ -22,7 +22,7 @@ COPY tools/mooncake_installer.sh /vllm-workspace/
 # cann900-a2 / cann900-a3 profiles in _prepare-builders.yml.
 RUN if [ ! -f /usr/local/Ascend/ascend-toolkit/set_env.sh ]; then exit 0; fi && \
     apt-get update -y && \
-    apt-get install -y git vim wget net-tools gcc g++ cmake numactl libnuma-dev libjemalloc2 clang-15 && \
+    apt-get install -y git vim wget curl net-tools gcc g++ cmake numactl libnuma-dev libjemalloc2 clang-15 && \
     update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20 && \
     update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20 && \
     git clone --depth 1 --branch ${MOONCAKE_TAG} https://github.com/kvcache-ai/Mooncake /vllm-workspace/Mooncake && \
