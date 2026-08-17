@@ -9,6 +9,11 @@ ARG CANN_BASE=quay.io/ascend/cann:9.0.0-910b-ubuntu22.04-py3.12
 ARG MOONCAKE_TAG=v0.3.9
 FROM ${CANN_BASE}
 
+# Re-declare the global ARG so the stage RUN can see ${MOONCAKE_TAG}; without
+# this Docker scopes pre-FROM ARGs out of the build stage and -u makes the
+# reference unbound.
+ARG MOONCAKE_TAG
+
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
 COPY tools/mooncake_installer.sh /vllm-workspace/
