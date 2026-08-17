@@ -28,11 +28,7 @@ def _runtime_patch_variants(payload: dict[str, Any]) -> dict[str, str]:
         observed = json.loads(observed_raw) if observed_raw is not None else None
     except json.JSONDecodeError as error:
         raise ValueError("runtime patch variant map is invalid JSON") from error
-    if (
-        not isinstance(expected, dict)
-        or not expected
-        or observed != expected
-    ):
+    if not isinstance(expected, dict) or not expected or observed != expected:
         raise ValueError("runtime patch variant map differs from image recipe")
     return observed
 
