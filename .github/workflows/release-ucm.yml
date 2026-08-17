@@ -204,6 +204,7 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.build_wheel_matrix) }}
     permissions:
       contents: read
+      id-token: write
     uses: ./.github/workflows/_build-wheel.yml
     with:
       source_sha: ${{ needs.plan.outputs.source_sha }}
