@@ -74,7 +74,10 @@ FROM wheel-base AS builder
 # reconciles with the runtime member). Mooncake v0.3.9, DUSE_ASCEND_DIRECT=ON.
 ARG MOONCAKE_TAG=v0.3.9
 COPY tools/mooncake_installer.sh /vllm-workspace/
-RUN apt-get update -y && \
+# Skip on non-Ascend (cuda130) builders: they lack the CANN toolkit and apt, and
+# cuda130 forbids mooncakestore. Guard mirrors the old conditional copy.
+RUN if [ ! -f /usr/local/Ascend/ascend-toolkit/set_env.sh ]; then exit 0; fi && \
+    apt-get update -y && \
     apt-get install -y git vim wget net-tools gcc g++ cmake numactl libnuma-dev libjemalloc2 clang-15 && \
     update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20 && \
     update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20 && \
