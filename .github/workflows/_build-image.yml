@@ -135,6 +135,7 @@ jobs:
         with:
           ref: ${{ inputs.source_sha }}
           fetch-depth: 1
+          clean: false
           persist-credentials: false
       - id: task-python
         name: Select task Python from the frozen plan
