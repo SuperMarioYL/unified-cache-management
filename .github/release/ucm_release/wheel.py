@@ -167,6 +167,17 @@ def _wheel_spec_from_task(task: dict[str, Any]) -> dict[str, Any]:
     } | {"build_eligible": task["build_eligible"]}
 
 
+def _fixture_wheel_specs(release: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract wheel spec declarations from the catalog for fixture/inspection paths."""
+    specs: list[dict[str, Any]] = []
+    for item in release.get("wheel_profiles", []):
+        spec = copy.deepcopy(item)
+        if "spec_id" not in spec:
+            spec["spec_id"] = spec.get("id", "")
+        specs.append(spec)
+    return specs
+
+
 def check_build_environment(
     task: dict[str, Any], *, python_executable: Path
 ) -> dict[str, Any]:
