@@ -227,6 +227,7 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.build_wheel_matrix) }}
     permissions:
       contents: read
+      packages: read
     uses: ./.github/workflows/_build-wheel.yml
     with:
       source_sha: ${{ needs.plan.outputs.source_sha }}
