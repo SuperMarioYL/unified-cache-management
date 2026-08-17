@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import pytest
 
-
 TEST_REPOSITORY = "release-org/unified-cache-management"
 
 

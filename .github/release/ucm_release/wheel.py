@@ -6,7 +6,6 @@ import json
 import re
 from typing import Any
 
-
 from .core import (
     runtime_patch_manifest_sha256,
     sha256_value,
