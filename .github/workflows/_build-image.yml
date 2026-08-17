@@ -455,7 +455,7 @@ jobs:
             '{schema_version:1,kind:"ucm-real-image-build-key-input",source:$source,source_date_epoch:$epoch,task_sha256:$task_sha256,task_authority_sha256:$task_auth_sha256,wheel_sha256:$wheel_sha256,wheel_inspection_sha256:$whl_inspection_sha256,wheel_build_key:$wheel_build_key,profile_id:$profile_id,cpu_arch:$cpu_arch,base:$base_dgsts,implementation_sha256:$impl_sha256,dependency_lock_sha256:$dep_lock_sha256,task_dependency_lock_sha256:$task_dep_lock_sha256,toolchain_sha256:$toolchain_sha256,deterministic_flags:["--provenance=false","--sbom=false","oci-mediatypes=true","rewrite-timestamp=true"]}')"
           build_key="sha256:$(printf '%s' "${identity}" | sha256sum | cut -d' ' -f1)"
           context_files="$(jq -cnS --arg wheel "${wheel_name}" --argjson deps "${deps}" \
-            '(["Dockerfile","install_ucm.py","inspect_runtime.py","verify_base_image.py","image-authority.json","image-recipe.json","requirements.lock",$wheel] + [.[]|.filename]) | sort')"
+            '(["Dockerfile","install_ucm.py","inspect_runtime.py","verify_base_image.py","image-authority.json","image-recipe.json","requirements.lock",$wheel] + [$deps[]|.filename]) | sort')"
           # Assemble the source-free runtime-real image recipe and sealed authority.
           payload="$(jq -cnS \
             --argjson task "${task}" --argjson base "$(jq -c '.' "${base}")" --argjson implementation "${implementation}" \
