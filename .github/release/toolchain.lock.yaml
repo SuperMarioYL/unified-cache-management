@@ -4,7 +4,7 @@ matrix_limits:
   max_image_tasks: 128
   max_family_tasks: 64
 scan_limits:
-  max_tags_per_repository: 512
+  max_tags_per_repository: 1024
   max_selected_upstreams: 64
 python_runtime_dependencies:
 - requirement: wrapt==1.17.2
