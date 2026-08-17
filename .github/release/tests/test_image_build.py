@@ -371,19 +371,20 @@ def test_real_content_identity_rejects_mutable_or_missing_oci_authority() -> Non
 
 
 @pytest.mark.parametrize("spec_id", ["cann900-a2-arm64", "cann900-a3-arm64"])
-def test_cann900_builder_is_manylinux_and_runtime_closes_with_same_root_false(
+def test_cann900_builder_is_cann_ubuntu_and_runtime_closes_with_same_root_false(
     spec_id: str,
 ) -> None:
-    """The Ascend wheel builder is the CANN-only manylinux build base, while the
-    runtime base stays vllm-ascend; the closure gate must still pass with the
-    builder/base roots differing (same_root=False)."""
+    """The Ascend wheel builder is the cann-ubuntu base (Mooncake built in-tree
+    on the same CANN/Ubuntu lineage as vllm-ascend), while the runtime base
+    stays vllm-ascend; the closure gate must still pass with the builder/base
+    roots differing (same_root=False)."""
     *_, image = _modules()
     recipe, evidence = _real_runtime_probe(image, spec_id)
     builder_coordinate = recipe["payload"]["wheel"]["builder_evidence"][
         "builder_coordinate"
     ]
     base_subject = recipe["payload"]["base"]["subject"]
-    assert builder_coordinate.startswith("quay.io/ascend/manylinux@sha256:")
+    assert builder_coordinate.startswith("quay.io/ascend/cann@sha256:")
     assert base_subject.startswith("quay.io/ascend/vllm-ascend@sha256:")
     assert builder_coordinate != base_subject
     assert image.verify_real_runtime_evidence(recipe, evidence) == {

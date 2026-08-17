@@ -3,9 +3,6 @@
 ARG SOURCE_DATE_EPOCH=0
 ARG BASE_IMAGE=registry.invalid/ucm/base@sha256:0000000000000000000000000000000000000000000000000000000000000000
 ARG UCM_BUILDER_IMAGE=registry.invalid/ucm/builder@sha256:0000000000000000000000000000000000000000000000000000000000000000
-ARG UCM_BUILDER_SOURCE_0=registry.invalid/ucm/source@sha256:0000000000000000000000000000000000000000000000000000000000000000
-
-FROM ${UCM_BUILDER_SOURCE_0} AS runtime-member-source
 
 FROM ${UCM_BUILDER_IMAGE} AS wheel-base
 
@@ -52,21 +49,6 @@ RUN test "${UCM_BUILDER_IMAGE}" != "${UCM_BUILDER_IMAGE%@sha256:*}" && \
     ucm-python -m pip install --no-index --find-links=/wheelhouse \
       --require-hashes --only-binary=:all: -r /tmp/build-requirements.lock
 
-# Mooncake headers and libmooncake_store.so are in the vllm-ascend runtime member,
-# not in the CANN-only manylinux builder.
-RUN --mount=from=runtime-member-source,target=/mnt/runtime-member \
-    set -eux; \
-    for p in \
-      /vllm-workspace/Mooncake/mooncake-store/include \
-      /usr/local/include/transfer_engine.h \
-      /usr/local/lib/libmooncake_store.so; do \
-      if [ -e "/mnt/runtime-member${p}" ]; then \
-        mkdir -p "$(dirname "${p}")"; \
-        cp -a "/mnt/runtime-member${p}" "${p}"; \
-      fi; \
-    done; \
-    ldconfig /usr/local/lib 2>/dev/null || true
-
 WORKDIR /workspace/ucm
 COPY ucm-source.tar /tmp/ucm-source.tar
 COPY source-commit.payload /tmp/source-commit.payload
@@ -84,7 +66,29 @@ RUN PYTHONPATH=/workspace/ucm/.github/release \
       --manifest /tmp/source-context.json \
       --source-root /workspace/ucm
 
-FROM wheel-base AS wheel-build
+FROM wheel-base AS builder
+
+# Build Mooncake in-tree, replicating vllm-ascend v0.22.1rc1's build on the same
+# CANN/Ubuntu base so the produced libmooncake_store.so matches the vllm-ascend
+# runtime (glibc 2.35 satisfies its GLIBC_2.33 requirement; dependency closure
+# reconciles with the runtime member). Mooncake v0.3.9, DUSE_ASCEND_DIRECT=ON.
+ARG MOONCAKE_TAG=v0.3.9
+COPY tools/mooncake_installer.sh /vllm-workspace/
+RUN apt-get update -y && \
+    apt-get install -y git vim wget net-tools gcc g++ cmake numactl libnuma-dev libjemalloc2 clang-15 && \
+    update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20 && \
+    update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20 && \
+    git clone --depth 1 --branch ${MOONCAKE_TAG} https://github.com/kvcache-ai/Mooncake /vllm-workspace/Mooncake && \
+    mv /vllm-workspace/mooncake_installer.sh /vllm-workspace/Mooncake/ && \
+    cd /vllm-workspace/Mooncake && bash mooncake_installer.sh -y && \
+    source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
+    mkdir -p build && cd build && cmake .. -DUSE_ASCEND_DIRECT=ON && \
+    make -j$(nproc) && make install && \
+    rm -rf /vllm-workspace/Mooncake/build && \
+    rm -rf /var/cache/apt/* && rm -rf /var/lib/apt/lists/* && \
+    ldconfig /usr/local/lib
+
+FROM builder AS wheel-build
 
 RUN <<'EOF'
 test -n "${TARGETARCH}"

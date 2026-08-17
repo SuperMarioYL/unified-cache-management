@@ -156,21 +156,13 @@ builders:
   cann900-a2:
     amd64:
       root:
-        repository: quay.io/ascend/manylinux
-        tag: 9.0.0-910b-manylinux_2_28-py3.12
-        index_digest: sha256:d5dfc2dc4f4400ab35f05f7568503df9829d779f7b9f7c17be75adb65cadd965
-        manifest_digest: sha256:53bb61ac277cfcec2ca2e3f04043a91869a8cbf9a3099380133683f66bb92312
-        config_digest: sha256:a4a55b63fcf1bd620263c989b9226e329e28d8823c26f1b39e014848762c3e01
-      sources:
-      - repository: quay.io/ascend/vllm-ascend
-        tag: v0.22.1rc1
-        index_digest: sha256:9008b47081282612abfe4d28069ce34436752c980fd06f7599343213205ce64d
-        manifest_digest: sha256:a4176a62da7ff54e8eaf2e68e09578917d5c93dab6d2c9c7ebce551781e117b3
-        config_digest: sha256:0539c8ff2dbe3f02d6e5de0d8a463e1d6142482d41e5139dc4b957a191951c8b
-      copy_paths:
-      - /vllm-workspace/Mooncake/mooncake-store/include
-      - /usr/local/include/transfer_engine.h
-      - /usr/local/lib/libmooncake_store.so
+        repository: quay.io/ascend/cann
+        tag: 9.0.0-910b-ubuntu22.04-py3.12
+        index_digest: sha256:e2580904351933db51c1771462e5641ac35c9724fe76220089736c868d961dc5
+        manifest_digest: sha256:11d62db175878be59ddac8cb53a950daaa710f1376eac51c19dc0d3767ce27a9
+        config_digest: sha256:be24f4ce1cfc8ccd750af2979c26d0a087328f5947860ed089194d08f287c4d8
+      sources: []
+      copy_paths: []
       checks:
       - kind: python
         version: '3.12'
@@ -208,21 +200,13 @@ builders:
         path: /usr/local/lib/libmooncake_store.so
     arm64:
       root:
-        repository: quay.io/ascend/manylinux
-        tag: 9.0.0-910b-manylinux_2_28-py3.12
-        index_digest: sha256:d5dfc2dc4f4400ab35f05f7568503df9829d779f7b9f7c17be75adb65cadd965
-        manifest_digest: sha256:6cc01387d36c47d4a1bce1dbefa18cb5e8c3274f988795cfdb68760fb73daf75
-        config_digest: sha256:1ef6c226c8d49d41d7c0ace251c8b6e79301113073c6da8dea940774958c0a1d
-      sources:
-      - repository: quay.io/ascend/vllm-ascend
-        tag: v0.22.1rc1
-        index_digest: sha256:9008b47081282612abfe4d28069ce34436752c980fd06f7599343213205ce64d
-        manifest_digest: sha256:638fc04eaa3654fcf14688096ed4e9d88ea0d905fa8685eed4b36d5fffe8fd8d
-        config_digest: sha256:1b8f114d14c4d0bea66ca32ebb5afe34bd1e10bfd0802b930ed678a116aaf078
-      copy_paths:
-      - /vllm-workspace/Mooncake/mooncake-store/include
-      - /usr/local/include/transfer_engine.h
-      - /usr/local/lib/libmooncake_store.so
+        repository: quay.io/ascend/cann
+        tag: 9.0.0-910b-ubuntu22.04-py3.12
+        index_digest: sha256:e2580904351933db51c1771462e5641ac35c9724fe76220089736c868d961dc5
+        manifest_digest: sha256:bb8d90084c3140e6840fa55a6e507a01cafa33ebf0b5dd729d04fbfa7afa716d
+        config_digest: sha256:d8b5c3dbfbf4a9f27defd9f64c044da439a124cdceb65d2ebd7abeeff066e347
+      sources: []
+      copy_paths: []
       checks:
       - kind: python
         version: '3.12'
@@ -261,21 +245,13 @@ builders:
   cann900-a3:
     amd64:
       root:
-        repository: quay.io/ascend/manylinux
-        tag: 9.0.0-a3-manylinux_2_28-py3.12
-        index_digest: sha256:1070cb18ba4d158674871ccdc26ceeb67697b6af08137796702b78ea8e89f39b
-        manifest_digest: sha256:32180ed13a5183130466850ca8658c514b5ac91dc4d18fe81d1fc90eb586f283
-        config_digest: sha256:0842ede965ed12f5be2d5940cb84f671831853eef4e148b3d4cd13efc4a88697
-      sources:
-      - repository: quay.io/ascend/vllm-ascend
-        tag: v0.22.1rc1-a3
-        index_digest: sha256:e3d89f09a1c1d85f0ec6a1cc26e3c807b7bc8a7ec0f97a830dbef63ab50d8f81
-        manifest_digest: sha256:ac166d960b3cb1b584f6ec413e5f4ef353b78049aa2b85e22b0e04eb8770eae4
-        config_digest: sha256:9c5cc2811d8dd9f26e871389723bc432fc321ba7bf46279ec423cbdd4daf9853
-      copy_paths:
-      - /vllm-workspace/Mooncake/mooncake-store/include
-      - /usr/local/include/transfer_engine.h
-      - /usr/local/lib/libmooncake_store.so
+        repository: quay.io/ascend/cann
+        tag: 9.0.0-a3-ubuntu22.04-py3.12
+        index_digest: sha256:1dc87b8554ff9bfc86c6e7bbce7dc2657b2e99d26b97fcce4a6f2c271c57788f
+        manifest_digest: sha256:0b96ec0e1a19025d2ecaef4617ef29c5d3d4aa0e48a3a6b0c778bc86dadf4e50
+        config_digest: sha256:c812929f20953db32ce1df878e0005b0c2cc3551fc01fd2858a60cc8cf2a7dba
+      sources: []
+      copy_paths: []
       checks:
       - kind: python
         version: '3.12'
@@ -313,21 +289,13 @@ builders:
         path: /usr/local/lib/libmooncake_store.so
     arm64:
       root:
-        repository: quay.io/ascend/manylinux
-        tag: 9.0.0-a3-manylinux_2_28-py3.12
-        index_digest: sha256:1070cb18ba4d158674871ccdc26ceeb67697b6af08137796702b78ea8e89f39b
-        manifest_digest: sha256:7c729787b2a89816c350606155ae3705adbf1d251c7bae7ad11a3b5a4d0a3c50
-        config_digest: sha256:27075961c39a224a8a162b6e640e7bb9fd80de978471d42c9b8c6238194dbe93
-      sources:
-      - repository: quay.io/ascend/vllm-ascend
-        tag: v0.22.1rc1-a3
-        index_digest: sha256:e3d89f09a1c1d85f0ec6a1cc26e3c807b7bc8a7ec0f97a830dbef63ab50d8f81
-        manifest_digest: sha256:28f44b9c94c7667a7cbcd6b7b91432f03e4dffe476784dfd9fd82f036bdb1e4d
-        config_digest: sha256:c4d766b5f04fe6238a74731d67a215bb6331072ba242c7c5f24a25f99ce36c3b
-      copy_paths:
-      - /vllm-workspace/Mooncake/mooncake-store/include
-      - /usr/local/include/transfer_engine.h
-      - /usr/local/lib/libmooncake_store.so
+        repository: quay.io/ascend/cann
+        tag: 9.0.0-a3-ubuntu22.04-py3.12
+        index_digest: sha256:1dc87b8554ff9bfc86c6e7bbce7dc2657b2e99d26b97fcce4a6f2c271c57788f
+        manifest_digest: sha256:2ca5422a7e26858a731dfdc134c34bd84112354a7fbc549a67fc1f2bb5b499ca
+        config_digest: sha256:fcc748114bcd7a0e6e7e5d851e392f9770b3fb01379edeccb79bb52d375bd66c
+      sources: []
+      copy_paths: []
       checks:
       - kind: python
         version: '3.12'

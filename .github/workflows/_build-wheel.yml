@@ -189,15 +189,11 @@ jobs:
           builder_coordinate="$(jq -r \
             '.builder.root.repository + "@" + .builder.root.manifest_digest' \
             out/selected-task.json)"
-          builder_source_coordinate_0="$(jq -r \
-            '(.builder.sources[0] // .builder.root) | .repository + "@" + .manifest_digest' \
-            out/selected-task.json)"
           jq -ncS \
             --slurpfile t out/selected-task.json \
             --arg source_sha "${SOURCE_SHA}" \
             --arg source_date_epoch "${source_date_epoch}" \
             --arg builder_coordinate "${builder_coordinate}" \
-            --arg builder_source_coordinate_0 "${builder_source_coordinate_0}" \
             --arg build_settings "${build_settings}" \
             --arg build_tool_lock_sha256 "${build_tool_lock_sha256}" \
             --arg required_targets "$(jq -r '.required_native | join(",")' out/selected-task.json)" \
@@ -225,7 +221,6 @@ jobs:
               build_args: {
                 SOURCE_DATE_EPOCH: $source_date_epoch,
                 UCM_BUILDER_IMAGE: $builder_coordinate,
-                UCM_BUILDER_SOURCE_0: $builder_source_coordinate_0,
                 PLATFORM: $t[0].build.platform_arg,
                 UCM_RELEASE_TASK_ID: $t[0].task_id,
                 UCM_RELEASE_SPEC_ID: $t[0].spec_id,
@@ -250,6 +245,10 @@ jobs:
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
           source_tree="$(git rev-parse "${SOURCE_SHA}^{tree}")"
           mkdir -p out/source-context
+          # Vendor the Mooncake deps installer (from vllm-ascend v0.22.1rc1) into the
+          # build context so the Dockerfile builder stage can COPY it.
+          mkdir -p out/source-context/tools
+          cp .github/release/docker/mooncake_installer.sh out/source-context/tools/mooncake_installer.sh
           git archive --format=tar "${SOURCE_SHA}" >out/source-context/ucm-source.tar
           git cat-file commit "${SOURCE_SHA}" >out/source-context/source-commit.payload
           archive_sha256="sha256:$(sha256sum out/source-context/ucm-source.tar | cut -d' ' -f1)"

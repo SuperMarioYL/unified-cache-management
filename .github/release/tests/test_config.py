@@ -25,6 +25,7 @@ EXPECTED_DOCKER_FILES = {
     "Dockerfile",
     "install_ucm.py",
     "inspect_runtime.py",
+    "mooncake_installer.sh",
     "verify_base_image.py",
 }
 
