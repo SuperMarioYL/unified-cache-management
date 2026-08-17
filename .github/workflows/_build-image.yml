@@ -77,6 +77,14 @@ jobs:
         with:
           name: ${{ inputs.resolved_plan_artifact }}
           path: input/plan
+      - name: Move resolved plan to expected path
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f input/plan/resolved-plan.json ]]; then
+            find input/plan -name 'resolved-plan.json' -exec mv {} input/plan/resolved-plan.json \;
+          fi
+          test -f input/plan/resolved-plan.json
       - name: Validate frozen plan source before checkout
         env:
           EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
