@@ -389,6 +389,8 @@ jobs:
           expected_count="$(jq '(.runtime_dependencies) | length' out/real-image-authority.json)"
           test "$(find input/runtime-dependencies -maxdepth 1 -type f -name '*.whl' | wc -l | tr -d ' ')" = "${expected_count}"
       - name: Prepare the allowlisted offline runtime-real context
+        env:
+          TASK_ID: ${{ inputs.task_id }}
         shell: bash
         run: |
           set -euo pipefail
