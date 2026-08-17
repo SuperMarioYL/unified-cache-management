@@ -337,6 +337,7 @@ jobs:
       }}
     permissions:
       contents: read
+      id-token: write
     uses: ./.github/workflows/release-vllm-images.yml
     with:
       source_sha: ${{ needs.plan.outputs.source_sha }}

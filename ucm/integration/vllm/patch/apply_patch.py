@@ -145,8 +145,7 @@ def _validate_runtime_patch_manifest(manifest: object) -> dict[str, Any]:
             module = declaration["module"]
             if (
                 not isinstance(module, str)
-                or re.fullmatch(r"ucm(?:\.[A-Za-z_][A-Za-z0-9_]*)+", module)
-                is None
+                or re.fullmatch(r"ucm(?:\.[A-Za-z_][A-Za-z0-9_]*)+", module) is None
             ):
                 raise ValueError("malformed runtime patch manifest module")
             if "when" in declaration and (
@@ -160,7 +159,11 @@ def _validate_runtime_patch_manifest(manifest: object) -> dict[str, Any]:
 
 def _load_runtime_patch_manifest() -> dict[str, Any]:
     try:
-        raw = resources.files(__package__).joinpath("runtime_patch_rules.json").read_bytes()
+        raw = (
+            resources.files(__package__)
+            .joinpath("runtime_patch_rules.json")
+            .read_bytes()
+        )
         manifest = json.loads(raw)
     except (FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("runtime patch manifest is missing or invalid") from error
@@ -190,7 +193,9 @@ def select_runtime_patch_rule(
     try:
         parsed = Version(version)
     except InvalidVersion as error:
-        raise ValueError(f"installed {product} version is not valid PEP 440: {version}") from error
+        raise ValueError(
+            f"installed {product} version is not valid PEP 440: {version}"
+        ) from error
     channel = _runtime_channel(parsed)
     matches = [
         rule
@@ -198,9 +203,7 @@ def select_runtime_patch_rule(
         if rule["product"] == product
         and channel in rule["channels"]
         and variant in rule["variants"]
-        and SpecifierSet(rule["version_specifier"]).contains(
-            parsed, prereleases=True
-        )
+        and SpecifierSet(rule["version_specifier"]).contains(parsed, prereleases=True)
     ]
     if not matches:
         raise ValueError(
@@ -236,9 +239,7 @@ def _runtime_patch_variants(installed_products: set[str]) -> dict[str, str]:
         not isinstance(variants, dict)
         or set(variants) != installed_products
         or any(
-            not isinstance(product, str)
-            or not isinstance(variant, str)
-            or not variant
+            not isinstance(product, str) or not isinstance(variant, str) or not variant
             for product, variant in variants.items()
         )
     ):

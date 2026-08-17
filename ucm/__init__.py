@@ -35,9 +35,7 @@ def _guard_single_backend() -> None:
         {
             name
             for dist in distributions()
-            if (
-                name := (dist.metadata["Name"] or "").lower().replace("_", "-")
-            )
+            if (name := (dist.metadata["Name"] or "").lower().replace("_", "-"))
             in _UCM_BACKEND_DISTS
         }
     )
