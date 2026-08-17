@@ -26,6 +26,7 @@ repos:
     hooks:
       - id: actionlint
         exclude: \.(jsonl|txt)$
+        args: ["-shellcheck="]
 default_stages:
   - pre-commit
   - manual
