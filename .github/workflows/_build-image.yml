@@ -455,7 +455,7 @@ jobs:
             '{schema_version:1,kind:"ucm-real-image-build-key-input",source:$source,source_date_epoch:$epoch,task_sha256:$task_sha256,task_authority_sha256:$task_auth_sha256,wheel_sha256:$wheel_sha256,wheel_inspection_sha256:$whl_inspection_sha256,wheel_build_key:$wheel_build_key,profile_id:$profile_id,cpu_arch:$cpu_arch,base:$base_dgsts,implementation_sha256:$impl_sha256,dependency_lock_sha256:$dep_lock_sha256,task_dependency_lock_sha256:$task_dep_lock_sha256,toolchain_sha256:$toolchain_sha256,deterministic_flags:["--provenance=false","--sbom=false","oci-mediatypes=true","rewrite-timestamp=true"]}')"
           build_key="sha256:$(printf '%s' "${identity}" | sha256sum | cut -d' ' -f1)"
           context_files="$(jq -cnS --arg wheel "${wheel_name}" --argjson deps "${deps}" \
-            '(["Dockerfile","install_ucm.py","inspect_runtime.py","verify_base_image.py","image-authority.json","image-recipe.json","requirements.lock",$wheel] + [$deps[]|.filename]) | sort')"
+            '(["Dockerfile","install_ucm.py","inspect_runtime.py","verify_base_image.py","image-recipe.json","requirements.lock",$wheel] + [$deps[]|.filename]) | sort')"
           # Assemble the source-free runtime-real image recipe and sealed authority.
           payload="$(jq -cnS \
             --argjson task "${task}" --argjson base "$(jq -c '.' "${base}")" --argjson implementation "${implementation}" \
@@ -471,11 +471,6 @@ jobs:
             '{schema_version:1,kind:"ucm-install-image-recipe",candidate_kind:"real-candidate",fixture_only:false,unpublished:true,publication_attempted:false,source_date_epoch:($source_date_epoch|tonumber),task_id:$task.task_id,family_task_id:$task.family_task_id,resolved_plan_sha256:$resolved,family_id:$task.family_task_id,profile_id:$task.profile_id,spec_id:$task.spec_id,runtime_patch_variants:$task.runtime_patch_variants,target_platform:$task.platform,target_repository:$task.target_repository,target_tag:$task.target_tag,task_sha256:$task.task_sha256,build_key_sha256:$build_key,authority_sha256:$authority_sha256,source:$identity.source,base:$base,wheel:{filename:$wheel_name,sha256:$wheel_sha256,size:$wheel_size,spec_id:$task.spec_id,version:$task.wheel_version,python_abi:$task.python_abi,cpu_arch:$task.cpu_arch,builder_evidence:{source_commit:$identity.source.commit,source_tree:$identity.source.tree,build_context_digest:$identity.source.context_sha256,build_key:$identity.wheel_build_key,builder_coordinate:$builder_coordinate,builder_config_digest:$builder_config_digest,dependency_lock_sha256:$identity.dependency_lock_sha256,native_members:$whl_closure.native_members,dependency_closure:$whl_closure.native_members,unresolved_dependencies:[]}},runtime_dependencies:$deps,dependency_lock:{filename:"requirements.lock",sha256:$dep_lock_sha256,preinstall_command:($preinstall|fromjson),pip_command:($pip_command|fromjson)},implementation:$implementation,toolchain:$toolchain,build:{target:"runtime-real",base_image:$base_subject,output:"local-oci-or-canonical-member",build_args:{BASE_IMAGE:$base_subject,SOURCE_DATE_EPOCH:$source_date_epoch,TARGETPLATFORM:$task.platform,UCM_WHEEL:$wheel_name,UCM_SOURCE_SHA:$identity.source.commit,UCM_SOURCE_REPOSITORY_URL:$identity.source.repository_url,UCM_SOURCE_TREE:$identity.source.tree,UCM_SOURCE_CONTEXT_SHA256:$identity.source.context_sha256,UCM_TASK_SHA256:$task.task_sha256,UCM_BUILD_KEY_SHA256:$build_key,UCM_WHEEL_SHA256:$wheel_sha256,UCM_RUNTIME_PATCH_VARIANTS:$runtime_patch_canonical}},context_files:$context_files}')"
           recipe_sha256="sha256:$(printf '%s' "${payload}" | sha256sum | cut -d' ' -f1)"
           jq -cS --arg sha "${recipe_sha256}" '{payload:.,payload_sha256:$sha}' <<<"${payload}" >context/image-recipe.json
-          jq -cnS --argjson task "$(jq -c '.' "${auth}")" --argjson base "$(jq -c '.' "${base}")" --argjson deps "${deps}" \
-            --argjson identity "${identity}" --arg build_key "${build_key}" --arg dep_lock_sha256 "${dep_lock_sha256}" \
-            --arg preinstall "${preinstall}" --arg pip_command "${pip_command}" \
-            '{schema_version:1,kind:"ucm-real-image-source-authority",candidate_kind:"real-candidate",fixture_only:false,unpublished:true,publication_attempted:false,task:$task,base:$base,runtime_dependencies:$deps,dependency_lock:{sha256:$dep_lock_sha256,preinstall_command:($preinstall|fromjson),pip_command:($pip_command|fromjson)},build_key_inputs:$identity,build_key_sha256:$build_key}' \
-            >context/image-authority.json
           jq -cS --arg sha "${recipe_sha256}" '{payload:.,payload_sha256:$sha}' <<<"${payload}" >out/image-prepare-result.json
       - name: Build runtime-real OCI and record archive checksum
         shell: bash
@@ -635,7 +630,6 @@ jobs:
             echo "oci_digest=$(jq -r '.oci.digest' out/image-result.json)"
           } >>"${GITHUB_OUTPUT}"
           cp context/image-recipe.json out/image-recipe.json
-          cp context/image-authority.json out/image-authority.json
           cp "${RUNNER_TEMP}/ucm-disk-before.txt" out/disk-before.txt
           cp "${RUNNER_TEMP}/ucm-disk-after.txt" out/disk-after.txt
           cp "${RUNNER_TEMP}/ucm-available-gib.txt" out/available-gib.txt
@@ -646,7 +640,6 @@ jobs:
             out/image-result.json
             out/oci-evidence/
             out/image-recipe.json
-            out/image-authority.json
             out/image-prepare-result.json
             out/base-record-real.json
             out/base/

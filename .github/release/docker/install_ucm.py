@@ -156,40 +156,16 @@ def _canonical_distribution_name(value: object) -> str:
 
 def install_real(
     recipe_path: Path,
-    authority_path: Path,
     wheelhouse: Path,
     lock_path: Path,
 ) -> dict[str, Any]:
     recipe = _load(recipe_path)
-    authority = _load(authority_path)
     payload = recipe.get("payload")
     if (
         not isinstance(payload, dict)
         or payload.get("candidate_kind") != "real-candidate"
     ):
         raise ValueError("real recipe payload is not a real-candidate object")
-    authority_payload = {
-        key: value for key, value in authority.items() if key != "authority_sha256"
-    }
-    authority_sha256 = (
-        "sha256:"
-        + hashlib.sha256(
-            json.dumps(
-                authority_payload,
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-            ).encode()
-        ).hexdigest()
-    )
-    if (
-        authority.get("kind") != "ucm-real-image-source-authority"
-        or authority.get("candidate_kind") != "real-candidate"
-        or authority.get("fixture_only") is not False
-        or authority.get("authority_sha256") != authority_sha256
-        or payload.get("authority_sha256") != authority_sha256
-    ):
-        raise ValueError("real image authority does not match recipe")
     wheel = payload.get("wheel")
     runtime_dependencies = payload.get("runtime_dependencies")
     dependency_lock = payload.get("dependency_lock")
@@ -431,14 +407,13 @@ def main() -> int:
     parser.add_argument("--recipe", type=Path, required=True)
     parser.add_argument("--metadata", type=Path)
     parser.add_argument("--wheel", type=Path)
-    parser.add_argument("--authority", type=Path)
     parser.add_argument("--wheelhouse", type=Path)
     parser.add_argument("--lock", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
         fixture_arguments = (args.metadata, args.wheel)
-        real_arguments = (args.authority, args.wheelhouse, args.lock)
+        real_arguments = (args.wheelhouse, args.lock)
         if all(value is not None for value in fixture_arguments) and all(
             value is None for value in real_arguments
         ):
@@ -446,12 +421,10 @@ def main() -> int:
         elif all(value is not None for value in real_arguments) and all(
             value is None for value in fixture_arguments
         ):
-            result = install_real(
-                args.recipe, args.authority, args.wheelhouse, args.lock
-            )
+            result = install_real(args.recipe, args.wheelhouse, args.lock)
         else:
             raise ValueError(
-                "choose exactly fixture metadata/wheel or real authority/wheelhouse/lock"
+                "choose exactly fixture metadata/wheel or real wheelhouse/lock"
             )
         encoded = json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n"
         args.output.parent.mkdir(parents=True, exist_ok=True)

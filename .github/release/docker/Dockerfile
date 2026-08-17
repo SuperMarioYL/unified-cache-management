@@ -244,7 +244,6 @@ LABEL org.opencontainers.image.source="${UCM_SOURCE_REPOSITORY_URL}" \
       io.ucm.release.recipe-sha256="${UCM_RECIPE_SHA256}"
 
 COPY image-recipe.json /usr/local/share/ucm-release/image-recipe.json
-COPY image-authority.json /usr/local/share/ucm-release/image-authority.json
 COPY verify_base_image.py /usr/local/bin/verify_base_image.py
 COPY install_ucm.py /usr/local/bin/install_ucm.py
 COPY inspect_runtime.py /usr/local/bin/inspect_runtime.py
@@ -257,7 +256,6 @@ RUN python3 /usr/local/bin/verify_base_image.py \
 RUN --mount=type=bind,target=/wheelhouse,readonly \
     python3 /usr/local/bin/install_ucm.py \
       --recipe /usr/local/share/ucm-release/image-recipe.json \
-      --authority /usr/local/share/ucm-release/image-authority.json \
       --wheelhouse /wheelhouse \
       --lock /wheelhouse/requirements.lock \
       --output /usr/local/share/ucm-release/install-result.json
