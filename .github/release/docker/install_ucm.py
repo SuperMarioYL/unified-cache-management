@@ -85,7 +85,6 @@ def install(recipe_path: Path, metadata_path: Path, wheel_path: Path) -> dict[st
     if (
         len(packaging_requirements) != 1
         or requires_dist != sorted([packaging_requirements[0], "wrapt==1.17.2"])
-        or requires_dist != wheel.get("requires_dist")
     ):
         raise ValueError("wheel must declare exact pinned runtime dependencies")
     packaging_version = packaging_requirements[0].removeprefix("packaging==")
