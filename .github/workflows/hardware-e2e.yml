@@ -32,6 +32,7 @@ jobs:
       - id: recipes
         name: Project trusted hardware recipes from the catalog
         run: |
+          # shellcheck disable=SC2153
           set -euo pipefail
           PYTHONPATH=.github/release python -m ucm_release catalog recipe-matrix \
             --lane hardware-e2e --output hardware-e2e-recipes.json >/dev/null
@@ -133,6 +134,7 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
           RUN_NUMBER: ${{ github.run_number }}
         run: |
+          # shellcheck disable=SC2153
           set -euo pipefail
           if [[ ! "${TASK_ID}" =~ ^[a-z0-9][a-z0-9._-]{0,127}$ ]]; then
             echo "Catalog task ID is not safe for an OCI tag" >&2
