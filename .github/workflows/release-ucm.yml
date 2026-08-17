@@ -2,8 +2,9 @@ name: Build planner-selected UCM candidates and publish protected tags
 
 on:
   push:
-    branches: ["feature/**"]
     tags: ["v*"]
+  schedule:
+    - cron: "0 6 * * *"  # Daily at 06:00 UTC
   workflow_dispatch:
     inputs:
       deliver_full_oci:
@@ -104,6 +105,10 @@ jobs:
             route=pr
             PYTHONPATH=.github/release python -m ucm_release core tag-preflight \
               --lane feature-candidate --catalog-planner >feature-preflight.json
+          elif [[ "${EVENT_NAME}" == schedule ]]; then
+            route=feature
+            feature=true
+            PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane feature-candidate --catalog-planner >feature-preflight.json
           elif [[ "${REF}" == refs/heads/feature/* && \
                 ( "${EVENT_NAME}" == push || "${EVENT_NAME}" == workflow_dispatch ) ]]; then
             route=feature
@@ -184,6 +189,8 @@ jobs:
           fi
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             dry_run_val="${{ inputs.dry_run }}"
+          elif [[ "${{ github.event_name }}" == "schedule" ]]; then
+            dry_run_val=true
           else
             dry_run_val=false
           fi
