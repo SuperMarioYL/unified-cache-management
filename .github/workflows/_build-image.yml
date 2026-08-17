@@ -131,19 +131,27 @@ jobs:
             exit 2
           fi
           printf '%s\n' "${available_gib}" >"${RUNNER_TEMP}/ucm-available-gib.txt"
-      - name: Stash resolved plan before checkout
+      - name: Stash resolved plan and task artifacts before checkout
         shell: bash
-        run: cp input/plan/resolved-plan.json "${RUNNER_TEMP}/resolved-plan.json"
+        run: |
+          cp input/plan/resolved-plan.json "${RUNNER_TEMP}/resolved-plan.json"
+          if [[ -d out ]]; then
+            cp -r out "${RUNNER_TEMP}/ucm-out-backup"
+          fi
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ inputs.source_sha }}
           fetch-depth: 1
           persist-credentials: false
-      - name: Restore resolved plan after checkout
+      - name: Restore resolved plan and task artifacts after checkout
         shell: bash
         run: |
           mkdir -p input/plan
           cp "${RUNNER_TEMP}/resolved-plan.json" input/plan/resolved-plan.json
+          if [[ -d "${RUNNER_TEMP}/ucm-out-backup" ]]; then
+            rm -rf out
+            cp -r "${RUNNER_TEMP}/ucm-out-backup" out
+          fi
       - id: task-python
         name: Select task Python from the frozen plan
         env:
