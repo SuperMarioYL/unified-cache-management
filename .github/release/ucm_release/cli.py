@@ -301,6 +301,24 @@ def build_parser() -> argparse.ArgumentParser:
         return wheel.seal_wheel(a.path, a.output_dir, a.spec_id, a.source_sha, a.build_key, int(a.source_date_epoch), a.authority_file, a.dependency_closure, task_path=a.task_file)  # fmt: skip  # noqa: E501
     wc_seal.set_defaults(func=_cmd_wheel_seal)
 
+    wc_inspect = wheel_actions.add_parser("inspect")
+    wc_inspect.add_argument("path", type=Path)
+    wc_inspect.add_argument("--spec-id", required=True)
+    wc_inspect.add_argument("--expected-sha256", required=True)
+    wc_inspect.add_argument('--source-kind', choices=('fixture', 'builder-candidate'), required=True)  # fmt: skip  # noqa: E501
+    wc_inspect.add_argument("--task-file", type=Path)
+    wc_inspect.add_argument("--release", type=Path, default=core.DEFAULT_RELEASE)
+    wc_inspect.add_argument('--schema-dir', type=Path, default=core.DEFAULT_SCHEMA_DIR)  # fmt: skip  # noqa: E501
+    wc_inspect.add_argument("--output", type=Path)
+
+    def _cmd_wheel_inspect(a):
+        result = wheel.inspect_wheel(a.path, a.spec_id, a.expected_sha256, a.source_kind, task_path=a.task_file, release_path=a.release, schema_dir=a.schema_dir)  # fmt: skip  # noqa: E501
+        if a.output is not None:
+            a.output.parent.mkdir(parents=True, exist_ok=True)
+            _write(a.output, result)
+        return result
+    wc_inspect.set_defaults(func=_cmd_wheel_inspect)
+
     return parser
 
 

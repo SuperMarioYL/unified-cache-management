@@ -409,23 +409,12 @@ jobs:
           test "$(jq -r '.runtime_patch_manifest_sha256' out/wheel/wheel-seal.json)" = "${runtime_patch_manifest_sha256}"
           actual_sha256="sha256:$(sha256sum "${wheel_path}" | cut -d' ' -f1)"
           test "${actual_sha256}" = "${wheel_sha256}"
-          metadata="$(unzip -p "${wheel_path}" '*.dist-info/METADATA')"
-          dist="$(printf '%s\n' "${metadata}" | awk -F': ' '/^Name:/{print $2; exit}')"
-          version="$(printf '%s\n' "${metadata}" | awk -F': ' '/^Version:/{print $2; exit}')"
-          requires_dist="$(printf '%s\n' "${metadata}" | awk -F': ' '/^Requires-Dist:/{sub(/^Requires-Dist: /,""); print}' | jq -R -s 'split("\n") | map(select(length>0))')"
-          patch_sha256="sha256:$(unzip -p "${wheel_path}" 'ucm/integration/vllm/patch/runtime_patch_rules.json' | sha256sum | cut -d' ' -f1)"
-          wheel_size="$(wc -c < "${wheel_path}" | tr -d ' ')"
-          jq -cnS \
-            --arg spec_id "${spec_id}" \
-            --arg filename "$(basename "${wheel_path}")" \
-            --arg sha256 "${actual_sha256}" \
-            --argjson size "${wheel_size}" \
-            --arg distribution "${dist}" \
-            --arg version "${version}" \
-            --argjson requires_dist "${requires_dist}" \
-            --arg runtime_patch_manifest_sha256 "${patch_sha256}" \
-            '{schema_version:1, kind:"ucm-wheel-inspection", source_kind:"builder-candidate", spec_id:$spec_id, filename:$filename, sha256:$sha256, size:$size, distribution:$distribution, version:$version, requires_dist:$requires_dist, runtime_patch_manifest_sha256:$runtime_patch_manifest_sha256, published:false, publication_eligible:false}' \
-            >out/reopened-wheel-inspection.json
+          PYTHONPATH=.github/release python -m ucm_release wheel inspect "${wheel_path}" \
+            --spec-id "${spec_id}" \
+            --expected-sha256 "${actual_sha256}" \
+            --source-kind builder-candidate \
+            --task-file out/selected-task.json \
+            --output out/reopened-wheel-inspection.json
           cmp out/wheel/wheel-inspection.json out/reopened-wheel-inspection.json
           test "$(jq -r '.runtime_patch_manifest_sha256' out/reopened-wheel-inspection.json)" = "${runtime_patch_manifest_sha256}"
           inspection_sha256="sha256:$(sha256sum out/wheel/wheel-inspection.json | cut -d' ' -f1)"
