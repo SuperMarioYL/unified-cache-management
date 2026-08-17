@@ -417,5 +417,5 @@ jobs:
           path: out/wheel-artifact/
           if-no-files-found: error
           overwrite: false
-          retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' &&  90 || 7 }}
-      - name: Attest wheel provenance
+          retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}
+

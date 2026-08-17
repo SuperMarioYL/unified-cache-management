@@ -660,8 +660,6 @@ jobs:
           if-no-files-found: error
           overwrite: false
           retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}
-      - name: Attest image provenance
-          subject-digest: ${{ steps.result.outputs.oci_digest }}
       - name: Upload manually requested full OCI artifact
         if: ${{ inputs.deliver_full_oci }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
