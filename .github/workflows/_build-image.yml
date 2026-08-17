@@ -44,7 +44,6 @@ jobs:
     timeout-minutes: 210
     permissions:
       contents: read
-      id-token: write
     outputs:
       image_artifact: ${{ steps.task.outputs.image_artifact }}
       image_result_sha256: ${{ steps.result.outputs.image_result_sha256 }}
@@ -662,12 +661,6 @@ jobs:
           overwrite: false
           retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}
       - name: Attest image provenance
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-name: "ghcr.io/${{ github.repository_owner }}/ucm"
-          # The build job exposes the verified local OCI manifest digest as
-          # steps.result.outputs.oci_digest (already in sha256:<hex> form); there is no .digest
-          # output, so oci_digest is the reasonable subject-digest source.
           subject-digest: ${{ steps.result.outputs.oci_digest }}
       - name: Upload manually requested full OCI artifact
         if: ${{ inputs.deliver_full_oci }}

@@ -36,7 +36,6 @@ jobs:
       matrix: ${{ fromJSON(inputs.image_matrix) }}
     permissions:
       contents: read
-      id-token: write
     uses: ./.github/workflows/_build-image.yml
     with:
       source_sha: ${{ inputs.source_sha }}
