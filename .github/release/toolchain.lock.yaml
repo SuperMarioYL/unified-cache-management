@@ -69,11 +69,14 @@ builders:
   cuda130:
     amd64:
       root:
-        repository: docker.io/pytorch/manylinux2_28-builder
-        tag: cuda13.0
-        index_digest: sha256:83d73c3fd2782b23de8a1873820236273d8a6db911aea15c017766c9a40e723c
-        manifest_digest: sha256:746796491b3a375ee352c60ad1265c599bb1aa1762a0de46927e0f4139832918
-        config_digest: sha256:0c34d69ef0b04dbf678564146d299bdad59f7d2b8e166b4f59df5e2fce3a34f2
+        # Resolved at plan time by resolve_builder_root (crane digest) against
+        # the ghcr tag published by _prepare-builders.yml; digest placeholders
+        # are overwritten in-memory before ReleasePlan.build consumes them.
+        repository: ghcr.io/{owner}/ucm-builder-cuda130
+        tag: cuda13.0-amd64
+        index_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        manifest_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        config_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
       sources: []
       copy_paths: []
       checks:
@@ -112,11 +115,11 @@ builders:
         path: /usr/local/cuda/lib64/libcudart.so.13
     arm64:
       root:
-        repository: docker.io/pytorch/manylinuxaarch64-builder
-        tag: cuda13.0
-        index_digest: sha256:ab80e6e1e9d3170faae3590bfcdc7097d209306998073e8b696a1c1456853dfa
-        manifest_digest: sha256:48eb3eb1b3ab79fb30e49d3692a60dc15f05a3d1c4ba328400af5f06b2e6949c
-        config_digest: sha256:be379de193a3c28da06ad14d2681842350986c46fbcbebf8d0d47ef3c9bd7f7e
+        repository: ghcr.io/{owner}/ucm-builder-cuda130
+        tag: cuda13.0-arm64
+        index_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        manifest_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        config_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
       sources: []
       copy_paths: []
       checks:
@@ -156,11 +159,11 @@ builders:
   cann900-a2:
     amd64:
       root:
-        repository: quay.io/ascend/cann
-        tag: 9.0.0-910b-ubuntu22.04-py3.12
-        index_digest: sha256:e2580904351933db51c1771462e5641ac35c9724fe76220089736c868d961dc5
-        manifest_digest: sha256:11d62db175878be59ddac8cb53a950daaa710f1376eac51c19dc0d3767ce27a9
-        config_digest: sha256:be24f4ce1cfc8ccd750af2979c26d0a087328f5947860ed089194d08f287c4d8
+        repository: ghcr.io/{owner}/ucm-builder-cann900-a2
+        tag: cann9.0.0-mooncake0.3.9-amd64
+        index_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        manifest_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        config_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
       sources: []
       copy_paths: []
       checks:
@@ -200,11 +203,11 @@ builders:
         path: /usr/local/lib/libmooncake_store.so
     arm64:
       root:
-        repository: quay.io/ascend/cann
-        tag: 9.0.0-910b-ubuntu22.04-py3.12
-        index_digest: sha256:e2580904351933db51c1771462e5641ac35c9724fe76220089736c868d961dc5
-        manifest_digest: sha256:bb8d90084c3140e6840fa55a6e507a01cafa33ebf0b5dd729d04fbfa7afa716d
-        config_digest: sha256:d8b5c3dbfbf4a9f27defd9f64c044da439a124cdceb65d2ebd7abeeff066e347
+        repository: ghcr.io/{owner}/ucm-builder-cann900-a2
+        tag: cann9.0.0-mooncake0.3.9-arm64
+        index_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        manifest_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        config_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
       sources: []
       copy_paths: []
       checks:
@@ -245,11 +248,11 @@ builders:
   cann900-a3:
     amd64:
       root:
-        repository: quay.io/ascend/cann
-        tag: 9.0.0-a3-ubuntu22.04-py3.12
-        index_digest: sha256:1dc87b8554ff9bfc86c6e7bbce7dc2657b2e99d26b97fcce4a6f2c271c57788f
-        manifest_digest: sha256:0b96ec0e1a19025d2ecaef4617ef29c5d3d4aa0e48a3a6b0c778bc86dadf4e50
-        config_digest: sha256:c812929f20953db32ce1df878e0005b0c2cc3551fc01fd2858a60cc8cf2a7dba
+        repository: ghcr.io/{owner}/ucm-builder-cann900-a3
+        tag: cann9.0.0-mooncake0.3.9-amd64
+        index_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        manifest_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        config_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
       sources: []
       copy_paths: []
       checks:
@@ -289,11 +292,11 @@ builders:
         path: /usr/local/lib/libmooncake_store.so
     arm64:
       root:
-        repository: quay.io/ascend/cann
-        tag: 9.0.0-a3-ubuntu22.04-py3.12
-        index_digest: sha256:1dc87b8554ff9bfc86c6e7bbce7dc2657b2e99d26b97fcce4a6f2c271c57788f
-        manifest_digest: sha256:2ca5422a7e26858a731dfdc134c34bd84112354a7fbc549a67fc1f2bb5b499ca
-        config_digest: sha256:fcc748114bcd7a0e6e7e5d851e392f9770b3fb01379edeccb79bb52d375bd66c
+        repository: ghcr.io/{owner}/ucm-builder-cann900-a3
+        tag: cann9.0.0-mooncake0.3.9-arm64
+        index_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        manifest_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        config_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
       sources: []
       copy_paths: []
       checks:

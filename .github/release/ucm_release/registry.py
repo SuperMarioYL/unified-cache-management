@@ -328,6 +328,63 @@ def resolve_repository_tag(
     return {'schema_version': 1, 'kind': 'registry-scan-result', 'fixture_only': fixture is not None, 'snapshot': {'repository': repository, 'tag': upstream_tag, 'index_digest': index_digest, 'members': {key: members[key] for key in sorted(members)}}, 'operations': operations}  # fmt: skip  # noqa: E501
 
 
+def resolve_builder_root(
+    repository: str,
+    upstream_tag: str,
+    *,
+    architecture: str,
+) -> dict[str, Any]:
+    """Resolve a per-arch builder tag to its index/manifest/config digest chain.
+
+    Unlike resolve_repository_tag (which scans a multi-arch upstream index for
+    every required architecture at once), this binds a single architecture
+    against a builder tag published by _prepare-builders.yml that may be either
+    a single-arch image manifest or a manifest list. resolve_catalog calls this
+    at plan time to overwrite the placeholder digests recorded in
+    toolchain.lock.yaml builders.<profile>.<arch>.root before ReleasePlan.build
+    consumes them, so the builder layer exits the frozen-plan digest pinning.
+    """
+    repository = _repository(repository)
+    if not isinstance(upstream_tag, str) or OCI_TAG_RE.fullmatch(upstream_tag) is None:
+        raise ValueError("builder tag must use canonical OCI tag syntax")
+    if not isinstance(architecture, str) or re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", architecture) is None:
+        raise ValueError("builder architecture must be canonical")
+    operations: list[dict[str, Any]] = []
+    tagged_reference = f"{repository}:{upstream_tag}"
+    crane_binary = resolve_pinned_crane()
+    operations.append({'type': 'crane-digest', 'capability': 'read', 'reference': tagged_reference})  # fmt: skip  # noqa: E501
+    digest_result = _run_registry_tool(crane_binary, ["digest", tagged_reference])
+    top_digest = _digest(digest_result.stdout.strip(), "builder digest")
+    top_reference = f"{repository}@{top_digest}"
+    operations.append({'type': 'crane-manifest', 'capability': 'read', 'reference': top_reference})  # fmt: skip  # noqa: E501
+    manifest_result = _run_registry_tool(crane_binary, ["manifest", top_reference])
+    doc = _unique_json(manifest_result.stdout, "builder manifest")
+    media_type = doc.get("mediaType")
+    if media_type in OCI_INDEX_MEDIA_TYPES:
+        descriptors = doc.get("manifests")
+        if not isinstance(descriptors, list): raise ValueError('builder index must contain a manifests array')  # noqa: E701,E501
+        for descriptor in descriptors:
+            if not isinstance(descriptor, dict) or not isinstance(descriptor.get("platform"), dict): continue  # noqa: E701,E501
+            plat = descriptor["platform"]
+            if plat.get("os") == "linux" and plat.get("architecture") == architecture:
+                manifest_digest = _digest(descriptor.get("digest"), "builder member manifest")
+                child_reference = f"{repository}@{manifest_digest}"
+                operations.append({'type': 'crane-manifest', 'capability': 'read', 'reference': child_reference})  # fmt: skip  # noqa: E501
+                child_result = _run_registry_tool(crane_binary, ['manifest', child_reference])  # fmt: skip  # noqa: E501
+                child = _unique_json(child_result.stdout, f'builder member manifest {manifest_digest}')  # fmt: skip  # noqa: E501
+                config_descriptor = child.get("config")
+                if not isinstance(config_descriptor, dict): raise ValueError('builder member manifest requires a config descriptor')  # noqa: E701,E501
+                config_digest = _digest(config_descriptor.get("digest"), "builder member config")
+                return {'index_digest': top_digest, 'manifest_digest': manifest_digest, 'config_digest': config_digest, 'operations': operations}  # fmt: skip  # noqa: E501
+        raise ValueError(f"builder {tagged_reference} has no linux/{architecture} member")
+    if media_type in OCI_MANIFEST_MEDIA_TYPES:
+        config_descriptor = doc.get("config")
+        if not isinstance(config_descriptor, dict): raise ValueError('builder manifest requires a config descriptor')  # noqa: E701,E501
+        config_digest = _digest(config_descriptor.get("digest"), "builder config")
+        return {'index_digest': top_digest, 'manifest_digest': top_digest, 'config_digest': config_digest, 'operations': operations}  # fmt: skip  # noqa: E501
+    raise ValueError(f"builder {tagged_reference} returned unrecognized mediaType {media_type!r}")
+
+
 _CANONICAL_UPSTREAM_TAG = re.compile('^v(?P<version>(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:rc[1-9][0-9]*)?)(?P<suffix>-[a-z0-9][a-z0-9.-]*)?$')  # fmt: skip  # noqa: E501
 
 
@@ -499,6 +556,18 @@ def resolve_catalog(
 
     tag_lists: dict[str, list[str]] = {}
     operations: list[dict[str, Any]] = []
+    if fixture is None:
+        for profile in catalog.get("wheel_profiles", []):
+            builders = profile.get("builders")
+            if not isinstance(builders, dict): continue  # noqa: E701,E501
+            for architecture, builder in builders.items():
+                root = builder.get("root")
+                if not isinstance(root, dict): continue  # noqa: E701,E501
+                resolved = resolve_builder_root(root["repository"], root["tag"], architecture=architecture)  # fmt: skip  # noqa: E501
+                root["index_digest"] = resolved["index_digest"]
+                root["manifest_digest"] = resolved["manifest_digest"]
+                root["config_digest"] = resolved["config_digest"]
+                operations.extend(resolved["operations"])
     for repository in sorted(configured_repositories):
         repository_fixture = repositories_fixture[repository] if repositories_fixture is not None else None  # fmt: skip  # noqa: E501
         tag_result = enumerate_repository_tags(repository, fixture=repository_fixture, max_tags=limits['max_tags_per_repository'])  # fmt: skip  # noqa: E501

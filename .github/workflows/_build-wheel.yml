@@ -38,6 +38,7 @@ jobs:
     timeout-minutes: 180
     permissions:
       contents: read
+      packages: read
     outputs:
       wheel_artifact: ${{ steps.task.outputs.wheel_artifact }}
       wheel_sha256: ${{ steps.record.outputs.wheel_sha256 }}
@@ -302,6 +303,14 @@ jobs:
           done < <(jq -r '.build_tools[] | [.requirement, .filename, .sha256] | @tsv' out/hosted-task.json)
           expected_count="$(jq '(.build_tools) | length' out/hosted-task.json)"
           test "$(find out/source-context/build-wheels -maxdepth 1 -type f -name '*.whl' | wc -l | tr -d ' ')" = "${expected_count}"
+      - name: Authenticate to ghcr for private builder pulls
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${GITHUB_TOKEN}" | docker login ghcr.io \
+            --username "${GITHUB_ACTOR}" --password-stdin
       - name: Install checksum-pinned Buildx
         env:
           TASK_ID: ${{ inputs.task_id }}

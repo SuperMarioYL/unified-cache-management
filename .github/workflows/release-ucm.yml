@@ -37,11 +37,19 @@ permissions:
   contents: read
 
 jobs:
+  prepare-builders:
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/_prepare-builders.yml
   plan:
+    needs: prepare-builders
+    if: ${{ !cancelled() && needs.prepare-builders.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
+      packages: read
     outputs:
       source_sha: ${{ steps.plan.outputs.source_sha }}
       route: ${{ steps.plan.outputs.route }}
@@ -83,6 +91,14 @@ jobs:
           tar -xzf "${RUNNER_TEMP}/crane.tar.gz" -C "${RUNNER_TEMP}/crane" crane
           test "$("${RUNNER_TEMP}/crane/crane" version)" = "${CRANE_VERSION#v}"
           echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - name: Authenticate to ghcr for builder digest reads
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${GITHUB_TOKEN}" | crane auth login ghcr.io \
+            --username "${GITHUB_ACTOR}" --password-stdin
       - id: plan
         name: Route invocation and resolve one frozen catalog plan
         env:

@@ -23,6 +23,7 @@ LEGACY_RELEASE_ROOTS = (
 )
 EXPECTED_DOCKER_FILES = {
     "Dockerfile",
+    "Dockerfile.builder",
     "install_ucm.py",
     "inspect_runtime.py",
     "mooncake_installer.sh",
@@ -44,7 +45,8 @@ def _source_files(path: Path, *, excluded_parts: set[str] | None = None) -> list
 
 def _docker_layout_violation(docker_dir: Path) -> str | None:
     actual = {
-        path.relative_to(docker_dir).as_posix() for path in _source_files(docker_dir)
+        path.relative_to(docker_dir).as_posix()
+        for path in _source_files(docker_dir, excluded_parts={"__pycache__"})
     }
     if actual != EXPECTED_DOCKER_FILES:
         return (

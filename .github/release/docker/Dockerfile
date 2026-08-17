@@ -68,28 +68,14 @@ RUN PYTHONPATH=/workspace/ucm/.github/release \
 
 FROM wheel-base AS builder
 
-# Build Mooncake in-tree, replicating vllm-ascend v0.22.1rc1's build on the same
-# CANN/Ubuntu base so the produced libmooncake_store.so matches the vllm-ascend
-# runtime (glibc 2.35 satisfies its GLIBC_2.33 requirement; dependency closure
-# reconciles with the runtime member). Mooncake v0.3.9, DUSE_ASCEND_DIRECT=ON.
-ARG MOONCAKE_TAG=v0.3.9
-COPY tools/mooncake_installer.sh /vllm-workspace/
-# Skip on non-Ascend (cuda130) builders: they lack the CANN toolkit and apt, and
-# cuda130 forbids mooncakestore. Guard mirrors the old conditional copy.
-RUN if [ ! -f /usr/local/Ascend/ascend-toolkit/set_env.sh ]; then exit 0; fi && \
-    apt-get update -y && \
-    apt-get install -y git vim wget net-tools gcc g++ cmake numactl libnuma-dev libjemalloc2 clang-15 && \
-    update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20 && \
-    update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20 && \
-    git clone --depth 1 --branch ${MOONCAKE_TAG} https://github.com/kvcache-ai/Mooncake /vllm-workspace/Mooncake && \
-    mv /vllm-workspace/mooncake_installer.sh /vllm-workspace/Mooncake/ && \
-    cd /vllm-workspace/Mooncake && bash mooncake_installer.sh -y && \
-    source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
-    mkdir -p build && cd build && cmake .. -DUSE_ASCEND_DIRECT=ON && \
-    make -j$(nproc) && make install && \
-    rm -rf /vllm-workspace/Mooncake/build && \
-    rm -rf /var/cache/apt/* && rm -rf /var/lib/apt/lists/* && \
-    ldconfig /usr/local/lib
+# Mooncake is prebuilt into UCM_BUILDER_IMAGE (the ghcr builder published by
+# .github/workflows/_prepare-builders.yml via Dockerfile.builder). Assert the
+# native contract paths on Ascend; cuda130 builders carry no Mooncake
+# (forbidden by native-contract), so the guard skips them.
+RUN if [ -f /usr/local/Ascend/ascend-toolkit/set_env.sh ]; then \
+      test -f /usr/local/lib/libmooncake_store.so && \
+      test -f /usr/local/include/transfer_engine.h && \
+      test -d /vllm-workspace/Mooncake/mooncake-store/include; fi
 
 FROM builder AS wheel-build
 

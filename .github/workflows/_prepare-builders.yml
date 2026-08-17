@@ -1,0 +1,91 @@
+name: Prepare UCM builders on ghcr
+
+on:
+  workflow_call:
+    inputs:
+      crane_version:
+        description: Pinned crane version for registry reads/writes
+        type: string
+        required: false
+        default: "v0.20.3"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  prepare:
+    name: ${{ matrix.profile }} / ${{ matrix.arch }} (${{ matrix.mode }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {profile: cuda130,    arch: amd64, mode: mirror, source_ref: docker.io/pytorch/manylinux2_28-builder:cuda13.0,            runner: ubuntu-24.04,     tag: cuda13.0-amd64}
+          - {profile: cuda130,    arch: arm64, mode: mirror, source_ref: docker.io/pytorch/manylinuxaarch64-builder:cuda13.0,        runner: ubuntu-24.04-arm, tag: cuda13.0-arm64}
+          - {profile: cann900-a2, arch: amd64, mode: build,  source_ref: quay.io/ascend/cann:9.0.0-910b-ubuntu22.04-py3.12,           runner: ubuntu-24.04,     tag: cann9.0.0-mooncake0.3.9-amd64}
+          - {profile: cann900-a2, arch: arm64, mode: build,  source_ref: quay.io/ascend/cann:9.0.0-910b-ubuntu22.04-py3.12,           runner: ubuntu-24.04-arm, tag: cann9.0.0-mooncake0.3.9-arm64}
+          - {profile: cann900-a3, arch: amd64, mode: build,  source_ref: quay.io/ascend/cann:9.0.0-a3-ubuntu22.04-py3.12,              runner: ubuntu-24.04,     tag: cann9.0.0-mooncake0.3.9-amd64}
+          - {profile: cann900-a3, arch: arm64, mode: build,  source_ref: quay.io/ascend/cann:9.0.0-a3-ubuntu22.04-py3.12,              runner: ubuntu-24.04-arm, tag: cann9.0.0-mooncake0.3.9-arm64}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Install checksum-pinned crane
+        env:
+          CRANE_VERSION: ${{ inputs.crane_version }}
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) crane_arch=x86_64; crane_sha=36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059 ;;
+            aarch64|arm64) crane_arch=arm64; crane_sha=d2235f7779cd39c6e40f43701d2512c997409f629fb53e621ede0d57d3f995e2 ;;
+            *) echo "unsupported crane architecture: $(uname -m)" >&2; exit 2 ;;
+          esac
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/crane.tar.gz" \
+            "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_${crane_arch}.tar.gz"
+          echo "${crane_sha}  ${RUNNER_TEMP}/crane.tar.gz" | sha256sum --check
+          tar -xzf "${RUNNER_TEMP}/crane.tar.gz" -C "${RUNNER_TEMP}/crane" crane
+          test "$("${RUNNER_TEMP}/crane/crane" version)" = "${CRANE_VERSION#v}"
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - name: Authenticate to ghcr
+        run: |
+          set -euo pipefail
+          printf '%s' "${{ github.token }}" | crane auth login ghcr.io \
+            --username "${{ github.actor }}" --password-stdin
+      - name: Ensure builder exists on ghcr (skip if present)
+        env:
+          GHCR_REF: ghcr.io/${{ github.repository_owner }}/ucm-builder-${{ matrix.profile }}:${{ matrix.tag }}
+          SOURCE_REF: ${{ matrix.source_ref }}
+          MODE: ${{ matrix.mode }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          if crane digest "${GHCR_REF}" >/dev/null 2>&1; then
+            echo "Already present: ${GHCR_REF} — skipping build (idempotent cache hit)"
+            exit 0
+          fi
+          echo "Not found — producing ${GHCR_REF}"
+          if [[ "${MODE}" == "mirror" ]]; then
+            crane copy "${SOURCE_REF}" "${GHCR_REF}"
+          else
+            mkdir -p context/tools
+            cp .github/release/docker/mooncake_installer.sh context/tools/mooncake_installer.sh
+            printf '%s' "${GITHUB_TOKEN}" | docker login ghcr.io \
+              --username "${GITHUB_ACTOR}" --password-stdin
+            docker build \
+              -f .github/release/docker/Dockerfile.builder \
+              --build-arg "CANN_BASE=${SOURCE_REF}" \
+              -t "${GHCR_REF}" \
+              context
+            docker push "${GHCR_REF}"
+            docker logout ghcr.io || true
+          fi
+          echo "Verifying published builder is readable by digest:"
+          crane digest "${GHCR_REF}"
+      - name: Logout from ghcr
+        if: ${{ always() }}
+        run: crane auth logout ghcr.io || true
