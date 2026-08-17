@@ -263,21 +263,30 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "=== DEBUG: build_tools in hosted-task.json ==="
-          jq -c '.build_tools' out/hosted-task.json || echo "NO build_tools field"
-          echo "=== DEBUG: build_tools count ==="
-          jq '.build_tools | length' out/hosted-task.json || echo "0"
           mkdir -p out/source-context/build-wheels out/build-tool-download
           jq -r '.build_tool_lock' out/hosted-task.json > out/source-context/build-requirements.lock
           test "sha256:$(sha256sum out/source-context/build-requirements.lock | cut -d' ' -f1)" = \
             "$(jq -r '.build_tool_lock_sha256' out/hosted-task.json)"
           while IFS=$'\t' read -r requirement filename expected_sha256; do
             rm -rf out/build-tool-download/*
+            echo "Downloading: ${requirement} (expecting: ${filename})"
             python -m pip download --disable-pip-version-check --no-cache-dir \
               --only-binary=:all: --no-deps \
-              --dest out/build-tool-download "${requirement}"
-            test "$(find out/build-tool-download -maxdepth 1 -type f | wc -l | tr -d ' ')" = 1
-            test -f "out/build-tool-download/${filename}"
+              --dest out/build-tool-download "${requirement}" || {
+              echo "pip download failed for: ${requirement}"
+              exit 1
+            }
+            actual_file="$(find out/build-tool-download -maxdepth 1 -type f -name '*.whl' | head -1)"
+            if [[ -z "${actual_file}" ]]; then
+              echo "No wheel file found after pip download of ${requirement}"
+              ls -la out/build-tool-download/
+              exit 1
+            fi
+            # pip may produce a different filename — rename if needed
+            if [[ "$(basename "${actual_file}")" != "${filename}" ]]; then
+              echo "Renaming: $(basename "${actual_file}") -> ${filename}"
+              mv "${actual_file}" "out/build-tool-download/${filename}"
+            fi
             echo "${expected_sha256#sha256:}  out/build-tool-download/${filename}" | sha256sum --check
             mv "out/build-tool-download/${filename}" out/source-context/build-wheels/
           done < <(jq -r '.build_tools[] | [.requirement, .filename, .sha256] | @tsv' out/hosted-task.json)
