@@ -263,6 +263,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo "=== DEBUG: build_tools in hosted-task.json ==="
+          jq -c '.build_tools' out/hosted-task.json || echo "NO build_tools field"
+          echo "=== DEBUG: build_tools count ==="
+          jq '.build_tools | length' out/hosted-task.json || echo "0"
           mkdir -p out/source-context/build-wheels out/build-tool-download
           jq -r '.build_tool_lock' out/hosted-task.json > out/source-context/build-requirements.lock
           test "sha256:$(sha256sum out/source-context/build-requirements.lock | cut -d' ' -f1)" = \
