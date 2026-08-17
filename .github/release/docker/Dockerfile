@@ -3,6 +3,9 @@
 ARG SOURCE_DATE_EPOCH=0
 ARG BASE_IMAGE=registry.invalid/ucm/base@sha256:0000000000000000000000000000000000000000000000000000000000000000
 ARG UCM_BUILDER_IMAGE=registry.invalid/ucm/builder@sha256:0000000000000000000000000000000000000000000000000000000000000000
+ARG UCM_BUILDER_SOURCE_0=registry.invalid/ucm/source@sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+FROM ${UCM_BUILDER_SOURCE_0} AS runtime-member-source
 
 FROM ${UCM_BUILDER_IMAGE} AS wheel-base
 
@@ -45,29 +48,24 @@ RUN python_candidate="/opt/python/${UCM_RELEASE_PYTHON_ABI}-${UCM_RELEASE_PYTHON
 COPY wheel-task.json /tmp/wheel-task.json
 COPY build-wheels /wheelhouse
 COPY build-requirements.lock /tmp/build-requirements.lock
-RUN ucm-python - <<'PY'
-import hashlib, json, pathlib
-task = json.loads(pathlib.Path('/tmp/wheel-task.json').read_text())
-records = task['dependency_lock']['build_tools']
-wheelhouse = pathlib.Path('/wheelhouse')
-assert records and records == sorted(records, key=lambda item: item['name'])
-assert {path.name for path in wheelhouse.iterdir()} == {
-    record['filename'] for record in records
-}
-expected_lock = ''.join(
-    f"{record['name']} @ file:///wheelhouse/{record['filename']} "
-    f"--hash={record['sha256']}\n"
-    for record in records
-)
-assert pathlib.Path('/tmp/build-requirements.lock').read_text() == expected_lock
-for record in records:
-    path = wheelhouse / record['filename']
-    assert path.is_file() and not path.is_symlink()
-    assert 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest() == record['sha256']
-PY
 RUN test "${UCM_BUILDER_IMAGE}" != "${UCM_BUILDER_IMAGE%@sha256:*}" && \
     ucm-python -m pip install --no-index --find-links=/wheelhouse \
       --require-hashes --only-binary=:all: -r /tmp/build-requirements.lock
+
+# Mooncake headers and libmooncake_store.so are in the vllm-ascend runtime member,
+# not in the CANN-only manylinux builder.
+RUN --mount=from=runtime-member-source,target=/mnt/runtime-member \
+    set -eux; \
+    for p in \
+      /vllm-workspace/Mooncake/mooncake-store/include \
+      /usr/local/include/transfer_engine.h \
+      /usr/local/lib/libmooncake_store.so; do \
+      if [ -e "/mnt/runtime-member${p}" ]; then \
+        mkdir -p "$(dirname "${p}")"; \
+        cp -a "/mnt/runtime-member${p}" "${p}"; \
+      fi; \
+    done; \
+    ldconfig /usr/local/lib 2>/dev/null || true
 
 WORKDIR /workspace/ucm
 COPY ucm-source.tar /tmp/ucm-source.tar

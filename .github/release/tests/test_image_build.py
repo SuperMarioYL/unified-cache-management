@@ -368,3 +368,33 @@ def test_real_content_identity_rejects_mutable_or_missing_oci_authority() -> Non
     mutable_history["history"][0]["created"] = "2026-08-09T12:34:56Z"
     with pytest.raises(ValueError, match="created|history"):
         image.real_content_identity(recipe, mutable_history)
+
+
+@pytest.mark.parametrize("spec_id", ["cann900-a2-arm64", "cann900-a3-arm64"])
+def test_cann900_builder_is_manylinux_and_runtime_closes_with_same_root_false(
+    spec_id: str,
+) -> None:
+    """The Ascend wheel builder is the CANN-only manylinux build base, while the
+    runtime base stays vllm-ascend; the closure gate must still pass with the
+    builder/base roots differing (same_root=False)."""
+    *_, image = _modules()
+    recipe, evidence = _real_runtime_probe(image, spec_id)
+    builder_coordinate = recipe["payload"]["wheel"]["builder_evidence"][
+        "builder_coordinate"
+    ]
+    base_subject = recipe["payload"]["base"]["subject"]
+    assert builder_coordinate.startswith("quay.io/ascend/manylinux@sha256:")
+    assert base_subject.startswith("quay.io/ascend/vllm-ascend@sha256:")
+    assert builder_coordinate != base_subject
+    assert image.verify_real_runtime_evidence(recipe, evidence) == {
+        "install": "passed",
+        "pip_check": "passed",
+        "direct_url": "passed",
+        "ucm_import": "passed",
+        "runtime_dependency_imports": "passed",
+        "abi": "passed",
+        "native_members": "passed",
+        "elf": "passed",
+        "dependency_closure": "passed",
+        "variant": "passed",
+    }

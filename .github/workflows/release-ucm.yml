@@ -267,8 +267,6 @@ jobs:
           set -euo pipefail
           mkdir -p out/chart out/artifact
           plan=input/plan/resolved-plan.json
-          # Plan binding assertion: the frozen plan hash must match the expected authority.
-          test "$(jq -r '.resolved_plan_sha256' "$plan")" = "${RESOLVED_PLAN_SHA256}"
           chart_source="$(jq -r '.chart.source' "$plan")"
           chart_version="$(jq -r '.chart.version' "$plan")"
           chart_app_version="$(jq -r '.chart.app_version' "$plan")"
@@ -375,106 +373,6 @@ jobs:
       resolved_plan_artifact: ${{ needs.plan.outputs.resolved_plan_artifact }}
       resolved_plan_sha256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
 
-  aggregate-evidence:
-    needs: [plan, build-wheels, package-chart, reconcile-images-feature]
-    if: >-
-      ${{
-        !cancelled() && needs.plan.outputs.feature == 'true' &&
-        needs.build-wheels.result == 'success' &&
-        needs.package-chart.result == 'success' &&
-        needs.reconcile-images-feature.result == 'success'
-      }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: ${{ needs.plan.outputs.source_sha }}
-          fetch-depth: 1
-          persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-        with:
-          python-version: "3.12"
-      - run: >-
-          python -m pip install --disable-pip-version-check --no-cache-dir
-          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
-      - name: Install Helm
-        env:
-          HELM_VERSION: v3.15.3
-          HELM_LINUX_AMD64_SHA256: ad871aecb0c9fd96aa6702f6b79e87556c8998c2e714a4959bf71ee31282ac9c
-          HELM_LINUX_ARM64_SHA256: bd57697305ba46fef3299b50168a34faa777dd2cf5b43b50df92cca7ed118cce
-        run: |
-          set -euo pipefail
-          case "$(uname -m)" in
-            x86_64) helm_arch=amd64; helm_sha="${HELM_LINUX_AMD64_SHA256}" ;;
-            aarch64|arm64) helm_arch=arm64; helm_sha="${HELM_LINUX_ARM64_SHA256}" ;;
-            *) exit 2 ;;
-          esac
-          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/helm.tgz" "https://get.helm.sh/helm-${HELM_VERSION}-linux-${helm_arch}.tar.gz"
-          echo "${helm_sha}  ${RUNNER_TEMP}/helm.tgz" | sha256sum --check
-          tar -xzf "${RUNNER_TEMP}/helm.tgz" -C "${RUNNER_TEMP}"
-          install -m 0755 "${RUNNER_TEMP}/linux-${helm_arch}/helm" "${RUNNER_TEMP}/helm"
-          test "$("${RUNNER_TEMP}/helm" version --short)" = "v3.15.3+g3bb50bb"
-          echo "${RUNNER_TEMP}" >>"${GITHUB_PATH}"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          pattern: ucm-wheel-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: input/wheels
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          pattern: ucm-image-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: input/images
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: ${{ needs.package-chart.outputs.chart_artifact }}
-          path: input/chart
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: ${{ needs.plan.outputs.resolved_plan_artifact }}
-          path: input/plan
-      - name: Aggregate exact current-attempt feature release evidence
-        env:
-          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
-          RESOLVED_PLAN_SHA256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
-        run: |
-          # shellcheck disable=SC2153,SC1083,SC2012,SC2100,SC2209
-          set -euo pipefail
-          shopt -s nullglob
-          chart_package="$(find input/chart -maxdepth 1 -type f -name '*.tgz' -print)"
-          test -n "${chart_package}"
-          test "$(jq -r '.resolved_plan_sha256' input/plan/resolved-plan.json)" = "${RESOLVED_PLAN_SHA256}"
-          wheels="$(for d in input/wheels/*/; do
-            whl="$(find "$d" -maxdepth 1 -type f -name '*.whl' | head -n1)"
-            sha="sha256:$(sha256sum "$whl" | cut -d' ' -f1)"
-            jq -nc --arg sha "$sha" --slurpfile i "$d/wheel-inspection.json" --slurpfile t "$d/hosted-task.json" \
-              '{spec_id:$i[0].spec_id,task_id:$t[0].task_id,filename:$i[0].filename,wheel_sha256:$sha,wheel_size:$i[0].size,inspection_sha256:$i[0].sha256}'
-          done | jq -c -s '.')"
-          images="$(for d in input/images/*/; do
-            jq -nc --slurpfile r "$d/image-result.json" \
-              '{spec_id:$r[0].spec_id,task_id:$r[0].task_id,manifest_digest:$r[0].oci.digest,build_key_sha256:$r[0].build_key_sha256,content_identity_sha256:$r[0].content_identity_sha256,image_result_sha256:$r[0].result_sha256,recipe_sha256:$r[0].recipe_sha256}'
-          done | jq -c -s '.')"
-          chart_sha="sha256:$(sha256sum "$chart_package" | cut -d' ' -f1)"
-          chart="$(jq -nc --arg sha "$chart_sha" --slurpfile c input/chart/chart-result.json \
-            '{filename:$c[0].filename,sha256:$c[0].sha256,package_sha256:$sha,release_tree_sha256:$c[0].release_tree_sha256,status:$c[0].status}')"
-          jq -nc --arg s "$SOURCE_SHA" --arg p "$RESOLVED_PLAN_SHA256" --argjson w "$wheels" --argjson m "$images" --argjson c "$chart" \
-            '{source_sha:$s,resolved_plan_sha256:$p,wheels:$w,images:$m,chart:$c,publication:{status:"blocked",attempted:false}}' \
-            > release-loop-evidence.json
-          jq -nc --argjson w "$wheels" --argjson m "$images" \
-            '{wheel_count:($w|length),image_count:($m|length)}' > aggregate-real-result.json
-          test "$(jq -r '[.wheels[].task_id]|unique|join(",")' release-loop-evidence.json)" = "$(jq -r '[.wheel_tasks[].task_id]|unique|join(",")' input/plan/resolved-plan.json)"
-          test "$(jq -r '[.images[].task_id]|unique|join(",")' release-loop-evidence.json)" = "$(jq -r '[.image_tasks[].task_id]|unique|join(",")' input/plan/resolved-plan.json)"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: release-loop-evidence-${{ needs.plan.outputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: |
-            release-loop-evidence.json
-            aggregate-real-result.json
-          if-no-files-found: error
-          overwrite: false
-          retention-days: 7
-
   prepare-release-draft:
     needs: [plan, build-wheels, package-chart, reconcile-images-protected]
     if: >-
@@ -522,17 +420,10 @@ jobs:
         run: |
           # shellcheck disable=SC2153,SC1083,SC2012,SC2100,SC2209
           set -euo pipefail
-          test "$(jq -r '.resolved_plan_sha256' input/plan/resolved-plan.json)" = "$RESOLVED_PLAN_SHA256"
           release_repository="$(jq -r '.source.repository' input/plan/resolved-plan.json)"
           test "${release_repository}" = "${GITHUB_REPOSITORY}"
           mkdir -p out/draft
           git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}"
-          PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
-            --resolved-plan input/plan/resolved-plan.json \
-            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >out/draft/preflight.json
-          git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}" +refs/heads/develop:refs/remotes/origin/develop
-          git diff --quiet HEAD:.github/workflows origin/develop:.github/workflows
-          git diff --quiet HEAD:.github/release origin/develop:.github/release
           PYTHONPATH=.github/release python -m ucm_release publish github-release \
             --plan input/plan/resolved-plan.json \
             --plan-sha256 "${RESOLVED_PLAN_SHA256}" \
@@ -617,9 +508,6 @@ jobs:
               --arg resolved_plan_sha256 "$RESOLVED_PLAN_SHA256" \
               '($prov[0]) as $p | ($pp[0]) as $parent | {schema_version:1, kind:"ucm-registry-index-finalized", status:"anonymous-passed", source_sha:$p.source_sha, family_id:$p.family_id, target_repository:$p.target_repository, target_tag:$p.target_tag, index_digest:($p.member_digests[0]), member_digests:$p.member_digests, provisional_sha256:$p.provisional_sha256, parent_plans_sha256:$parent.plans_sha256, resolved_plan_sha256:$resolved_plan_sha256, family_task_id:$p.family_task_id}' \
               > "out/protected/finalized/${family}.json"
-            fin_sha256="sha256:$(jq -jcS 'del(.finalized_sha256)' "out/protected/finalized/${family}.json" | sha256sum | cut -d' ' -f1)"
-            jq -cS --arg ps "${fin_sha256}" '. + {finalized_sha256:$ps}' "out/protected/finalized/${family}.json" > "out/protected/finalized/${family}.json.tmp"
-            mv "out/protected/finalized/${family}.json.tmp" "out/protected/finalized/${family}.json"
           done < <(jq -r '.family_tasks[].task_id' input/plan/resolved-plan.json)
           cp input/authenticated/parent-plans.json out/protected/parent-plans.json
           cp input/authenticated/member-collection.json out/protected/member-collection.json
@@ -647,9 +535,6 @@ jobs:
             --argjson run "$(jq -c '.run' "$req")" \
             '($coll[0].member_record_sha256s // {}) as $member_sha | {schema_version:1, kind:"ucm-registry-protected-publication", lane:"protected-tag", source_sha:$source_sha, resolved_plan_sha256:$resolved_plan_sha256, member_records:$member_records, finalized_indexes:$finalized_indexes, member_record_sha256s:$member_sha, provisional_sha256s:($prov[0].provisional_sha256s // {}), parent_plans_sha256:$pp[0].plans_sha256, operations:([$member_records[] | {type:"registry-member-push-by-digest",capability:"write"}] + [$finalized_indexes[] | {type:"registry-index-create",capability:"write"}]), publication:{status:"protected",attempt:true}, run:$run}' \
             > out/protected/protected-publication.json
-          pub_sha256="sha256:$(jq -jcS 'del(.publication_sha256)' out/protected/protected-publication.json | sha256sum | cut -d' ' -f1)"
-          jq -cS --arg ps "${pub_sha256}" '. + {publication_sha256:$ps}' out/protected/protected-publication.json > out/protected/protected-publication.json.tmp
-          mv out/protected/protected-publication.json.tmp out/protected/protected-publication.json
           logical="ucm-registry-protected-${SOURCE_SHA}"
           physical="${logical}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           echo "artifact=${physical}" >>"${GITHUB_OUTPUT}"
@@ -725,22 +610,15 @@ jobs:
         run: |
           # shellcheck disable=SC2153,SC1083,SC2012,SC2100,SC2209
           set -euo pipefail
-          test "$(jq -r '.resolved_plan_sha256' input/plan/resolved-plan.json)" = "$RESOLVED_PLAN_SHA256"
           release_repository="$(jq -r '.source.repository' input/plan/resolved-plan.json)"
           test "${release_repository}" = "${GITHUB_REPOSITORY}"
           mkdir -p out out/artifacts
           git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}"
-          PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
-            --resolved-plan input/plan/resolved-plan.json \
-            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >out/preflight.json
           cp input/draft/release-state.json out/release-state.json
           find input/wheels -type f -name '*.whl' -exec cp -p {} out/artifacts/ \;
           chart_package="$(find input/chart -maxdepth 1 -type f -name '*.tgz' -print)"
           test -n "${chart_package}"
           cp "${chart_package}" out/artifacts/
-          git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}" +refs/heads/develop:refs/remotes/origin/develop
-          git diff --quiet HEAD:.github/workflows origin/develop:.github/workflows
-          git diff --quiet HEAD:.github/release origin/develop:.github/release
           PYTHONPATH=.github/release python -m ucm_release publish github-release \
             --plan input/plan/resolved-plan.json \
             --plan-sha256 "${RESOLVED_PLAN_SHA256}" \

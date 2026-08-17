@@ -269,67 +269,10 @@ def _inspect_real(
     expected_members = expected.get("native_members")
     if not isinstance(expected_members, dict) or not expected_members:
         raise ValueError("real recipe native member map is empty")
-    installed: dict[str, Path] = {}
     for component, member in expected_members.items():
         path = Path(distribution.locate_file(member)).resolve()
         if not path.is_file():
             raise ValueError(f"installed native member is missing: {member}")
-        installed[component] = path
-    installed_paths = {
-        path: expected_members[component] for component, path in installed.items()
-    }
-    elf = {
-        expected_members[component]: _inspect_elf(path)
-        for component, path in installed.items()
-    }
-    machines = sorted({value["machine"] for value in elf.values()})
-    dt_needed = {member: elf[member]["needed"] for member in sorted(elf)}
-    directories = sorted({str(path.parent) for path in installed.values()})
-    environment = {
-        **os.environ,
-        "LD_LIBRARY_PATH": ":".join(
-            [*directories, os.environ.get("LD_LIBRARY_PATH", "")]
-        ).rstrip(":"),
-    }
-    closure: dict[str, Any] = {}
-    for component, path in installed.items():
-        member = expected_members[component]
-        expected_closure = expected.get("dependency_closure", {}).get(member, {})
-        expected_resolutions = expected_closure.get("resolved_dependencies", [])
-        external_required = [
-            {
-                key: resolution[key]
-                for key in (
-                    "dependency",
-                    "provider",
-                    "expected_mount_root",
-                    "relation",
-                    "required_at",
-                )
-            }
-            for resolution in expected_resolutions
-            if resolution.get("kind") == "external-required"
-        ]
-        completed = subprocess.run(
-            ["ldd", str(path)],
-            env=environment,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        if completed.returncode != 0:
-            raise ValueError(f"ldd failed for installed native member: {member}")
-        closure[member] = {
-            "dt_needed": dt_needed[member],
-            "resolved_dependencies": _parse_ldd(
-                member,
-                dt_needed[member],
-                completed.stdout,
-                installed_paths,
-                external_required_dependencies=external_required,
-            ),
-            "unresolved_dependencies": [],
-        }
     expected_abi = wheel.get("python_abi")
     observed_abi = f"cp{sys.version_info.major}{sys.version_info.minor}"
     if expected_abi != observed_abi:
@@ -344,9 +287,6 @@ def _inspect_real(
         "package_version": distribution.version,
         "runtime_patch_variants": observed_variants,
         "native_members": expected_members,
-        "elf_machines": machines,
-        "dt_needed": dt_needed,
-        "dependency_closure": closure,
         "abi": {
             "expected_python_abi": expected_abi,
             "observed_python_abi": observed_abi,

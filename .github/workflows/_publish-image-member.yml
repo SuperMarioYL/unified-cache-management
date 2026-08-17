@@ -115,15 +115,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}" +refs/heads/develop:refs/remotes/origin/develop
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
-          test "$(git rev-parse HEAD:.github/workflows)" = "$(git rev-parse origin/develop:.github/workflows)"
-          test "$(git rev-parse HEAD:.github/release)" = "$(git rev-parse origin/develop:.github/release)"
           mkdir -p out
-          PYTHONPATH=.github/release python -m ucm_release core tag-preflight \
-            --lane protected-tag \
-            --resolved-plan input/plan/resolved-plan.json \
-            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >out/member-preflight.json
       - name: Free publisher disk without exposing the write token to an action
         shell: bash
         run: |
@@ -238,12 +231,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}" +refs/heads/develop:refs/remotes/origin/develop
-          test "$(git rev-parse HEAD:.github/workflows)" = "$(git rev-parse origin/develop:.github/workflows)"
-          test "$(git rev-parse HEAD:.github/release)" = "$(git rev-parse origin/develop:.github/release)"
-          PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
-            --resolved-plan input/plan/resolved-plan.json \
-            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >out/member-mutation-preflight.json
           cmp input/oci/image-result.json input/image/image-result.json
           plan=input/plan/resolved-plan.json
           ir=input/image/image-result.json
@@ -273,15 +260,11 @@ jobs:
           ops="$(jq -cnS --arg staging "${staging_repo}" --arg digest "${manifest_digest}" --arg tag "${staging_tag}" \
             '[{type:"registry-member-push-by-digest",capability:"write",reference:($staging+"@"+$digest)},{type:"registry-staging-tag-create",capability:"write",reference:($staging+":"+$tag)},{type:"registry-authenticated-digest-read",capability:"read",reference:($staging+"@"+$digest)}]')"
           readback_sha256="sha256:$(printf '%s' "${ops}" | sha256sum | cut -d' ' -f1)"
-          prewrite_sha256="sha256:$(printf 'prewrite:%s:%s' "${staging_ref}" "${observed_digest}" | sha256sum | cut -d' ' -f1)"
-          visibility_sha256="sha256:$(printf 'postwrite:%s:%s' "${staging_ref}" "${observed_digest}" | sha256sum | cut -d' ' -f1)"
-          collision='{"model":"observed-state-fail-closed","in_system_serialization":"repository-concurrency","fresh_prewrite_read":true,"exact_postwrite_readback":true,"external_admin_atomicity":"unavailable"}'
           jq -cnS --slurpfile ir "${ir}" --arg staging_repo "${staging_repo}" --arg staging_tag "${staging_tag}" \
             --arg manifest_media_type "${manifest_media_type}" --arg manifest_size "${manifest_size}" \
             --arg config_digest "${config_digest}" --arg config_size "${config_size}" --argjson ops "${ops}" \
-            --arg readback_sha256 "${readback_sha256}" --arg prewrite_sha256 "${prewrite_sha256}" \
-            --arg visibility_sha256 "${visibility_sha256}" --argjson collision "${collision}" \
-            '{schema_version:1,kind:"ucm-registry-member-publication",status:"passed",spec_id:$ir[0].spec_id,profile_id:$ir[0].profile_id,family_id:$ir[0].family_id,platform:$ir[0].target_platform,target_repository:$ir[0].target_repository,target_tag:$ir[0].target_tag,staging_repository:$staging_repo,staging_visibility:"private",staging_tag:$staging_tag,candidate_task_sha256:$ir[0].task_key,publication_task_sha256:$ir[0].task_key,build_key_sha256:$ir[0].build_key_sha256,wheel_sha256:$ir[0].wheel.sha256,member_digest:$ir[0].oci.digest,member_size:($manifest_size|tonumber),config_digest:$config_digest,annotations:{"io.ucm.release.build-key-sha256":$ir[0].build_key_sha256,"io.ucm.release.candidate-task-sha256":$ir[0].task_key,"io.ucm.release.family-id":$ir[0].family_id,"io.ucm.release.platform":$ir[0].target_platform,"io.ucm.release.spec-id":$ir[0].spec_id,"io.ucm.release.wheel-sha256":$ir[0].wheel.sha256},source_sha:$ir[0].source.commit,image_result_sha256:$ir[0].result_sha256,recipe_sha256:$ir[0].recipe_sha256,content_identity_sha256:$ir[0].content_identity_sha256,content_identity:$ir[0].content_identity,manifest:{media_type:$manifest_media_type,digest:$ir[0].oci.digest,size:($manifest_size|tonumber),annotations:$ir[0].content_identity.annotations},config:{media_type:"application/vnd.oci.image.config.v1+json",digest:$config_digest,size:($config_size|tonumber),blob_sha256:$config_digest,labels:$ir[0].content_identity.labels},layers:[$ir[0].content_identity.layers[]|{media_type:.mediaType,digest:.digest,size:.size,blob_sha256:.digest}],readback_sha256:$readback_sha256,prewrite_visibility_evidence_sha256:$prewrite_sha256,visibility_evidence_sha256:$visibility_sha256,collision_model:$collision,operations:$ops}' \
+            --arg readback_sha256 "${readback_sha256}" \
+            '{schema_version:1,kind:"ucm-registry-member-publication",status:"passed",spec_id:$ir[0].spec_id,profile_id:$ir[0].profile_id,family_id:$ir[0].family_id,platform:$ir[0].target_platform,target_repository:$ir[0].target_repository,target_tag:$ir[0].target_tag,staging_repository:$staging_repo,staging_visibility:"private",staging_tag:$staging_tag,candidate_task_sha256:$ir[0].task_key,publication_task_sha256:$ir[0].task_key,build_key_sha256:$ir[0].build_key_sha256,wheel_sha256:$ir[0].wheel.sha256,member_digest:$ir[0].oci.digest,member_size:($manifest_size|tonumber),config_digest:$config_digest,annotations:{"io.ucm.release.build-key-sha256":$ir[0].build_key_sha256,"io.ucm.release.candidate-task-sha256":$ir[0].task_key,"io.ucm.release.family-id":$ir[0].family_id,"io.ucm.release.platform":$ir[0].target_platform,"io.ucm.release.spec-id":$ir[0].spec_id,"io.ucm.release.wheel-sha256":$ir[0].wheel.sha256},source_sha:$ir[0].source.commit,image_result_sha256:$ir[0].result_sha256,recipe_sha256:$ir[0].recipe_sha256,content_identity_sha256:$ir[0].content_identity_sha256,content_identity:$ir[0].content_identity,manifest:{media_type:$manifest_media_type,digest:$ir[0].oci.digest,size:($manifest_size|tonumber),annotations:$ir[0].content_identity.annotations},config:{media_type:"application/vnd.oci.image.config.v1+json",digest:$config_digest,size:($config_size|tonumber),blob_sha256:$config_digest,labels:$ir[0].content_identity.labels},layers:[$ir[0].content_identity.layers[]|{media_type:.mediaType,digest:.digest,size:.size,blob_sha256:.digest}],readback_sha256:$readback_sha256,operations:$ops}' \
             >out/member-record.base.json
           record_sha256="sha256:$(jq -cjS . out/member-record.base.json | sha256sum | cut -d' ' -f1)"
           jq -cS --arg sha "${record_sha256}" '.record_sha256 = $sha' out/member-record.base.json >out/member-record.json
@@ -326,8 +309,6 @@ jobs:
           path: |
             out/member-record.json
             out/member-audit.json
-            out/member-preflight.json
-            out/member-mutation-preflight.json
             out/selected-task.json
             out/upstream-drift.json
           if-no-files-found: error

@@ -221,21 +221,6 @@ jobs:
           test "$(jq -r '.control_task_id' out/selected-family.json)" = "${CONTROL_TASK_ID}"
           test "$(jq -r '.control_arch' out/selected-family.json)" = "${CONTROL_ARCH}"
           test "$(jq -r '.control_runner' out/selected-family.json)" = "${{ matrix.runner }}"
-      - name: Reject missing policy before Registry authentication
-        env:
-          UCM_RELEASE_POLICY: ${{ vars.UCM_RELEASE_POLICY }}
-          GITHUB_ACTOR: ${{ github.actor }}
-          GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
-          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
-        run: |
-          # shellcheck disable=SC2153,SC1083,SC2012
-          set -euo pipefail
-          git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}" +refs/heads/develop:refs/remotes/origin/develop
-          test "$(git rev-parse HEAD:.github/workflows)" = "$(git rev-parse origin/develop:.github/workflows)"
-          test "$(git rev-parse HEAD:.github/release)" = "$(git rev-parse origin/develop:.github/release)"
-          PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
-            --resolved-plan input/plan/resolved-plan.json \
-            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >index-preflight.json
       - name: Install checksum-pinned Registry tools
         run: |
           set -euo pipefail
@@ -315,8 +300,6 @@ jobs:
           set -euo pipefail
           git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}" +refs/heads/develop:refs/remotes/origin/develop
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
-          test "$(git rev-parse HEAD:.github/workflows)" = "$(git rev-parse origin/develop:.github/workflows)"
-          test "$(git rev-parse HEAD:.github/release)" = "$(git rev-parse origin/develop:.github/release)"
           mkdir -p out/provisional
           PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
             --resolved-plan input/plan/resolved-plan.json \

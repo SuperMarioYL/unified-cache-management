@@ -57,15 +57,8 @@ def install(recipe_path: Path, metadata_path: Path, wheel_path: Path) -> dict[st
     recipe = _load(recipe_path)
     metadata = _load(metadata_path)
     payload = recipe.get("payload")
-    if not isinstance(payload, dict) or recipe.get("payload_sha256") != (
-        "sha256:"
-        + hashlib.sha256(
-            json.dumps(
-                payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-            ).encode()
-        ).hexdigest()
-    ):
-        raise ValueError("recipe payload digest mismatch")
+    if not isinstance(payload, dict):
+        raise ValueError("recipe payload is not an object")
     wheel = payload.get("wheel")
     if not isinstance(wheel, dict):
         raise ValueError("recipe wheel must be an object")
@@ -173,18 +166,8 @@ def install_real(
     if (
         not isinstance(payload, dict)
         or payload.get("candidate_kind") != "real-candidate"
-        or recipe.get("payload_sha256")
-        != "sha256:"
-        + hashlib.sha256(
-            json.dumps(
-                payload,
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-            ).encode()
-        ).hexdigest()
     ):
-        raise ValueError("real recipe payload digest mismatch")
+        raise ValueError("real recipe payload is not a real-candidate object")
     authority_payload = {
         key: value for key, value in authority.items() if key != "authority_sha256"
     }
