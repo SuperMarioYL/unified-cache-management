@@ -1381,9 +1381,13 @@ def _parse_ldd_output(
     missing = re.compile(r"^(\S+)\s+=>\s+not found$")
     arrow = re.compile(r"^(\S+)\s+=>\s+(\S+)(?:\s+\(0x[0-9a-fA-F]+\))?$")
     located = re.compile(r"^(\S+)\s+\(0x[0-9a-fA-F]+\)$")
+    version_error = re.compile(r": version `[^']+' not found")
+    ldd_warning = re.compile(r"^ldd: warning:")
     for raw_line in output.splitlines():
         line = raw_line.strip()
         if not line:
+            continue
+        if version_error.search(line) or ldd_warning.match(line):
             continue
         missing_match = missing.fullmatch(line)
         if missing_match is not None:
