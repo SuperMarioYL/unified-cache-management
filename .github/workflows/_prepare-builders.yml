@@ -57,13 +57,18 @@ jobs:
             --username "${{ github.actor }}" --password-stdin
       - name: Ensure builder exists on ghcr (skip if present)
         env:
-          GHCR_REF: ghcr.io/${{ github.repository_owner }}/ucm-builder-${{ matrix.profile }}:${{ matrix.tag }}
+          PROFILE: ${{ matrix.profile }}
+          TAG: ${{ matrix.tag }}
           SOURCE_REF: ${{ matrix.source_ref }}
           MODE: ${{ matrix.mode }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_ACTOR: ${{ github.actor }}
         run: |
           set -euo pipefail
+          # ghcr.io requires lowercase repository names; repository_owner may be mixed-case.
+          owner_lc="$(printf '%s' "${REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          GHCR_REF="ghcr.io/${owner_lc}/ucm-builder-${PROFILE}:${TAG}"
           if crane digest "${GHCR_REF}" >/dev/null 2>&1; then
             echo "Already present: ${GHCR_REF} — skipping build (idempotent cache hit)"
             exit 0
