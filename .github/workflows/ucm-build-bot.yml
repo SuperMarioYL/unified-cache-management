@@ -299,7 +299,7 @@ jobs:
            needs.build-images.result == 'success' ||
            needs.package-chart.result == 'success') }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     permissions:
       contents: read
       actions: read
