@@ -12,11 +12,50 @@ jobs:
     if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/ucm-build')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
     outputs:
       pr-head-sha: ${{ steps.pr-info.outputs.head-sha }}
       pr-number: ${{ steps.pr-info.outputs.number }}
       allowed: ${{ steps.check-permission.outputs.allowed }}
+      subcommand: ${{ steps.parse.outputs.subcommand }}
+      profile-arg: ${{ steps.parse.outputs.profile-arg }}
+      family-arg: ${{ steps.parse.outputs.family-arg }}
     steps:
+      - name: Parse /ucm-build subcommand
+        id: parse
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          body="${COMMENT_BODY}"
+          # second token after /ucm-build is the subcommand
+          subcommand="$(printf '%s\n' "$body" | awk '/^[[:space:]]*\/ucm-build[[:space:]]/ {print $2; exit}')"
+          case "$subcommand" in
+            wheel|image|chart|all) ;;
+            *) echo "::error::/ucm-build requires a subcommand in {wheel,image,chart,all}; got: '${subcommand:-<empty>}'" >&2; exit 2 ;;
+          esac
+          profile_arg=""
+          family_arg=""
+          for tok in $body; do
+            case "$tok" in
+              profile=*) profile_arg="${tok#profile=}" ;;
+              family=*)  family_arg="${tok#family=}" ;;
+            esac
+          done
+          # cross-check: profile only with wheel/all; family only with image/all
+          if [ -n "$profile_arg" ] && [ "$subcommand" != "wheel" ] && [ "$subcommand" != "all" ]; then
+            echo "::error::profile= is only valid with /ucm-build wheel|all" >&2; exit 2
+          fi
+          if [ -n "$family_arg" ] && [ "$subcommand" != "image" ] && [ "$subcommand" != "all" ]; then
+            echo "::error::family= is only valid with /ucm-build image|all" >&2; exit 2
+          fi
+          {
+            echo "subcommand=${subcommand}"
+            echo "profile-arg=${profile_arg}"
+            echo "family-arg=${family_arg}"
+          } >>"${GITHUB_OUTPUT}"
       - name: Check commenter write permission
         id: check-permission
         env:
@@ -45,77 +84,365 @@ jobs:
           pr_number="$(gh api "${pr_url}" --jq '.number')"
           echo "head-sha=${head_sha}" >>"${GITHUB_OUTPUT}"
           echo "number=${pr_number}" >>"${GITHUB_OUTPUT}"
+      - name: Reply denial on permission failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh pr comment "${{ steps.pr-info.outputs.number }}" --body "$(printf '%s\n' \
+            '🚫 `/ucm-build` not authorized.' \
+            '' \
+            "Requester @${{ github.event.comment.user.login }} needs **write** access (or higher) to trigger a build. Ask a repo member to run it, or request access." \
+            '' \
+            "Fixed SHA: \`${{ steps.pr-info.outputs.head-sha }}\`")" || true
 
-  build-untrusted:
+  plan:
     needs: permission-check
     if: needs.permission-check.outputs.allowed == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 10
     permissions:
       contents: read
+      packages: read
+    outputs:
+      source_sha: ${{ steps.plan.outputs.source_sha }}
+      resolved_plan_artifact: ${{ steps.plan.outputs.resolved_plan_artifact }}
+      resolved_plan_sha256: ${{ steps.plan.outputs.resolved_plan_sha256 }}
+      build_wheel_matrix: ${{ steps.filter.outputs.build_wheel_matrix }}
+      build_image_matrix: ${{ steps.filter.outputs.build_image_matrix }}
+      chart_enabled: ${{ steps.filter.outputs.chart_enabled }}
     steps:
-      - name: Checkout PR head SHA (untrusted code)
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ needs.permission-check.outputs.pr-head-sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Setup Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.12"
-      - name: Validate catalog contract
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - name: Install checksum-pinned read-only crane
+        env:
+          CRANE_VERSION: v0.20.3
+          CRANE_LINUX_AMD64_SHA256: 36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059
         run: |
           set -euo pipefail
-          PYTHONPATH=.github/release python -m ucm_release catalog validate
-      - name: Build wheels
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/crane.tar.gz" \
+            "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
+          echo "${CRANE_LINUX_AMD64_SHA256}  ${RUNNER_TEMP}/crane.tar.gz" | sha256sum --check
+          tar -xzf "${RUNNER_TEMP}/crane.tar.gz" -C "${RUNNER_TEMP}/crane" crane
+          test "$("${RUNNER_TEMP}/crane/crane" version)" = "${CRANE_VERSION#v}"
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - name: Authenticate to ghcr for builder digest reads
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_ACTOR: ${{ github.actor }}
         run: |
           set -euo pipefail
+          printf '%s' "${GITHUB_TOKEN}" | crane auth login ghcr.io \
+            --username "${GITHUB_ACTOR}" --password-stdin
+      - id: plan
+        name: Resolve one frozen feature-candidate plan for the PR head
+        env:
+          SOURCE_SHA: ${{ needs.permission-check.outputs.pr-head-sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p out/plan
           PYTHONPATH=.github/release python -m ucm_release catalog resolve \
-            --lane feature-candidate \
-            --source-sha "${{ needs.permission-check.outputs.pr-head-sha }}" \
-            --output out/plan/resolved-plan.json
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+            --lane feature-candidate --source-sha "${SOURCE_SHA}" \
+            --output out/plan/resolved-plan.json >/dev/null
+          resolved_plan_sha256="$(jq -r '.resolved_plan_sha256' out/plan/resolved-plan.json)"
+          logical_artifact="$(jq -r '.expected_artifacts.resolved_plan' out/plan/resolved-plan.json)"
+          resolved_plan_artifact="${logical_artifact}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          {
+            echo "source_sha=${SOURCE_SHA}"
+            echo "resolved_plan_artifact=${resolved_plan_artifact}"
+            echo "resolved_plan_sha256=${resolved_plan_sha256}"
+          } >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ucm-pr-build-${{ needs.permission-check.outputs.pr-number }}
-          path: out/
+          name: ${{ steps.plan.outputs.resolved_plan_artifact }}
+          path: out/plan/resolved-plan.json
           if-no-files-found: error
+          overwrite: false
           retention-days: 7
+      - id: filter
+        name: Filter matrices by /ucm-build subcommand
+        env:
+          SUBCOMMAND: ${{ needs.permission-check.outputs.subcommand }}
+          PROFILE_ARG: ${{ needs.permission-check.outputs.profile-arg }}
+          FAMILY_ARG: ${{ needs.permission-check.outputs.family-arg }}
+        run: |
+          set -euo pipefail
+          plan=out/plan/resolved-plan.json
+          subcommand="${SUBCOMMAND}"
+          profile="${PROFILE_ARG}"
+          family="${FAMILY_ARG}"
+          case "$subcommand" in
+            wheel)
+              if [ -n "$profile" ]; then
+                wm="$(jq -c --arg p "$profile" '{include:[.wheel_tasks[]|select(.profile_id==$p)|{task_id,runner}]}' "$plan")"
+                if [ "$(printf '%s' "$wm" | jq '.include|length')" -eq 0 ]; then
+                  echo "::error::profile '${profile}' matched no wheel tasks" >&2; exit 2
+                fi
+              else
+                wm="$(jq -c '{include:[.wheel_tasks[]|{task_id,runner}]}' "$plan")"
+              fi
+              im='{"include":[]}'
+              chart=false
+              ;;
+            image)
+              pid=""; var=""
+              case "$family" in
+                vllm-ascend-a2) pid=vllm-ascend; var=a2 ;;
+                vllm-ascend-a3) pid=vllm-ascend; var=a3 ;;
+                vllm-ascend)     pid=vllm-ascend ;;
+                vllm)            pid=vllm ;;
+                *) echo "::error::unknown family '${family:-<empty>}'; use vllm|vllm-ascend|vllm-ascend-a2|vllm-ascend-a3" >&2; exit 2 ;;
+              esac
+              if [ -n "$var" ]; then
+                im="$(jq -c --arg pid "$pid" --arg var "$var" '{include:[.image_tasks[]|select(.runtime.product_id==$pid and .runtime.variant==$var)|{task_id,runner,wheel_task_id}]}' "$plan")"
+                needed="$(jq -c --arg pid "$pid" --arg var "$var" '[.image_tasks[]|select(.runtime.product_id==$pid and .runtime.variant==$var)|.wheel_task_id]' "$plan")"
+              else
+                im="$(jq -c --arg pid "$pid" '{include:[.image_tasks[]|select(.runtime.product_id==$pid)|{task_id,runner,wheel_task_id}]}' "$plan")"
+                needed="$(jq -c --arg pid "$pid" '[.image_tasks[]|select(.runtime.product_id==$pid)|.wheel_task_id]' "$plan")"
+              fi
+              if [ "$(printf '%s' "$im" | jq '.include|length')" -eq 0 ]; then
+                echo "::error::family '${family}' matched no image tasks" >&2; exit 2
+              fi
+              wm="$(jq -c --argjson needed "$needed" '{include:[.wheel_tasks[]|select(.task_id|IN($needed[]))|{task_id,runner}]}' "$plan")"
+              chart=false
+              ;;
+            chart)
+              wm='{"include":[]}'; im='{"include":[]}'; chart=true
+              ;;
+            all)
+              wm="$(jq -c '.github_wheel_matrix' "$plan")"
+              im="$(jq -c '.github_image_matrix' "$plan")"
+              chart=true
+              ;;
+            *) echo "::error::unknown subcommand '$subcommand'" >&2; exit 2 ;;
+          esac
+          {
+            echo "build_wheel_matrix=${wm}"
+            echo "build_image_matrix=${im}"
+            echo "chart_enabled=${chart}"
+          } >>"${GITHUB_OUTPUT}"
+
+  build-wheels:
+    needs: [permission-check, plan]
+    if: >-
+      ${{ !cancelled() && needs.permission-check.outputs.allowed == 'true' &&
+          needs.plan.result == 'success' &&
+          (needs.permission-check.outputs.subcommand == 'wheel' ||
+           needs.permission-check.outputs.subcommand == 'image' ||
+           needs.permission-check.outputs.subcommand == 'all') }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.build_wheel_matrix) }}
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/_build-wheel.yml
+    with:
+      source_sha: ${{ needs.plan.outputs.source_sha }}
+      task_id: ${{ matrix.task_id }}
+      runner: ${{ matrix.runner }}
+      resolved_plan_artifact: ${{ needs.plan.outputs.resolved_plan_artifact }}
+      resolved_plan_sha256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
+
+  build-images:
+    needs: [permission-check, plan, build-wheels]
+    if: >-
+      ${{ !cancelled() && needs.permission-check.outputs.allowed == 'true' &&
+          needs.build-wheels.result == 'success' &&
+          (needs.permission-check.outputs.subcommand == 'image' ||
+           needs.permission-check.outputs.subcommand == 'all') }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.build_image_matrix) }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_build-image.yml
+    with:
+      source_sha: ${{ needs.plan.outputs.source_sha }}
+      task_id: ${{ matrix.task_id }}
+      runner: ${{ matrix.runner }}
+      resolved_plan_artifact: ${{ needs.plan.outputs.resolved_plan_artifact }}
+      resolved_plan_sha256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
+      deliver_full_oci: true
+
+  package-chart:
+    needs: [permission-check, plan]
+    if: >-
+      ${{ !cancelled() && needs.permission-check.outputs.allowed == 'true' &&
+          needs.plan.result == 'success' &&
+          (needs.permission-check.outputs.subcommand == 'chart' ||
+           needs.permission-check.outputs.subcommand == 'all') }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_build-chart.yml
+    with:
+      source_sha: ${{ needs.plan.outputs.source_sha }}
+      resolved_plan_artifact: ${{ needs.plan.outputs.resolved_plan_artifact }}
+      resolved_plan_sha256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
 
   publish-trusted:
-    needs: [permission-check, build-untrusted]
-    if: needs.build-untrusted.result == 'success'
+    needs: [permission-check, plan, build-wheels, build-images, package-chart]
+    if: >-
+      ${{ !cancelled() && needs.permission-check.result == 'success' &&
+          (needs.build-wheels.result == 'success' ||
+           needs.build-images.result == 'success' ||
+           needs.package-chart.result == 'success') }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
-      packages: write
       contents: read
-    environment: release-production
+      packages: write
+      pull-requests: write
+    env:
+      CRANE_VERSION: v0.20.3
+      CRANE_LINUX_AMD64_SHA256: 36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059
     steps:
-      - name: Download build artifacts (never checkout PR code)
-        uses: actions/download-artifact@87c55145d4e7e9d4d947bf4ee9e328df64cddc97
-        with:
-          name: ucm-pr-build-${{ needs.permission-check.outputs.pr-number }}
-          path: input/
-      - name: Validate artifact format
-        run: |
-          set -euo pipefail
-          test -f input/plan/resolved-plan.json || { echo "missing resolved plan" >&2; exit 2; }
-          test "$(jq -r '.resolved_plan_sha256' input/plan/resolved-plan.json)" != "" || { echo "invalid plan" >&2; exit 2; }
-          echo "Artifact validation passed"
-      - name: Checkout base branch (trusted code only)
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          fetch-depth: 1
-      - name: Publish to PR-tagged GHCR
+      - name: Validate publish contract
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_SHA: ${{ needs.permission-check.outputs.pr-head-sha }}
+          PR_NUMBER: ${{ needs.permission-check.outputs.pr-number }}
         run: |
           set -euo pipefail
-          source_sha="${{ needs.permission-check.outputs.pr-head-sha }}"
-          pr_number="${{ needs.permission-check.outputs.pr-number }}"
-          namespace="ghcr.io/${{ github.repository_owner }}/ucm-pr"
-          echo "Would push build artifacts from PR #${pr_number} (SHA ${source_sha}) to ${namespace}"
-          echo "This job has packages:write but NEVER checked out PR code"
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${PR_NUMBER}" =~ ^[0-9]+$ ]]
+      - name: Download resolved plan (trusted, never PR code)
+        uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ needs.plan.outputs.resolved_plan_artifact }}
+          path: input/plan
+      - name: Install checksum-pinned crane publisher
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/crane.tar.gz" \
+            "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
+          echo "${CRANE_LINUX_AMD64_SHA256}  ${RUNNER_TEMP}/crane.tar.gz" | sha256sum --check
+          tar -xzf "${RUNNER_TEMP}/crane.tar.gz" -C "${RUNNER_TEMP}/crane" crane
+          test "$("${RUNNER_TEMP}/crane/crane" version)" = "${CRANE_VERSION#v}"
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - name: Download image OCI artifacts (trusted, never PR code)
+        if: needs.build-images.result == 'success'
+        uses: ./.github/actions/download-artifact-retry
+        with:
+          pattern: ucm-oci-image-*
+          path: input/oci
+      - name: Push image OCI artifacts to PR-tagged GHCR
+        id: push-images
+        if: needs.build-images.result == 'success'
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/ucm-publish-docker-config
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+          SOURCE_SHA: ${{ needs.permission-check.outputs.pr-head-sha }}
+          PR_NUMBER: ${{ needs.permission-check.outputs.pr-number }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${DOCKER_CONFIG}"
+          printf '%s' "${GITHUB_TOKEN}" | crane auth login ghcr.io \
+            --username "${GITHUB_ACTOR}" --password-stdin
+          owner_lc="$(printf '%s' "${REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          sha8="${SOURCE_SHA:0:8}"
+          namespace="ghcr.io/${owner_lc}/ucm-pr"
+          plan=input/plan/resolved-plan.json
+          : >publish-manifest.tsv
+          # download every same-run image OCI artifact (each contains image.oci.tar)
+          mapfile -t dirs < <(find input/oci -maxdepth 1 -type d -name 'ucm-oci-image-*' | sort)
+          if [ "${#dirs[@]}" -eq 0 ]; then
+            echo "::error::build-images reported success but no ucm-oci-image-* artifacts were found" >&2
+            exit 2
+          fi
+          for d in "${dirs[@]}"; do
+            artifact_name="$(basename "$d")"
+            # ucm-oci-<task_id>-run-<run_id>-attempt-<attempt>  ->  task_id
+            task_id="$(printf '%s' "$artifact_name" | sed -E 's/^ucm-oci-//; s/-run-[0-9]+-attempt-[0-9]+$//')"
+            read -r family arch <<<"$(jq -r --arg tid "$task_id" \
+              '.image_tasks[]|select(.task_id==$tid)|[(if .runtime.variant=="default" then .runtime.product_id else (.runtime.product_id+"-"+.runtime.variant) end),.cpu_arch]|@tsv' "$plan")"
+            if [ -z "$family" ] || [ -z "$arch" ]; then
+              echo "::error::could not resolve family/arch for task ${task_id}" >&2; exit 2
+            fi
+            test -f "$d/image.oci.tar"
+            layout="$(mktemp -d)"
+            tar -xf "$d/image.oci.tar" -C "$layout"
+            arch_tag="${namespace}:pr-${PR_NUMBER}-${sha8}-${family}-${arch}"
+            crane push "$layout" "$arch_tag"
+            arch_digest="$(crane digest "$arch_tag")"
+            printf '%s\t%s\t%s\t%s\n' "$family" "$arch" "$arch_tag" "$arch_digest" >>publish-manifest.tsv
+            rm -rf "$layout"
+          done
+          # compose a per-family multi-arch manifest list reviewers can `docker pull`
+          list_tags=()
+          for fam in $(cut -f1 publish-manifest.tsv | sort -u); do
+            mapfile -t refs < <(awk -v f="$fam" '$1==f {print $3}' publish-manifest.tsv)
+            list_tag="${namespace}:pr-${PR_NUMBER}-${sha8}-${fam}"
+            docker buildx imagetools create -t "$list_tag" "${refs[@]}"
+            list_digest="$(crane digest "$list_tag")"
+            list_tags+=("${list_tag}|${list_digest}")
+          done
+          {
+            echo "namespace=${namespace}"
+            echo "list_tags<<EOF"
+            printf '%s\n' "${list_tags[@]}"
+            echo "EOF"
+          } >>"${GITHUB_OUTPUT}"
+      - name: Post PR build receipt comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.permission-check.outputs.pr-number }}
+          SOURCE_SHA: ${{ needs.permission-check.outputs.pr-head-sha }}
+          SUBCOMMAND: ${{ needs.permission-check.outputs.subcommand }}
+          WHEEL_RESULT: ${{ needs.build-wheels.result }}
+          IMAGE_RESULT: ${{ needs.build-images.result }}
+          CHART_RESULT: ${{ needs.package-chart.result }}
+          CHART_ARTIFACT: ${{ needs.package-chart.outputs.chart_artifact }}
+          LIST_TAGS: ${{ steps.push-images.outputs.list_tags }}
+          NAMESPACE: ${{ steps.push-images.outputs.namespace }}
+        run: |
+          set -euo pipefail
+          sha8="${SOURCE_SHA:0:8}"
+          {
+            echo "## 🤖 \`/ucm-build ${SUBCOMMAND}\` — build receipt"
+            echo ""
+            echo "**Fixed SHA:** \`${SOURCE_SHA}\`"
+            echo ""
+            echo "| product | status |"
+            echo "| --- | --- |"
+            echo "| wheel | \`${WHEEL_RESULT}\` |"
+            echo "| image | \`${IMAGE_RESULT}\` |"
+            echo "| chart | \`${CHART_RESULT}\` |"
+            echo ""
+            if [ -n "${LIST_TAGS}" ]; then
+              echo "### 🐳 GHCR images (auto-pushed, PR-tagged)"
+              echo ""
+              echo '```bash'
+              printf '%s\n' "${LIST_TAGS}" | while IFS='|' read -r tag digest; do
+                [ -n "$tag" ] || continue
+                echo "docker pull ${tag}   # ${digest}"
+              done
+              echo '```'
+              echo ""
+              echo "Namespace: \`${NAMESPACE}\` — tags are prefixed \`pr-${PR_NUMBER}-${sha8}-\` and are **auto-deleted when this PR closes** (\`ucm-pr-cleanup.yml\`)."
+              echo ""
+            fi
+            echo "### 📦 Artifacts (7-day retention)"
+            echo ""
+            echo "Wheels, images (OCI evidence), and chart packages are attached to [this workflow run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}) — download them from the run's **Artifacts** section."
+            if [ -n "${CHART_ARTIFACT}" ]; then
+              echo "- chart artifact: \`${CHART_ARTIFACT}\`"
+            fi
+            echo ""
+            echo "---"
+            echo "_Subcommands: \`/ucm-build wheel [profile=<name>]\` · \`/ucm-build image family=<name>\` · \`/ucm-build chart\` · \`/ucm-build all\`_"
+          } >comment.md
+          gh pr comment "${PR_NUMBER}" --body-file comment.md
