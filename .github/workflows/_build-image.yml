@@ -73,7 +73,12 @@ jobs:
             echo "image task or frozen plan identity is invalid" >&2
             exit 2
           fi
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: ./.github/actions/download-artifact-retry
         with:
           name: ${{ inputs.resolved_plan_artifact }}
           path: input/plan
@@ -85,7 +90,7 @@ jobs:
             find input/plan -name 'resolved-plan.json' -exec mv {} input/plan/resolved-plan.json \;
           fi
           test -f input/plan/resolved-plan.json
-      - name: Validate frozen plan source before checkout
+      - name: Validate frozen plan source
         env:
           EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
           RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
@@ -129,27 +134,6 @@ jobs:
             exit 2
           fi
           printf '%s\n' "${available_gib}" >"${RUNNER_TEMP}/ucm-available-gib.txt"
-      - name: Stash resolved plan and task artifacts before checkout
-        shell: bash
-        run: |
-          cp input/plan/resolved-plan.json "${RUNNER_TEMP}/resolved-plan.json"
-          if [[ -d out ]]; then
-            cp -r out "${RUNNER_TEMP}/ucm-out-backup"
-          fi
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: ${{ inputs.source_sha }}
-          fetch-depth: 1
-          persist-credentials: false
-      - name: Restore resolved plan and task artifacts after checkout
-        shell: bash
-        run: |
-          mkdir -p input/plan
-          cp "${RUNNER_TEMP}/resolved-plan.json" input/plan/resolved-plan.json
-          if [[ -d "${RUNNER_TEMP}/ucm-out-backup" ]]; then
-            rm -rf out
-            cp -r "${RUNNER_TEMP}/ucm-out-backup" out
-          fi
       - id: task-python
         name: Select task Python from the frozen plan
         env:
