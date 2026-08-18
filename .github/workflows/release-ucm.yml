@@ -633,6 +633,12 @@ jobs:
           git fetch --force origin "+${GITHUB_REF}:${GITHUB_REF}"
           cp input/draft/release-state.json out/release-state.json
           find input/wheels -type f -name '*.whl' -exec cp -p {} out/artifacts/ \;
+          duplicates="$(find input/wheels -type f -name '*.whl' -exec basename {} \; | sort | uniq -d)"
+          if [ -n "${duplicates}" ]; then
+            echo "ERROR: duplicate wheel filenames would clobber each other in the release:" >&2
+            printf '%s\n' "${duplicates}" >&2
+            exit 2
+          fi
           chart_package="$(find input/chart -maxdepth 1 -type f -name '*.tgz' -print)"
           test -n "${chart_package}"
           cp "${chart_package}" out/artifacts/

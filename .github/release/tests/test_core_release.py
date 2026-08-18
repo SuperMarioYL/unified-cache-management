@@ -12,6 +12,7 @@ rather than planner behaviour.
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib
 import json
 import os
@@ -217,3 +218,95 @@ def test_json_array_loader_preserves_duplicate_key_rejection(tmp_path: Path) -> 
     duplicate.write_text('[{"id":1,"id":2}]\n', encoding="utf-8")
     with pytest.raises(ValueError, match="duplicate JSON key"):
         release_core.load_json_array(duplicate)
+
+
+def test_wheel_tasks_carry_dist_name_and_unique_filenames() -> None:
+    """Each wheel task carries its profile dist_name and the derived wheel
+    filename is globally unique, so cann900-a2/a3 no longer collide on the
+    shared ``linux`` wheel_platform."""
+    wheel = importlib.import_module("ucm_release.wheel")
+    plan = _fixture_resolved_plan()
+    assert len(plan["wheel_tasks"]) >= 4
+    filenames: set[str] = set()
+    for task in plan["wheel_tasks"]:
+        assert task["dist_name"], f"dist_name missing on {task['task_id']}"
+        assert task["dist_name"].startswith("uc-manager")
+        arch = release_core.cpu_toolchain_authority(task["cpu_arch"]).wheel_arch
+        filename = (
+            f"{wheel._dist_filename_component(task['dist_name'])}-"
+            f"{task['wheel_version']}-{task['python_abi']}-{task['python_abi']}-"
+            f"{task['wheel_platform']}_{arch}.whl"
+        )
+        assert filename not in filenames, f"wheel filename collision: {filename}"
+        filenames.add(filename)
+    # cann900-a2 and cann900-a3 both use wheel_platform=linux but must differ.
+    dist_names = {task["dist_name"] for task in plan["wheel_tasks"]}
+    assert "uc-manager-cann-a2" in dist_names and "uc-manager-cann-a3" in dist_names
+
+
+def test_dist_name_helpers_use_profile_name() -> None:
+    """The sealer/fixture name helpers derive output from the profile dist_name."""
+    wheel = importlib.import_module("ucm_release.wheel")
+    assert wheel._dist_filename_component("uc-manager-cann-a2") == "uc_manager_cann_a2"
+    assert wheel._dist_filename_component("uc-manager") == "uc_manager"
+    metadata = wheel._canonical_metadata("uc-manager-cann-a3", "0.7.55", ["wrapt==1.17.2"])
+    assert b"Name: uc-manager-cann-a3" in metadata
+    assert b"Version: 0.7.55" in metadata
+    assert b"Requires-Dist: wrapt==1.17.2" in metadata
+
+
+def test_release_body_lists_wheels_and_images(tmp_path: Path) -> None:
+    """The finalized release body maps every wheel to its profile/arch and
+    lists the matching ghcr images, surfacing missing wheels instead of
+    silently dropping them."""
+    cli = importlib.import_module("ucm_release.cli")
+    plan: dict[str, object] = {
+        "wheel_tasks": [
+            {
+                "profile_id": "cann900-a2",
+                "cpu_arch": "arm64",
+                "dist_name": "uc-manager-cann-a2",
+                "wheel_version": "0.7.55",
+                "python_abi": "cp312",
+                "wheel_platform": "linux",
+            },
+            {
+                "profile_id": "cann900-a3",
+                "cpu_arch": "arm64",
+                "dist_name": "uc-manager-cann-a3",
+                "wheel_version": "0.7.55",
+                "python_abi": "cp312",
+                "wheel_platform": "linux",
+            },
+        ],
+        "resolved_upstreams": [
+            {
+                "product_id": "vllm-ascend",
+                "variant": "a2",
+                "target_repository": "ghcr.io/o/vllm-ascend",
+                "target_tag": "v0.22.1rc1-ucm-0.7.55-r1",
+            },
+            {
+                "product_id": "vllm-ascend",
+                "variant": "a3",
+                "target_repository": "ghcr.io/o/vllm-ascend",
+                "target_tag": "v0.22.1rc1-a3-ucm-0.7.55-r1",
+            },
+        ],
+    }
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    a2_name = "uc_manager_cann_a2-0.7.55-cp312-cp312-linux_aarch64.whl"
+    (artifacts / a2_name).write_bytes(b"a2-wheel-bytes")
+
+    body = cli._render_release_body(plan, artifacts, "deadbeef" * 5, "v0.7.55")
+
+    assert "cann900-a2" in body and "cann900-a3" in body
+    assert a2_name in body
+    assert "uc_manager_cann_a3-0.7.55-cp312-cp312-linux_aarch64.whl" in body
+    assert "ghcr.io/o/vllm-ascend:v0.22.1rc1-ucm-0.7.55-r1" in body
+    assert "ghcr.io/o/vllm-ascend:v0.22.1rc1-a3-ucm-0.7.55-r1" in body
+    # a2 file present -> its sha256 is reported; a3 file absent -> flagged missing.
+    assert "sha256:" + hashlib.sha256(b"a2-wheel-bytes").hexdigest() in body
+    assert "missing" in body
+

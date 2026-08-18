@@ -214,6 +214,7 @@ jobs:
                 UCM_RELEASE_PYTHON_VERSION: $t[0].python_version,
                 UCM_RELEASE_PYTHON_ABI: $t[0].python_abi,
                 UCM_RELEASE_WHEEL_PLATFORM: $t[0].wheel_platform,
+                UCM_RELEASE_DIST_NAME: $t[0].dist_name,
                 UCM_RELEASE_BUILD_SETTINGS: $build_settings,
                 UCM_RUNTIME_PATCH_MANIFEST_SHA256: $t[0].runtime_patch_manifest_sha256,
                 UCM_RELEASE_REQUIRED_TARGETS: $required_targets,

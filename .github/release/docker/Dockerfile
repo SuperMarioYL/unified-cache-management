@@ -19,6 +19,7 @@ ARG UCM_RELEASE_BUILD_KEY
 ARG UCM_RELEASE_PYTHON_VERSION
 ARG UCM_RELEASE_PYTHON_ABI
 ARG UCM_RELEASE_WHEEL_PLATFORM
+ARG UCM_RELEASE_DIST_NAME
 ARG UCM_RELEASE_BUILD_SETTINGS
 ARG UCM_RUNTIME_PATCH_MANIFEST_SHA256
 ARG UCM_RELEASE_REQUIRED_TARGETS
@@ -123,6 +124,12 @@ RUN PYTHONPATH=/workspace/ucm/.github/release \
       --task-file /tmp/wheel-task.json \
       --output /tmp/build-authority.json
 
+# Rewrite [project].name to the per-profile dist_name in the extracted source
+# tree so `python -m build` emits a wheel whose filename/METADATA/dist-info
+# carry it natively. setuptools forbids a dynamic [project].name, so the
+# static line is patched at build time from the frozen-plan UCM_DIST_NAME input.
+RUN UCM_DIST_NAME="${UCM_RELEASE_DIST_NAME}" ucm-python -c 'import os, re, pathlib; p = pathlib.Path("/workspace/ucm/pyproject.toml"); t = p.read_text(); name = os.environ.get("UCM_DIST_NAME"); assert name, "UCM_DIST_NAME required to patch project name"; q = chr(34); t, c = re.subn(r"(?m)^name[ \t]*=.*", "name = " + q + name + q, t); assert c == 1, "expected one [project] name line, replaced " + str(c); p.write_text(t)'
+
 RUN PATH="$(ucm-python -c 'import sysconfig; print(sysconfig.get_path("scripts"))'):${PATH}" \
     UCM_RELEASE_BUILD=1 \
     PLATFORM="${PLATFORM}" \
@@ -135,6 +142,7 @@ RUN PATH="$(ucm-python -c 'import sysconfig; print(sysconfig.get_path("scripts")
     UCM_RELEASE_PYTHON_VERSION="${UCM_RELEASE_PYTHON_VERSION}" \
     UCM_RELEASE_PYTHON_ABI="${UCM_RELEASE_PYTHON_ABI}" \
     UCM_RELEASE_WHEEL_PLATFORM="${UCM_RELEASE_WHEEL_PLATFORM}" \
+    UCM_DIST_NAME="${UCM_RELEASE_DIST_NAME}" \
     UCM_RELEASE_BUILD_SETTINGS="${UCM_RELEASE_BUILD_SETTINGS}" \
     UCM_RUNTIME_PATCH_MANIFEST_SHA256="${UCM_RUNTIME_PATCH_MANIFEST_SHA256}" \
     UCM_RELEASE_REQUIRED_TARGETS="${UCM_RELEASE_REQUIRED_TARGETS}" \

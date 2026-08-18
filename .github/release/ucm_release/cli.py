@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -65,6 +66,58 @@ def _gh_release_api(
     return json.loads(stdout) if stdout else {}
 
 
+def _render_release_body(
+    plan: dict[str, object], artifacts_dir: Path, source_sha: str, tag: str
+) -> str:
+    """Render the published release body from the resolved plan + sealed wheels."""
+    lines: list[str] = [
+        f"Protected UCM {tag} release from reviewed source commit {source_sha}.",
+        "",
+    ]
+    expected: dict[str, dict[str, object]] = {}
+    for task in plan["wheel_tasks"]:
+        arch = core.cpu_toolchain_authority(task["cpu_arch"]).wheel_arch
+        dist_component = str(task.get("dist_name", "uc-manager")).replace("-", "_")
+        filename = (
+            f"{dist_component}-{task['wheel_version']}-"
+            f"{task['python_abi']}-{task['python_abi']}-"
+            f"{task['wheel_platform']}_{arch}.whl"
+        )
+        expected[filename] = task
+    actual = (
+        {p.name: p for p in artifacts_dir.glob("*.whl")}
+        if artifacts_dir.is_dir()
+        else {}
+    )
+    lines.append("## Wheels")
+    lines.append("| profile | arch | wheel | sha256 |")
+    lines.append("| --- | --- | --- | --- |")
+    for filename in sorted(expected):
+        task = expected[filename]
+        wheel_path = actual.get(filename)
+        digest = (
+            "sha256:" + hashlib.sha256(wheel_path.read_bytes()).hexdigest()
+            if wheel_path is not None
+            else "missing"
+        )
+        lines.append(
+            f"| {task['profile_id']} | {task['cpu_arch']} | `{filename}` | `{digest}` |"
+        )
+    for filename in sorted(set(actual) - set(expected)):
+        lines.append(f"| _unknown_ | - | `{filename}` | _unexpected_ |")
+    lines.append("")
+    lines.append("## Images")
+    for upstream in sorted(
+        plan["resolved_upstreams"], key=lambda u: (u["product_id"], u["variant"])
+    ):
+        lines.append(
+            f"- `{upstream['target_repository']}:{upstream['target_tag']}` "
+            f"({upstream['product_id']} / {upstream['variant']})"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _publish_github_release(args) -> dict[str, object]:
     plan = core.load_json(args.plan)
     repository = plan["source"]["repository"]
@@ -103,7 +156,8 @@ def _publish_github_release(args) -> dict[str, object]:
             encoded = urllib.parse.quote(asset.name, safe="")
             _gh_release_api(f'https://uploads.github.com/{api_root}/releases/{release_id}/assets?name={encoded}', method='POST', input_bytes=asset.read_bytes(), content_type='application/octet-stream')  # fmt: skip  # noqa: E501
             operations.append({'type': 'github-release-asset-upload', 'capability': 'write', 'reference': f'https://uploads.github.com/{api_root}/releases/{release_id}/assets', 'authenticated': True})  # fmt: skip  # noqa: E501
-    publish_body = {"draft": False, "prerelease": True, "make_latest": "false"}
+    body = _render_release_body(plan, output_dir / "artifacts", args.source_sha, tag)
+    publish_body = {"draft": False, "prerelease": True, "make_latest": "false", "body": body}  # fmt: skip  # noqa: E501
     _gh_release_api(f'{api_root}/releases/{release_id}', method='PATCH', input_bytes=core.canonical_bytes(publish_body))  # fmt: skip  # noqa: E501
     operations.append({'type': 'github-release-publish', 'capability': 'write', 'reference': f'https://api.github.com/{api_root}/releases/{release_id}', 'authenticated': True})  # fmt: skip  # noqa: E501
     final = {'release_id': release_id, 'tag': tag, 'draft': False, 'just_created': False}  # fmt: skip  # noqa: E501

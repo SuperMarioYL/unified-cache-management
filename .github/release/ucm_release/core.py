@@ -1248,7 +1248,7 @@ def _matching_profile(
     return matches[0]
 
 
-_PROFILE_DIRECT_FIELDS = tuple('accelerator accelerator_runtime python_version python_abi wheel_version wheel_platform binary_profile_id'.split())  # fmt: skip  # noqa: E501
+_PROFILE_DIRECT_FIELDS = tuple('accelerator accelerator_runtime python_version python_abi wheel_version wheel_platform binary_profile_id dist_name'.split())  # fmt: skip  # noqa: E501
 _PROFILE_DEEPCOPY_FIELDS = tuple('validation_targets required_native forbidden_native allowed_dt_needed external_required_dependencies'.split())  # fmt: skip  # noqa: E501
 _FAMILY_IDENTITY_KEYS = tuple('product_id repository tag variant index_digest target_repository target_tag'.split())  # fmt: skip  # noqa: E501
 _RUNTIME_KEYS = tuple("repository tag version channel variant index_digest".split())
@@ -1479,6 +1479,7 @@ def load_catalog(
     for profile in release.get("wheel_profiles", []):
 
         profile["wheel_version"] = version  # fmt: skip  # noqa: E501
+        profile.setdefault("dist_name", "uc-manager")  # fmt: skip  # noqa: E501
     chart = load_yaml(repository_root / release["chart"]["source"] / "Chart.yaml")
     if chart.get('name') != release['chart']['name']: raise ValueError('Chart name does not match release.yaml')  # noqa: E701,E501
     _validate_cross_config(release, repository_root=repository_root)

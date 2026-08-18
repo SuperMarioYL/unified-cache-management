@@ -104,6 +104,7 @@ _WHEEL_DECLARATION_FIELDS = (
     "wheel_version",
     "wheel_platform",
     "binary_profile_id",
+    "dist_name",
     "validation_targets",
     "required_native",
     "forbidden_native",
@@ -366,8 +367,8 @@ def build_fixture_wheel(
     version = release["ucm_version"]
     platform = cpu_toolchain_authority(spec["cpu_arch"]).wheel_arch
     tag = f"{spec['python_abi']}-{spec['python_abi']}-linux_{platform}"
-    filename = f"uc_manager-{version}-{tag}.whl"
-    dist_info = f"uc_manager-{version}.dist-info"
+    filename = f"{_dist_filename_component(spec['dist_name'])}-{version}-{tag}.whl"  # fmt: skip  # noqa: E501
+    dist_info = f"{_dist_filename_component(spec['dist_name'])}-{version}.dist-info"  # fmt: skip  # noqa: E501
     members = {
         "ucm/__init__.py": f"__version__ = {version!r}\n",
         "ucm/_fixture_build.py": (
@@ -376,7 +377,7 @@ def build_fixture_wheel(
         f"{dist_info}/METADATA": "\n".join(
             [
                 "Metadata-Version: 2.1",
-                "Name: uc-manager",
+                f"Name: {spec['dist_name']}",
                 f"Version: {version}",
                 *(
                     f"Requires-Dist: {requirement}"
@@ -1901,10 +1902,19 @@ def _verify_builder_candidate_evidence(
     }
 
 
-def _canonical_metadata(version: str, dependencies: list[str]) -> bytes:
+def _dist_filename_component(dist_name: str) -> str:
+    """PEP 427 wheel filename / dist-info directory component for a dist_name.
+
+    The catalog grammar restricts dist_name to hyphen-separated lowercase tokens,
+    so collapsing hyphens to underscores matches setuptools' safe_name output.
+    """
+    return dist_name.replace("-", "_")
+
+
+def _canonical_metadata(dist_name: str, version: str, dependencies: list[str]) -> bytes:
     lines = [
         "Metadata-Version: 2.1",
-        "Name: uc-manager",
+        f"Name: {dist_name}",
         f"Version: {version}",
         "Summary: Unified Cache Management",
         "Requires-Python: >=3.10",
@@ -1999,7 +2009,7 @@ def _verify_canonical_builder_archive(
         raise ValueError("sealed wheel ZIP comment is forbidden")
     tag = _expected_wheel_tag(binding)
     if archive.read(metadata_name) != _canonical_metadata(
-        binding["wheel_version"], dependencies
+        binding["dist_name"], binding["wheel_version"], dependencies
     ):
         raise ValueError("sealed wheel METADATA bytes are noncanonical")
     if archive.read(wheel_name) != _canonical_wheel_metadata(tag):
@@ -2080,7 +2090,7 @@ def seal_wheel(
             raise ValueError("input wheel requires exactly one METADATA and WHEEL")
         metadata_name = metadata_names[0]
         dist_info = metadata_name.removesuffix("/METADATA")
-        expected_dist_info = f"uc_manager-{spec['wheel_version']}.dist-info"
+        expected_dist_info = f"{_dist_filename_component(spec['dist_name'])}-{spec['wheel_version']}.dist-info"  # fmt: skip  # noqa: E501
         if dist_info != expected_dist_info or wheel_names[0] != f"{dist_info}/WHEEL":
             raise ValueError(
                 "input wheel dist-info path does not match controlled version"
@@ -2088,8 +2098,8 @@ def seal_wheel(
         metadata = email.parser.Parser().parsestr(
             archive.read(metadata_name).decode("utf-8")
         )
-        if canonicalize_name(metadata.get("Name", "")) != "uc-manager":
-            raise ValueError("input wheel distribution must be uc-manager")
+        if canonicalize_name(metadata.get("Name", "")) != canonicalize_name(spec["dist_name"]):  # fmt: skip  # noqa: E501
+            raise ValueError(f"input wheel distribution must be {spec['dist_name']}")  # fmt: skip  # noqa: E501
         if metadata.get("Version") != spec["wheel_version"]:
             raise ValueError("input wheel version is not the controlled local version")
         if metadata.get_all("Requires-Dist", []) != task["runtime_requirements"]:
@@ -2157,6 +2167,7 @@ def seal_wheel(
         "python_abi": spec["python_abi"],
         "python_version": task["python_version"],
         "binary_profile_id": spec["binary_profile_id"],
+        "dist_name": spec["dist_name"],
         "wheel_version": spec["wheel_version"],
         "wheel_platform": spec["wheel_platform"],
         "required_native": spec["required_native"],
@@ -2178,7 +2189,7 @@ def seal_wheel(
     ):
         raise ValueError("runtime patch manifest differs from build authority")
     members[metadata_name] = _canonical_metadata(
-        spec["wheel_version"], task["runtime_requirements"]
+        spec["dist_name"], spec["wheel_version"], task["runtime_requirements"]
     )
     members[wheel_name] = _canonical_wheel_metadata(tag)
     members[build_name] = canonical_bytes(binding) + b"\n"
@@ -2186,7 +2197,7 @@ def seal_wheel(
     members[closure_name] = canonical_bytes(closure) + b"\n"
     members[RUNTIME_PATCH_MANIFEST] = patch_bytes
     members[record_name] = _record_bytes(members, record_name)
-    filename = f"uc_manager-{spec['wheel_version']}-{tag}.whl"
+    filename = f"{_dist_filename_component(spec['dist_name'])}-{spec['wheel_version']}-{tag}.whl"  # fmt: skip  # noqa: E501
     wheel_path = output_dir / filename
     with zipfile.ZipFile(
         wheel_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
@@ -2402,8 +2413,8 @@ def inspect_wheel(
             fixture_binding = _verify_fixture_binding(archive, spec)
     distribution = metadata.get("Name", "")
     version = metadata.get("Version", "")
-    if canonicalize_name(distribution) != "uc-manager":
-        raise ValueError(f"unexpected wheel distribution: {distribution}")
+    if canonicalize_name(distribution) != canonicalize_name(spec["dist_name"]):  # fmt: skip  # noqa: E501
+        raise ValueError(f"unexpected wheel distribution: {distribution}")  # fmt: skip  # noqa: E501
     if canonicalize_name(distribution) != canonicalize_name(str(filename_name)):
         raise ValueError("METADATA distribution does not match wheel filename")
     if version != str(filename_version):
