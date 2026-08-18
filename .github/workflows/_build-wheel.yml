@@ -63,7 +63,7 @@ jobs:
             echo "wheel task or frozen plan identity is invalid" >&2
             exit 2
           fi
-      - uses: ./.github/actions/download-artifact-retry
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: ${{ inputs.resolved_plan_artifact }}
           path: input/plan
