@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
+import tempfile
 import urllib.parse
 from pathlib import Path
 
@@ -42,9 +44,18 @@ def _gh_release_api(
     if method is not None:
         cmd += ["--method", method]
     cmd.append(path)
+    input_tmp = None
     if input_bytes is not None:
-        cmd += ["--input", "-"]
-    completed = subprocess.run(cmd, input=input_bytes, capture_output=True)
+        # gh api --input - reads from stdin without setting Content-Length, which
+        # uploads.github.com rejects (HTTP 400 Bad Content-Length) for binary assets;
+        # write to a temp file so gh sends the correct Content-Length.
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(input_bytes)
+            input_tmp = f.name
+        cmd += ["--input", input_tmp]
+    completed = subprocess.run(cmd, capture_output=True)
+    if input_tmp is not None:
+        os.unlink(input_tmp)
     if completed.returncode != 0:
         message = completed.stderr.decode(encoding="utf-8", errors="replace").strip()
         if allow_missing and "not found" in message.lower():
