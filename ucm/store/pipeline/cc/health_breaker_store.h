@@ -28,26 +28,22 @@
 #include <chrono>
 #include <condition_variable>
 #include <deque>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include "health_check_executor.h"
+#include "store_health_config.h"
 #include "ucmstore_v1.h"
 
 namespace UC::PipelineStore {
 
-struct HealthBreakerConfig {
-    std::chrono::milliseconds healthCheckInterval{std::chrono::seconds(10)};
-    std::chrono::milliseconds healthCheckTimeout{std::chrono::seconds(3)};
-    size_t healthWindowSize{8};
-    size_t failureThreshold{2};
-};
-
 class HealthBreakerStore : public StoreV1 {
 public:
-    HealthBreakerStore(StoreV1* store, std::string storeId, HealthBreakerConfig config);
+    HealthBreakerStore() = default;
     ~HealthBreakerStore() override;
 
+    Status Setup(StoreV1* store, std::string storeId, const StoreHealthConfig& config);
     Status Start();
     void Stop();
     bool Enabled() const { return enabled_.load(std::memory_order_acquire); }
@@ -58,6 +54,7 @@ public:
     std::string Readme() const override;
     Expected<std::vector<uint8_t>> Lookup(const Detail::BlockId* blocks, size_t num) override;
     Expected<ssize_t> LookupOnPrefix(const Detail::BlockId* blocks, size_t num) override;
+    Expected<ssize_t> LookupOnReverse(const Detail::BlockId* blocks, size_t num) override;
     void Prefetch(const Detail::BlockId* blocks, size_t num) override;
     Status CheckHealth() override;
     Expected<Detail::TaskHandle> Load(Detail::TaskDesc task) override;
@@ -71,9 +68,9 @@ private:
     void RecordEffectiveHealth();
     void ProbeLoop();
 
-    StoreV1* store_;
+    StoreV1* store_{nullptr};
     std::string storeId_;
-    HealthBreakerConfig config_;
+    StoreHealthConfig config_{};
     std::atomic<bool> enabled_{true};
     mutable std::mutex healthMutex_;
     std::deque<bool> healthResults_;
@@ -82,7 +79,7 @@ private:
     std::condition_variable stopCv_;
     bool stop_{false};
     std::thread probeThread_;
-    Detail::HealthCheckExecutor healthCheck_;
+    std::unique_ptr<Detail::HealthCheckExecutor> healthCheck_;
 };
 
 }  // namespace UC::PipelineStore

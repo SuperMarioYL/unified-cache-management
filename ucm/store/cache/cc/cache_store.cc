@@ -84,6 +84,12 @@ public:
         if (!res) [[unlikely]] { UC_ERROR("Failed({}) to lookup blocks({}).", res.Error(), num); }
         return res;
     }
+    Expected<ssize_t> LookupOnReverse(const Detail::BlockId* blocks, size_t num) override
+    {
+        auto res = bufferMgr_.LookupOnReverse(blocks, num);
+        if (!res) [[unlikely]] { UC_ERROR("Failed({}) to lookup blocks({}).", res.Error(), num); }
+        return res;
+    }
     void Prefetch(const Detail::BlockId* blocks, size_t num) override
     {
         bufferMgr_.Prefetch(blocks, num);
@@ -115,7 +121,9 @@ public:
     Status Wait(Detail::TaskHandle taskId) override
     {
         auto s = transMgr_.Wait(taskId);
-        if (s.Failure()) [[unlikely]] { UC_ERROR("Failed({}) to wait task({}).", s, taskId); }
+        if (s.Failure() && s != Status::StoreUnhealthy()) [[unlikely]] {
+            UC_ERROR("Failed({}) to wait task({}).", s, taskId);
+        }
         return s;
     }
 
@@ -154,6 +162,7 @@ private:
         config.Get("use_gdr", param.useGdr);
         config.Get("cache_sdma_direct", param.cacheSdmaDirect);
         config.Get("cache_sdma_direct_launch_granularity", param.sdmaDirectLaunchGranularity);
+        config.GetNumber("local_rank_size", param.localRankSize);
         return param;
     }
     Status CheckSizeConfig(const Config& config)
@@ -210,6 +219,9 @@ private:
         if (config.streamNumber < 1 || config.streamNumber > 32) {
             return Status::InvalidParam("invalid stream number({})", config.streamNumber);
         }
+        if (config.localRankSize == 0) {
+            return Status::InvalidParam("invalid local rank size({})", config.localRankSize);
+        }
         return Status::OK();
     }
     void ShowConfig(const Config& config)
@@ -246,6 +258,7 @@ private:
         UC_INFO("Set {}::LoadExclusiveBufferNumber to {}.", ns, config.loadExclusiveBufferNumber);
         UC_INFO("Set {}::GpuKvBufferNumber to {}.", ns, config.gpuKvBufferAddrs.size());
         UC_INFO("Set {}::UseGdr to {}.", ns, config.useGdr);
+        UC_INFO("Set {}::LocalRankSize to {}.", ns, config.localRankSize);
     }
 };
 

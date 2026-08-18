@@ -24,6 +24,7 @@
 #include "space_manager.h"
 #include <atomic>
 #include "logger/logger.h"
+#include "metrics_api.h"
 #include "posix_file.h"
 
 namespace UC::PosixStore {
@@ -32,6 +33,7 @@ Status SpaceManager::Setup(const Config& config)
 {
     hotnessTrackerEnable_ = config.deviceId == -1;
     gcEnable_ = config.posixGcEnable && config.posixCapacityGb > 0;
+    UC::Metrics::UpdateStats(NAME_TO_METRIC_ID("posix_gc_running"), 0.0);
     auto s = layout_.Setup(config);
     if (s.Failure()) [[unlikely]] { return s; }
     if (hotnessTrackerEnable_) {
@@ -99,6 +101,18 @@ Expected<ssize_t> SpaceManager::LookupOnPrefix(const Detail::BlockId* blocks, si
     if (s != ok) [[unlikely]] { return Status{s, "failed to lookup some blocks"}; }
 
     return firstFail->load() - 1;
+}
+
+Expected<ssize_t> SpaceManager::LookupOnReverse(const Detail::BlockId* blocks, size_t num)
+{
+    if (num == 0) { return static_cast<ssize_t>(-1); }
+    for (ssize_t i = static_cast<ssize_t>(num) - 1; i >= 0; --i) {
+        if (Lookup(blocks + i)) {
+            if (hotnessTrackerEnable_) { hotnessTracker_.Touch(*(blocks + i)); }
+            return i;
+        }
+    }
+    return static_cast<ssize_t>(-1);
 }
 
 uint8_t SpaceManager::Lookup(const Detail::BlockId* block)
