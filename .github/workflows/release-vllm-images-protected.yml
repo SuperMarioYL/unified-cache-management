@@ -94,11 +94,11 @@ jobs:
           # shellcheck disable=SC2153,SC1083,SC2012
           set -euo pipefail
           printf '%s' "${GITHUB_TOKEN}" | crane auth login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: ./.github/actions/download-artifact-retry
         with:
           pattern: ucm-member-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/members
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: ./.github/actions/download-artifact-retry
         with:
           name: ${{ inputs.resolved_plan_artifact }}
           path: input/plan
@@ -110,7 +110,7 @@ jobs:
           # shellcheck disable=SC2153,SC1083,SC2012
           set -euo pipefail
           mkdir -p out/parent/member-records
-          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --arg github_run_id "${GITHUB_RUN_ID}" --argjson github_run_attempt "${GITHUB_RUN_ATTEMPT}" {root: "input/members", output_dir: "out/parent/member-records", source_sha: $source_sha, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256, run: {run_id: $github_run_id, run_attempt: $github_run_attempt}} > out/member-collection-request.json
+          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --arg github_run_id "${GITHUB_RUN_ID}" --argjson github_run_attempt "${GITHUB_RUN_ATTEMPT}" '{root: "input/members", output_dir: "out/parent/member-records", source_sha: $source_sha, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256, run: {run_id: $github_run_id, run_attempt: $github_run_attempt}}' > out/member-collection-request.json
           root="$(jq -r '.root' out/member-collection-request.json)"
           output_dir="$(jq -r '.output_dir' out/member-collection-request.json)"
           source_sha="$(jq -r '.source_sha' out/member-collection-request.json)"
@@ -202,7 +202,7 @@ jobs:
       - run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: ./.github/actions/download-artifact-retry
         with:
           name: ${{ inputs.resolved_plan_artifact }}
           path: input/plan
@@ -253,7 +253,7 @@ jobs:
           test "$("${RUNNER_TEMP}/crane/crane" version)" = "${CRANE_VERSION#v}"
           test "$("${HOME}/.docker/cli-plugins/docker-buildx" version | awk '{print $2}')" = "${BUILDX_VERSION}"
           echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: ./.github/actions/download-artifact-retry
         with:
           name: ${{ needs.aggregate-members.outputs.parent_artifact }}
           path: input/parent
@@ -358,15 +358,15 @@ jobs:
       - run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: ./.github/actions/download-artifact-retry
         with:
           name: ${{ needs.aggregate-members.outputs.parent_artifact }}
           path: input/parent
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: ./.github/actions/download-artifact-retry
         with:
           pattern: ucm-index-provisional-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/provisionals
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: ./.github/actions/download-artifact-retry
         with:
           name: ${{ inputs.resolved_plan_artifact }}
           path: input/plan
