@@ -1,0 +1,4328 @@
+
+<!doctype html>
+<html lang="zh" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Unified Cache Manager (UCM) persists LLM KVCache and replaces redundant computations through multiple retrieval mechanisms.">
+      
+      
+      
+        <link rel="canonical" href="https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/glm/glm-5-1/">
+      
+      
+        <link rel="prev" href="../../../installation/">
+      
+      
+        <link rel="next" href="../glm-5-2/">
+      
+      
+        
+          <link rel="alternate" href="../../../../../user-guide/model-tour/glm/glm-5-1/" hreflang="en">
+        
+          <link rel="alternate" href="./" hreflang="zh">
+        
+      
+      
+      <link rel="icon" href="../../../../../assets/images/UCM-light.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>GLM-5.1 - Unified Cache Manager 中文站点</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../../../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  
+  <link rel="stylesheet" href="https://unpkg.com/katex@0.16.11/dist/katex.min.css">
+  <style>
+    /* Light-mode header: white background with dark text and dark logo.
+       Dark mode keeps the slate header untouched. */
+    [data-md-color-scheme="default"] .md-header {
+      background-color: #ffffff;
+      color: rgba(0,0,0,.75);
+      box-shadow: 0 0 .2rem rgba(0,0,0,.07), 0 .2rem .4rem rgba(0,0,0,.07);
+    }
+    [data-md-color-scheme="default"] .md-header__topic,
+    [data-md-color-scheme="default"] .md-header__topic .md-ellipsis,
+    [data-md-color-scheme="default"] .md-header .md-icon,
+    [data-md-color-scheme="default"] .md-header .md-header__nav,
+    [data-md-color-scheme="default"] .md-header .md-search__icon {
+      color: rgba(0,0,0,.75);
+    }
+    [data-md-color-scheme="default"] .md-header .md-search__input {
+      color: rgba(0,0,0,.85);
+      background-color: rgba(0,0,0,.04);
+    }
+    [data-md-color-scheme="default"] .md-header .md-search__input::placeholder {
+      color: rgba(0,0,0,.5);
+    }
+    [data-md-color-scheme="default"] .md-header__logo img {
+      filter: brightness(0) opacity(0.7);
+    }
+    [data-md-color-scheme="default"] .md-tabs {
+      background-color: #ffffff;
+      color: rgba(0,0,0,.75);
+      border-bottom: .05rem solid rgba(0,0,0,.08);
+    }
+    [data-md-color-scheme="default"] .md-tabs__link { color: rgba(0,0,0,.65); }
+    [data-md-color-scheme="default"] .md-tabs__link--active,
+    [data-md-color-scheme="default"] .md-tabs__link:hover { color: rgba(0,0,0,.9); }
+  </style>
+
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="cyan">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#glm-51" class="md-skip">
+          跳转至
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="页眉">
+    <a href="../../../../" title="Unified Cache Manager 中文站点" class="md-header__button md-logo" aria-label="Unified Cache Manager 中文站点" data-md-component="logo">
+      
+  <img src="../../../../../assets/images/UCM-light.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Unified Cache Manager 中文站点
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              GLM-5.1
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="cyan"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="cyan"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+      <div class="md-header__option">
+  <div class="md-select">
+    
+    <button class="md-header__button md-icon" aria-label="选择当前语言">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m12.87 15.07-2.54-2.51.03-.03A17.5 17.5 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2zm-2.62 7 1.62-4.33L19.12 17z"/></svg>
+    </button>
+    <div class="md-select__inner">
+      <ul class="md-select__list">
+        
+          <li class="md-select__item">
+            <a href="../../../../../user-guide/model-tour/glm/glm-5-1/" hreflang="en" class="md-select__link">
+              English
+            </a>
+          </li>
+        
+          <li class="md-select__item">
+            <a href="./" hreflang="zh" class="md-select__link">
+              简体中文
+            </a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+</div>
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="搜索" placeholder="搜索" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="查找">
+        
+        <button type="reset" class="md-search__icon md-icon" title="清空当前内容" aria-label="清空当前内容" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            正在初始化搜索引擎
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ModelEngine-Group/unified-cache-management" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ModelEngine-Group/ucm
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="标签" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../../../" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../../../installation/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../../reference/compatibility/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../../../benchmark/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Benchmark
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../../developer-guide/architecture/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Developer Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../../toolkit/kv-cache-calculator/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Toolkit
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="导航栏" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../../../" title="Unified Cache Manager 中文站点" class="md-nav__button md-logo" aria-label="Unified Cache Manager 中文站点" data-md-component="logo">
+      
+  <img src="../../../../../assets/images/UCM-light.png" alt="logo">
+
+    </a>
+    Unified Cache Manager 中文站点
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ModelEngine-Group/unified-cache-management" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ModelEngine-Group/ucm
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2_2" id="__nav_2_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Tour
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Model Tour
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_2_1" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2_2_1" id="__nav_2_2_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GLM
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_2_1_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2_2_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    GLM
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GLM-5.1
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GLM-5.1
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-performance-test-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Performance Test Summary
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Performance Test Summary">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#conclusions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conclusions:
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-test-environment-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Test Environment Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-deployment-guide" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Deployment Guide
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Deployment Guide">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-pull-the-official-vllm-ascend-image" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Pull the official vllm-ascend image
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-install-ucm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Install UCM
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-ucm-script-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. UCM Script Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. UCM Script Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#parameter-description" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameter Description:
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Parameter Description:">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#required-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optional-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-pd-disaggregated-deployment-guide" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. PD-Disaggregated Deployment Guide
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. PD-Disaggregated Deployment Guide">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#select-one-node-and-start-the-mooncake-master-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Select one node and start the mooncake master service:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#prepare-the-launch_online_dppy-script-on-all-nodes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prepare the launch_online_dp.py script on all nodes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#startup-scripts-for-each-node" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Startup scripts for each node
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#prepare-the-proxy-script-load_balance_proxy_server_examplepy-on-the-master-node" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prepare the proxy script load_balance_proxy_server_example.py on the master node:
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-test-guide" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Test Guide
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Test Guide">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-test-tool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Test tool
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-no-prefix-cache-hit-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. No-prefix-cache-hit test
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-90-prefix-cache-hit-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. 90% prefix-cache-hit test
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../glm-5-2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GLM-5.2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../glm-5/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GLM-5
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../glm-4x/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GLM-4.x
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_2_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_2_2" id="__nav_2_2_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Qwen3
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_2_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_2_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Qwen3
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qwen3/qwen3-235b-a22b/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Qwen3-235B-A22B
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qwen3/qwen3-32b/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Qwen3-32B
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qwen3/qwen3-moe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Qwen3-30B-A3B
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qwen3/qwen2-5/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Qwen2.5
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_2_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_2_3" id="__nav_2_2_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DeepSeek
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_2_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_2_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DeepSeek
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deepseek/deepseek-v3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DeepSeek-V3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deepseek/deepseek-r1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DeepSeek-R1
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deepseek/deepseek-v3-2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DeepSeek-V3.2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_2_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_2_4" id="__nav_2_2_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MiniMax
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_2_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_2_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    MiniMax
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../minimax/minimax-m2-5/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MiniMax-M2.5
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../minimax/minimax-m2-7/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MiniMax-M2.7
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_2_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_2_5" id="__nav_2_2_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kimi
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_2_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_2_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Kimi
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../kimi/kimi-k2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kimi-K2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_3" id="__nav_2_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Engines
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Engines
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../engines/vllm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vLLM
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../engines/vllm-ascend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vLLM Ascend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../engines/sglang/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SGLang
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../engines/mindie/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MindIE
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_4" id="__nav_2_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deploy
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Deploy
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../deploy/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../deploy/kubernetes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kubernetes (Helm + Kthena)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_5" id="__nav_2_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core Capabilities & Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Core Capabilities & Troubleshooting
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_5_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../capabilities/prefix-cache/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prefix Cache
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_5_1" id="__nav_2_5_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_5_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_5_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Prefix Cache
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../capabilities/prefix-cache/pipeline-store/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Store
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../capabilities/prefix-cache/nfs-store/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NFS Store
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../capabilities/prefix-cache/ds3fs-store/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DS3FS Store
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../capabilities/prefix-cache/mooncake-store/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mooncake Store
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../capabilities/prefix-cache/compress-store/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compress Store
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_5_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../capabilities/sparse-attention/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sparse Attention
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_5_2" id="__nav_2_5_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_5_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_5_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Sparse Attention
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../capabilities/sparse-attention/gsa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GSA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../capabilities/sparse-attention/cacheblend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CacheBlend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_5_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../capabilities/pd-disaggregation/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PD Disaggregation
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_5_3" id="__nav_2_5_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_5_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_5_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    PD Disaggregation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../capabilities/pd-disaggregation/centralized-pd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Centralized PD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../capabilities/pd-disaggregation/distributed-pd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Distributed PD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../capabilities/pd-disaggregation/large-scale-ep/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Large Scale EP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../capabilities/rerope/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ReRoPE
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_1" id="__nav_3_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compatibility & Metrics
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Compatibility & Metrics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../reference/compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Support Matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../reference/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../reference/api-parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API & Parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../benchmark/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmark
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/add-metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Add Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/extending-store/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending Store
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/contribute/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contribute
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Toolkit
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Toolkit
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../toolkit/kv-cache-calculator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    KV Cache Calculator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-performance-test-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Performance Test Summary
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Performance Test Summary">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#conclusions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conclusions:
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-test-environment-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Test Environment Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-deployment-guide" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Deployment Guide
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Deployment Guide">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-pull-the-official-vllm-ascend-image" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Pull the official vllm-ascend image
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-install-ucm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Install UCM
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-ucm-script-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. UCM Script Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. UCM Script Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#parameter-description" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameter Description:
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Parameter Description:">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#required-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optional-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-pd-disaggregated-deployment-guide" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. PD-Disaggregated Deployment Guide
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. PD-Disaggregated Deployment Guide">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#select-one-node-and-start-the-mooncake-master-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Select one node and start the mooncake master service:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#prepare-the-launch_online_dppy-script-on-all-nodes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prepare the launch_online_dp.py script on all nodes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#startup-scripts-for-each-node" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Startup scripts for each node
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#prepare-the-proxy-script-load_balance_proxy_server_examplepy-on-the-master-node" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prepare the proxy script load_balance_proxy_server_example.py on the master node:
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-test-guide" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Test Guide
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Test Guide">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-test-tool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Test tool
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-no-prefix-cache-hit-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. No-prefix-cache-hit test
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-90-prefix-cache-hit-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. 90% prefix-cache-hit test
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/ModelEngine-Group/unified-cache-management/edit/develop/docs-next/docs/en/en/user-guide/model-tour/glm/glm-5-1.md" title="编辑此页" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+    
+      
+    
+    <a href="https://github.com/ModelEngine-Group/unified-cache-management/raw/develop/docs-next/docs/en/en/user-guide/model-tour/glm/glm-5-1.md" title="查看本页的源代码" class="md-content__button md-icon">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
+    </a>
+  
+
+
+<h1 id="glm-51">GLM-5.1<a class="headerlink" href="#glm-51" title="Permanent link">&para;</a></h1>
+<p>GLM-5.1 is Zhipu's flagship model (MLA cache layout). This page launches
+GLM-5.1 with UCM as the vLLM KV pool backend on a 4-node Atlas A3 cluster with
+PD disaggregation (1×2 Prefill + 1×2 Decode). The full deployment commands and
+performance data are below.</p>
+<h2 id="1-performance-test-summary">1. Performance Test Summary<a class="headerlink" href="#1-performance-test-summary" title="Permanent link">&para;</a></h2>
+<p>Test design:</p>
+<ol>
+<li>Input/output length: 64K/1K, 128K/1K</li>
+<li>TPOT latency requirement: cap at 30ms</li>
+<li>Prefix cache hit rate setting: 90%</li>
+<li>KV cache prefix variety: take 1/2 of the concurrency value, simulating that when a user's agent makes calls, multiple requests sent simultaneously share highly similar request prefixes.</li>
+<li>Test concurrency: 10, 20, 30</li>
+<li>Number of requests: concurrency × 4</li>
+</ol>
+<p>On a 4-node A3 cluster (each node with 8×910C, each 910C is a dual-910B co-packaged die), based on the GLM-5.1 W8A8 quantized model and a PD-disaggregated architecture (2 Prefill + 2 Decode), we conducted performance tests on UCM prefix caching across 4 scenarios. The test data is as follows:</p>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>InputLen</th>
+<th>OutputLen</th>
+<th>Prefixes</th>
+<th>Requests</th>
+<th>Concurrency</th>
+<th>Actual Concurrency</th>
+<th>RR</th>
+<th>Cache</th>
+<th>Avg TTFT (ms)</th>
+<th>TTFT Reduction</th>
+<th>Avg TPOT (ms)</th>
+<th>Throughput (token/s)</th>
+<th>Throughput Gain</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>64K × 20CC</td>
+<td>65536</td>
+<td>1024</td>
+<td>10</td>
+<td>80</td>
+<td>20</td>
+<td>17.64</td>
+<td>0</td>
+<td>None</td>
+<td>36,786</td>
+<td>/</td>
+<td>20.2</td>
+<td>314.1</td>
+<td>/</td>
+</tr>
+<tr>
+<td></td>
+<td>65536</td>
+<td>1024</td>
+<td>10</td>
+<td>80</td>
+<td>20</td>
+<td>18.80</td>
+<td>0</td>
+<td>0.9</td>
+<td>7,854</td>
+<td>78.6%</td>
+<td>23.5</td>
+<td>604.4</td>
+<td>92.4%</td>
+</tr>
+<tr>
+<td>64K × 30CC</td>
+<td>65536</td>
+<td>1024</td>
+<td>15</td>
+<td>120</td>
+<td>30</td>
+<td>26.22</td>
+<td>0</td>
+<td>None</td>
+<td>63,493</td>
+<td>/</td>
+<td>20.5</td>
+<td>318.1</td>
+<td>/</td>
+</tr>
+<tr>
+<td></td>
+<td>65536</td>
+<td>1024</td>
+<td>15</td>
+<td>120</td>
+<td>30</td>
+<td>27.63</td>
+<td>0</td>
+<td>0.9</td>
+<td>11,372</td>
+<td>82.1%</td>
+<td>25.0</td>
+<td>766.7</td>
+<td>141.0%</td>
+</tr>
+<tr>
+<td>128K × 10CC</td>
+<td>131072</td>
+<td>1024</td>
+<td>5</td>
+<td>40</td>
+<td>10</td>
+<td>9.18</td>
+<td>0</td>
+<td>None</td>
+<td>46,967</td>
+<td>/</td>
+<td>20.2</td>
+<td>139.1</td>
+<td>/</td>
+</tr>
+<tr>
+<td></td>
+<td>131072</td>
+<td>1024</td>
+<td>5</td>
+<td>40</td>
+<td>10</td>
+<td>9.20</td>
+<td>0</td>
+<td>0.9</td>
+<td>15,942</td>
+<td>66.1%</td>
+<td>20.5</td>
+<td>255.2</td>
+<td>83.5%</td>
+</tr>
+<tr>
+<td>128K × 20CC</td>
+<td>131072</td>
+<td>1024</td>
+<td>10</td>
+<td>80</td>
+<td>20</td>
+<td>17.86</td>
+<td>0</td>
+<td>None</td>
+<td>107,334</td>
+<td>/</td>
+<td>19.7</td>
+<td>143.5</td>
+<td>/</td>
+</tr>
+<tr>
+<td></td>
+<td>131072</td>
+<td>1024</td>
+<td>10</td>
+<td>80</td>
+<td>20</td>
+<td>17.97</td>
+<td>0</td>
+<td>0.9</td>
+<td>51,370</td>
+<td>52.1%</td>
+<td>20.3</td>
+<td>255.2</td>
+<td>77.8%</td>
+</tr>
+</tbody>
+</table>
+<h3 id="conclusions">Conclusions:<a class="headerlink" href="#conclusions" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>64K context</strong>: Increasing concurrency amplifies the caching benefit; raising concurrency from 20 to 30 increases the throughput gain to 141%.</li>
+<li><strong>At 20 concurrency, 64K is the sweet-spot length</strong>, with TTFT reduced by 78.6% and throughput improved by 92.4%. Once the request length exceeds the HBM capacity threshold (approximately 235,008 / (20/8) = 94K tokens), the TTFT reduction and throughput gain attenuate due to insufficient HBM space. <strong>Deployment recommendation</strong>: at a fixed concurrency of 20, keep the request length strictly within 94K tokens to ensure optimal performance.</li>
+<li><strong>128K ultra-long context</strong>: concurrency 8 is the sweet-spot concurrency; beyond this threshold, the caching benefit diminishes. At concurrency 10, TTFT can still drop by 66.1% with an 83.5% throughput gain; when concurrency rises from 10 to 20, both the TTFT reduction and throughput gain decline simultaneously. <strong>Deployment recommendation</strong>: when inferring 128K ultra-long-context requests, keep the concurrency at no more than 8 to avoid triggering the underlying preemption mechanism.</li>
+</ol>
+<blockquote>
+<p><strong>Note</strong>: The current Decode instance has a per-DP GPU KV Cache Size of 235,008 tokens. Each DP can carry only a single concurrent 128K + 1K request, so the absolute concurrency upper bound of the 8 DP instances is 8. During vLLM inference, the KV cache of all requests in a single batch must fit entirely within the HBM. If the memory space is insufficient, the system triggers the request preemption mechanism: it forcibly releases the memory occupied by other requests; when those requests are rescheduled, they must redo the Decode computation. This repeated preemption-and-recompute overhead causes throughput degradation under high concurrency. In addition, when too many requests queue up at a Decode instance, the request waiting time increases directly, which in turn degrades the Time-To-First-Token (TTFT). Therefore, comparison data beyond the physical hardware boundary cannot truthfully reflect the performance of the caching mechanism itself.</p>
+</blockquote>
+<h2 id="2-test-environment-overview">2. Test Environment Overview<a class="headerlink" href="#2-test-environment-overview" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Specification</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cluster scale</td>
+<td>4-node A3 (each node with 8×910C, each 910C is a dual-910B co-packaged die)</td>
+</tr>
+<tr>
+<td>Cache</td>
+<td>HBM + SSD: OceanDisk 1300 (prefill nodes share 4T), no DRAM</td>
+</tr>
+<tr>
+<td>Model</td>
+<td>GLM-5.1-w8a8 (W8A8 quantization, GLM-5.1)</td>
+</tr>
+<tr>
+<td>Framework version</td>
+<td>vllm-ascend 0.18.0rc1 + ucm v0.17.0</td>
+</tr>
+<tr>
+<td>PD architecture</td>
+<td>1x2 Prefill + 1x2 Decode</td>
+</tr>
+<tr>
+<td>Prefill config</td>
+<td>DP=4, TP=8, EP=32</td>
+</tr>
+<tr>
+<td>Decode config</td>
+<td>DP=8, TP=4, EP=32</td>
+</tr>
+<tr>
+<td>KV transport</td>
+<td>P node: MultiConnector (Mooncake + UCM dual-channel); D node: MooncakeConnectorV1</td>
+</tr>
+</tbody>
+</table>
+<h2 id="3-deployment-guide">3. Deployment Guide<a class="headerlink" href="#3-deployment-guide" title="Permanent link">&para;</a></h2>
+<h3 id="1-pull-the-official-vllm-ascend-image">1. Pull the official vllm-ascend image<a class="headerlink" href="#1-pull-the-official-vllm-ascend-image" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>docker pull quay.io/ascend/vllm-ascend:v0.18.0rc1-a3
+</code></pre></div>
+<p>Container startup script:</p>
+<div class="highlight"><pre><span></span><code>#!/bin/bash
+IMAGES_ID="$1"
+NAME="$2"
+
+# Check the number of arguments (2 required: image ID and container name)
+if [ $# -ne 2 ]; then
+    echo "error: 2 arguments required, usage: $0 &lt;image-id&gt; &lt;container-name&gt;"
+    exit 1
+fi
+
+# Check whether the image exists
+if ! docker images --format "{{.ID}}" | grep -q "^${IMAGES_ID:0:12}$"; then
+    echo "error: image ID $IMAGES_ID does not exist"
+    exit 1
+fi
+
+# Start the container (quote variables to avoid special-character issues)
+docker run --name "${NAME}" -it -d --net=host --shm-size=500g \
+    --privileged=true \
+    -w /home \
+    --device=/dev/davinci_manager \
+    --device=/dev/hisi_hdc \
+    --device=/dev/devmm_svm \
+    --entrypoint=bash \
+    -v /usr/local/Ascend/driver:/usr/local/Ascend/driver \
+    -v /usr/local/dcmi:/usr/local/dcmi \
+    -v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi \
+    -v /etc/ascend_install.info:/etc/ascend_install.info \
+    -v /usr/local/sbin:/usr/local/sbin \
+    -v /etc/hccn.conf:/etc/hccn.conf \
+    -v /home:/home \
+    -v /mnt:/mnt \
+    -v /tmp:/tmp \
+    -v /data:/data \
+    -v /usr/share/zoneinfo/Asia/Shanghai:/etc/localtime \
+    -e http_proxy="$http_proxy" \
+    -e https_proxy="$https_proxy" \
+    "${IMAGES_ID}"
+# Run the following command to create the container
+# bash start-docker.sh ac1c767e5aa2 glm5-v0.18.0rc1-a3
+# Run the following command to enter the created container
+# docker exec -it glm5-v0.18.0rc1-a3 bash
+</code></pre></div>
+<h3 id="2-install-ucm">2. Install UCM<a class="headerlink" href="#2-install-ucm" title="Permanent link">&para;</a></h3>
+<p>Inside the container:</p>
+<div class="highlight"><pre><span></span><code>git clone --depth 1 --branch develop https://github.com/ModelEngine-Group/unified-cache-management.git
+cd unified-cache-management
+export PLATFORM=ascend-a3
+pip install -v -e . --no-build-isolation
+cd ..
+</code></pre></div>
+<blockquote>
+<p><strong>Note:</strong> For the Atlas A2 series, set <code>PLATFORM=ascend</code>.</p>
+</blockquote>
+<p>Enable UCM by importing the patch via an environment variable:</p>
+<div class="highlight"><pre><span></span><code>export ENABLE_UCM_PATCH=1
+</code></pre></div>
+<h3 id="3-ucm-script-configuration">3. UCM Script Configuration<a class="headerlink" href="#3-ucm-script-configuration" title="Permanent link">&para;</a></h3>
+<p>Modify the UCM configuration file <code>ucm_config_example.yaml</code> to specify the UCM connector to use and the storage location of KV data blocks. This file can be placed in any directory, as long as the corresponding path is configured in the service launch script.</p>
+<div class="highlight"><pre><span></span><code>ucm_connectors:
+  - ucm_connector_name: "UcmPipelineStore"
+    ucm_connector_config:
+      store_pipeline: "Cache|Posix"
+      storage_backends: "/mnt/test"
+      io_direct: true
+      posix_io_engine: "aio"
+      cache_buffer_capacity_gb: 96  # see recommended config below
+      posix_capacity_gb: 1024
+enable_event_sync: true
+use_layerwise: true
+enable_record_traces: false
+use_lite: false
+persist_token_threshold: 0
+</code></pre></div>
+<h4 id="parameter-description"><strong>Parameter Description:</strong><a class="headerlink" href="#parameter-description" title="Permanent link">&para;</a></h4>
+<h5 id="required-parameters">Required Parameters<a class="headerlink" href="#required-parameters" title="Permanent link">&para;</a></h5>
+<ul>
+<li><strong>ucm_connector_name</strong>: Specifies the UcmPipelineStore UCM connector.</li>
+<li><strong>store_pipeline: "Cache|Posix"</strong>: Specifies a pipeline chained from a Cache store and a Posix store.</li>
+<li><strong>storage_backends</strong>: The directory used to store KV blocks. It can be a local path or an NFS mount path. In theory, the cache capacity upper bound is determined by the available space of the storage directory. ⚠️ <strong>Please replace "/mnt/test" with your actual storage directory.</strong></li>
+</ul>
+<h5 id="optional-parameters">Optional Parameters<a class="headerlink" href="#optional-parameters" title="Permanent link">&para;</a></h5>
+<ul>
+<li><strong>io_direct</strong> <em>(optional, default: false)</em>:
+  Whether to enable Direct I/O. For the Posix store, when enabled, reads and writes to disk files bypass the OS page cache.</li>
+<li><strong>cache_buffer_capacity_gb</strong> <em>(optional, default: 128)</em></li>
+<li>GQA models (Qwen3, GLM-4.7, etc.): default 32GB per card; if configured, it represents the DRAM memory occupied per card.</li>
+<li>MLA models (DeepSeek V3/R1, GLM-5, etc.): 192 / (number of DPs per node).</li>
+<li>DeepSeek V4: for a single A3 node with TP8DP2, 48 is recommended; for a single A2 node with TP8DP2, 96 is recommended.</li>
+<li><strong>posix_capacity_gb</strong> <em>(optional, default: 0)</em>
+  The maximum capacity of the Posix store in GB. When set to a value greater than 0, garbage collection (GC) is enabled and reclaims disk space when the threshold is reached. When set to 0 (default), no capacity limit or GC is applied.</li>
+<li><strong>posix_io_engine</strong> <em>(optional, default: "psync")</em>
+  The I/O engine type for the Posix store. Supported values: "psync" (pread/pwrite), "aio" (libaio).</li>
+<li><strong>enable_event_sync</strong> <em>(optional, default: true)</em>
+  Whether to enable event synchronization.</li>
+<li><strong>use_layerwise</strong> <em>(optional, default: true)</em>
+  Whether to load/save KV cache blocks layer by layer.</li>
+<li><strong>enable_record_traces</strong> <em>(optional, default: false)</em>
+  Whether to record request trace information. When enabled, the trace information (timestamp, input length, output length, hash ID) of each request is recorded.</li>
+<li><strong>use_lite</strong> <em>(optional, default: false)</em>
+  Whether to use the UCM Lite connector.</li>
+<li><strong>persist_token_threshold</strong> <em>(optional, default: 0)</em>
+  The minimum token threshold for KV persistence.</li>
+</ul>
+<p>For more configuration, refer to the official UCM documentation:</p>
+<ol>
+<li><a href="https://ucm.readthedocs.io/en/latest/">https://ucm.readthedocs.io/en/latest/</a></li>
+<li><a href="https://docs.vllm.ai/projects/ascend/en/latest/user_guide/feature_guide/ucm_deployment.html">https://docs.vllm.ai/projects/ascend/en/latest/user_guide/feature_guide/ucm_deployment.html</a></li>
+<li><a href="https://deepwiki.com/ModelEngine-Group/unified-cache-management/1-overview">https://deepwiki.com/ModelEngine-Group/unified-cache-management/1-overview</a></li>
+</ol>
+<h3 id="4-pd-disaggregated-deployment-guide">4. PD-Disaggregated Deployment Guide<a class="headerlink" href="#4-pd-disaggregated-deployment-guide" title="Permanent link">&para;</a></h3>
+<h4 id="select-one-node-and-start-the-mooncake-master-service">Select one node and start the mooncake master service:<a class="headerlink" href="#select-one-node-and-start-the-mooncake-master-service" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code>export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+mooncake_master --port 50088 --eviction_high_watermark_ratio 0.9 --eviction_ratio 0.1 --default_kv_lease_ttl 11000
+</code></pre></div>
+<p>Each node also needs a <code>ucm_config_example.yaml</code> (see the UCM Script Configuration section) and a <code>mooncake.json</code> (imported via the <code>MOONCAKE_CONFIG_PATH</code> environment variable when the service is started). As follows (this article uses 100.100.123.166 as the mooncake master node):</p>
+<div class="highlight"><pre><span></span><code>{
+    "metadata_server": "P2PHANDSHAKE",
+    "protocol": "ascend",
+    "device_name": "",
+    "master_server_address": "100.100.123.166:50088",
+    "global_segment_size": "1GB"
+}
+</code></pre></div>
+<h4 id="prepare-the-launch_online_dppy-script-on-all-nodes">Prepare the launch_online_dp.py script on all nodes<a class="headerlink" href="#prepare-the-launch_online_dppy-script-on-all-nodes" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code>import argparse
+import multiprocessing
+import os
+import subprocess
+import sys
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--dp-size",
+        type=int,
+        required=True,
+        help="Data parallel size."
+    )
+    parser.add_argument(
+        "--tp-size",
+        type=int,
+        default=1,
+        help="Tensor parallel size."
+    )
+    parser.add_argument(
+        "--dp-size-local",
+        type=int,
+        default=-1,
+        help="Local data parallel size."
+    )
+    parser.add_argument(
+        "--dp-rank-start",
+        type=int,
+        default=0,
+        help="Starting rank for data parallel."
+    )
+    parser.add_argument(
+        "--dp-address",
+        type=str,
+        required=True,
+        help="IP address for data parallel master node."
+    )
+    parser.add_argument(
+        "--dp-rpc-port",
+        type=str,
+        default=12345,
+        help="Port for data parallel master node."
+    )
+    parser.add_argument(
+        "--vllm-start-port",
+        type=int,
+        default=9000,
+        help="Starting port for the engine."
+    )
+    return parser.parse_args()
+
+args = parse_args()
+dp_size = args.dp_size
+tp_size = args.tp_size
+dp_size_local = args.dp_size_local
+if dp_size_local == -1:
+    dp_size_local = dp_size
+dp_rank_start = args.dp_rank_start
+dp_address = args.dp_address
+dp_rpc_port = args.dp_rpc_port
+vllm_start_port = args.vllm_start_port
+
+def run_command(visible_devices, dp_rank, vllm_engine_port):
+    command = [
+        "bash",
+        "./run_dp_template.sh",
+        visible_devices,
+        str(vllm_engine_port),
+        str(dp_size),
+        str(dp_rank),
+        dp_address,
+        dp_rpc_port,
+        str(tp_size),
+    ]
+    subprocess.run(command, check=True)
+
+if __name__ == "__main__":
+    template_path = "./run_dp_template.sh"
+    if not os.path.exists(template_path):
+        print(f"Template file {template_path} does not exist.")
+        sys.exit(1)
+
+    processes = []
+    num_cards = dp_size_local * tp_size
+    for i in range(dp_size_local):
+        dp_rank = dp_rank_start + i
+        vllm_engine_port = vllm_start_port + i
+        visible_devices = ",".join(str(x) for x in range(i * tp_size, (i + 1) * tp_size))
+        process = multiprocessing.Process(target=run_command,
+                                        args=(visible_devices, dp_rank,
+                                                vllm_engine_port))
+        processes.append(process)
+        process.start()
+
+    for process in processes:
+        process.join()
+</code></pre></div>
+<h4 id="startup-scripts-for-each-node">Startup scripts for each node<a class="headerlink" href="#startup-scripts-for-each-node" title="Permanent link">&para;</a></h4>
+<p>P0 node:</p>
+<div class="highlight"><pre><span></span><code>nic_name="eth-bond4" # change to your own nic name
+local_ip="100.100.123.166" # change to your own ip
+export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+export HCCL_OP_EXPANSION_MODE="AIV"
+export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+
+export HCCL_IF_IP=$local_ip
+export GLOO_SOCKET_IFNAME=$nic_name
+export TP_SOCKET_IFNAME=$nic_name
+export HCCL_SOCKET_IFNAME=$nic_name
+export PYTHONHASHSEED=0
+export PYTHONPATH=$PYTHONPATH:/vllm-workspace/vllm
+export MOONCAKE_CONFIG_PATH="./mooncake.json"
+export OMP_PROC_BIND=false
+export OMP_NUM_THREADS=10
+export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+export HCCL_BUFFSIZE=256
+
+export ASCEND_AGGREGATE_ENABLE=1
+export ACL_OP_INIT_MODE=1
+export ASCEND_A3_ENABLE=1
+export VLLM_NIXL_ABORT_REQUEST_TIMEOUT=300000
+export ENABLE_UCM_PATCH=1
+export ASCEND_RT_VISIBLE_DEVICES=$1
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
+
+vllm serve /data/0416-GLM-5.1-w8a8/ \
+    --host 0.0.0.0 \
+    --port $2 \
+    --data-parallel-size $3 \
+    --data-parallel-rank $4 \
+    --data-parallel-address $5 \
+    --data-parallel-rpc-port $6 \
+    --tensor-parallel-size $7 \
+    --enable-expert-parallel \
+    --speculative-config '{"num_speculative_tokens": 3, "method":"deepseek_mtp"}' \
+    --seed 1024 \
+    --served-model-name glm-5.1 \
+    --max-model-len 202752 \
+    --additional-config '{"enable_npugraph_ex": true, "fuse_muls_add":true,"multistream_overlap_shared_expert":true,"recompute_scheduler_enable" : true}' \
+    --max-num-batched-tokens 4096 \
+    --trust-remote-code \
+    --max-num-seqs 64 \
+    --quantization ascend \
+    --gpu-memory-utilization 0.95 \
+    --enforce-eager \
+    --enable-prefix-caching \
+    --enable-auto-tool-choice \
+    --tool-call-parser glm47 \
+    --reasoning-parser glm45 \
+    --kv-transfer-config \
+    '{
+        "kv_connector": "MultiConnector",
+        "kv_role": "kv_producer",
+        "kv_connector_extra_config": {
+            "connectors": [
+                {
+                    "kv_connector": "MooncakeConnectorV1",
+                    "kv_role": "kv_producer",
+                    "kv_port": '30000',
+                    "kv_connector_extra_config": {
+                        "prefill": {
+                            "dp_size": 4,
+                            "tp_size": 8
+                        },
+                        "decode": {
+                            "dp_size": 8,
+                            "tp_size": 4
+                        }
+                    }
+                },
+                {
+                    "kv_connector": "UCMConnector",
+                    "kv_role": "kv_both",
+                    "kv_connector_module_path": "ucm.integration.vllm.ucm_connector",
+                    "kv_connector_extra_config": {"UCM_CONFIG_FILE": "/mnt/cephfs/huangchengmin/ucm/ucm_config_example.yaml"}
+                }
+            ]
+        }
+    }'
+</code></pre></div>
+<p><strong>Items that need to be modified according to your environment:</strong></p>
+<ul>
+<li><code>local_ip</code>: this machine's IP address</li>
+<li><code>nic_name</code>: local NIC name</li>
+<li>Weight path</li>
+</ul>
+<p>D0 node:</p>
+<div class="highlight"><pre><span></span><code>nic_name="bond0" # change to your own nic name
+local_ip="100.100.123.148" # change to your own ip
+export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+export HCCL_OP_EXPANSION_MODE="AIV"
+export MOONCAKE_CONFIG_PATH="./mooncake.json"
+
+export HCCL_IF_IP=$local_ip
+export GLOO_SOCKET_IFNAME=$nic_name
+
+export TP_SOCKET_IFNAME=$nic_name
+export HCCL_SOCKET_IFNAME=$nic_name
+export OMP_PROC_BIND=false
+export OMP_NUM_THREADS=10
+
+export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+export HCCL_BUFFSIZE=256
+
+
+export ASCEND_AGGREGATE_ENABLE=1
+export ASCEND_TRANSPORT_PRINT=1
+export ACL_OP_INIT_MODE=1
+export ASCEND_A3_ENABLE=1
+export VLLM_NIXL_ABORT_REQUEST_TIMEOUT=300000
+
+export TASK_QUEUE_ENABLE=1
+
+export ASCEND_RT_VISIBLE_DEVICES=$1
+
+
+export VLLM_ASCEND_ENABLE_MLAPO=1
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
+
+vllm serve /data/0416-GLM-5.1-w8a8/ \
+    --host 0.0.0.0 \
+    --port $2 \
+    --data-parallel-size $3 \
+    --data-parallel-rank $4 \
+    --data-parallel-address $5 \
+    --data-parallel-rpc-port $6 \
+    --tensor-parallel-size $7 \
+    --enable-expert-parallel \
+    --speculative-config '{"num_speculative_tokens": 3,  "method":"deepseek_mtp"}' \
+    --seed 1024 \
+    --served-model-name glm-5.1 \
+    --max-model-len 202752 \
+    --max-num-batched-tokens 32 \
+    --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY", "cudagraph_capture_sizes":[4, 8, 12, 16,20,24,28, 32]}' \
+    --additional-config '{"enable_npugraph_ex": true, "fuse_muls_add":true,"multistream_overlap_shared_expert":true,"recompute_scheduler_enable" : true}' \
+    --trust-remote-code \
+    --max-num-seqs 8 \
+    --gpu-memory-utilization 0.92 \
+    --async-scheduling \
+    --quantization ascend \
+    --enable-prefix-caching \
+    --enable-auto-tool-choice \
+    --tool-call-parser glm47 \
+    --reasoning-parser glm45 \
+    --kv-transfer-config \
+    '{"kv_connector": "MooncakeConnectorV1",
+    "kv_role": "kv_consumer",
+    "kv_port": "30100",
+    "engine_id": "1",
+    "kv_connector_extra_config": {
+                "use_ascend_direct": true,
+                "prefill": {
+                        "dp_size": 4,
+                        "tp_size": 8
+                },
+                "decode": {
+                        "dp_size": 8,
+                        "tp_size": 4
+                }
+        }
+    }'
+</code></pre></div>
+<p><strong>Items that need to be modified according to your environment:</strong></p>
+<ul>
+<li><code>local_ip</code>: this machine's IP address</li>
+<li><code>nic_name</code>: local NIC name</li>
+<li>Weight path</li>
+</ul>
+<p>Use the following commands to launch the service on each node:</p>
+<div class="highlight"><pre><span></span><code>p0: nohup python launch_online_dp.py --dp-size 4 --tp-size 8 --dp-size-local 2 --dp-rank-start 0 --dp-address 100.100.123.166 --dp-rpc-port 10521 --vllm-start-port 6789 &gt; online_dp_launch.log 2&gt;&amp;1 &amp;
+p1: nohup python launch_online_dp.py --dp-size 4 --tp-size 8 --dp-size-local 2 --dp-rank-start 2 --dp-address 100.100.123.166 --dp-rpc-port 10521 --vllm-start-port 6789 &gt; online_dp_launch.log 2&gt;&amp;1 &amp;
+d0: nohup python launch_online_dp.py --dp-size 8 --tp-size 4 --dp-size-local 4 --dp-rank-start 0 --dp-address 100.100.123.148 --dp-rpc-port 10523 --vllm-start-port 6721 &gt; online_dp_launch.log 2&gt;&amp;1 &amp;
+d1: nohup python launch_online_dp.py --dp-size 8 --tp-size 4 --dp-size-local 4 --dp-rank-start 4 --dp-address 100.100.123.148 --dp-rpc-port 10523 --vllm-start-port 6721 &gt; online_dp_launch.log 2&gt;&amp;1 &amp;
+</code></pre></div>
+<h4 id="prepare-the-proxy-script-load_balance_proxy_server_examplepy-on-the-master-node">Prepare the proxy script load_balance_proxy_server_example.py on the master node:<a class="headerlink" href="#prepare-the-proxy-script-load_balance_proxy_server_examplepy-on-the-master-node" title="Permanent link">&para;</a></h4>
+<p>Obtain the proxy script from the vllm-ascend repository: <a href="https://github.com/vllm-project/vllm-ascend/blob/main/examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py">load_balance_proxy_server_example.py</a></p>
+<p>Use the following script to start forwarding (modify the corresponding IP/port to the IP/port actually used when the service was started):</p>
+<div class="highlight"><pre><span></span><code>unset http_proxy
+unset https_proxy
+python load_balance_proxy_server_example.py \
+    --port 1999 \
+    --host 0.0.0.0 \
+    --prefiller-hosts \
+       "100.100.123.166" \
+       "100.100.123.166" \
+       "100.100.123.165" \
+       "100.100.123.165" \
+    --prefiller-ports \
+       6789 6790\
+       6789 6790\
+    --decoder-hosts \
+      "100.100.123.148" \
+      "100.100.123.148" \
+      "100.100.123.148" \
+      "100.100.123.148" \
+      "100.100.123.146" \
+      "100.100.123.146" \
+      "100.100.123.146" \
+      "100.100.123.146" \
+    --decoder-ports \
+      6721 6722 6723 6724\
+      6721 6722 6723 6724
+</code></pre></div>
+<h2 id="4-test-guide">4. Test Guide<a class="headerlink" href="#4-test-guide" title="Permanent link">&para;</a></h2>
+<h3 id="1-test-tool">1. Test tool<a class="headerlink" href="#1-test-tool" title="Permanent link">&para;</a></h3>
+<p>Install the following tool: https://github.com/rayn-zzz/aisbench_auto_tools_prefix</p>
+<h3 id="2-no-prefix-cache-hit-test">2. No-prefix-cache-hit test<a class="headerlink" href="#2-no-prefix-cache-hit-test" title="Permanent link">&para;</a></h3>
+<p>Test commands:</p>
+<div class="highlight"><pre><span></span><code>python3 aisbench_test.py --input_len 65560 --output_len 1024 --data_num 80 --concurrency 20 --repeat_rate 0
+python3 aisbench_test.py --input_len 65560 --output_len 1024 --data_num 120 --concurrency 30 --repeat_rate 0
+python3 aisbench_test.py --input_len 131072 --output_len 1024 --data_num 40 --concurrency 10 --repeat_rate 0
+python3 aisbench_test.py --input_len 131072 --output_len 1024 --data_num 80 --concurrency 20 --repeat_rate 0
+</code></pre></div>
+<h3 id="3-90-prefix-cache-hit-test">3. 90% prefix-cache-hit test<a class="headerlink" href="#3-90-prefix-cache-hit-test" title="Permanent link">&para;</a></h3>
+<p>Test commands:</p>
+<div class="highlight"><pre><span></span><code>python3 aisbench_test.py --input_len 65536 --output_len 1024 --data_num 80 --concurrency 20  --dataset_type prefix_cache --prefix_num 10 --repeat_rate 0.9 --prefix_test --dp 4
+python3 aisbench_test.py --input_len 65560 --output_len 1024 --data_num 120 --concurrency 30  --dataset_type prefix_cache --prefix_num 15 --repeat_rate 0.9 --prefix_test --dp 4
+python3 aisbench_test.py --input_len 131072 --output_len 1024 --data_num 40 --concurrency 10  --dataset_type prefix_cache --prefix_num 5 --repeat_rate 0.9 --prefix_test --dp 4
+python3 aisbench_test.py --input_len 131072 --output_len 1024 --data_num 80 --concurrency 20  --dataset_type prefix_cache --prefix_num 10 --repeat_rate 0.9 --prefix_test --dp 4
+</code></pre></div>
+<p>Note: To ensure there is no cache interference between test runs, the cache must be cleared using the command <code>find /mnt/test -type f -delete</code>, where <code>/mnt/test</code> is the UCM cache address configured above.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  回到页面顶部
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/ModelEngine-Group/unified-cache-management" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/ModelEngine-Group/unified-cache-management/pkgs/container/unified-cache-manager" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M349.9 236.3h-66.1v-59.4h66.1zm0-204.3h-66.1v60.7h66.1zm78.2 144.8H362v59.4h66.1zm-156.3-72.1h-66.1v60.1h66.1zm78.1 0h-66.1v60.1h66.1zm276.8 100c-14.4-9.7-47.6-13.2-73.1-8.4-3.3-24-16.7-44.9-41.1-63.7l-14-9.3-9.3 14c-18.4 27.8-23.4 73.6-3.7 103.8-8.7 4.7-25.8 11.1-48.4 10.7H2.4c-8.7 50.8 5.8 116.8 44 162.1 37.1 43.9 92.7 66.2 165.4 66.2 157.4 0 273.9-72.5 328.4-204.2 21.4.4 67.6.1 91.3-45.2 1.5-2.5 6.6-13.2 8.5-17.1zm-511.1-27.9h-66v59.4h66.1v-59.4zm78.1 0h-66.1v59.4h66.1zm78.1 0h-66.1v59.4h66.1zm-78.1-72.1h-66.1v60.1h66.1z"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../../../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tabs.link", "content.action.edit", "content.action.view"], "search": "../../../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": {"provider": "mike"}}</script>
+    
+    
+  
+      <script src="../../../../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  <script src="https://unpkg.com/katex@0.16.11/dist/katex.min.js"></script>
+  <script src="https://unpkg.com/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+  <script>
+    document$.subscribe(() => {
+      renderMathInElement(document.body, {
+        delimiters: [
+          {left: "$$", right: "$$", display: true},
+          {left: "$", right: "$", display: false},
+          {left: "\\(", right: "\\)", display: false},
+          {left: "\\[", right: "\\]", display: true}
+        ],
+        throwOnError: false
+      });
+    });
+  </script>
+
+  </body>
+</html>
