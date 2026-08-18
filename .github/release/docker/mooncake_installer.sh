@@ -289,7 +289,9 @@ install_go() {
     fi
     # Download Go
     echo "Downloading Go $GOVER..."
-    wget -q --show-progress https://golang.google.cn/dl/go$GOVER.linux-$ARCH.tar.gz
+    curl -L --fail --retry 8 --retry-all-errors --retry-delay 3 \
+        -o "go$GOVER.linux-$ARCH.tar.gz" \
+        https://golang.google.cn/dl/go$GOVER.linux-$ARCH.tar.gz
     check_success "Failed to download Go $GOVER"
 
     # Install Go

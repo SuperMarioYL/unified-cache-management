@@ -73,7 +73,7 @@ jobs:
             echo "image task or frozen plan identity is invalid" >&2
             exit 2
           fi
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: ./.github/actions/download-artifact-retry
         with:
           name: ${{ inputs.resolved_plan_artifact }}
           path: input/plan
@@ -250,7 +250,7 @@ jobs:
             echo "image_artifact=${image_artifact}"
             echo "internal_oci_artifact=${internal_oci_artifact}"
           } >>"${GITHUB_OUTPUT}"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: ./.github/actions/download-artifact-retry
         with:
           name: ${{ steps.task.outputs.wheel_artifact }}
           path: input/wheel
@@ -329,10 +329,29 @@ jobs:
           index_digest="$(jq -r '.runtime.index_digest' out/real-image-authority.json)"
           manifest_digest="$(jq -r '.runtime.manifest_digest' out/real-image-authority.json)"
           config_digest="$(jq -r '.runtime.config_digest' out/real-image-authority.json)"
-          test "$(crane digest "${repository}@${index_digest}")" = "${index_digest}"
-          crane manifest "${repository}@${index_digest}" >out/base/index.json
-          crane manifest "${repository}@${manifest_digest}" >out/base/manifest.json
-          crane config "${repository}@${manifest_digest}" >out/base/config.json
+          # Upstream base image is on quay.io and prone to transient TLS drops;
+          # retry crane registry reads (4 attempts, backoff 5/10/15s).
+          crane_retry() {
+            local n=0
+            while ! "$@"; do
+              n=$((n + 1))
+              if [ "$n" -ge 4 ]; then return 1; fi
+              sleep "$((n * 5))"
+            done
+          }
+          crane_retry_out() {
+            local dest="$1"; shift
+            local n=0
+            while ! "$@" >"$dest"; do
+              n=$((n + 1))
+              if [ "$n" -ge 4 ]; then return 1; fi
+              sleep "$((n * 5))"
+            done
+          }
+          test "$(crane_retry crane digest "${repository}@${index_digest}")" = "${index_digest}"
+          crane_retry_out out/base/index.json crane manifest "${repository}@${index_digest}"
+          crane_retry_out out/base/manifest.json crane manifest "${repository}@${manifest_digest}"
+          crane_retry_out out/base/config.json crane config "${repository}@${manifest_digest}"
           test "sha256:$(sha256sum out/base/index.json | cut -d' ' -f1)" = "${index_digest}"
           test "sha256:$(sha256sum out/base/manifest.json | cut -d' ' -f1)" = "${manifest_digest}"
           test "sha256:$(sha256sum out/base/config.json | cut -d' ' -f1)" = "${config_digest}"

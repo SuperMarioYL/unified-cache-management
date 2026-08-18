@@ -271,7 +271,7 @@ jobs:
           install -m 0755 "${RUNNER_TEMP}/linux-amd64/helm" "${RUNNER_TEMP}/helm"
           test "$("${RUNNER_TEMP}/helm" version --short)" = "v3.15.3+g3bb50bb"
           echo "${RUNNER_TEMP}" >>"${GITHUB_PATH}"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: ./.github/actions/download-artifact-retry
         with:
           name: ${{ needs.plan.outputs.resolved_plan_artifact }}
           path: input/plan
@@ -421,7 +421,7 @@ jobs:
       - run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: ./.github/actions/download-artifact-retry
         with:
           name: ${{ needs.plan.outputs.resolved_plan_artifact }}
           path: input/plan
@@ -499,11 +499,11 @@ jobs:
           tar -xzf "${RUNNER_TEMP}/crane.tar.gz" -C "${RUNNER_TEMP}/crane" crane
           test "$("${RUNNER_TEMP}/crane/crane" version)" = "${CRANE_VERSION#v}"
           echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: ./.github/actions/download-artifact-retry
         with:
           name: ucm-registry-authenticated-${{ needs.plan.outputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/authenticated
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: ./.github/actions/download-artifact-retry
         with:
           name: ${{ needs.plan.outputs.resolved_plan_artifact }}
           path: input/plan
@@ -594,23 +594,23 @@ jobs:
       - run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: ./.github/actions/download-artifact-retry
         with:
           pattern: ucm-wheel-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/wheels
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: ./.github/actions/download-artifact-retry
         with:
           name: ${{ needs.package-chart.outputs.chart_artifact }}
           path: input/chart
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: ./.github/actions/download-artifact-retry
         with:
           name: ${{ needs.plan.outputs.resolved_plan_artifact }}
           path: input/plan
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: ./.github/actions/download-artifact-retry
         with:
           name: ucm-release-draft-${{ needs.plan.outputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/draft
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: ./.github/actions/download-artifact-retry
         with:
           name: ucm-registry-protected-${{ needs.plan.outputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/protected
