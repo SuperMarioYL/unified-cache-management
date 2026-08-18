@@ -145,7 +145,7 @@
     "result_sha256": {"$ref": "#/$defs/digest"},
     "build_key_sha256": {"$ref": "#/$defs/digest"},
     "task_key": {"$ref": "#/$defs/digest"},
-    "ucm_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:rc[1-9][0-9]*)?$"},
+    "ucm_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:rc[0-9]+)?(?:[a-z]+[0-9]*)?(?:\\.dev[0-9]+)?(?:\\+[a-z0-9.]+)?$"},
     "output_mode": {"enum": ["feature", "production"]},
     "content_identity_sha256": {"$ref": "#/$defs/digest"},
     "task_id": {"type": "string", "pattern": "^image-[0-9a-f]{64}$"},

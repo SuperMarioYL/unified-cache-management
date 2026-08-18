@@ -177,10 +177,7 @@ def test_fixture_resolution_rejects_compatibility_without_matching_profile(
 
 
 def test_setup_chart_and_configuration_share_version_authority() -> None:
-    """version.ini, setup.py, the catalog, and the chart share one version."""
-    version = (
-        (ROOT / "version.ini").read_text(encoding="utf-8").strip().split("=", 1)[1]
-    )
+    """setup.py and the catalog both derive the version from the git tag."""
     setup_version = subprocess.run(
         [sys.executable, "setup.py", "--version"],
         cwd=ROOT,
@@ -189,34 +186,23 @@ def test_setup_chart_and_configuration_share_version_authority() -> None:
         check=True,
     ).stdout.strip()
     release_config = release_core.load_catalog()
-    chart = yaml.safe_load((ROOT / "charts" / "ucm" / "Chart.yaml").read_text())
-    assert setup_version == version == release_config["ucm_version"]
-    assert str(chart["appVersion"]) == version
+    assert setup_version == release_config["ucm_version"] == release_core.git_describe_pep440(ROOT)
+    assert release_core.derive_chart_version(release_config["ucm_version"]) == release_config["chart"]["version"]
     assert release_core.python_runtime_requirements(release_config) == [
         "packaging==24.2",
         "wrapt==1.17.2",
     ]
-    assert derive_chart_version(version) == chart["version"]
 
 
-def test_coordinated_config_version_drift_is_rejected(tmp_path: Path) -> None:
-    """A catalog version that diverges from version.ini is rejected at validate time."""
-    release = yaml.safe_load(
-        (RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8")
-    )
-    release["ucm_version"] = release["chart"]["app_version"] = "0.5.0rc2"
-    release["chart"]["version"] = "0.5.0-rc.2"
-    release["source"]["release_tag"] = "v0.5.0rc2"
-    release_path = _write_catalog(tmp_path, release)
-    drift = _run(
-        "config",
-        "validate",
-        "--release",
-        str(release_path),
-        check=False,
-    )
-    assert drift.returncode == 2
-    assert "does not match version.ini" in drift.stderr
+def test_coordinated_config_version_drift_is_rejected() -> None:
+    """Under tag-as-source, release_tag/chart/ucm_version are all derived from one git version, so they cannot drift; a malformed version is rejected."""
+    release = release_core.load_catalog(version_override="0.5.0rc2")
+    assert release["ucm_version"] == "0.5.0rc2"
+    assert release["source"]["release_tag"] == "v0.5.0rc2"
+    assert release["chart"]["app_version"] == "0.5.0rc2"
+    assert release["chart"]["version"] == release_core.derive_chart_version("0.5.0rc2")
+    with pytest.raises(ValueError):
+        release_core.load_catalog(version_override="not-a-version")
 
 
 def test_json_array_loader_preserves_duplicate_key_rejection(tmp_path: Path) -> None:

@@ -1,8 +1,6 @@
 kind: release-config
 schema_version: 2
-ucm_version: 0.5.0rc1
 image_revision: 1
-version_file: version.ini
 source: {staging_repository: 'ghcr.io/{owner}/ucm-release-staging', default_branch: develop, release_policy: owner-reviewed-v1, protected_environment: release-production}
 lanes: [feature-candidate, protected-tag]
 runner_map: {amd64: ubuntu-24.04, arm64: ubuntu-24.04-arm}

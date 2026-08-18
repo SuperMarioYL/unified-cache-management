@@ -298,7 +298,7 @@ jobs:
         run: |
           # shellcheck disable=SC2153,SC1083,SC2012
           set -euo pipefail
-          git fetch --no-tags --force origin "+${GITHUB_REF}:${GITHUB_REF}" +refs/heads/develop:refs/remotes/origin/develop
+          git fetch --force origin "+${GITHUB_REF}:${GITHUB_REF}" +refs/heads/develop:refs/remotes/origin/develop
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
           mkdir -p out/provisional
           PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \

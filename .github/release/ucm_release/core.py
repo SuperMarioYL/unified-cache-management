@@ -209,9 +209,22 @@ def read_version(path: Path | None = None) -> str:
     raise ValueError(f"VLLM_UC_VERSION is missing from {version_path}")
 
 
+def _pep440_public(version: str) -> str:
+    base = version.split('+', 1)[0]
+    if '.dev' in base: base = re.split(r'\.dev\d+', base)[0]  # fmt: skip  # noqa: E501
+    return base
+
+
+def _oci_tag_version(version: str) -> str:
+    return version.replace('+', '.')  # fmt: skip  # noqa: E501
+
+
 def derive_chart_version(version: str) -> str:
-    match = re.fullmatch(r"([0-9]+\.[0-9]+\.[0-9]+)rc([0-9]+)", version)
-    if match is None: raise ValueError(f'unsupported UCM release version for Chart SemVer: {version}')  # noqa: E701,E501
+    public = _pep440_public(version)
+    match = re.fullmatch(r"([0-9]+\.[0-9]+\.[0-9]+)rc([0-9]+)", public)
+    if match is None:
+        if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", public): return public  # fmt: skip  # noqa: E701,E501
+        raise ValueError(f'unsupported UCM release version for Chart SemVer: {version}')  # noqa: E701,E501
     return f"{match.group(1)}-rc.{match.group(2)}"
 
 
@@ -1360,8 +1373,8 @@ def expand_release_plan(
     return result
 
 
-RELEASE_KEYS = frozenset('kind schema_version ucm_version image_revision version_file source lanes runner_map upstream_products compatibility chart publish wheel_profiles'.split())  # fmt: skip  # noqa: E501
-OPTIONAL_CATALOG_KEYS = frozenset('pr_smoke docker_recipes runtime_patch_rules matrix_limits scan_limits python_runtime_dependencies python_build_lock'.split())  # fmt: skip  # noqa: E501
+RELEASE_KEYS = frozenset('kind schema_version image_revision source lanes runner_map upstream_products compatibility chart publish wheel_profiles'.split())  # fmt: skip  # noqa: E501
+OPTIONAL_CATALOG_KEYS = frozenset('ucm_version pr_smoke docker_recipes runtime_patch_rules matrix_limits scan_limits python_runtime_dependencies python_build_lock'.split())  # fmt: skip  # noqa: E501
 SUPPLEMENTARY_TOP_LEVEL_KEYS = frozenset({'pr_smoke', 'docker_recipes', 'runtime_patch_rules', 'matrix_limits', 'scan_limits', 'python_runtime_dependencies', 'python_build_lock'})  # fmt: skip  # noqa: E501
 LANES = ("feature-candidate", "protected-tag")
 
@@ -1425,6 +1438,7 @@ def load_catalog(
     *,
     repository_root: Path = REPO_ROOT,
     repository: str | None = None,
+    version_override: str | None = None,
 ) -> dict[str, Any]:
     config_schema = load_json(schema_dir / "config.schema.json")
     load_json(schema_dir / "release-manifest.schema.json")
@@ -1454,13 +1468,12 @@ def load_catalog(
     extras = sorted(set(release) - RELEASE_KEYS - OPTIONAL_CATALOG_KEYS)
     if missing or extras: raise ValueError(f'release.yaml requires exact key set; missing={missing}, extra={extras}')  # noqa: E701,E501
     release["source"]["repository"] = resolved_repository
-    version = read_version(repository_root / release["version_file"])
-    if release["ucm_version"] != version:
-        raise ValueError(f"release.yaml version {release['ucm_version']} does not match version.ini {version}")  # fmt: skip  # noqa: E501
+    version = version_override or git_describe_pep440(repository_root)
+    release["ucm_version"] = version
     release["source"]["release_tag"] = f"v{version}"
     release["chart"]["version"] = derive_chart_version(version)
     release["chart"]["app_version"] = version
-    image_suffix = f"-ucm-{version}-r{release.get('image_revision', 1)}"
+    image_suffix = f"-ucm-{_oci_tag_version(version)}-r{release.get('image_revision', 1)}"  # fmt: skip  # noqa: E501
     for product in release.get("upstream_products", []):
         product["target_tag_suffix"] = image_suffix
     for profile in release.get("wheel_profiles", []):
@@ -1468,8 +1481,6 @@ def load_catalog(
         profile["wheel_version"] = version  # fmt: skip  # noqa: E501
     chart = load_yaml(repository_root / release["chart"]["source"] / "Chart.yaml")
     if chart.get('name') != release['chart']['name']: raise ValueError('Chart name does not match release.yaml')  # noqa: E701,E501
-    if chart.get('version') != release['chart']['version']: raise ValueError('Chart version does not match release.yaml')  # noqa: E701,E501
-    if str(chart.get('appVersion')) != version: raise ValueError('Chart appVersion does not match version.ini')  # noqa: E701,E501
     _validate_cross_config(release, repository_root=repository_root)
     validate_repository_recipe_inventory(release, repository_root=repository_root)
     return release
@@ -1538,6 +1549,23 @@ def _git_commit(repository_root: Path, revision: str) -> str | None:
     if commit is None or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
         return None
     return commit
+
+
+def git_describe_pep440(repository_root: Path) -> str:
+    describe = _git_output(repository_root, 'describe', '--tags', '--dirty')
+    if describe is None:
+        raise ValueError(f'git describe failed in {repository_root}; tag the release commit to derive the version')  # fmt: skip  # noqa: E501
+    dirty = describe.endswith('-dirty')
+    desc = describe[:-len('-dirty')] if dirty else describe
+    desc = desc[1:] if desc.startswith('v') else desc
+    match = re.fullmatch(r'(\d+(?:\.\d+)*(?:[a-z]+\d*)?)-(\d+)-g([0-9a-f]+)', desc)
+    if match is None:
+        base, local = desc, (['dirty'] if dirty else [])
+    else:
+        base, distance, sha = match.groups()
+        base = f'{base}.dev{distance}'
+        local = [f'g{sha}'] + (['dirty'] if dirty else [])
+    return f'{base}+{".".join(local)}' if local else base  # fmt: skip  # noqa: E501
 
 
 def _origin_repository(remote_url: str | None) -> str | None:
@@ -1610,7 +1638,7 @@ def _is_ancestor(repository_root: Path, ancestor: str, descendant: str) -> bool:
     return completed.returncode == 0
 
 
-TAG_PREFLIGHT_AUTHORITY_FIELDS = frozenset('repository staging_repository default_branch release_tag release_policy version_file ucm_version'.split())  # fmt: skip  # noqa: E501
+TAG_PREFLIGHT_AUTHORITY_FIELDS = frozenset('repository staging_repository default_branch release_tag release_policy ucm_version'.split())  # fmt: skip  # noqa: E501
 
 
 def _tag_preflight_live(
@@ -1634,13 +1662,9 @@ def _tag_preflight_live(
         )
     ):
         raise ValueError("release preflight authority is malformed")
-    version_path = Path(authority["version_file"])
-    if version_path.is_absolute() or ".." in version_path.parts:
-        raise ValueError("release preflight version file is unsafe")
     repository_owner = authority["repository"].split("/", 1)[0]
-    version_matches = read_version(repository_root / version_path) == authority['ucm_version']  # fmt: skip  # noqa: E501
     if lane == "feature-candidate":
-        checks = {"feature_zero_write": True, "version_file": version_matches}
+        checks = {"feature_zero_write": True}
         failed = sorted(name for name, passed in checks.items() if not passed)
         if failed: raise ValueError(f'release preflight failed: {failed}')  # noqa: E701
         result: dict[str, Any] = {'schema_version': 1, 'kind': 'ucm-tag-preflight', 'lane': lane, 'repository': authority['repository'], 'repository_owner': repository_owner, 'ref': None, 'ref_type': None, 'ref_name': None, 'source_sha': None, 'default_branch': authority['default_branch'], 'checks': checks, 'publication_allowed': False, 'write_authority': []}  # fmt: skip  # noqa: E501
@@ -1675,7 +1699,7 @@ def _tag_preflight_live(
     source_commit_sha = _git_commit(repository_root, source_sha) if re.fullmatch('[0-9a-f]{40}', source_sha) else None  # fmt: skip  # noqa: E501
     worktree_root = _git_output(repository_root, "rev-parse", "--show-toplevel")
     origin_repository = _origin_repository(_git_output(repository_root, 'remote', 'get-url', 'origin'))  # fmt: skip  # noqa: E501
-    checks = {'actor': context['GITHUB_ACTOR'] == repository_owner, 'checked_head': checked_head_sha == source_sha, 'default_branch': event_repository.get('default_branch') == authority['default_branch'], 'default_branch_ancestry': True, 'event_actor': event_sender.get('login') == context['GITHUB_ACTOR'], 'event_name': context['GITHUB_EVENT_NAME'] == 'push', 'event_owner': event_owner.get('login') == context['GITHUB_REPOSITORY_OWNER'], 'event_ref': event.get('ref') == context['GITHUB_REF'], 'event_repository': event_repository.get('full_name') == context['GITHUB_REPOSITORY'], 'event_source_sha': event.get('after') == source_sha, 'github_actions': context['GITHUB_ACTIONS'] == 'true', 'origin_repository': origin_repository == authority['repository'], 'owner': context['GITHUB_REPOSITORY_OWNER'] == repository_owner, 'ref': context['GITHUB_REF'] == tag_ref, 'ref_name': context['GITHUB_REF_NAME'] == release_tag, 'ref_protected': True, 'ref_type': context['GITHUB_REF_TYPE'] == 'tag', 'release_policy': context['UCM_RELEASE_POLICY'] == authority['release_policy'], 'repository': context['GITHUB_REPOSITORY'] == authority['repository'], 'repository_root': worktree_root is not None and Path(worktree_root).resolve() == repository_root.resolve(), 'source_sha': source_commit_sha == source_sha, 'frozen_source': authority.get('commit', source_sha) == source_sha, 'tag_commit': tag_commit_sha == source_sha, 'version_file': version_matches}  # fmt: skip  # noqa: E501
+    checks = {'actor': context['GITHUB_ACTOR'] == repository_owner, 'checked_head': checked_head_sha == source_sha, 'default_branch': event_repository.get('default_branch') == authority['default_branch'], 'default_branch_ancestry': True, 'event_actor': event_sender.get('login') == context['GITHUB_ACTOR'], 'event_name': context['GITHUB_EVENT_NAME'] == 'push', 'event_owner': event_owner.get('login') == context['GITHUB_REPOSITORY_OWNER'], 'event_ref': event.get('ref') == context['GITHUB_REF'], 'event_repository': event_repository.get('full_name') == context['GITHUB_REPOSITORY'], 'event_source_sha': event.get('after') == source_sha, 'github_actions': context['GITHUB_ACTIONS'] == 'true', 'origin_repository': origin_repository == authority['repository'], 'owner': context['GITHUB_REPOSITORY_OWNER'] == repository_owner, 'ref': context['GITHUB_REF'] == tag_ref, 'ref_name': context['GITHUB_REF_NAME'] == release_tag, 'ref_protected': True, 'ref_type': context['GITHUB_REF_TYPE'] == 'tag', 'release_policy': context['UCM_RELEASE_POLICY'] == authority['release_policy'], 'repository': context['GITHUB_REPOSITORY'] == authority['repository'], 'repository_root': worktree_root is not None and Path(worktree_root).resolve() == repository_root.resolve(), 'source_sha': source_commit_sha == source_sha, 'frozen_source': authority.get('commit', source_sha) == source_sha, 'tag_commit': tag_commit_sha == source_sha}  # fmt: skip  # noqa: E501
     failed = sorted(name for name, passed in checks.items() if not passed)
     if failed: raise ValueError(f'release preflight failed: {failed}')  # noqa: E701
     result = {'schema_version': 1, 'kind': 'ucm-tag-preflight', 'lane': lane, 'repository': context['GITHUB_REPOSITORY'], 'repository_owner': context['GITHUB_REPOSITORY_OWNER'], 'actor': context['GITHUB_ACTOR'], 'triggering_actor': context['GITHUB_TRIGGERING_ACTOR'], 'ref': context['GITHUB_REF'], 'ref_type': context['GITHUB_REF_TYPE'], 'ref_name': context['GITHUB_REF_NAME'], 'source_sha': source_sha, 'tag_commit_sha': tag_commit_sha, 'checked_head_sha': checked_head_sha, 'default_branch': authority['default_branch'], 'default_branch_ref': default_branch_ref, 'default_branch_sha': default_branch_sha, 'event_payload_sha256': sha256_value(event), 'checks': checks, 'publication_allowed': True, 'write_authority': ['github-prerelease', 'ghcr-final-index', 'ghcr-private-staging']}  # fmt: skip  # noqa: E501
@@ -1694,7 +1718,7 @@ def tag_preflight(
     if authority is None:
         release = load_catalog(release_path, schema_dir)
         authority = {field: release['source'][field] for field in ('repository', 'staging_repository', 'default_branch', 'release_tag', 'release_policy')}  # fmt: skip  # noqa: E501
-        authority = {**authority, 'version_file': release['version_file'], 'ucm_version': release['ucm_version']}  # fmt: skip  # noqa: E501
+        authority = {**authority, 'ucm_version': release['ucm_version']}  # fmt: skip  # noqa: E501
         # catalog-planner mode: return resolved authority without live git/event checks
         result = {'schema_version': 1, 'kind': 'ucm-tag-preflight', 'lane': lane, 'authority': authority, 'publication_allowed': False, 'write_authority': []}  # fmt: skip  # noqa: E501
         result['preflight_sha256'] = sha256_value(result)

@@ -47,13 +47,24 @@ RELEASE_BUILD = RELEASE_BUILD_VALUE == "1"
 
 
 def get_source_version() -> str:
-    version_path = os.path.join(ROOT_DIR, "version.ini")
-    with open(version_path, encoding="utf-8") as version_file:
-        for line in version_file:
-            key, separator, value = line.strip().partition("=")
-            if separator and key == "VLLM_UC_VERSION" and value:
-                return value
-    raise RuntimeError(f"VLLM_UC_VERSION is missing from {version_path}")
+    import subprocess
+    describe = subprocess.run(
+        ["git", "-C", ROOT_DIR, "describe", "--tags", "--dirty"],
+        text=True, capture_output=True, check=False,
+    ).stdout.strip()
+    if not describe:
+        raise RuntimeError("git describe failed; tag the commit or build with UCM_RELEASE_BUILD=1")
+    dirty = describe.endswith("-dirty")
+    desc = describe[:-len("-dirty")] if dirty else describe
+    desc = desc[1:] if desc.startswith("v") else desc
+    match = re.fullmatch(r"(\d+(?:\.\d+)*(?:[a-z]+\d*)?)-(\d+)-g([0-9a-f]+)", desc)
+    if match is None:
+        base, local = desc, (["dirty"] if dirty else [])
+    else:
+        base, distance, sha = match.groups()
+        base = f"{base}.dev{distance}"
+        local = [f"g{sha}"] + (["dirty"] if dirty else [])
+    return f"{base}+{'.'.join(local)}" if local else base
 
 
 def _required_release_value(name: str) -> str:

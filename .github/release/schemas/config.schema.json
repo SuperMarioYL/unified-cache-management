@@ -346,7 +346,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "kind", "schema_version", "ucm_version", "image_revision", "version_file", "source",
+        "kind", "schema_version", "image_revision", "source",
         "lanes", "runner_map", "upstream_products", "compatibility",
         "chart", "wheel_profiles"
       ],
@@ -355,7 +355,6 @@
         "schema_version": {"type": "integer", "const": 2},
         "ucm_version": {"type": "string", "minLength": 1},
         "image_revision": {"type": "integer", "minimum": 1},
-        "version_file": {"type": "string", "minLength": 1},
         "source": {
           "type": "object",
           "additionalProperties": false,
@@ -364,7 +363,7 @@
             "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
             "staging_repository": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-z0-9_.-]+(?:/[a-z0-9_.-]+)*$"},
             "default_branch": {"type": "string", "minLength": 1},
-            "release_tag": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(rc[0-9]+)?$"},
+            "release_tag": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(?:rc[0-9]+)?(?:[a-z]+[0-9]*)?(?:\\.dev[0-9]+)?(?:\\+[a-z0-9.]+)?$"},
             "release_policy": {"type": "string", "minLength": 1},
             "protected_environment": {"type": "string", "minLength": 1}
           }

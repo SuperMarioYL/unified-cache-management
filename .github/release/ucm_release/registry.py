@@ -28,7 +28,7 @@ OCI_TAG_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}")
 REPOSITORY_RE = re.compile('[a-z0-9]+(?:[._:-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+')  # fmt: skip  # noqa: E501
 RESOLVED_TASK_FIELDS = {'wheel': frozenset('task_id spec_id profile_id accelerator accelerator_runtime npu_arch_or_na os cpu_arch python_version python_abi wheel_version wheel_platform binary_profile_id validation_targets required_native forbidden_native allowed_dt_needed external_required_dependencies declaration_sha256 runner platform builder builder_sha256 build dependency_lock_sha256 dependency_lock runtime_requirements runtime_patch_manifest runtime_patch_manifest_sha256 write_authority build_eligible artifact_name task_sha256'.split()), 'image': frozenset('task_id family_task_id wheel_task_id spec_id profile_id compatibility_rule_id runtime_patch_rule_id runtime_patch_product runtime_patch_strategy runtime_patch_variants runner cpu_arch platform builder builder_sha256 build runtime runtime_sha256 target_repository target_tag python_abi python_version wheel_version wheel_platform required_native forbidden_native allowed_dt_needed external_required_dependencies dependency_lock_sha256 dependency_lock runtime_requirements runtime_patch_manifest_sha256 write_authority build_eligible artifact_name wheel_artifact_name task_sha256'.split()), 'family': frozenset('task_id product_id control_task_id control_arch control_runner runner cpu_arch platform builder builder_sha256 runtime runtime_sha256 snapshot_sha256 target_repository target_tag image_task_ids wheel_task_ids member_set_sha256 write_authority artifact_name task_sha256'.split())}  # fmt: skip  # noqa: E501
 _RESOLVED_PLAN_FIELDS = frozenset('kind schema_version fixture_only lane source chart config_sha256 source_sha256 scan_sha256 resolved_upstreams wheel_tasks image_tasks family_tasks github_wheel_matrix github_image_matrix github_family_matrix pr_smoke expected_artifacts exclusions operations counts resolved_plan_sha256'.split())  # fmt: skip  # noqa: E501
-_PLAN_SOURCE_KEYS = frozenset('repository staging_repository default_branch release_tag release_policy version_file ucm_version commit'.split())  # fmt: skip  # noqa: E501
+_PLAN_SOURCE_KEYS = frozenset('repository staging_repository default_branch release_tag release_policy ucm_version commit'.split())  # fmt: skip  # noqa: E501
 _PLAN_CHART_KEYS = frozenset('source name version app_version publication_target validation_cases'.split())  # fmt: skip  # noqa: E501
 _PLAN_OPERATION_TYPES = frozenset('crane-tag-list crane-digest crane-manifest fixture-tag-page-read fixture-snapshot-read'.split())  # fmt: skip  # noqa: E501
 # Legacy Task 3 regression authority. Production resolution starts at
@@ -603,14 +603,14 @@ def resolve_catalog(
     image_tasks = plan.image_tasks
     family_tasks = plan.family_tasks
     _src = catalog["source"]
-    source = {'repository': _src['repository'], 'staging_repository': _src['staging_repository'], 'default_branch': _src['default_branch'], 'release_tag': _src['release_tag'], 'release_policy': _src['release_policy'], 'version_file': catalog['version_file'], 'ucm_version': catalog['ucm_version'], 'commit': source_sha}  # fmt: skip  # noqa: E501
+    source = {'repository': _src['repository'], 'staging_repository': _src['staging_repository'], 'default_branch': _src['default_branch'], 'release_tag': _src['release_tag'], 'release_policy': _src['release_policy'], 'ucm_version': catalog['ucm_version'], 'commit': source_sha}  # fmt: skip  # noqa: E501
     scan_evidence = {'resolved_upstreams': resolved_upstreams, 'exclusions': exclusions, 'operations': operations}  # fmt: skip  # noqa: E501
     result: dict[str, Any] = {'kind': 'ucm-resolved-build-plan', 'schema_version': 1, 'fixture_only': fixture is not None, 'lane': lane, 'source': source, 'chart': copy.deepcopy(catalog['chart']), 'config_sha256': core.sha256_value(catalog), 'source_sha256': core.sha256_value(source), 'scan_sha256': core.sha256_value(scan_evidence), 'resolved_upstreams': resolved_upstreams, 'wheel_tasks': wheel_tasks, 'image_tasks': image_tasks, 'family_tasks': family_tasks, 'github_wheel_matrix': _wheel_matrix(wheel_tasks), 'github_image_matrix': _image_matrix(image_tasks), 'github_family_matrix': _family_matrix(family_tasks), 'pr_smoke': _pr_smoke_projection(catalog, wheel_tasks, image_tasks), 'expected_artifacts': {'resolved_plan': f'ucm-resolved-plan-{source_sha}', 'wheels': _artifact_set(wheel_tasks, 'wheel'), 'images': _artifact_set(image_tasks, 'image'), 'families': _artifact_set(family_tasks, 'family')}, 'exclusions': exclusions, 'operations': operations, 'counts': {'scanned_tags': sum((len(tags) for tags in tag_lists.values())), 'selected_upstreams': len(resolved_upstreams), 'excluded_tags': len(exclusions), 'wheel_tasks': len(wheel_tasks), 'image_tasks': len(image_tasks), 'family_tasks': len(family_tasks)}}  # fmt: skip  # noqa: E501
     result["resolved_plan_sha256"] = core.sha256_value(result)
     return result
 
 
-_SOURCE_STR_FIELDS = ("default_branch", "release_policy", "version_file", "ucm_version")
+_SOURCE_STR_FIELDS = ("default_branch", "release_policy", "ucm_version")
 _CHART_STR_FIELDS = ("source", "name", "version", "app_version", "publication_target")
 _FAMILY_PROJECT_KEYS = ("runner", "cpu_arch", "platform", "builder", "builder_sha256")
 
@@ -641,12 +641,10 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
         or not isinstance(source["staging_repository"], str)
         or REPOSITORY_RE.fullmatch(source["staging_repository"]) is None
         or not isinstance(source["release_tag"], str)
-        or re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:rc[0-9]+)?", source["release_tag"])
+        or re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:rc[0-9]+)?(?:\.dev[0-9]+)?(?:\+[a-z0-9.]+)?", source["release_tag"])
         is None
         or not isinstance(source["commit"], str)
         or re.fullmatch(r"[0-9a-f]{40}", source["commit"]) is None
-        or Path(source["version_file"]).is_absolute()
-        or ".." in Path(source["version_file"]).parts
         or source["release_tag"] != f"v{source['ucm_version']}"
     ):
         raise ValueError("resolved plan source is malformed")
