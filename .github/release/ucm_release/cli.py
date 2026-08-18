@@ -93,9 +93,13 @@ def _publish_github_release(args) -> dict[str, object]:
     operations = [{'type': 'github-release-read', 'capability': 'read', 'reference': f'https://api.github.com/{api_root}/releases/{release_id}', 'authenticated': True}]  # fmt: skip  # noqa: E501
     artifacts_dir = output_dir / "artifacts"
     if artifacts_dir.is_dir():
+        existing_release = _gh_release_api(f'{api_root}/releases/{release_id}', allow_missing=True)  # fmt: skip  # noqa: E501
+        existing_assets = {a.get('name'): a.get('id') for a in (existing_release or {}).get('assets', [])} if existing_release else {}  # fmt: skip  # noqa: E501
         for asset in sorted(artifacts_dir.iterdir()):
             if not asset.is_file():
                 continue
+            if asset.name in existing_assets:
+                _gh_release_api(f'{api_root}/releases/assets/{existing_assets[asset.name]}', method='DELETE')  # fmt: skip  # noqa: E501
             encoded = urllib.parse.quote(asset.name, safe="")
             _gh_release_api(f'https://uploads.github.com/{api_root}/releases/{release_id}/assets?name={encoded}', method='POST', input_bytes=asset.read_bytes(), content_type='application/octet-stream')  # fmt: skip  # noqa: E501
             operations.append({'type': 'github-release-asset-upload', 'capability': 'write', 'reference': f'https://uploads.github.com/{api_root}/releases/{release_id}/assets', 'authenticated': True})  # fmt: skip  # noqa: E501
