@@ -381,7 +381,7 @@ jobs:
           cp input/parent/parent-plans.json out/evidence/parent-plans.json
           cp input/parent/member-collection.json out/evidence/member-collection.json
           cp input/parent/member-records/*.json out/evidence/member-records/
-          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --arg github_run_id "${GITHUB_RUN_ID}" --argjson github_run_attempt "${GITHUB_RUN_ATTEMPT}" {root: "input/provisionals", output_dir: "out/evidence/provisionals", source_sha: $source_sha, parent_plans: "out/evidence/parent-plans.json", resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256, run: {run_id: $github_run_id, run_attempt: $github_run_attempt}} > out/provisional-collection-request.json
+          jq -cnS --arg source_sha "${SOURCE_SHA}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" --arg github_run_id "${GITHUB_RUN_ID}" --argjson github_run_attempt "${GITHUB_RUN_ATTEMPT}" '{root: "input/provisionals", output_dir: "out/evidence/provisionals", source_sha: $source_sha, parent_plans: "out/evidence/parent-plans.json", resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256, run: {run_id: $github_run_id, run_attempt: $github_run_attempt}}' > out/provisional-collection-request.json
           root="$(jq -r '.root' out/provisional-collection-request.json)"
           output_dir="$(jq -r '.output_dir' out/provisional-collection-request.json)"
           source_sha="$(jq -r '.source_sha' out/provisional-collection-request.json)"
