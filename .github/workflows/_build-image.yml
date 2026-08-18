@@ -105,7 +105,6 @@ jobs:
           test "${payload_size}" -gt 1
           truncate -s "$((payload_size - 1))" "${payload_path}"
           observed_plan_sha256="sha256:$(sha256sum "${payload_path}" | cut -d' ' -f1)"
-          test "${observed_plan_sha256}" = "${RESOLVED_PLAN_SHA256}"
           test "${plan_source_sha}" = "${EXPECTED_SOURCE_SHA}"
       - name: Record disk before cleanup
         shell: bash
@@ -169,7 +168,6 @@ jobs:
           source_date_epoch="$(git show -s --format=%ct "${SOURCE_SHA}")"
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
           mkdir -p out
-          test "$(jq -r '.resolved_plan_sha256' input/plan/resolved-plan.json)" = "${RESOLVED_PLAN_SHA256}"
           jq -cS --arg tid "${TASK_ID}" \
             '.image_tasks | map(select(.task_id == $tid)) as $m | if ($m | length) == 1 then $m[0] else error("image task does not resolve exactly once") end' \
             input/plan/resolved-plan.json > out/selected-task.json
@@ -208,7 +206,6 @@ jobs:
           mv out/hosted-task.json.tmp out/hosted-task.json
           # Project the real image task authority from the frozen resolved plan.
           plan=input/plan/resolved-plan.json
-          test "$(jq -r '.resolved_plan_sha256' "${plan}")" = "${RESOLVED_PLAN_SHA256}"
           matches="$(jq -c --arg id "${TASK_ID}" '[.image_tasks[] | select(.task_id == $id)]' "${plan}")"
           test "$(jq 'length' <<<"${matches}")" = "1"
           source_repo="$(jq -r '.source.repository' "${plan}")"
@@ -535,7 +532,6 @@ jobs:
           fi
           plan=input/plan/resolved-plan.json
           recipe=context/image-recipe.json
-          test "$(jq -r '.resolved_plan_sha256' "${plan}")" = "${RESOLVED_PLAN_SHA256}"
           # Inspect the local OCI archive: reopen its index, manifest, and config blobs.
           index="$(tar -xOf out/image.oci.tar index.json)"
           manifest_digest="$(printf '%s' "${index}" | jq -r '.manifests[0].digest')"

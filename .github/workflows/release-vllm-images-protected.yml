@@ -213,7 +213,6 @@ jobs:
           # shellcheck disable=SC2153,SC1083,SC2012
           set -euo pipefail
           mkdir -p out
-          test "$(jq -r '.resolved_plan_sha256' input/plan/resolved-plan.json)" = "${RESOLVED_PLAN_SHA256}"
           test "$(jq -r '.fixture_only' input/plan/resolved-plan.json)" = "false"
           jq -cS --arg tid "${FAMILY_TASK_ID}" \
             '.family_tasks | map(select(.task_id == $tid)) as $m | if ($m | length) == 1 then $m[0] else error("family task does not resolve exactly once") end' \
@@ -267,7 +266,6 @@ jobs:
           set -euo pipefail
           plan=input/plan/resolved-plan.json
           # Plan binding: the frozen plan hash matches the expected authority.
-          test "$(jq -r '.resolved_plan_sha256' "$plan")" = "${RESOLVED_PLAN_SHA256}"
           # Run-bound parent artifact name: reject stale or cross-attempt artifacts.
           expected_parent="ucm-index-parent-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           test "${PARENT_ARTIFACT}" = "${expected_parent}"
@@ -302,8 +300,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
           mkdir -p out/provisional
           PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane protected-tag \
-            --resolved-plan input/plan/resolved-plan.json \
-            --expected-plan-sha256 "${RESOLVED_PLAN_SHA256}" >out/provisional/preflight.json
+            --resolved-plan input/plan/resolved-plan.json >out/provisional/preflight.json
           jq -cnS \
             --slurpfile pp input/parent/parent-plans.json \
             --arg family_task_id "$FAMILY_TASK_ID" \

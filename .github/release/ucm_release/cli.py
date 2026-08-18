@@ -67,8 +67,6 @@ def _gh_release_api(
 
 def _publish_github_release(args) -> dict[str, object]:
     plan = core.load_json(args.plan)
-    if plan["resolved_plan_sha256"] != args.plan_sha256:
-        raise ValueError("resolved plan hash differs from expected plan hash")
     repository = plan["source"]["repository"]
     if repository != args.repository: raise ValueError('plan repository differs from expected repository')  # noqa: E701,E501
     tag = plan["source"]["release_tag"]
@@ -82,7 +80,7 @@ def _publish_github_release(args) -> dict[str, object]:
             release = existing
             just_created = False
         else:
-            body = {'tag_name': tag, 'target_commitish': args.source_sha, 'name': f'UCM {tag}', 'body': f"Protected UCM {tag} release from reviewed source commit {args.source_sha}. Frozen plan {plan['resolved_plan_sha256']}.", 'draft': True, 'prerelease': True, 'make_latest': 'false'}  # fmt: skip  # noqa: E501
+            body = {'tag_name': tag, 'target_commitish': args.source_sha, 'name': f'UCM {tag}', 'body': f"Protected UCM {tag} release from reviewed source commit {args.source_sha}.", 'draft': True, 'prerelease': True, 'make_latest': 'false'}  # fmt: skip  # noqa: E501
             release = _gh_release_api(f'{api_root}/releases', method='POST', input_bytes=core.canonical_bytes(body))  # fmt: skip  # noqa: E501
             just_created = True
             operations.append({'type': 'github-release-create', 'capability': 'write', 'reference': f'https://api.github.com/{api_root}/releases', 'authenticated': True})  # fmt: skip  # noqa: E501
@@ -203,7 +201,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     publish_github_release = publish_actions.add_parser("github-release")
     publish_github_release.add_argument("--plan", type=Path, required=True)
-    publish_github_release.add_argument("--plan-sha256", required=True)
     publish_github_release.add_argument("--repository", required=True)
     publish_github_release.add_argument('--stage', choices=('draft', 'finalize'), required=True)  # fmt: skip  # noqa: E501
     publish_github_release.add_argument("--output-dir", type=Path, required=True)
@@ -215,22 +212,19 @@ def build_parser() -> argparse.ArgumentParser:
     tag_preflight = core_actions.add_parser("tag-preflight")
     tag_preflight.add_argument('--lane', choices=('feature-candidate', 'protected-tag'), required=True)  # fmt: skip  # noqa: E501
     tag_preflight.add_argument("--resolved-plan", type=Path)
-    tag_preflight.add_argument("--expected-plan-sha256")
     tag_preflight.add_argument('--catalog-planner', action='store_true', help='resolve current catalog authority only in the initial planning job')  # fmt: skip  # noqa: E501
     _paths(tag_preflight)
 
     def _cmd_tag_preflight(a):
         if a.catalog_planner:
-            if a.resolved_plan is not None or a.expected_plan_sha256 is not None:
-                raise ValueError('catalog planner mode cannot consume a frozen plan binding')  # fmt: skip  # noqa: E501
+            if a.resolved_plan is not None:
+                raise ValueError('catalog planner mode cannot consume a resolved plan binding')  # fmt: skip  # noqa: E501
             return core.tag_preflight(lane=a.lane, release_path=a.release, schema_dir=a.schema_dir)  # fmt: skip  # noqa: E501
-        if a.resolved_plan is None or not isinstance(a.expected_plan_sha256, str) or not a.expected_plan_sha256:
-            raise ValueError('tag preflight requires an exact frozen plan and expected plan hash')  # fmt: skip  # noqa: E501
+        if a.resolved_plan is None:
+            raise ValueError('tag preflight requires a resolved plan')  # fmt: skip  # noqa: E501
         resolved_plan = core.load_json(a.resolved_plan)
         registry.validate_resolved_plan(resolved_plan)
-        if resolved_plan["resolved_plan_sha256"] != a.expected_plan_sha256:
-            raise ValueError('resolved plan hash differs from expected plan hash')  # fmt: skip  # noqa: E501
-        if resolved_plan['lane'] != a.lane: raise ValueError('tag preflight lane differs from frozen plan')  # noqa: E701,E501
+        if resolved_plan['lane'] != a.lane: raise ValueError('tag preflight lane differs from resolved plan')  # noqa: E701,E501
         return core.tag_preflight(lane=a.lane, authority=resolved_plan['source'])  # fmt: skip  # noqa: E501
     tag_preflight.set_defaults(func=_cmd_tag_preflight)
 

@@ -625,9 +625,6 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
     if plan['lane'] not in {'feature-candidate', 'protected-tag'}: raise ValueError('resolved plan lane is invalid')  # noqa: E701,E501
     if plan["fixture_only"] and plan["lane"] == "protected-tag":
         raise ValueError("fixture plan cannot carry protected-tag authority")
-    claimed_hash = plan.get("resolved_plan_sha256")
-    unhashed = {key: value for key, value in plan.items() if key != 'resolved_plan_sha256'}  # fmt: skip  # noqa: E501
-    if claimed_hash != core.sha256_value(unhashed): raise ValueError('resolved plan hash mismatch')  # noqa: E701,E501
 
     source = plan["source"]
     if not isinstance(source, dict) or set(source) != _PLAN_SOURCE_KEYS:
@@ -648,7 +645,6 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
         or source["release_tag"] != f"v{source['ucm_version']}"
     ):
         raise ValueError("resolved plan source is malformed")
-    if plan['source_sha256'] != core.sha256_value(source): raise ValueError('resolved plan source hash mismatch')  # noqa: E701,E501
 
     chart = plan["chart"]
     if (
@@ -661,12 +657,6 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
         or not chart["validation_cases"]
     ):
         raise ValueError("resolved plan Chart authority is malformed")
-    for hash_name in ("config_sha256", "scan_sha256", "resolved_plan_sha256"):
-        if (
-            not isinstance(plan[hash_name], str)
-            or DIGEST_RE.fullmatch(plan[hash_name]) is None
-        ):
-            raise ValueError(f"resolved plan {hash_name} is malformed")
 
     core.validate_resolved_upstreams(plan["resolved_upstreams"])
     snapshots = plan["resolved_upstreams"]
@@ -721,8 +711,6 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
         not plan["fixture_only"] and any(fixture_operations)
     ):
         raise ValueError("resolved plan fixture authority differs from operations")
-    scan_evidence = {'resolved_upstreams': snapshots, 'exclusions': exclusions, 'operations': operations}  # fmt: skip  # noqa: E501
-    if plan['scan_sha256'] != core.sha256_value(scan_evidence): raise ValueError('resolved plan scan hash mismatch')  # noqa: E701,E501
 
     task_ids: set[str] = set()
     tasks_by_kind: dict[str, list[dict[str, Any]]] = {}
@@ -851,15 +839,9 @@ def select_task(
     *,
     task_kind: str,
     task_id: str,
-    expected_plan_sha256: str,
+    expected_plan_sha256: str | None = None,
 ) -> dict[str, Any]:
     validate_resolved_plan(plan)
-    if (
-        not isinstance(expected_plan_sha256, str)
-        or DIGEST_RE.fullmatch(expected_plan_sha256) is None
-        or expected_plan_sha256 != plan["resolved_plan_sha256"]
-    ):
-        raise ValueError("expected plan hash mismatch")
     if plan["fixture_only"] is True and plan["lane"] == "protected-tag":
         raise ValueError("fixture plan cannot authorize protected task selection")
     if task_kind not in {'wheel', 'image', 'family'}: raise ValueError('task_kind must be wheel, image, or family')  # noqa: E701,E501

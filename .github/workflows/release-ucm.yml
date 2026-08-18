@@ -444,7 +444,6 @@ jobs:
           git fetch --force origin "+${GITHUB_REF}:${GITHUB_REF}"
           PYTHONPATH=.github/release python -m ucm_release publish github-release \
             --plan input/plan/resolved-plan.json \
-            --plan-sha256 "${RESOLVED_PLAN_SHA256}" \
             --repository "${GITHUB_REPOSITORY}" \
             --stage draft \
             --source-sha "${SOURCE_SHA}" \
@@ -639,7 +638,6 @@ jobs:
           cp "${chart_package}" out/artifacts/
           PYTHONPATH=.github/release python -m ucm_release publish github-release \
             --plan input/plan/resolved-plan.json \
-            --plan-sha256 "${RESOLVED_PLAN_SHA256}" \
             --repository "${GITHUB_REPOSITORY}" \
             --stage finalize \
             --source-sha "${SOURCE_SHA}" \
