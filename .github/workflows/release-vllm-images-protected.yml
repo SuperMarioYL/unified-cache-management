@@ -310,6 +310,20 @@ jobs:
           prov_sha256="sha256:$(jq -jcS 'del(.provisional_sha256)' out/provisional/provisional.json | sha256sum | cut -d' ' -f1)"
           jq -cS --arg ps "${prov_sha256}" '. + {provisional_sha256:$ps}' out/provisional/provisional.json > out/provisional/provisional.json.tmp
           mv out/provisional/provisional.json.tmp out/provisional/provisional.json
+          # Compose the staging members (by digest) into a multi-arch manifest
+          # list and push it to the target repository so ghcr holds the final
+          # image under target_repository:target_tag. buildx imagetools uses the
+          # DOCKER_CONFIG ghcr auth set above (crane auth login) to pull the
+          # staging members and push the index.
+          target_repository="$(jq -r '.target_repository' out/provisional/provisional.json)"
+          target_tag="$(jq -r '.target_tag' out/provisional/provisional.json)"
+          staging_repo="$(jq -r '.source.staging_repository' input/plan/resolved-plan.json)"
+          member_refs=()
+          while IFS= read -r d; do member_refs+=("${staging_repo}@${d}"); done < <(jq -r '.member_digests[]' out/provisional/provisional.json)
+          docker buildx imagetools create -t "${target_repository}:${target_tag}" "${member_refs[@]}"
+          index_digest="sha256:$(docker buildx imagetools inspect "${target_repository}:${target_tag}" --raw | sha256sum | cut -d' ' -f1)"
+          jq -cS --arg idx "${index_digest}" '. + {index_digest:$idx}' out/provisional/provisional.json > out/provisional/provisional.json.tmp
+          mv out/provisional/provisional.json.tmp out/provisional/provisional.json
           logical="ucm-index-provisional-${FAMILY_TASK_ID}"
           physical="${logical}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           echo "artifact=${physical}" >>"${GITHUB_OUTPUT}"
