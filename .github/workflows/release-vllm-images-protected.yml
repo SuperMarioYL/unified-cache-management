@@ -134,18 +134,18 @@ jobs:
             --arg resolved_plan_sha256 "${resolved_plan_sha256}" \
             '{schema_version:1, kind:"ucm-member-artifact-collection", source_sha:$source_sha, resolved_plan_sha256:$resolved_plan_sha256, member_records:$member_records, member_record_sha256s:$member_record_sha256s}' \
             >out/member-collection.json
+          jq -r '.member_records[]' out/member-collection.json | xargs -r jq -c . | jq -s . > out/members.json
           jq -cnS \
-            --argjson members "$(jq -r '.member_records[]' out/member-collection.json | xargs -r jq -c . | jq -s .)" \
+            --slurpfile members out/members.json \
             --slurpfile coll out/member-collection.json \
             --arg resolved_plan_sha256 "$RESOLVED_PLAN_SHA256" \
-            '{lane: "protected-tag", members: $members, member_statuses: ($coll[0].member_record_sha256s | map({(.): "success"}) | add), resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256}' \
+            '{lane: "protected-tag", members: $members[0], member_statuses: ($coll[0].member_record_sha256s | map({(.): "success"}) | add), resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256}' \
             > out/plan-request.json
           jq -cnS \
-            --argjson members "$(jq -c '.members' out/plan-request.json)" \
-            --argjson statuses "$(jq -c '.member_statuses' out/plan-request.json)" \
+            --slurpfile pr out/plan-request.json \
             --slurpfile rp input/plan/resolved-plan.json \
             --arg resolved_plan_sha256 "$(jq -r '.resolved_plan_sha256' out/plan-request.json)" \
-            '($rp[0]) as $plan | ($plan.source.commit) as $sha | ($plan.family_tasks) as $fam | {schema_version:1, kind:"ucm-registry-index-plans", source_sha:$sha, resolved_plan_sha256:$resolved_plan_sha256, member_records:$members, member_statuses:$statuses, inventory:{schema_version:1, kind:"ucm-registry-inventory", entries:[], absent:($fam|map({repository:.target_repository,tag:.target_tag})), operations:($fam|map({type:"registry-authenticated-digest-read",capability:"read",reference:(.target_repository+":"+.target_tag)}))}, plans:($fam|map(. as $f | {schema_version:1,kind:"ucm-registry-index-plan",source_sha:$sha,family_task_id:$f.task_id,family_id:$f.task_id,target_repository:$f.target_repository,target_tag:$f.target_tag,members:($members|map(select(.family_id==$f.task_id))),decision:"create"})), operations:($fam|map({type:"registry-index-create",capability:"write",reference:(.target_repository+":"+.target_tag)}))}' \
+            '($pr[0].members) as $members | ($pr[0].member_statuses) as $statuses | ($rp[0]) as $plan | ($plan.source.commit) as $sha | ($plan.family_tasks) as $fam | {schema_version:1, kind:"ucm-registry-index-plans", source_sha:$sha, resolved_plan_sha256:$resolved_plan_sha256, member_records:$members, member_statuses:$statuses, inventory:{schema_version:1, kind:"ucm-registry-inventory", entries:[], absent:($fam|map({repository:.target_repository,tag:.target_tag})), operations:($fam|map({type:"registry-authenticated-digest-read",capability:"read",reference:(.target_repository+":"+.target_tag)}))}, plans:($fam|map(. as $f | {schema_version:1,kind:"ucm-registry-index-plan",source_sha:$sha,family_task_id:$f.task_id,family_id:$f.task_id,target_repository:$f.target_repository,target_tag:$f.target_tag,members:($members|map(select(.family_id==$f.task_id))),decision:"create"})), operations:($fam|map({type:"registry-index-create",capability:"write",reference:(.target_repository+":"+.target_tag)}))}' \
             > out/parent/parent-plans.json
           plans_sha256="sha256:$(jq -jcS 'del(.plans_sha256)' out/parent/parent-plans.json | sha256sum | cut -d' ' -f1)"
           jq -cS --arg ps "${plans_sha256}" '. + {plans_sha256:$ps}' out/parent/parent-plans.json > out/parent/parent-plans.json.tmp
