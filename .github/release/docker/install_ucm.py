@@ -75,7 +75,7 @@ def install(recipe_path: Path, metadata_path: Path, wheel_path: Path) -> dict[st
     if actual_sha256 != wheel.get("sha256"):
         raise ValueError("wheel SHA256 does not match recipe")
     distribution, version, requires_dist = _wheel_metadata(wheel_path)
-    if distribution != "uc-manager" or version != wheel.get("version"):
+    if not _canonical_distribution_name(distribution).startswith("uc-manager") or version != wheel.get("version"):
         raise ValueError("wheel distribution/version does not match recipe")
     packaging_requirements = [
         requirement
@@ -100,7 +100,7 @@ def install(recipe_path: Path, metadata_path: Path, wheel_path: Path) -> dict[st
     ]
     subprocess.run(command, check=True)
     subprocess.run([sys.executable, "-m", "pip", "check"], check=True)
-    ucm_distribution = importlib.metadata.distribution("uc-manager")
+    ucm_distribution = importlib.metadata.distribution(distribution)
     packaging_distribution = importlib.metadata.distribution("packaging")
     wrapt_distribution = importlib.metadata.distribution("wrapt")
     direct_url_path = Path(ucm_distribution._path) / "direct_url.json"
@@ -128,7 +128,7 @@ def install(recipe_path: Path, metadata_path: Path, wheel_path: Path) -> dict[st
         "pip_check": "passed",
         "direct_url": direct_url,
         "installed_packages": {
-            "uc-manager": ucm_distribution.version,
+            distribution: ucm_distribution.version,
             "packaging": packaging_distribution.version,
             "wrapt": wrapt_distribution.version,
         },
@@ -241,7 +241,8 @@ def install_real(
         record["requirement"] for record in runtime_dependencies
     )
     if (
-        _canonical_distribution_name(ucm_name) != "uc-manager"
+        _canonical_distribution_name(ucm_name)
+        != _canonical_distribution_name(wheel.get("dist_name", ""))
         or ucm_version != wheel.get("version")
         or ucm_requires != expected_requirements
     ):
@@ -257,7 +258,7 @@ def install_real(
                 "runtime wheel metadata differs from real recipe: " f"{record['name']}"
             )
     expected_lock = (
-        f"uc-manager @ file:///wheelhouse/{ucm_path.name} "
+        f"{ucm_name} @ file:///wheelhouse/{ucm_path.name} "
         f"--hash={wheel['sha256']}\n"
         + "".join(
             f"{record['name']} @ file:///wheelhouse/{record['filename']} "
@@ -273,7 +274,7 @@ def install_real(
         "pip",
         "uninstall",
         "--yes",
-        "uc-manager",
+        ucm_name,
         *(record["name"] for record in runtime_dependencies),
     ]
     command = [
@@ -298,7 +299,7 @@ def install_real(
     subprocess.run(preinstall_command, check=True)
     subprocess.run(command, check=True)
     try:
-        ucm_distribution = importlib.metadata.distribution("uc-manager")
+        ucm_distribution = importlib.metadata.distribution(ucm_name)
         installed_dependencies = {
             record["name"]: importlib.metadata.distribution(record["name"])
             for record in runtime_dependencies
@@ -306,7 +307,7 @@ def install_real(
     except importlib.metadata.PackageNotFoundError as error:
         raise ValueError("installed UCM package scope is incomplete") from error
     packages = {
-        "uc-manager": {
+        ucm_name: {
             "version": ucm_distribution.version,
             "requires_dist": list(ucm_distribution.requires or []),
         },
@@ -321,7 +322,7 @@ def install_real(
         }
     )
     expected_packages = {
-        "uc-manager": {
+        ucm_name: {
             "version": ucm_version,
             "requires_dist": expected_requirements,
         },
@@ -335,13 +336,13 @@ def install_real(
     dependency_check = {
         "kind": "ucm-package-scope",
         "scope": [
-            "uc-manager",
+            ucm_name,
             *(record["name"] for record in runtime_dependencies),
         ],
         "packages": packages,
         "requirements": [
             {
-                "owner": "uc-manager",
+                "owner": ucm_name,
                 "requirement": record["requirement"],
                 "dependency": record["name"],
                 "installed_version": installed_dependencies[record["name"]].version,
@@ -352,14 +353,14 @@ def install_real(
         "status": "passed",
     }
     direct_urls = {
-        "uc-manager": _direct_url(ucm_distribution),
+        ucm_name: _direct_url(ucm_distribution),
         **{
             name: _direct_url(distribution)
             for name, distribution in installed_dependencies.items()
         },
     }
     expected_direct = {
-        "uc-manager": (ucm_path.name, wheel["sha256"]),
+        ucm_name: (ucm_path.name, wheel["sha256"]),
         **{
             record["name"]: (record["filename"], record["sha256"])
             for record in runtime_dependencies
@@ -389,7 +390,7 @@ def install_real(
         "dependency_check": dependency_check,
         "direct_urls": direct_urls,
         "installed_packages": {
-            "uc-manager": ucm_distribution.version,
+            ucm_name: ucm_distribution.version,
             **{
                 name: distribution.version
                 for name, distribution in installed_dependencies.items()

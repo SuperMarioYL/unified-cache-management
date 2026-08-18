@@ -48,7 +48,10 @@ def _inspect_real(
     if not isinstance(expected, dict):
         raise ValueError("real recipe lacks builder native evidence")
     observed_variants = _runtime_patch_variants(payload)
-    distribution = importlib.metadata.distribution("uc-manager")
+    dist_name = wheel.get("dist_name") if isinstance(wheel, dict) else None
+    if not isinstance(dist_name, str) or not dist_name:
+        raise ValueError("real recipe wheel lacks dist_name")
+    distribution = importlib.metadata.distribution(dist_name)
     expected_members = expected.get("native_members")
     if not isinstance(expected_members, dict) or not expected_members:
         raise ValueError("real recipe native member map is empty")
@@ -102,7 +105,8 @@ def inspect(recipe_path: Path, install_path: Path) -> dict[str, Any]:
         raise ValueError(
             f"Python ABI mismatch: expected {expected_abi}, observed {observed_abi}"
         )
-    distribution = importlib.metadata.distribution("uc-manager")
+    dist_name = payload.get("wheel", {}).get("dist_name") or "uc-manager"
+    distribution = importlib.metadata.distribution(dist_name)
     files = distribution.files or []
     shared_objects = sorted(
         str(file) for file in files if str(file).endswith((".so", ".pyd"))
