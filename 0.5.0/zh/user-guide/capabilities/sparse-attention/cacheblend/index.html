@@ -10,7 +10,7 @@
       
       
       
-        <link rel="canonical" href="https://ucm.readthedocs.io/0.5.0/zh/user-guide/capabilities/sparse-attention/cacheblend/">
+        <link rel="canonical" href="https://supermarionyl.github.io/unified-cache-management/0.5.0/zh/user-guide/capabilities/sparse-attention/cacheblend/">
       
       
         <link rel="prev" href="../gsa/">
@@ -26,7 +26,7 @@
         
       
       
-      <link rel="icon" href="../../../../../assets/images/UCM-light.png">
+      <link rel="icon" href="../../../../../assets/images/UCM-dark.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
@@ -65,6 +65,7 @@
     
   
   <link rel="stylesheet" href="https://unpkg.com/katex@0.16.11/dist/katex.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&display=swap">
   <style>
     /* Light-mode header: white background with dark text and dark logo.
        Dark mode keeps the slate header untouched. */
@@ -98,6 +99,20 @@
     [data-md-color-scheme="default"] .md-tabs__link { color: rgba(0,0,0,.65); }
     [data-md-color-scheme="default"] .md-tabs__link--active,
     [data-md-color-scheme="default"] .md-tabs__link:hover { color: rgba(0,0,0,.9); }
+    /* Sidebars and header use Jost; body content uses the theme font (Inter) */
+    .md-header, .md-nav, .md-sidebar, .md-toc, .md-tabs {
+      --md-text-font-family: "Jost", system-ui, -apple-system, "Segoe UI",
+        Roboto, "Noto Sans", "Liberation Sans", Arial, sans-serif;
+      font-family: var(--md-text-font-family);
+      font-size: 0.85rem;
+    }
+    /* Slightly smaller body content */
+    .md-typeset { font-size: 0.72rem; line-height: 1.55; }
+    /* Bolder and larger top bar; sidebar sub-navs get progressively smaller */
+    .md-header { font-weight: 700; font-size: 0.92rem; }
+    .md-header .md-header__topic,
+    .md-header .md-tabs__link { font-weight: 700; }
+    .md-nav .md-nav { font-size: 0.9em; }
   </style>
 
   </head>
@@ -335,6 +350,28 @@
   
     
     
+      <li class="md-tabs__item">
+        <a href="../../../../developer-guide/architecture/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Developer Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
       
   
   
@@ -376,28 +413,6 @@
 
       </a>
     </li>
-  
-
-      
-        
-  
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="../../../../developer-guide/architecture/" class="md-tabs__link">
-          
-  
-  
-    
-  
-  Developer Guide
-
-        </a>
-      </li>
-    
   
 
       
@@ -2195,19 +2210,19 @@
   <a href="#what-is-cacheblend" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🌟 What is CacheBlend?
+        What is CacheBlend?
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="🌟 What is CacheBlend?">
+    <nav class="md-nav" aria-label="What is CacheBlend?">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
   <a href="#key-component" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🎯 Key Component
+        Key Component
       
     </span>
   </a>
@@ -2218,7 +2233,7 @@
   <a href="#key-results" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔥 Key Results
+        Key Results
       
     </span>
   </a>
@@ -2234,12 +2249,12 @@
   <a href="#ucm-implementation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🧠 Ucm Implementation
+        Ucm Implementation
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="🧠 Ucm Implementation">
+    <nav class="md-nav" aria-label="Ucm Implementation">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -2262,12 +2277,12 @@
   <a href="#quick-start" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🚀 Quick Start
+        Quick Start
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="🚀 Quick Start">
+    <nav class="md-nav" aria-label="Quick Start">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -2301,7 +2316,7 @@
   <a href="#supported-models" class="md-nav__link">
     <span class="md-ellipsis">
       
-        📊 Supported Models
+        Supported Models
       
     </span>
   </a>
@@ -2312,7 +2327,7 @@
   <a href="#citation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🎓 Citation
+        Citation
       
     </span>
   </a>
@@ -2587,6 +2602,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2612,7 +2633,7 @@
   <span class="md-ellipsis">
     
   
-    Reference
+    Developer Guide
   
 
     
@@ -2625,6 +2646,369 @@
         
         <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capability Principles
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Capability Principles
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/prefix-cache-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prefix Cache Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/sparse-attention-principles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sparse Attention Principles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/pd-disaggregation-design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PD Disaggregation Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/rerope-principle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ReRoPE Principle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/add-metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Add Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/extending-store/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending Store
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/contribute/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contribute
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2664,10 +3048,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_1" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_1" >
         
           
-          <label class="md-nav__link" for="__nav_3_1" id="__nav_3_1_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4_1" id="__nav_4_1_label" tabindex="0">
             
   
   
@@ -2685,8 +3069,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_1_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_1">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_1">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2861,189 +3245,6 @@
       
         
       
-        
-      
-        
-      
-        
-      
-    
-    
-    
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
-        
-          
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Developer Guide
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Developer Guide
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../../developer-guide/architecture/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Architecture
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../../developer-guide/add-metrics/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Add Metrics
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../../developer-guide/extending-store/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Extending Store
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../../developer-guide/contribute/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Contribute
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-      
-        
-      
     
     
     
@@ -3156,19 +3357,19 @@
   <a href="#what-is-cacheblend" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🌟 What is CacheBlend?
+        What is CacheBlend?
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="🌟 What is CacheBlend?">
+    <nav class="md-nav" aria-label="What is CacheBlend?">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
   <a href="#key-component" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🎯 Key Component
+        Key Component
       
     </span>
   </a>
@@ -3179,7 +3380,7 @@
   <a href="#key-results" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔥 Key Results
+        Key Results
       
     </span>
   </a>
@@ -3195,12 +3396,12 @@
   <a href="#ucm-implementation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🧠 Ucm Implementation
+        Ucm Implementation
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="🧠 Ucm Implementation">
+    <nav class="md-nav" aria-label="Ucm Implementation">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -3223,12 +3424,12 @@
   <a href="#quick-start" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🚀 Quick Start
+        Quick Start
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="🚀 Quick Start">
+    <nav class="md-nav" aria-label="Quick Start">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -3262,7 +3463,7 @@
   <a href="#supported-models" class="md-nav__link">
     <span class="md-ellipsis">
       
-        📊 Supported Models
+        Supported Models
       
     </span>
   </a>
@@ -3273,7 +3474,7 @@
   <a href="#citation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🎓 Citation
+        Citation
       
     </span>
   </a>
@@ -3315,41 +3516,36 @@
 
 <h1 id="cacheblend-fast-large-language-model-serving-for-rag-with-cached-knowledge-fusion">CacheBlend: : Fast Large Language Model Serving for RAG with Cached Knowledge Fusion<a class="headerlink" href="#cacheblend-fast-large-language-model-serving-for-rag-with-cached-knowledge-fusion" title="Permanent link">&para;</a></h1>
 <div align="center">
-
-![blend_scheme.jpg](/assets/images/blend_scheme.jpg)
-
-**🚀 Knowledge Cached Fusion Algorithm | 📄 EuroSys 2025 Paper**
-
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/ModelEngine-Group/unified-cache-management/blob/main/LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
-
+<p><img alt="blend_scheme.jpg" src="/assets/images/blend_scheme.jpg" /></p>
+<p><strong>Knowledge Cached Fusion Algorithm | EuroSys 2025 Paper</strong></p>
+<p><a href="https://github.com/ModelEngine-Group/unified-cache-management/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/License-MIT-green.svg" /></a>
+<a href="https://python.org"><img alt="Python" src="https://img.shields.io/badge/Python-3.10+-blue.svg" /></a></p>
 </div>
-
-<h2 id="what-is-cacheblend">🌟 What is CacheBlend?<a class="headerlink" href="#what-is-cacheblend" title="Permanent link">&para;</a></h2>
+<h2 id="what-is-cacheblend">What is CacheBlend?<a class="headerlink" href="#what-is-cacheblend" title="Permanent link">&para;</a></h2>
 <p><strong>CacheBlend</strong> is a cached fusion system that combines multiple pre-computed KV caches, when their corresponding texts
 are concatenated in the LLM input. By selectively recomputing the KV cache values of a small fraction of tokens, 
 CacheBlend reduces TTFT by 2.2 ~ 3.3× and increases throughput by 2.8 ~ 5× under negligible quality drop.</p>
-<h3 id="key-component">🎯 Key Component<a class="headerlink" href="#key-component" title="Permanent link">&para;</a></h3>
+<h3 id="key-component">Key Component<a class="headerlink" href="#key-component" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>🔍 Loading Controller</strong>: the Loading Controller orchestrates which KV caches to load, where from, and how much recomputation is needed.</li>
-<li><strong>⚡ KV Cache Store</strong>: the KV Cache Store manages persistent storage, lookup, and eviction of precomputed KV caches keyed by text-chunk identity.</li>
-<li><strong>🎛️ Cache Fusor</strong>: the Fusor merges multiple chunk-level caches into one coherent, cross-attention–correct KV cache, using minimal recomputation.</li>
+<li><strong>Loading Controller</strong>: the Loading Controller orchestrates which KV caches to load, where from, and how much recomputation is needed.</li>
+<li><strong>KV Cache Store</strong>: the KV Cache Store manages persistent storage, lookup, and eviction of precomputed KV caches keyed by text-chunk identity.</li>
+<li><strong>Cache Fusor</strong>: the Fusor merges multiple chunk-level caches into one coherent, cross-attention–correct KV cache, using minimal recomputation.</li>
 </ul>
-<h3 id="key-results">🔥 Key Results<a class="headerlink" href="#key-results" title="Permanent link">&para;</a></h3>
+<h3 id="key-results">Key Results<a class="headerlink" href="#key-results" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>2.2 ~ 3.3× speedup</strong> of TTFT and <strong>2.8 ~ 5× increase</strong> of throughput for long sequences</li>
 <li><strong>Preserve High quality</strong> no more than (1% ~ 3%) quality drop compared to full KV recompute</li>
 </ul>
-<h2 id="ucm-implementation">🧠 Ucm Implementation<a class="headerlink" href="#ucm-implementation" title="Permanent link">&para;</a></h2>
+<h2 id="ucm-implementation">Ucm Implementation<a class="headerlink" href="#ucm-implementation" title="Permanent link">&para;</a></h2>
 <h3 id="native-block-wise-chunk-kv-cache-dump-load-postprocess-and-recompute">Native Block-Wise Chunk KV Cache Dump, Load, PostProcess and Recompute<a class="headerlink" href="#native-block-wise-chunk-kv-cache-dump-load-postprocess-and-recompute" title="Permanent link">&para;</a></h3>
 <ol>
-<li><strong>🔐 Chunk Hash Encoding</strong>: Similar as prefix hash, blend connector encode the blocks of each chunk from the same hash meta beginning.</li>
-<li><strong>⚡ Combine Prefix Cache and Chunk Cache</strong>: Since chunk cache and native prefix cache share the same hash space, they can be stored and shared in a single store.When look up chunk cache, Blend connector first performs prefix cache lookup to the fully reused part and then conduct chunk cache lookup to fetch the candidate cache for blending.</li>
-<li><strong>🎯 Delta-Rope PostProcess</strong>: Rectify the loaded chunk cache according to their position in the new request.</li>
-<li><strong>🔍 Integrate Cache Blend and First Token Generation</strong>: Construct compute mask of the HKVD tokens, cache miss tokens and suffix tokens, then modify attention metadata to support the combination of chunk cache blending, missing cache recomputing and first token generation.</li>
-<li><strong>🚀 Comprehensive Hook for LLM Forward Pipeline</strong>: Based on and extended from ucm sparse, blend sparse module reduces the input tokens for all the computation kernel, not just the attention kernel.</li>
+<li><strong>Chunk Hash Encoding</strong>: Similar as prefix hash, blend connector encode the blocks of each chunk from the same hash meta beginning.</li>
+<li><strong>Combine Prefix Cache and Chunk Cache</strong>: Since chunk cache and native prefix cache share the same hash space, they can be stored and shared in a single store.When look up chunk cache, Blend connector first performs prefix cache lookup to the fully reused part and then conduct chunk cache lookup to fetch the candidate cache for blending.</li>
+<li><strong>Delta-Rope PostProcess</strong>: Rectify the loaded chunk cache according to their position in the new request.</li>
+<li><strong>Integrate Cache Blend and First Token Generation</strong>: Construct compute mask of the HKVD tokens, cache miss tokens and suffix tokens, then modify attention metadata to support the combination of chunk cache blending, missing cache recomputing and first token generation.</li>
+<li><strong>Comprehensive Hook for LLM Forward Pipeline</strong>: Based on and extended from ucm sparse, blend sparse module reduces the input tokens for all the computation kernel, not just the attention kernel.</li>
 </ol>
-<h2 id="quick-start">🚀 Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
+<h2 id="quick-start">Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
 <h3 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h3>
 <p>Blend is part of the UCM Sparse Attention module. For installation instructions, please refer to the <a href="https://github.com/ModelEngine-Group/unified-cache-management">UCM's top-level README</a>. Once UCM is installed, Blend is naturally supported by running the following example python scripts.
 Currently, Blend only supports CUDA GPUs due to missing kernel implementations on other backends.
@@ -3391,9 +3587,9 @@ You can refer to the offline_inference_blend.py example to get started.
     <span class="p">)</span>
 <span class="o">...</span>
 </code></pre></div></p>
-<h2 id="supported-models">📊 Supported Models<a class="headerlink" href="#supported-models" title="Permanent link">&para;</a></h2>
+<h2 id="supported-models">Supported Models<a class="headerlink" href="#supported-models" title="Permanent link">&para;</a></h2>
 <p>Llama-based models and Qwen-based models now are available</p>
-<h2 id="citation">🎓 Citation<a class="headerlink" href="#citation" title="Permanent link">&para;</a></h2>
+<h2 id="citation">Citation<a class="headerlink" href="#citation" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><span class="nc">@inproceedings</span><span class="p">{</span><span class="nl">yao2025cacheblend</span><span class="p">,</span>
 <span class="w">  </span><span class="na">title</span><span class="p">=</span><span class="s">{CacheBlend: Fast large language model serving for RAG with cached knowledge fusion}</span><span class="p">,</span>
 <span class="w">  </span><span class="na">author</span><span class="p">=</span><span class="s">{Yao, Jiayi and Li, Hanchen and Liu, Yuhan and Ray, Siddhant and Cheng, Yihua and Zhang, Qizheng and Du, Kuntai and Lu, Shan and Jiang, Junchen}</span><span class="p">,</span>

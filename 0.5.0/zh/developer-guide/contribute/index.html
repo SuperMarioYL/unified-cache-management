@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://ucm.readthedocs.io/0.5.0/zh/developer-guide/contribute/">
+        <link rel="canonical" href="https://supermarionyl.github.io/unified-cache-management/0.5.0/zh/developer-guide/contribute/">
       
       
         <link rel="prev" href="../extending-store/">
       
       
-        <link rel="next" href="../../toolkit/kv-cache-calculator/">
+        <link rel="next" href="../../reference/compatibility/">
       
       
         
@@ -26,7 +26,7 @@
         
       
       
-      <link rel="icon" href="../../../assets/images/UCM-light.png">
+      <link rel="icon" href="../../../assets/images/UCM-dark.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
@@ -65,6 +65,7 @@
     
   
   <link rel="stylesheet" href="https://unpkg.com/katex@0.16.11/dist/katex.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&display=swap">
   <style>
     /* Light-mode header: white background with dark text and dark logo.
        Dark mode keeps the slate header untouched. */
@@ -98,6 +99,20 @@
     [data-md-color-scheme="default"] .md-tabs__link { color: rgba(0,0,0,.65); }
     [data-md-color-scheme="default"] .md-tabs__link--active,
     [data-md-color-scheme="default"] .md-tabs__link:hover { color: rgba(0,0,0,.9); }
+    /* Sidebars and header use Jost; body content uses the theme font (Inter) */
+    .md-header, .md-nav, .md-sidebar, .md-toc, .md-tabs {
+      --md-text-font-family: "Jost", system-ui, -apple-system, "Segoe UI",
+        Roboto, "Noto Sans", "Liberation Sans", Arial, sans-serif;
+      font-family: var(--md-text-font-family);
+      font-size: 0.85rem;
+    }
+    /* Slightly smaller body content */
+    .md-typeset { font-size: 0.72rem; line-height: 1.55; }
+    /* Bolder and larger top bar; sidebar sub-navs get progressively smaller */
+    .md-header { font-weight: 700; font-size: 0.92rem; }
+    .md-header .md-header__topic,
+    .md-header .md-tabs__link { font-weight: 700; }
+    .md-nav .md-nav { font-size: 0.9em; }
   </style>
 
   </head>
@@ -330,6 +345,30 @@
   
   
   
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../architecture/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Developer Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
   
     
     
@@ -374,30 +413,6 @@
 
       </a>
     </li>
-  
-
-      
-        
-  
-  
-  
-    
-  
-  
-    
-    
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../architecture/" class="md-tabs__link">
-          
-  
-  
-    
-  
-  Developer Guide
-
-        </a>
-      </li>
-    
   
 
       
@@ -2388,6 +2403,572 @@
       
   
   
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capability Principles
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Capability Principles
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../prefix-cache-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prefix Cache Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sparse-attention-principles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sparse Attention Principles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pd-disaggregation-design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PD Disaggregation Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rerope-principle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ReRoPE Principle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../add-metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Add Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../extending-store/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending Store
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contribute
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contribute
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#ways-to-contribute" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ways to Contribute
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#license" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        License
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-to-submit-an-issue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to Submit an Issue
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#submitting-code-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Submitting Code Changes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Submitting Code Changes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-1-fork-the-repository" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Fork the Repository
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-create-a-branch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Create a Branch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-3-implement-your-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Implement Your Changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-4-run-lint-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4: Run Lint Checks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-5-open-a-pull-request-pr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 5: Open a Pull Request (PR)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-6-code-review-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 6: Code Review Process
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#improving-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Improving Documentation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Improving Documentation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#building-the-docs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building the docs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
   
   
     
@@ -2412,10 +2993,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
             
   
   
@@ -2433,8 +3014,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2474,10 +3055,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_1" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_1" >
         
           
-          <label class="md-nav__link" for="__nav_3_1" id="__nav_3_1_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4_1" id="__nav_4_1_label" tabindex="0">
             
   
   
@@ -2495,8 +3076,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_1_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_1">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_1">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2664,383 +3245,6 @@
       
   
   
-    
-  
-  
-  
-    
-    
-      
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-    
-      
-        
-        
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
-        
-          
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Developer Guide
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_5">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Developer Guide
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../architecture/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Architecture
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../add-metrics/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Add Metrics
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../extending-store/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Extending Store
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-    
-  
-  
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Contribute
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Contribute
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="目录">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      目录
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#ways-to-contribute" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        🧩 Ways to Contribute
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#license" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        📄 License
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#how-to-submit-an-issue" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        🐞 How to Submit an Issue
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#submitting-code-changes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        💻 Submitting Code Changes
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="💻 Submitting Code Changes">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#step-1-fork-the-repository" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 1: Fork the Repository
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-2-create-a-branch" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 2: Create a Branch
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-3-implement-your-changes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 3: Implement Your Changes
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-4-run-lint-checks" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 4: Run Lint Checks
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-5-open-a-pull-request-pr" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 5: Open a Pull Request (PR)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-6-code-review-process" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 6: Code Review Process
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#improving-documentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        📚 Improving Documentation
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="📚 Improving Documentation">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#building-the-docs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Building the docs
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
   
   
     
@@ -3160,7 +3364,7 @@
   <a href="#ways-to-contribute" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🧩 Ways to Contribute
+        Ways to Contribute
       
     </span>
   </a>
@@ -3171,7 +3375,7 @@
   <a href="#license" class="md-nav__link">
     <span class="md-ellipsis">
       
-        📄 License
+        License
       
     </span>
   </a>
@@ -3182,7 +3386,7 @@
   <a href="#how-to-submit-an-issue" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🐞 How to Submit an Issue
+        How to Submit an Issue
       
     </span>
   </a>
@@ -3193,12 +3397,12 @@
   <a href="#submitting-code-changes" class="md-nav__link">
     <span class="md-ellipsis">
       
-        💻 Submitting Code Changes
+        Submitting Code Changes
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="💻 Submitting Code Changes">
+    <nav class="md-nav" aria-label="Submitting Code Changes">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -3276,12 +3480,12 @@
   <a href="#improving-documentation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        📚 Improving Documentation
+        Improving Documentation
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="📚 Improving Documentation">
+    <nav class="md-nav" aria-label="Improving Documentation">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -3335,20 +3539,20 @@
 
 <h1 id="ucm-contributing-guide">UCM Contributing Guide<a class="headerlink" href="#ucm-contributing-guide" title="Permanent link">&para;</a></h1>
 <p>Thank you for your interest in contributing to the UCM project! Our community is open to all, and we welcome various contributions—your efforts help the project grow and benefit more users.</p>
-<h2 id="ways-to-contribute">🧩 Ways to Contribute<a class="headerlink" href="#ways-to-contribute" title="Permanent link">&para;</a></h2>
+<h2 id="ways-to-contribute">Ways to Contribute<a class="headerlink" href="#ways-to-contribute" title="Permanent link">&para;</a></h2>
 <p>You can contribute in the following ways, and we value each type of participation:
-- <strong>🐛 Report issues or bugs</strong><br />
+- <strong>Report issues or bugs</strong><br />
   Report any issues or unexpected behavior you encounter. Your feedback helps us improve stability and performance.
-- <strong>⚙️ Add support for new hardware or components</strong><br />
+- <strong>Add support for new hardware or components</strong><br />
   Extend UCM to new devices or platforms by proposing requirements or submitting implementations. All ideas and contributions are welcome.
-- <strong>✨ Suggest or implement new features</strong><br />
+- <strong>Suggest or implement new features</strong><br />
   Share feature ideas or contribute code to help UCM better meet user needs.
-- <strong>📚 Improve documentation and guides</strong><br />
+- <strong>Improve documentation and guides</strong><br />
   Enhance existing documentation or create new guides to help others get started quickly and effectively.</p>
 <p>Every contribution matters—thank you for being part of the UCM community.</p>
-<h2 id="license">📄 License<a class="headerlink" href="#license" title="Permanent link">&para;</a></h2>
+<h2 id="license">License<a class="headerlink" href="#license" title="Permanent link">&para;</a></h2>
 <p>License information is available in the <a href="https://github.com/ModelEngine-Group/unified-cache-management/blob/develop/LICENSE">LICENSE</a> file.</p>
-<h2 id="how-to-submit-an-issue">🐞 How to Submit an Issue<a class="headerlink" href="#how-to-submit-an-issue" title="Permanent link">&para;</a></h2>
+<h2 id="how-to-submit-an-issue">How to Submit an Issue<a class="headerlink" href="#how-to-submit-an-issue" title="Permanent link">&para;</a></h2>
 <p>If you find a bug or want to suggest a new feature, please first check <a href="https://github.com/ModelEngine-Group/unified-cache-management/issues">existing issues</a>. If it’s a new issue, please <a href="https://github.com/ModelEngine-Group/unified-cache-management/issues/new/choose">open a new issue</a> and include the following information:</p>
 <ul>
 <li><strong>Title</strong>: A clear and concise summary of the issue.  </li>
@@ -3360,7 +3564,7 @@
 <li><strong>Severity</strong>: Indicate impact level (<em>Critical</em>, <em>High</em>, <em>Medium</em>, <em>Low</em>).</li>
 </ul>
 <p>Keep your report clear, factual, and concise—this helps us address your issue faster!</p>
-<h2 id="submitting-code-changes">💻 Submitting Code Changes<a class="headerlink" href="#submitting-code-changes" title="Permanent link">&para;</a></h2>
+<h2 id="submitting-code-changes">Submitting Code Changes<a class="headerlink" href="#submitting-code-changes" title="Permanent link">&para;</a></h2>
 <p><strong>To submit your code changes, please follow the workflow outlined below.</strong></p>
 <h3 id="step-1-fork-the-repository">Step 1: Fork the Repository<a class="headerlink" href="#step-1-fork-the-repository" title="Permanent link">&para;</a></h3>
 <p>Fork the <a href="https://github.com/ModelEngine-Group/unified-cache-management">UCM repository</a> to your GitHub account.</p>
@@ -3410,7 +3614,7 @@ bash<span class="w"> </span>format.sh
 <li>Any additional context or screenshots.</li>
 </ul>
 <p>The PR title is prefixed appropriately to indicate the type of change, according to the following categories: </p>
-<p>💡 <strong>Reminder:</strong> If your PR spans multiple categories, include all relevant prefixes (e.g., <code>[Feat][Test]</code>).</p>
+<p><strong>Reminder:</strong> If your PR spans multiple categories, include all relevant prefixes (e.g., <code>[Feat][Test]</code>).</p>
 <ul>
 <li>[Feat] for new features or enhancements</li>
 <li>[Bugfix] for bug fixes</li>
@@ -3430,7 +3634,7 @@ bash<span class="w"> </span>format.sh
 <li><strong>No Bypassing</strong>: Direct pushes to protected branches are disabled, and force merges or self-approvals are not permitted.</li>
 </ul>
 <p>Once all requirements are satisfied, the “Squash and merge” button will become available. Please ensure your changes are well-documented, tested, and aligned with the project’s coding standards before requesting review.</p>
-<h2 id="improving-documentation">📚 Improving Documentation<a class="headerlink" href="#improving-documentation" title="Permanent link">&para;</a></h2>
+<h2 id="improving-documentation">Improving Documentation<a class="headerlink" href="#improving-documentation" title="Permanent link">&para;</a></h2>
 <p><strong>Great docs grow stronger together. You can help by:</strong></p>
 <ul>
 <li>Fixing typos or clarifying unclear text.</li>

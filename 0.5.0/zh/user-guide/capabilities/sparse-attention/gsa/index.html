@@ -10,7 +10,7 @@
       
       
       
-        <link rel="canonical" href="https://ucm.readthedocs.io/0.5.0/zh/user-guide/capabilities/sparse-attention/gsa/">
+        <link rel="canonical" href="https://supermarionyl.github.io/unified-cache-management/0.5.0/zh/user-guide/capabilities/sparse-attention/gsa/">
       
       
         <link rel="prev" href="../">
@@ -26,7 +26,7 @@
         
       
       
-      <link rel="icon" href="../../../../../assets/images/UCM-light.png">
+      <link rel="icon" href="../../../../../assets/images/UCM-dark.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
@@ -65,6 +65,7 @@
     
   
   <link rel="stylesheet" href="https://unpkg.com/katex@0.16.11/dist/katex.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&display=swap">
   <style>
     /* Light-mode header: white background with dark text and dark logo.
        Dark mode keeps the slate header untouched. */
@@ -98,6 +99,20 @@
     [data-md-color-scheme="default"] .md-tabs__link { color: rgba(0,0,0,.65); }
     [data-md-color-scheme="default"] .md-tabs__link--active,
     [data-md-color-scheme="default"] .md-tabs__link:hover { color: rgba(0,0,0,.9); }
+    /* Sidebars and header use Jost; body content uses the theme font (Inter) */
+    .md-header, .md-nav, .md-sidebar, .md-toc, .md-tabs {
+      --md-text-font-family: "Jost", system-ui, -apple-system, "Segoe UI",
+        Roboto, "Noto Sans", "Liberation Sans", Arial, sans-serif;
+      font-family: var(--md-text-font-family);
+      font-size: 0.85rem;
+    }
+    /* Slightly smaller body content */
+    .md-typeset { font-size: 0.72rem; line-height: 1.55; }
+    /* Bolder and larger top bar; sidebar sub-navs get progressively smaller */
+    .md-header { font-weight: 700; font-size: 0.92rem; }
+    .md-header .md-header__topic,
+    .md-header .md-tabs__link { font-weight: 700; }
+    .md-nav .md-nav { font-size: 0.9em; }
   </style>
 
   </head>
@@ -335,6 +350,28 @@
   
     
     
+      <li class="md-tabs__item">
+        <a href="../../../../developer-guide/architecture/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Developer Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
       
   
   
@@ -376,28 +413,6 @@
 
       </a>
     </li>
-  
-
-      
-        
-  
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="../../../../developer-guide/architecture/" class="md-tabs__link">
-          
-  
-  
-    
-  
-  Developer Guide
-
-        </a>
-      </li>
-    
   
 
       
@@ -2167,19 +2182,19 @@
   <a href="#what-is-gsa-hata" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🌟 What is GSA (HATA)?
+        What is GSA (HATA)?
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="🌟 What is GSA (HATA)?">
+    <nav class="md-nav" aria-label="What is GSA (HATA)?">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
   <a href="#key-innovations" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🎯 Key Innovations
+        Key Innovations
       
     </span>
   </a>
@@ -2190,7 +2205,7 @@
   <a href="#key-results" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔥 Key Results
+        Key Results
       
     </span>
   </a>
@@ -2206,10 +2221,38 @@
   <a href="#performance-highlights" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🏆 Performance Highlights
+        Performance Highlights
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Performance Highlights">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#end-to-end-performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        End-to-End Performance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#single-layer-performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Single Layer Performance
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2217,10 +2260,27 @@
   <a href="#accuracy-benchmarks" class="md-nav__link">
     <span class="md-ellipsis">
       
-        📈 Accuracy Benchmarks
+        Accuracy Benchmarks
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Accuracy Benchmarks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#longbench-evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LongBench Evaluation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2228,12 +2288,12 @@
   <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🧠 How It Works
+        How It Works
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="🧠 How It Works">
+    <nav class="md-nav" aria-label="How It Works">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -2251,7 +2311,7 @@
   <a href="#architecture" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🏗️ Architecture
+        Architecture
       
     </span>
   </a>
@@ -2267,12 +2327,12 @@
   <a href="#quick-start" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🚀 Quick Start
+        Quick Start
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="🚀 Quick Start">
+    <nav class="md-nav" aria-label="Quick Start">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -2317,7 +2377,7 @@
   <a href="#supported-models" class="md-nav__link">
     <span class="md-ellipsis">
       
-        📊 Supported Models
+        Supported Models
       
     </span>
   </a>
@@ -2328,12 +2388,12 @@
   <a href="#advanced-features" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔧 Advanced Features
+        Advanced Features
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="🔧 Advanced Features">
+    <nav class="md-nav" aria-label="Advanced Features">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -2367,7 +2427,7 @@
   <a href="#citation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🎓 Citation
+        Citation
       
     </span>
   </a>
@@ -2378,7 +2438,7 @@
   <a href="#contributing" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🤝 Contributing
+        Contributing
       
     </span>
   </a>
@@ -2681,6 +2741,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2706,7 +2772,7 @@
   <span class="md-ellipsis">
     
   
-    Reference
+    Developer Guide
   
 
     
@@ -2719,6 +2785,369 @@
         
         <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capability Principles
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Capability Principles
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/prefix-cache-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prefix Cache Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/sparse-attention-principles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sparse Attention Principles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/pd-disaggregation-design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PD Disaggregation Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/rerope-principle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ReRoPE Principle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/add-metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Add Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/extending-store/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending Store
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/contribute/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contribute
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2758,10 +3187,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_1" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_1" >
         
           
-          <label class="md-nav__link" for="__nav_3_1" id="__nav_3_1_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4_1" id="__nav_4_1_label" tabindex="0">
             
   
   
@@ -2779,8 +3208,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_1_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_1">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_1">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2955,189 +3384,6 @@
       
         
       
-        
-      
-        
-      
-        
-      
-    
-    
-    
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
-        
-          
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Developer Guide
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Developer Guide
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../../developer-guide/architecture/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Architecture
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../../developer-guide/add-metrics/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Add Metrics
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../../developer-guide/extending-store/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Extending Store
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../../developer-guide/contribute/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Contribute
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-      
-        
-      
     
     
     
@@ -3250,19 +3496,19 @@
   <a href="#what-is-gsa-hata" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🌟 What is GSA (HATA)?
+        What is GSA (HATA)?
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="🌟 What is GSA (HATA)?">
+    <nav class="md-nav" aria-label="What is GSA (HATA)?">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
   <a href="#key-innovations" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🎯 Key Innovations
+        Key Innovations
       
     </span>
   </a>
@@ -3273,7 +3519,7 @@
   <a href="#key-results" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔥 Key Results
+        Key Results
       
     </span>
   </a>
@@ -3289,10 +3535,38 @@
   <a href="#performance-highlights" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🏆 Performance Highlights
+        Performance Highlights
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Performance Highlights">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#end-to-end-performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        End-to-End Performance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#single-layer-performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Single Layer Performance
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -3300,10 +3574,27 @@
   <a href="#accuracy-benchmarks" class="md-nav__link">
     <span class="md-ellipsis">
       
-        📈 Accuracy Benchmarks
+        Accuracy Benchmarks
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Accuracy Benchmarks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#longbench-evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LongBench Evaluation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -3311,12 +3602,12 @@
   <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🧠 How It Works
+        How It Works
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="🧠 How It Works">
+    <nav class="md-nav" aria-label="How It Works">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -3334,7 +3625,7 @@
   <a href="#architecture" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🏗️ Architecture
+        Architecture
       
     </span>
   </a>
@@ -3350,12 +3641,12 @@
   <a href="#quick-start" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🚀 Quick Start
+        Quick Start
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="🚀 Quick Start">
+    <nav class="md-nav" aria-label="Quick Start">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -3400,7 +3691,7 @@
   <a href="#supported-models" class="md-nav__link">
     <span class="md-ellipsis">
       
-        📊 Supported Models
+        Supported Models
       
     </span>
   </a>
@@ -3411,12 +3702,12 @@
   <a href="#advanced-features" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔧 Advanced Features
+        Advanced Features
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="🔧 Advanced Features">
+    <nav class="md-nav" aria-label="Advanced Features">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -3450,7 +3741,7 @@
   <a href="#citation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🎓 Citation
+        Citation
       
     </span>
   </a>
@@ -3461,7 +3752,7 @@
   <a href="#contributing" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🤝 Contributing
+        Contributing
       
     </span>
   </a>
@@ -3503,59 +3794,47 @@
 
 <h1 id="gsa-hash-aware-top-k-attention-for-scalable-large-model-inference">GSA: Hash-Aware Top-k Attention for Scalable Large Model Inference<a class="headerlink" href="#gsa-hash-aware-top-k-attention-for-scalable-large-model-inference" title="Permanent link">&para;</a></h1>
 <div align="center">
-
-![GSA Scheme](/assets/images/kvcomp_scheme.jpg)
-
-**🚀 Hash-Aware Sparse Attention Algorithm | 📄 ACL 2025 Paper | ⚡ NPU/GPU Hardware-Efficient**
-
-[![Paper](https://img.shields.io/badge/Paper-ACL%202025-blue)](/assets/paper/kvcomp-ACL-2025-paper.pdf)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/ModelEngine-Group/unified-cache-management/blob/main/LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
-
+<p><img alt="GSA Scheme" src="/assets/images/kvcomp_scheme.jpg" /></p>
+<p><strong>Hash-Aware Sparse Attention Algorithm | ACL 2025 Paper | NPU/GPU Hardware-Efficient</strong></p>
+<p><a href="/assets/paper/kvcomp-ACL-2025-paper.pdf"><img alt="Paper" src="https://img.shields.io/badge/Paper-ACL%202025-blue" /></a>
+<a href="https://github.com/ModelEngine-Group/unified-cache-management/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/License-MIT-green.svg" /></a>
+<a href="https://python.org"><img alt="Python" src="https://img.shields.io/badge/Python-3.10+-blue.svg" /></a></p>
 </div>
-
-<h2 id="what-is-gsa-hata">🌟 What is GSA (HATA)?<a class="headerlink" href="#what-is-gsa-hata" title="Permanent link">&para;</a></h2>
+<h2 id="what-is-gsa-hata">What is GSA (HATA)?<a class="headerlink" href="#what-is-gsa-hata" title="Permanent link">&para;</a></h2>
 <p><strong>GSA</strong> (Geometry Sparse Attention) is a groundbreaking sparse attention algorithm that revolutionizes large language model inference through <strong>Hash-Aware Top-k Attention</strong>. Published at ACL 2025, our method achieves unprecedented efficiency by intelligently selecting the most relevant kv cache blocks using trainable hash-based similarity computation.</p>
-<h3 id="key-innovations">🎯 Key Innovations<a class="headerlink" href="#key-innovations" title="Permanent link">&para;</a></h3>
+<h3 id="key-innovations">Key Innovations<a class="headerlink" href="#key-innovations" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>🔍 Hash-Aware Similarity</strong>: Uses trainable hash functions to compute attention relevance, which is significantly faster than exact attention score <span class="arithmatex">\(QK\)</span> computation </li>
-<li><strong>⚡ Hardware-Efficient</strong>: Optimized for both CUDA and NPU architectures with specialized kernels</li>
-<li><strong>🎛️ Adaptive Sparsity</strong>: Layer-wise sparsity ratios that adapt to model characteristics</li>
-<li><strong>🔄 Dynamic Retrieval</strong>: Real-time <strong>query-aware</strong> block selection based on query-key similarity</li>
-<li><strong>💾 Memory-Efficient</strong>: Dramatically reduces KV cache HBM peak usage by leveraing UCM's offloading capability</li>
+<li><strong>Hash-Aware Similarity</strong>: Uses trainable hash functions to compute attention relevance, which is significantly faster than exact attention score <span class="arithmatex">\(QK\)</span> computation </li>
+<li><strong>Hardware-Efficient</strong>: Optimized for both CUDA and NPU architectures with specialized kernels</li>
+<li><strong>Adaptive Sparsity</strong>: Layer-wise sparsity ratios that adapt to model characteristics</li>
+<li><strong>Dynamic Retrieval</strong>: Real-time <strong>query-aware</strong> block selection based on query-key similarity</li>
+<li><strong>Memory-Efficient</strong>: Dramatically reduces KV cache HBM peak usage by leveraing UCM's offloading capability</li>
 </ul>
-<h3 id="key-results">🔥 Key Results<a class="headerlink" href="#key-results" title="Permanent link">&para;</a></h3>
+<h3 id="key-results">Key Results<a class="headerlink" href="#key-results" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>3-5x speedup</strong> in attention computation for long sequences</li>
 <li><strong>Minimal accuracy loss</strong> (&lt; 2%) on downstream tasks</li>
 <li><strong>Scalable to 128K+ context lengths</strong> with linear complexity</li>
 </ul>
-<h2 id="performance-highlights">🏆 Performance Highlights<a class="headerlink" href="#performance-highlights" title="Permanent link">&para;</a></h2>
+<h2 id="performance-highlights">Performance Highlights<a class="headerlink" href="#performance-highlights" title="Permanent link">&para;</a></h2>
 <div align="center">
-
-### End-to-End Performance
-![End-to-End Performance](/assets/images/kvcomp_end_to_end_performance.jpg)
-
-### Single Layer Performance  
-![Single Layer Performance](/assets/images/kvcomp_single_layer_performance.jpg)
-
+<h3 id="end-to-end-performance">End-to-End Performance<a class="headerlink" href="#end-to-end-performance" title="Permanent link">&para;</a></h3>
+<p><img alt="End-to-End Performance" src="/assets/images/kvcomp_end_to_end_performance.jpg" /></p>
+<h3 id="single-layer-performance">Single Layer Performance<a class="headerlink" href="#single-layer-performance" title="Permanent link">&para;</a></h3>
+<p><img alt="Single Layer Performance" src="/assets/images/kvcomp_single_layer_performance.jpg" /></p>
 </div>
-
-<h2 id="accuracy-benchmarks">📈 Accuracy Benchmarks<a class="headerlink" href="#accuracy-benchmarks" title="Permanent link">&para;</a></h2>
+<h2 id="accuracy-benchmarks">Accuracy Benchmarks<a class="headerlink" href="#accuracy-benchmarks" title="Permanent link">&para;</a></h2>
 <div align="center">
-
-### LongBench Evaluation
-![LongBench Results](/assets/images/kvcomp_longbench.jpg)
-
+<h3 id="longbench-evaluation">LongBench Evaluation<a class="headerlink" href="#longbench-evaluation" title="Permanent link">&para;</a></h3>
+<p><img alt="LongBench Results" src="/assets/images/kvcomp_longbench.jpg" /></p>
 </div>
-
-<h2 id="how-it-works">🧠 How It Works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
+<h2 id="how-it-works">How It Works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
 <h3 id="core-algorithm">Core Algorithm<a class="headerlink" href="#core-algorithm" title="Permanent link">&para;</a></h3>
 <p>GSA operates through a sophisticated three-stage process:</p>
 <ol>
-<li><strong>🔐 Hash Encoding</strong>: Convert attention keys and queries into compact hash codes</li>
-<li><strong>🎯 Similarity Computation</strong>: Use efficient hash-based similarity to identify relevant blocks  </li>
-<li><strong>📦 Selective Loading</strong>: Load only the top-k most relevant KV blocks for attention</li>
+<li><strong>Hash Encoding</strong>: Convert attention keys and queries into compact hash codes</li>
+<li><strong>Similarity Computation</strong>: Use efficient hash-based similarity to identify relevant blocks  </li>
+<li><strong>Selective Loading</strong>: Load only the top-k most relevant KV blocks for attention</li>
 </ol>
 <div class="highlight"><pre><span></span><code><span class="c1"># Simplified algorithm flow</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">gsa_attention</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">key_cache</span><span class="p">,</span> <span class="n">top_k_ratio</span><span class="p">):</span>
@@ -3572,13 +3851,13 @@
     <span class="c1"># 4. Selective attention</span>
     <span class="k">return</span> <span class="n">attention</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">key_cache</span><span class="p">[</span><span class="n">topk_blocks</span><span class="p">],</span> <span class="n">value_cache</span><span class="p">[</span><span class="n">topk_blocks</span><span class="p">])</span>
 </code></pre></div>
-<h3 id="architecture">🏗️ Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h3>
+<h3 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h3>
 <p>The algorithm maintains three critical windows:
 - <strong>Initial Window</strong>: First few blocks (always loaded)
 - <strong>Sparse Window</strong>: Top-k selected blocks (dynamically chosen)
 - <strong>Local Window</strong>: Recent blocks (always loaded)</p>
 <p>This design ensures both <strong>efficiency</strong> and <strong>accuracy</strong> by preserving essential context while sparsifying the middle range.</p>
-<h2 id="quick-start">🚀 Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
+<h2 id="quick-start">Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
 <h3 id="offline-inference">Offline Inference<a class="headerlink" href="#offline-inference" title="Permanent link">&para;</a></h3>
 <p>GSA is part of the UCM Sparse Attention module. For installation instructions, please refer to the <a href="https://github.com/ModelEngine-Group/unified-cache-management">UCM's top-level README</a>. Once UCM is installed, GSA is naturally supported by running the following example python scripts.</p>
 <div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">ENABLE_UCM_PATCH</span><span class="o">=</span>TRUE
@@ -3650,7 +3929,7 @@ vllm<span class="w"> </span>serve<span class="w"> </span>&lt;path_to_Qwen3-32B&g
     "hash_weight_qk_rope": null
 }
 </code></pre></div>
-<h2 id="supported-models">📊 Supported Models<a class="headerlink" href="#supported-models" title="Permanent link">&para;</a></h2>
+<h2 id="supported-models">Supported Models<a class="headerlink" href="#supported-models" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
@@ -3692,7 +3971,7 @@ vllm<span class="w"> </span>serve<span class="w"> </span>&lt;path_to_Qwen3-32B&g
 </tr>
 </tbody>
 </table>
-<h2 id="advanced-features">🔧 Advanced Features<a class="headerlink" href="#advanced-features" title="Permanent link">&para;</a></h2>
+<h2 id="advanced-features">Advanced Features<a class="headerlink" href="#advanced-features" title="Permanent link">&para;</a></h2>
 <h3 id="custom-hash-weights">Custom Hash Weights<a class="headerlink" href="#custom-hash-weights" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="c1"># Use pre-trained hash weights</span>
 <span class="n">config</span><span class="o">.</span><span class="n">set_hash_weight</span><span class="p">(</span><span class="n">custom_hash_weights</span><span class="p">)</span>
@@ -3703,7 +3982,7 @@ vllm<span class="w"> </span>serve<span class="w"> </span>&lt;path_to_Qwen3-32B&g
 <li><strong>NPU</strong>: Native <code>npu_sign_bits_pack</code> operations, optimized fused kernels for hamming_dist_top_k and kv_select.</li>
 <li><strong>CPU</strong>: SIMD-optimized implementations</li>
 </ul>
-<h2 id="citation">🎓 Citation<a class="headerlink" href="#citation" title="Permanent link">&para;</a></h2>
+<h2 id="citation">Citation<a class="headerlink" href="#citation" title="Permanent link">&para;</a></h2>
 <p>If you use GSA in your research, please cite our ACL 2025 paper:</p>
 <div class="highlight"><pre><span></span><code><span class="nc">@inproceedings</span><span class="p">{</span><span class="nl">kvcomp2025</span><span class="p">,</span>
 <span class="w">  </span><span class="na">title</span><span class="p">=</span><span class="s">{HATA: Trainable and Hardware-Efficient Hash-Aware Top-k Attention for Scalable Large Model Inference}</span><span class="p">,</span>
@@ -3712,13 +3991,11 @@ vllm<span class="w"> </span>serve<span class="w"> </span>&lt;path_to_Qwen3-32B&g
 <span class="w">  </span><span class="na">year</span><span class="p">=</span><span class="s">{2025}</span>
 <span class="p">}</span>
 </code></pre></div>
-<h2 id="contributing">🤝 Contributing<a class="headerlink" href="#contributing" title="Permanent link">&para;</a></h2>
+<h2 id="contributing">Contributing<a class="headerlink" href="#contributing" title="Permanent link">&para;</a></h2>
 <p>We welcome contributions! Please see the <strong>How to contribute</strong> section of <strong>Developer Guide</strong> for details.</p>
 <hr />
 <div align="center">
-
-**🌟 Star [UCM](https://github.com/ModelEngine-Group/unified-cache-management) repository if you find GSA useful!**
-
+<p><strong>Star <a href="https://github.com/ModelEngine-Group/unified-cache-management">UCM</a> repository if you find GSA useful!</strong></p>
 </div>
 
 

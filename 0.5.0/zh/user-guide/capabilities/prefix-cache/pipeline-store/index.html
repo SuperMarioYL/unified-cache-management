@@ -10,7 +10,7 @@
       
       
       
-        <link rel="canonical" href="https://ucm.readthedocs.io/0.5.0/zh/user-guide/capabilities/prefix-cache/pipeline-store/">
+        <link rel="canonical" href="https://supermarionyl.github.io/unified-cache-management/0.5.0/zh/user-guide/capabilities/prefix-cache/pipeline-store/">
       
       
         <link rel="prev" href="../">
@@ -26,7 +26,7 @@
         
       
       
-      <link rel="icon" href="../../../../../assets/images/UCM-light.png">
+      <link rel="icon" href="../../../../../assets/images/UCM-dark.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
@@ -65,6 +65,7 @@
     
   
   <link rel="stylesheet" href="https://unpkg.com/katex@0.16.11/dist/katex.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&display=swap">
   <style>
     /* Light-mode header: white background with dark text and dark logo.
        Dark mode keeps the slate header untouched. */
@@ -98,6 +99,20 @@
     [data-md-color-scheme="default"] .md-tabs__link { color: rgba(0,0,0,.65); }
     [data-md-color-scheme="default"] .md-tabs__link--active,
     [data-md-color-scheme="default"] .md-tabs__link:hover { color: rgba(0,0,0,.9); }
+    /* Sidebars and header use Jost; body content uses the theme font (Inter) */
+    .md-header, .md-nav, .md-sidebar, .md-toc, .md-tabs {
+      --md-text-font-family: "Jost", system-ui, -apple-system, "Segoe UI",
+        Roboto, "Noto Sans", "Liberation Sans", Arial, sans-serif;
+      font-family: var(--md-text-font-family);
+      font-size: 0.85rem;
+    }
+    /* Slightly smaller body content */
+    .md-typeset { font-size: 0.72rem; line-height: 1.55; }
+    /* Bolder and larger top bar; sidebar sub-navs get progressively smaller */
+    .md-header { font-weight: 700; font-size: 0.92rem; }
+    .md-header .md-header__topic,
+    .md-header .md-tabs__link { font-weight: 700; }
+    .md-nav .md-nav { font-size: 0.9em; }
   </style>
 
   </head>
@@ -335,6 +350,28 @@
   
     
     
+      <li class="md-tabs__item">
+        <a href="../../../../developer-guide/architecture/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Developer Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
       
   
   
@@ -376,28 +413,6 @@
 
       </a>
     </li>
-  
-
-      
-        
-  
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="../../../../developer-guide/architecture/" class="md-tabs__link">
-          
-  
-  
-    
-  
-  Developer Guide
-
-        </a>
-      </li>
-    
   
 
       
@@ -2587,6 +2602,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2612,7 +2633,7 @@
   <span class="md-ellipsis">
     
   
-    Reference
+    Developer Guide
   
 
     
@@ -2625,6 +2646,369 @@
         
         <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capability Principles
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Capability Principles
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/prefix-cache-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prefix Cache Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/sparse-attention-principles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sparse Attention Principles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/pd-disaggregation-design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PD Disaggregation Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/rerope-principle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ReRoPE Principle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/add-metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Add Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/extending-store/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending Store
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/contribute/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contribute
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2664,10 +3048,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_1" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_1" >
         
           
-          <label class="md-nav__link" for="__nav_3_1" id="__nav_3_1_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4_1" id="__nav_4_1_label" tabindex="0">
             
   
   
@@ -2685,8 +3069,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_1_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_1">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_1">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2846,189 +3230,6 @@
   
 
       </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-      
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-    
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
-        
-          
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Developer Guide
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Developer Guide
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../../developer-guide/architecture/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Architecture
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../../developer-guide/add-metrics/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Add Metrics
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../../developer-guide/extending-store/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Extending Store
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../../developer-guide/contribute/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Contribute
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
     </li>
   
 
@@ -3313,7 +3514,7 @@
   
 
 
-<h1 id="pipelinestore">🌟 PipelineStore<a class="headerlink" href="#pipelinestore" title="Permanent link">&para;</a></h1>
+<h1 id="pipelinestore">PipelineStore<a class="headerlink" href="#pipelinestore" title="Permanent link">&para;</a></h1>
 <p><strong>PipelineStore</strong> is a composite store built by <strong>chaining multiple Store implementations</strong> together to form a data transfer pipeline.  </p>
 <p>Currently, the pipeline supports a chain composed of <strong>Cache Store</strong> and <strong>Posix Store</strong>.</p>
 <p>In this chained pipeline:
@@ -3326,38 +3527,216 @@ Additional Store implementations will be developed in the future and <strong>cha
 <p>The following are the multi-concurrency performance test results of UCM in the Prefix Cache scenario under a CUDA environment, showing the performance improvements of UCM.
 During the tests, HBM cache was disabled, and KV Cache was retrieved and matched only from SSD. </p>
 <p>Here, Full Compute refers to pure VLLM inference, while SSD80% indicates that after UCM pooling, the SSD hit rate of the KV cache is 80%.</p>
-<p>The following table shows the results on the QwQ-32B model(<strong>4 x H100 GPUs</strong>):
-|      <strong>QwQ-32B</strong> |                |                      |                |               |
-| ---------------: | -------------: | -------------------: | -------------: | :------------ |
-| <strong>Input length</strong> | <strong>Concurrent</strong> | <strong>Full Compute (ms)</strong> | <strong>SSD80% (ms)</strong> | <strong>Speedup (%)</strong> |
-|            4 000 |              1 |              223.05 |         156.54 | <strong>+42.5%</strong>   |
-|            8 000 |              1 |              350.47 |         228.27 | <strong>+53.5%</strong>   |
-|           16 000 |              1 |              708.94 |         349.17 | <strong>+103.0%</strong>  |
-|           32 000 |              1 |             1512.04 |         635.18 | <strong>+138.0%</strong>  |
-|            4 000 |              8 |              908.52 |         625.92 | <strong>+45.1%</strong>   |
-|            8 000 |              8 |             1578.72 |         955.25 | <strong>+65.3%</strong>   |
-|           16 000 |              8 |             3139.03 |        1647.72 | <strong>+90.5%</strong>   |
-|           32 000 |              8 |             6735.25 |        3025.23 | <strong>+122.6%</strong>  |
-|            4 000 |             16 |             1509.79 |         919.53 | <strong>+64.2%</strong>   |
-|            8 000 |             16 |             2602.34 |        1480.30 | <strong>+75.8%</strong>   |
-|           16 000 |             16 |             5732.49 |        2393.54 | <strong>+139.5%</strong>  |
-|           32 000 |             16 |            11891.61 |        4790.00 | <strong>+148.3%</strong>  |</p>
-<p>The following table shows the results on the DeepSeek-R1-awq model (<strong>8 × H100 GPUs</strong>):
-|<strong>DeepSeek-R1-awq</strong>|                |                      |                |               |
-| -----------------:| -------------: | -------------------: | -------------: | :------------ |
-| <strong>Input length</strong>  | <strong>Concurrent</strong> | <strong>Full Compute (ms)</strong> | <strong>SSD80% (ms)</strong> | <strong>Speedup (%)</strong> |
-|             4 000 |              1 |               429.30 |        261.34 | <strong>+64.3%</strong>   |
-|             8 000 |              1 |               762.23 |        363.37 | <strong>+109.8%</strong>  |
-|            16 000 |              1 |              1426.06 |        586.17 | <strong>+143.3%</strong>  |
-|            32 000 |              1 |              3086.85 |       1073.25 | <strong>+187.6%</strong>  |
-|             4 000 |              8 |              1823.55 |       1017.72 | <strong>+79.2%</strong>   |
-|             8 000 |              8 |              3214.76 |       1511.16 | <strong>+112.7%</strong>  |
-|            16 000 |              8 |              6417.81 |       2596.70 | <strong>+147.2%</strong>  |
-|            32 000 |              8 |             14278.00 |       5111.67 | <strong>+179.3%</strong>  |
-|             4 000 |             16 |              3205.22 |       1534.00 | <strong>+108.9%</strong>  |
-|             8 000 |             16 |              5813.09 |       2208.60 | <strong>+163.2%</strong>  |
-|            16 000 |             16 |             11752.48 |       4000.46 | <strong>+193.8%</strong>  |
-|            32 000 |             16 |             38643.73 |      19910.41 | <strong>+94.1%</strong>   |</p>
+<p>The following table shows the results on the QwQ-32B model(<strong>4 x H100 GPUs</strong>):</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;"><strong>QwQ-32B</strong></th>
+<th style="text-align: right;"></th>
+<th style="text-align: right;"></th>
+<th style="text-align: right;"></th>
+<th style="text-align: left;"></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;"><strong>Input length</strong></td>
+<td style="text-align: right;"><strong>Concurrent</strong></td>
+<td style="text-align: right;"><strong>Full Compute (ms)</strong></td>
+<td style="text-align: right;"><strong>SSD80% (ms)</strong></td>
+<td style="text-align: left;"><strong>Speedup (%)</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">4 000</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">223.05</td>
+<td style="text-align: right;">156.54</td>
+<td style="text-align: left;"><strong>+42.5%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">8 000</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">350.47</td>
+<td style="text-align: right;">228.27</td>
+<td style="text-align: left;"><strong>+53.5%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">16 000</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">708.94</td>
+<td style="text-align: right;">349.17</td>
+<td style="text-align: left;"><strong>+103.0%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">32 000</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">1512.04</td>
+<td style="text-align: right;">635.18</td>
+<td style="text-align: left;"><strong>+138.0%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">4 000</td>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">908.52</td>
+<td style="text-align: right;">625.92</td>
+<td style="text-align: left;"><strong>+45.1%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">8 000</td>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">1578.72</td>
+<td style="text-align: right;">955.25</td>
+<td style="text-align: left;"><strong>+65.3%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">16 000</td>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">3139.03</td>
+<td style="text-align: right;">1647.72</td>
+<td style="text-align: left;"><strong>+90.5%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">32 000</td>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">6735.25</td>
+<td style="text-align: right;">3025.23</td>
+<td style="text-align: left;"><strong>+122.6%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">4 000</td>
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">1509.79</td>
+<td style="text-align: right;">919.53</td>
+<td style="text-align: left;"><strong>+64.2%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">8 000</td>
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">2602.34</td>
+<td style="text-align: right;">1480.30</td>
+<td style="text-align: left;"><strong>+75.8%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">16 000</td>
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">5732.49</td>
+<td style="text-align: right;">2393.54</td>
+<td style="text-align: left;"><strong>+139.5%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">32 000</td>
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">11891.61</td>
+<td style="text-align: right;">4790.00</td>
+<td style="text-align: left;"><strong>+148.3%</strong></td>
+</tr>
+</tbody>
+</table>
+<p>The following table shows the results on the DeepSeek-R1-awq model (<strong>8 × H100 GPUs</strong>):</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;"><strong>DeepSeek-R1-awq</strong></th>
+<th style="text-align: right;"></th>
+<th style="text-align: right;"></th>
+<th style="text-align: right;"></th>
+<th style="text-align: left;"></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;"><strong>Input length</strong></td>
+<td style="text-align: right;"><strong>Concurrent</strong></td>
+<td style="text-align: right;"><strong>Full Compute (ms)</strong></td>
+<td style="text-align: right;"><strong>SSD80% (ms)</strong></td>
+<td style="text-align: left;"><strong>Speedup (%)</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">4 000</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">429.30</td>
+<td style="text-align: right;">261.34</td>
+<td style="text-align: left;"><strong>+64.3%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">8 000</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">762.23</td>
+<td style="text-align: right;">363.37</td>
+<td style="text-align: left;"><strong>+109.8%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">16 000</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">1426.06</td>
+<td style="text-align: right;">586.17</td>
+<td style="text-align: left;"><strong>+143.3%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">32 000</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">3086.85</td>
+<td style="text-align: right;">1073.25</td>
+<td style="text-align: left;"><strong>+187.6%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">4 000</td>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">1823.55</td>
+<td style="text-align: right;">1017.72</td>
+<td style="text-align: left;"><strong>+79.2%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">8 000</td>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">3214.76</td>
+<td style="text-align: right;">1511.16</td>
+<td style="text-align: left;"><strong>+112.7%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">16 000</td>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">6417.81</td>
+<td style="text-align: right;">2596.70</td>
+<td style="text-align: left;"><strong>+147.2%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">32 000</td>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">14278.00</td>
+<td style="text-align: right;">5111.67</td>
+<td style="text-align: left;"><strong>+179.3%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">4 000</td>
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">3205.22</td>
+<td style="text-align: right;">1534.00</td>
+<td style="text-align: left;"><strong>+108.9%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">8 000</td>
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">5813.09</td>
+<td style="text-align: right;">2208.60</td>
+<td style="text-align: left;"><strong>+163.2%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">16 000</td>
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">11752.48</td>
+<td style="text-align: right;">4000.46</td>
+<td style="text-align: left;"><strong>+193.8%</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">32 000</td>
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">38643.73</td>
+<td style="text-align: right;">19910.41</td>
+<td style="text-align: left;"><strong>+94.1%</strong></td>
+</tr>
+</tbody>
+</table>
 <h2 id="configuration-for-prefix-caching">Configuration for Prefix Caching<a class="headerlink" href="#configuration-for-prefix-caching" title="Permanent link">&para;</a></h2>
 <p>Modify the UCM configuration file to specify which UCM connector to use and where KV blocks should be stored.<br />
 You may directly edit the example file at:</p>
@@ -3399,7 +3778,7 @@ You may directly edit the example file at:</p>
 <ul>
 <li><strong>storage_backends</strong>:<br />
   Directory used for storing KV blocks. Can be a local path or an NFS-mounted path.<br />
-<strong>⚠️ Replace <code>"/mnt/test"</code> with your actual storage directory.</strong></li>
+<strong>Replace <code>"/mnt/test"</code> with your actual storage directory.</strong></li>
 </ul>
 <h3 id="optional-parameters">Optional Parameters<a class="headerlink" href="#optional-parameters" title="Permanent link">&para;</a></h3>
 <p>Parameters inside <code>ucm_connector_config</code>:</p>
@@ -3535,7 +3914,7 @@ for example:</p>
 <span class="nt">use_lite</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 <span class="nt">persist_token_threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
 </code></pre></div>
-<p><strong>⚠️ Make sure to replace <code>"/vllm-workspace/unified-cache-management/examples/ucm_config_example.yaml"</code> with your actual config file path.</strong></p>
+<p><strong>Make sure to replace <code>"/vllm-workspace/unified-cache-management/examples/ucm_config_example.yaml"</code> with your actual config file path.</strong></p>
 <p>If you see log as below:</p>
 <div class="highlight"><pre><span></span><code>INFO:<span class="w">     </span>Started<span class="w"> </span>server<span class="w"> </span>process<span class="w"> </span><span class="o">[</span><span class="m">1049932</span><span class="o">]</span>
 INFO:<span class="w">     </span>Waiting<span class="w"> </span><span class="k">for</span><span class="w"> </span>application<span class="w"> </span>startup.
@@ -3584,25 +3963,65 @@ Mean TTFT (ms):                            2874.21
 <p>You may see the following typical log messages in the logs.</p>
 <p><div class="highlight"><pre><span></span><code>[UC][D] Cache task({task_id},{operation},{subtask_number},{size}) dispatching. [PID,TID]
 </code></pre></div>
-This log indicates that the <strong>Cache Store</strong> has received a <strong>load or dump task</strong>
-| Component    | Description                                                                 |
-|--------------|-----------------------------------------------------------------------------|
-| <code>task_id</code>    | Unique identifier for the Cache Ctore task                                              |
-| <code>operation</code>  | <code>DUMP</code>: Dump to Host(Device → Host) <br><code>LOAD</code>: Load from Host (Host → Device) |
-| <code>subtask_number</code> | Number of subtasks executed in this operation                                  |
-| <code>size</code>       | Total size of data transferred in bytes (across all tasks)                  |</p>
+This log indicates that the <strong>Cache Store</strong> has received a <strong>load or dump task</strong></p>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>task_id</code></td>
+<td>Unique identifier for the Cache Ctore task</td>
+</tr>
+<tr>
+<td><code>operation</code></td>
+<td><code>DUMP</code>: Dump to Host(Device → Host) <br><code>LOAD</code>: Load from Host (Host → Device)</td>
+</tr>
+<tr>
+<td><code>subtask_number</code></td>
+<td>Number of subtasks executed in this operation</td>
+</tr>
+<tr>
+<td><code>size</code></td>
+<td>Total size of data transferred in bytes (across all tasks)</td>
+</tr>
+</tbody>
+</table>
 <p><div class="highlight"><pre><span></span><code>[UC][D] Cache task({task_id},{operation},{subtask_number},{size}) finished, cost {time}ms. [PID,TID]
 </code></pre></div>
 This log indicates that a load or dump task in the <strong>Cache Store</strong> has completed, along with its execution time <strong>in ms</strong>.</p>
 <p><div class="highlight"><pre><span></span><code>[UC][D] Posix task({task_id},{operation},{subtask_number},{size}) dispatching. [PID,TID]
 </code></pre></div>
-This log indicates that the <strong>Posix Store</strong> has received a <strong>load or dump task</strong>
-| Component    | Description                                                                 |
-|--------------|-----------------------------------------------------------------------------|
-| <code>task_id</code>    | Unique identifier for the Posix Store task                                              |
-| <code>operation</code> | <code>Cache2Backend</code>: Dump data from Cache Store to Posix Store.<br><code>Backend2Cache</code>: Load data from Posix Store back to Cache Store. |
-| <code>subtask_number</code> | Number of subtasks executed in this operation                                  |
-| <code>size</code>       | Total size of data transferred in bytes (across all tasks)                  |</p>
+This log indicates that the <strong>Posix Store</strong> has received a <strong>load or dump task</strong></p>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>task_id</code></td>
+<td>Unique identifier for the Posix Store task</td>
+</tr>
+<tr>
+<td><code>operation</code></td>
+<td><code>Cache2Backend</code>: Dump data from Cache Store to Posix Store.<br><code>Backend2Cache</code>: Load data from Posix Store back to Cache Store.</td>
+</tr>
+<tr>
+<td><code>subtask_number</code></td>
+<td>Number of subtasks executed in this operation</td>
+</tr>
+<tr>
+<td><code>size</code></td>
+<td>Total size of data transferred in bytes (across all tasks)</td>
+</tr>
+</tbody>
+</table>
 <p><div class="highlight"><pre><span></span><code>[UC][D] Posix task({task_id},{operation},{subtask_number},{size}) finished, cost {time}ms. [PID,TID]
 </code></pre></div>
 This log indicates that a load or dump task in the <strong>Posix Store</strong> has completed, along with its execution time in <strong>in ms</strong>.</p>

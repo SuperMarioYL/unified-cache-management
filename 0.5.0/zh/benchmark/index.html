@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://ucm.readthedocs.io/0.5.0/zh/benchmark/">
+        <link rel="canonical" href="https://supermarionyl.github.io/unified-cache-management/0.5.0/zh/benchmark/">
       
       
         <link rel="prev" href="../reference/api-parameters/">
       
       
-        <link rel="next" href="../developer-guide/architecture/">
+        <link rel="next" href="../toolkit/kv-cache-calculator/">
       
       
         
@@ -26,7 +26,7 @@
         
       
       
-      <link rel="icon" href="../../assets/images/UCM-light.png">
+      <link rel="icon" href="../../assets/images/UCM-dark.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
@@ -65,6 +65,7 @@
     
   
   <link rel="stylesheet" href="https://unpkg.com/katex@0.16.11/dist/katex.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&display=swap">
   <style>
     /* Light-mode header: white background with dark text and dark logo.
        Dark mode keeps the slate header untouched. */
@@ -98,6 +99,20 @@
     [data-md-color-scheme="default"] .md-tabs__link { color: rgba(0,0,0,.65); }
     [data-md-color-scheme="default"] .md-tabs__link--active,
     [data-md-color-scheme="default"] .md-tabs__link:hover { color: rgba(0,0,0,.9); }
+    /* Sidebars and header use Jost; body content uses the theme font (Inter) */
+    .md-header, .md-nav, .md-sidebar, .md-toc, .md-tabs {
+      --md-text-font-family: "Jost", system-ui, -apple-system, "Segoe UI",
+        Roboto, "Noto Sans", "Liberation Sans", Arial, sans-serif;
+      font-family: var(--md-text-font-family);
+      font-size: 0.85rem;
+    }
+    /* Slightly smaller body content */
+    .md-typeset { font-size: 0.72rem; line-height: 1.55; }
+    /* Bolder and larger top bar; sidebar sub-navs get progressively smaller */
+    .md-header { font-weight: 700; font-size: 0.92rem; }
+    .md-header .md-header__topic,
+    .md-header .md-tabs__link { font-weight: 700; }
+    .md-nav .md-nav { font-size: 0.9em; }
   </style>
 
   </head>
@@ -333,6 +348,28 @@
   
     
     
+      <li class="md-tabs__item">
+        <a href="../developer-guide/architecture/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Developer Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
       
   
   
@@ -376,28 +413,6 @@
 
       </a>
     </li>
-  
-
-      
-        
-  
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="../developer-guide/architecture/" class="md-tabs__link">
-          
-  
-  
-    
-  
-  Developer Guide
-
-        </a>
-      </li>
-    
   
 
       
@@ -2397,6 +2412,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2422,7 +2443,7 @@
   <span class="md-ellipsis">
     
   
-    Reference
+    Developer Guide
   
 
     
@@ -2435,6 +2456,369 @@
         
         <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developer-guide/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capability Principles
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Capability Principles
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developer-guide/prefix-cache-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prefix Cache Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developer-guide/sparse-attention-principles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sparse Attention Principles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developer-guide/pd-disaggregation-design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PD Disaggregation Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developer-guide/rerope-principle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ReRoPE Principle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developer-guide/add-metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Add Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developer-guide/extending-store/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending Store
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developer-guide/contribute/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contribute
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2474,10 +2858,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_1" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_1" >
         
           
-          <label class="md-nav__link" for="__nav_3_1" id="__nav_3_1_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4_1" id="__nav_4_1_label" tabindex="0">
             
   
   
@@ -2495,8 +2879,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_1_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_1">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_1">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2700,10 +3084,21 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#planned-content" class="md-nav__link">
+  <a href="#what-to-add" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Planned content
+        What to add
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reference
       
     </span>
   </a>
@@ -2713,189 +3108,6 @@
     </ul>
   
 </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-      
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-    
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
-        
-          
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Developer Guide
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Developer Guide
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../developer-guide/architecture/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Architecture
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../developer-guide/add-metrics/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Add Metrics
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../developer-guide/extending-store/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Extending Store
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../developer-guide/contribute/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Contribute
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
       
     </li>
   
@@ -3021,10 +3233,21 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#planned-content" class="md-nav__link">
+  <a href="#what-to-add" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Planned content
+        What to add
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reference
       
     </span>
   </a>
@@ -3065,27 +3288,43 @@
 
 
 <h1 id="benchmark">Benchmark<a class="headerlink" href="#benchmark" title="Permanent link">&para;</a></h1>
-<p>UCM provides reproducible benchmark tooling and results so that performance
-claims can be independently verified. This section consolidates methodology,
-usage, datasets, and performance comparisons.</p>
-<div class="admonition info">
-<p class="admonition-title">Under construction</p>
-<p>The Benchmark module is being assembled with reproducible run instructions
-and reference results. Module owners will populate methodology, the
-benchmark entry point, and comparison tables.</p>
-</div>
-<h2 id="planned-content">Planned content<a class="headerlink" href="#planned-content" title="Permanent link">&para;</a></h2>
+<p>Reproducible UCM benchmark methodology, tooling, and reference results. This
+page is a placeholder — populate it per the spec below.</p>
+<h2 id="what-to-add">What to add<a class="headerlink" href="#what-to-add" title="Permanent link">&para;</a></h2>
+<p><strong>Reader goal</strong>: how much faster is UCM, and how do I reproduce the number
+myself?</p>
+<p><strong>Required content</strong>:</p>
 <ul>
-<li><strong>Methodology</strong>: how UCM benchmarks are structured (prefill/decode split,
-  cache hit ratios, sequence lengths, hardware baselines).</li>
-<li><strong>Usage</strong>: how to run the benchmark suite and report results.</li>
-<li><strong>Datasets</strong>: the corpora and workloads used for evaluation.</li>
-<li><strong>Performance comparison</strong>: throughput and latency tables across engines,
-  cache backends, and sequence lengths.</li>
+<li><strong>Method</strong>: test scenario design (prefix cache hit rate, concurrency,
+  input/output length), hardware, model, framework version. Reference the test
+  design already in <a href="../user-guide/model-tour/glm/glm-5-1/">GLM-5.1 4-node PD</a>.</li>
+<li><strong>Usage</strong>: how to run — script/command, dataset, parameters, reproduction
+  steps.</li>
+<li><strong>Data</strong>: standard result tables (throughput token/s, TTFT, TPOT, speedup),
+  including comparison vs the "no-UCM full compute" baseline.</li>
+<li><strong>Comparison</strong>: cross-comparison tables across stores / engines / models to
+  aid selection.</li>
 </ul>
-<p>Refer to the <a href="../reference/compatibility/">Compatibility Matrix</a> for the
-current list of supported models and platforms while benchmark content is
-being finalized.</p>
+<p><strong>Don't</strong>:</p>
+<ul>
+<li>Don't duplicate all raw data from detail pages here; this is an aggregation
+  entry that links back to them.</li>
+<li>Don't mark a result "verified" unless there is a reproducible script + hardware
+  record (review line 275).</li>
+</ul>
+<p><strong>Acceptance</strong>:</p>
+<ul>
+<li>A reader can reproduce one result by following the page.</li>
+<li>Result tables label their source and whether they are verified.</li>
+</ul>
+<p><strong>Owner</strong>: <em>(to be assigned)</em></p>
+<h2 id="reference">Reference<a class="headerlink" href="#reference" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../user-guide/model-tour/glm/glm-5-1/">GLM-5.1 4-node PD results</a> — a
+  worked benchmark table.</li>
+<li><a href="../reference/compatibility/">Compatibility</a> — supported models and
+  platforms.</li>
+</ul>
 
 
 
