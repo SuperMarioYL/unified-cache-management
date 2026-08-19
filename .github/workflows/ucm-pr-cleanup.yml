@@ -32,14 +32,22 @@ jobs:
           # PR images live in per-family packages (vllm, vllm-ascend, ...) under
           # pr-<n>-... tags. Sweep every container package and delete any version
           # whose first tag starts with the PR prefix; release tags (v... ) are
-          # never touched because they don't start with pr-.
-          for pkg in $(gh api "user/packages?package_type=container" --jq '.[].name' 2>/dev/null || true); do
-            versions="$(gh api "user/packages/container/${pkg}/versions?per_page=100" --jq '.[] | select(.metadata.container.tags[0] // "" | startswith("'"${prefix}"'")) | "\(.id) \(.metadata.container.tags[0])"' 2>/dev/null || true)"
-            while IFS=' ' read -r version_id tag; do
-              if [[ -n "${version_id}" ]]; then
-                echo "Deleting ${pkg}:${tag} (version ${version_id})"
-                gh api --method DELETE "user/packages/container/${pkg}/versions/${version_id}" || true
-              fi
-            done <<< "${versions}"
+          # never touched because they don't start with pr-. Capture each API
+          # response raw and jq-filter separately — gh api --jq leaks 404 error
+          # bodies to stdout, which would otherwise be parsed as garbage tags.
+          pkgs_raw="$(gh api "user/packages?package_type=container" 2>/dev/null || true)"
+          printf '%s' "${pkgs_raw}" | jq -e 'type=="array"' >/dev/null 2>&1 || { echo "no listable packages; done"; exit 0; }
+          for pkg in $(printf '%s' "${pkgs_raw}" | jq -r '.[].name'); do
+            [ -n "${pkg}" ] || continue
+            raw="$(gh api "user/packages/container/${pkg}/versions?per_page=100" 2>/dev/null || true)"
+            printf '%s' "${raw}" | jq -e 'type=="array"' >/dev/null 2>&1 || continue
+            printf '%s' "${raw}" | jq -r '.[] | select(.metadata.container.tags[0] // "" | startswith("'"${prefix}"'")) | "\(.id) \(.metadata.container.tags[0])"' 2>/dev/null | while IFS= read -r line; do
+              [ -n "${line}" ] || continue
+              version_id="${line%% *}"
+              tag="${line#* }"
+              [[ "${version_id}" =~ ^[0-9]+$ ]] || continue
+              echo "Deleting ${pkg}:${tag} (version ${version_id})"
+              gh api --method DELETE "user/packages/container/${pkg}/versions/${version_id}" 2>/dev/null || true
+            done
           done
           echo "PR artifact cleanup complete"

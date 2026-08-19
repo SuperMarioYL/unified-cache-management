@@ -19,13 +19,21 @@ jobs:
           set -euo pipefail
           prefix="pr-"
           echo "Sweeping GHCR tags with prefix '${prefix}'"
-          for pkg in $(gh api "user/packages?package_type=container" --jq '.[].name' 2>/dev/null || true); do
-            versions="$(gh api "user/packages/container/${pkg}/versions?per_page=100" --jq '.[] | select(.metadata.container.tags[0] // "" | startswith("'"${prefix}"'")) | "\(.id) \(.metadata.container.tags[0])"' 2>/dev/null || true)"
-            while IFS=' ' read -r version_id tag; do
-              if [[ -n "${version_id}" ]]; then
-                echo "Deleting ${pkg}:${tag} (version ${version_id})"
-                gh api --method DELETE "user/packages/container/${pkg}/versions/${version_id}" || true
-              fi
-            done <<< "${versions}"
+          # Capture the package list raw; gh api --jq leaks error bodies to stdout on 404.
+          pkgs_raw="$(gh api "user/packages?package_type=container" 2>/dev/null || true)"
+          printf '%s' "${pkgs_raw}" | jq -e 'type=="array"' >/dev/null 2>&1 || { echo "no listable packages; done"; exit 0; }
+          for pkg in $(printf '%s' "${pkgs_raw}" | jq -r '.[].name'); do
+            [ -n "${pkg}" ] || continue
+            raw="$(gh api "user/packages/container/${pkg}/versions?per_page=100" 2>/dev/null || true)"
+            # only versions arrays; skip 404/error bodies
+            printf '%s' "${raw}" | jq -e 'type=="array"' >/dev/null 2>&1 || continue
+            printf '%s' "${raw}" | jq -r '.[] | select(.metadata.container.tags[0] // "" | startswith("'"${prefix}"'")) | "\(.id) \(.metadata.container.tags[0])"' 2>/dev/null | while IFS= read -r line; do
+              [ -n "${line}" ] || continue
+              vid="${line%% *}"
+              tag="${line#* }"
+              [[ "${vid}" =~ ^[0-9]+$ ]] || continue
+              echo "Deleting ${pkg}:${tag} (version ${vid})"
+              gh api --method DELETE "user/packages/container/${pkg}/versions/${vid}" 2>/dev/null || true
+            done
           done
           echo "Sweep complete"
