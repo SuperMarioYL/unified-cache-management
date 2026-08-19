@@ -549,11 +549,23 @@ def runtime_patch_manifest_sha256(manifest: dict[str, Any]) -> str:
 
 
 def _matching_runtime_patch_rule(
-    manifest: dict[str, Any], snapshot: dict[str, Any], variant: str
+    manifest: dict[str, Any], snapshot: dict[str, Any], variant: str, *, relaxed: bool = False
 ) -> dict[str, Any]:
-    version = _pep440_version(snapshot["version"], "resolved upstream version")
     runtime_product = snapshot.get("runtime_product", snapshot["product_id"])
-    matches = [rule for rule in manifest['rules'] if rule['product'] == runtime_product and snapshot['channel'] in rule['channels'] and (variant in rule['variants']) and _pep440_specifier(rule['version_specifier'], f"runtime patch rule {rule['id']!r}").contains(version, prereleases=True)]  # fmt: skip  # noqa: E501
+    if relaxed:
+        # Tolerate non-pep440 versions (e.g. mutable 'latest'); when the
+        # version can't be parsed, fall back to product+variant+channel which
+        # is ambiguous across version-gated rules -> rejected as overlapping.
+        try:
+            version: Version | None = Version(str(snapshot["version"]))
+        except InvalidVersion:
+            version = None
+    else:
+        version = _pep440_version(snapshot["version"], "resolved upstream version")
+    if version is not None:
+        matches = [rule for rule in manifest['rules'] if rule['product'] == runtime_product and snapshot['channel'] in rule['channels'] and (variant in rule['variants']) and _pep440_specifier(rule['version_specifier'], f"runtime patch rule {rule['id']!r}").contains(version, prereleases=True)]  # fmt: skip  # noqa: E501
+    else:
+        matches = [rule for rule in manifest['rules'] if rule['product'] == runtime_product and snapshot['channel'] in rule['channels'] and (variant in rule['variants'])]  # fmt: skip  # noqa: E501
     if not matches:
         raise ValueError(f"resolved upstream has no runtime patch strategy: product={runtime_product}, version={snapshot['version']}, channel={snapshot['channel']}, variant={variant}")  # fmt: skip  # noqa: E501
     if len(matches) > 1:
@@ -1157,7 +1169,7 @@ def select_repository_recipe_task(
     return task
 
 
-def validate_resolved_upstreams(resolved_upstreams: object) -> None:
+def validate_resolved_upstreams(resolved_upstreams: object, *, relaxed: bool = False) -> None:
     if not isinstance(resolved_upstreams, list): raise ValueError('resolved_upstreams must be an array')  # noqa: E701,E501
     snapshot_keys = {'product_id', 'repository', 'tag', 'version', 'channel', 'variant', 'index_digest', 'members', 'target_repository', 'target_tag'}  # fmt: skip  # noqa: E501
     member_keys = {"manifest_digest", "config_digest"}
@@ -1182,7 +1194,8 @@ def validate_resolved_upstreams(resolved_upstreams: object) -> None:
             or digest_pattern.fullmatch(snapshot["index_digest"]) is None
         ):
             raise ValueError(f"{location}.index_digest must be an exact sha256 digest")
-        identity = (snapshot['product_id'], snapshot['repository'], snapshot['tag'], str(_pep440_version(snapshot['version'], f'{location}.version')), snapshot['channel'], snapshot['variant'])  # fmt: skip  # noqa: E501
+        identity_version = snapshot['version'] if relaxed else str(_pep440_version(snapshot['version'], f'{location}.version'))  # fmt: skip  # noqa: E501
+        identity = (snapshot['product_id'], snapshot['repository'], snapshot['tag'], identity_version, snapshot['channel'], snapshot['variant'])  # fmt: skip  # noqa: E501
         if identity in logical_identities: raise ValueError(f'{location} has duplicate logical upstream identity: {identity}')  # noqa: E701,E501
         logical_identities.add(identity)
         members = snapshot["members"]
@@ -1211,22 +1224,23 @@ def _matching_profile(
     product: dict[str, Any],
     snapshot: dict[str, Any],
     architecture: str,
+    *,
+    relaxed: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     variant = next((v for v in product['variants'] if v['id'] == snapshot['variant']), None)  # fmt: skip  # noqa: E501
     if variant is None:
         raise ValueError(f"snapshot variant {snapshot['variant']!r} is not declared by upstream product {product['id']!r}")  # fmt: skip  # noqa: E501
-    version = _pep440_version(snapshot["version"], "resolved upstream version")
+    version = None if relaxed else _pep440_version(snapshot["version"], "resolved upstream version")  # fmt: skip  # noqa: E501
     matches: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for rule in catalog["compatibility"]["rules"]:
-        if (
-            product["id"] not in rule["upstream_products"]
-            or version
-            not in _pep440_specifier(
-                rule["version_specifier"], f"compatibility rule {rule['id']!r}"
-            )
+        if product["id"] not in rule["upstream_products"] or snapshot["variant"] not in rule["variants"] or architecture not in rule["cpu_architectures"]:  # fmt: skip  # noqa: E501
+            continue
+        # PR/pinned path (relaxed) skips the catalog's version_specifier +
+        # upstream-channel gates so an out-of-specifier / out-of-channel tag
+        # can still match a profile by (product, variant, arch, accelerator).
+        if not relaxed and (
+            version not in _pep440_specifier(rule["version_specifier"], f"compatibility rule {rule['id']!r}")
             or snapshot["channel"] not in rule["upstream_channels"]
-            or snapshot["variant"] not in rule["variants"]
-            or architecture not in rule["cpu_architectures"]
         ):
             continue
         for profile in catalog["wheel_profiles"]:
@@ -1270,16 +1284,18 @@ class ReleasePlan:
         *,
         lane: str,
         repository_root: Path = REPO_ROOT,
+        relaxed: bool = False,
     ) -> "ReleasePlan":
         validate_catalog(catalog, repository_root=repository_root)
-        validate_resolved_upstreams(resolved_upstreams)
+        validate_resolved_upstreams(resolved_upstreams, relaxed=relaxed)
         if lane not in catalog['lanes']: raise ValueError(f'unsupported validation lane: {lane}')  # noqa: E701,E501
         patch_manifest = runtime_patch_manifest(catalog, repository_root=repository_root)  # fmt: skip  # noqa: E501
         patch_manifest_sha256 = runtime_patch_manifest_sha256(patch_manifest)
         runtime_requirements = python_runtime_requirements(catalog)
         products = {item["id"]: item for item in catalog["upstream_products"]}
         write_authority = [] if lane == 'feature-candidate' else ['github-prerelease', 'ghcr-final-index', 'ghcr-private-staging']  # fmt: skip  # noqa: E501
-        snapshots = sorted(resolved_upstreams, key=lambda item: (item['product_id'], _pep440_version(item['version'], 'resolved upstream version'), item['variant'], item['tag'], item['repository'], item['channel'], item['target_repository'], item['target_tag'], item['index_digest'], sha256_value(item['members'])))  # fmt: skip  # noqa: E501
+        _version_sort = (lambda v: v) if relaxed else (lambda v: _pep440_version(v, 'resolved upstream version'))  # fmt: skip  # noqa: E501
+        snapshots = sorted(resolved_upstreams, key=lambda item: (item['product_id'], _version_sort(item['version']), item['variant'], item['tag'], item['repository'], item['channel'], item['target_repository'], item['target_tag'], item['index_digest'], sha256_value(item['members'])))  # fmt: skip  # noqa: E501
         wheel_tasks_by_key: dict[tuple[str, str], dict[str, Any]] = {}
         image_tasks: list[dict[str, Any]] = []
         family_tasks: list[dict[str, Any]] = []
@@ -1294,23 +1310,24 @@ class ReleasePlan:
             if product_variant is None:
                 raise ValueError(f"snapshot variant {snapshot['variant']!r} is not declared by upstream product {product['id']!r}")  # fmt: skip  # noqa: E501
             runtime_patch_variants = copy.deepcopy(product_variant['runtime_patch_variants'])  # fmt: skip  # noqa: E501
-            patch_rule = _matching_runtime_patch_rule(patch_manifest, {**snapshot, 'runtime_product': product['runtime_product']}, runtime_patch_variants[product['runtime_product']])  # fmt: skip  # noqa: E501
-            version = _pep440_version(snapshot["version"], "resolved upstream version")
-            if snapshot["channel"] == "stable" and version.is_prerelease:
-                raise ValueError("channel stable requires a final version")
-            if snapshot["channel"] == "rc" and not (
-                version.pre
-                and version.pre[0] == "rc"
-                and not (version.epoch or version.dev or version.post or version.local)
-            ):
-                raise ValueError("channel rc requires a plain rcN version")
-            if version not in _pep440_specifier(
-                product["version_specifier"],
-                f"upstream product {product['id']!r}.version_specifier",
-            ):
-                raise ValueError('resolved upstream version is outside product selection')  # fmt: skip  # noqa: E501
-            if snapshot["channel"] not in product["channels"]:
-                raise ValueError("resolved upstream channel is not selected by product")
+            patch_rule = _matching_runtime_patch_rule(patch_manifest, {**snapshot, 'runtime_product': product['runtime_product']}, runtime_patch_variants[product['runtime_product']], relaxed=relaxed)  # fmt: skip  # noqa: E501
+            if not relaxed:
+                version = _pep440_version(snapshot["version"], "resolved upstream version")
+                if snapshot["channel"] == "stable" and version.is_prerelease:
+                    raise ValueError("channel stable requires a final version")
+                if snapshot["channel"] == "rc" and not (
+                    version.pre
+                    and version.pre[0] == "rc"
+                    and not (version.epoch or version.dev or version.post or version.local)
+                ):
+                    raise ValueError("channel rc requires a plain rcN version")
+                if version not in _pep440_specifier(
+                    product["version_specifier"],
+                    f"upstream product {product['id']!r}.version_specifier",
+                ):
+                    raise ValueError('resolved upstream version is outside product selection')  # fmt: skip  # noqa: E501
+                if snapshot["channel"] not in product["channels"]:
+                    raise ValueError("resolved upstream channel is not selected by product")
             members = snapshot["members"]
             missing = sorted(set(product["required_cpu_architectures"]) - set(members))
             if missing: raise ValueError(f"resolved upstream {snapshot['tag']} is missing required CPU architectures: {missing}")  # noqa: E701,E501
@@ -1322,7 +1339,7 @@ class ReleasePlan:
             family_images: list[dict[str, Any]] = []
 
             for architecture in sorted(members):
-                profile, rule = _matching_profile(catalog, product, snapshot, architecture)  # fmt: skip  # noqa: E501
+                profile, rule = _matching_profile(catalog, product, snapshot, architecture, relaxed=relaxed)  # fmt: skip  # noqa: E501
                 wheel_key = (profile["id"], architecture)
                 if wheel_key not in wheel_tasks_by_key:
                     declaration = {'spec_id': f"{profile['id']}-{architecture}", 'profile_id': profile['id'], **{k: profile[k] for k in _PROFILE_DIRECT_FIELDS}, 'npu_arch_or_na': profile['npu_arch'][0], 'os': profile['os'][0], 'cpu_arch': architecture, **{k: copy.deepcopy(profile[k]) for k in _PROFILE_DEEPCOPY_FIELDS}}  # fmt: skip  # noqa: E501

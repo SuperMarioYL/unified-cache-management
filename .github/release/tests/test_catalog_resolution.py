@@ -312,3 +312,40 @@ def test_inspect_upstream_variant_ascend_missing_soc(monkeypatch) -> None:
     variant, err = registry._inspect_upstream_variant("crane", "quay.io/ascend/vllm-ascend", "sha256:cafe", ascend)
     assert variant is None
     assert err is not None
+
+
+# -- relaxed (PR/pinned) plan construction -----------------------------------
+
+def _catalog_for_plan() -> dict:
+    return core.load_catalog(RELEASE_ROOT / "release.yaml", RELEASE_ROOT / "schemas", repository_root=ROOT)
+
+
+def _ascend_a3_snapshot(catalog: dict, version: str, tag: str) -> dict:
+    ascend = next(p for p in catalog["upstream_products"] if p["id"] == "vllm-ascend")
+    fake = "sha256:" + "0" * 64
+    members = {arch: {"manifest_digest": fake, "config_digest": fake} for arch in ascend["required_cpu_architectures"]}
+    return {
+        "product_id": "vllm-ascend", "repository": ascend["repository"], "tag": tag,
+        "version": version, "channel": "rc", "variant": "a3",
+        "index_digest": fake, "members": members,
+        "target_repository": ascend["target_repository"], "target_tag": tag + ascend["target_tag_suffix"],
+    }
+
+
+def test_release_plan_relaxed_accepts_out_of_specifier_tag() -> None:
+    catalog = _catalog_for_plan()
+    snapshot = _ascend_a3_snapshot(catalog, "0.23.0", "v0.23.0-a3")  # 0.23.0 is outside >=0.22.1rc1,<0.23
+    plan = core.ReleasePlan.build(catalog, [snapshot], lane="feature-candidate", relaxed=True, repository_root=ROOT)
+    assert plan.wheel_tasks and plan.image_tasks
+    with pytest.raises(ValueError):
+        core.ReleasePlan.build(catalog, [snapshot], lane="feature-candidate", repository_root=ROOT)
+
+
+def test_release_plan_relaxed_rejects_non_pep440_version() -> None:
+    # Non-pep440 versions (e.g. mutable 'latest') can't disambiguate a
+    # version-gated runtime-patch rule for ascend -> rejected. (cuda 'latest'
+    # is fine in practice because its version comes from the image label.)
+    catalog = _catalog_for_plan()
+    snapshot = _ascend_a3_snapshot(catalog, "latest", "latest")
+    with pytest.raises(ValueError):
+        core.ReleasePlan.build(catalog, [snapshot], lane="feature-candidate", relaxed=True, repository_root=ROOT)
