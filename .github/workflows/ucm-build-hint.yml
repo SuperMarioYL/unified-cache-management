@@ -39,4 +39,4 @@ jobs:
           - `family=`: `vllm` / `vllm-ascend` / `vllm-ascend-a2` / `vllm-ascend-a3`.
           - `/ucm-build help` (or bare `/ucm-build`) re-shows this message.
           EOF
-          gh pr comment "${PR_NUMBER}" --body-file hint.md
+          gh pr comment "${PR_NUMBER}" --repo "${{ github.repository }}" --body-file hint.md

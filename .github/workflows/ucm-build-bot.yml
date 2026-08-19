@@ -83,7 +83,7 @@ jobs:
           - `family=`: `vllm` / `vllm-ascend` / `vllm-ascend-a2` / `vllm-ascend-a3`.
           - `/ucm-build help` (or bare `/ucm-build`) shows this message.
           EOF
-          gh pr comment "${PR_NUMBER}" --body-file help.md
+          gh pr comment "${PR_NUMBER}" --repo "${{ github.repository }}" --body-file help.md
       - name: Check commenter write permission
         if: steps.parse.outputs.subcommand != 'help'
         id: check-permission
@@ -122,7 +122,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh pr comment "${{ steps.pr-info.outputs.number }}" --body "$(printf '%s\n' \
+          gh pr comment "${{ steps.pr-info.outputs.number }}" --repo "${{ github.repository }}" --body "$(printf '%s\n' \
             '🚫 `/ucm-build` not authorized.' \
             '' \
             "Requester @${{ github.event.comment.user.login }} needs **write** access (or higher) to trigger a build. Ask a repo member to run it, or request access." \
@@ -506,4 +506,4 @@ jobs:
             echo "---"
             echo "_Subcommands: \`/ucm-build wheel [profile=<name>]\` · \`/ucm-build image family=<name>\` · \`/ucm-build chart\` · \`/ucm-build all\`_"
           } >comment.md
-          gh pr comment "${PR_NUMBER}" --body-file comment.md
+          gh pr comment "${PR_NUMBER}" --repo "${{ github.repository }}" --body-file comment.md
