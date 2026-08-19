@@ -18,6 +18,7 @@ jobs:
     outputs:
       pr-head-sha: ${{ steps.pr-info.outputs.head-sha }}
       pr-number: ${{ steps.pr-info.outputs.number }}
+      pr-author: ${{ steps.pr-info.outputs.pr-author }}
       allowed: ${{ steps.check-permission.outputs.allowed }}
       subcommand: ${{ steps.parse.outputs.subcommand }}
       profile-arg: ${{ steps.parse.outputs.profile-arg }}
@@ -77,6 +78,7 @@ jobs:
         id: pr-info
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_AUTHOR: ${{ github.event.issue.user.login }}
         run: |
           set -euo pipefail
           pr_url="${{ github.event.issue.pull_request.url }}"
@@ -84,6 +86,7 @@ jobs:
           pr_number="$(gh api "${pr_url}" --jq '.number')"
           echo "head-sha=${head_sha}" >>"${GITHUB_OUTPUT}"
           echo "number=${pr_number}" >>"${GITHUB_OUTPUT}"
+          echo "pr-author=${PR_AUTHOR}" >>"${GITHUB_OUTPUT}"
       - name: Reply denial on permission failure
         if: failure()
         env:
@@ -357,12 +360,15 @@ jobs:
           REPOSITORY_OWNER: ${{ github.repository_owner }}
           SOURCE_SHA: ${{ needs.permission-check.outputs.pr-head-sha }}
           PR_NUMBER: ${{ needs.permission-check.outputs.pr-number }}
+          PR_AUTHOR: ${{ needs.permission-check.outputs.pr-author }}
         run: |
           set -euo pipefail
           mkdir -p "${DOCKER_CONFIG}"
           printf '%s' "${GITHUB_TOKEN}" | crane auth login ghcr.io \
             --username "${GITHUB_ACTOR}" --password-stdin
           owner_lc="$(printf '%s' "${REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          # lowercase the PR author for the tag (tags are case-sensitive; GH logins are not)
+          author_lc="$(printf '%s' "${PR_AUTHOR}" | tr '[:upper:]' '[:lower:]')"
           sha8="${SOURCE_SHA:0:8}"
           plan=input/plan/resolved-plan.json
           # publish-manifest.tsv columns: pkg<TAB>base_tag<TAB>arch<TAB>arch_tag<TAB>digest
@@ -387,7 +393,7 @@ jobs:
             # variant goes in the tag for ascend (a2/a3 share one package); cuda has no variant
             vsuffix=""
             [ "$variant" != "default" ] && vsuffix="-${variant}"
-            base_tag="pr-${PR_NUMBER}-${sha8}${vsuffix}"
+            base_tag="pr-${PR_NUMBER}-${author_lc}-${sha8}${vsuffix}"
             test -f "$d/image.oci.tar"
             layout="$(mktemp -d)"
             tar -xf "$d/image.oci.tar" -C "$layout"
@@ -417,6 +423,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.permission-check.outputs.pr-number }}
+          PR_AUTHOR: ${{ needs.permission-check.outputs.pr-author }}
           SOURCE_SHA: ${{ needs.permission-check.outputs.pr-head-sha }}
           SUBCOMMAND: ${{ needs.permission-check.outputs.subcommand }}
           WHEEL_RESULT: ${{ needs.build-wheels.result }}
@@ -448,7 +455,7 @@ jobs:
               done
               echo '```'
               echo ""
-              echo "Packages are named by family (\`vllm\` / \`vllm-ascend\`); tags are prefixed \`pr-${PR_NUMBER}-${sha8}-\` (with \`-a2\`/\`-a3\` for ascend variants) and are **auto-deleted when this PR closes** (\`ucm-pr-cleanup.yml\`)."
+              echo "Packages are named by family (\`vllm\` / \`vllm-ascend\`); tags are prefixed \`pr-${PR_NUMBER}-${PR_AUTHOR}-${sha8}-\` (with \`-a2\`/\`-a3\` for ascend variants) and are **auto-deleted when this PR closes** (\`ucm-pr-cleanup.yml\`)."
               echo ""
             fi
             echo "### 📦 Artifacts (7-day retention)"
