@@ -1,0 +1,31 @@
+name: Sweep PR tags (one-off)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  packages: write
+  contents: read
+
+jobs:
+  sweep:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Delete all pr- prefixed GHCR tags
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          prefix="pr-"
+          echo "Sweeping GHCR tags with prefix '${prefix}'"
+          for pkg in $(gh api "user/packages?package_type=container" --jq '.[].name' 2>/dev/null || true); do
+            versions="$(gh api "user/packages/container/${pkg}/versions?per_page=100" --jq '.[] | select(.metadata.container.tags[0] // "" | startswith("'"${prefix}"'")) | "\(.id) \(.metadata.container.tags[0])"')"
+            while IFS=' ' read -r version_id tag; do
+              if [[ -n "${version_id}" ]]; then
+                echo "Deleting ${pkg}:${tag} (version ${version_id})"
+                gh api --method DELETE "user/packages/container/${pkg}/versions/${version_id}" || true
+              fi
+            done <<< "${versions}"
+          done
+          echo "Sweep complete"
