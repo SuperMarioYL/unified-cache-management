@@ -30,7 +30,7 @@ RESOLVED_TASK_FIELDS = {'wheel': frozenset('task_id spec_id profile_id accelerat
 _RESOLVED_PLAN_FIELDS = frozenset('kind schema_version fixture_only lane source chart config_sha256 source_sha256 scan_sha256 resolved_upstreams wheel_tasks image_tasks family_tasks github_wheel_matrix github_image_matrix github_family_matrix pr_smoke expected_artifacts exclusions operations counts resolved_plan_sha256'.split())  # fmt: skip  # noqa: E501
 _PLAN_SOURCE_KEYS = frozenset('repository staging_repository default_branch release_tag release_policy ucm_version commit'.split())  # fmt: skip  # noqa: E501
 _PLAN_CHART_KEYS = frozenset('source name version app_version publication_target validation_cases'.split())  # fmt: skip  # noqa: E501
-_PLAN_OPERATION_TYPES = frozenset('crane-tag-list crane-digest crane-manifest fixture-tag-page-read fixture-snapshot-read'.split())  # fmt: skip  # noqa: E501
+_PLAN_OPERATION_TYPES = frozenset('crane-tag-list crane-digest crane-manifest crane-config fixture-tag-page-read fixture-snapshot-read'.split())  # fmt: skip  # noqa: E501
 # Legacy Task 3 regression authority. Production resolution starts at
 # ``resolve_catalog`` and must never consume these concrete fixture coordinates.
 SNAPSHOT_KEYS = frozenset('schema_version kind repository upstream_tag index_digest platforms'.split())  # fmt: skip  # noqa: E501
@@ -176,8 +176,8 @@ def resolve_pinned_crane() -> str:
 
 
 def _crane(crane_binary: str, operation: str, reference: str) -> str:
-    if operation not in {"digest", "manifest"}:
-        raise ValueError('only read-only crane digest and manifest operations are allowed')  # fmt: skip  # noqa: E501
+    if operation not in {"digest", "manifest", "config"}:
+        raise ValueError('only read-only crane digest, manifest, and config operations are allowed')  # fmt: skip  # noqa: E501
     try:
         result = subprocess.run([_crane_binary(crane_binary), operation, reference], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=_minimal_registry_environment(), check=False)  # fmt: skip  # noqa: E501
     except OSError as error:
@@ -413,6 +413,56 @@ def _canonical_variant_suffixes(product: dict[str, Any]) -> dict[str, str]:
     return suffixes
 
 
+def _variant_by_soc(product: dict[str, Any], soc_version: str) -> str | None:
+    """Match an upstream image's SOC_VERSION env value to a declared variant.
+
+    Ascend variants carry a `soc_versions` list (e.g. a2 -> [ascend910b1],
+    a3 -> [ascend910_9391]); cuda variants have none and are singletons.
+    """
+    for variant_value in product["variants"]:
+        socs = variant_value.get("soc_versions")
+        if isinstance(socs, list) and soc_version in socs:
+            return variant_value["id"]
+    return None
+
+
+def _inspect_upstream_variant(
+    crane_binary: str, repository: str, index_digest: str, product: dict[str, Any]
+) -> tuple[str | None, str | None]:
+    """Inspect an upstream image's config to determine its variant.
+
+    `crane config repo@<index_digest>` returns the default-platform config
+    blob; SOC_VERSION / ASCEND_* / CUDA env are the same across arches for
+    vllm / vllm-ascend images. Returns (variant, error): variant is None when
+    the image does not encode a detectable variant (caller falls back).
+    """
+    reference = f"{repository}@{index_digest}"
+    config_blob = _crane(crane_binary, "config", reference)
+    try:
+        config = json.loads(config_blob)
+    except json.JSONDecodeError as error:
+        return None, f"crane config returned non-JSON for {reference}: {error}"
+    env = ((config.get("config") or {}).get("Env")) or []
+    is_ascend = product["runtime_product"] == "vllm-ascend" or any(
+        "ASCEND" in entry or "/usr/local/Ascend" in entry for entry in env
+    )
+    if is_ascend:
+        soc_version = next(
+            (entry.split("=", 1)[1] for entry in env if entry.startswith("SOC_VERSION=")),
+            None,
+        )
+        if soc_version is None:
+            return None, "ascend image has no SOC_VERSION env"
+        variant = _variant_by_soc(product, soc_version)
+        if variant is None:
+            return None, f"SOC_VERSION {soc_version!r} matches no declared variant of {product['id']!r}"
+        return variant, None
+    # cuda / single-variant product (e.g. vllm -> default)
+    if len(product["variants"]) == 1:
+        return product["variants"][0]["id"], None
+    return None, f"non-ascend image for multi-variant product {product['id']!r}"
+
+
 def validate_catalog_tag_grammar(catalog: dict[str, Any]) -> None:
     for product in catalog["upstream_products"]:
         _canonical_variant_suffixes(product)
@@ -580,6 +630,7 @@ def resolve_catalog(
     products = {item["id"]: item for item in catalog["upstream_products"]}
     resolved_upstreams: list[dict[str, Any]] = []
     selected_fixture_tags: dict[str, set[str]] = {repository: set() for repository in configured_repositories}  # fmt: skip  # noqa: E501
+    crane_binary = resolve_pinned_crane() if fixture is None else None
     for item in selected:
         product = products[item["product_id"]]
         snapshot_fixture = None
@@ -591,7 +642,18 @@ def resolve_catalog(
             selected_fixture_tags[item["repository"]].add(item["tag"])
         scan = resolve_repository_tag(item['repository'], item['tag'], required_architectures=product['required_cpu_architectures'], fixture=snapshot_fixture)  # fmt: skip  # noqa: E501
         operations.extend(scan["operations"])
-        resolved_upstreams.append({**copy.deepcopy(item), 'index_digest': scan['snapshot']['index_digest'], 'members': scan['snapshot']['members'], 'target_repository': product['target_repository'], 'target_tag': item['tag'] + product['target_tag_suffix']})  # fmt: skip  # noqa: E501
+        variant = item['variant']
+        # Unified inspect-based variant detection (live only): override the
+        # tag-suffix variant with the image's SOC_VERSION/accelerator. For
+        # conforming tags inspect == suffix (no-op safety net); catches a
+        # tag/image mismatch. Fixture (test) path keeps the suffix variant.
+        if fixture is None:
+            inspect_ref = f"{item['repository']}@{scan['snapshot']['index_digest']}"
+            operations.append({'type': 'crane-config', 'capability': 'read', 'reference': inspect_ref})  # fmt: skip  # noqa: E501
+            inspected, _inspect_err = _inspect_upstream_variant(crane_binary, item['repository'], scan['snapshot']['index_digest'], product)  # fmt: skip  # noqa: E501
+            if inspected is not None:
+                variant = inspected
+        resolved_upstreams.append({**copy.deepcopy(item), 'variant': variant, 'index_digest': scan['snapshot']['index_digest'], 'members': scan['snapshot']['members'], 'target_repository': product['target_repository'], 'target_tag': item['tag'] + product['target_tag_suffix']})  # fmt: skip  # noqa: E501
     if repositories_fixture is not None:
         for repository in sorted(configured_repositories):
             snapshots = repositories_fixture[repository]["snapshots"]

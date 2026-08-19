@@ -263,3 +263,52 @@ def test_v2_catalog_allows_compatibility_rules_with_a_disjoint_dimension(
     catalog["compatibility"]["rules"].append(other)
 
     core.validate_catalog(catalog)
+
+
+# -- inspect-based variant detection (soc_versions) -------------------------
+
+def _catalog_with_soc_versions() -> dict:
+    return core.load_catalog(RELEASE_ROOT / "release.yaml", RELEASE_ROOT / "schemas")
+
+
+def test_variant_by_soc_matches_ascend_variants() -> None:
+    catalog = _catalog_with_soc_versions()
+    ascend = next(p for p in catalog["upstream_products"] if p["id"] == "vllm-ascend")
+    assert registry._variant_by_soc(ascend, "ascend910b1") == "a2"
+    assert registry._variant_by_soc(ascend, "ascend910_9391") == "a3"
+    assert registry._variant_by_soc(ascend, "ascend910b3") is None
+
+
+def test_inspect_upstream_variant_ascend(monkeypatch) -> None:
+    catalog = _catalog_with_soc_versions()
+    ascend = next(p for p in catalog["upstream_products"] if p["id"] == "vllm-ascend")
+    fake_config = json.dumps({"config": {"Env": [
+        "ASCEND_TOOLKIT_HOME=/usr/local/Ascend/cann-9.0.0",
+        "SOC_VERSION=ascend910_9391",
+        "PATH=/usr/local/python3.12.13/bin",
+    ]}})
+    monkeypatch.setattr(registry, "_crane", lambda *_a, **_k: fake_config)
+    variant, err = registry._inspect_upstream_variant("crane", "quay.io/ascend/vllm-ascend", "sha256:dead", ascend)
+    assert variant == "a3"
+    assert err is None
+
+
+def test_inspect_upstream_variant_cuda_default(monkeypatch) -> None:
+    catalog = _catalog_with_soc_versions()
+    vllm = next(p for p in catalog["upstream_products"] if p["id"] == "vllm")
+    # cuda image: no ASCEND env, single-variant product -> default
+    fake_config = json.dumps({"config": {"Env": ["CUDA_VERSION=13.0.2", "NVARCH=x86_64"]}})
+    monkeypatch.setattr(registry, "_crane", lambda *_a, **_k: fake_config)
+    variant, err = registry._inspect_upstream_variant("crane", "docker.io/vllm/vllm-openai", "sha256:beef", vllm)
+    assert variant == "default"
+    assert err is None
+
+
+def test_inspect_upstream_variant_ascend_missing_soc(monkeypatch) -> None:
+    catalog = _catalog_with_soc_versions()
+    ascend = next(p for p in catalog["upstream_products"] if p["id"] == "vllm-ascend")
+    fake_config = json.dumps({"config": {"Env": ["ASCEND_TOOLKIT_HOME=/usr/local/Ascend/cann-9.0.0"]}})
+    monkeypatch.setattr(registry, "_crane", lambda *_a, **_k: fake_config)
+    variant, err = registry._inspect_upstream_variant("crane", "quay.io/ascend/vllm-ascend", "sha256:cafe", ascend)
+    assert variant is None
+    assert err is not None
