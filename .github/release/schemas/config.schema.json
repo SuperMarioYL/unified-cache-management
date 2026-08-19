@@ -477,6 +477,12 @@
         "id": {"type": "string", "minLength": 1},
         "tag_suffix": {"type": "string", "pattern": "^(|-[a-z0-9][a-z0-9.-]*)$"},
         "npu_arch": {"type": "string", "minLength": 1},
+        "soc_versions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
         "runtime_patch_variants": {
           "type": "object",
           "minProperties": 1,

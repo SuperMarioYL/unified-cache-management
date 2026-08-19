@@ -36,10 +36,12 @@ upstream_products:
   - id: a2
     tag_suffix: ''
     npu_arch: a2
+    soc_versions: [ascend910b1]
     runtime_patch_variants: {vllm: default, vllm-ascend: a2}
   - id: a3
     tag_suffix: -a3
     npu_arch: a3
+    soc_versions: [ascend910_9391]
     runtime_patch_variants: {vllm: default, vllm-ascend: a3}
   required_cpu_architectures: [amd64, arm64]
 compatibility:
