@@ -22,6 +22,13 @@
         <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/benchmark/"/>
     </url>
     <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/developer-guide/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/developer-guide/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/developer-guide/"/>
+    </url>
+    <url>
         <loc>https://ucm.readthedocs.io/0.5.0/developer-guide/add-metrics/</loc>
         <lastmod>2026-08-19</lastmod>
         <changefreq>daily</changefreq>
@@ -34,6 +41,13 @@
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/developer-guide/architecture/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/developer-guide/architecture/"/>
+    </url>
+    <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/developer-guide/capability-principles/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/developer-guide/capability-principles/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/developer-guide/capability-principles/"/>
     </url>
     <url>
         <loc>https://ucm.readthedocs.io/0.5.0/developer-guide/contribute/</loc>
@@ -78,6 +92,13 @@
         <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/developer-guide/sparse-attention-principles/"/>
     </url>
     <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/reference/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/reference/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/reference/"/>
+    </url>
+    <url>
         <loc>https://ucm.readthedocs.io/0.5.0/reference/api-parameters/</loc>
         <lastmod>2026-08-19</lastmod>
         <changefreq>daily</changefreq>
@@ -106,11 +127,25 @@
         <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/reference/metrics/"/>
     </url>
     <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/toolkit/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/toolkit/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/toolkit/"/>
+    </url>
+    <url>
         <loc>https://ucm.readthedocs.io/0.5.0/toolkit/kv-cache-calculator/</loc>
         <lastmod>2026-08-19</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/toolkit/kv-cache-calculator/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/toolkit/kv-cache-calculator/"/>
+    </url>
+    <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/user-guide/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/user-guide/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/user-guide/"/>
     </url>
     <url>
         <loc>https://ucm.readthedocs.io/0.5.0/user-guide/installation/</loc>
@@ -125,6 +160,13 @@
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/user-guide/troubleshooting/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/user-guide/troubleshooting/"/>
+    </url>
+    <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/user-guide/capabilities/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/user-guide/capabilities/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/user-guide/capabilities/"/>
     </url>
     <url>
         <loc>https://ucm.readthedocs.io/0.5.0/user-guide/capabilities/rerope/</loc>
@@ -225,6 +267,13 @@
         <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/user-guide/capabilities/sparse-attention/gsa/"/>
     </url>
     <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/user-guide/deploy/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/user-guide/deploy/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/user-guide/deploy/"/>
+    </url>
+    <url>
         <loc>https://ucm.readthedocs.io/0.5.0/user-guide/deploy/docker/</loc>
         <lastmod>2026-08-19</lastmod>
         <changefreq>daily</changefreq>
@@ -237,6 +286,13 @@
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/user-guide/deploy/kubernetes/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/user-guide/deploy/kubernetes/"/>
+    </url>
+    <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/user-guide/engines/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/user-guide/engines/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/user-guide/engines/"/>
     </url>
     <url>
         <loc>https://ucm.readthedocs.io/0.5.0/user-guide/engines/mindie/</loc>
@@ -267,6 +323,20 @@
         <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/user-guide/engines/vllm/"/>
     </url>
     <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/user-guide/model-tour/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/user-guide/model-tour/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/user-guide/model-tour/"/>
+    </url>
+    <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/user-guide/model-tour/deepseek/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/user-guide/model-tour/deepseek/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/user-guide/model-tour/deepseek/"/>
+    </url>
+    <url>
         <loc>https://ucm.readthedocs.io/0.5.0/user-guide/model-tour/deepseek/deepseek-r1/</loc>
         <lastmod>2026-08-19</lastmod>
         <changefreq>daily</changefreq>
@@ -286,6 +356,13 @@
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/user-guide/model-tour/deepseek/deepseek-v3/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/user-guide/model-tour/deepseek/deepseek-v3/"/>
+    </url>
+    <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/user-guide/model-tour/glm/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/user-guide/model-tour/glm/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/user-guide/model-tour/glm/"/>
     </url>
     <url>
         <loc>https://ucm.readthedocs.io/0.5.0/user-guide/model-tour/glm/glm-4x/</loc>
@@ -316,11 +393,25 @@
         <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/user-guide/model-tour/glm/glm-5/"/>
     </url>
     <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/user-guide/model-tour/kimi/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/user-guide/model-tour/kimi/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/user-guide/model-tour/kimi/"/>
+    </url>
+    <url>
         <loc>https://ucm.readthedocs.io/0.5.0/user-guide/model-tour/kimi/kimi-k2/</loc>
         <lastmod>2026-08-19</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/user-guide/model-tour/kimi/kimi-k2/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/user-guide/model-tour/kimi/kimi-k2/"/>
+    </url>
+    <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/user-guide/model-tour/minimax/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/user-guide/model-tour/minimax/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/user-guide/model-tour/minimax/"/>
     </url>
     <url>
         <loc>https://ucm.readthedocs.io/0.5.0/user-guide/model-tour/minimax/minimax-m2-5/</loc>
@@ -335,6 +426,13 @@
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/user-guide/model-tour/minimax/minimax-m2-7/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/user-guide/model-tour/minimax/minimax-m2-7/"/>
+    </url>
+    <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/user-guide/model-tour/qwen3/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0/user-guide/model-tour/qwen3/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0zh/user-guide/model-tour/qwen3/"/>
     </url>
     <url>
         <loc>https://ucm.readthedocs.io/0.5.0/user-guide/model-tour/qwen3/qwen2-5/</loc>
@@ -400,6 +498,13 @@
         <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0benchmark/"/>
     </url>
     <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/zh/developer-guide/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/developer-guide/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0developer-guide/"/>
+    </url>
+    <url>
         <loc>https://ucm.readthedocs.io/0.5.0/zh/developer-guide/add-metrics/</loc>
         <lastmod>2026-08-19</lastmod>
         <changefreq>daily</changefreq>
@@ -412,6 +517,13 @@
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/developer-guide/architecture/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0developer-guide/architecture/"/>
+    </url>
+    <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/zh/developer-guide/capability-principles/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/developer-guide/capability-principles/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0developer-guide/capability-principles/"/>
     </url>
     <url>
         <loc>https://ucm.readthedocs.io/0.5.0/zh/developer-guide/contribute/</loc>
@@ -456,6 +568,13 @@
         <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0developer-guide/sparse-attention-principles/"/>
     </url>
     <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/zh/reference/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/reference/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0reference/"/>
+    </url>
+    <url>
         <loc>https://ucm.readthedocs.io/0.5.0/zh/reference/api-parameters/</loc>
         <lastmod>2026-08-19</lastmod>
         <changefreq>daily</changefreq>
@@ -484,11 +603,25 @@
         <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0reference/metrics/"/>
     </url>
     <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/zh/toolkit/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/toolkit/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0toolkit/"/>
+    </url>
+    <url>
         <loc>https://ucm.readthedocs.io/0.5.0/zh/toolkit/kv-cache-calculator/</loc>
         <lastmod>2026-08-19</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/toolkit/kv-cache-calculator/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0toolkit/kv-cache-calculator/"/>
+    </url>
+    <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/zh/user-guide/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/user-guide/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0user-guide/"/>
     </url>
     <url>
         <loc>https://ucm.readthedocs.io/0.5.0/zh/user-guide/installation/</loc>
@@ -503,6 +636,13 @@
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/user-guide/troubleshooting/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0user-guide/troubleshooting/"/>
+    </url>
+    <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/zh/user-guide/capabilities/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/user-guide/capabilities/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0user-guide/capabilities/"/>
     </url>
     <url>
         <loc>https://ucm.readthedocs.io/0.5.0/zh/user-guide/capabilities/rerope/</loc>
@@ -603,6 +743,13 @@
         <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0user-guide/capabilities/sparse-attention/gsa/"/>
     </url>
     <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/zh/user-guide/deploy/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/user-guide/deploy/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0user-guide/deploy/"/>
+    </url>
+    <url>
         <loc>https://ucm.readthedocs.io/0.5.0/zh/user-guide/deploy/docker/</loc>
         <lastmod>2026-08-19</lastmod>
         <changefreq>daily</changefreq>
@@ -615,6 +762,13 @@
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/user-guide/deploy/kubernetes/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0user-guide/deploy/kubernetes/"/>
+    </url>
+    <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/zh/user-guide/engines/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/user-guide/engines/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0user-guide/engines/"/>
     </url>
     <url>
         <loc>https://ucm.readthedocs.io/0.5.0/zh/user-guide/engines/mindie/</loc>
@@ -645,6 +799,20 @@
         <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0user-guide/engines/vllm/"/>
     </url>
     <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0user-guide/model-tour/"/>
+    </url>
+    <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/deepseek/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/deepseek/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0user-guide/model-tour/deepseek/"/>
+    </url>
+    <url>
         <loc>https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/deepseek/deepseek-r1/</loc>
         <lastmod>2026-08-19</lastmod>
         <changefreq>daily</changefreq>
@@ -664,6 +832,13 @@
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/deepseek/deepseek-v3/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0user-guide/model-tour/deepseek/deepseek-v3/"/>
+    </url>
+    <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/glm/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/glm/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0user-guide/model-tour/glm/"/>
     </url>
     <url>
         <loc>https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/glm/glm-4x/</loc>
@@ -694,11 +869,25 @@
         <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0user-guide/model-tour/glm/glm-5/"/>
     </url>
     <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/kimi/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/kimi/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0user-guide/model-tour/kimi/"/>
+    </url>
+    <url>
         <loc>https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/kimi/kimi-k2/</loc>
         <lastmod>2026-08-19</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/kimi/kimi-k2/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0user-guide/model-tour/kimi/kimi-k2/"/>
+    </url>
+    <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/minimax/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/minimax/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0user-guide/model-tour/minimax/"/>
     </url>
     <url>
         <loc>https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/minimax/minimax-m2-5/</loc>
@@ -713,6 +902,13 @@
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/minimax/minimax-m2-7/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0user-guide/model-tour/minimax/minimax-m2-7/"/>
+    </url>
+    <url>
+        <loc>https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/qwen3/</loc>
+        <lastmod>2026-08-19</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/qwen3/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://ucm.readthedocs.io/0.5.0user-guide/model-tour/qwen3/"/>
     </url>
     <url>
         <loc>https://ucm.readthedocs.io/0.5.0/zh/user-guide/model-tour/qwen3/qwen2-5/</loc>
