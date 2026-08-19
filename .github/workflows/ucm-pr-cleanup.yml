@@ -24,25 +24,26 @@ jobs:
           repo="${{ github.event.repository.name }}"
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             pr_number="${{ github.event.pull_request.number }}"
-            prefix="pr-${pr_number}-"
+            regex="(^|-)pr-${pr_number}-"
           else
-            prefix="pr-"
+            regex="(^|-)pr-[0-9]+-"
           fi
-          echo "Cleaning up GHCR images with prefix '${prefix}' for ${owner}/${repo}"
-          # PR images live in per-family packages (vllm, vllm-ascend, ...) under
-          # pr-<n>-... tags. GITHUB_TOKEN cannot list user/packages (needs a user
-          # PAT with read:packages), but it CAN read+delete versions of packages
-          # it owns — so enumerate the known family package names the bot pushes
-          # to (plus historical ones) and sweep each. Release tags (v... ) are
-          # never touched because they don't start with pr-. Capture each API
-          # response raw and jq-filter separately — gh api --jq leaks 404 error
-          # bodies to stdout, which would otherwise be parsed as garbage tags.
+          echo "Cleaning up GHCR tags matching /${regex}/ for ${owner}/${repo}"
+          # PR image tags are v<upstream-ver>-pr-<n>-<author>-<sha8>[-<variant>][-<arch>]
+          # (the vllm version leads, so pr-<n>- is not at the start — match anywhere).
+          # GITHUB_TOKEN cannot list user/packages (needs a user PAT with
+          # read:packages), but it CAN read+delete versions of packages it owns —
+          # so enumerate the known family package names the bot pushes to (plus
+          # historical ones) and sweep each. Release tags (v...-ucm-...) never
+          # match because they contain no -pr-<n>-. Capture each API response raw
+          # and jq-filter separately — gh api --jq leaks 404 error bodies to
+          # stdout, which would otherwise be parsed as garbage tags.
           # If a new image family is added to the catalog, add its package here.
           packages="vllm vllm-ascend vllm-openai ucm-pr"
           for pkg in ${packages}; do
             raw="$(gh api "user/packages/container/${pkg}/versions?per_page=100" 2>/dev/null || true)"
             printf '%s' "${raw}" | jq -e 'type=="array"' >/dev/null 2>&1 || continue
-            printf '%s' "${raw}" | jq -r '.[] | select(.metadata.container.tags[0] // "" | startswith("'"${prefix}"'")) | "\(.id) \(.metadata.container.tags[0])"' 2>/dev/null | while IFS= read -r line; do
+            printf '%s' "${raw}" | jq -r --arg re "${regex}" '.[] | select(.metadata.container.tags[0] // "" | test($re)) | "\(.id) \(.metadata.container.tags[0])"' 2>/dev/null | while IFS= read -r line; do
               [ -n "${line}" ] || continue
               version_id="${line%% *}"
               tag="${line#* }"

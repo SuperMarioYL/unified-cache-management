@@ -383,17 +383,19 @@ jobs:
             artifact_name="$(basename "$d")"
             # ucm-oci-<task_id>-run-<run_id>-attempt-<attempt>  ->  task_id
             task_id="$(printf '%s' "$artifact_name" | sed -E 's/^ucm-oci-//; s/-run-[0-9]+-attempt-[0-9]+$//')"
-            read -r product_id variant arch <<<"$(jq -r --arg tid "$task_id" \
-              '.image_tasks[]|select(.task_id==$tid)|[.runtime.product_id,.runtime.variant,.cpu_arch]|@tsv' "$plan")"
-            if [ -z "$product_id" ] || [ -z "$variant" ] || [ -z "$arch" ]; then
-              echo "::error::could not resolve product_id/variant/arch for task ${task_id}" >&2; exit 2
+            read -r product_id variant arch upstream_ver <<<"$(jq -r --arg tid "$task_id" \
+              '.image_tasks[]|select(.task_id==$tid)|[.runtime.product_id,.runtime.variant,.cpu_arch,.runtime.version]|@tsv' "$plan")"
+            if [ -z "$product_id" ] || [ -z "$variant" ] || [ -z "$arch" ] || [ -z "$upstream_ver" ]; then
+              echo "::error::could not resolve product_id/variant/arch/version for task ${task_id}" >&2; exit 2
             fi
             # package is named by family (product_id): vllm, vllm-ascend, ...
             pkg="ghcr.io/${owner_lc}/${product_id}"
             # variant goes in the tag for ascend (a2/a3 share one package); cuda has no variant
             vsuffix=""
             [ "$variant" != "default" ] && vsuffix="-${variant}"
-            base_tag="pr-${PR_NUMBER}-${author_lc}-${sha8}${vsuffix}"
+            # tag mirrors the release shape (v<upstream-ver>-ucm-...) but with the
+            # ucm-version part replaced by pr-<n>-<author>-<sha8>: v<ver>-pr-<n>-<author>-<sha8>[-<variant>][-<arch>]
+            base_tag="v${upstream_ver}-pr-${PR_NUMBER}-${author_lc}-${sha8}${vsuffix}"
             test -f "$d/image.oci.tar"
             layout="$(mktemp -d)"
             tar -xf "$d/image.oci.tar" -C "$layout"
@@ -462,7 +464,7 @@ jobs:
               done
               echo '```'
               echo ""
-              echo "Packages are named by family (\`vllm\` / \`vllm-ascend\`); tags are prefixed \`pr-${PR_NUMBER}-${author_lc}-${sha8}-\` (with \`-a2\`/\`-a3\` for ascend variants) and are **auto-deleted when this PR closes** (\`ucm-pr-cleanup.yml\`)."
+              echo "Packages are named by family (\`vllm\` / \`vllm-ascend\`); tags are \`v<upstream-ver>-pr-${PR_NUMBER}-${author_lc}-${sha8}-\` (with \`-a2\`/\`-a3\` for ascend variants) and are **auto-deleted when this PR closes** (\`ucm-pr-cleanup.yml\`)."
               echo ""
             fi
             echo "### 📦 Artifacts (7-day retention)"
