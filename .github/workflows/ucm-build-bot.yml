@@ -33,9 +33,11 @@ jobs:
           body="${COMMENT_BODY}"
           # second token after /ucm-build is the subcommand
           subcommand="$(printf '%s\n' "$body" | awk '/^[[:space:]]*\/ucm-build[[:space:]]/ {print $2; exit}')"
+          # bare /ucm-build or /ucm-build help -> help (posts the command list, no build)
           case "$subcommand" in
-            wheel|image|chart|all) ;;
-            *) echo "::error::/ucm-build requires a subcommand in {wheel,image,chart,all}; got: '${subcommand:-<empty>}'" >&2; exit 2 ;;
+            "") subcommand="help" ;;
+            help|wheel|image|chart|all) ;;
+            *) echo "::error::/ucm-build subcommand must be in {wheel,image,chart,all,help}; got: '${subcommand}'" >&2; exit 2 ;;
           esac
           profile_arg=""
           family_arg=""
@@ -45,19 +47,45 @@ jobs:
               family=*)  family_arg="${tok#family=}" ;;
             esac
           done
-          # cross-check: profile only with wheel/all; family only with image/all
-          if [ -n "$profile_arg" ] && [ "$subcommand" != "wheel" ] && [ "$subcommand" != "all" ]; then
-            echo "::error::profile= is only valid with /ucm-build wheel|all" >&2; exit 2
-          fi
-          if [ -n "$family_arg" ] && [ "$subcommand" != "image" ] && [ "$subcommand" != "all" ]; then
-            echo "::error::family= is only valid with /ucm-build image|all" >&2; exit 2
+          # cross-check args (help takes none; profile only with wheel/all; family only with image/all)
+          if [ "$subcommand" != "help" ]; then
+            if [ -n "$profile_arg" ] && [ "$subcommand" != "wheel" ] && [ "$subcommand" != "all" ]; then
+              echo "::error::profile= is only valid with /ucm-build wheel|all" >&2; exit 2
+            fi
+            if [ -n "$family_arg" ] && [ "$subcommand" != "image" ] && [ "$subcommand" != "all" ]; then
+              echo "::error::family= is only valid with /ucm-build image|all" >&2; exit 2
+            fi
           fi
           {
             echo "subcommand=${subcommand}"
             echo "profile-arg=${profile_arg}"
             echo "family-arg=${family_arg}"
           } >>"${GITHUB_OUTPUT}"
+      - name: Post help comment
+        if: steps.parse.outputs.subcommand == 'help'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          cat >help.md <<'EOF'
+          ## 🤖 `/ucm-build` commands
+
+          Available to repo members with **write** access. Each run fixes the current PR head SHA; pushed images are auto-deleted when the PR closes.
+
+          | command | what it builds | pushes to GHCR? |
+          | --- | --- | --- |
+          | `/ucm-build wheel [profile=<name>]` | wheels — `profile=` one of `cuda130` / `cann900-a2` / `cann900-a3` (omit for all) | no (artifact only) |
+          | `/ucm-build image family=<name>` | wheels + images, then auto-push | yes — `ghcr.io/<owner>/<family>:v<upstream-ver>-pr-<n>-<author>-<sha8>` |
+          | `/ucm-build chart` | chart (lint + template + package) | no (artifact only) |
+          | `/ucm-build all` | wheels + images + chart | yes (images) |
+
+          - `family=`: `vllm` / `vllm-ascend` / `vllm-ascend-a2` / `vllm-ascend-a3`.
+          - `/ucm-build help` (or bare `/ucm-build`) shows this message.
+          EOF
+          gh pr comment "${PR_NUMBER}" --body-file help.md
       - name: Check commenter write permission
+        if: steps.parse.outputs.subcommand != 'help'
         id: check-permission
         env:
           GH_TOKEN: ${{ github.token }}
@@ -75,6 +103,7 @@ jobs:
             exit 1
           fi
       - name: Get PR head SHA
+        if: steps.parse.outputs.subcommand != 'help'
         id: pr-info
         env:
           GH_TOKEN: ${{ github.token }}
