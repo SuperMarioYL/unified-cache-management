@@ -562,17 +562,82 @@ def _family_matrix(tasks: list[dict[str, Any]]) -> dict[str, Any]:
     return {'include': [{'task_id': task['task_id'], 'family_task_id': task['task_id'], 'runner': task['control_runner'], 'control_task_id': task['control_task_id'], 'control_arch': task['control_arch']} for task in tasks]}  # fmt: skip  # noqa: E501
 
 
+def _loose_tag_version_channel(tag: str) -> tuple[str, str] | None:
+    """Extract (version, channel) from a tag matching the upstream grammar.
+
+    Returns None for non-grammar tags. Unlike _parse_product_tag, this does
+    NOT derive or reject on the variant suffix (the PR pin path determines
+    the variant by inspecting the image, not the tag).
+    """
+    match = _CANONICAL_UPSTREAM_TAG.fullmatch(tag)
+    if match is None: return None  # noqa: E701
+    version_text = match.group("version")
+    try:
+        version = Version(version_text)
+    except InvalidVersion:
+        return None
+    if (version.epoch != 0 or version.local is not None or version.dev is not None
+            or version.post is not None or str(version) != version_text):
+        return None
+    channel = "rc" if version.pre is not None and version.pre[0] == "rc" else "stable"
+    return version_text, channel
+
+
+def _resolve_pinned_upstreams(
+    catalog: dict[str, Any],
+    pin_upstreams: list[str],
+    products_by_repo: dict[str, dict[str, Any]],
+    crane_binary: str,
+    operations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build resolved_upstreams from user-pinned repo:tag refs (PR path).
+
+    For each ref: resolve tag->digest, inspect the image config to determine
+    the variant (SOC_VERSION/accelerator), derive version+channel from the
+    tag (grammar if it matches, else a loose version). No scan/select.
+    """
+    resolved_upstreams: list[dict[str, Any]] = []
+    for ref in pin_upstreams:
+        repo, sep, tag = ref.rpartition(":")
+        if not sep or not repo or not tag:
+            raise ValueError(f"pin_upstream {ref!r} must be 'repository:tag'")
+        product = products_by_repo.get(repo)
+        if product is None:
+            raise ValueError(f"pin_upstream {ref!r}: {repo!r} is not a configured catalog upstream repository")
+        scan = resolve_repository_tag(repo, tag, required_architectures=product['required_cpu_architectures'])  # fmt: skip  # noqa: E501
+        operations.extend(scan["operations"])
+        index_digest = scan['snapshot']['index_digest']
+        loose = _loose_tag_version_channel(tag)
+        if loose is not None:
+            version, channel = loose
+        else:
+            version = tag[1:] if tag.startswith("v") else tag
+            channel = product['channels'][0] if product.get('channels') else "stable"
+        inspect_ref = f"{repo}@{index_digest}"
+        operations.append({'type': 'crane-config', 'capability': 'read', 'reference': inspect_ref})  # fmt: skip  # noqa: E501
+        variant, inspect_err = _inspect_upstream_variant(crane_binary, repo, index_digest, product)  # fmt: skip  # noqa: E501
+        if variant is None:
+            raise ValueError(f"pin_upstream {ref!r}: inspect could not determine variant: {inspect_err}")
+        resolved_upstreams.append({'product_id': product['id'], 'repository': repo, 'tag': tag, 'version': version, 'channel': channel, 'variant': variant, 'index_digest': index_digest, 'members': scan['snapshot']['members'], 'target_repository': product['target_repository'], 'target_tag': tag + product['target_tag_suffix']})  # fmt: skip  # noqa: E501
+    return resolved_upstreams
+
+
 def resolve_catalog(
     catalog: dict[str, Any],
     *,
     source_sha: str,
     lane: str,
     fixture: dict[str, Any] | None = None,
+    pin_upstreams: list[str] | None = None,
 ) -> dict[str, Any]:
     core._exact_keys(catalog, core.RELEASE_KEYS, 'release catalog', optional=core.OPTIONAL_CATALOG_KEYS)  # fmt: skip  # noqa: E501
     core.validate_catalog(catalog)
     if fixture is not None and lane == "protected-tag":
         raise ValueError("fixture resolution cannot acquire protected-tag authority")
+    if pin_upstreams is not None and fixture is not None:
+        raise ValueError("pin_upstreams (PR path) cannot be combined with a fixture")
+    if pin_upstreams is not None and lane == "protected-tag":
+        raise ValueError("pin_upstreams (PR path) is only valid for the feature-candidate lane")
     if re.fullmatch(r"[0-9a-f]{40}", source_sha) is None:
         raise ValueError("source_sha must be an exact lowercase 40-hex commit")
     limits = catalog.get("scan_limits")
@@ -618,56 +683,64 @@ def resolve_catalog(
                 root["manifest_digest"] = resolved["manifest_digest"]
                 root["config_digest"] = resolved["config_digest"]
                 operations.extend(resolved["operations"])
-    for repository in sorted(configured_repositories):
-        repository_fixture = repositories_fixture[repository] if repositories_fixture is not None else None  # fmt: skip  # noqa: E501
-        tag_result = enumerate_repository_tags(repository, fixture=repository_fixture, max_tags=limits['max_tags_per_repository'])  # fmt: skip  # noqa: E501
-        tag_lists[repository] = tag_result["tags"]
-        operations.extend(tag_result["operations"])
-    selected, exclusions = select_catalog_tags(catalog, tag_lists)
-    if len(selected) > limits["max_selected_upstreams"]:
-        raise ValueError(f"registry selection limit max_selected_upstreams={limits['max_selected_upstreams']} exceeded by exact set of {len(selected)}")  # fmt: skip  # noqa: E501
-
     products = {item["id"]: item for item in catalog["upstream_products"]}
-    resolved_upstreams: list[dict[str, Any]] = []
-    selected_fixture_tags: dict[str, set[str]] = {repository: set() for repository in configured_repositories}  # fmt: skip  # noqa: E501
+    products_by_repo = {product["repository"]: product for product in catalog["upstream_products"]}
     crane_binary = resolve_pinned_crane() if fixture is None else None
-    for item in selected:
-        product = products[item["product_id"]]
-        snapshot_fixture = None
-        if repositories_fixture is not None:
-            snapshots = repositories_fixture[item["repository"]]["snapshots"]
-            if not isinstance(snapshots, dict) or item["tag"] not in snapshots:
-                raise ValueError(f"registry fixture is missing selected snapshot {item['tag']}")  # fmt: skip  # noqa: E501
-            snapshot_fixture = snapshots[item["tag"]]
-            selected_fixture_tags[item["repository"]].add(item["tag"])
-        scan = resolve_repository_tag(item['repository'], item['tag'], required_architectures=product['required_cpu_architectures'], fixture=snapshot_fixture)  # fmt: skip  # noqa: E501
-        operations.extend(scan["operations"])
-        variant = item['variant']
-        # Unified inspect-based variant detection (live only): override the
-        # tag-suffix variant with the image's SOC_VERSION/accelerator. For
-        # conforming tags inspect == suffix (no-op safety net); catches a
-        # tag/image mismatch. Fixture (test) path keeps the suffix variant.
-        if fixture is None:
-            inspect_ref = f"{item['repository']}@{scan['snapshot']['index_digest']}"
-            operations.append({'type': 'crane-config', 'capability': 'read', 'reference': inspect_ref})  # fmt: skip  # noqa: E501
-            inspected, _inspect_err = _inspect_upstream_variant(crane_binary, item['repository'], scan['snapshot']['index_digest'], product)  # fmt: skip  # noqa: E501
-            if inspected is not None:
-                variant = inspected
-        resolved_upstreams.append({**copy.deepcopy(item), 'variant': variant, 'index_digest': scan['snapshot']['index_digest'], 'members': scan['snapshot']['members'], 'target_repository': product['target_repository'], 'target_tag': item['tag'] + product['target_tag_suffix']})  # fmt: skip  # noqa: E501
-    if repositories_fixture is not None:
+    resolved_upstreams: list[dict[str, Any]] = []
+    exclusions: list[dict[str, str]] = []
+    scanned_tags = 0
+    if pin_upstreams is not None:
+        # PR pin path: build resolved_upstreams from user repo:tag refs; skip scan+select.
+        resolved_upstreams = _resolve_pinned_upstreams(catalog, pin_upstreams, products_by_repo, crane_binary, operations)
+        scanned_tags = len(pin_upstreams)
+    else:
         for repository in sorted(configured_repositories):
-            snapshots = repositories_fixture[repository]["snapshots"]
-            if set(snapshots) != selected_fixture_tags[repository]:
-                raise ValueError(f'registry fixture snapshots are not the exact selected set for {repository}')  # fmt: skip  # noqa: E501
+            repository_fixture = repositories_fixture[repository] if repositories_fixture is not None else None  # fmt: skip  # noqa: E501
+            tag_result = enumerate_repository_tags(repository, fixture=repository_fixture, max_tags=limits['max_tags_per_repository'])  # fmt: skip  # noqa: E501
+            tag_lists[repository] = tag_result["tags"]
+            operations.extend(tag_result["operations"])
+        selected, exclusions = select_catalog_tags(catalog, tag_lists)
+        if len(selected) > limits["max_selected_upstreams"]:
+            raise ValueError(f"registry selection limit max_selected_upstreams={limits['max_selected_upstreams']} exceeded by exact set of {len(selected)}")  # fmt: skip  # noqa: E501
+        selected_fixture_tags: dict[str, set[str]] = {repository: set() for repository in configured_repositories}  # fmt: skip  # noqa: E501
+        for item in selected:
+            product = products[item["product_id"]]
+            snapshot_fixture = None
+            if repositories_fixture is not None:
+                snapshots = repositories_fixture[item["repository"]]["snapshots"]
+                if not isinstance(snapshots, dict) or item["tag"] not in snapshots:
+                    raise ValueError(f"registry fixture is missing selected snapshot {item['tag']}")  # fmt: skip  # noqa: E501
+                snapshot_fixture = snapshots[item["tag"]]
+                selected_fixture_tags[item["repository"]].add(item["tag"])
+            scan = resolve_repository_tag(item['repository'], item['tag'], required_architectures=product['required_cpu_architectures'], fixture=snapshot_fixture)  # fmt: skip  # noqa: E501
+            operations.extend(scan["operations"])
+            variant = item['variant']
+            # Unified inspect-based variant detection (live only): override the
+            # tag-suffix variant with the image's SOC_VERSION/accelerator. For
+            # conforming tags inspect == suffix (no-op safety net); catches a
+            # tag/image mismatch. Fixture (test) path keeps the suffix variant.
+            if fixture is None:
+                inspect_ref = f"{item['repository']}@{scan['snapshot']['index_digest']}"
+                operations.append({'type': 'crane-config', 'capability': 'read', 'reference': inspect_ref})  # fmt: skip  # noqa: E501
+                inspected, _inspect_err = _inspect_upstream_variant(crane_binary, item['repository'], scan['snapshot']['index_digest'], product)  # fmt: skip  # noqa: E501
+                if inspected is not None:
+                    variant = inspected
+            resolved_upstreams.append({**copy.deepcopy(item), 'variant': variant, 'index_digest': scan['snapshot']['index_digest'], 'members': scan['snapshot']['members'], 'target_repository': product['target_repository'], 'target_tag': item['tag'] + product['target_tag_suffix']})  # fmt: skip  # noqa: E501
+        if repositories_fixture is not None:
+            for repository in sorted(configured_repositories):
+                snapshots = repositories_fixture[repository]["snapshots"]
+                if set(snapshots) != selected_fixture_tags[repository]:
+                    raise ValueError(f'registry fixture snapshots are not the exact selected set for {repository}')  # fmt: skip  # noqa: E501
+        scanned_tags = sum((len(tags) for tags in tag_lists.values()))
 
-    plan = core.ReleasePlan.build(catalog, resolved_upstreams, lane=lane)
+    plan = core.ReleasePlan.build(catalog, resolved_upstreams, lane=lane, relaxed=(pin_upstreams is not None))
     wheel_tasks = plan.wheel_tasks
     image_tasks = plan.image_tasks
     family_tasks = plan.family_tasks
     _src = catalog["source"]
     source = {'repository': _src['repository'], 'staging_repository': _src['staging_repository'], 'default_branch': _src['default_branch'], 'release_tag': _src['release_tag'], 'release_policy': _src['release_policy'], 'ucm_version': catalog['ucm_version'], 'commit': source_sha}  # fmt: skip  # noqa: E501
     scan_evidence = {'resolved_upstreams': resolved_upstreams, 'exclusions': exclusions, 'operations': operations}  # fmt: skip  # noqa: E501
-    result: dict[str, Any] = {'kind': 'ucm-resolved-build-plan', 'schema_version': 1, 'fixture_only': fixture is not None, 'lane': lane, 'source': source, 'chart': copy.deepcopy(catalog['chart']), 'config_sha256': core.sha256_value(catalog), 'source_sha256': core.sha256_value(source), 'scan_sha256': core.sha256_value(scan_evidence), 'resolved_upstreams': resolved_upstreams, 'wheel_tasks': wheel_tasks, 'image_tasks': image_tasks, 'family_tasks': family_tasks, 'github_wheel_matrix': _wheel_matrix(wheel_tasks), 'github_image_matrix': _image_matrix(image_tasks), 'github_family_matrix': _family_matrix(family_tasks), 'pr_smoke': _pr_smoke_projection(catalog, wheel_tasks, image_tasks), 'expected_artifacts': {'resolved_plan': f'ucm-resolved-plan-{source_sha}', 'wheels': _artifact_set(wheel_tasks, 'wheel'), 'images': _artifact_set(image_tasks, 'image'), 'families': _artifact_set(family_tasks, 'family')}, 'exclusions': exclusions, 'operations': operations, 'counts': {'scanned_tags': sum((len(tags) for tags in tag_lists.values())), 'selected_upstreams': len(resolved_upstreams), 'excluded_tags': len(exclusions), 'wheel_tasks': len(wheel_tasks), 'image_tasks': len(image_tasks), 'family_tasks': len(family_tasks)}}  # fmt: skip  # noqa: E501
+    result: dict[str, Any] = {'kind': 'ucm-resolved-build-plan', 'schema_version': 1, 'fixture_only': fixture is not None, 'lane': lane, 'source': source, 'chart': copy.deepcopy(catalog['chart']), 'config_sha256': core.sha256_value(catalog), 'source_sha256': core.sha256_value(source), 'scan_sha256': core.sha256_value(scan_evidence), 'resolved_upstreams': resolved_upstreams, 'wheel_tasks': wheel_tasks, 'image_tasks': image_tasks, 'family_tasks': family_tasks, 'github_wheel_matrix': _wheel_matrix(wheel_tasks), 'github_image_matrix': _image_matrix(image_tasks), 'github_family_matrix': _family_matrix(family_tasks), 'pr_smoke': _pr_smoke_projection(catalog, wheel_tasks, image_tasks), 'expected_artifacts': {'resolved_plan': f'ucm-resolved-plan-{source_sha}', 'wheels': _artifact_set(wheel_tasks, 'wheel'), 'images': _artifact_set(image_tasks, 'image'), 'families': _artifact_set(family_tasks, 'family')}, 'exclusions': exclusions, 'operations': operations, 'counts': {'scanned_tags': scanned_tags, 'selected_upstreams': len(resolved_upstreams), 'excluded_tags': len(exclusions), 'wheel_tasks': len(wheel_tasks), 'image_tasks': len(image_tasks), 'family_tasks': len(family_tasks)}}  # fmt: skip  # noqa: E501
     result["resolved_plan_sha256"] = core.sha256_value(result)
     return result
 

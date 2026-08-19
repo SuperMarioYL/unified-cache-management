@@ -349,3 +349,33 @@ def test_release_plan_relaxed_rejects_non_pep440_version() -> None:
     snapshot = _ascend_a3_snapshot(catalog, "latest", "latest")
     with pytest.raises(ValueError):
         core.ReleasePlan.build(catalog, [snapshot], lane="feature-candidate", relaxed=True, repository_root=ROOT)
+
+
+def test_resolve_pinned_upstreams_inspect_variant(monkeypatch) -> None:
+    catalog = _catalog_for_plan()
+    products_by_repo = {p["repository"]: p for p in catalog["upstream_products"]}
+    fake = "sha256:" + "0" * 64
+
+    def fake_resolve(repository, upstream_tag, required_architectures):
+        return {
+            "operations": [{"type": "crane-digest", "capability": "read", "reference": f"{repository}:{upstream_tag}"}],
+            "snapshot": {"repository": repository, "tag": upstream_tag, "index_digest": fake,
+                         "members": {a: {"manifest_digest": fake, "config_digest": fake} for a in required_architectures}},
+        }
+
+    monkeypatch.setattr(registry, "resolve_repository_tag", fake_resolve)
+    monkeypatch.setattr(registry, "_inspect_upstream_variant",
+                        lambda crane, repo, digest, product: ("a3", None) if product["id"] == "vllm-ascend" else ("default", None))
+
+    operations: list = []
+    ru = registry._resolve_pinned_upstreams(
+        catalog, ["quay.io/ascend/vllm-ascend:v0.23.0-a3"], products_by_repo, "crane", operations)
+    assert len(ru) == 1
+    snap = ru[0]
+    assert snap["variant"] == "a3"          # inspect-determined, not the tag suffix
+    assert snap["version"] == "0.23.0"      # grammar-extracted (v0.23.0-a3)
+    assert snap["channel"] == "stable"      # 0.23.0 is not a prerelease
+    assert any(op["type"] == "crane-config" for op in operations)
+    # full relaxed plan builds (0.23.0 is outside the product specifier)
+    plan = core.ReleasePlan.build(catalog, ru, lane="feature-candidate", relaxed=True, repository_root=ROOT)
+    assert plan.image_tasks and plan.wheel_tasks
