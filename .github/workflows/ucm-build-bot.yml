@@ -440,6 +440,7 @@ jobs:
         run: |
           set -euo pipefail
           sha8="${SOURCE_SHA:0:8}"
+          author_lc="$(printf '%s' "${PR_AUTHOR}" | tr '[:upper:]' '[:lower:]')"
           {
             echo "## 🤖 \`/ucm-build ${SUBCOMMAND}\` — build receipt"
             echo ""
@@ -461,7 +462,7 @@ jobs:
               done
               echo '```'
               echo ""
-              echo "Packages are named by family (\`vllm\` / \`vllm-ascend\`); tags are prefixed \`pr-${PR_NUMBER}-${PR_AUTHOR}-${sha8}-\` (with \`-a2\`/\`-a3\` for ascend variants) and are **auto-deleted when this PR closes** (\`ucm-pr-cleanup.yml\`)."
+              echo "Packages are named by family (\`vllm\` / \`vllm-ascend\`); tags are prefixed \`pr-${PR_NUMBER}-${author_lc}-${sha8}-\` (with \`-a2\`/\`-a3\` for ascend variants) and are **auto-deleted when this PR closes** (\`ucm-pr-cleanup.yml\`)."
               echo ""
             fi
             echo "### 📦 Artifacts (7-day retention)"
