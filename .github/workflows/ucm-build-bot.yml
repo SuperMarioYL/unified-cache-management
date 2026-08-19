@@ -22,7 +22,7 @@ jobs:
       allowed: ${{ steps.check-permission.outputs.allowed }}
       subcommand: ${{ steps.parse.outputs.subcommand }}
       profile-arg: ${{ steps.parse.outputs.profile-arg }}
-      family-arg: ${{ steps.parse.outputs.family-arg }}
+      image-refs: ${{ steps.parse.outputs.image-refs }}
     steps:
       - name: Parse /ucm-build subcommand
         id: parse
@@ -40,26 +40,43 @@ jobs:
             *) echo "::error::/ucm-build subcommand must be in {wheel,image,chart,all,help}; got: '${subcommand}'" >&2; exit 2 ;;
           esac
           profile_arg=""
-          family_arg=""
+          image_refs=()
           for tok in $body; do
             case "$tok" in
               profile=*) profile_arg="${tok#profile=}" ;;
-              family=*)  family_arg="${tok#family=}" ;;
             esac
           done
-          # cross-check args (help takes none; profile only with wheel/all; family only with image/all)
+          # image takes one or more positional <repo:tag> refs after the `image`
+          # keyword (catalog resolve --pin-upstream validates each repo).
+          if [ "$subcommand" = "image" ]; then
+            seen_image=0
+            for tok in $body; do
+              if [ "$seen_image" = "0" ]; then
+                case "$tok" in image) seen_image=1 ;; esac
+                continue
+              fi
+              case "$tok" in
+                profile=*) ;;  # ignored (cross-checked: invalid with image)
+                *:*) image_refs+=("$tok") ;;
+                *) echo "::error::/ucm-build image: '${tok}' is not a repo:tag" >&2; exit 2 ;;
+              esac
+            done
+            if [ "${#image_refs[@]}" -eq 0 ]; then
+              echo "::error::/ucm-build image requires one or more <repo:tag> refs, e.g. /ucm-build image quay.io/ascend/vllm-ascend:v0.22.1rc1-a3" >&2; exit 2
+            fi
+          fi
+          # cross-check: profile only with wheel/all; image takes refs only
           if [ "$subcommand" != "help" ]; then
             if [ -n "$profile_arg" ] && [ "$subcommand" != "wheel" ] && [ "$subcommand" != "all" ]; then
               echo "::error::profile= is only valid with /ucm-build wheel|all" >&2; exit 2
-            fi
-            if [ -n "$family_arg" ] && [ "$subcommand" != "image" ] && [ "$subcommand" != "all" ]; then
-              echo "::error::family= is only valid with /ucm-build image|all" >&2; exit 2
             fi
           fi
           {
             echo "subcommand=${subcommand}"
             echo "profile-arg=${profile_arg}"
-            echo "family-arg=${family_arg}"
+            echo "image-refs<<EOF"
+            printf '%s\n' "${image_refs[@]}"
+            echo "EOF"
           } >>"${GITHUB_OUTPUT}"
       - name: Post help comment
         if: steps.parse.outputs.subcommand == 'help'
@@ -76,11 +93,11 @@ jobs:
           | command | what it builds | pushes to GHCR? |
           | --- | --- | --- |
           | `/ucm-build wheel [profile=<name>]` | wheels — `profile=` one of `cuda130` / `cann900-a2` / `cann900-a3` (omit for all) | no (artifact only) |
-          | `/ucm-build image family=<name>` | wheels + images, then auto-push | yes — `ghcr.io/<owner>/<family>:v<upstream-ver>-pr-<n>-<author>-<sha8>` |
+          | `/ucm-build image <repo:tag> [<repo:tag>...]` | wheels + images for the pinned upstreams, then auto-push | yes — `ghcr.io/<owner>/<family>:v<upstream-ver>-pr-<n>-<author>-<sha8>` |
           | `/ucm-build chart` | chart (lint + template + package) | no (artifact only) |
           | `/ucm-build all` | wheels + images + chart | yes (images) |
 
-          - `family=`: `vllm` / `vllm-ascend` / `vllm-ascend-a2` / `vllm-ascend-a3`.
+          - pinned repos: `docker.io/vllm/vllm-openai` (cuda) / `quay.io/ascend/vllm-ascend` (a2/a3). The variant is auto-detected by inspecting the image (`SOC_VERSION`); any pep440 tag works, including out-of-specifier versions.
           - `/ucm-build help` (or bare `/ucm-build`) shows this message.
           EOF
           gh pr comment "${PR_NUMBER}" --repo "${{ github.repository }}" --body-file help.md
@@ -181,12 +198,18 @@ jobs:
         name: Resolve one frozen feature-candidate plan for the PR head
         env:
           SOURCE_SHA: ${{ needs.permission-check.outputs.pr-head-sha }}
+          SUBCOMMAND: ${{ needs.permission-check.outputs.subcommand }}
+          IMAGE_REFS: ${{ needs.permission-check.outputs.image-refs }}
         run: |
           set -euo pipefail
           mkdir -p out/plan
-          PYTHONPATH=.github/release python -m ucm_release catalog resolve \
-            --lane feature-candidate --source-sha "${SOURCE_SHA}" \
-            --output out/plan/resolved-plan.json >/dev/null
+          resolve_args=(--lane feature-candidate --source-sha "${SOURCE_SHA}" --output out/plan/resolved-plan.json)
+          if [ "${SUBCOMMAND}" = "image" ]; then
+            while IFS= read -r ref; do
+              [ -n "${ref}" ] && resolve_args+=(--pin-upstream "${ref}")
+            done <<< "${IMAGE_REFS}"
+          fi
+          PYTHONPATH=.github/release python -m ucm_release catalog resolve "${resolve_args[@]}" >/dev/null
           resolved_plan_sha256="$(jq -r '.resolved_plan_sha256' out/plan/resolved-plan.json)"
           logical_artifact="$(jq -r '.expected_artifacts.resolved_plan' out/plan/resolved-plan.json)"
           resolved_plan_artifact="${logical_artifact}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
@@ -207,13 +230,11 @@ jobs:
         env:
           SUBCOMMAND: ${{ needs.permission-check.outputs.subcommand }}
           PROFILE_ARG: ${{ needs.permission-check.outputs.profile-arg }}
-          FAMILY_ARG: ${{ needs.permission-check.outputs.family-arg }}
         run: |
           set -euo pipefail
           plan=out/plan/resolved-plan.json
           subcommand="${SUBCOMMAND}"
           profile="${PROFILE_ARG}"
-          family="${FAMILY_ARG}"
           case "$subcommand" in
             wheel)
               if [ -n "$profile" ]; then
@@ -228,24 +249,10 @@ jobs:
               chart=false
               ;;
             image)
-              pid=""; var=""
-              case "$family" in
-                vllm-ascend-a2) pid=vllm-ascend; var=a2 ;;
-                vllm-ascend-a3) pid=vllm-ascend; var=a3 ;;
-                vllm-ascend)     pid=vllm-ascend ;;
-                vllm)            pid=vllm ;;
-                *) echo "::error::unknown family '${family:-<empty>}'; use vllm|vllm-ascend|vllm-ascend-a2|vllm-ascend-a3" >&2; exit 2 ;;
-              esac
-              if [ -n "$var" ]; then
-                im="$(jq -c --arg pid "$pid" --arg var "$var" '{include:[.image_tasks[]|select(.runtime.product_id==$pid and .runtime.variant==$var)|{task_id,runner,wheel_task_id}]}' "$plan")"
-                needed="$(jq -c --arg pid "$pid" --arg var "$var" '[.image_tasks[]|select(.runtime.product_id==$pid and .runtime.variant==$var)|.wheel_task_id]' "$plan")"
-              else
-                im="$(jq -c --arg pid "$pid" '{include:[.image_tasks[]|select(.runtime.product_id==$pid)|{task_id,runner,wheel_task_id}]}' "$plan")"
-                needed="$(jq -c --arg pid "$pid" '[.image_tasks[]|select(.runtime.product_id==$pid)|.wheel_task_id]' "$plan")"
-              fi
-              if [ "$(printf '%s' "$im" | jq '.include|length')" -eq 0 ]; then
-                echo "::error::family '${family}' matched no image tasks" >&2; exit 2
-              fi
+              # the pinned plan (catalog resolve --pin-upstream) already contains
+              # only the user's image:tags -> build all image_tasks + their wheels
+              im="$(jq -c '{include:[.image_tasks[]|{task_id,runner,wheel_task_id}]}' "$plan")"
+              needed="$(jq -c '[.image_tasks[].wheel_task_id]' "$plan")"
               wm="$(jq -c --argjson needed "$needed" '{include:[.wheel_tasks[]|select(.task_id|IN($needed[]))|{task_id,runner}]}' "$plan")"
               chart=false
               ;;
@@ -423,8 +430,13 @@ jobs:
             vsuffix=""
             [ "$variant" != "default" ] && vsuffix="-${variant}"
             # tag mirrors the release shape (v<upstream-ver>-ucm-...) but with the
-            # ucm-version part replaced by pr-<n>-<author>-<sha8>: v<ver>-pr-<n>-<author>-<sha8>[-<variant>][-<arch>]
-            base_tag="v${upstream_ver}-pr-${PR_NUMBER}-${author_lc}-${sha8}${vsuffix}"
+            # ucm-version part replaced by pr-<n>-<author>-<sha8>. For a non-pep440
+            # pinned version (e.g. 'latest') drop the v prefix so the tag stays valid.
+            case "$upstream_ver" in
+              [0-9]*) ver_prefix="v${upstream_ver}" ;;
+              *) ver_prefix="${upstream_ver}" ;;
+            esac
+            base_tag="${ver_prefix}-pr-${PR_NUMBER}-${author_lc}-${sha8}${vsuffix}"
             test -f "$d/image.oci.tar"
             layout="$(mktemp -d)"
             tar -xf "$d/image.oci.tar" -C "$layout"
@@ -504,6 +516,6 @@ jobs:
             fi
             echo ""
             echo "---"
-            echo "_Subcommands: \`/ucm-build wheel [profile=<name>]\` · \`/ucm-build image family=<name>\` · \`/ucm-build chart\` · \`/ucm-build all\`_"
+            echo "_Subcommands: \`/ucm-build wheel [profile=<name>]\` · \`/ucm-build image <repo:tag> [<repo:tag>...]\` · \`/ucm-build chart\` · \`/ucm-build all\`_"
           } >comment.md
           gh pr comment "${PR_NUMBER}" --repo "${{ github.repository }}" --body-file comment.md

@@ -32,11 +32,11 @@ jobs:
           | command | what it builds | pushes to GHCR? |
           | --- | --- | --- |
           | `/ucm-build wheel [profile=<name>]` | wheels — `profile=` one of `cuda130` / `cann900-a2` / `cann900-a3` (omit for all) | no (artifact only) |
-          | `/ucm-build image family=<name>` | wheels + images, then auto-push | yes — `ghcr.io/<owner>/<family>:v<upstream-ver>-pr-<n>-<author>-<sha8>` |
+          | `/ucm-build image <repo:tag> [<repo:tag>...]` | wheels + images for the pinned upstreams, then auto-push | yes — `ghcr.io/<owner>/<family>:v<upstream-ver>-pr-<n>-<author>-<sha8>` |
           | `/ucm-build chart` | chart (lint + template + package) | no (artifact only) |
           | `/ucm-build all` | wheels + images + chart | yes (images) |
 
-          - `family=`: `vllm` / `vllm-ascend` / `vllm-ascend-a2` / `vllm-ascend-a3`.
+          - pinned repos: `docker.io/vllm/vllm-openai` (cuda) / `quay.io/ascend/vllm-ascend` (a2/a3). The variant is auto-detected by inspecting the image (`SOC_VERSION`); any pep440 tag works, including out-of-specifier versions.
           - `/ucm-build help` (or bare `/ucm-build`) re-shows this message.
           EOF
           gh pr comment "${PR_NUMBER}" --repo "${{ github.repository }}" --body-file hint.md
