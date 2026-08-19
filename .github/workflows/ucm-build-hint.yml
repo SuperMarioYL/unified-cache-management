@@ -25,18 +25,20 @@ jobs:
         run: |
           set -euo pipefail
           cat >hint.md <<'EOF'
-          ## 🤖 `/ucm-build` commands
+          ## 🤖 `/ucm-build` 命令 / Commands
 
-          Available to repo members with **write** access. Each run fixes the current PR head SHA; pushed images are auto-deleted when the PR closes.
+          仓库成员(write+)可用。每次构建固定当前 PR head SHA;推送的镜像在 PR 关闭时自动删除。
+          Available to repo members (write+). Each run fixes the current PR head SHA; pushed images auto-delete when the PR closes.
 
-          | command | what it builds | pushes to GHCR? |
+          | 命令 / Command | 构建 / Builds | 推 GHCR? / Push? |
           | --- | --- | --- |
-          | `/ucm-build wheel [profile=<name>]` | wheels — `profile=` one of `cuda130` / `cann900-a2` / `cann900-a3` (omit for all) | no (artifact only) |
-          | `/ucm-build image <repo:tag> [<repo:tag>...]` | wheels + images for the pinned upstreams, then auto-push | yes — `ghcr.io/<owner>/<family>:v<upstream-ver>-pr-<n>-<author>-<sha8>` |
-          | `/ucm-build chart` | chart (lint + template + package) | no (artifact only) |
-          | `/ucm-build all` | wheels + images + chart | yes (images) |
+          | `/ucm-build wheel [profile=<name>]` | UCM wheel — profile: `cuda130`/`cann900-a2`/`cann900-a3`(省略=全部)/ UCM wheel — profile: `cuda130`/`cann900-a2`/`cann900-a3` (omit for all) | 否 / no(仅 artifact / artifact only) |
+          | `/ucm-build image <repo:tag> [<repo:tag>...]` | 钉住上游的 wheel + 镜像,自动推送 / wheels + images for the pinned upstreams, auto-push | 是 / yes |
+          | `/ucm-build chart` | chart(lint + template + package)/ chart (lint + template + package) | 否 / no(仅 artifact / artifact only) |
+          | `/ucm-build all` | 全部(wheel + image + chart)/ everything (wheel + image + chart) | 是(镜像)/ yes (images) |
 
-          - pinned repos: `docker.io/vllm/vllm-openai` (cuda) / `quay.io/ascend/vllm-ascend` (a2/a3). The variant is auto-detected by inspecting the image (`SOC_VERSION`); any pep440 tag works, including out-of-specifier versions.
-          - `/ucm-build help` (or bare `/ucm-build`) re-shows this message.
+          - 镜像 tag / Image tag: `ghcr.io/<owner>/<family>:v<upstream-ver>-pr-<n>-<author>-<sha8>`(ascend 带 `-a2`/`-a3` 变体 / ascend variants carry `-a2`/`-a3`)。
+          - 钉住的上游仓库 / Pinned repos: `docker.io/vllm/vllm-openai`(cuda)/ `quay.io/ascend/vllm-ascend`(a2/a3)。变体由检查镜像 `SOC_VERSION` 自动检测 / variant auto-detected by inspecting the image;任意 pep440 tag 都行(含超 specifier 版本)/ any pep440 tag works (incl. out-of-specifier)。
+          - `/ucm-build help`(或光敲 `/ucm-build`)重显本消息 / re-shows this message.
           EOF
           gh pr comment "${PR_NUMBER}" --repo "${{ github.repository }}" --body-file hint.md

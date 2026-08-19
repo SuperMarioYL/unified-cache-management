@@ -86,19 +86,21 @@ jobs:
         run: |
           set -euo pipefail
           cat >help.md <<'EOF'
-          ## 🤖 `/ucm-build` commands
+          ## 🤖 `/ucm-build` 命令 / Commands
 
-          Available to repo members with **write** access. Each run fixes the current PR head SHA; pushed images are auto-deleted when the PR closes.
+          仓库成员(write+)可用。每次构建固定当前 PR head SHA;推送的镜像在 PR 关闭时自动删除。
+          Available to repo members (write+). Each run fixes the current PR head SHA; pushed images auto-delete when the PR closes.
 
-          | command | what it builds | pushes to GHCR? |
+          | 命令 / Command | 构建 / Builds | 推 GHCR? / Push? |
           | --- | --- | --- |
-          | `/ucm-build wheel [profile=<name>]` | wheels — `profile=` one of `cuda130` / `cann900-a2` / `cann900-a3` (omit for all) | no (artifact only) |
-          | `/ucm-build image <repo:tag> [<repo:tag>...]` | wheels + images for the pinned upstreams, then auto-push | yes — `ghcr.io/<owner>/<family>:v<upstream-ver>-pr-<n>-<author>-<sha8>` |
-          | `/ucm-build chart` | chart (lint + template + package) | no (artifact only) |
-          | `/ucm-build all` | wheels + images + chart | yes (images) |
+          | `/ucm-build wheel [profile=<name>]` | UCM wheel — profile: `cuda130`/`cann900-a2`/`cann900-a3`(省略=全部)/ UCM wheel — profile: `cuda130`/`cann900-a2`/`cann900-a3` (omit for all) | 否 / no(仅 artifact / artifact only) |
+          | `/ucm-build image <repo:tag> [<repo:tag>...]` | 钉住上游的 wheel + 镜像,自动推送 / wheels + images for the pinned upstreams, auto-push | 是 / yes |
+          | `/ucm-build chart` | chart(lint + template + package)/ chart (lint + template + package) | 否 / no(仅 artifact / artifact only) |
+          | `/ucm-build all` | 全部(wheel + image + chart)/ everything (wheel + image + chart) | 是(镜像)/ yes (images) |
 
-          - pinned repos: `docker.io/vllm/vllm-openai` (cuda) / `quay.io/ascend/vllm-ascend` (a2/a3). The variant is auto-detected by inspecting the image (`SOC_VERSION`); any pep440 tag works, including out-of-specifier versions.
-          - `/ucm-build help` (or bare `/ucm-build`) shows this message.
+          - 镜像 tag / Image tag: `ghcr.io/<owner>/<family>:v<upstream-ver>-pr-<n>-<author>-<sha8>`(ascend 带 `-a2`/`-a3` 变体 / ascend variants carry `-a2`/`-a3`)。
+          - 钉住的上游仓库 / Pinned repos: `docker.io/vllm/vllm-openai`(cuda)/ `quay.io/ascend/vllm-ascend`(a2/a3)。变体由检查镜像 `SOC_VERSION` 自动检测 / variant auto-detected by inspecting the image;任意 pep440 tag 都行(含超 specifier 版本)/ any pep440 tag works (incl. out-of-specifier)。
+          - `/ucm-build help`(或光敲 `/ucm-build`)重显本消息 / re-shows this message.
           EOF
           gh pr comment "${PR_NUMBER}" --repo "${{ github.repository }}" --body-file help.md
       - name: Check commenter write permission
@@ -484,19 +486,34 @@ jobs:
           set -euo pipefail
           sha8="${SOURCE_SHA:0:8}"
           author_lc="$(printf '%s' "${PR_AUTHOR}" | tr '[:upper:]' '[:lower:]')"
+          plan=input/plan/resolved-plan.json
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          # one API call for the run's artifacts (name -> id/size, for download links)
+          artifacts_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" --jq '.artifacts' 2>/dev/null || true)"
+          artifact_link() {
+            # echo "id<TAB>size_bytes" for the named artifact, or empty
+            printf '%s' "${artifacts_json}" | jq -re --arg n "$1" '.[]? | select(.name==$n) | "\(.id)\t\(.size_in_bytes)"' 2>/dev/null | head -1 || true
+          }
+          human_size() {
+            local b="${1:-0}"; b="${b%%[^0-9]*}"
+            if [ "${b:-0}" -ge 1048576 ]; then awk -v b="$b" 'BEGIN{printf "%.1f MB", b/1048576}'
+            elif [ "${b:-0}" -ge 1024 ]; then awk -v b="$b" 'BEGIN{printf "%.1f KB", b/1024}'
+            else printf '%s B' "${b:-0}"; fi
+          }
+          wheel_arch() { case "$1" in amd64) echo x86_64;; arm64) echo aarch64;; *) echo "$1";; esac; }
           {
-            echo "## 🤖 \`/ucm-build ${SUBCOMMAND}\` — build receipt"
+            echo "## 🤖 \`/ucm-build ${SUBCOMMAND}\` — 构建回执 / Build receipt"
             echo ""
-            echo "**Fixed SHA:** \`${SOURCE_SHA}\`"
+            echo "**固定 SHA / Fixed SHA:** \`${SOURCE_SHA}\`"
             echo ""
-            echo "| product | status |"
+            echo "| 产物 / Product | 状态 / Status |"
             echo "| --- | --- |"
             echo "| wheel | \`${WHEEL_RESULT}\` |"
             echo "| image | \`${IMAGE_RESULT}\` |"
             echo "| chart | \`${CHART_RESULT}\` |"
             echo ""
             if [ -n "${LIST_TAGS}" ]; then
-              echo "### 🐳 GHCR images (auto-pushed, PR-tagged)"
+              echo "### 🐳 GHCR 镜像 / Images(自动推送,PR 关闭时自动删除 / auto-pushed, auto-deleted on PR close)"
               echo ""
               echo '```bash'
               printf '%s\n' "${LIST_TAGS}" | while IFS='|' read -r tag digest; do
@@ -505,17 +522,52 @@ jobs:
               done
               echo '```'
               echo ""
-              echo "Packages are named by family (\`vllm\` / \`vllm-ascend\`); tags are \`v<upstream-ver>-pr-${PR_NUMBER}-${author_lc}-${sha8}-\` (with \`-a2\`/\`-a3\` for ascend variants) and are **auto-deleted when this PR closes** (\`ucm-pr-cleanup.yml\`)."
+              echo "包名按 family(\`vllm\`/\`vllm-ascend\`);tag 前缀 \`pr-${PR_NUMBER}-${author_lc}-${sha8}-\`(ascend 带 \`-a2\`/\`-a3\`)。"
+              echo "Packages named by family; tags prefixed \`pr-${PR_NUMBER}-${author_lc}-${sha8}-\` (ascend: \`-a2\`/\`-a3\`)."
               echo ""
             fi
-            echo "### 📦 Artifacts (7-day retention)"
+            echo "### 📦 产物 / Artifacts(7 天保留 / 7-day retention)"
             echo ""
-            echo "Wheels, images (OCI evidence), and chart packages are attached to [this workflow run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}) — download them from the run's **Artifacts** section."
-            if [ -n "${CHART_ARTIFACT}" ]; then
-              echo "- chart artifact: \`${CHART_ARTIFACT}\`"
+            echo "| 文件 / File | 大小 / Size | 下载 / Download |"
+            echo "| --- | --- | --- |"
+            # chart (real filename from the plan + per-artifact download link)
+            if [ -n "${CHART_ARTIFACT}" ] && [ "${CHART_RESULT}" = "success" ] && [ -f "$plan" ]; then
+              chart_name="$(jq -r '.chart.name' "$plan")"
+              chart_version="$(jq -r '.chart.version' "$plan")"
+              chart_file="${chart_name}-${chart_version}.tgz"
+              cid=""; csize=""
+              read -r cid csize < <(artifact_link "${CHART_ARTIFACT}") || true
+              if [ -n "${cid:-}" ]; then
+                echo "| \`${chart_file}\` | $(human_size "${csize:-0}") | [下载 / download](${run_url}/artifacts/${cid}) |"
+              else
+                echo "| \`${chart_file}\` | — | ${run_url} |"
+              fi
+            fi
+            # wheels (real .whl filename derived from the plan + download link)
+            if [ "${WHEEL_RESULT}" = "success" ] && [ -f "$plan" ]; then
+              jq -c '.wheel_tasks[] | {task_id, dist_name, wheel_version, python_abi, wheel_platform, cpu_arch}' "$plan" 2>/dev/null | while IFS= read -r t; do
+                task_id="$(printf '%s' "$t" | jq -r '.task_id')"
+                dist="$(printf '%s' "$t" | jq -r '.dist_name' | tr '-' '_')"
+                wver="$(printf '%s' "$t" | jq -r '.wheel_version')"
+                abi="$(printf '%s' "$t" | jq -r '.python_abi')"
+                wplat="$(printf '%s' "$t" | jq -r '.wheel_platform')"
+                arch="$(printf '%s' "$t" | jq -r '.cpu_arch')"
+                warch="$(wheel_arch "$arch")"
+                whl="${dist}-${wver}-${abi}-${abi}-${wplat}_${warch}.whl"
+                art_name="ucm-wheel-${task_id}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+                wid=""; wsize=""
+                read -r wid wsize < <(artifact_link "${art_name}") || true
+                if [ -n "${wid:-}" ]; then
+                  echo "| \`${whl}\` | $(human_size "${wsize:-0}") | [下载 / download](${run_url}/artifacts/${wid}) |"
+                else
+                  echo "| \`${whl}\` | — | ${run_url} |"
+                fi
+              done
             fi
             echo ""
+            echo "完整产物列表(含镜像 OCI 证据)/ Full artifact list (incl. image OCI evidence): ${run_url}"
+            echo ""
             echo "---"
-            echo "_Subcommands: \`/ucm-build wheel [profile=<name>]\` · \`/ucm-build image <repo:tag> [<repo:tag>...]\` · \`/ucm-build chart\` · \`/ucm-build all\`_"
+            echo "_子命令 / Subcommands:\`/ucm-build wheel [profile=<name>]\` · \`/ucm-build image <repo:tag> [<repo:tag>...]\` · \`/ucm-build chart\` · \`/ucm-build all\` — \`/ucm-build help\` 重显命令清单 / re-shows commands_"
           } >comment.md
           gh pr comment "${PR_NUMBER}" --repo "${{ github.repository }}" --body-file comment.md
