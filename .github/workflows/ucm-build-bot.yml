@@ -364,8 +364,8 @@ jobs:
             --username "${GITHUB_ACTOR}" --password-stdin
           owner_lc="$(printf '%s' "${REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           sha8="${SOURCE_SHA:0:8}"
-          namespace="ghcr.io/${owner_lc}/ucm-pr"
           plan=input/plan/resolved-plan.json
+          # publish-manifest.tsv columns: pkg<TAB>base_tag<TAB>arch<TAB>arch_tag<TAB>digest
           : >publish-manifest.tsv
           # download every same-run image OCI artifact (each contains image.oci.tar)
           mapfile -t dirs < <(find input/oci -maxdepth 1 -type d -name 'ucm-oci-image-*' | sort)
@@ -377,31 +377,38 @@ jobs:
             artifact_name="$(basename "$d")"
             # ucm-oci-<task_id>-run-<run_id>-attempt-<attempt>  ->  task_id
             task_id="$(printf '%s' "$artifact_name" | sed -E 's/^ucm-oci-//; s/-run-[0-9]+-attempt-[0-9]+$//')"
-            read -r family arch <<<"$(jq -r --arg tid "$task_id" \
-              '.image_tasks[]|select(.task_id==$tid)|[(if .runtime.variant=="default" then .runtime.product_id else (.runtime.product_id+"-"+.runtime.variant) end),.cpu_arch]|@tsv' "$plan")"
-            if [ -z "$family" ] || [ -z "$arch" ]; then
-              echo "::error::could not resolve family/arch for task ${task_id}" >&2; exit 2
+            read -r product_id variant arch <<<"$(jq -r --arg tid "$task_id" \
+              '.image_tasks[]|select(.task_id==$tid)|[.runtime.product_id,.runtime.variant,.cpu_arch]|@tsv' "$plan")"
+            if [ -z "$product_id" ] || [ -z "$variant" ] || [ -z "$arch" ]; then
+              echo "::error::could not resolve product_id/variant/arch for task ${task_id}" >&2; exit 2
             fi
+            # package is named by family (product_id): vllm, vllm-ascend, ...
+            pkg="ghcr.io/${owner_lc}/${product_id}"
+            # variant goes in the tag for ascend (a2/a3 share one package); cuda has no variant
+            vsuffix=""
+            [ "$variant" != "default" ] && vsuffix="-${variant}"
+            base_tag="pr-${PR_NUMBER}-${sha8}${vsuffix}"
             test -f "$d/image.oci.tar"
             layout="$(mktemp -d)"
             tar -xf "$d/image.oci.tar" -C "$layout"
-            arch_tag="${namespace}:pr-${PR_NUMBER}-${sha8}-${family}-${arch}"
+            arch_tag="${pkg}:${base_tag}-${arch}"
             crane push "$layout" "$arch_tag"
             arch_digest="$(crane digest "$arch_tag")"
-            printf '%s\t%s\t%s\t%s\n' "$family" "$arch" "$arch_tag" "$arch_digest" >>publish-manifest.tsv
+            printf '%s\t%s\t%s\t%s\t%s\n' "$pkg" "$base_tag" "$arch" "$arch_tag" "$arch_digest" >>publish-manifest.tsv
             rm -rf "$layout"
           done
-          # compose a per-family multi-arch manifest list reviewers can `docker pull`
+          # compose a per-(package,variant) multi-arch manifest list reviewers can `docker pull`
           list_tags=()
-          for fam in $(cut -f1 publish-manifest.tsv | sort -u); do
-            mapfile -t refs < <(awk -v f="$fam" '$1==f {print $3}' publish-manifest.tsv)
-            list_tag="${namespace}:pr-${PR_NUMBER}-${sha8}-${fam}"
+          for key in $(cut -f1,2 publish-manifest.tsv | sort -u); do
+            pkg="${key%$'\t'*}"
+            base_tag="${key#*$'\t'}"
+            mapfile -t refs < <(awk -v p="$pkg" -v b="$base_tag" '$1==p && $2==b {print $4}' publish-manifest.tsv)
+            list_tag="${pkg}:${base_tag}"
             docker buildx imagetools create -t "$list_tag" "${refs[@]}"
             list_digest="$(crane digest "$list_tag")"
             list_tags+=("${list_tag}|${list_digest}")
           done
           {
-            echo "namespace=${namespace}"
             echo "list_tags<<EOF"
             printf '%s\n' "${list_tags[@]}"
             echo "EOF"
@@ -417,7 +424,6 @@ jobs:
           CHART_RESULT: ${{ needs.package-chart.result }}
           CHART_ARTIFACT: ${{ needs.package-chart.outputs.chart_artifact }}
           LIST_TAGS: ${{ steps.push-images.outputs.list_tags }}
-          NAMESPACE: ${{ steps.push-images.outputs.namespace }}
         run: |
           set -euo pipefail
           sha8="${SOURCE_SHA:0:8}"
@@ -442,7 +448,7 @@ jobs:
               done
               echo '```'
               echo ""
-              echo "Namespace: \`${NAMESPACE}\` — tags are prefixed \`pr-${PR_NUMBER}-${sha8}-\` and are **auto-deleted when this PR closes** (\`ucm-pr-cleanup.yml\`)."
+              echo "Packages are named by family (\`vllm\` / \`vllm-ascend\`); tags are prefixed \`pr-${PR_NUMBER}-${sha8}-\` (with \`-a2\`/\`-a3\` for ascend variants) and are **auto-deleted when this PR closes** (\`ucm-pr-cleanup.yml\`)."
               echo ""
             fi
             echo "### 📦 Artifacts (7-day retention)"

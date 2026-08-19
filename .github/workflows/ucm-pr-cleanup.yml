@@ -29,16 +29,17 @@ jobs:
             prefix="pr-"
           fi
           echo "Cleaning up GHCR images with prefix '${prefix}' for ${owner}/${repo}"
-          # List all package versions and delete those matching the PR prefix
+          # PR images live in per-family packages (vllm, vllm-ascend, ...) under
+          # pr-<n>-... tags. Sweep every container package and delete any version
+          # whose first tag starts with the PR prefix; release tags (v... ) are
+          # never touched because they don't start with pr-.
           for pkg in $(gh api "user/packages?package_type=container" --jq '.[].name' 2>/dev/null || true); do
-            if [[ "${pkg}" == "ucm-pr" ]]; then
-              versions="$(gh api "user/packages/container/${pkg}/versions?per_page=100" --jq '.[] | select(.metadata.container.tags[0] // "" | startswith("'"${prefix}"'")) | "\(.id) \(.metadata.container.tags[0])"')"
-              while IFS=' ' read -r version_id tag; do
-                if [[ -n "${version_id}" ]]; then
-                  echo "Deleting ${pkg}:${tag} (version ${version_id})"
-                  gh api --method DELETE "user/packages/container/${pkg}/versions/${version_id}" || true
-                fi
-              done <<< "${versions}"
-            fi
+            versions="$(gh api "user/packages/container/${pkg}/versions?per_page=100" --jq '.[] | select(.metadata.container.tags[0] // "" | startswith("'"${prefix}"'")) | "\(.id) \(.metadata.container.tags[0])"')"
+            while IFS=' ' read -r version_id tag; do
+              if [[ -n "${version_id}" ]]; then
+                echo "Deleting ${pkg}:${tag} (version ${version_id})"
+                gh api --method DELETE "user/packages/container/${pkg}/versions/${version_id}" || true
+              fi
+            done <<< "${versions}"
           done
           echo "PR artifact cleanup complete"
