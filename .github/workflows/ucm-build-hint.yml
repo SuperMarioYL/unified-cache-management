@@ -10,9 +10,11 @@ permissions:
 
 jobs:
   hint:
-    # same-repo PRs only — fork PRs get a read-only GITHUB_TOKEN on pull_request
-    # events, so they can't post. Fork contributors can run /ucm-build help.
-    if: github.event.pull_request.head.repo.fork == false
+    # same-repo PRs only — external-fork PRs get a read-only GITHUB_TOKEN on
+    # pull_request events, so they can't post. (head.repo.fork is true for ANY
+    # PR in a fork-of-a-fork repo, so compare head vs base repo full_name instead.)
+    # Fork contributors can run /ucm-build help.
+    if: github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     steps:
