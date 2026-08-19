@@ -34,7 +34,7 @@ jobs:
           # whose first tag starts with the PR prefix; release tags (v... ) are
           # never touched because they don't start with pr-.
           for pkg in $(gh api "user/packages?package_type=container" --jq '.[].name' 2>/dev/null || true); do
-            versions="$(gh api "user/packages/container/${pkg}/versions?per_page=100" --jq '.[] | select(.metadata.container.tags[0] // "" | startswith("'"${prefix}"'")) | "\(.id) \(.metadata.container.tags[0])"')"
+            versions="$(gh api "user/packages/container/${pkg}/versions?per_page=100" --jq '.[] | select(.metadata.container.tags[0] // "" | startswith("'"${prefix}"'")) | "\(.id) \(.metadata.container.tags[0])"' 2>/dev/null || true)"
             while IFS=' ' read -r version_id tag; do
               if [[ -n "${version_id}" ]]; then
                 echo "Deleting ${pkg}:${tag} (version ${version_id})"
