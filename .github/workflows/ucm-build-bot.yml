@@ -405,15 +405,21 @@ jobs:
           done
           # compose a per-(package,variant) multi-arch manifest list reviewers can `docker pull`
           list_tags=()
-          for key in $(cut -f1,2 publish-manifest.tsv | sort -u); do
+          # read full lines (pkg<TAB>base_tag); do NOT word-split, the tab is significant
+          while IFS= read -r key; do
+            [ -n "$key" ] || continue
             pkg="${key%$'\t'*}"
             base_tag="${key#*$'\t'}"
-            mapfile -t refs < <(awk -v p="$pkg" -v b="$base_tag" '$1==p && $2==b {print $4}' publish-manifest.tsv)
+            refs=()
+            while IFS= read -r r; do refs+=("$r"); done < <(awk -v p="$pkg" -v b="$base_tag" '$1==p && $2==b {print $4}' publish-manifest.tsv)
+            if [ "${#refs[@]}" -eq 0 ]; then
+              echo "::error::no arch refs found for ${pkg}:${base_tag}" >&2; exit 2
+            fi
             list_tag="${pkg}:${base_tag}"
             docker buildx imagetools create -t "$list_tag" "${refs[@]}"
             list_digest="$(crane digest "$list_tag")"
             list_tags+=("${list_tag}|${list_digest}")
-          done
+          done < <(cut -f1,2 publish-manifest.tsv | sort -u)
           {
             echo "list_tags<<EOF"
             printf '%s\n' "${list_tags[@]}"
