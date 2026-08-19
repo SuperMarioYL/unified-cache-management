@@ -19,14 +19,13 @@ jobs:
           set -euo pipefail
           prefix="pr-"
           echo "Sweeping GHCR tags with prefix '${prefix}'"
-          # Capture the package list raw; gh api --jq leaks error bodies to stdout on 404.
-          pkgs_raw="$(gh api "user/packages?package_type=container" 2>/dev/null || true)"
-          printf '%s' "${pkgs_raw}" | jq -e 'type=="array"' >/dev/null 2>&1 || { echo "no listable packages; done"; exit 0; }
-          for pkg in $(printf '%s' "${pkgs_raw}" | jq -r '.[].name'); do
-            [ -n "${pkg}" ] || continue
+          # GITHUB_TOKEN cannot list user/packages (needs a user PAT), but it CAN
+          # read+delete versions of packages it owns. Enumerate the known family
+          # packages the bot pushes to, plus historical ones.
+          packages="vllm vllm-ascend vllm-openai ucm-pr"
+          for pkg in ${packages}; do
             raw="$(gh api "user/packages/container/${pkg}/versions?per_page=100" 2>/dev/null || true)"
-            # only versions arrays; skip 404/error bodies
-            printf '%s' "${raw}" | jq -e 'type=="array"' >/dev/null 2>&1 || continue
+            printf '%s' "${raw}" | jq -e 'type=="array"' >/dev/null 2>&1 || { echo "${pkg}: not listable (skipped)"; continue; }
             printf '%s' "${raw}" | jq -r '.[] | select(.metadata.container.tags[0] // "" | startswith("'"${prefix}"'")) | "\(.id) \(.metadata.container.tags[0])"' 2>/dev/null | while IFS= read -r line; do
               [ -n "${line}" ] || continue
               vid="${line%% *}"
