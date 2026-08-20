@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -26,6 +28,41 @@ def _paths(parser: argparse.ArgumentParser) -> None:
 
 def _write(path: Path, value: object) -> None:
     path.write_bytes(core.canonical_bytes(value) + b"\n")
+
+
+def _write_atomic_result(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            delete=False,
+        ) as handle:
+            handle.write(_json(value) + "\n")
+            temporary = Path(handle.name)
+        os.replace(temporary, path)
+        temporary = None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _validate_stage_inputs(
+    args: argparse.Namespace,
+    *,
+    required: tuple[str, ...] = (),
+    forbidden: tuple[str, ...] = (),
+) -> None:
+    missing = [name for name in required if getattr(args, name) is None]
+    present = [name for name in forbidden if getattr(args, name) is not None]
+    if missing or present:
+        raise ValueError(
+            f"publish {args.action} {args.stage} input mismatch; "
+            f"missing={missing}, forbidden={present}"
+        )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -163,39 +200,76 @@ def build_parser() -> argparse.ArgumentParser:
     def _cmd_publish_plan(a):
         release = core.load_catalog(a.catalog, a.schema_dir, repository_root=a.repository_root, repository=a.repository)  # fmt: skip  # noqa: E501
         plan = core.compute_publish_plan(release)
-        payload = json.dumps(plan, sort_keys=True, separators=(",", ":"))
-        a.output.parent.mkdir(parents=True, exist_ok=True)
-        a.output.write_text(payload + "\n", encoding="utf-8")
         return {"kind": "ucm-publish-plan", "schema_version": 1, "publish": plan}
-    publish_plan.set_defaults(func=_cmd_publish_plan)
+    publish_plan.set_defaults(func=_cmd_publish_plan, publication_result=True)
 
     publish_pypi = publish_actions.add_parser("pypi")
     publish_pypi.add_argument("--plan", type=Path, required=True)
     publish_pypi.add_argument('--stage', choices=('publish', 'readback'), required=True)  # fmt: skip  # noqa: E501
     publish_pypi.add_argument("--wheels-dir", type=Path, required=True)
-    publish_pypi.set_defaults(func=lambda a: publish.publish_pypi(a.plan, sorted(a.wheels_dir.glob('*.whl')), stage=a.stage))  # fmt: skip  # noqa: E501
+    publish_pypi.add_argument("--draft-state", type=Path)
+    publish_pypi.add_argument("--output", type=Path, required=True)
+
+    def _cmd_publish_pypi(a):
+        if a.stage == 'publish': _validate_stage_inputs(a, required=('draft_state',))  # noqa: E701,E501
+        else: _validate_stage_inputs(a, forbidden=('draft_state',))  # noqa: E701
+        return publish.publish_pypi(a.plan, sorted(a.wheels_dir.glob('*.whl')), stage=a.stage, draft_state=a.draft_state)  # fmt: skip  # noqa: E501
+    publish_pypi.set_defaults(func=_cmd_publish_pypi, publication_result=True)
+
+    publish_ghcr = publish_actions.add_parser("ghcr")
+    publish_ghcr.add_argument("--plan", type=Path, required=True)
+    publish_ghcr.add_argument('--stage', choices=('publish', 'readback'), required=True)  # fmt: skip  # noqa: E501
+    publish_ghcr.add_argument("--members-dir", type=Path)
+    publish_ghcr.add_argument("--draft-state", type=Path)
+    publish_ghcr.add_argument("--output", type=Path, required=True)
+
+    def _cmd_publish_ghcr(a):
+        if a.stage == 'publish': _validate_stage_inputs(a, required=('members_dir', 'draft_state'))  # noqa: E701,E501
+        else: _validate_stage_inputs(a, forbidden=('members_dir', 'draft_state'))  # noqa: E701,E501
+        return publish.publish_ghcr(a.plan, stage=a.stage, members_dir=a.members_dir, draft_state=a.draft_state)  # fmt: skip  # noqa: E501
+    publish_ghcr.set_defaults(func=_cmd_publish_ghcr, publication_result=True)
 
     publish_dockerhub = publish_actions.add_parser("dockerhub")
     publish_dockerhub.add_argument("--plan", type=Path, required=True)
     publish_dockerhub.add_argument('--stage', choices=('publish', 'readback'), required=True)  # fmt: skip  # noqa: E501
-    publish_dockerhub.set_defaults(func=lambda a: publish.publish_dockerhub(a.plan, stage=a.stage))  # fmt: skip  # noqa: E501
+    publish_dockerhub.add_argument("--draft-state", type=Path)
+    publish_dockerhub.add_argument("--output", type=Path, required=True)
+
+    def _cmd_publish_dockerhub(a):
+        if a.stage == 'publish': _validate_stage_inputs(a, required=('draft_state',))  # noqa: E701,E501
+        else: _validate_stage_inputs(a, forbidden=('draft_state',))  # noqa: E701
+        return publish.publish_dockerhub(a.plan, stage=a.stage, draft_state=a.draft_state)  # fmt: skip  # noqa: E501
+    publish_dockerhub.set_defaults(func=_cmd_publish_dockerhub, publication_result=True)
 
     publish_chart = publish_actions.add_parser("chart-oci")
     publish_chart.add_argument("--plan", type=Path, required=True)
     publish_chart.add_argument('--stage', choices=('publish', 'readback'), required=True)  # fmt: skip  # noqa: E501
     publish_chart.add_argument("--package", type=Path, required=True)
     publish_chart.add_argument("--readback-dir", type=Path)
-    publish_chart.set_defaults(func=lambda a: publish.publish_chart_oci(a.plan, a.package, stage=a.stage, readback_dir=a.readback_dir))  # fmt: skip  # noqa: E501
+    publish_chart.add_argument("--draft-state", type=Path)
+    publish_chart.add_argument("--output", type=Path, required=True)
 
-    publish_ghcr = publish_actions.add_parser("ghcr-readback")
-    publish_ghcr.add_argument("--plan", type=Path, required=True)
-    publish_ghcr.set_defaults(func=lambda a: publish.readback_ghcr(a.plan))
+    def _cmd_publish_chart(a):
+        if a.stage == 'publish': _validate_stage_inputs(a, required=('draft_state',), forbidden=('readback_dir',))  # noqa: E701,E501
+        else: _validate_stage_inputs(a, required=('readback_dir',), forbidden=('draft_state',))  # noqa: E701,E501
+        return publish.publish_chart_oci(a.plan, a.package, stage=a.stage, draft_state=a.draft_state, readback_dir=a.readback_dir)  # fmt: skip  # noqa: E501
+    publish_chart.set_defaults(func=_cmd_publish_chart, publication_result=True)
 
     publish_github_release = publish_actions.add_parser("github-release")
     publish_github_release.add_argument("--plan", type=Path, required=True)
     publish_github_release.add_argument('--stage', choices=('draft', 'assets', 'finalize', 'readback'), required=True)  # fmt: skip  # noqa: E501
     publish_github_release.add_argument("--artifacts-dir", type=Path)
-    publish_github_release.set_defaults(func=lambda a: publish.publish_github_release(a.plan, stage=a.stage, artifacts=sorted(a.artifacts_dir.iterdir()) if a.artifacts_dir is not None and a.artifacts_dir.is_dir() else None))  # fmt: skip  # noqa: E501
+    publish_github_release.add_argument("--draft-state", type=Path)
+    publish_github_release.add_argument("--output", type=Path, required=True)
+
+    def _cmd_publish_github_release(a):
+        if a.stage == 'draft': _validate_stage_inputs(a, forbidden=('artifacts_dir', 'draft_state'))  # noqa: E701,E501
+        elif a.stage == 'assets': _validate_stage_inputs(a, required=('artifacts_dir', 'draft_state'))  # noqa: E701,E501
+        elif a.stage == 'finalize': _validate_stage_inputs(a, required=('draft_state',), forbidden=('artifacts_dir',))  # noqa: E701,E501
+        else: _validate_stage_inputs(a, forbidden=('artifacts_dir', 'draft_state'))  # noqa: E701,E501
+        artifacts = sorted(a.artifacts_dir.iterdir()) if a.artifacts_dir is not None else None  # fmt: skip  # noqa: E501
+        return publish.publish_github_release(a.plan, stage=a.stage, artifacts=artifacts, draft_state=a.draft_state)  # fmt: skip  # noqa: E501
+    publish_github_release.set_defaults(func=_cmd_publish_github_release, publication_result=True)
 
     core_parser = groups.add_parser("core")
     core_actions = core_parser.add_subparsers(dest="action", required=True)
@@ -341,6 +415,8 @@ def main(argv: list[str] | None = None) -> int:
         result = args.func(args)
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError, yaml.YAMLError) as error:
         parser.exit(2, f"error: {error}\n")
+    if getattr(args, "publication_result", False):
+        _write_atomic_result(args.output, result)
     print(_json(result))
     return 0
 

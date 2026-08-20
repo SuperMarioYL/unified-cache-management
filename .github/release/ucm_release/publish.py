@@ -98,13 +98,20 @@ def _load_plan(plan_path: Path) -> dict[str, Any]:
     return plan
 
 
-def _result(channel: str, stage: str, status: str, **details: Any) -> dict[str, Any]:
+def _result(
+    plan: dict[str, Any],
+    channel: str,
+    stage: str,
+    status: str,
+    **details: Any,
+) -> dict[str, Any]:
     return {
         "kind": "ucm-publication-result",
         "schema_version": 1,
         "channel": channel,
         "stage": stage,
         "status": status,
+        "resolved_plan_sha256": plan["resolved_plan_sha256"],
         **details,
     }
 
@@ -113,8 +120,57 @@ def _channel(plan_path: Path, channel: str, stage: str) -> tuple[dict[str, Any],
     plan = _load_plan(plan_path)
     config = plan["publish"][channel]
     if not config["enabled"]:
-        return plan, None, _result(channel, stage, "skipped", reason="disabled")
+        return plan, None, _result(plan, channel, stage, "skipped", reason="disabled")
     return plan, config, None
+
+
+def _require_protected_plan(plan: dict[str, Any]) -> None:
+    source = plan["source"]
+    if (
+        plan["fixture_only"] is not False
+        or plan["lane"] != "protected-tag"
+        or not source["release_tag"].startswith("v")
+        or source["release_tag"] != f"v{source['ucm_version']}"
+    ):
+        raise ValueError(
+            "publication requires a non-fixture protected-tag plan with exact v* source"
+        )
+
+
+def _require_draft_state(plan: dict[str, Any], draft_state: Path | None) -> dict[str, Any]:
+    if draft_state is None:
+        raise ValueError("publication write requires a GitHub Release Draft state")
+    try:
+        state = core.load_json(Path(draft_state))
+    except (OSError, ValueError) as error:
+        raise ValueError("GitHub Release Draft state is unreadable") from error
+    expected_keys = {
+        "kind",
+        "schema_version",
+        "channel",
+        "stage",
+        "status",
+        "resolved_plan_sha256",
+        "release_id",
+        "tag",
+        "draft",
+    }
+    if (
+        set(state) != expected_keys
+        or state.get("kind") != "ucm-publication-result"
+        or state.get("schema_version") != 1
+        or state.get("channel") != "github_release"
+        or state.get("stage") != "draft"
+        or state.get("status") not in {"created", "reused"}
+        or state.get("resolved_plan_sha256") != plan["resolved_plan_sha256"]
+        or state.get("tag") != plan["source"]["release_tag"]
+        or not isinstance(state.get("release_id"), int)
+        or isinstance(state.get("release_id"), bool)
+        or state["release_id"] < 1
+        or state.get("draft") is not True
+    ):
+        raise ValueError("GitHub Release Draft state differs from resolved plan")
+    return state
 
 
 def _wheel_filename(task: dict[str, Any]) -> str:
@@ -158,6 +214,7 @@ def publish_pypi(
     wheels: Sequence[Path],
     *,
     stage: str,
+    draft_state: Path | None = None,
     run: Run = _default_run,
     http_get: HttpGet = _default_http_get,
 ) -> dict[str, Any]:
@@ -165,11 +222,16 @@ def publish_pypi(
     plan, config, skipped = _channel(plan_path, "pypi", stage)
     if skipped is not None: return skipped  # noqa: E701
     assert config is not None
+    _require_protected_plan(plan)
+    if stage == "publish":
+        _require_draft_state(plan, draft_state)
+    elif draft_state is not None:
+        raise ValueError("PyPI readback does not accept a Draft state")
     wheel_paths = _validate_named_files(wheels, _expected_wheels(plan), "PyPI publication")
     if stage == "publish":
         command = [sys.executable, "-m", "twine", "upload", "--repository-url", config["index"], *[str(path) for path in wheel_paths]]
         _invoke(run, command)
-        return _result("pypi", stage, "published", filenames=[path.name for path in wheel_paths])
+        return _result(plan, "pypi", stage, "published", filenames=[path.name for path in wheel_paths])
 
     expected_by_dist = {
         dist: sorted(name for name in _expected_wheels(plan) if name.startswith(dist.replace("-", "_") + "-"))
@@ -185,12 +247,16 @@ def publish_pypi(
         if not isinstance(info, dict) or info.get("name") != dist or info.get("version") != version or filenames != expected_by_dist[dist]:
             raise ValueError(f"PyPI inventory differs for {dist}=={version}")
         inventory.append(f"{dist}=={version}")
-    return _result("pypi", stage, "verified", distributions=inventory, filenames=_expected_wheels(plan))
+    return _result(plan, "pypi", stage, "verified", distributions=inventory, filenames=_expected_wheels(plan))
 
 
 def _require_release_image_matrix(plan: dict[str, Any]) -> None:
     if len(plan["family_tasks"]) != 3 or len(plan["image_tasks"]) != 6:
-        raise ValueError("publication requires exactly 3 family tasks and 6 image tasks")
+        raise ValueError(
+            "publication matrix requires exactly 3 family tasks and 6 image tasks; "
+            f"got family_tasks={len(plan['family_tasks'])}, "
+            f"image_tasks={len(plan['image_tasks'])}"
+        )
     for family in plan["family_tasks"]:
         linked = [image for image in plan["image_tasks"] if image["family_task_id"] == family["task_id"]]
         if len(linked) != 2 or {image["platform"] for image in linked} != {"linux/amd64", "linux/arm64"}:
@@ -237,6 +303,7 @@ def inspect_oci_reference(
         if index.get("mediaType") not in _INDEX_MEDIA_TYPES or not isinstance(index.get("manifests"), list):
             raise ValueError("published tag does not resolve to an OCI index")
         platforms: list[str] = []
+        members: list[dict[str, str]] = []
         for descriptor in index["manifests"]:
             if not isinstance(descriptor, dict) or not isinstance(descriptor.get("platform"), dict) or descriptor.get("mediaType") not in _MANIFEST_MEDIA_TYPES:
                 raise ValueError("published OCI index contains a malformed platform descriptor")
@@ -251,9 +318,21 @@ def inspect_oci_reference(
             if config.get("os") != descriptor["platform"].get("os") or config.get("architecture") != descriptor["platform"].get("architecture"):
                 raise ValueError(f"published OCI config differs from {platform}")
             platforms.append(platform)
+            members.append(
+                {
+                    "platform": platform,
+                    "manifest_digest": member_digest,
+                    "config_digest": child["config"]["digest"],
+                }
+            )
         if sorted(platforms) != ["linux/amd64", "linux/arm64"] or len(platforms) != len(set(platforms)):
             raise ValueError("published OCI index must contain exact linux/amd64 and linux/arm64 platforms")
-        return {"reference": reference, "index_digest": digest, "platforms": sorted(platforms)}
+        return {
+            "reference": reference,
+            "index_digest": digest,
+            "platforms": sorted(platforms),
+            "members": sorted(members, key=lambda item: item["platform"]),
+        }
 
 
 def _inspect_oci_families(
@@ -272,23 +351,186 @@ def _inspect_oci_families(
     return results
 
 
-def readback_ghcr(
+def _load_member_results(
+    plan: dict[str, Any], members_dir: Path
+) -> dict[str, list[dict[str, Any]]]:
+    members_dir = Path(members_dir)
+    entries = sorted(members_dir.iterdir()) if members_dir.is_dir() else []
+    if len(entries) != 6 or any(not path.is_file() or path.suffix != ".json" for path in entries):
+        raise ValueError("GHCR publish requires exactly six member-result JSON files")
+    tasks_by_sha = {task["task_sha256"]: task for task in plan["image_tasks"]}
+    if len(tasks_by_sha) != 6:
+        raise ValueError("GHCR publish requires six unique resolved image tasks")
+    by_family: dict[str, list[dict[str, Any]]] = {}
+    seen_tasks: set[str] = set()
+    required = {
+        "schema_version",
+        "kind",
+        "status",
+        "resolved_plan_sha256",
+        "spec_id",
+        "profile_id",
+        "family_id",
+        "platform",
+        "target_repository",
+        "target_tag",
+        "staging_repository",
+        "staging_visibility",
+        "staging_tag",
+        "candidate_task_sha256",
+        "publication_task_sha256",
+        "member_digest",
+        "config_digest",
+        "manifest",
+        "config",
+        "source_sha",
+    }
+    for path in entries:
+        record = core.load_json(path)
+        if not required <= set(record):
+            raise ValueError(f"member result {path.name} is missing publication fields")
+        task_sha = record["publication_task_sha256"]
+        task = tasks_by_sha.get(task_sha)
+        if task is None or task_sha in seen_tasks:
+            raise ValueError("member publication task differs from resolved image tasks")
+        if (
+            record["schema_version"] != 1
+            or record["kind"] != "ucm-registry-member-publication"
+            or record["status"] != "passed"
+        ):
+            raise ValueError("member result identity is invalid")
+        if record["resolved_plan_sha256"] != plan["resolved_plan_sha256"]:
+            raise ValueError("member resolved_plan_sha256 differs from resolved plan")
+        if record["candidate_task_sha256"] != task["task_sha256"]:
+            raise ValueError("member candidate task differs from resolved image task")
+        if (
+            record["family_id"] != task["family_task_id"]
+            or record["platform"] != task["platform"]
+            or record["spec_id"] != task["spec_id"]
+            or record["profile_id"] != task["profile_id"]
+        ):
+            raise ValueError("member family/platform/task differs from resolved image task")
+        if (
+            record["target_repository"] != task["target_repository"]
+            or record["target_tag"] != task["target_tag"]
+        ):
+            raise ValueError("member target differs from resolved image task")
+        if (
+            record["source_sha"] != plan["source"]["commit"]
+            or record["staging_repository"]
+            != plan["source"]["staging_repository"]
+            or record["staging_visibility"] != "private"
+        ):
+            raise ValueError("member source/staging authority differs from resolved plan")
+        member_digest = record["member_digest"]
+        config_digest = record["config_digest"]
+        manifest = record["manifest"]
+        config = record["config"]
+        if (
+            not isinstance(member_digest, str)
+            or _DIGEST.fullmatch(member_digest) is None
+            or not isinstance(config_digest, str)
+            or _DIGEST.fullmatch(config_digest) is None
+            or not isinstance(manifest, dict)
+            or manifest.get("digest") != member_digest
+            or manifest.get("media_type") not in _MANIFEST_MEDIA_TYPES
+            or not isinstance(config, dict)
+            or config.get("digest") != config_digest
+            or config.get("blob_sha256") != config_digest
+            or config.get("media_type")
+            != "application/vnd.oci.image.config.v1+json"
+            or not isinstance(record["staging_tag"], str)
+            or re.fullmatch(r"staging-[0-9a-f]{64}", record["staging_tag"])
+            is None
+        ):
+            raise ValueError("member staging digest/config evidence is invalid")
+        seen_tasks.add(task_sha)
+        by_family.setdefault(task["family_task_id"], []).append(record)
+    if seen_tasks != set(tasks_by_sha):
+        raise ValueError("member result set differs from resolved image tasks")
+    for family_id, records in by_family.items():
+        records.sort(key=lambda item: item["platform"])
+        if [record["platform"] for record in records] != [
+            "linux/amd64",
+            "linux/arm64",
+        ]:
+            raise ValueError(f"member family {family_id} lacks the exact two platforms")
+    return by_family
+
+
+def publish_ghcr(
     plan_path: Path,
     *,
+    stage: str,
+    members_dir: Path | None = None,
+    draft_state: Path | None = None,
     run: Run = _default_run,
     crane_binary: str | None = None,
 ) -> dict[str, Any]:
-    plan, config, skipped = _channel(plan_path, "ghcr", "readback")
+    if stage not in {"publish", "readback"}:
+        raise ValueError("GHCR stage must be publish or readback")
+    plan, config, skipped = _channel(plan_path, "ghcr", stage)
     if skipped is not None: return skipped  # noqa: E701
     assert config is not None
-    images = _inspect_oci_families(plan, namespace=config["namespace"], configured_targets=True, run=run, crane_binary=crane_binary)
-    return _result("ghcr", "readback", "verified", images=images)
+    _require_protected_plan(plan)
+    _require_release_image_matrix(plan)
+    if stage == "readback":
+        if members_dir is not None or draft_state is not None:
+            raise ValueError("GHCR readback does not accept members or Draft state")
+        images = _inspect_oci_families(plan, namespace=config["namespace"], configured_targets=True, run=run, crane_binary=crane_binary)
+        return _result(plan, "ghcr", stage, "verified", images=images)
+
+    _require_draft_state(plan, draft_state)
+    if members_dir is None:
+        raise ValueError("GHCR publish requires a members directory")
+    records_by_family = _load_member_results(plan, members_dir)
+    images: list[dict[str, Any]] = []
+    for family, target in _family_references(
+        plan, config["namespace"], configured_targets=True
+    ):
+        records = records_by_family.get(family["task_id"])
+        if records is None:
+            raise ValueError("member results are missing a resolved family")
+        sources = [
+            f"{record['staging_repository']}@{record['member_digest']}"
+            for record in records
+        ]
+        _invoke(
+            run,
+            [
+                "docker",
+                "buildx",
+                "imagetools",
+                "create",
+                "--tag",
+                target,
+                *sources,
+            ],
+        )
+        inspected = inspect_oci_reference(
+            target,
+            run=run,
+            crane_binary=crane_binary,
+        )
+        expected_members = [
+            {
+                "platform": record["platform"],
+                "manifest_digest": record["member_digest"],
+                "config_digest": record["config_digest"],
+            }
+            for record in records
+        ]
+        if inspected["members"] != expected_members:
+            raise ValueError("published GHCR index differs from validated member results")
+        images.append({"family_task_id": family["task_id"], **inspected})
+    return _result(plan, "ghcr", stage, "published", images=images)
 
 
 def publish_dockerhub(
     plan_path: Path,
     *,
     stage: str,
+    draft_state: Path | None = None,
     run: Run = _default_run,
     crane_binary: str | None = None,
 ) -> dict[str, Any]:
@@ -296,16 +538,47 @@ def publish_dockerhub(
     plan, config, skipped = _channel(plan_path, "dockerhub", stage)
     if skipped is not None: return skipped  # noqa: E701
     assert config is not None
+    _require_protected_plan(plan)
     _require_release_image_matrix(plan)
     if stage == "publish":
+        _require_draft_state(plan, draft_state)
         crane = crane_binary or registry.resolve_pinned_crane()
         targets = _family_references(plan, config["namespace"], configured_targets=False)
         for family, target in targets:
             source = f"{family['target_repository']}:{family['target_tag']}"
             _invoke(run, [crane, "copy", source, target])
-        return _result("dockerhub", stage, "published", references=[target for _, target in targets])
-    images = _inspect_oci_families(plan, namespace=config["namespace"], configured_targets=False, run=run, crane_binary=crane_binary)
-    return _result("dockerhub", stage, "verified", images=images)
+        return _result(plan, "dockerhub", stage, "published", references=[target for _, target in targets])
+    if draft_state is not None:
+        raise ValueError("Docker Hub readback does not accept a Draft state")
+    images: list[dict[str, Any]] = []
+    targets_by_family = {
+        family["task_id"]: reference
+        for family, reference in _family_references(
+            plan, config["namespace"], configured_targets=False
+        )
+    }
+    for family, source_reference in _family_references(
+        plan,
+        plan["publish"]["ghcr"]["namespace"],
+        configured_targets=True,
+    ):
+        target_reference = targets_by_family[family["task_id"]]
+        source = inspect_oci_reference(
+            source_reference, run=run, crane_binary=crane_binary
+        )
+        target = inspect_oci_reference(
+            target_reference, run=run, crane_binary=crane_binary
+        )
+        if source["index_digest"] != target["index_digest"]:
+            raise ValueError("Docker Hub target index differs from GHCR source")
+        images.append(
+            {
+                "family_task_id": family["task_id"],
+                "source": source,
+                "target": target,
+            }
+        )
+    return _result(plan, "dockerhub", stage, "verified", images=images)
 
 
 def publish_chart_oci(
@@ -313,6 +586,7 @@ def publish_chart_oci(
     package: Path,
     *,
     stage: str,
+    draft_state: Path | None = None,
     readback_dir: Path | None = None,
     run: Run = _default_run,
 ) -> dict[str, Any]:
@@ -320,6 +594,13 @@ def publish_chart_oci(
     plan, config, skipped = _channel(plan_path, "chart_oci", stage)
     if skipped is not None: return skipped  # noqa: E701
     assert config is not None
+    _require_protected_plan(plan)
+    if stage == "publish":
+        _require_draft_state(plan, draft_state)
+        if readback_dir is not None:
+            raise ValueError("Chart OCI publish does not accept a readback directory")
+    elif draft_state is not None:
+        raise ValueError("Chart OCI readback does not accept a Draft state")
     package = Path(package)
     expected_filename = _expected_chart(plan)
     if not package.is_file() or package.name != expected_filename:
@@ -327,7 +608,7 @@ def publish_chart_oci(
     namespace = config["namespace"].rstrip("/")
     if stage == "publish":
         _invoke(run, ["helm", "push", str(package), f"oci://{namespace}"])
-        return _result("chart_oci", stage, "published", filename=expected_filename, reference=f"oci://{namespace}/{plan['chart']['name']}:{plan['chart']['version']}")
+        return _result(plan, "chart_oci", stage, "published", filename=expected_filename, reference=f"oci://{namespace}/{plan['chart']['name']}:{plan['chart']['version']}")
     if readback_dir is None: raise ValueError("Chart OCI readback requires an output directory")  # noqa: E701
     readback_dir = Path(readback_dir)
     if readback_dir.exists() and any(readback_dir.iterdir()): raise ValueError("Chart OCI readback directory must be empty")  # noqa: E701,E501
@@ -337,7 +618,7 @@ def publish_chart_oci(
     if len(pulled) != 1 or not pulled[0].is_file() or pulled[0].name != expected_filename:
         raise ValueError(f"Chart OCI readback requires exact package {expected_filename}")
     if pulled[0].read_bytes() != package.read_bytes(): raise ValueError("Chart OCI readback differs from local package")  # noqa: E701,E501
-    return _result("chart_oci", stage, "verified", filename=expected_filename, reference=f"oci://{namespace}/{plan['chart']['name']}:{plan['chart']['version']}")
+    return _result(plan, "chart_oci", stage, "verified", filename=expected_filename, reference=f"oci://{namespace}/{plan['chart']['name']}:{plan['chart']['version']}")
 
 
 def _default_github_api(
@@ -417,12 +698,30 @@ def publish_github_release(
     *,
     stage: str,
     artifacts: Sequence[Path] | None = None,
+    draft_state: Path | None = None,
     api: GithubApi = _default_github_api,
 ) -> dict[str, Any]:
     if stage not in {"draft", "assets", "finalize", "readback"}:
         raise ValueError("GitHub Release stage must be draft, assets, finalize, or readback")
     plan, _config, skipped = _channel(plan_path, "github_release", stage)
     if skipped is not None: return skipped  # noqa: E701
+    _require_protected_plan(plan)
+    if stage == "draft":
+        if artifacts is not None or draft_state is not None:
+            raise ValueError("GitHub Release draft does not accept artifacts or Draft state")
+        bound_draft = None
+    elif stage == "assets":
+        if artifacts is None:
+            raise ValueError("GitHub Release assets stage requires artifact paths")
+        bound_draft = _require_draft_state(plan, draft_state)
+    elif stage == "finalize":
+        if artifacts is not None:
+            raise ValueError("GitHub Release finalize does not accept artifacts")
+        bound_draft = _require_draft_state(plan, draft_state)
+    else:
+        if artifacts is not None or draft_state is not None:
+            raise ValueError("GitHub Release readback does not accept artifacts or Draft state")
+        bound_draft = None
     repository = plan["source"]["repository"]
     tag = plan["source"]["release_tag"]
     expected_names = sorted([*_expected_wheels(plan), _expected_chart(plan)])
@@ -436,21 +735,23 @@ def publish_github_release(
             _validate_release_identity(plan, release)
             if release.get("draft") is not True or release.get("prerelease") is not True:
                 raise ValueError("GitHub Release create did not return the expected Draft")
-            return _result("github_release", stage, "created", release_id=release["id"], tag=tag, draft=True)
+            return _result(plan, "github_release", stage, "created", release_id=release["id"], tag=tag, draft=True)
         _validate_release_identity(plan, release)
         if release.get("draft") is False:
             names = _validate_public_release(plan, release)
-            return _result("github_release", stage, "reused", release_id=release["id"], tag=tag, draft=False, asset_names=names)
+            return _result(plan, "github_release", stage, "reused", release_id=release["id"], tag=tag, draft=False, asset_names=names)
         if release.get("draft") is not True or release.get("prerelease") is not True:
             raise ValueError("existing GitHub Release is not the expected Draft")
-        return _result("github_release", stage, "reused", release_id=release["id"], tag=tag, draft=True)
+        return _result(plan, "github_release", stage, "reused", release_id=release["id"], tag=tag, draft=True)
 
     if not isinstance(release, dict): raise ValueError("GitHub Release does not exist")  # noqa: E701
     _validate_release_identity(plan, release)
+    if bound_draft is not None and release["id"] != bound_draft["release_id"]:
+        raise ValueError("GitHub Release live Draft differs from Draft state")
     if release.get("draft") is False:
         names = _validate_public_release(plan, release)
         status = "verified" if stage == "readback" else "reused"
-        return _result("github_release", stage, status, release_id=release["id"], tag=tag, draft=False, asset_names=names)
+        return _result(plan, "github_release", stage, status, release_id=release["id"], tag=tag, draft=False, asset_names=names)
     if release.get("draft") is not True or release.get("prerelease") is not True:
         raise ValueError("GitHub Release is neither the expected Draft nor public prerelease")
     if stage == "readback": raise ValueError("GitHub Release readback requires a public prerelease")  # noqa: E701
@@ -470,7 +771,7 @@ def publish_github_release(
         reread = _github_release(plan, api, allow_missing=False)
         if not isinstance(reread, dict) or _release_asset_names(reread) != expected_names:
             raise ValueError("GitHub Release Draft does not contain exact seven assets after upload")
-        return _result("github_release", stage, "uploaded", release_id=release["id"], tag=tag, draft=True, asset_names=expected_names)
+        return _result(plan, "github_release", stage, "uploaded", release_id=release["id"], tag=tag, draft=True, asset_names=expected_names)
 
     names = _release_asset_names(release)
     if names != expected_names:
@@ -478,7 +779,7 @@ def publish_github_release(
     finalized = api(f"repos/{repository}/releases/{release['id']}", method="PATCH", body={"draft": False, "prerelease": True})
     if not isinstance(finalized, dict): raise ValueError("GitHub Release finalize returned no release")  # noqa: E701
     _validate_public_release(plan, finalized)
-    return _result("github_release", stage, "finalized", release_id=release["id"], tag=tag, draft=False, asset_names=names)
+    return _result(plan, "github_release", stage, "finalized", release_id=release["id"], tag=tag, draft=False, asset_names=names)
 
 
 # fmt: on
