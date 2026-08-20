@@ -17,8 +17,11 @@ from typing import Any
 from .common import (
     ProductionError,
     canonical_bytes,
+    require_exact_keys,
     require_lower_commit_sha,
+    require_lower_sha256,
     require_sha256_digest,
+    require_string,
     sha256_envelope,
     verify_envelope,
 )
@@ -343,6 +346,111 @@ def _verify_task_native_members(
         raise ProductionError("wheel required/forbidden native closure differs")
 
 
+def validate_production_wheel_task(value: object) -> dict[str, Any]:
+    """Validate one complete canonical production wheel-task envelope."""
+    if not isinstance(value, dict):
+        raise ProductionError("production wheel task must be an object")
+    validate_production_wheel_profile(
+        value,
+        identity_field="profile_id",
+        label="production wheel task",
+    )
+    try:
+        task = verify_envelope(
+            value,
+            kind="ucm-production-wheel-build-task",
+            schema_version=1,
+            exact_keys=_PRODUCTION_WHEEL_TASK_KEYS,
+        )
+    except ProductionError as error:
+        if str(error).startswith("envelope sha256"):
+            raise ProductionError(
+                f"production wheel task hash is invalid: {error}"
+            ) from None
+        raise
+    architecture = task["cpu_arch"]
+    if (
+        architecture not in _ARCHITECTURES
+        or task["spec_id"] != f"{task['profile_id']}-{architecture}"
+        or task["platform"] != _PLATFORMS[architecture]
+        or task["runner"] != _RUNNERS[architecture]
+    ):
+        raise ProductionError("production wheel task cpu_arch/spec/platform is invalid")
+    base_version = str(task["base_version"])
+    escaped = re.escape(base_version)
+    stage_patterns = {
+        "draft": rf"{escaped}\.dev[1-9][0-9]*",
+        "rc": rf"{escaped}rc[1-9][0-9]*",
+        "stable": escaped,
+        "hotfix": escaped,
+    }
+    stage = task["stage"]
+    if (
+        re.fullmatch(
+            r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)",
+            base_version,
+        )
+        is None
+        or stage not in stage_patterns
+        or re.fullmatch(stage_patterns[stage], str(task["wheel_version"])) is None
+    ):
+        raise ProductionError("production wheel task stage/version is invalid")
+    require_lower_commit_sha(task["source_sha"], "production wheel task source_sha")
+    require_lower_sha256(
+        task["source_identity_sha256"],
+        "production wheel task source_identity_sha256",
+    )
+    require_sha256_digest(
+        task["dependency_lock_sha256"],
+        "production wheel task dependency_lock_sha256",
+    )
+    requirements = task["runtime_requirements"]
+    if (
+        not isinstance(requirements, list)
+        or not requirements
+        or requirements != sorted(requirements)
+        or len(requirements) != len(set(requirements))
+        or any(
+            not isinstance(item, str)
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*==[^*=\s]+", item) is None
+            for item in requirements
+        )
+    ):
+        raise ProductionError("production wheel task runtime_requirements are invalid")
+    required = task["required_native"]
+    forbidden = task["forbidden_native"]
+    if (
+        not isinstance(required, list)
+        or not required
+        or not isinstance(forbidden, list)
+        or not forbidden
+        or len(required) != len(set(required))
+        or len(forbidden) != len(set(forbidden))
+        or set(required) & set(forbidden)
+    ):
+        raise ProductionError("production wheel task native target lists are invalid")
+    for label in ("builder", "runtime"):
+        record = task[label]
+        if not isinstance(record, dict):
+            raise ProductionError(f"production wheel task {label} is invalid")
+        require_exact_keys(
+            record,
+            {"repository", "tag", "index_digest", "manifest_digest", "config_digest"},
+            f"production wheel task {label}",
+        )
+        require_string(
+            record["repository"], f"production wheel task {label}.repository"
+        )
+        require_string(record["tag"], f"production wheel task {label}.tag")
+        for field in ("index_digest", "manifest_digest", "config_digest"):
+            require_sha256_digest(
+                record[field], f"production wheel task {label}.{field}"
+            )
+    if task["write_authority"] != []:
+        raise ProductionError("production wheel task write authority is invalid")
+    return task
+
+
 def seal_built_wheel(
     raw_wheel: Path,
     output_dir: Path,
@@ -351,7 +459,7 @@ def seal_built_wheel(
 ) -> dict[str, Any]:
     """Canonicalize one native wheel and bind its schema-v2 build authority."""
 
-    validate_production_wheel_profile(task, label="production wheel task")
+    task = validate_production_wheel_task(task)
     raw_wheel = Path(raw_wheel)
     output_dir = Path(output_dir)
     if not raw_wheel.is_file() or raw_wheel.is_symlink():
@@ -497,7 +605,11 @@ def project_build_task(
     )
     source_value, source_sha = _source_identity(source, intent)
     profile = _profile(config, profile_id)
-    validate_production_wheel_profile(profile, label="projected build profile")
+    validate_production_wheel_profile(
+        profile,
+        identity_field="id",
+        label="projected build profile",
+    )
     required_native = list(_NATIVE_REQUIRED_COMMON)
     if profile_id != "cuda130":
         required_native.append("mooncakestore")
@@ -532,7 +644,7 @@ def project_build_task(
         "runtime_requirements": list(config["toolchain"]["runtime_requirements"]),
         "write_authority": [],
     }
-    return sha256_envelope(unsigned)
+    return validate_production_wheel_task(sha256_envelope(unsigned))
 
 
 def authority_from_task(
@@ -589,13 +701,7 @@ def wheel_build_config_from_task(
     task: dict[str, Any], authority: dict[str, Any]
 ) -> dict[str, Any]:
     """Project the canonical pre-Buildx setup wrapper for a production task."""
-    task = verify_envelope(
-        task,
-        kind="ucm-production-wheel-build-task",
-        schema_version=1,
-        exact_keys=_PRODUCTION_WHEEL_TASK_KEYS,
-    )
-    validate_production_wheel_profile(task, label="production wheel build task")
+    task = validate_production_wheel_task(task)
     if not isinstance(authority, dict) or set(authority) != _PRODUCTION_AUTHORITY_KEYS:
         raise ProductionError("production wheel build authority fields are not exact")
     builder = task["builder"]

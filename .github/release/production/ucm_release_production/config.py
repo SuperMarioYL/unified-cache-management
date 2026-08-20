@@ -79,11 +79,22 @@ def _array(value: object, label: str) -> list[Any]:
 
 
 def validate_production_wheel_profile(
-    value: object, *, label: str = "production wheel profile"
+    value: object,
+    *,
+    identity_field: str,
+    label: str = "production wheel profile",
 ) -> dict[str, Any]:
     """Validate the exact profile tuple shared by config, projection, and sealing."""
     profile = _object(value, label)
-    profile_id = profile.get("id", profile.get("profile_id"))
+    if identity_field not in {"id", "profile_id"}:
+        raise ProductionError("production profile identity field is invalid")
+    forbidden_identity = "profile_id" if identity_field == "id" else "id"
+    if identity_field not in profile or forbidden_identity in profile:
+        raise ProductionError(
+            f"{label} must contain {identity_field} and must not contain "
+            f"{forbidden_identity}"
+        )
+    profile_id = profile[identity_field]
     expected = _PRODUCTION_WHEEL_PROFILES.get(profile_id)
     if expected is None:
         raise ProductionError(f"{label} profile_id is invalid")
@@ -158,10 +169,13 @@ def _validate_products(config: dict[str, Any]) -> None:
 
 def _validate_profiles(config: dict[str, Any]) -> None:
     profiles = _array(config["build_profiles"], "build_profiles")
-    if [item.get("id") for item in profiles if isinstance(item, dict)] != _PROFILE_IDS:
-        raise ProductionError("build profile order must be CUDA, CANN A2, CANN A3")
     for index, profile in enumerate(profiles):
         item = _object(profile, f"build_profiles[{index}]")
+        validate_production_wheel_profile(
+            item,
+            identity_field="id",
+            label=f"build_profiles[{index}]",
+        )
         require_exact_keys(
             item,
             {
@@ -177,7 +191,6 @@ def _validate_profiles(config: dict[str, Any]) -> None:
             },
             f"build_profiles[{index}]",
         )
-        validate_production_wheel_profile(item, label=f"build_profiles[{index}]")
         if item["cpu_arch"] != ["amd64", "arm64"]:
             raise ProductionError("every build profile must target amd64 and arm64")
         for lock_name in ("builders", "runtime"):
@@ -199,6 +212,8 @@ def _validate_profiles(config: dict[str, Any]) -> None:
                 require_string(lock["repository"], f"{lock_name}.{arch}.repository")
                 require_string(lock["tag"], f"{lock_name}.{arch}.tag")
                 _validate_digest_tree(lock, f"{lock_name}.{arch}")
+    if [item["id"] for item in profiles] != _PROFILE_IDS:
+        raise ProductionError("build profile order must be CUDA, CANN A2, CANN A3")
 
 
 def _validate_channels(config: dict[str, Any]) -> None:

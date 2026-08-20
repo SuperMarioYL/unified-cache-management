@@ -123,6 +123,26 @@ def test_production_config_schema_closes_profile_and_runtime_authority() -> None
     assert list(validator.iter_errors(config))
 
 
+@pytest.mark.parametrize("inverse", [False, True])
+def test_config_rejects_ambiguous_or_inverse_profile_discriminator(
+    inverse: bool,
+) -> None:
+    from ucm_release_production.config import validate_config
+
+    config = copy.deepcopy(load_config(CONFIG))
+    profile = config["build_profiles"][0]
+    if inverse:
+        profile["profile_id"] = profile.pop("id")
+    else:
+        profile["profile_id"] = "cann900-a2"
+
+    with pytest.raises(
+        ProductionError,
+        match="must contain id and must not contain profile_id",
+    ):
+        validate_config(config)
+
+
 def test_config_accepts_only_explicit_external_channel_coordinates() -> None:
     config = copy.deepcopy(load_config(CONFIG))
     config["external_channels"] = {

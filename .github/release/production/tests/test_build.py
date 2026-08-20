@@ -620,6 +620,58 @@ def test_ascend_seal_rejects_non_linux_raw_tag(tmp_path: Path) -> None:
         seal_built_wheel(raw, tmp_path / "sealed", task, authority)
 
 
+@pytest.mark.parametrize("inverse", [False, True])
+def test_seal_rejects_ambiguous_or_inverse_task_profile_discriminator_first(
+    tmp_path: Path, inverse: bool
+) -> None:
+    task = _sealable_task("cuda130", "amd64")
+    task.pop("sha256")
+    if inverse:
+        task["id"] = task.pop("profile_id")
+    else:
+        task["id"] = "cann900-a2"
+        task.update(
+            distribution="uc-manager-cann-a2",
+            build_platform="ascend",
+            wheel_platform="linux",
+        )
+    task = sha256_envelope(task)
+    output_dir = tmp_path / "sealed"
+
+    with pytest.raises(
+        ProductionError,
+        match="must contain profile_id and must not contain id",
+    ):
+        seal_built_wheel(tmp_path / "missing-raw.whl", output_dir, task, {})
+
+    assert not output_dir.exists()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "rehash", "message"),
+    [
+        (lambda task: task.update(sha256="9" * 64), False, "hash"),
+        (lambda task: task.pop("runner"), True, "keys"),
+        (lambda task: task.update(kind="wrong"), True, "kind"),
+        (lambda task: task.update(schema_version=2), True, "schema_version"),
+    ],
+)
+def test_seal_validates_complete_task_envelope_before_raw_path(
+    tmp_path: Path, mutation: object, rehash: bool, message: str
+) -> None:
+    task = _sealable_task("cuda130", "amd64")
+    mutation(task)
+    if rehash:
+        task.pop("sha256", None)
+        task = sha256_envelope(task)
+    output_dir = tmp_path / "sealed"
+
+    with pytest.raises(ProductionError, match=message):
+        seal_built_wheel(tmp_path / "missing-raw.whl", output_dir, task, {})
+
+    assert not output_dir.exists()
+
+
 def test_compare_wheel_candidates_requires_byte_and_metadata_equality(
     tmp_path: Path,
 ) -> None:
