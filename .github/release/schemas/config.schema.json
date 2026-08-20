@@ -144,7 +144,7 @@
       "additionalProperties": false,
       "required": [
         "id", "build", "accelerator", "accelerator_runtime", "npu_arch", "os",
-        "wheel_platform", "binary_profile_id", "external_required_dependencies", "validation_targets"
+        "wheel_platform", "builder_manylinux", "binary_profile_id", "external_required_dependencies", "validation_targets"
       ],
       "properties": {
         "id": {"type": "string", "minLength": 1},
@@ -176,6 +176,7 @@
         "wheel_version": {"type": "string", "minLength": 1},
         "dist_name": {"type": "string", "pattern": "^uc-manager(-[a-z0-9]+(-[a-z0-9]+)?)?$"},
         "wheel_platform": {"type": "string", "minLength": 1},
+        "builder_manylinux": {"type": "string", "pattern": "^manylinux_[0-9]+_[0-9]+$"},
         "binary_profile_id": {"type": "string", "minLength": 1},
         "allowed_dt_needed": {
           "type": "array", "minItems": 1, "uniqueItems": true,

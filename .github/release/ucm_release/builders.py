@@ -11,7 +11,7 @@ import urllib.request
 from pathlib import Path
 from typing import Iterable
 
-import yaml
+from . import core
 
 RELEASE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = RELEASE_ROOT / "builders.yaml"
@@ -45,19 +45,23 @@ _IDENTITY_FIELDS = (
 
 
 def _read_yaml(path: Path) -> object:
-    value = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if value is None:
-        raise ValueError(f"{path}: document is empty")
-    return value
+    return core.load_yaml(path)
 
 
 def _owner(explicit: str | None) -> str:
     if explicit:
-        return explicit
-    repository = os.environ.get("GITHUB_REPOSITORY", "")
-    if "/" not in repository:
-        raise ValueError("builder target owner requires GITHUB_REPOSITORY or --owner")
-    return repository.split("/", 1)[0]
+        value = explicit
+    else:
+        repository = os.environ.get("GITHUB_REPOSITORY", "")
+        if "/" not in repository:
+            raise ValueError(
+                "builder target owner requires GITHUB_REPOSITORY or --owner"
+            )
+        value = repository.split("/", 1)[0]
+    normalized = value.lower()
+    if re.fullmatch(r"[a-z0-9][a-z0-9-]{0,38}", normalized) is None:
+        raise ValueError(f"invalid builder target owner {value!r}")
+    return normalized
 
 
 def _expand_owner(value: str, owner: str) -> str:
@@ -239,6 +243,21 @@ def _normalize_image(image: str) -> str:
     return image
 
 
+def _validate_oci_repository(value: str, context: str) -> None:
+    if core.OCI_REPOSITORY_PATTERN.fullmatch(value) is None:
+        raise ValueError(f"{context}: invalid OCI repository {value!r}")
+
+
+def _validate_oci_image(value: str, context: str) -> None:
+    separator = value.rfind(":")
+    if separator <= value.rfind("/"):
+        raise ValueError(f"{context}: OCI image must include a tag: {value!r}")
+    repository, tag = value[:separator], value[separator + 1 :]
+    _validate_oci_repository(repository, context)
+    if core.OCI_TAG_PATTERN.fullmatch(tag) is None:
+        raise ValueError(f"{context}: invalid OCI tag {tag!r}")
+
+
 def _python_abi(version: str, context: str) -> str:
     match = re.fullmatch(r"(\d+)\.(\d+)(?:\.\d+)?", version.strip())
     if match is None:
@@ -298,6 +317,10 @@ def _validate_catalog_item(item: object, context: str) -> dict[str, str]:
         raise ValueError(f"{context}: malformed manylinux {mapping['manylinux']!r}")
     if mapping["build_mode"] not in {"mirror", "extend", "copy"}:
         raise ValueError(f"{context}: unsupported build_mode {mapping['build_mode']!r}")
+    _validate_oci_image(mapping["source_image"], f"{context} source_image")
+    _validate_oci_repository(
+        mapping["target_repository"], f"{context} target_repository"
+    )
     return mapping  # type: ignore[return-value]
 
 
@@ -344,7 +367,9 @@ def _discover_vllm(
         )
     python_abi = _python_abi(python, context)
     pipeline_context = f"{project_name}/{pipeline_path}"
-    pipeline = yaml.safe_load(source.read(pipeline_path))  # type: ignore[attr-defined]
+    pipeline = core.load_yaml_value(  # type: ignore[attr-defined]
+        source.read(pipeline_path), context=pipeline_context
+    )
     if pipeline is None:
         raise ValueError(f"{pipeline_context}: document is empty")
     items: list[dict[str, str]] = []
@@ -668,41 +693,6 @@ def _nearest_candidates(
     ]
 
 
-def _profile_manylinux(
-    profile: dict[str, object],
-    partial: dict[str, str],
-    available: list[dict[str, str]],
-) -> str:
-    wheel_platform = profile.get("wheel_platform")
-    if isinstance(wheel_platform, str) and re.fullmatch(
-        r"manylinux_\d+_\d+", wheel_platform
-    ):
-        return wheel_platform
-    profile_fields = ("accelerator_runtime", "variant", "python_abi")
-    candidates = {
-        item["manylinux"]
-        for item in available
-        if item["accelerator"] == str(profile["accelerator"])
-        and all(item[field] == partial[field] for field in profile_fields)
-    }
-    if not candidates:
-        candidates = {
-            item["manylinux"]
-            for item in available
-            if item["accelerator"] == str(profile["accelerator"])
-            and item["variant"] == partial["variant"]
-            and item["python_abi"] == partial["python_abi"]
-        }
-    if len(candidates) != 1:
-        profile_id = profile.get("id", "<unknown>")
-        raise ValueError(
-            f"release profile {profile_id}: cannot derive one manylinux capability "
-            f"for {', '.join(f'{key}={value}' for key, value in partial.items())}; "
-            f"found {sorted(candidates)}"
-        )
-    return next(iter(candidates))
-
-
 def select_builders(catalog: object, release: object) -> dict[str, object]:
     """Select one builder for every release wheel profile and architecture."""
     validated = validate_catalog(catalog)
@@ -712,13 +702,22 @@ def select_builders(catalog: object, release: object) -> dict[str, object]:
     if not isinstance(profiles, list) or not profiles:
         raise ValueError("release config: wheel_profiles must be a non-empty list")
     selected: list[dict[str, str]] = []
+    profile_ids: set[str] = set()
     for index, raw_profile in enumerate(profiles):
         context = f"release config wheel_profiles[{index}]"
         profile = _require_mapping(raw_profile, context)
         profile_id = _require_string(profile, "id", context)
+        if profile_id in profile_ids:
+            raise ValueError(f"duplicate release profile id: {profile_id}")
+        profile_ids.add(profile_id)
         accelerator = _require_string(profile, "accelerator", context)
         runtime = _require_string(profile, "accelerator_runtime", context)
         python_abi = _require_string(profile, "python_abi", context)
+        builder_manylinux = _require_string(profile, "builder_manylinux", context)
+        if re.fullmatch(r"manylinux_\d+_\d+", builder_manylinux) is None:
+            raise ValueError(
+                f"{context}: malformed builder_manylinux {builder_manylinux!r}"
+            )
         arches = profile.get("cpu_arch")
         if (
             not isinstance(arches, list)
@@ -728,6 +727,8 @@ def select_builders(catalog: object, release: object) -> dict[str, object]:
             raise ValueError(
                 f"{context}: cpu_arch must be a non-empty amd64/arm64 list"
             )
+        if len(set(arches)) != len(arches):
+            raise ValueError(f"{context}: cpu_arch contains duplicates")
         if accelerator == "cuda":
             variant = "default"
         elif accelerator == "ascend":
@@ -750,7 +751,7 @@ def select_builders(catalog: object, release: object) -> dict[str, object]:
             }
             capability = {
                 **partial,
-                "manylinux": _profile_manylinux(profile, partial, available),
+                "manylinux": builder_manylinux,
             }
             matches = [
                 item

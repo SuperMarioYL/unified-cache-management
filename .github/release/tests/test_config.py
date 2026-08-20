@@ -181,6 +181,11 @@ def test_release_config_profiles_are_dynamic_and_have_no_runner_escape_hatch() -
     assert len({item["id"] for item in profiles}) == len(profiles)
     assert all(item["cpu_arch"] for item in profiles)
     assert all(len(set(item["cpu_arch"])) == len(item["cpu_arch"]) for item in profiles)
+    assert {item["id"]: item["builder_manylinux"] for item in profiles} == {
+        "cuda130": "manylinux_2_28",
+        "cann900-a2": "manylinux_2_34",
+        "cann900-a3": "manylinux_2_34",
+    }
     assert all("runner" not in item for item in release["wheel_profiles"])
     assert set(release["runner_map"]) == {
         architecture for profile in profiles for architecture in profile["cpu_arch"]

@@ -77,8 +77,15 @@ def _construct_mapping(
 _UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_mapping)  # fmt: skip  # noqa: E501
 
 
+def load_yaml_value(text: str, *, context: str) -> Any:
+    try:
+        return yaml.load(text, Loader=_UniqueKeyLoader)
+    except (ValueError, yaml.YAMLError) as error:
+        raise ValueError(f'{context}: malformed YAML: {error}') from error
+
+
 def load_yaml(path: Path) -> dict[str, Any]:
-    value = yaml.load(path.read_text(encoding="utf-8"), Loader=_UniqueKeyLoader)
+    value = load_yaml_value(path.read_text(encoding="utf-8"), context=str(path))
     if not isinstance(value, dict): raise ValueError(f'{path} must contain a mapping')  # noqa: E701,E501
     return value
 

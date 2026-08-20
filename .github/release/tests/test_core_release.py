@@ -124,6 +124,7 @@ def test_fixture_plan_projects_platform_loaders_and_driver_boundary() -> None:
         ("missing-profile", "no compatible wheel profile"),
         ("extra-profile", "overlapping wheel profiles"),
         ("unresolved-lock", "missing required properties"),
+        ("missing-builder-manylinux", "missing required properties"),
         ("caller-raw-runner", "Additional properties are not allowed"),
     ],
 )
@@ -140,6 +141,8 @@ def test_release_authority_mutations_fail_closed(
         release["wheel_profiles"].append(extra)
     elif mutation == "unresolved-lock":
         del release["python_build_lock"]["packages"]["wheel"]["sha256"]
+    elif mutation == "missing-builder-manylinux":
+        del release["wheel_profiles"][0]["builder_manylinux"]
     elif mutation == "caller-raw-runner":
         release["wheel_profiles"][0]["runner"] = "self-hosted"
     rejected = _reject_fixture_resolution(tmp_path / mutation, release)

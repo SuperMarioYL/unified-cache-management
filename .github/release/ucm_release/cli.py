@@ -213,7 +213,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     def _cmd_builders_select(a):
         result = builders.select_builders(
-            core.load_json(a.catalog), yaml.safe_load(a.release.read_text(encoding="utf-8"))
+            core.load_json(a.catalog), core.load_yaml(a.release)
         )
         a.output.parent.mkdir(parents=True, exist_ok=True)
         _write(a.output, result)
