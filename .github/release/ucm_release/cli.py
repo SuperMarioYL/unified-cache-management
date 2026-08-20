@@ -13,7 +13,7 @@ from pathlib import Path
 
 import yaml
 
-from . import core, registry, wheel
+from . import builders, core, registry, wheel
 
 catalog_resolution = registry
 
@@ -169,6 +169,57 @@ def _publish_github_release(args) -> dict[str, object]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m ucm_release")
     groups = parser.add_subparsers(dest="group", required=True)
+
+    builders_parser = groups.add_parser("builders")
+    builders_actions = builders_parser.add_subparsers(dest="action", required=True)
+
+    builders_discover = builders_actions.add_parser("discover")
+    builders_discover.add_argument("--config", type=Path, default=builders.DEFAULT_CONFIG)
+    builders_discover.add_argument("--snapshot", "--snapshot-dir", dest="snapshot", type=Path)
+    builders_discover.add_argument("--owner")
+    builders_discover.add_argument("--output", type=Path, required=True)
+
+    def _cmd_builders_discover(a):
+        result = builders.discover_builders(
+            a.config, snapshot_dir=a.snapshot, owner=a.owner
+        )
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.output, result)
+        return result
+
+    builders_discover.set_defaults(func=_cmd_builders_discover)
+
+    builders_sync_plan = builders_actions.add_parser("sync-plan")
+    builders_sync_plan.add_argument("--catalog", type=Path, required=True)
+    builders_sync_plan.add_argument(
+        "--existing", "--existing-tags", dest="existing", type=Path, required=True
+    )
+    builders_sync_plan.add_argument("--output", type=Path, required=True)
+
+    def _cmd_builders_sync_plan(a):
+        result = builders.compute_sync_plan(
+            core.load_json(a.catalog), core.load_json(a.existing)
+        )
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.output, result)
+        return result
+
+    builders_sync_plan.set_defaults(func=_cmd_builders_sync_plan)
+
+    builders_select = builders_actions.add_parser("select")
+    builders_select.add_argument("--catalog", type=Path, required=True)
+    builders_select.add_argument("--release", type=Path, default=builders.DEFAULT_RELEASE)
+    builders_select.add_argument("--output", type=Path, required=True)
+
+    def _cmd_builders_select(a):
+        result = builders.select_builders(
+            core.load_json(a.catalog), yaml.safe_load(a.release.read_text(encoding="utf-8"))
+        )
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.output, result)
+        return result
+
+    builders_select.set_defaults(func=_cmd_builders_select)
 
     config = groups.add_parser("config")
     config_actions = config.add_subparsers(dest="action", required=True)
