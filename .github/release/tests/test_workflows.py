@@ -433,6 +433,32 @@ def test_release_dockerfiles_split_wheel_and_runtime_responsibilities() -> None:
     assert "--target runtime-real" not in runtime_source
 
 
+def test_wheel_environment_check_resolves_the_pinned_cmake_first() -> None:
+    source = (
+        REPO_ROOT / ".github" / "release" / "docker" / "Dockerfile.wheel"
+    ).read_text(encoding="utf-8")
+    wheel_config = source.split("FROM wheel-source AS wheel-config\n", 1)[1].split(
+        "FROM wheel-config AS wheel-build\n", 1
+    )[0]
+    scripts_dir = (
+        "scripts_dir=\"$(ucm-python -c 'import sysconfig; "
+        'print(sysconfig.get_path("scripts"))\')";'
+    )
+    require_cmake = 'test -x "${scripts_dir}/cmake";'
+    export_path = 'export PATH="${scripts_dir}:${PATH}";'
+    resolve_cmake = 'test "$(command -v cmake)" = "${scripts_dir}/cmake";'
+    check_environment = "wheel check-environment"
+
+    assert wheel_config.count(scripts_dir) == 1
+    assert (
+        wheel_config.index(scripts_dir)
+        < wheel_config.index(require_cmake)
+        < wheel_config.index(export_path)
+        < wheel_config.index(resolve_cmake)
+        < wheel_config.index(check_environment)
+    )
+
+
 def test_wheel_workflow_materializes_config_before_buildx_with_two_build_args() -> None:
     workflow = _load_workflow(WORKFLOW_DIR / "_build-wheel.yml")
     steps = _steps(_jobs(workflow)["build"])
