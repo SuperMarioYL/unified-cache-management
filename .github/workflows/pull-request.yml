@@ -134,7 +134,7 @@ jobs:
           set -euo pipefail
           PYTHONPATH=.github/release python -m ucm_release catalog recipe-matrix \
             --lane pr-smoke --output pr-smoke-recipes.json >/dev/null
-          jq -e 'keys | sort == ["catalog_sha256","count","include","kind","lane","matrix_sha256","schema_version"]' pr-smoke-recipes.json
+          jq -e 'keys | sort == ["catalog_sha256","count","include","kind","lane","matrix_sha256","protected_environment","schema_version"]' pr-smoke-recipes.json
           {
             echo "recipe_matrix=$(jq -cS '{include: .include}' pr-smoke-recipes.json)"
             echo "recipe_catalog_sha256=$(jq -r '.catalog_sha256' pr-smoke-recipes.json)"

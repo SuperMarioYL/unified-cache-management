@@ -1173,6 +1173,8 @@ def test_repository_recipe_plan_checkout_fetches_reachable_tags() -> None:
 
     assert checkout["with"]["fetch-depth"] == 0
     assert checkout["with"]["fetch-tags"] is True
+    command = "\n".join(_strings(_jobs(workflow)["repository-recipe-plan"]))
+    assert '"protected_environment"' in command
 
 
 @pytest.mark.parametrize(
