@@ -227,6 +227,67 @@ def test_registry_resolves_exactly_the_six_selected_builder_refs(monkeypatch) ->
     assert _wheel_builder_roots(plan) == expected
 
 
+def test_resolved_plan_freezes_publish_and_removes_secondary_authorities() -> None:
+    plan = _resolve_fixture(core.load_catalog(), source_sha="a" * 40)
+
+    assert plan["publish"] == {
+        "pypi": {
+            "enabled": False,
+            "index": "https://upload.pypi.org/legacy/",
+            "dists": [
+                "uc-manager-cuda",
+                "uc-manager-cann-a2",
+                "uc-manager-cann-a3",
+            ],
+        },
+        "ghcr": {"enabled": True, "namespace": "ghcr.io/release-org"},
+        "dockerhub": {
+            "enabled": False,
+            "namespace": "docker.io/release-org",
+        },
+        "chart_oci": {
+            "enabled": True,
+            "namespace": "ghcr.io/release-org/charts",
+        },
+        "github_release": {"enabled": True},
+    }
+    assert set(plan["source"]) == {
+        "repository",
+        "staging_repository",
+        "default_branch",
+        "release_tag",
+        "ucm_version",
+        "commit",
+    }
+    assert set(plan["chart"]) == {
+        "source",
+        "name",
+        "version",
+        "app_version",
+        "validation_cases",
+    }
+    registry.validate_resolved_plan(plan)
+
+
+def test_resolved_plan_rejects_publish_drift() -> None:
+    plan = _resolve_fixture(core.load_catalog(), source_sha="b" * 40)
+    plan["publish"]["ghcr"]["enabled"] = False
+
+    with pytest.raises(ValueError, match="publish|hash"):
+        registry.validate_resolved_plan(plan)
+
+
+def test_resolved_plan_rejects_noncanonical_channel_shape_with_fresh_hash() -> None:
+    plan = _resolve_fixture(core.load_catalog(), source_sha="c" * 40)
+    plan["publish"]["ghcr"]["index"] = "unexpected"
+    plan["resolved_plan_sha256"] = core.sha256_value(
+        {key: value for key, value in plan.items() if key != "resolved_plan_sha256"}
+    )
+
+    with pytest.raises(ValueError, match="publish channel ghcr"):
+        registry.validate_resolved_plan(plan)
+
+
 def test_registry_normal_scan_binds_distinct_builder_digest_chains(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -346,7 +407,6 @@ def test_arm64_only_family_binds_control_runner_and_tool_arch_in_plan() -> None:
 
 def test_scan_and_matrix_overflow_fail_without_truncation() -> None:
     """Selecting or generating more than the configured max must fail closed."""
-    resolver = registry
     catalog = core.load_catalog()
     catalog["scan_limits"]["max_selected_upstreams"] = 2
     with pytest.raises(ValueError, match="max_selected_upstreams"):

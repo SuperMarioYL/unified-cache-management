@@ -1,12 +1,12 @@
 kind: release-config
 schema_version: 2
 image_revision: 1
-source: {staging_repository: 'ghcr.io/{owner}/ucm-release-staging', default_branch: develop, release_policy: owner-reviewed-v1, protected_environment: release-production}
+source: {staging_repository: 'ghcr.io/{owner}/ucm-release-staging', default_branch: develop, protected_environment: release-production}
 lanes: [feature-candidate, protected-tag]
 runner_map: {amd64: ubuntu-24.04, arm64: ubuntu-24.04-arm}
 publish:
   pypi:
-    enabled: true
+    enabled: false
     index: https://upload.pypi.org/legacy/
     dists: [uc-manager-cuda, uc-manager-cann-a2, uc-manager-cann-a3]
   ghcr: {enabled: true, namespace: 'ghcr.io/{owner}'}
@@ -72,7 +72,6 @@ compatibility:
 chart:
   source: charts/ucm
   name: unified-cache-pd
-  publication_target: github-release
   validation_cases:
   - {name: cuda, values: charts/ucm/models/cuda/values-qwen3-0p6b-1e1.yaml, product_id: vllm, variant: default, expected_resource: nvidia.com/gpu}
   - {name: a2, values: charts/ucm/models/ascend/values-qwen3-0p6b-1e1.yaml, product_id: vllm-ascend, variant: a2, expected_resource: huawei.com/Ascend910}

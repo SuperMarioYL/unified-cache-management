@@ -258,13 +258,12 @@
     "chart": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["source", "name", "publication_target", "validation_cases"],
+      "required": ["source", "name", "validation_cases"],
       "properties": {
         "source": {"type": "string", "minLength": 1},
         "name": {"type": "string", "minLength": 1},
         "version": {"type": "string", "minLength": 1},
         "app_version": {"type": "string", "minLength": 1},
-        "publication_target": {"type": "string", "minLength": 1},
         "provenance": {
           "type": "object",
           "additionalProperties": false,
@@ -281,15 +280,31 @@
         }
       }
     },
-    "publishChannel": {
+    "publishPypi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "index", "dists"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "index": {"type": "string", "minLength": 1},
+        "dists": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1, "uniqueItems": true}
+      }
+    },
+    "publishOci": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "namespace"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "namespace": {"type": "string", "minLength": 1}
+      }
+    },
+    "publishGithubRelease": {
       "type": "object",
       "additionalProperties": false,
       "required": ["enabled"],
       "properties": {
-        "enabled": {"type": "boolean"},
-        "index": {"type": "string", "minLength": 1},
-        "namespace": {"type": "string", "minLength": 1},
-        "dists": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1}
+        "enabled": {"type": "boolean"}
       }
     },
     "publish": {
@@ -297,11 +312,11 @@
       "additionalProperties": false,
       "required": ["pypi", "ghcr", "dockerhub", "chart_oci", "github_release"],
       "properties": {
-        "pypi": {"$ref": "#/$defs/publishChannel"},
-        "ghcr": {"$ref": "#/$defs/publishChannel"},
-        "dockerhub": {"$ref": "#/$defs/publishChannel"},
-        "chart_oci": {"$ref": "#/$defs/publishChannel"},
-        "github_release": {"$ref": "#/$defs/publishChannel"}
+        "pypi": {"$ref": "#/$defs/publishPypi"},
+        "ghcr": {"$ref": "#/$defs/publishOci"},
+        "dockerhub": {"$ref": "#/$defs/publishOci"},
+        "chart_oci": {"$ref": "#/$defs/publishOci"},
+        "github_release": {"$ref": "#/$defs/publishGithubRelease"}
       }
     },
     "dockerRecipe": {
@@ -363,7 +378,7 @@
       "required": [
         "kind", "schema_version", "image_revision", "source",
         "lanes", "runner_map", "upstream_products", "compatibility",
-        "chart", "wheel_profiles"
+        "chart", "publish", "wheel_profiles"
       ],
       "properties": {
         "kind": {"const": "release-config"},
@@ -373,13 +388,12 @@
         "source": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["staging_repository", "default_branch", "release_policy", "protected_environment"],
+          "required": ["staging_repository", "default_branch", "protected_environment"],
           "properties": {
             "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
             "staging_repository": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-z0-9_.-]+(?:/[a-z0-9_.-]+)*$"},
             "default_branch": {"type": "string", "minLength": 1},
             "release_tag": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(?:rc[0-9]+)?(?:[a-z]+[0-9]*)?(?:\\.dev[0-9]+)?(?:\\+[a-z0-9.]+)?$"},
-            "release_policy": {"type": "string", "minLength": 1},
             "protected_environment": {"type": "string", "minLength": 1}
           }
         },

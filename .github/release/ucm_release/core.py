@@ -218,7 +218,8 @@ def read_version(path: Path | None = None) -> str:
 
 def _pep440_public(version: str) -> str:
     base = version.split('+', 1)[0]
-    if '.dev' in base: base = re.split(r'\.dev\d+', base)[0]  # fmt: skip  # noqa: E501
+    if '.dev' in base:
+        base = re.split(r'\.dev\d+', base)[0]
     return base
 
 
@@ -1467,6 +1468,15 @@ def _validate_cross_config(
     release: dict[str, Any], *, repository_root: Path = REPO_ROOT
 ) -> None:
     validate_catalog(release, repository_root=repository_root)
+    publish = compute_publish_plan(release)
+    if publish["pypi"]["dists"] != [
+        "uc-manager-cuda",
+        "uc-manager-cann-a2",
+        "uc-manager-cann-a3",
+    ]:
+        raise ValueError("PyPI channel requires the exact three release distributions")
+    if any(publish[channel]["enabled"] for channel in PUBLISH_CHANNELS[:-1]) and not publish["github_release"]["enabled"]:
+        raise ValueError("enabled public channels require the GitHub Release Draft barrier")
     profiles = release["wheel_profiles"]
     for profile in profiles:
         architectures = set(profile["cpu_arch"])
@@ -1553,54 +1563,33 @@ def load_catalog(
 
 
 PUBLISH_CHANNELS = ("pypi", "ghcr", "dockerhub", "chart_oci", "github_release")
+PUBLISH_CHANNEL_KEYS = {
+    "pypi": frozenset({"enabled", "index", "dists"}),
+    "ghcr": frozenset({"enabled", "namespace"}),
+    "dockerhub": frozenset({"enabled", "namespace"}),
+    "chart_oci": frozenset({"enabled", "namespace"}),
+    "github_release": frozenset({"enabled"}),
+}
 
 
-def compute_publish_plan(
-    catalog: dict[str, Any],
-    *,
-    lane: str,
-    allow: dict[str, str] | None,
-    request: str,
-    dry_run: bool,
-) -> dict[str, bool]:
-    publish_cfg = catalog.get("publish", {})
-    allow = allow or {}
-    requested = {name.strip() for name in request.split(",") if name.strip()} or None
-    if requested:
-        unknown = sorted(requested - set(PUBLISH_CHANNELS))
-        if unknown: raise ValueError(f'unknown publish channels: {unknown}')  # noqa: E701,E501
-    plan: dict[str, bool] = {}
+def compute_publish_plan(catalog: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    publish = catalog.get("publish")
+    if not isinstance(publish, dict) or set(publish) != set(PUBLISH_CHANNELS):
+        raise ValueError("publish configuration requires the exact five channels")
     for channel in PUBLISH_CHANNELS:
-        cfg_enabled = bool(publish_cfg.get(channel, {}).get("enabled", False))
-        repo_allows = str(allow.get(channel, "")).strip().lower() == "true"
-        run_wants = requested is None or channel in requested
-        plan[channel] = bool(cfg_enabled and repo_allows and run_wants and (lane == 'protected-tag') and (not dry_run))  # fmt: skip  # noqa: E501
-    return plan
-
-
-def publish_github_release(
-    assets: list[Path],
-    *,
-    repository: str,
-    tag: str,
-    release_name: str,
-    body: str,
-    draft: bool = True,
-) -> dict[str, Any]:
-    if not tag or not repository: raise ValueError('tag and repository are required for GitHub release')  # noqa: E701,E501
-    create = ['gh', 'release', 'create', tag, '--repo', repository, '--title', release_name, '--notes', body]  # fmt: skip  # noqa: E501
-    if draft: create.append('--draft')  # noqa: E701
-    create.extend(str(asset) for asset in assets)
-    result = subprocess.run(create, text=True, capture_output=True, check=False)
-    if result.returncode == 0:
-        return {'published': True, 'target': result.stdout.strip(), 'repository': repository, 'tag': tag, 'draft': draft}  # fmt: skip  # noqa: E501
-    if "already exists" not in (result.stderr or "").lower():
-        raise RuntimeError(f'gh release create failed for {repository}@{tag}: {(result.stderr or result.stdout).strip()}')  # fmt: skip  # noqa: E501
-    edit = ['gh', 'release', 'edit', tag, '--repo', repository, '--title', release_name, '--notes', body]  # fmt: skip  # noqa: E501
-    subprocess.run(edit, check=True)
-    if assets:
-        subprocess.run(['gh', 'release', 'upload', tag, *[str(asset) for asset in assets], '--repo', repository], check=True)  # fmt: skip  # noqa: E501
-    return {'published': True, 'target': f'https://github.com/{repository}/releases/tag/{tag}', 'repository': repository, 'tag': tag, 'draft': draft}  # fmt: skip  # noqa: E501
+        config = publish[channel]
+        if not isinstance(config, dict) or set(config) != PUBLISH_CHANNEL_KEYS[channel]:
+            raise ValueError(f"publish channel {channel} configuration is malformed")
+        if not isinstance(config["enabled"], bool):
+            raise ValueError(f"publish channel {channel} enabled must be boolean")
+        for field in PUBLISH_CHANNEL_KEYS[channel] - {"enabled", "dists"}:
+            if not isinstance(config[field], str) or not config[field]:
+                raise ValueError(f"publish channel {channel} {field} must be non-empty")
+        if channel == "pypi":
+            dists = config["dists"]
+            if not isinstance(dists, list) or not dists or len(dists) != len(set(dists)) or any(not isinstance(dist, str) or not dist for dist in dists):
+                raise ValueError("publish channel pypi dists must be a non-empty unique string array")
+    return {channel: copy.deepcopy(publish[channel]) for channel in PUBLISH_CHANNELS}
 
 
 def _git_output(repository_root: Path, *arguments: str) -> str | None:
@@ -1704,7 +1693,7 @@ def _is_ancestor(repository_root: Path, ancestor: str, descendant: str) -> bool:
     return completed.returncode == 0
 
 
-TAG_PREFLIGHT_AUTHORITY_FIELDS = frozenset('repository staging_repository default_branch release_tag release_policy ucm_version'.split())  # fmt: skip  # noqa: E501
+TAG_PREFLIGHT_AUTHORITY_FIELDS = frozenset('repository staging_repository default_branch release_tag ucm_version'.split())  # fmt: skip  # noqa: E501
 
 
 def _tag_preflight_live(
@@ -1737,7 +1726,7 @@ def _tag_preflight_live(
         result["preflight_sha256"] = sha256_value(result)
         return result
 
-    context_names = 'GITHUB_ACTIONS GITHUB_ACTOR GITHUB_EVENT_NAME GITHUB_EVENT_PATH GITHUB_REF GITHUB_REF_NAME GITHUB_REF_PROTECTED GITHUB_REF_TYPE GITHUB_REPOSITORY GITHUB_REPOSITORY_OWNER GITHUB_SHA GITHUB_TRIGGERING_ACTOR UCM_RELEASE_POLICY'.split()  # fmt: skip  # noqa: E501
+    context_names = 'GITHUB_ACTIONS GITHUB_ACTOR GITHUB_EVENT_NAME GITHUB_EVENT_PATH GITHUB_REF GITHUB_REF_NAME GITHUB_REF_PROTECTED GITHUB_REF_TYPE GITHUB_REPOSITORY GITHUB_REPOSITORY_OWNER GITHUB_SHA GITHUB_TRIGGERING_ACTOR'.split()  # fmt: skip  # noqa: E501
     context = {name: os.environ.get(name, "") for name in context_names}
     event_path = Path(context["GITHUB_EVENT_PATH"])
     if not context["GITHUB_EVENT_PATH"] or not event_path.is_file():
@@ -1755,7 +1744,8 @@ def _tag_preflight_live(
     # is always false for tags; and debug/release tags (v0.7.x) do not match the
     # catalog ucm_version (0.5.0rc1). Bind release_tag to the actual pushed tag so
     # ref/ref_name/tag_commit track GITHUB_REF instead of the catalog version.
-    if context.get("GITHUB_REF_TYPE") == "tag" and context.get("GITHUB_REF_NAME"): release_tag = context["GITHUB_REF_NAME"]  # fmt: skip  # noqa: E501
+    if context.get("GITHUB_REF_TYPE") == "tag" and context.get("GITHUB_REF_NAME"):
+        release_tag = context["GITHUB_REF_NAME"]
     tag_ref = f"refs/tags/{release_tag}"
     default_branch_ref = f"refs/remotes/origin/{authority['default_branch']}"
     source_sha = context["GITHUB_SHA"]
@@ -1767,7 +1757,7 @@ def _tag_preflight_live(
     origin_repository = _origin_repository(_git_output(repository_root, 'remote', 'get-url', 'origin'))  # fmt: skip  # noqa: E501
     event_after = event.get('after')
     event_after_commit = _git_commit(repository_root, event_after) if event_after else None  # fmt: skip  # noqa: E501
-    checks = {'actor': context['GITHUB_ACTOR'] == repository_owner, 'checked_head': checked_head_sha == source_sha, 'default_branch': event_repository.get('default_branch') == authority['default_branch'], 'default_branch_ancestry': True, 'event_actor': event_sender.get('login') == context['GITHUB_ACTOR'], 'event_name': context['GITHUB_EVENT_NAME'] == 'push', 'event_owner': event_owner.get('login') == context['GITHUB_REPOSITORY_OWNER'], 'event_ref': event.get('ref') == context['GITHUB_REF'], 'event_repository': event_repository.get('full_name') == context['GITHUB_REPOSITORY'], 'event_source_sha': event_after is None or event_after_commit == source_sha, 'github_actions': context['GITHUB_ACTIONS'] == 'true', 'origin_repository': origin_repository == authority['repository'], 'owner': context['GITHUB_REPOSITORY_OWNER'] == repository_owner, 'ref': context['GITHUB_REF'] == tag_ref, 'ref_name': context['GITHUB_REF_NAME'] == release_tag, 'ref_protected': True, 'ref_type': context['GITHUB_REF_TYPE'] == 'tag', 'release_policy': context['UCM_RELEASE_POLICY'] == authority['release_policy'], 'repository': context['GITHUB_REPOSITORY'] == authority['repository'], 'repository_root': worktree_root is not None and Path(worktree_root).resolve() == repository_root.resolve(), 'source_sha': source_commit_sha == source_sha, 'frozen_source': authority.get('commit', source_sha) == source_sha, 'tag_commit': tag_commit_sha == source_sha}  # fmt: skip  # noqa: E501
+    checks = {'actor': context['GITHUB_ACTOR'] == repository_owner, 'checked_head': checked_head_sha == source_sha, 'default_branch': event_repository.get('default_branch') == authority['default_branch'], 'default_branch_ancestry': True, 'event_actor': event_sender.get('login') == context['GITHUB_ACTOR'], 'event_name': context['GITHUB_EVENT_NAME'] == 'push', 'event_owner': event_owner.get('login') == context['GITHUB_REPOSITORY_OWNER'], 'event_ref': event.get('ref') == context['GITHUB_REF'], 'event_repository': event_repository.get('full_name') == context['GITHUB_REPOSITORY'], 'event_source_sha': event_after is None or event_after_commit == source_sha, 'github_actions': context['GITHUB_ACTIONS'] == 'true', 'origin_repository': origin_repository == authority['repository'], 'owner': context['GITHUB_REPOSITORY_OWNER'] == repository_owner, 'ref': context['GITHUB_REF'] == tag_ref, 'ref_name': context['GITHUB_REF_NAME'] == release_tag, 'ref_protected': True, 'ref_type': context['GITHUB_REF_TYPE'] == 'tag', 'repository': context['GITHUB_REPOSITORY'] == authority['repository'], 'repository_root': worktree_root is not None and Path(worktree_root).resolve() == repository_root.resolve(), 'source_sha': source_commit_sha == source_sha, 'frozen_source': authority.get('commit', source_sha) == source_sha, 'tag_commit': tag_commit_sha == source_sha}  # fmt: skip  # noqa: E501
     failed = sorted(name for name, passed in checks.items() if not passed)
     if failed: raise ValueError(f'release preflight failed: {failed}')  # noqa: E701
     result = {'schema_version': 1, 'kind': 'ucm-tag-preflight', 'lane': lane, 'repository': context['GITHUB_REPOSITORY'], 'repository_owner': context['GITHUB_REPOSITORY_OWNER'], 'actor': context['GITHUB_ACTOR'], 'triggering_actor': context['GITHUB_TRIGGERING_ACTOR'], 'ref': context['GITHUB_REF'], 'ref_type': context['GITHUB_REF_TYPE'], 'ref_name': context['GITHUB_REF_NAME'], 'source_sha': source_sha, 'tag_commit_sha': tag_commit_sha, 'checked_head_sha': checked_head_sha, 'default_branch': authority['default_branch'], 'default_branch_ref': default_branch_ref, 'default_branch_sha': default_branch_sha, 'event_payload_sha256': sha256_value(event), 'checks': checks, 'publication_allowed': True, 'write_authority': ['github-prerelease', 'ghcr-final-index', 'ghcr-private-staging']}  # fmt: skip  # noqa: E501
@@ -1785,7 +1775,7 @@ def tag_preflight(
 ) -> dict[str, Any]:
     if authority is None:
         release = load_catalog(release_path, schema_dir)
-        authority = {field: release['source'][field] for field in ('repository', 'staging_repository', 'default_branch', 'release_tag', 'release_policy')}  # fmt: skip  # noqa: E501
+        authority = {field: release['source'][field] for field in ('repository', 'staging_repository', 'default_branch', 'release_tag')}  # fmt: skip  # noqa: E501
         authority = {**authority, 'ucm_version': release['ucm_version']}  # fmt: skip  # noqa: E501
         # catalog-planner mode: return resolved authority without live git/event checks
         result = {'schema_version': 1, 'kind': 'ucm-tag-preflight', 'lane': lane, 'authority': authority, 'publication_allowed': False, 'write_authority': []}  # fmt: skip  # noqa: E501

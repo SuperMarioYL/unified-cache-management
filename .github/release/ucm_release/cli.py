@@ -2,18 +2,13 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import os
-import subprocess
 import sys
-import tempfile
-import urllib.parse
 from pathlib import Path
 
 import yaml
 
-from . import builders, core, registry, wheel
+from . import builders, core, publish, registry, wheel
 
 catalog_resolution = registry
 
@@ -31,141 +26,6 @@ def _paths(parser: argparse.ArgumentParser) -> None:
 
 def _write(path: Path, value: object) -> None:
     path.write_bytes(core.canonical_bytes(value) + b"\n")
-
-
-def _gh_release_api(
-    path: str,
-    *,
-    method: str | None = None,
-    input_bytes: bytes | None = None,
-    content_type: str | None = None,
-    allow_missing: bool = False,
-) -> dict[str, object] | None:
-    cmd = ['gh', 'api', '-H', 'Accept: application/vnd.github+json', '-H', 'X-GitHub-Api-Version: 2022-11-28']  # fmt: skip  # noqa: E501
-    if content_type is not None:
-        cmd += ["-H", f"Content-Type: {content_type}"]
-    if method is not None:
-        cmd += ["--method", method]
-    cmd.append(path)
-    input_tmp = None
-    if input_bytes is not None:
-        # gh api --input - reads from stdin without setting Content-Length, which
-        # uploads.github.com rejects (HTTP 400 Bad Content-Length) for binary assets;
-        # write to a temp file so gh sends the correct Content-Length.
-        with tempfile.NamedTemporaryFile(delete=False) as f:
-            f.write(input_bytes)
-            input_tmp = f.name
-        cmd += ["--input", input_tmp]
-    completed = subprocess.run(cmd, capture_output=True)
-    if input_tmp is not None:
-        os.unlink(input_tmp)
-    if completed.returncode != 0:
-        message = completed.stderr.decode(encoding="utf-8", errors="replace").strip()
-        if allow_missing and "not found" in message.lower():
-            return None
-        raise ValueError(f"gh api {path} failed: {message}")
-    stdout = completed.stdout.strip()
-    return json.loads(stdout) if stdout else {}
-
-
-def _render_release_body(
-    plan: dict[str, object], artifacts_dir: Path, source_sha: str, tag: str
-) -> str:
-    """Render the published release body from the resolved plan + sealed wheels."""
-    lines: list[str] = [
-        f"Protected UCM {tag} release from reviewed source commit {source_sha}.",
-        "",
-    ]
-    expected: dict[str, dict[str, object]] = {}
-    for task in plan["wheel_tasks"]:
-        arch = core.cpu_toolchain_authority(task["cpu_arch"]).wheel_arch
-        dist_component = str(task.get("dist_name", "uc-manager")).replace("-", "_")
-        filename = (
-            f"{dist_component}-{task['wheel_version']}-"
-            f"{task['python_abi']}-{task['python_abi']}-"
-            f"{task['wheel_platform']}_{arch}.whl"
-        )
-        expected[filename] = task
-    actual = (
-        {p.name: p for p in artifacts_dir.glob("*.whl")}
-        if artifacts_dir.is_dir()
-        else {}
-    )
-    lines.append("## Wheels")
-    lines.append("| profile | arch | wheel | sha256 |")
-    lines.append("| --- | --- | --- | --- |")
-    for filename in sorted(expected):
-        task = expected[filename]
-        wheel_path = actual.get(filename)
-        digest = (
-            "sha256:" + hashlib.sha256(wheel_path.read_bytes()).hexdigest()
-            if wheel_path is not None
-            else "missing"
-        )
-        lines.append(
-            f"| {task['profile_id']} | {task['cpu_arch']} | `{filename}` | `{digest}` |"
-        )
-    for filename in sorted(set(actual) - set(expected)):
-        lines.append(f"| _unknown_ | - | `{filename}` | _unexpected_ |")
-    lines.append("")
-    lines.append("## Images")
-    for upstream in sorted(
-        plan["resolved_upstreams"], key=lambda u: (u["product_id"], u["variant"])
-    ):
-        lines.append(
-            f"- `{upstream['target_repository']}:{upstream['target_tag']}` "
-            f"({upstream['product_id']} / {upstream['variant']})"
-        )
-    lines.append("")
-    return "\n".join(lines)
-
-
-def _publish_github_release(args) -> dict[str, object]:
-    plan = core.load_json(args.plan)
-    repository = plan["source"]["repository"]
-    if repository != args.repository: raise ValueError('plan repository differs from expected repository')  # noqa: E701,E501
-    tag = plan["source"]["release_tag"]
-    output_dir = args.output_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
-    api_root = f"repos/{repository}"
-    if args.stage == "draft":
-        operations = [{'type': 'github-release-read', 'capability': 'read', 'reference': f'https://api.github.com/{api_root}/releases/tags/{tag}', 'authenticated': True}]  # fmt: skip  # noqa: E501
-        existing = _gh_release_api(f'{api_root}/releases/tags/{tag}', allow_missing=True)  # fmt: skip  # noqa: E501
-        if existing is not None:
-            release = existing
-            just_created = False
-        else:
-            body = {'tag_name': tag, 'target_commitish': args.source_sha, 'name': f'UCM {tag}', 'body': f"Protected UCM {tag} release from reviewed source commit {args.source_sha}.", 'draft': True, 'prerelease': True, 'make_latest': 'false'}  # fmt: skip  # noqa: E501
-            release = _gh_release_api(f'{api_root}/releases', method='POST', input_bytes=core.canonical_bytes(body))  # fmt: skip  # noqa: E501
-            just_created = True
-            operations.append({'type': 'github-release-create', 'capability': 'write', 'reference': f'https://api.github.com/{api_root}/releases', 'authenticated': True})  # fmt: skip  # noqa: E501
-        state = {'release_id': release['id'], 'tag': tag, 'draft': True, 'just_created': just_created}  # fmt: skip  # noqa: E501
-        _write(output_dir / "release-state.json", state)
-        _write(output_dir / "operations.json", operations)
-        return {"kind": "ucm-github-release-draft", "stage": "draft", **state}
-    draft_state = core.load_json(output_dir / "release-state.json")
-    release_id = draft_state["release_id"]
-    operations = [{'type': 'github-release-read', 'capability': 'read', 'reference': f'https://api.github.com/{api_root}/releases/{release_id}', 'authenticated': True}]  # fmt: skip  # noqa: E501
-    artifacts_dir = output_dir / "artifacts"
-    if artifacts_dir.is_dir():
-        existing_release = _gh_release_api(f'{api_root}/releases/{release_id}', allow_missing=True)  # fmt: skip  # noqa: E501
-        existing_assets = {a.get('name'): a.get('id') for a in (existing_release or {}).get('assets', [])} if existing_release else {}  # fmt: skip  # noqa: E501
-        for asset in sorted(artifacts_dir.iterdir()):
-            if not asset.is_file():
-                continue
-            if asset.name in existing_assets:
-                _gh_release_api(f'{api_root}/releases/assets/{existing_assets[asset.name]}', method='DELETE')  # fmt: skip  # noqa: E501
-            encoded = urllib.parse.quote(asset.name, safe="")
-            _gh_release_api(f'https://uploads.github.com/{api_root}/releases/{release_id}/assets?name={encoded}', method='POST', input_bytes=asset.read_bytes(), content_type='application/octet-stream')  # fmt: skip  # noqa: E501
-            operations.append({'type': 'github-release-asset-upload', 'capability': 'write', 'reference': f'https://uploads.github.com/{api_root}/releases/{release_id}/assets', 'authenticated': True})  # fmt: skip  # noqa: E501
-    body = _render_release_body(plan, output_dir / "artifacts", args.source_sha, tag)
-    publish_body = {"draft": False, "prerelease": True, "make_latest": "false", "body": body}  # fmt: skip  # noqa: E501
-    _gh_release_api(f'{api_root}/releases/{release_id}', method='PATCH', input_bytes=core.canonical_bytes(publish_body))  # fmt: skip  # noqa: E501
-    operations.append({'type': 'github-release-publish', 'capability': 'write', 'reference': f'https://api.github.com/{api_root}/releases/{release_id}', 'authenticated': True})  # fmt: skip  # noqa: E501
-    final = {'release_id': release_id, 'tag': tag, 'draft': False, 'just_created': False}  # fmt: skip  # noqa: E501
-    _write(output_dir / "release-state.json", final)
-    _write(output_dir / "operations.json", operations)
-    return {"kind": "ucm-github-release-finalize", "stage": "finalize", **final}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -298,28 +158,44 @@ def build_parser() -> argparse.ArgumentParser:
     publish_plan.add_argument('--schema-dir', type=Path, default=core.DEFAULT_SCHEMA_DIR)  # fmt: skip  # noqa: E501
     publish_plan.add_argument("--repository-root", type=Path, default=core.REPO_ROOT)
     publish_plan.add_argument("--repository", default=None)
-    publish_plan.add_argument('--lane', choices=('feature-candidate', 'protected-tag'), required=True)  # fmt: skip  # noqa: E501
-    publish_plan.add_argument("--allow", required=True)
-    publish_plan.add_argument("--request", default="")
-    publish_plan.add_argument("--dry-run", default="true")
     publish_plan.add_argument("--output", type=Path, required=True)
 
     def _cmd_publish_plan(a):
         release = core.load_catalog(a.catalog, a.schema_dir, repository_root=a.repository_root, repository=a.repository)  # fmt: skip  # noqa: E501
-        plan = core.compute_publish_plan(release, lane=a.lane, allow=json.loads(a.allow), request=a.request, dry_run=a.dry_run.strip().lower() == 'true')  # fmt: skip  # noqa: E501
+        plan = core.compute_publish_plan(release)
         payload = json.dumps(plan, sort_keys=True, separators=(",", ":"))
         a.output.parent.mkdir(parents=True, exist_ok=True)
         a.output.write_text(payload + "\n", encoding="utf-8")
         return {"kind": "ucm-publish-plan", "schema_version": 1, "publish": plan}
     publish_plan.set_defaults(func=_cmd_publish_plan)
 
+    publish_pypi = publish_actions.add_parser("pypi")
+    publish_pypi.add_argument("--plan", type=Path, required=True)
+    publish_pypi.add_argument('--stage', choices=('publish', 'readback'), required=True)  # fmt: skip  # noqa: E501
+    publish_pypi.add_argument("--wheels-dir", type=Path, required=True)
+    publish_pypi.set_defaults(func=lambda a: publish.publish_pypi(a.plan, sorted(a.wheels_dir.glob('*.whl')), stage=a.stage))  # fmt: skip  # noqa: E501
+
+    publish_dockerhub = publish_actions.add_parser("dockerhub")
+    publish_dockerhub.add_argument("--plan", type=Path, required=True)
+    publish_dockerhub.add_argument('--stage', choices=('publish', 'readback'), required=True)  # fmt: skip  # noqa: E501
+    publish_dockerhub.set_defaults(func=lambda a: publish.publish_dockerhub(a.plan, stage=a.stage))  # fmt: skip  # noqa: E501
+
+    publish_chart = publish_actions.add_parser("chart-oci")
+    publish_chart.add_argument("--plan", type=Path, required=True)
+    publish_chart.add_argument('--stage', choices=('publish', 'readback'), required=True)  # fmt: skip  # noqa: E501
+    publish_chart.add_argument("--package", type=Path, required=True)
+    publish_chart.add_argument("--readback-dir", type=Path)
+    publish_chart.set_defaults(func=lambda a: publish.publish_chart_oci(a.plan, a.package, stage=a.stage, readback_dir=a.readback_dir))  # fmt: skip  # noqa: E501
+
+    publish_ghcr = publish_actions.add_parser("ghcr-readback")
+    publish_ghcr.add_argument("--plan", type=Path, required=True)
+    publish_ghcr.set_defaults(func=lambda a: publish.readback_ghcr(a.plan))
+
     publish_github_release = publish_actions.add_parser("github-release")
     publish_github_release.add_argument("--plan", type=Path, required=True)
-    publish_github_release.add_argument("--repository", required=True)
-    publish_github_release.add_argument('--stage', choices=('draft', 'finalize'), required=True)  # fmt: skip  # noqa: E501
-    publish_github_release.add_argument("--output-dir", type=Path, required=True)
-    publish_github_release.add_argument("--source-sha", required=True)
-    publish_github_release.set_defaults(func=_publish_github_release)
+    publish_github_release.add_argument('--stage', choices=('draft', 'assets', 'finalize', 'readback'), required=True)  # fmt: skip  # noqa: E501
+    publish_github_release.add_argument("--artifacts-dir", type=Path)
+    publish_github_release.set_defaults(func=lambda a: publish.publish_github_release(a.plan, stage=a.stage, artifacts=sorted(a.artifacts_dir.iterdir()) if a.artifacts_dir is not None and a.artifacts_dir.is_dir() else None))  # fmt: skip  # noqa: E501
 
     core_parser = groups.add_parser("core")
     core_actions = core_parser.add_subparsers(dest="action", required=True)

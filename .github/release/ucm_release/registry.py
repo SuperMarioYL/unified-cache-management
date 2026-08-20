@@ -27,9 +27,9 @@ DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 OCI_TAG_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}")
 REPOSITORY_RE = re.compile('[a-z0-9]+(?:[._:-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+')  # fmt: skip  # noqa: E501
 RESOLVED_TASK_FIELDS = {'wheel': frozenset('task_id spec_id profile_id accelerator accelerator_runtime npu_arch_or_na os cpu_arch python_version python_abi wheel_version wheel_platform binary_profile_id dist_name validation_targets required_native forbidden_native allowed_dt_needed external_required_dependencies declaration_sha256 runner platform builder builder_sha256 build dependency_lock_sha256 dependency_lock runtime_requirements runtime_patch_manifest runtime_patch_manifest_sha256 write_authority build_eligible artifact_name task_sha256'.split()), 'image': frozenset('task_id family_task_id wheel_task_id spec_id profile_id compatibility_rule_id runtime_patch_rule_id runtime_patch_product runtime_patch_strategy runtime_patch_variants runner cpu_arch platform builder builder_sha256 build runtime runtime_sha256 target_repository target_tag python_abi python_version wheel_version wheel_platform required_native forbidden_native allowed_dt_needed external_required_dependencies dependency_lock_sha256 dependency_lock runtime_requirements runtime_patch_manifest_sha256 write_authority build_eligible artifact_name wheel_artifact_name task_sha256'.split()), 'family': frozenset('task_id product_id control_task_id control_arch control_runner runner cpu_arch platform builder builder_sha256 runtime runtime_sha256 snapshot_sha256 target_repository target_tag image_task_ids wheel_task_ids member_set_sha256 write_authority artifact_name task_sha256'.split())}  # fmt: skip  # noqa: E501
-_RESOLVED_PLAN_FIELDS = frozenset('kind schema_version fixture_only lane source chart config_sha256 source_sha256 scan_sha256 resolved_upstreams wheel_tasks image_tasks family_tasks github_wheel_matrix github_image_matrix github_family_matrix pr_smoke expected_artifacts exclusions operations counts resolved_plan_sha256'.split())  # fmt: skip  # noqa: E501
-_PLAN_SOURCE_KEYS = frozenset('repository staging_repository default_branch release_tag release_policy ucm_version commit'.split())  # fmt: skip  # noqa: E501
-_PLAN_CHART_KEYS = frozenset('source name version app_version publication_target validation_cases'.split())  # fmt: skip  # noqa: E501
+_RESOLVED_PLAN_FIELDS = frozenset('kind schema_version fixture_only lane source chart publish config_sha256 source_sha256 scan_sha256 resolved_upstreams wheel_tasks image_tasks family_tasks github_wheel_matrix github_image_matrix github_family_matrix pr_smoke expected_artifacts exclusions operations counts resolved_plan_sha256'.split())  # fmt: skip  # noqa: E501
+_PLAN_SOURCE_KEYS = frozenset('repository staging_repository default_branch release_tag ucm_version commit'.split())  # fmt: skip  # noqa: E501
+_PLAN_CHART_KEYS = frozenset('source name version app_version validation_cases'.split())  # fmt: skip  # noqa: E501
 _PLAN_OPERATION_TYPES = frozenset('crane-tag-list crane-digest crane-manifest crane-config fixture-tag-page-read fixture-snapshot-read'.split())  # fmt: skip  # noqa: E501
 # Legacy Task 3 regression authority. Production resolution starts at
 # ``resolve_catalog`` and must never consume these concrete fixture coordinates.
@@ -744,7 +744,7 @@ def resolve_catalog(
     image_tasks = plan.image_tasks
     family_tasks = plan.family_tasks
     _src = catalog["source"]
-    source = {'repository': _src['repository'], 'staging_repository': _src['staging_repository'], 'default_branch': _src['default_branch'], 'release_tag': _src['release_tag'], 'release_policy': _src['release_policy'], 'ucm_version': catalog['ucm_version'], 'commit': source_sha}  # fmt: skip  # noqa: E501
+    source = {'repository': _src['repository'], 'staging_repository': _src['staging_repository'], 'default_branch': _src['default_branch'], 'release_tag': _src['release_tag'], 'ucm_version': catalog['ucm_version'], 'commit': source_sha}  # fmt: skip  # noqa: E501
     scan_evidence = {'resolved_upstreams': resolved_upstreams, 'exclusions': exclusions, 'operations': operations}  # fmt: skip  # noqa: E501
     # PR smoke projection is only meaningful for the full scan (selectors expect
     # the catalog's full image set); the pin path builds a subset, so emit empty.
@@ -752,13 +752,13 @@ def resolve_catalog(
         pr_smoke = _pr_smoke_projection(catalog, wheel_tasks, image_tasks)
     else:
         pr_smoke = {'github_wheel_matrix': {'include': []}, 'github_image_matrix': {'include': []}}  # fmt: skip  # noqa: E501
-    result: dict[str, Any] = {'kind': 'ucm-resolved-build-plan', 'schema_version': 1, 'fixture_only': fixture is not None, 'lane': lane, 'source': source, 'chart': copy.deepcopy(catalog['chart']), 'config_sha256': core.sha256_value(catalog), 'source_sha256': core.sha256_value(source), 'scan_sha256': core.sha256_value(scan_evidence), 'resolved_upstreams': resolved_upstreams, 'wheel_tasks': wheel_tasks, 'image_tasks': image_tasks, 'family_tasks': family_tasks, 'github_wheel_matrix': _wheel_matrix(wheel_tasks), 'github_image_matrix': _image_matrix(image_tasks), 'github_family_matrix': _family_matrix(family_tasks), 'pr_smoke': pr_smoke, 'expected_artifacts': {'resolved_plan': f'ucm-resolved-plan-{source_sha}', 'wheels': _artifact_set(wheel_tasks, 'wheel'), 'images': _artifact_set(image_tasks, 'image'), 'families': _artifact_set(family_tasks, 'family')}, 'exclusions': exclusions, 'operations': operations, 'counts': {'scanned_tags': scanned_tags, 'selected_upstreams': len(resolved_upstreams), 'excluded_tags': len(exclusions), 'wheel_tasks': len(wheel_tasks), 'image_tasks': len(image_tasks), 'family_tasks': len(family_tasks)}}  # fmt: skip  # noqa: E501
+    result: dict[str, Any] = {'kind': 'ucm-resolved-build-plan', 'schema_version': 1, 'fixture_only': fixture is not None, 'lane': lane, 'source': source, 'chart': copy.deepcopy(catalog['chart']), 'publish': core.compute_publish_plan(catalog), 'config_sha256': core.sha256_value(catalog), 'source_sha256': core.sha256_value(source), 'scan_sha256': core.sha256_value(scan_evidence), 'resolved_upstreams': resolved_upstreams, 'wheel_tasks': wheel_tasks, 'image_tasks': image_tasks, 'family_tasks': family_tasks, 'github_wheel_matrix': _wheel_matrix(wheel_tasks), 'github_image_matrix': _image_matrix(image_tasks), 'github_family_matrix': _family_matrix(family_tasks), 'pr_smoke': pr_smoke, 'expected_artifacts': {'resolved_plan': f'ucm-resolved-plan-{source_sha}', 'wheels': _artifact_set(wheel_tasks, 'wheel'), 'images': _artifact_set(image_tasks, 'image'), 'families': _artifact_set(family_tasks, 'family')}, 'exclusions': exclusions, 'operations': operations, 'counts': {'scanned_tags': scanned_tags, 'selected_upstreams': len(resolved_upstreams), 'excluded_tags': len(exclusions), 'wheel_tasks': len(wheel_tasks), 'image_tasks': len(image_tasks), 'family_tasks': len(family_tasks)}}  # fmt: skip  # noqa: E501
     result["resolved_plan_sha256"] = core.sha256_value(result)
     return result
 
 
-_SOURCE_STR_FIELDS = ("default_branch", "release_policy", "ucm_version")
-_CHART_STR_FIELDS = ("source", "name", "version", "app_version", "publication_target")
+_SOURCE_STR_FIELDS = ("default_branch", "ucm_version")
+_CHART_STR_FIELDS = ("source", "name", "version", "app_version")
 _FAMILY_PROJECT_KEYS = ("runner", "cpu_arch", "platform", "builder", "builder_sha256")
 
 
@@ -768,6 +768,9 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
         raise ValueError(f'resolved plan top-level fields mismatch: missing={sorted(_RESOLVED_PLAN_FIELDS - set(plan))}, extra={sorted(set(plan) - _RESOLVED_PLAN_FIELDS)}')  # fmt: skip  # noqa: E501
     if plan.get("kind") != "ucm-resolved-build-plan" or plan.get("schema_version") != 1:
         raise ValueError("resolved plan identity must be schema version 1")
+    hash_payload = {key: value for key, value in plan.items() if key != "resolved_plan_sha256"}
+    if plan.get("resolved_plan_sha256") != core.sha256_value(hash_payload):
+        raise ValueError("resolved plan hash mismatch")
     if not isinstance(plan['fixture_only'], bool): raise ValueError('resolved plan fixture_only must be boolean')  # noqa: E701,E501
     if plan['lane'] not in {'feature-candidate', 'protected-tag'}: raise ValueError('resolved plan lane is invalid')  # noqa: E701,E501
     if plan["fixture_only"] and plan["lane"] == "protected-tag":
@@ -804,6 +807,9 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
         or not chart["validation_cases"]
     ):
         raise ValueError("resolved plan Chart authority is malformed")
+
+    if plan["publish"] != core.compute_publish_plan({"publish": plan["publish"]}):
+        raise ValueError("resolved plan publish authority is malformed")
 
     core.validate_resolved_upstreams(plan["resolved_upstreams"])
     snapshots = plan["resolved_upstreams"]
