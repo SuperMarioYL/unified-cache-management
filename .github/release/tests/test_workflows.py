@@ -1162,6 +1162,19 @@ def test_release_tests_checkout_fetches_tags_for_git_describe() -> None:
     assert checkout["with"]["fetch-tags"] is True
 
 
+def test_repository_recipe_plan_checkout_fetches_reachable_tags() -> None:
+    """The recipe matrix loads the catalog, whose version comes from git describe."""
+    workflow = _load_workflow(WORKFLOW_DIR / "pull-request.yml")
+    checkout = next(
+        step
+        for step in _steps(_jobs(workflow)["repository-recipe-plan"])
+        if str(step.get("uses", "")).startswith("actions/checkout@")
+    )
+
+    assert checkout["with"]["fetch-depth"] == 0
+    assert checkout["with"]["fetch-tags"] is True
+
+
 @pytest.mark.parametrize(
     ("filename", "valid_environment", "invalid_environment"),
     [
