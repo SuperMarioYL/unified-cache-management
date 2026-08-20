@@ -75,7 +75,9 @@ def install(recipe_path: Path, metadata_path: Path, wheel_path: Path) -> dict[st
     if actual_sha256 != wheel.get("sha256"):
         raise ValueError("wheel SHA256 does not match recipe")
     distribution, version, requires_dist = _wheel_metadata(wheel_path)
-    if not _canonical_distribution_name(distribution).startswith("uc-manager") or version != wheel.get("version"):
+    if not _canonical_distribution_name(distribution).startswith(
+        "uc-manager"
+    ) or version != wheel.get("version"):
         raise ValueError("wheel distribution/version does not match recipe")
     packaging_requirements = [
         requirement

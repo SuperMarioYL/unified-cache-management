@@ -96,6 +96,7 @@ jobs:
           truncate -s "$((payload_size - 1))" "${payload_path}"
           observed_plan_sha256="sha256:$(sha256sum "${payload_path}" | cut -d' ' -f1)"
           test "${plan_source_sha}" = "${EXPECTED_SOURCE_SHA}"
+          test "${observed_plan_sha256}" = "${RESOLVED_PLAN_SHA256}"
       - name: Record disk before cleanup
         shell: bash
         run: |
@@ -434,4 +435,3 @@ jobs:
           if-no-files-found: error
           overwrite: false
           retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}
-

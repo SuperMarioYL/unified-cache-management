@@ -1,15 +1,13 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
-import copy
 
 import pytest
-
+from conftest import PRODUCTION_ROOT, REPO_ROOT
 from ucm_release_production.common import ProductionError
 from ucm_release_production.config import derive_repository, load_config
-
-from conftest import PRODUCTION_ROOT, REPO_ROOT
 
 CONFIG = PRODUCTION_ROOT / "production-release.json"
 FINGERPRINTS = PRODUCTION_ROOT / "tests" / "fixtures" / "legacy-workflow-sha256.json"

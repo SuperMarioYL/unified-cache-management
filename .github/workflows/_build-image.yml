@@ -106,6 +106,7 @@ jobs:
           truncate -s "$((payload_size - 1))" "${payload_path}"
           observed_plan_sha256="sha256:$(sha256sum "${payload_path}" | cut -d' ' -f1)"
           test "${plan_source_sha}" = "${EXPECTED_SOURCE_SHA}"
+          test "${observed_plan_sha256}" = "${RESOLVED_PLAN_SHA256}"
       - name: Record disk before cleanup
         shell: bash
         run: |
@@ -244,7 +245,6 @@ jobs:
           mapfile -t wheel_paths < <(find input/wheel -maxdepth 1 -type f -name '*.whl' -print | sort)
           test "${#wheel_paths[@]}" = 1
           wheel_path="${wheel_paths[0]}"
-          spec_id="$(jq -r '.spec_id' out/selected-task.json)"
           wheel_sha256="sha256:$(sha256sum "${wheel_path}" | cut -d' ' -f1)"
           actual_sha256="sha256:$(sha256sum "${wheel_path}" | cut -d' ' -f1)"
           test "${actual_sha256}" = "${wheel_sha256}"
@@ -609,6 +609,7 @@ jobs:
           actual_size="$(wc -c <"${preserved_archive}" | tr -d ' ')"
           read -r recorded_sha256 recorded_path <out/image-archive.sha256
           test "${actual_sha256}" = "${expected_sha256}"
+          test "${recorded_sha256}" = "${actual_sha256#sha256:}"
           test "${actual_size}" = "${expected_size}"
           test "${recorded_path}" = out/image.oci.tar
           test -f out/image-result.json

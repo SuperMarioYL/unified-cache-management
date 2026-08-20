@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from conftest import REPO_ROOT
 
 SOURCE_SHA = "1" * 40

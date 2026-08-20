@@ -132,15 +132,19 @@ jobs:
           pr_url="${{ github.event.issue.pull_request.url }}"
           head_sha="$(gh api "${pr_url}" --jq '.head.sha')"
           pr_number="$(gh api "${pr_url}" --jq '.number')"
-          echo "head-sha=${head_sha}" >>"${GITHUB_OUTPUT}"
-          echo "number=${pr_number}" >>"${GITHUB_OUTPUT}"
-          echo "pr-author=${PR_AUTHOR}" >>"${GITHUB_OUTPUT}"
+          {
+            echo "head-sha=${head_sha}"
+            echo "number=${pr_number}"
+            echo "pr-author=${PR_AUTHOR}"
+          } >>"${GITHUB_OUTPUT}"
       - name: Reply denial on permission failure
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # GitHub expressions are expanded before Bash evaluates the quoted body.
+          # shellcheck disable=SC2016
           gh pr comment "${{ steps.pr-info.outputs.number }}" --repo "${{ github.repository }}" --body "$(printf '%s\n' \
             '🚫 `/ucm-build` not authorized.' \
             '' \

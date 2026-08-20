@@ -113,32 +113,32 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
-          feature=false
-          protected=false
-          route=
-          lane=feature-candidate
-          delivery=false
+          feature="false"
+          protected="false"
+          route=""
+          lane="feature-candidate"
+          delivery="false"
           if [[ "${EVENT_NAME}" == pull_request ]]; then
-            route=pr
+            route="pr"
             PYTHONPATH=.github/release python -m ucm_release core tag-preflight \
               --lane feature-candidate --catalog-planner >feature-preflight.json
           elif [[ "${EVENT_NAME}" == schedule ]]; then
-            route=feature
-            feature=true
+            route="feature"
+            feature="true"
             PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane feature-candidate --catalog-planner >feature-preflight.json
           elif [[ "${REF}" == refs/heads/feature/* && \
                 ( "${EVENT_NAME}" == push || "${EVENT_NAME}" == workflow_dispatch ) ]]; then
-            route=feature
-            feature=true
+            route="feature"
+            feature="true"
             if [[ "${EVENT_NAME}" == push && "${HEAD_COMMIT_MESSAGE}" == *"[ucm-deliver-full-oci]"* ]] || \
                [[ "${EVENT_NAME}" == workflow_dispatch && "${MANUAL_DELIVERY}" == true ]]; then
-              delivery=true
+              delivery="true"
             fi
             PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane feature-candidate --catalog-planner >feature-preflight.json
           elif [[ "${EVENT_NAME}" == push && "${REF_TYPE}" == tag ]]; then
-            route=protected
-            protected=true
-            lane=protected-tag
+            route="protected"
+            protected="true"
+            lane="protected-tag"
             git fetch --force origin "+${REF}:${REF}" \
               +refs/heads/develop:refs/remotes/origin/develop
             PYTHONPATH=.github/release python -m ucm_release core tag-preflight \
@@ -532,8 +532,8 @@ jobs:
           cp input/plan/resolved-plan.json out/protected/resolved-plan.json
           cp -R input/authenticated/member-records out/protected/member-records
           jq -cnS \
-            --argjson member_records "$(ls -1 out/protected/member-records/*.json 2>/dev/null | jq -R . | jq -s .)" \
-            --argjson finalized_indexes "$(ls -1 out/protected/finalized/*.json 2>/dev/null | jq -R . | jq -s .)" \
+            --argjson member_records "$(find out/protected/member-records -maxdepth 1 -type f -name '*.json' -print | sort | jq -R . | jq -s .)" \
+            --argjson finalized_indexes "$(find out/protected/finalized -maxdepth 1 -type f -name '*.json' -print | sort | jq -R . | jq -s .)" \
             --arg source_sha "$SOURCE_SHA" \
             --arg resolved_plan_sha256 "$RESOLVED_PLAN_SHA256" \
             --arg github_run_id "$GITHUB_RUN_ID" \

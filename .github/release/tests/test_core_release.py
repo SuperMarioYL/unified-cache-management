@@ -187,8 +187,15 @@ def test_setup_chart_and_configuration_share_version_authority() -> None:
         check=True,
     ).stdout.strip()
     release_config = release_core.load_catalog()
-    assert setup_version == release_config["ucm_version"] == release_core.git_describe_pep440(ROOT)
-    assert release_core.derive_chart_version(release_config["ucm_version"]) == release_config["chart"]["version"]
+    assert (
+        setup_version
+        == release_config["ucm_version"]
+        == release_core.git_describe_pep440(ROOT)
+    )
+    assert (
+        release_core.derive_chart_version(release_config["ucm_version"])
+        == release_config["chart"]["version"]
+    )
     assert release_core.python_runtime_requirements(release_config) == [
         "packaging==24.2",
         "wrapt==1.17.2",
@@ -249,7 +256,9 @@ def test_dist_name_helpers_use_profile_name() -> None:
     wheel = importlib.import_module("ucm_release.wheel")
     assert wheel._dist_filename_component("uc-manager-cann-a2") == "uc_manager_cann_a2"
     assert wheel._dist_filename_component("uc-manager") == "uc_manager"
-    metadata = wheel._canonical_metadata("uc-manager-cann-a3", "0.7.55", ["wrapt==1.17.2"])
+    metadata = wheel._canonical_metadata(
+        "uc-manager-cann-a3", "0.7.55", ["wrapt==1.17.2"]
+    )
     assert b"Name: uc-manager-cann-a3" in metadata
     assert b"Version: 0.7.55" in metadata
     assert b"Requires-Dist: wrapt==1.17.2" in metadata
@@ -309,4 +318,3 @@ def test_release_body_lists_wheels_and_images(tmp_path: Path) -> None:
     # a2 file present -> its sha256 is reported; a3 file absent -> flagged missing.
     assert "sha256:" + hashlib.sha256(b"a2-wheel-bytes").hexdigest() in body
     assert "missing" in body
-

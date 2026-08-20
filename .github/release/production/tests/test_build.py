@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import csv
 import base64
+import csv
 import hashlib
 import io
 import json
@@ -12,7 +12,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
-
+from conftest import PRODUCTION_ROOT, REPO_ROOT
 from ucm_release_production.build import (
     authority_from_task,
     compare_wheel_candidates,
@@ -25,8 +25,6 @@ from ucm_release_production.common import (
 )
 from ucm_release_production.config import load_config
 from ucm_release_production.tags import parse_tag
-
-from conftest import PRODUCTION_ROOT, REPO_ROOT
 
 CONFIG = PRODUCTION_ROOT / "production-release.json"
 SOURCE_SHA = "1" * 40

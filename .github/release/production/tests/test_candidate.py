@@ -10,7 +10,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
-
+from conftest import PRODUCTION_ROOT
 from ucm_release_production.candidate import (
     EXPECTED_IMAGE_SPECS,
     CandidateBundle,
@@ -26,8 +26,6 @@ from ucm_release_production.common import (
 )
 from ucm_release_production.config import load_config
 from ucm_release_production.tags import intent_document, parse_tag
-
-from conftest import PRODUCTION_ROOT
 
 CONFIG = PRODUCTION_ROOT / "production-release.json"
 SOURCE = "1" * 40

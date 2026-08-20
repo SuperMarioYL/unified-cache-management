@@ -8,7 +8,7 @@ import tarfile
 from pathlib import Path
 
 import pytest
-
+from conftest import PRODUCTION_ROOT
 from ucm_release_production.build import project_build_task
 from ucm_release_production.common import (
     ProductionError,
@@ -23,9 +23,6 @@ from ucm_release_production.images import (
     prepare_image_context,
 )
 from ucm_release_production.tags import intent_document, parse_tag
-
-from conftest import PRODUCTION_ROOT
-
 
 CONFIG = PRODUCTION_ROOT / "production-release.json"
 SOURCE = "1" * 40

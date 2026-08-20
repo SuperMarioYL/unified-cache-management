@@ -264,7 +264,6 @@ jobs:
         run: |
           # shellcheck disable=SC2153,SC1083,SC2012
           set -euo pipefail
-          plan=input/plan/resolved-plan.json
           # Plan binding: the frozen plan hash matches the expected authority.
           # Run-bound parent artifact name: reject stale or cross-attempt artifacts.
           expected_parent="ucm-index-parent-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
@@ -425,7 +424,7 @@ jobs:
             >out/provisional-collection.json
           cp out/provisional-collection.json out/evidence/provisional-collection.json
           jq -cnS \
-            --argjson member_records "$(ls -1 out/evidence/member-records/*.json 2>/dev/null | jq -R . | jq -s .)" \
+            --argjson member_records "$(find out/evidence/member-records -maxdepth 1 -type f -name '*.json' -print | sort | jq -R . | jq -s .)" \
             --slurpfile prov out/provisional-collection.json \
             --arg source_sha "$SOURCE_SHA" \
             --arg resolved_plan_sha256 "$RESOLVED_PLAN_SHA256" \

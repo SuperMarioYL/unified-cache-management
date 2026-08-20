@@ -10,7 +10,6 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from .common import ProductionError, load_json, verify_envelope, write_json
 from .build import (
     docker_build_projection,
     prepare_source_context,
@@ -25,9 +24,10 @@ from .candidate import (
     seal_candidate,
 )
 from .chart import package_chart
+from .common import ProductionError, load_json, verify_envelope, write_json
 from .config import load_config
-from .evidence import assemble_evidence, render_summary
 from .environment import environment_evidence
+from .evidence import assemble_evidence, render_summary
 from .github_api import GitHubClient, read_trusted_identity
 from .github_release import (
     GitHubReleaseClient,

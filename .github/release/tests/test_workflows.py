@@ -285,6 +285,19 @@ def test_push_and_pull_request_callers_are_explicitly_read_only() -> None:
         assert permissions == {"contents": "read"}, job_name
 
 
+def test_release_tests_checkout_fetches_tags_for_git_describe() -> None:
+    """Release tests need complete tag history because version loading calls git describe."""
+    workflow = _load_workflow(WORKFLOW_DIR / "lint-and-test.yml")
+    checkout = next(
+        step
+        for step in _steps(_jobs(workflow)["release-tests"])
+        if str(step.get("uses", "")).startswith("actions/checkout@")
+    )
+
+    assert checkout["with"]["fetch-depth"] == 0
+    assert checkout["with"]["fetch-tags"] is True
+
+
 @pytest.mark.parametrize(
     ("filename", "valid_environment", "invalid_environment"),
     [

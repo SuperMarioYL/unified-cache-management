@@ -8,8 +8,8 @@ import email.parser
 import hashlib
 import io
 import re
-import subprocess
 import struct
+import subprocess
 import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any

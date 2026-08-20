@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ucm_release_production import chart
-
 from conftest import REPO_ROOT
+from ucm_release_production import chart
 
 
 def test_package_chart_validates_with_a_complete_repository_values_file(
