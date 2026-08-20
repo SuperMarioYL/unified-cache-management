@@ -820,11 +820,22 @@ def load_wheel_build_config(path: Path) -> dict[str, Any]:
     )
 
 
-def wheel_build_profile(config: object) -> dict[str, Any]:
-    """Return the canonical profile for an already projected build config."""
-    validated = _validate_wheel_build_config_value(config)
-    authority = validated["authority"]
-    return copy.deepcopy(WHEEL_BUILD_PROFILES[authority["profile_id"]])
+def wheel_build_profile(profile_id: object) -> dict[str, Any]:
+    """Project one stable canonical wheel profile by ID."""
+    profile = (
+        WHEEL_BUILD_PROFILES.get(profile_id) if isinstance(profile_id, str) else None
+    )
+    if profile is None:
+        raise ValueError("wheel build profile_id is invalid")
+    return {
+        "id": profile_id,
+        "distribution": profile["distribution"],
+        "build_platform": profile["build_platform"],
+        "wheel_platform": profile["wheel_platform"],
+        "python_version": profile["python"]["version"],
+        "python_abi": profile["python"]["abi"],
+        "runtime_requirements": copy.deepcopy(profile["runtime_requirements"]),
+    }
 
 
 def prepare_wheel_source(config_path: Path, source_root: Path) -> dict[str, Any]:
@@ -928,24 +939,36 @@ def _validate_production_wheel_task(value: object) -> dict[str, Any]:
     if (
         task.get("kind") != "ucm-production-wheel-build-task"
         or task.get("schema_version") != 1
-        or task.get("sha256") != actual_hash
-        or cpu_arch not in {"amd64", "arm64"}
+    ):
+        raise ValueError("production wheel task identity is invalid")
+    if task.get("sha256") != actual_hash:
+        raise ValueError("production wheel task hash mismatch")
+    if (
+        cpu_arch not in {"amd64", "arm64"}
         or task.get("spec_id") != f"{profile}-{cpu_arch}"
         or task.get("platform") != f"linux/{cpu_arch}"
-        or re.fullmatch(
+    ):
+        raise ValueError("production wheel task cpu_arch/spec/platform is invalid")
+    if (
+        re.fullmatch(
             r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)",
             base_version,
         )
         is None
         or stage not in stage_patterns
         or re.fullmatch(stage_patterns[stage], wheel_version) is None
-        or re.fullmatch(r"[0-9a-f]{40}", str(task.get("source_sha"))) is None
+    ):
+        raise ValueError("production wheel task stage/version is invalid")
+    if (
+        re.fullmatch(r"[0-9a-f]{40}", str(task.get("source_sha"))) is None
         or re.fullmatch(r"[0-9a-f]{64}", str(task.get("source_identity_sha256")))
         is None
-        or DIGEST_RE.fullmatch(str(task.get("dependency_lock_sha256"))) is None
-        or task.get("write_authority") != []
     ):
-        raise ValueError("production wheel task contract is invalid")
+        raise ValueError("production wheel task source identity is invalid")
+    if DIGEST_RE.fullmatch(str(task.get("dependency_lock_sha256"))) is None:
+        raise ValueError("production wheel task dependency_lock is invalid")
+    if task.get("write_authority") != []:
+        raise ValueError("production wheel task write authority is invalid")
     _validate_native_lists(task)
     builder = task.get("builder")
     if (

@@ -513,7 +513,12 @@ def test_sealed_wheel_filename_and_wheel_tag_share_profile_authority(
     )
     raw = tmp_path / "raw.whl"
     output_dir = tmp_path / "sealed"
-    _raw_native_wheel(raw, task)
+    raw_tag = (
+        f"cp312-cp312-linux_{tag_arch}"
+        if profile == "cuda130"
+        else f"cp312-cp312-{wheel_platform}_{tag_arch}"
+    )
+    _raw_native_wheel(raw, task, tags=[raw_tag])
 
     record = seal_built_wheel(raw, output_dir, task, authority)
 
@@ -531,12 +536,12 @@ def test_sealed_wheel_filename_and_wheel_tag_share_profile_authority(
 @pytest.mark.parametrize(
     ("tags", "wheel_files", "message"),
     [
-        (["cp312-cp312-linux_x86_64"], 1, "Tag"),
+        (["cp312-cp312-manylinux_2_17_x86_64"], 1, "Tag"),
         ([], 1, "Tag"),
         (
             [
                 "cp312-cp312-manylinux_2_28_x86_64",
-                "cp312-cp312-linux_x86_64",
+                "cp312-cp312-manylinux_2_17_x86_64",
             ],
             1,
             "Tag",
@@ -567,6 +572,52 @@ def test_seal_rejects_missing_multiple_or_drifted_wheel_tags(
         seal_built_wheel(raw, tmp_path / "sealed", task, authority)
 
     assert not (tmp_path / "sealed").exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("build_platform", "ascend"),
+        ("wheel_platform", "linux"),
+    ],
+)
+def test_seal_independently_rejects_rehashed_profile_tuple_drift(
+    tmp_path: Path, field: str, value: str
+) -> None:
+    task = _sealable_task("cuda130", "amd64")
+    task.pop("sha256")
+    task[field] = value
+    task = sha256_envelope(task)
+    authority = authority_from_task(
+        task,
+        source_tree="6" * 40,
+        source_archive_sha256="sha256:" + "7" * 64,
+        source_date_epoch=1_700_000_000,
+        build_context_sha256="sha256:" + "8" * 64,
+        tool_wheels={f"tool-{index}.whl": "sha256:" + "5" * 64 for index in range(7)},
+    )
+    raw = tmp_path / "raw.whl"
+    _raw_native_wheel(raw, task)
+
+    with pytest.raises(ProductionError, match=field):
+        seal_built_wheel(raw, tmp_path / "sealed", task, authority)
+
+
+def test_ascend_seal_rejects_non_linux_raw_tag(tmp_path: Path) -> None:
+    task = _sealable_task("cann900-a2", "amd64")
+    authority = authority_from_task(
+        task,
+        source_tree="6" * 40,
+        source_archive_sha256="sha256:" + "7" * 64,
+        source_date_epoch=1_700_000_000,
+        build_context_sha256="sha256:" + "8" * 64,
+        tool_wheels={f"tool-{index}.whl": "sha256:" + "5" * 64 for index in range(7)},
+    )
+    raw = tmp_path / "raw.whl"
+    _raw_native_wheel(raw, task, tags=["cp312-cp312-manylinux_2_28_x86_64"])
+
+    with pytest.raises(ProductionError, match="Tag"):
+        seal_built_wheel(raw, tmp_path / "sealed", task, authority)
 
 
 def test_compare_wheel_candidates_requires_byte_and_metadata_equality(

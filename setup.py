@@ -107,7 +107,7 @@ def _load_build_config() -> tuple[dict[str, object], dict[str, object]] | None:
         from ucm_release.wheel import load_wheel_build_config, wheel_build_profile
 
         config = load_wheel_build_config(BUILD_CONFIG_PATH)
-        return config, wheel_build_profile(config)
+        return config, wheel_build_profile(config["authority"]["profile_id"])
     except (OSError, ValueError) as error:
         raise RuntimeError(f"UCM_BUILD_CONFIG is invalid: {error}") from error
 

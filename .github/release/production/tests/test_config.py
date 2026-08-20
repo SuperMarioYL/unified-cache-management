@@ -91,14 +91,23 @@ def test_config_has_exact_product_and_profile_closure() -> None:
     assert config["external_channels"] == {"docker_hub": False, "pypi": False}
 
 
-@pytest.mark.parametrize("field", ["build_platform", "wheel_platform"])
-def test_production_profile_rejects_arbitrary_build_and_wheel_platforms(
-    field: str,
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("distribution", "uc-manager-cann-a2"),
+        ("build_platform", "ascend"),
+        ("wheel_platform", "linux"),
+        ("python_version", "3.11"),
+        ("python_abi", "cp311"),
+    ],
+)
+def test_production_profile_rejects_every_exact_tuple_drift(
+    field: str, value: str
 ) -> None:
     from ucm_release_production.config import validate_config
 
     config = copy.deepcopy(load_config(CONFIG))
-    config["build_profiles"][0][field] = "evil"
+    config["build_profiles"][0][field] = value
 
     with pytest.raises(ProductionError, match=field):
         validate_config(config)

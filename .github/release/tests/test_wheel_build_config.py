@@ -337,6 +337,110 @@ def test_production_projection_names_profile_field_drift(
         )
 
 
+def test_checked_in_production_profiles_match_canonical_wheel_domain() -> None:
+    production = json.loads(
+        (RELEASE_ROOT / "production" / "production-release.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    expected_requirements = sorted(
+        [
+            "packaging=="
+            + production["toolchain"]["python_build"]["packaging"]["version"],
+            "wrapt==" + production["toolchain"]["wrapt"]["version"],
+        ]
+    )
+
+    for profile in production["build_profiles"]:
+        canonical = wheel.wheel_build_profile(profile["id"])
+        assert (
+            profile["id"],
+            profile["distribution"],
+            profile["build_platform"],
+            profile["wheel_platform"],
+            profile["python_version"],
+            profile["python_abi"],
+        ) == (
+            canonical["id"],
+            canonical["distribution"],
+            canonical["build_platform"],
+            canonical["wheel_platform"],
+            canonical["python_version"],
+            canonical["python_abi"],
+        )
+        assert (
+            production["toolchain"]["runtime_requirements"]
+            == (canonical["runtime_requirements"])
+            == expected_requirements
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "rehash", "message"),
+    [
+        (lambda task: task.update(sha256="9" * 64), False, "hash"),
+        (lambda task: task.update(cpu_arch="arm64"), True, "cpu_arch/spec/platform"),
+        (
+            lambda task: task.update(spec_id="cann900-a2-arm64"),
+            True,
+            "cpu_arch/spec/platform",
+        ),
+        (
+            lambda task: task.update(platform="linux/arm64"),
+            True,
+            "cpu_arch/spec/platform",
+        ),
+        (
+            lambda task: task.update(stage="stable"),
+            True,
+            "stage/version",
+        ),
+        (
+            lambda task: task.update(source_sha="9" * 39),
+            True,
+            "source identity",
+        ),
+        (
+            lambda task: task.update(source_identity_sha256="9" * 63),
+            True,
+            "source identity",
+        ),
+        (
+            lambda task: task.update(dependency_lock_sha256="sha256:" + "9" * 63),
+            True,
+            "dependency_lock",
+        ),
+        (
+            lambda task: task.update(write_authority=["publish"]),
+            True,
+            "write authority",
+        ),
+    ],
+)
+def test_production_task_validation_names_mutation_family(
+    tmp_path: Path, mutation: object, rehash: bool, message: str
+) -> None:
+    original = _production_task()
+    task = json.loads(json.dumps(original))
+    mutation(task)
+    if rehash:
+        payload = {key: item for key, item in task.items() if key != "sha256"}
+        task["sha256"] = hashlib.sha256(
+            json.dumps(
+                payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+            ).encode("utf-8")
+        ).hexdigest()
+    task_path = tmp_path / "task.json"
+    authority_path = tmp_path / "authority.json"
+    _write(task_path, task)
+    _write(authority_path, _production_authority(original))
+
+    with pytest.raises(ValueError, match=message):
+        wheel.build_wheel_config(
+            task_path, authority_path, tmp_path / "wheel-build.json"
+        )
+
+
 def test_load_accepts_only_the_exact_canonical_wrapper(tmp_path: Path) -> None:
     task = _extended_task()
     authority = _extended_authority(task)

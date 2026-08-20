@@ -22,7 +22,7 @@ from .common import (
     sha256_envelope,
     verify_envelope,
 )
-from .config import validate_config
+from .config import validate_config, validate_production_wheel_profile
 from .tags import TagIntent
 
 _PROFILES = ("cuda130", "cann900-a2", "cann900-a3")
@@ -351,6 +351,7 @@ def seal_built_wheel(
 ) -> dict[str, Any]:
     """Canonicalize one native wheel and bind its schema-v2 build authority."""
 
+    validate_production_wheel_profile(task, label="production wheel task")
     raw_wheel = Path(raw_wheel)
     output_dir = Path(output_dir)
     if not raw_wheel.is_file() or raw_wheel.is_symlink():
@@ -362,13 +363,16 @@ def seal_built_wheel(
     try:
         with zipfile.ZipFile(raw_wheel) as archive:
             metadata, record_name, _ = _metadata(archive)
-            _wheel_metadata(archive, record_name, task)
+            wheel_name, wheel_metadata = _wheel_metadata(
+                archive, record_name, task, allow_raw=True
+            )
             _record(archive, record_name)
             entries = {
                 item.filename: archive.read(item.filename)
                 for item in archive.infolist()
                 if not item.is_dir() and item.filename != record_name
             }
+            entries[wheel_name] = wheel_metadata
     except zipfile.BadZipFile:
         raise ProductionError("raw production wheel is not a ZIP archive") from None
     if (
@@ -493,6 +497,7 @@ def project_build_task(
     )
     source_value, source_sha = _source_identity(source, intent)
     profile = _profile(config, profile_id)
+    validate_production_wheel_profile(profile, label="projected build profile")
     required_native = list(_NATIVE_REQUIRED_COMMON)
     if profile_id != "cuda130":
         required_native.append("mooncakestore")
@@ -590,6 +595,7 @@ def wheel_build_config_from_task(
         schema_version=1,
         exact_keys=_PRODUCTION_WHEEL_TASK_KEYS,
     )
+    validate_production_wheel_profile(task, label="production wheel build task")
     if not isinstance(authority, dict) or set(authority) != _PRODUCTION_AUTHORITY_KEYS:
         raise ProductionError("production wheel build authority fields are not exact")
     builder = task["builder"]
@@ -619,16 +625,6 @@ def wheel_build_config_from_task(
         raise ProductionError(
             f"production wheel build authority differs from task: {mismatches}"
         )
-    for field in (
-        "profile_id",
-        "distribution",
-        "build_platform",
-        "python_version",
-        "python_abi",
-        "wheel_platform",
-    ):
-        if not isinstance(task.get(field), str) or not task[field]:
-            raise ProductionError(f"production wheel build task {field} is invalid")
     if (
         not isinstance(task.get("runtime_requirements"), list)
         or not task["runtime_requirements"]
@@ -691,7 +687,11 @@ def _expected_wheel_tag(task: dict[str, Any]) -> str:
 
 
 def _wheel_metadata(
-    archive: zipfile.ZipFile, record_name: str, task: dict[str, Any]
+    archive: zipfile.ZipFile,
+    record_name: str,
+    task: dict[str, Any],
+    *,
+    allow_raw: bool = False,
 ) -> tuple[str, bytes]:
     names = [item.filename for item in archive.infolist() if not item.is_dir()]
     wheel_names = [name for name in names if name.endswith(".dist-info/WHEEL")]
@@ -704,9 +704,27 @@ def _wheel_metadata(
     raw = archive.read(wheel_name)
     parsed = email.parser.BytesParser().parsebytes(raw)
     expected_tag = _expected_wheel_tag(task)
-    if parsed.get_all("Tag", []) != [expected_tag]:
+    observed_tags = parsed.get_all("Tag", [])
+    allowed_tags = {expected_tag}
+    if allow_raw and task.get("build_platform") == "cuda":
+        allowed_tags.add(expected_tag.replace(task["wheel_platform"], "linux", 1))
+    if len(observed_tags) != 1 or observed_tags[0] not in allowed_tags:
         raise ProductionError("wheel Tag differs from production task")
-    return wheel_name, raw
+    tag_line = re.compile(rb"(?m)^Tag:[ \t]*[^\r\n]*(?P<newline>\r?\n|$)")
+    matches = list(tag_line.finditer(raw))
+    if len(matches) != 1:
+        raise ProductionError("wheel must contain exactly one textual Tag header")
+    match = matches[0]
+    canonical = (
+        raw[: match.start()]
+        + b"Tag: "
+        + expected_tag.encode("ascii")
+        + match.group("newline")
+        + raw[match.end() :]
+    )
+    if not allow_raw and canonical != raw:
+        raise ProductionError("wheel Tag header is noncanonical")
+    return wheel_name, canonical
 
 
 def _record(archive: zipfile.ZipFile, record_name: str) -> None:
