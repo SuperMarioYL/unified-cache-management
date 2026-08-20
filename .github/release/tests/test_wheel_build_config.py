@@ -6,6 +6,7 @@ import json
 import os
 import platform as host_platform
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -42,18 +43,21 @@ def _extended_task(
             "build_arg": "cuda",
             "distribution": "uc-manager-cuda",
             "npu_arch": "na",
+            "wheel_platform": "manylinux_2_28",
         },
         "cann900-a2": {
             "accelerator": "ascend",
             "build_arg": "ascend",
             "distribution": "uc-manager-cann-a2",
             "npu_arch": "a2",
+            "wheel_platform": "linux",
         },
         "cann900-a3": {
             "accelerator": "ascend",
             "build_arg": "ascend-a3",
             "distribution": "uc-manager-cann-a3",
             "npu_arch": "a3",
+            "wheel_platform": "linux",
         },
     }
     selected = profiles[profile]
@@ -61,28 +65,22 @@ def _extended_task(
         "spec_id": f"{profile}-{cpu_arch}",
         "profile_id": profile,
         "accelerator": selected["accelerator"],
-        "accelerator_runtime": (
-            "cuda-13.0" if profile == "cuda130" else "cann-9.0.0"
-        ),
+        "accelerator_runtime": ("cuda-13.0" if profile == "cuda130" else "cann-9.0.0"),
         "npu_arch_or_na": selected["npu_arch"],
         "os": "ubuntu-22.04",
         "cpu_arch": cpu_arch,
         "python_version": "3.12",
         "python_abi": "cp312",
         "wheel_version": "0.6.0+" + profile.replace("-", "."),
-        "wheel_platform": "linux",
+        "wheel_platform": selected["wheel_platform"],
         "binary_profile_id": "release-" + profile,
         "dist_name": selected["distribution"],
         "validation_targets": [selected["npu_arch"]],
         "required_native": (
-            ["ucmtrans"]
-            if profile == "cuda130"
-            else ["ucmtrans", "mooncakestore"]
+            ["ucmtrans"] if profile == "cuda130" else ["ucmtrans", "mooncakestore"]
         ),
         "forbidden_native": (
-            ["mooncakestore", "ds3fsstore"]
-            if profile == "cuda130"
-            else ["ds3fsstore"]
+            ["mooncakestore", "ds3fsstore"] if profile == "cuda130" else ["ds3fsstore"]
         ),
         "allowed_dt_needed": ["libc.so.6"],
         "external_required_dependencies": [],
@@ -177,6 +175,7 @@ def _production_task(*, stage: str = "rc") -> dict[str, Any]:
         "spec_id": "cann900-a2-amd64",
         "profile_id": "cann900-a2",
         "distribution": "uc-manager-cann-a2",
+        "build_platform": "ascend",
         "cpu_arch": "amd64",
         "platform": "linux/amd64",
         "runner": "ubuntu-24.04",
@@ -234,9 +233,7 @@ def _production_authority(task: dict[str, Any]) -> dict[str, Any]:
         "source_archive_sha256": DIGEST,
         "source_date_epoch": 1_700_000_000,
         "task_sha256": "sha256:" + task["sha256"],
-        "builder_coordinate": (
-            f"{builder['repository']}@{builder['manifest_digest']}"
-        ),
+        "builder_coordinate": (f"{builder['repository']}@{builder['manifest_digest']}"),
         "builder_config_digest": builder["config_digest"],
         "dependency_lock_sha256": task["dependency_lock_sha256"],
         "tool_wheels": {f"tool-{index}.whl": DIGEST for index in range(7)},
@@ -268,9 +265,12 @@ def test_extended_v1_projection_writes_the_exact_canonical_wrapper(
         "runtime_requirements": RUNTIME_REQUIREMENTS,
         "schema_version": 1,
     }
-    expected_bytes = json.dumps(
-        expected, ensure_ascii=False, separators=(",", ":"), sort_keys=True
-    ).encode("utf-8") + b"\n"
+    expected_bytes = (
+        json.dumps(
+            expected, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")
+        + b"\n"
+    )
     assert result == expected
     assert output.read_bytes() == expected_bytes
 
@@ -297,9 +297,44 @@ def test_production_v2_projection_has_the_same_exact_top_level_contract(
         "runtime_requirements": RUNTIME_REQUIREMENTS,
         "schema_version": 1,
     }
-    assert output.read_bytes() == json.dumps(
-        result, ensure_ascii=False, separators=(",", ":"), sort_keys=True
-    ).encode("utf-8") + b"\n"
+    assert (
+        output.read_bytes()
+        == json.dumps(
+            result, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")
+        + b"\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("wheel_platform", "evil"),
+        ("build_platform", "evil"),
+        ("runtime_requirements", ["wrapt==1.17.2"]),
+    ],
+)
+def test_production_projection_names_profile_field_drift(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    task = _production_task()
+    task[field] = value
+    payload = {key: item for key, item in task.items() if key != "sha256"}
+    task["sha256"] = hashlib.sha256(
+        json.dumps(
+            payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")
+    ).hexdigest()
+    authority = _production_authority(task)
+    task_path = tmp_path / "task.json"
+    authority_path = tmp_path / "authority.json"
+    _write(task_path, task)
+    _write(authority_path, authority)
+
+    with pytest.raises(ValueError, match=field):
+        wheel.build_wheel_config(
+            task_path, authority_path, tmp_path / "wheel-build.json"
+        )
 
 
 def test_load_accepts_only_the_exact_canonical_wrapper(tmp_path: Path) -> None:
@@ -346,9 +381,7 @@ def test_load_accepts_only_the_exact_canonical_wrapper(tmp_path: Path) -> None:
         lambda value: value.update(tool_wheels={"other.whl": DIGEST}),
         lambda value: value.update(required_native=["ucmtrans"]),
         lambda value: value.update(forbidden_native=["hash_retrieval_backend"]),
-        lambda value: value.update(
-            runtime_patch_manifest_sha256="sha256:" + "9" * 64
-        ),
+        lambda value: value.update(runtime_patch_manifest_sha256="sha256:" + "9" * 64),
         lambda value: value.update(runtime_requirements=["wrapt==1.17.2"]),
     ],
 )
@@ -441,9 +474,11 @@ def test_prepare_source_changes_only_the_project_name(tmp_path: Path) -> None:
     source_root = tmp_path / "source"
     source_root.mkdir()
     original = (
-        b'# preserved\n[build-system]\nrequires = ["setuptools"]\n\n'
+        b'# name = "uc-manager" fake\n'
+        b'[build-system]\nrequires = ["setuptools"]\n\n'
         b'[project] # preserved\nname = "uc-manager" # preserved\n'
-        b'description = "uc-manager remains here"\n\n[tool.test]\nname = "other"\n'
+        b'description = "uc-manager remains here"\n\n'
+        b'[tool.test]\nname = "uc-manager"\n'
     )
     (source_root / "pyproject.toml").write_bytes(original)
 
@@ -465,7 +500,6 @@ def test_prepare_source_changes_only_the_project_name(tmp_path: Path) -> None:
         b'[project]\nname = "uc-manager"\n[project]\nversion = "1"\n',
         b'[project]\ndescription = "missing"\n',
         b'[project]\nname = "uc-manager"\nname = "uc-manager"\n',
-        b'[project]\nname = "uc-manager-cann-a2"\n',
         b'[project]\nname = "UC-Manager"\n',
     ],
 )
@@ -483,6 +517,121 @@ def test_prepare_source_rejects_malformed_project_authority_without_editing(
         wheel.prepare_wheel_source(config_path, source_root)
 
     assert project_path.read_bytes() == project
+
+
+@pytest.mark.parametrize(
+    "original",
+    [
+        b"[project]\n\"name\" = 'uc-manager'\n",
+        b'"project"."name" = "uc-manager"\n',
+        b'[ "project" ]\n\'name\' = "uc-manager"\n',
+        b'project.name = "uc-manager"\n',
+        b'project = { name = "uc-manager" }\n',
+    ],
+)
+def test_prepare_source_supports_valid_quoted_dotted_and_inline_project_names(
+    tmp_path: Path, original: bytes
+) -> None:
+    config_path = tmp_path / "wheel-build.json"
+    _write(config_path, _valid_config())
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    project_path = source_root / "pyproject.toml"
+    project_path.write_bytes(original)
+
+    wheel.prepare_wheel_source(config_path, source_root)
+
+    assert project_path.read_bytes() == original.replace(
+        b"uc-manager", b"uc-manager-cann-a2", 1
+    )
+
+
+@pytest.mark.parametrize("quote", [b'"""', b"'''"])
+def test_prepare_source_ignores_fake_assignments_inside_multiline_strings(
+    tmp_path: Path, quote: bytes
+) -> None:
+    config_path = tmp_path / "wheel-build.json"
+    _write(config_path, _valid_config())
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    project_path = source_root / "pyproject.toml"
+    original = (
+        b"note = "
+        + quote
+        + b'\n[project]\nname = "uc-manager"\n'
+        + quote
+        + b'\n[project]\nname = "uc-manager" # real\n'
+    )
+    project_path.write_bytes(original)
+
+    wheel.prepare_wheel_source(config_path, source_root)
+
+    assert project_path.read_bytes() == original.replace(
+        b'name = "uc-manager" # real',
+        b'name = "uc-manager-cann-a2" # real',
+    )
+
+
+def test_prepare_source_preserves_crlf_and_mode(tmp_path: Path) -> None:
+    config_path = tmp_path / "wheel-build.json"
+    _write(config_path, _valid_config())
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    project_path = source_root / "pyproject.toml"
+    original = b'[project]\r\nname = "uc-manager"\r\n'
+    project_path.write_bytes(original)
+    project_path.chmod(0o640)
+
+    wheel.prepare_wheel_source(config_path, source_root)
+
+    assert project_path.read_bytes() == original.replace(
+        b"uc-manager", b"uc-manager-cann-a2"
+    )
+    assert stat.S_IMODE(project_path.stat().st_mode) == 0o640
+
+
+def test_prepare_source_is_idempotent_for_the_exact_target(tmp_path: Path) -> None:
+    config_path = tmp_path / "wheel-build.json"
+    _write(config_path, _valid_config())
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    project_path = source_root / "pyproject.toml"
+    original = (
+        b'note = """name = "uc-manager"""\n' b'[project]\nname = "uc-manager-cann-a2"\n'
+    )
+    project_path.write_bytes(original)
+    before_inode = project_path.stat().st_ino
+
+    wheel.prepare_wheel_source(config_path, source_root)
+
+    assert project_path.read_bytes() == original
+    assert project_path.stat().st_ino == before_inode
+
+
+def test_prepare_source_rejects_ambiguous_semantic_candidate_selection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = tmp_path / "wheel-build.json"
+    _write(config_path, _valid_config())
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    project_path = source_root / "pyproject.toml"
+    original = b'# uc-manager\n[project]\nname = "uc-manager"\n'
+    project_path.write_bytes(original)
+    real_loads = wheel.tomllib.loads
+
+    def ambiguous_loads(value: str) -> dict[str, object]:
+        parsed = real_loads(value)
+        if "uc-manager-cann-a2" in value:
+            parsed["project"]["name"] = "uc-manager-cann-a2"
+        return parsed
+
+    monkeypatch.setattr(wheel.tomllib, "loads", ambiguous_loads)
+
+    with pytest.raises(ValueError, match="ambiguous"):
+        wheel.prepare_wheel_source(config_path, source_root)
+
+    assert project_path.read_bytes() == original
 
 
 def _run_cli(*arguments: str) -> subprocess.CompletedProcess[str]:
@@ -545,6 +694,52 @@ def test_cli_build_config_failure_leaves_no_partial_output(tmp_path: Path) -> No
     assert not output.exists()
 
 
+def test_build_config_atomic_failure_preserves_existing_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    task = _extended_task()
+    task_path = tmp_path / "task.json"
+    authority_path = tmp_path / "authority.json"
+    output = tmp_path / "wheel-build.json"
+    _write(task_path, task)
+    _write(authority_path, _extended_authority(task))
+    output.write_bytes(b"existing\n")
+
+    def fail_replace(source: object, destination: object) -> None:
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(wheel.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="replace failed"):
+        wheel.build_wheel_config(task_path, authority_path, output)
+
+    assert output.read_bytes() == b"existing\n"
+    assert list(tmp_path.glob(".wheel-build.json.*")) == []
+
+
+def test_prepare_source_atomic_failure_preserves_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = tmp_path / "wheel-build.json"
+    _write(config_path, _valid_config())
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    project_path = source_root / "pyproject.toml"
+    original = b'[project]\nname = "uc-manager"\n'
+    project_path.write_bytes(original)
+
+    def fail_replace(source: object, destination: object) -> None:
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(wheel.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="replace failed"):
+        wheel.prepare_wheel_source(config_path, source_root)
+
+    assert project_path.read_bytes() == original
+    assert list(source_root.glob(".pyproject.toml.*")) == []
+
+
 def test_cli_prepare_source_reports_canonical_success(tmp_path: Path) -> None:
     config_path = tmp_path / "wheel-build.json"
     _write(config_path, _valid_config())
@@ -573,16 +768,16 @@ def test_cli_prepare_source_reports_canonical_success(tmp_path: Path) -> None:
 
 
 def _host_architecture() -> str:
-    return "arm64" if host_platform.machine().lower() in {"arm64", "aarch64"} else "amd64"
+    return (
+        "arm64" if host_platform.machine().lower() in {"arm64", "aarch64"} else "amd64"
+    )
 
 
 def _setup_source_copy(tmp_path: Path) -> Path:
     source = tmp_path / "source"
     source.mkdir()
     shutil.copyfile(ROOT / "setup.py", source / "setup.py")
-    (source / "version.ini").write_text(
-        "VLLM_UC_VERSION=0.6.0\n", encoding="utf-8"
-    )
+    (source / "version.ini").write_text("VLLM_UC_VERSION=0.6.0\n", encoding="utf-8")
     release_package = source / ".github" / "release" / "ucm_release"
     release_package.parent.mkdir(parents=True)
     shutil.copytree(RELEASE_ROOT / "ucm_release", release_package)
@@ -596,9 +791,7 @@ def _setup_source_copy(tmp_path: Path) -> Path:
         ["git", "config", "user.name", "Release Test"], cwd=source, check=True
     )
     subprocess.run(["git", "add", "."], cwd=source, check=True)
-    subprocess.run(
-        ["git", "commit", "-q", "-m", "fixture"], cwd=source, check=True
-    )
+    subprocess.run(["git", "commit", "-q", "-m", "fixture"], cwd=source, check=True)
     subprocess.run(["git", "tag", "v0.6.0"], cwd=source, check=True)
     return source
 

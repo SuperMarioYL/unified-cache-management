@@ -27,6 +27,41 @@ _OCI_CONFIG = "application/vnd.oci.image.config.v1+json"
 _LAYER_PREFIX = "application/vnd.oci.image.layer.v1"
 
 
+def _runtime_wheel_sources(
+    config: dict[str, Any], task: dict[str, Any], wheel_path: Path, architecture: str
+) -> list[tuple[str, Path, str]]:
+    packaging = config["toolchain"]["python_build"]["packaging"]
+    wrapt_group = config["toolchain"]["wrapt"]
+    configured = {
+        f"packaging=={packaging['version']}": ("packaging", packaging),
+        f"wrapt=={wrapt_group['version']}": ("wrapt", wrapt_group[architecture]),
+    }
+    requirements = task.get("runtime_requirements")
+    if requirements != sorted(configured):
+        missing = sorted(set(configured) - set(requirements or []))
+        unknown = sorted(set(requirements or []) - set(configured))
+        raise ProductionError(
+            "image task runtime_requirements differ from production toolchain: "
+            f"missing={missing}, unknown={unknown}"
+        )
+    result: list[tuple[str, Path, str]] = []
+    for requirement in requirements:
+        name, record = configured[requirement]
+        source = Path("/tmp") / record["filename"]
+        sibling = wheel_path.parent / record["filename"]
+        if sibling.is_file() and not sibling.is_symlink():
+            source = sibling
+        expected = "sha256:" + record["sha256"]
+        if (
+            not source.is_file()
+            or source.is_symlink()
+            or _digest(source.read_bytes()) != expected
+        ):
+            raise ProductionError(f"pinned {name} wheel is absent or differs")
+        result.append((name, source, expected))
+    return result
+
+
 def image_recipe(task: dict[str, Any], image_tag: str) -> dict[str, Any]:
     """Bind one trusted wheel task to one immutable upstream runtime member."""
 
@@ -93,6 +128,8 @@ def prepare_image_context(
         or wheel_record.get("source_sha") != task.get("source_sha")
         or wheel_record.get("version") != task.get("wheel_version")
         or wheel_record.get("distribution") != task.get("distribution")
+        or wheel_record.get("python_abi") != task.get("python_abi")
+        or wheel_record.get("wheel_platform") != task.get("wheel_platform")
         or wheel_record.get("runtime_requirements") != task.get("runtime_requirements")
     ):
         raise ProductionError("image wheel record differs from build task")
@@ -110,31 +147,24 @@ def prepare_image_context(
     architecture = task.get("cpu_arch")
     if architecture not in {"amd64", "arm64"}:
         raise ProductionError("image task architecture is invalid")
-    wrapt = config["toolchain"]["wrapt"][architecture]
-    wrapt_source = Path("/tmp") / wrapt["filename"]
-    # Hosted callers materialize the pinned dependency at this exact sibling path.
-    sibling = wheel_path.parent / wrapt["filename"]
-    if sibling.is_file() and not sibling.is_symlink():
-        wrapt_source = sibling
-    if (
-        not wrapt_source.is_file()
-        or _digest(wrapt_source.read_bytes()) != "sha256:" + wrapt["sha256"]
-    ):
-        raise ProductionError("pinned wrapt wheel is absent or differs")
+    runtime_wheels = _runtime_wheel_sources(config, task, wheel_path, architecture)
     output_dir = Path(output_dir)
     if output_dir.exists():
         raise ProductionError("image context output already exists")
     output_dir.mkdir(parents=True)
     (output_dir / wheel_path.name).write_bytes(wheel_path.read_bytes())
-    (output_dir / wrapt_source.name).write_bytes(wrapt_source.read_bytes())
+    for _, source, _ in runtime_wheels:
+        (output_dir / source.name).write_bytes(source.read_bytes())
     (output_dir / "Dockerfile").write_bytes(dockerfile.read_bytes())
     wheel_sha = wheel_record["file_sha256"]
+    runtime_lock = "".join(
+        f"{name} @ file:///wheelhouse/{source.name} --hash={digest}\n"
+        for name, source, digest in runtime_wheels
+    )
     (output_dir / "requirements.lock").write_text(
         (
             f"{task['distribution']} @ file:///wheelhouse/{wheel_path.name} "
-            f"--hash={wheel_sha}\n"
-            f"wrapt @ file:///wheelhouse/{wrapt_source.name} "
-            f"--hash=sha256:{wrapt['sha256']}\n"
+            f"--hash={wheel_sha}\n" + runtime_lock
         ),
         encoding="utf-8",
     )
@@ -143,7 +173,7 @@ def prepare_image_context(
         "recipe": recipe,
         "wheel_sha256": wheel_sha,
         "wheel_name": wheel_path.name,
-        "wrapt_name": wrapt_source.name,
+        "runtime_wheel_names": [source.name for _, source, _ in runtime_wheels],
     }
 
 

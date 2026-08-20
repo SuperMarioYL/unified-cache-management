@@ -21,6 +21,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import tomllib
 import zipfile
 import zlib
 from pathlib import Path, PurePosixPath
@@ -151,19 +152,38 @@ PRODUCTION_V2_AUTHORITY_FIELDS = {
     "forbidden_native",
     "build_context_sha256",
 }
-PROFILE_BUILD_SETTINGS = {
-    "cuda130": ("uc-manager-cuda", "cuda"),
-    "cann900-a2": ("uc-manager-cann-a2", "ascend"),
-    "cann900-a3": ("uc-manager-cann-a3", "ascend-a3"),
-}
 WHEEL_BUILD_PYTHON = {"abi": "cp312", "version": "3.12"}
 WHEEL_BUILD_RUNTIME_REQUIREMENTS = ["packaging==24.2", "wrapt==1.17.2"]
+WHEEL_BUILD_PROFILES = {
+    "cuda130": {
+        "build_platform": "cuda",
+        "distribution": "uc-manager-cuda",
+        "python": WHEEL_BUILD_PYTHON,
+        "runtime_requirements": WHEEL_BUILD_RUNTIME_REQUIREMENTS,
+        "wheel_platform": "manylinux_2_28",
+    },
+    "cann900-a2": {
+        "build_platform": "ascend",
+        "distribution": "uc-manager-cann-a2",
+        "python": WHEEL_BUILD_PYTHON,
+        "runtime_requirements": WHEEL_BUILD_RUNTIME_REQUIREMENTS,
+        "wheel_platform": "linux",
+    },
+    "cann900-a3": {
+        "build_platform": "ascend-a3",
+        "distribution": "uc-manager-cann-a3",
+        "python": WHEEL_BUILD_PYTHON,
+        "runtime_requirements": WHEEL_BUILD_RUNTIME_REQUIREMENTS,
+        "wheel_platform": "linux",
+    },
+}
 PRODUCTION_WHEEL_TASK_FIELDS = {
     "kind",
     "schema_version",
     "spec_id",
     "profile_id",
     "distribution",
+    "build_platform",
     "cpu_arch",
     "platform",
     "runner",
@@ -404,7 +424,28 @@ def _sha256(path: Path) -> str:
 
 
 def _write_canonical(path: Path, value: object) -> None:
-    path.write_bytes(canonical_bytes(value) + b"\n")
+    _atomic_write_bytes(path, canonical_bytes(value) + b"\n")
+
+
+def _atomic_write_bytes(path: Path, data: bytes, *, mode: int | None = None) -> None:
+    path = Path(path)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        if mode is not None:
+            os.fchmod(descriptor, mode)
+        with os.fdopen(descriptor, "wb") as stream:
+            descriptor = -1
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        temporary.unlink(missing_ok=True)
 
 
 def _external_required_by_dependency(
@@ -690,7 +731,7 @@ def _validate_wheel_build_authority(authority: object) -> dict[str, Any]:
     _validate_native_lists(authority)
     if schema_version == 1:
         build = authority.get("build")
-        profile_settings = PROFILE_BUILD_SETTINGS.get(authority.get("profile_id"))
+        profile_settings = WHEEL_BUILD_PROFILES.get(authority.get("profile_id"))
         if (
             re.fullmatch(r"wheel-[0-9a-f]{64}", str(authority.get("task_id"))) is None
             or profile_settings is None
@@ -698,17 +739,19 @@ def _validate_wheel_build_authority(authority: object) -> dict[str, Any]:
             or not isinstance(build, dict)
             or set(build) != {"docker_target", "platform_arg"}
             or not all(isinstance(value, str) and value for value in build.values())
-            or build.get("platform_arg") != profile_settings[1]
-            or authority.get("python_version") != "3.12"
-            or authority.get("python_abi") != "cp312"
-            or authority.get("runtime_requirements") != WHEEL_BUILD_RUNTIME_REQUIREMENTS
+            or build.get("platform_arg") != profile_settings["build_platform"]
+            or authority.get("python_version") != profile_settings["python"]["version"]
+            or authority.get("python_abi") != profile_settings["python"]["abi"]
+            or authority.get("wheel_platform") != profile_settings["wheel_platform"]
+            or authority.get("runtime_requirements")
+            != profile_settings["runtime_requirements"]
             or DIGEST_RE.fullmatch(str(authority.get("runtime_patch_manifest_sha256")))
             is None
         ):
             raise ValueError("extended schema-v1 build authority is invalid")
     else:
         profile = authority.get("profile_id")
-        expected = PROFILE_BUILD_SETTINGS.get(profile)
+        expected = WHEEL_BUILD_PROFILES.get(profile)
         base_version = str(authority.get("base_version"))
         stage = authority.get("stage")
         stage_patterns = {
@@ -719,7 +762,7 @@ def _validate_wheel_build_authority(authority: object) -> dict[str, Any]:
         }
         if (
             expected is None
-            or authority.get("distribution") != expected[0]
+            or authority.get("distribution") != expected["distribution"]
             or authority.get("spec_id") != f"{profile}-{cpu_arch}"
             or re.fullmatch(
                 r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)",
@@ -740,16 +783,20 @@ def _validate_wheel_build_config_value(config: object) -> dict[str, Any]:
     if (
         config.get("kind") != WHEEL_BUILD_CONFIG_KIND
         or config.get("schema_version") != 1
-        or config.get("python") != WHEEL_BUILD_PYTHON
-        or config.get("runtime_requirements") != WHEEL_BUILD_RUNTIME_REQUIREMENTS
     ):
         raise ValueError("wheel build config contract is invalid")
     authority = _validate_wheel_build_authority(config.get("authority"))
     profile = authority["profile_id"]
-    expected = PROFILE_BUILD_SETTINGS.get(profile)
+    expected = WHEEL_BUILD_PROFILES.get(profile)
     if expected is None:
         raise ValueError("wheel build config profile is invalid")
-    distribution, platform_arg = expected
+    distribution = expected["distribution"]
+    platform_arg = expected["build_platform"]
+    if (
+        config.get("python") != expected["python"]
+        or config.get("runtime_requirements") != expected["runtime_requirements"]
+    ):
+        raise ValueError("wheel build config profile settings are invalid")
     if authority["schema_version"] == 1:
         platform_arg = authority["build"]["platform_arg"]
         if (
@@ -773,6 +820,13 @@ def load_wheel_build_config(path: Path) -> dict[str, Any]:
     )
 
 
+def wheel_build_profile(config: object) -> dict[str, Any]:
+    """Return the canonical profile for an already projected build config."""
+    validated = _validate_wheel_build_config_value(config)
+    authority = validated["authority"]
+    return copy.deepcopy(WHEEL_BUILD_PROFILES[authority["profile_id"]])
+
+
 def prepare_wheel_source(config_path: Path, source_root: Path) -> dict[str, Any]:
     """Rewrite only the authorized PEP 621 project-name assignment."""
     config = load_wheel_build_config(config_path)
@@ -781,53 +835,59 @@ def prepare_wheel_source(config_path: Path, source_root: Path) -> dict[str, Any]
         raise ValueError("wheel source pyproject.toml must be one regular file")
     raw = project_path.read_bytes()
     try:
-        raw.decode("utf-8")
+        text = raw.decode("utf-8")
+        original = tomllib.loads(text)
     except UnicodeDecodeError as error:
         raise ValueError("wheel source pyproject.toml must be UTF-8") from error
-    table_pattern = re.compile(
-        rb"(?m)^[ \t]*\[{1,2}[^\r\n]+?\]{1,2}[ \t]*(?:#[^\r\n]*)?(?:\r?\n|$)"
-    )
-    tables = list(table_pattern.finditer(raw))
-    project_tables = [
-        (index, table)
-        for index, table in enumerate(tables)
-        if re.fullmatch(
-            rb"[ \t]*\[[ \t]*project[ \t]*\][ \t]*(?:#[^\r\n]*)?(?:\r?\n|$)",
-            table.group(),
+    except tomllib.TOMLDecodeError as error:
+        raise ValueError(
+            f"wheel source pyproject.toml is invalid TOML: {error}"
+        ) from error
+    project = original.get("project") if isinstance(original, dict) else None
+    original_name = project.get("name") if isinstance(project, dict) else None
+    target = str(config["distribution"])
+    if original_name == target:
+        return {
+            "distribution": target,
+            "kind": "ucm-wheel-source-preparation",
+            "project_file": "pyproject.toml",
+            "schema_version": 1,
+        }
+    if original_name != "uc-manager":
+        raise ValueError(
+            "wheel source semantic project.name must be uc-manager or the target"
         )
-    ]
-    if len(project_tables) != 1:
-        raise ValueError("wheel source must contain exactly one [project] table")
-    table_index, project_table = project_tables[0]
-    section_start = project_table.end()
-    section_end = (
-        tables[table_index + 1].start() if table_index + 1 < len(tables) else len(raw)
+    expected = copy.deepcopy(original)
+    expected["project"]["name"] = target
+    source_bytes = b"uc-manager"
+    target_bytes = target.encode("utf-8")
+    candidates: list[bytes] = []
+    offset = 0
+    while True:
+        start = raw.find(source_bytes, offset)
+        if start < 0:
+            break
+        end = start + len(source_bytes)
+        candidate = raw[:start] + target_bytes + raw[end:]
+        try:
+            parsed = tomllib.loads(candidate.decode("utf-8"))
+        except (UnicodeDecodeError, tomllib.TOMLDecodeError):
+            pass
+        else:
+            if parsed == expected:
+                candidates.append(candidate)
+        offset = start + 1
+    if len(candidates) != 1:
+        raise ValueError(
+            "wheel source project.name textual authority is missing or ambiguous"
+        )
+    _atomic_write_bytes(
+        project_path,
+        candidates[0],
+        mode=project_path.stat().st_mode & 0o7777,
     )
-    section = raw[section_start:section_end]
-    assignments = list(re.finditer(rb"(?m)^[ \t]*name[ \t]*=", section))
-    if len(assignments) != 1:
-        raise ValueError("wheel source [project] must contain exactly one name")
-    line_start = assignments[0].start()
-    line_end_match = re.search(rb"\r?\n|$", section[assignments[0].end() :])
-    assert line_end_match is not None
-    line_end = assignments[0].end() + line_end_match.end()
-    line = section[line_start:line_end]
-    value_match = re.fullmatch(
-        rb"(?P<prefix>[ \t]*name[ \t]*=[ \t]*)(?P<quote>[\"'])"
-        rb"(?P<name>uc-manager)(?P=quote)"
-        rb"(?P<suffix>[ \t]*(?:#[^\r\n]*)?)(?P<newline>\r?\n|$)",
-        line,
-    )
-    if value_match is None:
-        raise ValueError("wheel source [project] name must be exactly uc-manager")
-    name_start = section_start + line_start + value_match.start("name")
-    name_end = section_start + line_start + value_match.end("name")
-    rewritten = (
-        raw[:name_start] + str(config["distribution"]).encode("utf-8") + raw[name_end:]
-    )
-    project_path.write_bytes(rewritten)
     return {
-        "distribution": config["distribution"],
+        "distribution": target,
         "kind": "ucm-wheel-source-preparation",
         "project_file": "pyproject.toml",
         "schema_version": 1,
@@ -841,7 +901,20 @@ def _validate_production_wheel_task(value: object) -> dict[str, Any]:
     payload = {key: item for key, item in task.items() if key != "sha256"}
     actual_hash = hashlib.sha256(canonical_bytes(payload)).hexdigest()
     profile = task.get("profile_id")
-    settings = PROFILE_BUILD_SETTINGS.get(profile)
+    settings = WHEEL_BUILD_PROFILES.get(profile)
+    if settings is None:
+        raise ValueError("production wheel task profile_id is invalid")
+    expected_profile_fields = {
+        "distribution": settings["distribution"],
+        "build_platform": settings["build_platform"],
+        "python_version": settings["python"]["version"],
+        "python_abi": settings["python"]["abi"],
+        "wheel_platform": settings["wheel_platform"],
+        "runtime_requirements": settings["runtime_requirements"],
+    }
+    for field, expected in expected_profile_fields.items():
+        if task.get(field) != expected:
+            raise ValueError(f"production wheel task {field} differs from profile")
     cpu_arch = task.get("cpu_arch")
     stage = task.get("stage")
     base_version = str(task.get("base_version"))
@@ -856,14 +929,9 @@ def _validate_production_wheel_task(value: object) -> dict[str, Any]:
         task.get("kind") != "ucm-production-wheel-build-task"
         or task.get("schema_version") != 1
         or task.get("sha256") != actual_hash
-        or settings is None
-        or task.get("distribution") != settings[0]
         or cpu_arch not in {"amd64", "arm64"}
         or task.get("spec_id") != f"{profile}-{cpu_arch}"
         or task.get("platform") != f"linux/{cpu_arch}"
-        or task.get("python_version") != "3.12"
-        or task.get("python_abi") != "cp312"
-        or task.get("runtime_requirements") != WHEEL_BUILD_RUNTIME_REQUIREMENTS
         or re.fullmatch(
             r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)",
             base_version,
@@ -941,7 +1009,7 @@ def build_wheel_config(
         task = _validate_production_wheel_task(task_value)
         _validate_production_task_authority(task, authority)
         distribution = task["distribution"]
-        platform_arg = PROFILE_BUILD_SETTINGS[task["profile_id"]][1]
+        platform_arg = task["build_platform"]
     result = {
         "authority": authority,
         "distribution": distribution,

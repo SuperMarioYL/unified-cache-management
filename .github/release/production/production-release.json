@@ -26,6 +26,7 @@
     {
       "id": "cuda130",
       "distribution": "uc-manager-cuda",
+      "build_platform": "cuda",
       "cpu_arch": ["amd64", "arm64"],
       "python_version": "3.12",
       "python_abi": "cp312",
@@ -42,6 +43,7 @@
     {
       "id": "cann900-a2",
       "distribution": "uc-manager-cann-a2",
+      "build_platform": "ascend",
       "cpu_arch": ["amd64", "arm64"],
       "python_version": "3.12",
       "python_abi": "cp312",
@@ -58,6 +60,7 @@
     {
       "id": "cann900-a3",
       "distribution": "uc-manager-cann-a3",
+      "build_platform": "ascend-a3",
       "cpu_arch": ["amd64", "arm64"],
       "python_version": "3.12",
       "python_abi": "cp312",
@@ -82,6 +85,7 @@
   "external_channels": {"docker_hub": false, "pypi": false},
   "toolchain": {
     "legacy_release_config_sha256": "d1e8b19a5074c88129cec6a35bfb1271be8f2fad633b0a4266677c6a79c8d3d5",
+    "runtime_requirements": ["packaging==24.2", "wrapt==1.17.2"],
     "python_build": {
       "build": {"version": "1.3.0", "filename": "build-1.3.0-py3-none-any.whl", "sha256": "7145f0b5061ba90a1500d60bd1b13ca0a8a4cebdd0cc16ed8adf1c0e739f43b4"},
       "pyproject-hooks": {"version": "1.2.0", "filename": "pyproject_hooks-1.2.0-py3-none-any.whl", "sha256": "9e5c6bfa8dcc30091c74b0cf803c81fdd29d94f01992a7707bc97babb1141913"},

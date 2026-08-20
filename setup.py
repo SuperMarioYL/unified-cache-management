@@ -97,21 +97,24 @@ def get_version_ini_version() -> str:
     raise RuntimeError(f"VLLM_UC_VERSION is missing from {version_path}")
 
 
-def _load_build_config() -> dict[str, object] | None:
+def _load_build_config() -> tuple[dict[str, object], dict[str, object]] | None:
     if BUILD_CONFIG_PATH is None:
         return None
     release_root = os.path.join(ROOT_DIR, ".github", "release")
     if release_root not in sys.path:
         sys.path.insert(0, release_root)
     try:
-        from ucm_release.wheel import load_wheel_build_config
+        from ucm_release.wheel import load_wheel_build_config, wheel_build_profile
 
-        return load_wheel_build_config(BUILD_CONFIG_PATH)
+        config = load_wheel_build_config(BUILD_CONFIG_PATH)
+        return config, wheel_build_profile(config)
     except (OSError, ValueError) as error:
         raise RuntimeError(f"UCM_BUILD_CONFIG is invalid: {error}") from error
 
 
-BUILD_CONFIG = _load_build_config()
+BUILD_INPUT = _load_build_config()
+BUILD_CONFIG = BUILD_INPUT[0] if BUILD_INPUT is not None else None
+BUILD_PROFILE = BUILD_INPUT[1] if BUILD_INPUT is not None else None
 PLATFORM = (
     str(BUILD_CONFIG["platform"]) if BUILD_CONFIG is not None else os.getenv("PLATFORM")
 )
@@ -135,22 +138,21 @@ def _release_settings() -> dict[str, object] | None:
         return None
     authority = BUILD_CONFIG["authority"]
     assert isinstance(authority, dict)
+    assert BUILD_PROFILE is not None
     profile = str(authority["profile_id"])
     architecture = _release_architecture()
     invoking_python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
     invoking_python_abi = f"cp{sys.version_info.major}{sys.version_info.minor}"
-    expected_profiles = {
-        "cuda130": ("uc-manager-cuda", "cuda"),
-        "cann900-a2": ("uc-manager-cann-a2", "ascend"),
-        "cann900-a3": ("uc-manager-cann-a3", "ascend-a3"),
-    }
-    expected_profile = expected_profiles.get(profile)
-    if expected_profile is None:
-        raise RuntimeError("wheel build config profile is invalid")
     comparisons = {
         "architecture": (architecture, authority["cpu_arch"]),
-        "distribution": (BUILD_CONFIG["distribution"], expected_profile[0]),
-        "platform": (BUILD_CONFIG["platform"], expected_profile[1]),
+        "distribution": (
+            BUILD_CONFIG["distribution"],
+            BUILD_PROFILE["distribution"],
+        ),
+        "platform": (
+            BUILD_CONFIG["platform"],
+            BUILD_PROFILE["build_platform"],
+        ),
         "invoking Python version": (
             invoking_python_version,
             BUILD_CONFIG["python"]["version"],

@@ -29,17 +29,13 @@ _PROFILES = ("cuda130", "cann900-a2", "cann900-a3")
 _ARCHITECTURES = ("amd64", "arm64")
 _RUNNERS = {"amd64": "ubuntu-24.04", "arm64": "ubuntu-24.04-arm"}
 _PLATFORMS = {"amd64": "linux/amd64", "arm64": "linux/arm64"}
-_PROFILE_BUILD_SETTINGS = {
-    "cuda130": ("uc-manager-cuda", "cuda"),
-    "cann900-a2": ("uc-manager-cann-a2", "ascend"),
-    "cann900-a3": ("uc-manager-cann-a3", "ascend-a3"),
-}
 _PRODUCTION_WHEEL_TASK_KEYS = {
     "kind",
     "schema_version",
     "spec_id",
     "profile_id",
     "distribution",
+    "build_platform",
     "cpu_arch",
     "platform",
     "runner",
@@ -238,17 +234,12 @@ def docker_build_projection(
         build_context_sha256=context["build_context_sha256"],
         tool_wheels=tools,
     )
-    platform_arg = {
-        "cuda130": "cuda",
-        "cann900-a2": "ascend",
-        "cann900-a3": "ascend-a3",
-    }[task["profile_id"]]
     build_args: dict[str, str] = {
         "SOURCE_DATE_EPOCH": str(epoch),
         "UCM_BUILDER_IMAGE": (
             f"{task['builder']['repository']}@{task['builder']['manifest_digest']}"
         ),
-        "PLATFORM": platform_arg,
+        "PLATFORM": task["build_platform"],
         "UCM_RELEASE_PROFILE": task["profile_id"],
         "UCM_RELEASE_DISTRIBUTION": task["distribution"],
         "UCM_RELEASE_SOURCE_SHA": task["source_sha"],
@@ -371,6 +362,7 @@ def seal_built_wheel(
     try:
         with zipfile.ZipFile(raw_wheel) as archive:
             metadata, record_name, _ = _metadata(archive)
+            _wheel_metadata(archive, record_name, task)
             _record(archive, record_name)
             entries = {
                 item.filename: archive.read(item.filename)
@@ -407,10 +399,9 @@ def seal_built_wheel(
     timestamp_values = list(time.gmtime(epoch)[:6])
     timestamp_values[5] -= timestamp_values[5] % 2
     timestamp = tuple(timestamp_values)
-    architecture = {"amd64": "x86_64", "arm64": "aarch64"}[task["cpu_arch"]]
     filename = (
         f"{task['distribution'].replace('-', '_')}-{task['wheel_version']}-"
-        f"cp312-cp312-{task['wheel_platform']}_{architecture}.whl"
+        f"{_expected_wheel_tag(task)}.whl"
     )
     if output_dir.exists() and any(output_dir.iterdir()):
         raise ProductionError("production wheel output directory must be empty")
@@ -437,6 +428,8 @@ def seal_built_wheel(
             "file_sha256": inspected["sha256"],
             "task_sha256": "sha256:" + task["sha256"],
             "source_sha": task["source_sha"],
+            "python_abi": task["python_abi"],
+            "wheel_platform": task["wheel_platform"],
             "runtime_requirements": task["runtime_requirements"],
         }
     )
@@ -480,16 +473,6 @@ def _dependency_lock(config: dict[str, Any], architecture: str) -> dict[str, Any
     }
 
 
-def _runtime_requirements(config: dict[str, Any]) -> list[str]:
-    toolchain = config["toolchain"]
-    return sorted(
-        [
-            "packaging==" + toolchain["python_build"]["packaging"]["version"],
-            "wrapt==" + toolchain["wrapt"]["version"],
-        ]
-    )
-
-
 def project_build_task(
     config: dict[str, Any],
     intent: TagIntent,
@@ -521,6 +504,7 @@ def project_build_task(
         "spec_id": spec_id,
         "profile_id": profile_id,
         "distribution": profile["distribution"],
+        "build_platform": profile["build_platform"],
         "cpu_arch": architecture,
         "platform": _PLATFORMS[architecture],
         "runner": _RUNNERS[architecture],
@@ -540,7 +524,7 @@ def project_build_task(
         "forbidden_native": forbidden_native,
         "dependency_lock_sha256": "sha256:"
         + hashlib.sha256(canonical_bytes(dependency_lock)).hexdigest(),
-        "runtime_requirements": _runtime_requirements(config),
+        "runtime_requirements": list(config["toolchain"]["runtime_requirements"]),
         "write_authority": [],
     }
     return sha256_envelope(unsigned)
@@ -635,22 +619,32 @@ def wheel_build_config_from_task(
         raise ProductionError(
             f"production wheel build authority differs from task: {mismatches}"
         )
-    profile = task["profile_id"]
-    profile_settings = _PROFILE_BUILD_SETTINGS.get(profile)
-    if (
-        profile_settings is None
-        or task["distribution"] != profile_settings[0]
-        or task["spec_id"] != f"{profile}-{task['cpu_arch']}"
-        or task["platform"] != _PLATFORMS.get(task["cpu_arch"])
-        or task["python_version"] != "3.12"
-        or task["python_abi"] != "cp312"
+    for field in (
+        "profile_id",
+        "distribution",
+        "build_platform",
+        "python_version",
+        "python_abi",
+        "wheel_platform",
     ):
-        raise ProductionError("production wheel build task profile is invalid")
+        if not isinstance(task.get(field), str) or not task[field]:
+            raise ProductionError(f"production wheel build task {field} is invalid")
+    if (
+        not isinstance(task.get("runtime_requirements"), list)
+        or not task["runtime_requirements"]
+        or any(
+            not isinstance(item, str) or not item
+            for item in task["runtime_requirements"]
+        )
+    ):
+        raise ProductionError(
+            "production wheel build task runtime_requirements are invalid"
+        )
     return {
         "authority": authority,
         "distribution": task["distribution"],
         "kind": "ucm-wheel-build-config",
-        "platform": profile_settings[1],
+        "platform": task["build_platform"],
         "python": {
             "abi": task["python_abi"],
             "version": task["python_version"],
@@ -679,6 +673,40 @@ def _metadata(archive: zipfile.ZipFile) -> tuple[email.message.Message, str, byt
     raw_metadata = archive.read(metadata_names[0])
     metadata = email.parser.BytesParser().parsebytes(raw_metadata)
     return metadata, record_names[0], raw_metadata
+
+
+def _expected_wheel_tag(task: dict[str, Any]) -> str:
+    architecture = {"amd64": "x86_64", "arm64": "aarch64"}.get(task.get("cpu_arch"))
+    wheel_platform = task.get("wheel_platform")
+    python_abi = task.get("python_abi")
+    if (
+        architecture is None
+        or not isinstance(wheel_platform, str)
+        or not wheel_platform
+        or not isinstance(python_abi, str)
+        or not python_abi
+    ):
+        raise ProductionError("production task wheel_platform is invalid")
+    return f"{python_abi}-{python_abi}-{wheel_platform}_{architecture}"
+
+
+def _wheel_metadata(
+    archive: zipfile.ZipFile, record_name: str, task: dict[str, Any]
+) -> tuple[str, bytes]:
+    names = [item.filename for item in archive.infolist() if not item.is_dir()]
+    wheel_names = [name for name in names if name.endswith(".dist-info/WHEEL")]
+    if len(wheel_names) != 1:
+        raise ProductionError("wheel must contain exactly one WHEEL file")
+    dist_info = PurePosixPath(record_name).parent.as_posix()
+    wheel_name = wheel_names[0]
+    if wheel_name != f"{dist_info}/WHEEL":
+        raise ProductionError("wheel WHEEL file differs from its dist-info directory")
+    raw = archive.read(wheel_name)
+    parsed = email.parser.BytesParser().parsebytes(raw)
+    expected_tag = _expected_wheel_tag(task)
+    if parsed.get_all("Tag", []) != [expected_tag]:
+        raise ProductionError("wheel Tag differs from production task")
+    return wheel_name, raw
 
 
 def _record(archive: zipfile.ZipFile, record_name: str) -> None:
@@ -727,6 +755,7 @@ def _inspect_wheel(path: Path, task: dict[str, Any]) -> dict[str, Any]:
     try:
         with zipfile.ZipFile(path) as archive:
             metadata, record_name, _ = _metadata(archive)
+            _wheel_metadata(archive, record_name, task)
             _record(archive, record_name)
             _native_architecture(archive, task["cpu_arch"])
     except zipfile.BadZipFile:

@@ -98,6 +98,8 @@ _WHEEL_RECORD_KEYS = {
     "file_sha256",
     "task_sha256",
     "source_sha",
+    "python_abi",
+    "wheel_platform",
     "runtime_requirements",
     "sha256",
 }
@@ -377,6 +379,8 @@ def _validate_wheels(
                 "record_path": record_relative,
                 "record_sha256": "sha256:" + record["sha256"],
                 "task_sha256": record["task_sha256"],
+                "python_abi": record["python_abi"],
+                "wheel_platform": record["wheel_platform"],
                 "runtime_requirements": record["runtime_requirements"],
             }
         )
@@ -856,6 +860,8 @@ def compare_trusted_rebuild(
             "wheel_version": record["version"],
             "cpu_arch": _ARCH_BY_SPEC[spec_id],
             "sha256": record["task_sha256"].removeprefix("sha256:"),
+            "python_abi": record["python_abi"],
+            "wheel_platform": record["wheel_platform"],
             "runtime_requirements": record["runtime_requirements"],
         }
         compared = compare_wheel_candidates(

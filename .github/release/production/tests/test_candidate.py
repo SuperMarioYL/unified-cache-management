@@ -60,6 +60,7 @@ def _wheel(path: Path, distribution: str, version: str, architecture: str) -> No
     normalized = distribution.replace("-", "_")
     dist_info = f"{normalized}-{version}.dist-info"
     tag_arch = "x86_64" if architecture == "amd64" else "aarch64"
+    wheel_platform = "manylinux_2_28" if distribution == "uc-manager-cuda" else "linux"
     entries = {
         "ucm/__init__.py": b"",
         "ucm/native.so": _elf(architecture),
@@ -70,7 +71,7 @@ def _wheel(path: Path, distribution: str, version: str, architecture: str) -> No
         ).encode(),
         f"{dist_info}/WHEEL": (
             "Wheel-Version: 1.0\nGenerator: candidate-test\n"
-            f"Root-Is-Purelib: false\nTag: cp312-cp312-manylinux_2_28_{tag_arch}\n\n"
+            f"Root-Is-Purelib: false\nTag: cp312-cp312-{wheel_platform}_{tag_arch}\n\n"
         ).encode(),
     }
     record_name = f"{dist_info}/RECORD"
@@ -175,6 +176,10 @@ def _candidate_root(tmp_path: Path) -> Path:
                     "task_sha256": "sha256:"
                     + hashlib.sha256(spec_id.encode()).hexdigest(),
                     "source_sha": SOURCE,
+                    "python_abi": "cp312",
+                    "wheel_platform": (
+                        "manylinux_2_28" if profile == "cuda130" else "linux"
+                    ),
                     "runtime_requirements": [
                         "packaging==24.2",
                         "wrapt==1.17.2",

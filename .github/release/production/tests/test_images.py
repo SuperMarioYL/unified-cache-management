@@ -186,15 +186,23 @@ def test_image_recipe_is_complete_and_context_reopens_pinned_wheels(
             "file_sha256": "sha256:" + hashlib.sha256(wheel.read_bytes()).hexdigest(),
             "task_sha256": "sha256:" + task["sha256"],
             "source_sha": SOURCE,
+            "python_abi": task["python_abi"],
+            "wheel_platform": task["wheel_platform"],
             "runtime_requirements": task["runtime_requirements"],
         }
     )
     wrapt = config["toolchain"]["wrapt"]["amd64"]
     wrapt_path = tmp_path / wrapt["filename"]
     wrapt_path.write_bytes(b"pinned-wrapt-wheel")
+    packaging = config["toolchain"]["python_build"]["packaging"]
+    packaging_path = tmp_path / packaging["filename"]
+    packaging_path.write_bytes(b"pinned-packaging-wheel")
     mutable = copy.deepcopy(config)
     mutable["toolchain"]["wrapt"]["amd64"]["sha256"] = hashlib.sha256(
         wrapt_path.read_bytes()
+    ).hexdigest()
+    mutable["toolchain"]["python_build"]["packaging"]["sha256"] = hashlib.sha256(
+        packaging_path.read_bytes()
     ).hexdigest()
     dockerfile = tmp_path / "Dockerfile.image"
     dockerfile.write_text("FROM scratch\n", encoding="utf-8")
@@ -213,7 +221,128 @@ def test_image_recipe_is_complete_and_context_reopens_pinned_wheels(
     assert recipe["base"] == task["runtime"]
     assert result["recipe"] == recipe
     assert (tmp_path / "context" / wheel.name).read_bytes() == wheel.read_bytes()
-    assert "--hash=sha256:" in (tmp_path / "context" / "requirements.lock").read_text()
+    assert (tmp_path / "context" / packaging_path.name).read_bytes() == (
+        packaging_path.read_bytes()
+    )
+    assert (tmp_path / "context" / wrapt_path.name).read_bytes() == (
+        wrapt_path.read_bytes()
+    )
+    assert (tmp_path / "context" / "requirements.lock").read_text() == (
+        f"uc-manager-cuda @ file:///wheelhouse/{wheel.name} "
+        f"--hash={wheel_record['file_sha256']}\n"
+        f"packaging @ file:///wheelhouse/{packaging_path.name} "
+        f"--hash=sha256:{mutable['toolchain']['python_build']['packaging']['sha256']}\n"
+        f"wrapt @ file:///wheelhouse/{wrapt_path.name} "
+        f"--hash=sha256:{mutable['toolchain']['wrapt']['amd64']['sha256']}\n"
+    )
+    assert result["runtime_wheel_names"] == [packaging_path.name, wrapt_path.name]
+
+
+@pytest.mark.parametrize(
+    ("requirement", "failure"),
+    [
+        ("packaging", "missing"),
+        ("packaging", "wrong"),
+        ("wrapt", "missing"),
+        ("wrapt", "wrong"),
+    ],
+)
+def test_image_context_rejects_missing_or_wrong_runtime_requirement_wheels(
+    tmp_path: Path, requirement: str, failure: str
+) -> None:
+    config = load_config(CONFIG)
+    intent = parse_tag("v0.6.0rc1", config)
+    task = project_build_task(config, intent, _source(), "cuda130-amd64")
+    wheel = tmp_path / "uc_manager_cuda-0.6.0rc1-cp312-cp312-manylinux_2_28_x86_64.whl"
+    wheel.write_bytes(b"sealed-production-wheel")
+    wheel_record = sha256_envelope(
+        {
+            "kind": "ucm-production-wheel-record",
+            "schema_version": 1,
+            "spec_id": task["spec_id"],
+            "distribution": task["distribution"],
+            "version": task["wheel_version"],
+            "filename": wheel.name,
+            "file_sha256": "sha256:" + hashlib.sha256(wheel.read_bytes()).hexdigest(),
+            "task_sha256": "sha256:" + task["sha256"],
+            "source_sha": SOURCE,
+            "python_abi": task["python_abi"],
+            "wheel_platform": task["wheel_platform"],
+            "runtime_requirements": task["runtime_requirements"],
+        }
+    )
+    mutable = copy.deepcopy(config)
+    records = {
+        "packaging": mutable["toolchain"]["python_build"]["packaging"],
+        "wrapt": mutable["toolchain"]["wrapt"]["amd64"],
+    }
+    paths: dict[str, Path] = {}
+    for name, record in records.items():
+        path = tmp_path / record["filename"]
+        path.write_bytes(f"pinned-{name}-wheel".encode())
+        record["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        paths[name] = path
+    if failure == "missing":
+        paths[requirement].unlink()
+    else:
+        paths[requirement].write_bytes(b"wrong-bytes")
+    dockerfile = tmp_path / "Dockerfile.image"
+    dockerfile.write_text("FROM scratch\n", encoding="utf-8")
+
+    with pytest.raises(ProductionError, match=requirement):
+        prepare_image_context(
+            mutable,
+            task,
+            intent_document(intent),
+            wheel_record,
+            wheel,
+            dockerfile,
+            tmp_path / "context",
+        )
+
+    assert not (tmp_path / "context").exists()
+
+
+def test_image_context_rejects_unknown_task_runtime_requirement(
+    tmp_path: Path,
+) -> None:
+    config = load_config(CONFIG)
+    intent = parse_tag("v0.6.0rc1", config)
+    task = project_build_task(config, intent, _source(), "cuda130-amd64")
+    task.pop("sha256")
+    task["runtime_requirements"] = [*task["runtime_requirements"], "unknown==1"]
+    task = sha256_envelope(task)
+    wheel = tmp_path / "wheel.whl"
+    wheel.write_bytes(b"sealed-production-wheel")
+    record = sha256_envelope(
+        {
+            "kind": "ucm-production-wheel-record",
+            "schema_version": 1,
+            "spec_id": task["spec_id"],
+            "distribution": task["distribution"],
+            "version": task["wheel_version"],
+            "filename": wheel.name,
+            "file_sha256": "sha256:" + hashlib.sha256(wheel.read_bytes()).hexdigest(),
+            "task_sha256": "sha256:" + task["sha256"],
+            "source_sha": SOURCE,
+            "python_abi": task["python_abi"],
+            "wheel_platform": task["wheel_platform"],
+            "runtime_requirements": task["runtime_requirements"],
+        }
+    )
+    dockerfile = tmp_path / "Dockerfile.image"
+    dockerfile.write_text("FROM scratch\n", encoding="utf-8")
+
+    with pytest.raises(ProductionError, match="unknown"):
+        prepare_image_context(
+            config,
+            task,
+            intent_document(intent),
+            record,
+            wheel,
+            dockerfile,
+            tmp_path / "context",
+        )
 
 
 def test_image_context_rejects_wheel_record_drift(tmp_path: Path) -> None:
@@ -233,6 +362,8 @@ def test_image_context_rejects_wheel_record_drift(tmp_path: Path) -> None:
             "file_sha256": "sha256:" + hashlib.sha256(wheel.read_bytes()).hexdigest(),
             "task_sha256": "sha256:" + "9" * 64,
             "source_sha": SOURCE,
+            "python_abi": task["python_abi"],
+            "wheel_platform": task["wheel_platform"],
             "runtime_requirements": task["runtime_requirements"],
         }
     )

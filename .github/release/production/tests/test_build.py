@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import csv
+import email.parser
 import hashlib
 import io
 import json
@@ -17,6 +18,7 @@ from ucm_release_production.build import (
     authority_from_task,
     compare_wheel_candidates,
     project_build_task,
+    seal_built_wheel,
     wheel_build_config_from_task,
 )
 from ucm_release_production.common import (
@@ -151,6 +153,16 @@ def test_project_build_tasks_are_exactly_three_profiles_by_two_arches() -> None:
     assert all(task["write_authority"] == [] for task in tasks)
     assert all(task["python_version"] == "3.12" for task in tasks)
     assert all(task["python_abi"] == "cp312" for task in tasks)
+    assert [task["build_platform"] for task in tasks[::2]] == [
+        "cuda",
+        "ascend",
+        "ascend-a3",
+    ]
+    assert [task["wheel_platform"] for task in tasks[::2]] == [
+        "manylinux_2_28",
+        "linux",
+        "linux",
+    ]
     assert all(
         task["runtime_requirements"] == ["packaging==24.2", "wrapt==1.17.2"]
         for task in tasks
@@ -373,7 +385,12 @@ def _elf64(machine: int = 62) -> bytes:
 
 
 def _wheel(
-    path: Path, distribution: str, version: str, payload: bytes | None = None
+    path: Path,
+    distribution: str,
+    version: str,
+    payload: bytes | None = None,
+    *,
+    wheel_tag: str = "cp312-cp312-manylinux_2_28_x86_64",
 ) -> None:
     normalized = distribution.replace("-", "_")
     dist_info = f"{normalized}-{version}.dist-info"
@@ -387,7 +404,7 @@ def _wheel(
         ).encode(),
         f"{dist_info}/WHEEL": (
             "Wheel-Version: 1.0\nGenerator: ucm-production-test\n"
-            "Root-Is-Purelib: false\nTag: cp312-cp312-manylinux_2_28_x86_64\n\n"
+            f"Root-Is-Purelib: false\nTag: {wheel_tag}\n\n"
         ).encode(),
     }
     rows: list[list[str]] = []
@@ -402,6 +419,154 @@ def _wheel(
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for name, data in sorted(entries.items()):
             archive.writestr(name, data)
+
+
+def _sealable_task(profile: str, architecture: str) -> dict[str, object]:
+    config = load_config(CONFIG)
+    intent = parse_tag("v0.6.0rc1", config)
+    task = project_build_task(
+        config,
+        intent,
+        _source(intent.stage, intent.tag_name, intent.release_branch),
+        f"{profile}-{architecture}",
+    )
+    task.pop("sha256")
+    task["required_native"] = ["ucmtrans"]
+    task["forbidden_native"] = ["mooncakestore"]
+    return sha256_envelope(task)
+
+
+def _raw_native_wheel(
+    path: Path,
+    task: dict[str, object],
+    *,
+    tags: list[str] | None = None,
+    wheel_files: int = 1,
+) -> None:
+    architecture = str(task["cpu_arch"])
+    machine = {"amd64": 62, "arm64": 183}[architecture]
+    dist_info = f"{str(task['distribution']).replace('-', '_')}-{task['wheel_version']}.dist-info"
+    expected_tag = (
+        f"cp312-cp312-{task['wheel_platform']}_"
+        f"{'x86_64' if architecture == 'amd64' else 'aarch64'}"
+    )
+    rendered_tags = [expected_tag] if tags is None else tags
+    wheel_metadata = (
+        "Wheel-Version: 1.0\nGenerator: ucm-production-test\n"
+        "Root-Is-Purelib: false\n"
+        + "".join(f"Tag: {tag}\n" for tag in rendered_tags)
+        + "\n"
+    ).encode()
+    entries = {
+        "ucm/shared/trans/ucmtrans.cpython-312-test.so": _elf64(machine),
+        f"{dist_info}/METADATA": (
+            f"Metadata-Version: 2.1\nName: {task['distribution']}\n"
+            f"Version: {task['wheel_version']}\n"
+            "Requires-Dist: packaging==24.2\n"
+            "Requires-Dist: wrapt==1.17.2\n\n"
+        ).encode(),
+    }
+    if wheel_files >= 1:
+        entries[f"{dist_info}/WHEEL"] = wheel_metadata
+    if wheel_files >= 2:
+        entries["other-1.0.dist-info/WHEEL"] = wheel_metadata
+    record_name = f"{dist_info}/RECORD"
+    rows: list[list[str]] = []
+    for name, data in sorted(entries.items()):
+        digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=")
+        rows.append([name, "sha256=" + digest.decode(), str(len(data))])
+    rows.append([record_name, "", ""])
+    record = io.StringIO()
+    csv.writer(record, lineterminator="\n").writerows(rows)
+    entries[record_name] = record.getvalue().encode()
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, data in sorted(entries.items()):
+            archive.writestr(name, data)
+
+
+@pytest.mark.parametrize(
+    ("profile", "architecture", "wheel_platform", "tag_arch"),
+    [
+        ("cuda130", "amd64", "manylinux_2_28", "x86_64"),
+        ("cuda130", "arm64", "manylinux_2_28", "aarch64"),
+        ("cann900-a2", "amd64", "linux", "x86_64"),
+        ("cann900-a2", "arm64", "linux", "aarch64"),
+        ("cann900-a3", "amd64", "linux", "x86_64"),
+        ("cann900-a3", "arm64", "linux", "aarch64"),
+    ],
+)
+def test_sealed_wheel_filename_and_wheel_tag_share_profile_authority(
+    tmp_path: Path,
+    profile: str,
+    architecture: str,
+    wheel_platform: str,
+    tag_arch: str,
+) -> None:
+    task = _sealable_task(profile, architecture)
+    authority = authority_from_task(
+        task,
+        source_tree="6" * 40,
+        source_archive_sha256="sha256:" + "7" * 64,
+        source_date_epoch=1_700_000_000,
+        build_context_sha256="sha256:" + "8" * 64,
+        tool_wheels={f"tool-{index}.whl": "sha256:" + "5" * 64 for index in range(7)},
+    )
+    raw = tmp_path / "raw.whl"
+    output_dir = tmp_path / "sealed"
+    _raw_native_wheel(raw, task)
+
+    record = seal_built_wheel(raw, output_dir, task, authority)
+
+    expected_tag = f"cp312-cp312-{wheel_platform}_{tag_arch}"
+    assert record["filename"].endswith(f"-{expected_tag}.whl")
+    with zipfile.ZipFile(output_dir / record["filename"]) as archive:
+        wheel_names = [
+            name for name in archive.namelist() if name.endswith(".dist-info/WHEEL")
+        ]
+        assert len(wheel_names) == 1
+        parsed = email.parser.BytesParser().parsebytes(archive.read(wheel_names[0]))
+        assert parsed.get_all("Tag", []) == [expected_tag]
+
+
+@pytest.mark.parametrize(
+    ("tags", "wheel_files", "message"),
+    [
+        (["cp312-cp312-linux_x86_64"], 1, "Tag"),
+        ([], 1, "Tag"),
+        (
+            [
+                "cp312-cp312-manylinux_2_28_x86_64",
+                "cp312-cp312-linux_x86_64",
+            ],
+            1,
+            "Tag",
+        ),
+        (None, 0, "WHEEL"),
+        (None, 2, "WHEEL"),
+    ],
+)
+def test_seal_rejects_missing_multiple_or_drifted_wheel_tags(
+    tmp_path: Path,
+    tags: list[str] | None,
+    wheel_files: int,
+    message: str,
+) -> None:
+    task = _sealable_task("cuda130", "amd64")
+    authority = authority_from_task(
+        task,
+        source_tree="6" * 40,
+        source_archive_sha256="sha256:" + "7" * 64,
+        source_date_epoch=1_700_000_000,
+        build_context_sha256="sha256:" + "8" * 64,
+        tool_wheels={f"tool-{index}.whl": "sha256:" + "5" * 64 for index in range(7)},
+    )
+    raw = tmp_path / "raw.whl"
+    _raw_native_wheel(raw, task, tags=tags, wheel_files=wheel_files)
+
+    with pytest.raises(ProductionError, match=message):
+        seal_built_wheel(raw, tmp_path / "sealed", task, authority)
+
+    assert not (tmp_path / "sealed").exists()
 
 
 def test_compare_wheel_candidates_requires_byte_and_metadata_equality(
@@ -443,6 +608,31 @@ def test_compare_wheel_candidates_rejects_byte_drift(tmp_path: Path) -> None:
     _wheel(trusted, "uc-manager-cuda", "0.6.0rc1", _elf64() + b"drift")
 
     with pytest.raises(ProductionError, match="byte-for-byte"):
+        compare_wheel_candidates(candidate, trusted, task)
+
+
+def test_inspect_rejects_recomputed_record_with_wrong_wheel_tag(
+    tmp_path: Path,
+) -> None:
+    config = load_config(CONFIG)
+    intent = parse_tag("v0.6.0rc1", config)
+    task = project_build_task(
+        config,
+        intent,
+        _source(intent.stage, intent.tag_name, intent.release_branch),
+        "cuda130-amd64",
+    )
+    candidate = tmp_path / "candidate.whl"
+    trusted = tmp_path / "trusted.whl"
+    _wheel(
+        candidate,
+        "uc-manager-cuda",
+        "0.6.0rc1",
+        wheel_tag="cp312-cp312-linux_x86_64",
+    )
+    trusted.write_bytes(candidate.read_bytes())
+
+    with pytest.raises(ProductionError, match="Tag"):
         compare_wheel_candidates(candidate, trusted, task)
 
 

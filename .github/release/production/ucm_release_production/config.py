@@ -127,6 +127,7 @@ def _validate_profiles(config: dict[str, Any]) -> None:
             {
                 "id",
                 "distribution",
+                "build_platform",
                 "cpu_arch",
                 "python_version",
                 "python_abi",
@@ -138,10 +139,14 @@ def _validate_profiles(config: dict[str, Any]) -> None:
         )
         if item["distribution"] != _DISTRIBUTIONS[index]:
             raise ProductionError("build profile distribution mapping is invalid")
+        if item["build_platform"] not in {"cuda", "ascend", "ascend-a3"}:
+            raise ProductionError("build profile build_platform is invalid")
         if item["cpu_arch"] != ["amd64", "arm64"]:
             raise ProductionError("every build profile must target amd64 and arm64")
         if item["python_version"] != "3.12" or item["python_abi"] != "cp312":
             raise ProductionError("production Python ABI must be CPython 3.12")
+        if item["wheel_platform"] not in {"manylinux_2_28", "linux"}:
+            raise ProductionError("build profile wheel_platform is invalid")
         for lock_name in ("builders", "runtime"):
             locks = _object(item[lock_name], f"build_profiles[{index}].{lock_name}")
             require_exact_keys(locks, {"amd64", "arm64"}, lock_name)
@@ -262,13 +267,47 @@ def validate_config(value: object) -> dict[str, Any]:
     toolchain = _object(config["toolchain"], "toolchain")
     require_exact_keys(
         toolchain,
-        {"legacy_release_config_sha256", "python_build", "pyyaml", "cmake", "wrapt"},
+        {
+            "legacy_release_config_sha256",
+            "runtime_requirements",
+            "python_build",
+            "pyyaml",
+            "cmake",
+            "wrapt",
+        },
         "toolchain",
     )
     require_lower_sha256(
         toolchain["legacy_release_config_sha256"],
         "toolchain.legacy_release_config_sha256",
     )
+    runtime_requirements = _array(
+        toolchain["runtime_requirements"], "toolchain.runtime_requirements"
+    )
+    if (
+        not runtime_requirements
+        or runtime_requirements != sorted(runtime_requirements)
+        or len(runtime_requirements) != len(set(runtime_requirements))
+    ):
+        raise ProductionError(
+            "toolchain.runtime_requirements must be unique and sorted"
+        )
+    python_build = _object(toolchain["python_build"], "toolchain.python_build")
+    for requirement in runtime_requirements:
+        if not isinstance(requirement, str):
+            raise ProductionError("toolchain runtime requirement is invalid")
+        name, separator, version = requirement.partition("==")
+        record = python_build.get(name, toolchain.get(name))
+        if (
+            separator != "=="
+            or not name
+            or not version
+            or not isinstance(record, dict)
+            or record.get("version") != version
+        ):
+            raise ProductionError(
+                f"toolchain runtime requirement is not pinned by toolchain: {requirement!r}"
+            )
     _validate_digest_tree(toolchain, "toolchain")
     lowered = canonical_bytes(config).lower()
     if b"supermarioyl" in lowered or b"modelengine-group" in lowered:
