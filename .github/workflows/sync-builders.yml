@@ -14,6 +14,10 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: ucm-builder-sync-${{ github.repository_id }}
+  cancel-in-progress: false
+
 jobs:
   discover-project-builders:
     runs-on: ubuntu-24.04
@@ -215,9 +219,15 @@ jobs:
         run: |
           set -euo pipefail
           target_ref="${TARGET_REPOSITORY}:${TARGET_TAG}"
-          if crane digest "${target_ref}" >/dev/null 2>&1; then
+          digest_error="${RUNNER_TEMP}/builder-target-digest.err"
+          if crane digest "${target_ref}" 2>"${digest_error}"; then
             echo "Builder appeared after planning; preserving ${target_ref}"
             exit 0
+          elif grep -Eqi 'MANIFEST_UNKNOWN|NAME_UNKNOWN|manifest unknown|repository.*not found|404 Not Found' "${digest_error}"; then
+            echo "Builder target is absent: ${target_ref}"
+          else
+            cat "${digest_error}" >&2
+            exit 1
           fi
           case "${BUILD_MODE}" in
             mirror)
@@ -294,9 +304,13 @@ jobs:
       - name: Verify every catalog target is readable
         run: |
           set -euo pipefail
-          while IFS= read -r target_ref; do
+          while IFS=$'\t' read -r target_ref cpu_arch; do
             crane digest "${target_ref}"
-          done < <(jq -r '.builders[] | "\(.target_repository):\(.target_tag)"' input/discovery/builder-catalog.json)
+            config="$(crane config --platform "linux/${cpu_arch}" "${target_ref}")"
+            jq -e --arg architecture "${cpu_arch}" \
+              '.os == "linux" and .architecture == $architecture' \
+              <<<"${config}" >/dev/null
+          done < <(jq -r '.builders[] | ["\(.target_repository):\(.target_tag)", .cpu_arch] | @tsv' input/discovery/builder-catalog.json)
       - id: publish
         run: echo "builder_catalog_artifact=ucm-builder-catalog-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}" >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -314,16 +328,32 @@ jobs:
       - compute-missing-builders
       - build-missing-builders
       - publish-builder-catalog
-    if: >-
-      ${{
-        always() &&
-        needs.discover-project-builders.result == 'success' &&
-        needs.read-existing-builder-pool.result == 'success' &&
-        needs.compute-missing-builders.result == 'success' &&
-        (needs.build-missing-builders.result == 'success' ||
-         needs.build-missing-builders.result == 'skipped') &&
-        needs.publish-builder-catalog.result == 'success'
-      }}
+    if: ${{ always() }}
     runs-on: ubuntu-24.04
     steps:
-      - run: echo "Builder catalog synchronized and verified"
+      - name: Require every builder synchronization stage
+        env:
+          DISCOVER_RESULT: ${{ needs.discover-project-builders.result }}
+          READ_EXISTING_RESULT: ${{ needs.read-existing-builder-pool.result }}
+          COMPUTE_MISSING_RESULT: ${{ needs.compute-missing-builders.result }}
+          BUILD_MISSING_RESULT: ${{ needs.build-missing-builders.result }}
+          PUBLISH_CATALOG_RESULT: ${{ needs.publish-builder-catalog.result }}
+        run: |
+          set -euo pipefail
+          for result in \
+            "${DISCOVER_RESULT}" \
+            "${READ_EXISTING_RESULT}" \
+            "${COMPUTE_MISSING_RESULT}" \
+            "${PUBLISH_CATALOG_RESULT}"; do
+            if [ "${result}" != success ]; then
+              echo "required builder synchronization stage ended ${result}" >&2
+              exit 1
+            fi
+          done
+          case "${BUILD_MISSING_RESULT}" in
+            success|skipped) ;;
+            *)
+              echo "builder construction ended ${BUILD_MISSING_RESULT}" >&2
+              exit 1
+              ;;
+          esac

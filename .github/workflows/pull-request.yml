@@ -44,7 +44,7 @@ jobs:
       # protect the workflows dir, only allow specific users to modify
       - id: permission-check
         env:
-          ACTOR: ${{ github.actor }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           BASE_REF: ${{ github.base_ref }}
           HEAD_BRANCH_NAME: ${{ steps.fetch_base_and_pr_branches.outputs.HEAD_BRANCH_NAME }}
         run: |
@@ -58,12 +58,14 @@ jobs:
           fi
 
           ALLOWED_USERS=("dante159753" "mag1c-h" "yuanzhg078" "SuperMarioYL")
+          author_lc="$(printf '%s' "${PR_AUTHOR}" | tr '[:upper:]' '[:lower:]')"
 
           echo "Workflow or release-authority changes detected, check if user is allowed..."
-          echo "PR author: ${ACTOR}"
+          echo "PR author: ${PR_AUTHOR}"
 
           for u in "${ALLOWED_USERS[@]}"; do
-            if [[ "${ACTOR}" == "${u}" ]]; then
+            allowed_lc="$(printf '%s' "${u}" | tr '[:upper:]' '[:lower:]')"
+            if [[ "${author_lc}" == "${allowed_lc}" ]]; then
               echo "Authorized user, allowing change."
               exit 0
             fi

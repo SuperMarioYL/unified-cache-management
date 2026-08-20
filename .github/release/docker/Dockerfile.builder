@@ -2,7 +2,7 @@
 # Builder-only extension for official Ascend manylinux images discovered by
 # sync-builders.yml. The project builder pool records the source image and the
 # canonical Mooncake-bearing target tag; release wheel jobs consume that pool.
-ARG CANN_BASE
+ARG CANN_BASE=registry.invalid/ucm/required-cann-base:invalid
 FROM ${CANN_BASE}
 
 ARG MOONCAKE_TAG

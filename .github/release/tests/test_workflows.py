@@ -9,6 +9,7 @@ the slimming plan -- they asserted "we wrote what we wrote", not behaviour.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -72,6 +73,10 @@ def _steps(job: dict[str, object]) -> list[dict[str, object]]:
     assert isinstance(steps, list)
     assert all(isinstance(step, dict) for step in steps)
     return steps  # type: ignore[return-value]
+
+
+def _named_step(job: dict[str, object], name: str) -> dict[str, object]:
+    return next(step for step in _steps(job) if step.get("name") == name)
 
 
 def _truthy(value: object) -> bool:
@@ -299,6 +304,10 @@ def test_sync_builders_has_discovery_dynamic_sync_and_catalog_contract() -> None
         triggers["workflow_call"]["outputs"]["builder_catalog_artifact"]["value"]
         == "${{ jobs.publish-builder-catalog.outputs.builder_catalog_artifact }}"
     )
+    assert workflow["concurrency"] == {
+        "group": "ucm-builder-sync-${{ github.repository_id }}",
+        "cancel-in-progress": False,
+    }
 
     jobs = _jobs(workflow)
     assert list(jobs) == [
@@ -334,12 +343,15 @@ def test_sync_builders_has_discovery_dynamic_sync_and_catalog_contract() -> None
     assert build_text.count("crane copy") >= 2
     assert "Dockerfile.builder" in build_text
     assert "MOONCAKE_TAG" in build_text and "TARGET_TAG" in build_text
+    assert "MANIFEST_UNKNOWN" in build_text and "NAME_UNKNOWN" in build_text
     assert "crane delete" not in "\n".join(_strings(workflow)).lower()
     assert "ucm-builder-vllm" not in build_text
 
     publish = jobs["publish-builder-catalog"]
     publish_text = "\n".join(_strings(publish))
     assert "crane digest" in publish_text
+    assert 'crane config --platform "linux/${cpu_arch}"' in publish_text
+    assert '.os == "linux" and .architecture == $architecture' in publish_text
     assert "builder-catalog.json" in publish_text
     assert "always()" in publish["if"]
     assert "needs.build-missing-builders.result == 'skipped'" in publish["if"]
@@ -359,7 +371,9 @@ def test_builder_dockerfile_targets_official_manylinux_pool() -> None:
     dockerfile = (
         REPO_ROOT / ".github" / "release" / "docker" / "Dockerfile.builder"
     ).read_text(encoding="utf-8")
-    assert "ARG CANN_BASE\n" in dockerfile
+    assert (
+        "ARG CANN_BASE=registry.invalid/ucm/required-cann-base:invalid\n" in dockerfile
+    )
     assert "ARG MOONCAKE_TAG\n" in dockerfile
     assert "FROM ${CANN_BASE}" in dockerfile
     assert "yum" in dockerfile
@@ -415,7 +429,7 @@ def test_release_routes_use_full_matrices_and_develop_only_daily_dispatch() -> N
     assert "dry_run_val=true" in plan_text
 
 
-def test_release_route_terminal_jobs_gate_every_required_stage() -> None:
+def test_terminal_jobs_run_for_their_event_without_result_dependent_if() -> None:
     jobs = _jobs(_load_workflow(WORKFLOW_DIR / "release-ucm.yml"))
     terminals = {name for name in jobs if name.endswith("-loop-success")}
     assert terminals == {
@@ -446,30 +460,217 @@ def test_release_route_terminal_jobs_gate_every_required_stage() -> None:
             "publish-release",
         },
     }
-    routes = {
-        "pr-loop-success": "pr",
-        "daily-loop-success": "daily",
-        "release-loop-success": "release",
+    applicability = {
+        "pr-loop-success": "github.event_name == 'pull_request'",
+        "daily-loop-success": "github.ref == 'refs/heads/develop'",
+        "release-loop-success": "startsWith(github.ref, 'refs/tags/v')",
     }
     for name, required in expected_needs.items():
         job = jobs[name]
         assert set(job["needs"]) == required
         condition = str(job["if"])
         assert "always()" in condition
-        assert f"needs.plan.outputs.route == '{routes[name]}'" in condition
-        for dependency in required:
-            assert f"needs.{dependency}.result == 'success'" in condition
+        assert applicability[name] in condition
+        assert "needs." not in condition
 
 
-def test_protected_workflow_author_and_builder_permission_are_explicit() -> None:
+@pytest.mark.parametrize(
+    ("filename", "job_name", "allowed_skipped"),
+    [
+        ("release-ucm.yml", "pr-loop-success", set()),
+        ("release-ucm.yml", "daily-loop-success", set()),
+        ("release-ucm.yml", "release-loop-success", set()),
+        ("sync-builders.yml", "builder-sync-success", {"BUILD_MISSING_RESULT"}),
+    ],
+)
+def test_terminal_shell_fails_closed_for_failed_or_skipped_prerequisites(
+    filename: str, job_name: str, allowed_skipped: set[str]
+) -> None:
+    job = _jobs(_load_workflow(WORKFLOW_DIR / filename))[job_name]
+    assert "always()" in str(job["if"])
+    assert "needs." not in str(job["if"])
+    step = _steps(job)[0]
+    command = str(step["run"])
+    expressions = step["env"]
+    assert isinstance(expressions, dict) and expressions
+    valid = {str(name): "success" for name in expressions}
+
+    passed = subprocess.run(
+        ["bash", "-c", command], env={**os.environ, **valid}, check=False
+    )
+    assert passed.returncode == 0
+
+    for name in valid:
+        for result in ("failed", "skipped"):
+            if name in allowed_skipped and result == "skipped":
+                continue
+            rejected = subprocess.run(
+                ["bash", "-c", command],
+                env={**os.environ, **valid, name: result},
+                check=False,
+            )
+            assert rejected.returncode != 0, (job_name, name, result)
+
+    for name in allowed_skipped:
+        accepted = subprocess.run(
+            ["bash", "-c", command],
+            env={**os.environ, **valid, name: "skipped"},
+            check=False,
+        )
+        assert accepted.returncode == 0
+
+
+def test_protected_workflow_uses_pr_author_case_insensitively(
+    tmp_path: Path,
+) -> None:
     workflow = _load_workflow(WORKFLOW_DIR / "pull-request.yml")
     jobs = _jobs(workflow)
-    precheck_text = "\n".join(_strings(jobs["pre-check"]))
-    assert '"SuperMarioYL"' in precheck_text
+    permission = next(
+        step
+        for step in _steps(jobs["pre-check"])
+        if step.get("id") == "permission-check"
+    )
+    assert permission["env"]["PR_AUTHOR"] == (
+        "${{ github.event.pull_request.user.login }}"
+    )
+    assert "ACTOR" not in permission["env"]
+    command = str(permission["run"])
+    assert '"SuperMarioYL"' in command
+
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=repository,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Workflow Test"],
+        cwd=repository,
+        check=True,
+    )
+    (repository / "README.md").write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=repository, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=repository, check=True)
+    base = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repository,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    protected = repository / ".github" / "workflows" / "changed.yml"
+    protected.parent.mkdir(parents=True)
+    protected.write_text("name: changed\n", encoding="utf-8")
+    subprocess.run(["git", "add", str(protected)], cwd=repository, check=True)
+    subprocess.run(
+        ["git", "commit", "-qm", "change workflow"], cwd=repository, check=True
+    )
+    subprocess.run(
+        ["git", "update-ref", "refs/remotes/origin/main", base],
+        cwd=repository,
+        check=True,
+    )
+    base_env = {
+        **os.environ,
+        "BASE_REF": "main",
+        "HEAD_BRANCH_NAME": "HEAD",
+    }
+    author_allowed = subprocess.run(
+        ["bash", "-c", command],
+        cwd=repository,
+        env={**base_env, "PR_AUTHOR": "supermarioyl", "ACTOR": "outsider"},
+        check=False,
+    )
+    actor_not_author = subprocess.run(
+        ["bash", "-c", command],
+        cwd=repository,
+        env={**base_env, "PR_AUTHOR": "outsider", "ACTOR": "SuperMarioYL"},
+        check=False,
+    )
+    assert author_allowed.returncode == 0
+    assert actor_not_author.returncode != 0
     assert jobs["release-catalog-smoke"]["permissions"] == {
         "contents": "read",
         "packages": "write",
     }
+
+
+def test_builder_recheck_rejects_transient_registry_errors_before_write(
+    tmp_path: Path,
+) -> None:
+    workflow = _load_workflow(WORKFLOW_DIR / "sync-builders.yml")
+    build = _jobs(workflow)["build-missing-builders"]
+    step = _named_step(build, "Build or copy the missing builder only")
+    command = str(step["run"])
+    binary = tmp_path / "crane"
+    marker = tmp_path / "write-attempted"
+    binary.write_text(
+        "#!/usr/bin/env bash\n"
+        "if [ \"$1\" = digest ]; then echo 'unauthorized: transient' >&2; exit 1; fi\n"
+        'if [ "$1" = copy ]; then : >"$WRITE_MARKER"; exit 0; fi\n',
+        encoding="utf-8",
+    )
+    binary.chmod(0o755)
+    result = subprocess.run(
+        ["bash", "-c", command],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+            "WRITE_MARKER": str(marker),
+            "BUILD_MODE": "mirror",
+            "SOURCE_IMAGE": "docker.io/example/source:tag",
+            "TARGET_REPOSITORY": "ghcr.io/example/target",
+            "TARGET_TAG": "tag",
+        },
+        check=False,
+    )
+    assert result.returncode != 0
+    assert not marker.exists()
+
+
+def test_catalog_verification_rejects_platform_config_mismatch(tmp_path: Path) -> None:
+    workflow = _load_workflow(WORKFLOW_DIR / "sync-builders.yml")
+    publish = _jobs(workflow)["publish-builder-catalog"]
+    step = _named_step(publish, "Verify every catalog target is readable")
+    command = str(step["run"])
+    catalog_dir = tmp_path / "input" / "discovery"
+    catalog_dir.mkdir(parents=True)
+    (catalog_dir / "builder-catalog.json").write_text(
+        '{"builders":[{"target_repository":"ghcr.io/example/target",'
+        '"target_tag":"tag","cpu_arch":"amd64"}]}\n',
+        encoding="utf-8",
+    )
+    crane = tmp_path / "crane"
+    crane.write_text(
+        "#!/usr/bin/env bash\n"
+        'case "$1" in\n'
+        "  digest) echo sha256:abc ;;\n"
+        '  config) printf \'{"os":"%s","architecture":"%s"}\\n\' '
+        '"$CRANE_CONFIG_OS" "$CRANE_CONFIG_ARCH" ;;\n'
+        "esac\n",
+        encoding="utf-8",
+    )
+    crane.chmod(0o755)
+    environment = {
+        **os.environ,
+        "PATH": f"{tmp_path}:{os.environ['PATH']}",
+        "CRANE_CONFIG_OS": "linux",
+        "CRANE_CONFIG_ARCH": "amd64",
+    }
+    matched = subprocess.run(
+        ["bash", "-c", command], cwd=tmp_path, env=environment, check=False
+    )
+    mismatched = subprocess.run(
+        ["bash", "-c", command],
+        cwd=tmp_path,
+        env={**environment, "CRANE_CONFIG_ARCH": "arm64"},
+        check=False,
+    )
+    assert matched.returncode == 0
+    assert mismatched.returncode != 0
 
 
 def test_release_tests_checkout_fetches_tags_for_git_describe() -> None:

@@ -674,33 +674,57 @@ jobs:
 
   pr-loop-success:
     needs: [plan, build-wheels, package-chart, reconcile-images-feature]
-    if: >-
-      ${{
-        always() &&
-        needs.plan.outputs.route == 'pr' &&
-        needs.plan.result == 'success' &&
-        needs.build-wheels.result == 'success' &&
-        needs.package-chart.result == 'success' &&
-        needs.reconcile-images-feature.result == 'success'
-      }}
+    if: ${{ always() && github.event_name == 'pull_request' }}
     runs-on: ubuntu-24.04
     steps:
-      - run: echo "PR builder, wheel, chart, and feature-image loop succeeded"
+      - name: Require every PR loop stage
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          WHEELS_RESULT: ${{ needs.build-wheels.result }}
+          CHART_RESULT: ${{ needs.package-chart.result }}
+          IMAGES_RESULT: ${{ needs.reconcile-images-feature.result }}
+        run: |
+          set -euo pipefail
+          for result in \
+            "${PLAN_RESULT}" \
+            "${WHEELS_RESULT}" \
+            "${CHART_RESULT}" \
+            "${IMAGES_RESULT}"; do
+            if [ "${result}" != success ]; then
+              echo "required PR loop stage ended ${result}" >&2
+              exit 1
+            fi
+          done
 
   daily-loop-success:
     needs: [plan, build-wheels, package-chart, reconcile-images-feature]
     if: >-
       ${{
         always() &&
-        needs.plan.outputs.route == 'daily' &&
-        needs.plan.result == 'success' &&
-        needs.build-wheels.result == 'success' &&
-        needs.package-chart.result == 'success' &&
-        needs.reconcile-images-feature.result == 'success'
+        (github.event_name == 'schedule' ||
+         github.event_name == 'workflow_dispatch') &&
+        github.ref == 'refs/heads/develop'
       }}
     runs-on: ubuntu-24.04
     steps:
-      - run: echo "Daily builder, wheel, chart, and feature-image loop succeeded"
+      - name: Require every daily loop stage
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          WHEELS_RESULT: ${{ needs.build-wheels.result }}
+          CHART_RESULT: ${{ needs.package-chart.result }}
+          IMAGES_RESULT: ${{ needs.reconcile-images-feature.result }}
+        run: |
+          set -euo pipefail
+          for result in \
+            "${PLAN_RESULT}" \
+            "${WHEELS_RESULT}" \
+            "${CHART_RESULT}" \
+            "${IMAGES_RESULT}"; do
+            if [ "${result}" != success ]; then
+              echo "required daily loop stage ended ${result}" >&2
+              exit 1
+            fi
+          done
 
   release-loop-success:
     needs:
@@ -714,15 +738,32 @@ jobs:
     if: >-
       ${{
         always() &&
-        needs.plan.outputs.route == 'release' &&
-        needs.plan.result == 'success' &&
-        needs.build-wheels.result == 'success' &&
-        needs.package-chart.result == 'success' &&
-        needs.reconcile-images-protected.result == 'success' &&
-        needs.prepare-release-draft.result == 'success' &&
-        needs.anonymous-registry-readback.result == 'success' &&
-        needs.publish-release.result == 'success'
+        github.event_name == 'push' &&
+        startsWith(github.ref, 'refs/tags/v')
       }}
     runs-on: ubuntu-24.04
     steps:
-      - run: echo "Release builder, build, reconciliation, readback, and publication loop succeeded"
+      - name: Require every release loop stage
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          WHEELS_RESULT: ${{ needs.build-wheels.result }}
+          CHART_RESULT: ${{ needs.package-chart.result }}
+          IMAGES_RESULT: ${{ needs.reconcile-images-protected.result }}
+          DRAFT_RESULT: ${{ needs.prepare-release-draft.result }}
+          READBACK_RESULT: ${{ needs.anonymous-registry-readback.result }}
+          PUBLISH_RESULT: ${{ needs.publish-release.result }}
+        run: |
+          set -euo pipefail
+          for result in \
+            "${PLAN_RESULT}" \
+            "${WHEELS_RESULT}" \
+            "${CHART_RESULT}" \
+            "${IMAGES_RESULT}" \
+            "${DRAFT_RESULT}" \
+            "${READBACK_RESULT}" \
+            "${PUBLISH_RESULT}"; do
+            if [ "${result}" != success ]; then
+              echo "required release loop stage ended ${result}" >&2
+              exit 1
+            fi
+          done
