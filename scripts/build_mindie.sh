@@ -28,16 +28,14 @@ export PLATFORM="ascend"
 export UCM_ENABLE_MINDIE=${UCM_ENABLE_MINDIE:-1}
 export UCM_CXX11_ABI=${UCM_CXX11_ABI:-1}
 
-VERSION_FILE="${PROJECT_ROOT}/version.ini"
-if [ ! -f "${VERSION_FILE}" ]; then
-    VERSION_FILE="${KVCACHE_PROJECT_ROOT}/version.ini"
-fi
-if [ ! -f "${VERSION_FILE}" ]; then
-    echo "version.ini does not exist."
+if ! VERSION=$(cd "${KVCACHE_PROJECT_ROOT}" && python3 setup.py --version); then
+    echo "Failed to derive the build version from source tags."
     exit 1
 fi
-. ${VERSION_FILE}
-VERSION=$VLLM_UC_VERSION
+if [ -z "${VERSION}" ]; then
+    echo "Failed to derive the build version from source tags."
+    exit 1
+fi
 
 source "$ASCEND_HOME/ascend-toolkit/set_env.sh" || echo "0"
 source "$ASCEND_HOME/nnal/atb/set_env.sh" || echo "0"
@@ -90,7 +88,6 @@ function delete_redundant_files() {
 function collect_artifacts()
 {
     cd ${PACKAGE_DIR}
-    cp ${VERSION_FILE} .
     mkdir -p deploy/script
     cp "${KVCACHE_PROJECT_ROOT}/install.sh" .
     cp -r "${KVCACHE_PROJECT_ROOT}/docker" .
@@ -106,7 +103,9 @@ function package_all()
     collect_artifacts
     if [ "${SKIP_TAR}" != "1" ]; then
         cd ${PACKAGE_DIR}
-        tar -czvf "AI-Storage-Kit_${VERSION}_${PACKAGE_PLATFORM^^}_${ARCH}_${BUILD_TYPE}.tar.gz" *
+        printf 'VLLM_UC_VERSION=%s\n' "${VERSION}" > version.ini
+        PACKAGE_PLATFORM_UPPER=$(printf '%s' "${PACKAGE_PLATFORM}" | tr '[:lower:]' '[:upper:]')
+        tar -czvf "AI-Storage-Kit_${VERSION}_${PACKAGE_PLATFORM_UPPER}_${ARCH}_${BUILD_TYPE}.tar.gz" *
         delete_redundant_files
     fi
 }
