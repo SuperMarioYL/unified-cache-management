@@ -1162,17 +1162,17 @@ def test_release_tests_checkout_fetches_tags_for_git_describe() -> None:
     assert checkout["with"]["fetch-tags"] is True
 
 
-def test_repository_recipe_plan_checkout_fetches_reachable_tags() -> None:
-    """The recipe matrix loads the catalog, whose version comes from git describe."""
+def test_repository_recipe_jobs_fetch_reachable_tags() -> None:
+    """Recipe matrix and selection both load the git-describe catalog."""
     workflow = _load_workflow(WORKFLOW_DIR / "pull-request.yml")
-    checkout = next(
-        step
-        for step in _steps(_jobs(workflow)["repository-recipe-plan"])
-        if str(step.get("uses", "")).startswith("actions/checkout@")
-    )
-
-    assert checkout["with"]["fetch-depth"] == 0
-    assert checkout["with"]["fetch-tags"] is True
+    for job_name in ("repository-recipe-plan", "repository-docker-smoke"):
+        checkout = next(
+            step
+            for step in _steps(_jobs(workflow)[job_name])
+            if str(step.get("uses", "")).startswith("actions/checkout@")
+        )
+        assert checkout["with"]["fetch-depth"] == 0
+        assert checkout["with"]["fetch-tags"] is True
     command = "\n".join(_strings(_jobs(workflow)["repository-recipe-plan"]))
     assert '"protected_environment"' in command
 
