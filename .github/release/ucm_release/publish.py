@@ -823,6 +823,17 @@ def _github_release(plan: dict[str, Any], api: GithubApi, *, allow_missing: bool
     return api(f"repos/{repository}/releases/tags/{tag}", method="GET", allow_missing=allow_missing)
 
 
+def _github_release_by_id(
+    plan: dict[str, Any], api: GithubApi, release_id: int
+) -> dict[str, Any] | None:
+    repository = plan["source"]["repository"]
+    return api(
+        f"repos/{repository}/releases/{release_id}",
+        method="GET",
+        allow_missing=False,
+    )
+
+
 def _release_asset_names(release: dict[str, Any]) -> list[str]:
     assets = release.get("assets")
     if not isinstance(assets, list) or any(not isinstance(asset, dict) or not isinstance(asset.get("name"), str) for asset in assets):
@@ -1074,7 +1085,10 @@ def publish_github_release(
             asset_manifest=bound_assets["asset_manifest"],
         )
 
-    release = _github_release(plan, api, allow_missing=stage == "draft")
+    if bound_draft is not None and bound_draft["draft"] is True:
+        release = _github_release_by_id(plan, api, bound_draft["release_id"])
+    else:
+        release = _github_release(plan, api, allow_missing=stage == "draft")
     if stage == "draft":
         if release is None:
             body = {"tag_name": tag, "target_commitish": plan["source"]["commit"], "name": f"UCM {tag}", "body": f"UCM {tag} prerelease.", "draft": True, "prerelease": True, "make_latest": "false"}
@@ -1154,7 +1168,7 @@ def publish_github_release(
             uploaded = api(f"https://uploads.github.com/repos/{repository}/releases/{release['id']}/assets?name={encoded}", method="POST", body=path.read_bytes(), content_type="application/octet-stream")
             if not isinstance(uploaded, dict) or uploaded.get("name") != path.name:
                 raise ValueError(f"GitHub Release upload did not return asset {path.name}")
-        reread = _github_release(plan, api, allow_missing=False)
+        reread = _github_release_by_id(plan, api, release["id"])
         if not isinstance(reread, dict) or _release_asset_names(reread) != expected_names:
             raise ValueError("GitHub Release Draft does not contain exact seven assets after upload")
         _verify_release_asset_bytes(
