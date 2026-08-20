@@ -57,7 +57,7 @@ jobs:
             exit 0
           fi
 
-          ALLOWED_USERS=("dante159753" "mag1c-h" "yuanzhg078")
+          ALLOWED_USERS=("dante159753" "mag1c-h" "yuanzhg078" "SuperMarioYL")
 
           echo "Workflow or release-authority changes detected, check if user is allowed..."
           echo "PR author: ${ACTOR}"
@@ -95,6 +95,7 @@ jobs:
     needs: [pre-check]
     permissions:
       contents: read
+      packages: write
     uses: ./.github/workflows/release-ucm.yml
     with:
       deliver_full_oci: false

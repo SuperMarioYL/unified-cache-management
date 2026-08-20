@@ -69,8 +69,8 @@ RUN PYTHONPATH=/workspace/ucm/.github/release \
 
 FROM wheel-base AS builder
 
-# Mooncake is prebuilt into UCM_BUILDER_IMAGE (the ghcr builder published by
-# .github/workflows/_prepare-builders.yml via Dockerfile.builder). Assert the
+# Mooncake is prebuilt into UCM_BUILDER_IMAGE (the project-pool builder published
+# by .github/workflows/sync-builders.yml via Dockerfile.builder). Assert the
 # native contract paths on Ascend; cuda130 builders carry no Mooncake
 # (forbidden by native-contract), so the guard skips them.
 RUN if [ -f /usr/local/Ascend/ascend-toolkit/set_env.sh ]; then \

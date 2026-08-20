@@ -26,6 +26,7 @@ EXPECTED_RELEASE_WORKFLOWS = {
     "release-ucm.yml",
     "release-vllm-images-protected.yml",
     "release-vllm-images.yml",
+    "sync-builders.yml",
 }
 SAFE_FORK_ACTIONS = {
     "actions/cache",
@@ -273,7 +274,7 @@ def test_fork_isolation_allows_a_read_only_reusable_build() -> None:
     assert _fork_isolation_violations(documents) == []
 
 
-def test_push_and_pull_request_callers_are_explicitly_read_only() -> None:
+def test_push_and_pull_request_callers_use_explicit_minimum_permissions() -> None:
     """Normal fork validation callers must not inherit the repository token default."""
     push = _load_workflow(WORKFLOW_DIR / "push-check.yml")
     pull_request = _load_workflow(WORKFLOW_DIR / "pull-request.yml")
@@ -282,7 +283,193 @@ def test_push_and_pull_request_callers_are_explicitly_read_only() -> None:
     assert pull_request["permissions"] == {"contents": "read"}
     for job_name, job in _jobs(pull_request).items():
         permissions, _ = _effective_permissions(pull_request["permissions"], job)
-        assert permissions == {"contents": "read"}, job_name
+        if job_name == "release-catalog-smoke":
+            assert permissions == {"contents": "read", "packages": "write"}
+        else:
+            assert permissions == {"contents": "read"}, job_name
+
+
+def test_sync_builders_has_discovery_dynamic_sync_and_catalog_contract() -> None:
+    assert not (WORKFLOW_DIR / "_prepare-builders.yml").exists()
+    workflow = _load_workflow(WORKFLOW_DIR / "sync-builders.yml")
+    triggers = workflow["on"]
+    assert triggers["schedule"] == [{"cron": "0 4 * * *"}]
+    assert triggers["workflow_dispatch"] is None
+    assert (
+        triggers["workflow_call"]["outputs"]["builder_catalog_artifact"]["value"]
+        == "${{ jobs.publish-builder-catalog.outputs.builder_catalog_artifact }}"
+    )
+
+    jobs = _jobs(workflow)
+    assert list(jobs) == [
+        "discover-project-builders",
+        "read-existing-builder-pool",
+        "compute-missing-builders",
+        "build-missing-builders",
+        "publish-builder-catalog",
+        "builder-sync-success",
+    ]
+    discover_text = "\n".join(_strings(jobs["discover-project-builders"]))
+    assert "ucm_release builders discover" in discover_text
+    assert "builder-catalog.json" in discover_text
+
+    read_text = "\n".join(_strings(jobs["read-existing-builder-pool"]))
+    assert "target_repository" in read_text and "unique" in read_text
+    assert "crane ls" in read_text
+    assert "missing repository" in read_text.lower()
+
+    compute = jobs["compute-missing-builders"]
+    compute_text = "\n".join(_strings(compute))
+    assert "ucm_release builders sync-plan" in compute_text
+    assert set(compute["outputs"]) == {"has_missing", "matrix"}
+
+    build = jobs["build-missing-builders"]
+    assert (
+        build["strategy"]["matrix"]
+        == "${{ fromJSON(needs.compute-missing-builders.outputs.matrix) }}"
+    )
+    assert "matrix.cpu_arch" in build["runs-on"]
+    build_text = "\n".join(_strings(build))
+    assert "crane digest" in build_text
+    assert build_text.count("crane copy") >= 2
+    assert "Dockerfile.builder" in build_text
+    assert "MOONCAKE_TAG" in build_text and "TARGET_TAG" in build_text
+    assert "crane delete" not in "\n".join(_strings(workflow)).lower()
+    assert "ucm-builder-vllm" not in build_text
+
+    publish = jobs["publish-builder-catalog"]
+    publish_text = "\n".join(_strings(publish))
+    assert "crane digest" in publish_text
+    assert "builder-catalog.json" in publish_text
+    assert "always()" in publish["if"]
+    assert "needs.build-missing-builders.result == 'skipped'" in publish["if"]
+    assert publish["outputs"]["builder_catalog_artifact"] == (
+        "${{ steps.publish.outputs.builder_catalog_artifact }}"
+    )
+    assert jobs["builder-sync-success"]["needs"] == [
+        "discover-project-builders",
+        "read-existing-builder-pool",
+        "compute-missing-builders",
+        "build-missing-builders",
+        "publish-builder-catalog",
+    ]
+
+
+def test_builder_dockerfile_targets_official_manylinux_pool() -> None:
+    dockerfile = (
+        REPO_ROOT / ".github" / "release" / "docker" / "Dockerfile.builder"
+    ).read_text(encoding="utf-8")
+    assert "ARG CANN_BASE\n" in dockerfile
+    assert "ARG MOONCAKE_TAG\n" in dockerfile
+    assert "FROM ${CANN_BASE}" in dockerfile
+    assert "yum" in dockerfile
+    assert "mooncake_installer.sh -y" in dockerfile
+    assert "sync-builders.yml" in dockerfile
+    assert "_prepare-builders.yml" not in dockerfile
+    assert "apt-get" not in dockerfile
+
+
+def test_release_and_bot_consume_same_run_builder_catalog() -> None:
+    release = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
+    assert "workflow_call" in release["on"]
+    release_jobs = _jobs(release)
+    sync = release_jobs["sync-builders"]
+    assert sync["uses"] == "./.github/workflows/sync-builders.yml"
+    assert sync["permissions"] == {"contents": "read", "packages": "write"}
+    assert "sync-builders" in release_jobs["plan"]["needs"]
+    release_plan_text = "\n".join(_strings(release_jobs["plan"]))
+    assert "needs.sync-builders.outputs.builder_catalog_artifact" in release_plan_text
+    assert "--builder-catalog input/builders/builder-catalog.json" in release_plan_text
+
+    bot = _load_workflow(WORKFLOW_DIR / "ucm-build-bot.yml")
+    bot_jobs = _jobs(bot)
+    assert bot_jobs["sync-builders"]["needs"] == "permission-check"
+    assert bot_jobs["sync-builders"]["uses"] == "./.github/workflows/sync-builders.yml"
+    assert bot_jobs["sync-builders"]["permissions"] == {
+        "contents": "read",
+        "packages": "write",
+    }
+    assert set(bot_jobs["plan"]["needs"]) == {"permission-check", "sync-builders"}
+    bot_plan_text = "\n".join(_strings(bot_jobs["plan"]))
+    assert "needs.sync-builders.outputs.builder_catalog_artifact" in bot_plan_text
+    assert "--builder-catalog input/builders/builder-catalog.json" in bot_plan_text
+    assert "--pin-upstream" in bot_plan_text
+
+
+def test_release_routes_use_full_matrices_and_develop_only_daily_dispatch() -> None:
+    workflow = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
+    jobs = _jobs(workflow)
+    plan_text = "\n".join(_strings(jobs["plan"]))
+    assert 'route="pr"' in plan_text
+    assert 'route="daily"' in plan_text
+    assert 'route="release"' in plan_text
+    assert re.search(
+        r'"\$\{EVENT_NAME\}" == workflow_dispatch\s+\) && \\\n'
+        r'\s+"\$\{REF\}" == refs/heads/develop',
+        plan_text,
+    )
+    assert 'build_wheel_matrix="${wheel_matrix}"' in plan_text
+    assert 'build_image_matrix="${image_matrix}"' in plan_text
+    assert 'build_wheel_matrix="${smoke_wheel_matrix}"' not in plan_text
+    assert 'build_image_matrix="${smoke_image_matrix}"' not in plan_text
+    assert "dry_run_val=true" in plan_text
+
+
+def test_release_route_terminal_jobs_gate_every_required_stage() -> None:
+    jobs = _jobs(_load_workflow(WORKFLOW_DIR / "release-ucm.yml"))
+    terminals = {name for name in jobs if name.endswith("-loop-success")}
+    assert terminals == {
+        "pr-loop-success",
+        "daily-loop-success",
+        "release-loop-success",
+    }
+    expected_needs = {
+        "pr-loop-success": {
+            "plan",
+            "build-wheels",
+            "package-chart",
+            "reconcile-images-feature",
+        },
+        "daily-loop-success": {
+            "plan",
+            "build-wheels",
+            "package-chart",
+            "reconcile-images-feature",
+        },
+        "release-loop-success": {
+            "plan",
+            "build-wheels",
+            "package-chart",
+            "reconcile-images-protected",
+            "prepare-release-draft",
+            "anonymous-registry-readback",
+            "publish-release",
+        },
+    }
+    routes = {
+        "pr-loop-success": "pr",
+        "daily-loop-success": "daily",
+        "release-loop-success": "release",
+    }
+    for name, required in expected_needs.items():
+        job = jobs[name]
+        assert set(job["needs"]) == required
+        condition = str(job["if"])
+        assert "always()" in condition
+        assert f"needs.plan.outputs.route == '{routes[name]}'" in condition
+        for dependency in required:
+            assert f"needs.{dependency}.result == 'success'" in condition
+
+
+def test_protected_workflow_author_and_builder_permission_are_explicit() -> None:
+    workflow = _load_workflow(WORKFLOW_DIR / "pull-request.yml")
+    jobs = _jobs(workflow)
+    precheck_text = "\n".join(_strings(jobs["pre-check"]))
+    assert '"SuperMarioYL"' in precheck_text
+    assert jobs["release-catalog-smoke"]["permissions"] == {
+        "contents": "read",
+        "packages": "write",
+    }
 
 
 def test_release_tests_checkout_fetches_tags_for_git_describe() -> None:
