@@ -10,7 +10,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import REPO_ROOT
+from conftest import PRODUCTION_ROOT, REPO_ROOT
+from ucm_release_production.build import (
+    authority_from_task,
+    project_build_task,
+    tool_wheel_authority,
+    wheel_build_config_from_task,
+)
+from ucm_release_production.common import canonical_bytes, sha256_envelope
+from ucm_release_production.config import load_config
+from ucm_release_production.tags import parse_tag
 
 SOURCE_SHA = "1" * 40
 SOURCE_TREE = "2" * 40
@@ -21,6 +30,7 @@ PROFILE_DISTRIBUTIONS = {
     "cann900-a2": "uc-manager-cann-a2",
     "cann900-a3": "uc-manager-cann-a3",
 }
+PRODUCTION_CONFIG = PRODUCTION_ROOT / "production-release.json"
 
 
 def _architecture() -> str:
@@ -144,6 +154,71 @@ def test_schema_v2_build_config_controls_exact_distribution(
     ]
 
 
+def test_generated_schema_v2_config_runs_root_setup_without_version_ini(
+    tmp_path: Path,
+) -> None:
+    config = load_config(PRODUCTION_CONFIG)
+    intent = parse_tag("v0.6.0rc1", config)
+    source = sha256_envelope(
+        {
+            "kind": "ucm-production-source-identity",
+            "schema_version": 1,
+            "repository": "OctoCat/unified-cache-management",
+            "repository_id": 42,
+            "stage": intent.stage,
+            "tag_name": intent.tag_name,
+            "tag_object_sha": "2" * 40,
+            "source_commit_sha": SOURCE_SHA,
+            "source_branch": intent.release_branch,
+            "tagger": "release-operator",
+            "tagged_at": "2026-08-13T08:00:00Z",
+            "tag_message_sha256": "3" * 64,
+            "control_default_branch": "develop",
+            "control_sha": "4" * 40,
+            "lineage": None,
+        }
+    )
+    architecture = _architecture()
+    task = project_build_task(
+        config,
+        intent,
+        source,
+        f"cuda130-{architecture}",
+    )
+    authority = authority_from_task(
+        task,
+        source_tree="5" * 40,
+        source_archive_sha256="sha256:" + "6" * 64,
+        source_date_epoch=int(SOURCE_DATE_EPOCH),
+        build_context_sha256="sha256:" + "7" * 64,
+        tool_wheels=tool_wheel_authority(config, architecture),
+    )
+    build_config = wheel_build_config_from_task(task, authority)
+    config_path = tmp_path / "wheel-build.json"
+    config_path.write_bytes(canonical_bytes(build_config) + b"\n")
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("UCM_RELEASE_")
+        and key
+        not in {"UCM_BUILD_CONFIG", "SOURCE_DATE_EPOCH", "PLATFORM", "UCM_DIST_NAME"}
+    }
+    env["UCM_BUILD_CONFIG"] = str(config_path)
+
+    result = subprocess.run(
+        [sys.executable, "setup.py", "--version"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert not (REPO_ROOT / "version.ini").exists()
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[-1] == "0.6.0rc1"
+
+
 @pytest.mark.parametrize(
     ("stage", "base_version", "wheel_version"),
     [
@@ -229,8 +304,10 @@ def test_setup_rejects_compact_schema_v1_authority(tmp_path: Path) -> None:
     assert "extended schema-v1 or production schema-v2" in result.stderr
 
 
-def test_schema_v2_build_config_checks_version_ini(tmp_path: Path) -> None:
+def test_schema_v2_build_config_ignores_non_authoritative_version_ini(
+    tmp_path: Path,
+) -> None:
     result = _run_setup(tmp_path, _authority(), source_version="0.6.1")
 
-    assert result.returncode != 0
-    assert "version.ini" in result.stderr
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[-1] == "0.6.0rc1"

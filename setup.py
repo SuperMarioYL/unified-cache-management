@@ -87,16 +87,6 @@ def get_source_version() -> str:
     return f"{base}+{'.'.join(local)}" if local else base
 
 
-def get_version_ini_version() -> str:
-    version_path = os.path.join(ROOT_DIR, "version.ini")
-    with open(version_path, encoding="utf-8") as version_file:
-        for line in version_file:
-            key, separator, value = line.strip().partition("=")
-            if separator and key == "VLLM_UC_VERSION" and value:
-                return value
-    raise RuntimeError(f"VLLM_UC_VERSION is missing from {version_path}")
-
-
 def _load_build_config() -> tuple[dict[str, object], dict[str, object]] | None:
     if BUILD_CONFIG_PATH is None:
         return None
@@ -168,12 +158,7 @@ def _release_settings() -> dict[str, object] | None:
     if mismatches:
         raise RuntimeError(f"wheel build config differs from build host: {mismatches}")
     if authority["schema_version"] == 2:
-        source_version = get_version_ini_version()
         base_version = str(authority["base_version"])
-        if source_version != base_version:
-            raise RuntimeError(
-                "production base_version differs from version.ini source authority"
-            )
         escaped = re.escape(base_version)
         stage_patterns = {
             "draft": rf"{escaped}\.dev[1-9][0-9]*",
