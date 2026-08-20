@@ -472,6 +472,51 @@ def _validate_builder_checks(
         raise ValueError(f'{location} requires exactly one Python and one Python SOABI check')  # fmt: skip  # noqa: E501
 
 
+def _validate_builder_root(root: object, *, location: str) -> None:
+    if root is None:
+        return
+    if not isinstance(root, dict):
+        raise ValueError(f"{location}.root must be an object")
+    unresolved_fields = {"repository", "tag"}
+    resolved_fields = unresolved_fields | {
+        "index_digest",
+        "manifest_digest",
+        "config_digest",
+    }
+    if frozenset(root) not in {
+        frozenset(unresolved_fields),
+        frozenset(resolved_fields),
+    }:
+        raise ValueError(f"{location}.root must be unresolved or fully resolved")
+    if OCI_REPOSITORY_PATTERN.fullmatch(str(root.get("repository"))) is None:
+        raise ValueError(f"{location}.root.repository must use canonical OCI syntax")
+    if OCI_TAG_PATTERN.fullmatch(str(root.get("tag"))) is None:
+        raise ValueError(f"{location}.root.tag must use canonical OCI tag syntax")
+    for digest_name in sorted(resolved_fields - unresolved_fields):
+        if digest_name in root and re.fullmatch(
+            r"sha256:[0-9a-f]{64}", str(root[digest_name])
+        ) is None:
+            raise ValueError(
+                f"{location}.root.{digest_name} must be an exact sha256 digest"
+            )
+
+
+def _validate_resolved_builder_roots(catalog: dict[str, Any]) -> None:
+    required = {
+        "repository",
+        "tag",
+        "index_digest",
+        "manifest_digest",
+        "config_digest",
+    }
+    for profile_index, profile in enumerate(catalog.get("wheel_profiles", [])):
+        for architecture, builder in profile.get("builders", {}).items():
+            location = f"wheel_profiles[{profile_index}].builders.{architecture}"
+            root = builder.get("root") if isinstance(builder, dict) else None
+            if not isinstance(root, dict) or set(root) != required:
+                raise ValueError(f"{location} builder root must be resolved")
+
+
 def runtime_patch_manifest(
     catalog: dict[str, Any], *, repository_root: Path = REPO_ROOT
 ) -> dict[str, Any]:
@@ -815,6 +860,7 @@ def validate_catalog(
         for architecture, builder in builders.items():
             if not isinstance(builder, dict): raise ValueError(f'wheel_profiles[{index}].builders.{architecture} must be an object')  # noqa: E701,E501
             _validate_builder_checks(builder.get('checks'), profile=profile, location=f'wheel_profiles[{index}].builders.{architecture}')  # fmt: skip  # noqa: E501
+            _validate_builder_root(builder.get('root'), location=f'wheel_profiles[{index}].builders.{architecture}')  # fmt: skip  # noqa: E501
     for index, product in enumerate(products):
         _pep440_specifier(product.get('version_specifier'), f'upstream_products[{index}].version_specifier')  # fmt: skip  # noqa: E501
         _require_unique_ids(product["variants"], "upstream variant")
@@ -1294,6 +1340,7 @@ class ReleasePlan:
         relaxed: bool = False,
     ) -> "ReleasePlan":
         validate_catalog(catalog, repository_root=repository_root)
+        _validate_resolved_builder_roots(catalog)
         validate_resolved_upstreams(resolved_upstreams, relaxed=relaxed)
         if lane not in catalog['lanes']: raise ValueError(f'unsupported validation lane: {lane}')  # noqa: E701,E501
         patch_manifest = runtime_patch_manifest(catalog, repository_root=repository_root)  # fmt: skip  # noqa: E501
@@ -1427,12 +1474,6 @@ def _validate_cross_config(
             raise ValueError(f"wheel profile {profile['id']!r} builder architectures do not match cpu_arch")  # fmt: skip  # noqa: E501
         missing_runners = sorted(architectures - set(release["runner_map"]))
         if missing_runners: raise ValueError(f"wheel profile {profile['id']!r} has no runner for {missing_runners}")  # noqa: E701,E501
-        for architecture in sorted(architectures):
-            root = profile["builders"][architecture]["root"]
-            coordinate = f"{root['repository']}@{root['manifest_digest']}"
-            if re.fullmatch(r"[^@ ]+@sha256:[0-9a-f]{64}", coordinate) is None:
-                raise ValueError("builder roots must resolve to repository@sha256")
-
     products = {product["id"]: product for product in release["upstream_products"]}
     chart_selectors: set[tuple[str, str]] = set()
     for case in release["chart"]["validation_cases"]:

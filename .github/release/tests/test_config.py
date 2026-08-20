@@ -192,6 +192,28 @@ def test_release_config_profiles_are_dynamic_and_have_no_runner_escape_hatch() -
     }
 
 
+def test_toolchain_lock_owns_builder_requirements_but_no_builder_coordinates() -> None:
+    toolchain = yaml.safe_load(
+        (REPO_ROOT / ".github" / "release" / "toolchain.lock.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert set(toolchain["builders"]) == {"cuda130", "cann900-a2", "cann900-a3"}
+    for profile_builders in toolchain["builders"].values():
+        assert set(profile_builders) == {"amd64", "arm64"}
+        for requirement in profile_builders.values():
+            assert set(requirement) == {"sources", "copy_paths", "checks"}
+
+    core = importlib.import_module("ucm_release.core")
+    catalog = core.load_catalog()
+    for profile in catalog["wheel_profiles"]:
+        assert set(profile["builders"]) == set(profile["cpu_arch"])
+        assert all(
+            "root" not in requirement for requirement in profile["builders"].values()
+        )
+
+
 def _publish_catalog() -> dict:
     core = importlib.import_module("ucm_release.core")
     return core.load_catalog()

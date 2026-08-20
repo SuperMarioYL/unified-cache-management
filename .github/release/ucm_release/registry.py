@@ -17,7 +17,7 @@ from typing import Any
 from packaging.specifiers import SpecifierSet
 from packaging.version import InvalidVersion, Version
 
-from . import core
+from . import builders, core
 from .core import (
     _LINKED_WHEEL_FIELDS,
     _RUNTIME_KEYS,
@@ -338,11 +338,9 @@ def resolve_builder_root(
 
     Unlike resolve_repository_tag (which scans a multi-arch upstream index for
     every required architecture at once), this binds a single architecture
-    against a builder tag published by _prepare-builders.yml that may be either
-    a single-arch image manifest or a manifest list. resolve_catalog calls this
-    at plan time to overwrite the placeholder digests recorded in
-    toolchain.lock.yaml builders.<profile>.<arch>.root before ReleasePlan.build
-    consumes them, so the builder layer exits the frozen-plan digest pinning.
+    against a selected project builder tag that may be either a single-arch
+    image manifest or a manifest list. resolve_catalog calls this after builder
+    capability selection and before ReleasePlan.build consumes the catalog.
     """
     repository = _repository(repository)
     if not isinstance(upstream_tag, str) or OCI_TAG_RE.fullmatch(upstream_tag) is None:
@@ -625,6 +623,7 @@ def _resolve_pinned_upstreams(
 def resolve_catalog(
     catalog: dict[str, Any],
     *,
+    builder_catalog: dict[str, Any],
     source_sha: str,
     lane: str,
     fixture: dict[str, Any] | None = None,
@@ -632,6 +631,8 @@ def resolve_catalog(
 ) -> dict[str, Any]:
     core._exact_keys(catalog, core.RELEASE_KEYS, 'release catalog', optional=core.OPTIONAL_CATALOG_KEYS)  # fmt: skip  # noqa: E501
     core.validate_catalog(catalog)
+    selection = builders.select_builders(builder_catalog, catalog)
+    catalog = builders.bind_selection(catalog, selection)
     if fixture is not None and lane == "protected-tag":
         raise ValueError("fixture resolution cannot acquire protected-tag authority")
     if pin_upstreams is not None and fixture is not None:
@@ -671,18 +672,20 @@ def resolve_catalog(
 
     tag_lists: dict[str, list[str]] = {}
     operations: list[dict[str, Any]] = []
-    if fixture is None:
-        for profile in catalog.get("wheel_profiles", []):
-            builders = profile.get("builders")
-            if not isinstance(builders, dict): continue  # noqa: E701,E501
-            for architecture, builder in builders.items():
-                root = builder.get("root")
-                if not isinstance(root, dict): continue  # noqa: E701,E501
-                resolved = resolve_builder_root(root["repository"], root["tag"], architecture=architecture)  # fmt: skip  # noqa: E501
-                root["index_digest"] = resolved["index_digest"]
-                root["manifest_digest"] = resolved["manifest_digest"]
-                root["config_digest"] = resolved["config_digest"]
-                operations.extend(resolved["operations"])
+    for profile in catalog["wheel_profiles"]:
+        for architecture, builder in profile["builders"].items():
+            unresolved_root = builder["root"]
+            repository = unresolved_root["repository"]
+            tag = unresolved_root["tag"]
+            resolved = resolve_builder_root(repository, tag, architecture=architecture)
+            builder["root"] = {
+                "repository": repository,
+                "tag": tag,
+                "index_digest": resolved["index_digest"],
+                "manifest_digest": resolved["manifest_digest"],
+                "config_digest": resolved["config_digest"],
+            }
+            operations.extend(resolved["operations"])
     products = {item["id"]: item for item in catalog["upstream_products"]}
     products_by_repo = {product["repository"]: product for product in catalog["upstream_products"]}
     crane_binary = resolve_pinned_crane() if fixture is None else None

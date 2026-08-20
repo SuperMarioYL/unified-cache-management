@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -773,3 +774,121 @@ def select_builders(catalog: object, release: object) -> dict[str, object]:
         "builders": selected,
         "matrix": {"include": selected},
     }
+
+
+def bind_selection(catalog: object, selection: object) -> dict[str, object]:
+    """Bind one selected project builder to every release profile architecture."""
+    release = copy.deepcopy(_require_mapping(catalog, "release catalog"))
+    profiles = release.get("wheel_profiles")
+    if not isinstance(profiles, list) or not profiles:
+        raise ValueError("release catalog: wheel_profiles must be a non-empty list")
+
+    selected = _require_mapping(selection, "builder selection")
+    if set(selected) != {"kind", "schema_version", "builders", "matrix"}:
+        raise ValueError("builder selection: fields must be exact")
+    if selected.get("kind") != "ucm-builder-selection":
+        raise ValueError("builder selection: kind must be ucm-builder-selection")
+    if selected.get("schema_version") != 1:
+        raise ValueError("builder selection: schema_version must be 1")
+    items = selected.get("builders")
+    matrix = selected.get("matrix")
+    if not isinstance(items, list):
+        raise ValueError("builder selection: builders must be a list")
+    if (
+        not isinstance(matrix, dict)
+        or set(matrix) != {"include"}
+        or matrix["include"] != items
+    ):
+        raise ValueError(
+            "builder selection: matrix.include must exactly match builders"
+        )
+
+    profiles_by_id: dict[str, dict[str, object]] = {}
+    expected_coordinates: set[tuple[str, str]] = set()
+    for index, raw_profile in enumerate(profiles):
+        context = f"release catalog wheel_profiles[{index}]"
+        profile = _require_mapping(raw_profile, context)
+        profile_id = _require_string(profile, "id", context)
+        if profile_id in profiles_by_id:
+            raise ValueError(f"duplicate release profile id: {profile_id}")
+        requirements = profile.get("builders")
+        architectures = profile.get("cpu_arch")
+        if not isinstance(requirements, dict) or not isinstance(architectures, list):
+            raise ValueError(
+                f"release profile {profile_id}: builder requirements are invalid"
+            )
+        if set(requirements) != set(architectures):
+            raise ValueError(
+                f"release profile {profile_id}: builder architectures do not match cpu_arch"
+            )
+        profiles_by_id[profile_id] = profile
+        expected_coordinates.update((profile_id, str(arch)) for arch in architectures)
+
+    seen: set[tuple[str, str]] = set()
+    for index, raw_item in enumerate(items):
+        context = f"builder selection builders[{index}]"
+        item = _require_mapping(raw_item, context)
+        profile_id = _require_string(item, "profile_id", context)
+        profile = profiles_by_id.get(profile_id)
+        if profile is None:
+            raise ValueError(f"{context}: unknown release profile {profile_id!r}")
+        architecture = _require_string(item, "cpu_arch", context)
+        requirements = profile["builders"]
+        if not isinstance(requirements, dict) or architecture not in requirements:
+            raise ValueError(
+                f"{context}: undeclared architecture {architecture!r} for release profile {profile_id!r}"
+            )
+        catalog_item = {
+            key: value for key, value in item.items() if key != "profile_id"
+        }
+        validated_item = _validate_catalog_item(catalog_item, context)
+        coordinate = (profile_id, architecture)
+        if coordinate in seen:
+            raise ValueError(
+                f"duplicate builder selection for release profile {profile_id!r} architecture {architecture!r}"
+            )
+        seen.add(coordinate)
+        npu_arch = profile.get("npu_arch")
+        expected_variant = (
+            "default"
+            if profile.get("accelerator") == "cuda"
+            else npu_arch[0] if isinstance(npu_arch, list) and npu_arch else None
+        )
+        expected_capability = {
+            "accelerator": profile.get("accelerator"),
+            "accelerator_runtime": profile.get("accelerator_runtime"),
+            "variant": expected_variant,
+            "python_abi": profile.get("python_abi"),
+            "manylinux": profile.get("builder_manylinux"),
+            "cpu_arch": architecture,
+        }
+        mismatches = {
+            key: (expected, validated_item[key])
+            for key, expected in expected_capability.items()
+            if validated_item[key] != expected
+        }
+        if mismatches:
+            raise ValueError(
+                f"{context}: selected capability does not match release profile {profile_id!r}: {mismatches}"
+            )
+        requirement = requirements[architecture]
+        if not isinstance(requirement, dict):
+            raise ValueError(
+                f"release profile {profile_id}: builder requirement {architecture!r} must be a mapping"
+            )
+        requirement["root"] = {
+            "repository": validated_item["target_repository"],
+            "tag": validated_item["target_tag"],
+        }
+
+    missing = sorted(expected_coordinates - seen)
+    if missing:
+        raise ValueError(
+            f"missing builder selection for release profile architectures: {missing}"
+        )
+    extras = sorted(seen - expected_coordinates)
+    if extras:
+        raise ValueError(
+            f"extra builder selection for release profile architectures: {extras}"
+        )
+    return release

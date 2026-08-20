@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import importlib
 import json
 import os
@@ -17,6 +18,7 @@ sys.path.insert(0, str(RELEASE_ROOT))
 
 builders = importlib.import_module("ucm_release.builders")
 cli = importlib.import_module("ucm_release.cli")
+core = importlib.import_module("ucm_release.core")
 FIXTURE = RELEASE_ROOT / "tests" / "fixtures" / "builders"
 
 
@@ -174,6 +176,90 @@ def test_selects_exactly_current_six_release_builders() -> None:
     assert all("9.1.0" not in item["target_tag"] for item in selection["builders"])
     assert any("12.9" in item["target_tag"] for item in _discover()["builders"])
     assert any("9.1.0" in item["target_tag"] for item in _discover()["builders"])
+
+
+def _current_selection() -> dict[str, object]:
+    release = yaml.safe_load(
+        (RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8")
+    )
+    return builders.select_builders(_discover(), release)
+
+
+def test_bind_selection_adds_only_current_six_builder_coordinates() -> None:
+    catalog = core.load_catalog()
+    original = copy.deepcopy(catalog)
+
+    bound = builders.bind_selection(catalog, _current_selection())
+
+    assert catalog == original
+    roots = {
+        (profile["id"], architecture): requirement["root"]
+        for profile in bound["wheel_profiles"]
+        for architecture, requirement in profile["builders"].items()
+    }
+    assert len(roots) == 6
+    assert {root["repository"] for root in roots.values()} == {
+        "ghcr.io/release-org/ucm-builder-vllm",
+        "ghcr.io/release-org/ucm-builder-vllm-ascend",
+    }
+    assert {root["tag"] for root in roots.values()} == {
+        "cuda13.0-cp312-manylinux2_28-amd64-r1",
+        "cuda13.0-cp312-manylinux2_28-arm64-r1",
+        "cann9.0.0-a2-cp312-manylinux2_34-mooncake0.3.9-amd64-r1",
+        "cann9.0.0-a2-cp312-manylinux2_34-mooncake0.3.9-arm64-r1",
+        "cann9.0.0-a3-cp312-manylinux2_34-mooncake0.3.9-amd64-r1",
+        "cann9.0.0-a3-cp312-manylinux2_34-mooncake0.3.9-arm64-r1",
+    }
+    assert all(set(root) == {"repository", "tag"} for root in roots.values())
+
+
+def test_bind_selection_rejects_missing_and_duplicate_coordinates() -> None:
+    selection = _current_selection()
+    selection["builders"].pop()
+    selection["matrix"]["include"] = selection["builders"]
+    with pytest.raises(ValueError, match="missing builder selection"):
+        builders.bind_selection(core.load_catalog(), selection)
+
+    selection = _current_selection()
+    selection["builders"].append(copy.deepcopy(selection["builders"][0]))
+    selection["matrix"]["include"] = selection["builders"]
+    with pytest.raises(ValueError, match="duplicate builder selection"):
+        builders.bind_selection(core.load_catalog(), selection)
+
+
+def test_bind_selection_rejects_unknown_profile_and_architecture() -> None:
+    selection = _current_selection()
+    selection["builders"][0]["profile_id"] = "unknown-profile"
+    selection["matrix"]["include"] = selection["builders"]
+    with pytest.raises(ValueError, match="unknown release profile"):
+        builders.bind_selection(core.load_catalog(), selection)
+
+    selection = _current_selection()
+    selection["builders"][0]["cpu_arch"] = "s390x"
+    selection["matrix"]["include"] = selection["builders"]
+    with pytest.raises(ValueError, match="undeclared architecture"):
+        builders.bind_selection(core.load_catalog(), selection)
+
+
+def test_bind_selection_rejects_profile_capability_mismatch() -> None:
+    selection = _current_selection()
+    selected = selection["builders"]
+    cuda_amd64 = next(
+        item
+        for item in selected
+        if item["profile_id"] == "cuda130" and item["cpu_arch"] == "amd64"
+    )
+    cann_a2_amd64 = next(
+        item
+        for item in selected
+        if item["profile_id"] == "cann900-a2" and item["cpu_arch"] == "amd64"
+    )
+    selected.remove(cann_a2_amd64)
+    cuda_amd64["profile_id"] = "cann900-a2"
+    selection["matrix"]["include"] = selected
+
+    with pytest.raises(ValueError, match="does not match release profile"):
+        builders.bind_selection(core.load_catalog(), selection)
 
 
 def test_release_profile_owns_builder_manylinux_selection() -> None:
@@ -592,3 +678,66 @@ def test_builders_cli_failures_leave_no_partial_output(tmp_path: Path) -> None:
     assert str(bad_release) in select.stderr
     assert "duplicate YAML key: kind" in select.stderr
     assert not select_output.exists()
+
+
+def test_catalog_resolve_requires_builder_catalog(tmp_path: Path) -> None:
+    result = _run_cli(
+        "catalog",
+        "resolve",
+        "--fixture",
+        str(RELEASE_ROOT / "tests" / "fixtures" / "catalog-registry.json"),
+        "--lane",
+        "feature-candidate",
+        "--source-sha",
+        "0" * 40,
+        "--output",
+        str(tmp_path / "resolved-plan.json"),
+    )
+
+    assert result.returncode == 2
+    assert "--builder-catalog" in result.stderr
+
+
+def test_catalog_resolve_with_builder_catalog_keeps_canonical_output(
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builder_catalog_path = tmp_path / "builder-catalog.json"
+    builder_catalog_path.write_text(
+        json.dumps(_discover(), sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    digest = "sha256:" + "e" * 64
+    monkeypatch.setattr(
+        cli.catalog_resolution,
+        "resolve_builder_root",
+        lambda repository, tag, *, architecture: {
+            "index_digest": digest,
+            "manifest_digest": digest,
+            "config_digest": digest,
+            "operations": [],
+        },
+    )
+    output = tmp_path / "resolved-plan.json"
+
+    assert (
+        cli.main(
+            [
+                "catalog",
+                "resolve",
+                "--builder-catalog",
+                str(builder_catalog_path),
+                "--fixture",
+                str(RELEASE_ROOT / "tests" / "fixtures" / "catalog-registry.json"),
+                "--lane",
+                "feature-candidate",
+                "--source-sha",
+                "0" * 40,
+                "--output",
+                str(output),
+            ]
+        )
+        == 0
+    )
+
+    assert capsys.readouterr().out == output.read_text(encoding="utf-8")
+    assert json.loads(output.read_text(encoding="utf-8"))["counts"]["wheel_tasks"] == 6

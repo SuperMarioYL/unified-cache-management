@@ -1,4 +1,4 @@
-# toolchain.lock.yaml — builder digests and build dependency locks (moved from release.yaml)
+# toolchain.lock.yaml — builder environment requirements and build dependency locks
 matrix_limits:
   max_wheel_tasks: 64
   max_image_tasks: 128
@@ -68,15 +68,6 @@ python_build_lock:
 builders:
   cuda130:
     amd64:
-      root:
-        # Resolved at plan time by resolve_builder_root (crane digest) against
-        # the ghcr tag published by _prepare-builders.yml; digest placeholders
-        # are overwritten in-memory before ReleasePlan.build consumes them.
-        repository: ghcr.io/{owner}/ucm-builder-cuda130
-        tag: cuda13.0-amd64
-        index_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-        manifest_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-        config_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
       sources: []
       copy_paths: []
       checks:
@@ -114,12 +105,6 @@ builders:
       - kind: file
         path: /usr/local/cuda/lib64/libcudart.so.13
     arm64:
-      root:
-        repository: ghcr.io/{owner}/ucm-builder-cuda130
-        tag: cuda13.0-arm64
-        index_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-        manifest_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-        config_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
       sources: []
       copy_paths: []
       checks:
@@ -158,12 +143,6 @@ builders:
         path: /usr/local/cuda/lib64/libcudart.so.13
   cann900-a2:
     amd64:
-      root:
-        repository: ghcr.io/{owner}/ucm-builder-cann900-a2
-        tag: cann9.0.0-mooncake0.3.9-amd64
-        index_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-        manifest_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-        config_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
       sources: []
       copy_paths: []
       checks:
@@ -202,12 +181,6 @@ builders:
       - kind: shared-library-dependencies
         path: /usr/local/lib/libmooncake_store.so
     arm64:
-      root:
-        repository: ghcr.io/{owner}/ucm-builder-cann900-a2
-        tag: cann9.0.0-mooncake0.3.9-arm64
-        index_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-        manifest_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-        config_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
       sources: []
       copy_paths: []
       checks:
@@ -247,12 +220,6 @@ builders:
         path: /usr/local/lib/libmooncake_store.so
   cann900-a3:
     amd64:
-      root:
-        repository: ghcr.io/{owner}/ucm-builder-cann900-a3
-        tag: cann9.0.0-mooncake0.3.9-amd64
-        index_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-        manifest_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-        config_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
       sources: []
       copy_paths: []
       checks:
@@ -291,12 +258,6 @@ builders:
       - kind: shared-library-dependencies
         path: /usr/local/lib/libmooncake_store.so
     arm64:
-      root:
-        repository: ghcr.io/{owner}/ucm-builder-cann900-a3
-        tag: cann9.0.0-mooncake0.3.9-arm64
-        index_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-        manifest_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-        config_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
       sources: []
       copy_paths: []
       checks:

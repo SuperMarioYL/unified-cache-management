@@ -19,6 +19,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from unittest import mock
 
 import pytest
 import yaml
@@ -30,6 +31,7 @@ sys.path.insert(0, PYTHONPATH)
 
 release_core = importlib.import_module("ucm_release.core")
 release_registry = importlib.import_module("ucm_release.registry")
+release_builders = importlib.import_module("ucm_release.builders")
 derive_chart_version = release_core.derive_chart_version
 
 ASCEND_EXTERNAL_REQUIRED = {
@@ -59,16 +61,38 @@ def _fixture_registry() -> dict[str, object]:
     )
 
 
+def _builder_catalog() -> dict[str, object]:
+    return release_builders.discover_builders(
+        RELEASE_ROOT / "builders.yaml",
+        snapshot_dir=RELEASE_ROOT / "tests" / "fixtures" / "builders",
+        owner="release-org",
+    )
+
+
+def _resolved_builder_root() -> dict[str, object]:
+    digest = "sha256:" + "d" * 64
+    return {
+        "index_digest": digest,
+        "manifest_digest": digest,
+        "config_digest": digest,
+        "operations": [],
+    }
+
+
 def _fixture_resolved_plan(
     catalog: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Resolve test tasks from the explicitly local, non-publishable fixture."""
-    return release_registry.resolve_catalog(
-        catalog or release_core.load_catalog(),
-        source_sha="0" * 40,
-        lane="feature-candidate",
-        fixture=_fixture_registry(),
-    )
+    with mock.patch.object(
+        release_registry, "resolve_builder_root", return_value=_resolved_builder_root()
+    ):
+        return release_registry.resolve_catalog(
+            catalog or release_core.load_catalog(),
+            builder_catalog=_builder_catalog(),
+            source_sha="0" * 40,
+            lane="feature-candidate",
+            fixture=_fixture_registry(),
+        )
 
 
 def _clone(value: object) -> object:
@@ -85,23 +109,14 @@ def _write_catalog(directory: Path, release: dict) -> Path:
 def _reject_fixture_resolution(
     tmp_path: Path,
     release: dict,
-) -> subprocess.CompletedProcess[str]:
+) -> str:
     release_path = _write_catalog(tmp_path, release)
-    return _run(
-        "catalog",
-        "resolve",
-        "--catalog",
-        str(release_path),
-        "--fixture",
-        str(RELEASE_ROOT / "tests" / "fixtures" / "catalog-registry.json"),
-        "--lane",
-        "feature-candidate",
-        "--source-sha",
-        "0" * 40,
-        "--output",
-        str(tmp_path / "resolved-plan.json"),
-        check=False,
-    )
+    try:
+        catalog = release_core.load_catalog(release_path)
+        _fixture_resolved_plan(catalog)
+    except ValueError as error:
+        return str(error)
+    raise AssertionError("fixture resolution unexpectedly succeeded")
 
 
 def test_fixture_plan_projects_platform_loaders_and_driver_boundary() -> None:
@@ -146,8 +161,7 @@ def test_release_authority_mutations_fail_closed(
     elif mutation == "caller-raw-runner":
         release["wheel_profiles"][0]["runner"] = "self-hosted"
     rejected = _reject_fixture_resolution(tmp_path / mutation, release)
-    assert rejected.returncode == 2
-    assert message in rejected.stderr
+    assert message in rejected
 
 
 def test_feature_preflight_planner_mode_has_no_write_authority() -> None:
@@ -176,8 +190,7 @@ def test_fixture_resolution_rejects_compatibility_without_matching_profile(
 
     drift = _reject_fixture_resolution(tmp_path, release)
 
-    assert drift.returncode == 2
-    assert "no compatible wheel profile" in drift.stderr
+    assert "no compatible wheel profile" in drift
 
 
 def test_setup_chart_and_configuration_share_version_authority() -> None:

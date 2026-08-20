@@ -15,6 +15,7 @@ import importlib
 import json
 import sys
 from pathlib import Path
+from unittest import mock
 
 import pytest
 import yaml
@@ -28,6 +29,7 @@ sys.path.insert(0, PYTHONPATH)
 
 core = importlib.import_module("ucm_release.core")
 registry = importlib.import_module("ucm_release.registry")
+builders = importlib.import_module("ucm_release.builders")
 
 
 def _registry_fixture() -> dict[str, object]:
@@ -36,6 +38,87 @@ def _registry_fixture() -> dict[str, object]:
             encoding="utf-8"
         )
     )
+
+
+def _builder_catalog() -> dict[str, object]:
+    return builders.discover_builders(
+        RELEASE_ROOT / "builders.yaml",
+        snapshot_dir=RELEASE_ROOT / "tests" / "fixtures" / "builders",
+        owner="release-org",
+    )
+
+
+def _resolved_builder_root() -> dict[str, object]:
+    return {
+        "index_digest": "sha256:" + "f" * 64,
+        "manifest_digest": "sha256:" + "e" * 64,
+        "config_digest": "sha256:" + "d" * 64,
+        "operations": [],
+    }
+
+
+def _resolved_catalog(catalog: dict[str, object]) -> dict[str, object]:
+    selection = builders.select_builders(_builder_catalog(), catalog)
+    bound = builders.bind_selection(catalog, selection)
+    root = _resolved_builder_root()
+    for profile in bound["wheel_profiles"]:
+        for requirement in profile["builders"].values():
+            unresolved = requirement["root"]
+            requirement["root"] = {
+                "repository": unresolved["repository"],
+                "tag": unresolved["tag"],
+                "index_digest": root["index_digest"],
+                "manifest_digest": root["manifest_digest"],
+                "config_digest": root["config_digest"],
+            }
+    return bound
+
+
+def _resolve_fixture(catalog: dict[str, object], *, source_sha: str):
+    with mock.patch.object(
+        registry, "resolve_builder_root", return_value=_resolved_builder_root()
+    ):
+        return registry.resolve_catalog(
+            catalog,
+            builder_catalog=_builder_catalog(),
+            source_sha=source_sha,
+            lane="feature-candidate",
+            fixture=_registry_fixture(),
+        )
+
+
+def test_registry_resolves_exactly_the_six_selected_builder_refs(monkeypatch) -> None:
+    calls: list[tuple[str, str, str]] = []
+
+    def resolve_builder(repository: str, tag: str, *, architecture: str):
+        calls.append((repository, tag, architecture))
+        return _resolved_builder_root()
+
+    monkeypatch.setattr(registry, "resolve_builder_root", resolve_builder)
+
+    plan = registry.resolve_catalog(
+        core.load_catalog(),
+        builder_catalog=_builder_catalog(),
+        source_sha="a" * 40,
+        lane="feature-candidate",
+        fixture=_registry_fixture(),
+    )
+
+    assert len(calls) == 6
+    assert {repository for repository, _, _ in calls} == {
+        "ghcr.io/release-org/ucm-builder-vllm",
+        "ghcr.io/release-org/ucm-builder-vllm-ascend",
+    }
+    assert all("12.9" not in tag and "9.1.0" not in tag for _, tag, _ in calls)
+    assert {architecture for _, _, architecture in calls} == {"amd64", "arm64"}
+    for task in plan["wheel_tasks"]:
+        assert task["builder"]["root"] == {
+            "repository": task["builder"]["root"]["repository"],
+            "tag": task["builder"]["root"]["tag"],
+            "index_digest": "sha256:" + "f" * 64,
+            "manifest_digest": "sha256:" + "e" * 64,
+            "config_digest": "sha256:" + "d" * 64,
+        }
 
 
 def test_arm64_only_family_binds_control_runner_and_tool_arch_in_plan() -> None:
@@ -77,12 +160,16 @@ def test_arm64_only_family_binds_control_runner_and_tool_arch_in_plan() -> None:
         if member["architecture"] == "arm64"
     ]
 
-    plan = registry.resolve_catalog(
-        catalog,
-        source_sha="b" * 40,
-        lane="feature-candidate",
-        fixture=fixture,
-    )
+    with mock.patch.object(
+        registry, "resolve_builder_root", return_value=_resolved_builder_root()
+    ):
+        plan = registry.resolve_catalog(
+            catalog,
+            builder_catalog=_builder_catalog(),
+            source_sha="b" * 40,
+            lane="feature-candidate",
+            fixture=fixture,
+        )
 
     assert len(plan["image_tasks"]) == len(plan["family_tasks"]) == 1
     image_task = plan["image_tasks"][0]
@@ -106,22 +193,12 @@ def test_scan_and_matrix_overflow_fail_without_truncation() -> None:
     catalog = core.load_catalog()
     catalog["scan_limits"]["max_selected_upstreams"] = 2
     with pytest.raises(ValueError, match="max_selected_upstreams"):
-        resolver.resolve_catalog(
-            catalog,
-            source_sha="1" * 40,
-            lane="feature-candidate",
-            fixture=_registry_fixture(),
-        )
+        _resolve_fixture(catalog, source_sha="1" * 40)
 
     catalog["scan_limits"]["max_selected_upstreams"] = 8
     catalog["matrix_limits"]["max_family_tasks"] = 2
     with pytest.raises(ValueError, match="max_family_tasks"):
-        resolver.resolve_catalog(
-            catalog,
-            source_sha="1" * 40,
-            lane="feature-candidate",
-            fixture=_registry_fixture(),
-        )
+        _resolve_fixture(catalog, source_sha="1" * 40)
 
 
 def test_v2_catalog_still_rejects_overlapping_compatibility_rules(
@@ -362,7 +439,7 @@ def _ascend_a3_snapshot(catalog: dict, version: str, tag: str) -> dict:
 
 
 def test_release_plan_relaxed_accepts_out_of_specifier_tag() -> None:
-    catalog = _catalog_for_plan()
+    catalog = _resolved_catalog(_catalog_for_plan())
     snapshot = _ascend_a3_snapshot(
         catalog, "0.23.0", "v0.23.0-a3"
     )  # 0.23.0 is outside >=0.22.1rc1,<0.23
@@ -377,6 +454,31 @@ def test_release_plan_relaxed_accepts_out_of_specifier_tag() -> None:
     with pytest.raises(ValueError):
         core.ReleasePlan.build(
             catalog, [snapshot], lane="feature-candidate", repository_root=ROOT
+        )
+
+
+def test_release_plan_rejects_unbound_and_unresolved_builder_requirements() -> None:
+    catalog = _catalog_for_plan()
+    snapshot = _ascend_a3_snapshot(catalog, "0.22.1rc1", "v0.22.1rc1-a3")
+
+    with pytest.raises(ValueError, match="builder root must be resolved"):
+        core.ReleasePlan.build(
+            catalog,
+            [snapshot],
+            lane="feature-candidate",
+            repository_root=ROOT,
+        )
+
+    bound = builders.bind_selection(
+        catalog, builders.select_builders(_builder_catalog(), catalog)
+    )
+    core.validate_catalog(bound, repository_root=ROOT)
+    with pytest.raises(ValueError, match="builder root must be resolved"):
+        core.ReleasePlan.build(
+            bound,
+            [snapshot],
+            lane="feature-candidate",
+            repository_root=ROOT,
         )
 
 
@@ -397,7 +499,7 @@ def test_release_plan_relaxed_rejects_non_pep440_version() -> None:
 
 
 def test_resolve_pinned_upstreams_inspect_variant(monkeypatch) -> None:
-    catalog = _catalog_for_plan()
+    catalog = _resolved_catalog(_catalog_for_plan())
     products_by_repo = {p["repository"]: p for p in catalog["upstream_products"]}
     fake = "sha256:" + "0" * 64
 

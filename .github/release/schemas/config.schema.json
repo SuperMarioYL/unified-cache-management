@@ -59,6 +59,20 @@
         "config_digest": {"$ref": "#/$defs/digest"}
       }
     },
+    "builderRoot": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "tag"],
+          "properties": {
+            "repository": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$"},
+            "tag": {"type": "string", "minLength": 1}
+          }
+        },
+        {"$ref": "#/$defs/buildDescriptor"}
+      ]
+    },
     "builderCheck": {
       "oneOf": [
         {
@@ -109,9 +123,9 @@
     "builder": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["root", "sources", "copy_paths", "checks"],
+      "required": ["sources", "copy_paths", "checks"],
       "properties": {
-        "root": {"$ref": "#/$defs/buildDescriptor"},
+        "root": {"$ref": "#/$defs/builderRoot"},
         "sources": {
           "type": "array",
           "maxItems": 64,

@@ -240,14 +240,16 @@ def build_parser() -> argparse.ArgumentParser:
     catalog_resolve.add_argument('--schema-dir', type=Path, default=core.DEFAULT_SCHEMA_DIR)  # fmt: skip  # noqa: E501
     catalog_resolve.add_argument('--lane', choices=('feature-candidate', 'protected-tag'), required=True)  # fmt: skip  # noqa: E501
     catalog_resolve.add_argument("--source-sha", required=True)
+    catalog_resolve.add_argument("--builder-catalog", type=Path, required=True)
     catalog_resolve.add_argument("--fixture", type=Path)
     catalog_resolve.add_argument("--pin-upstream", action="append", default=None, metavar="REPO:TAG", help="pin a specific upstream image:tag (PR path; repeatable; skips the registry scan + catalog compatibility gates)")  # fmt: skip  # noqa: E501
     catalog_resolve.add_argument("--output", type=Path, required=True)
 
     def _cmd_resolve(a):
         release = core.load_catalog(a.catalog, a.schema_dir)
+        builder_catalog = core.load_json(a.builder_catalog)
         fixture = core.load_json(a.fixture) if a.fixture else None
-        result = catalog_resolution.resolve_catalog(release, source_sha=a.source_sha, lane=a.lane, fixture=fixture, pin_upstreams=a.pin_upstream)  # fmt: skip  # noqa: E501
+        result = catalog_resolution.resolve_catalog(release, builder_catalog=builder_catalog, source_sha=a.source_sha, lane=a.lane, fixture=fixture, pin_upstreams=a.pin_upstream)  # fmt: skip  # noqa: E501
         a.output.parent.mkdir(parents=True, exist_ok=True)
         _write(a.output, result)
         return result
