@@ -65,6 +65,7 @@ def _wheel(path: Path, distribution: str, version: str, architecture: str) -> No
         "ucm/native.so": _elf(architecture),
         f"{dist_info}/METADATA": (
             f"Metadata-Version: 2.1\nName: {distribution}\nVersion: {version}\n"
+            "Requires-Dist: packaging==24.2\n"
             "Requires-Dist: wrapt==1.17.2\n\n"
         ).encode(),
         f"{dist_info}/WHEEL": (
@@ -174,6 +175,10 @@ def _candidate_root(tmp_path: Path) -> Path:
                     "task_sha256": "sha256:"
                     + hashlib.sha256(spec_id.encode()).hexdigest(),
                     "source_sha": SOURCE,
+                    "runtime_requirements": [
+                        "packaging==24.2",
+                        "wrapt==1.17.2",
+                    ],
                 },
             )
     chart = root / "chart" / "unified-cache-pd-0.6.0-rc.1.tgz"

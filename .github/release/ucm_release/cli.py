@@ -19,7 +19,9 @@ catalog_resolution = registry
 
 
 def _json(value: object) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
 
 
 def _paths(parser: argparse.ArgumentParser) -> None:
@@ -354,6 +356,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     wheel_parser = groups.add_parser("wheel")
     wheel_actions = wheel_parser.add_subparsers(dest="action", required=True)
+
+    wc_build_config = wheel_actions.add_parser("build-config")
+    wc_build_config.add_argument("--task-file", type=Path, required=True)
+    wc_build_config.add_argument("--authority-file", type=Path, required=True)
+    wc_build_config.add_argument("--output", type=Path, required=True)
+    wc_build_config.set_defaults(
+        func=lambda a: wheel.build_wheel_config(
+            a.task_file, a.authority_file, a.output
+        )
+    )
+
+    wc_prepare_source = wheel_actions.add_parser("prepare-source")
+    wc_prepare_source.add_argument("--build-config", type=Path, required=True)
+    wc_prepare_source.add_argument("--source-root", type=Path, required=True)
+    wc_prepare_source.set_defaults(
+        func=lambda a: wheel.prepare_wheel_source(a.build_config, a.source_root)
+    )
 
     wc_env = wheel_actions.add_parser("check-environment")
     wc_env.add_argument("--task", type=Path, required=True)

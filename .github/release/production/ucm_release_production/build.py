@@ -29,6 +29,61 @@ _PROFILES = ("cuda130", "cann900-a2", "cann900-a3")
 _ARCHITECTURES = ("amd64", "arm64")
 _RUNNERS = {"amd64": "ubuntu-24.04", "arm64": "ubuntu-24.04-arm"}
 _PLATFORMS = {"amd64": "linux/amd64", "arm64": "linux/arm64"}
+_PROFILE_BUILD_SETTINGS = {
+    "cuda130": ("uc-manager-cuda", "cuda"),
+    "cann900-a2": ("uc-manager-cann-a2", "ascend"),
+    "cann900-a3": ("uc-manager-cann-a3", "ascend-a3"),
+}
+_PRODUCTION_WHEEL_TASK_KEYS = {
+    "kind",
+    "schema_version",
+    "spec_id",
+    "profile_id",
+    "distribution",
+    "cpu_arch",
+    "platform",
+    "runner",
+    "python_version",
+    "python_abi",
+    "wheel_platform",
+    "base_version",
+    "stage",
+    "wheel_version",
+    "source_sha",
+    "source_identity_sha256",
+    "builder",
+    "runtime",
+    "required_native",
+    "forbidden_native",
+    "dependency_lock_sha256",
+    "runtime_requirements",
+    "write_authority",
+    "sha256",
+}
+_PRODUCTION_AUTHORITY_KEYS = {
+    "schema_version",
+    "kind",
+    "spec_id",
+    "profile_id",
+    "distribution",
+    "base_version",
+    "stage",
+    "cpu_arch",
+    "platform",
+    "wheel_version",
+    "source_sha",
+    "source_tree",
+    "source_archive_sha256",
+    "source_date_epoch",
+    "task_sha256",
+    "builder_coordinate",
+    "builder_config_digest",
+    "dependency_lock_sha256",
+    "tool_wheels",
+    "required_native",
+    "forbidden_native",
+    "build_context_sha256",
+}
 _NATIVE_REQUIRED_COMMON = (
     "ucmtrans",
     "metrics",
@@ -327,7 +382,7 @@ def seal_built_wheel(
     if (
         metadata.get("Name") != task["distribution"]
         or metadata.get("Version") != task["wheel_version"]
-        or metadata.get_all("Requires-Dist", []) != ["wrapt==1.17.2"]
+        or metadata.get_all("Requires-Dist", []) != task["runtime_requirements"]
     ):
         raise ProductionError("raw production wheel metadata differs from task")
     _verify_task_native_members(entries, task)
@@ -382,6 +437,7 @@ def seal_built_wheel(
             "file_sha256": inspected["sha256"],
             "task_sha256": "sha256:" + task["sha256"],
             "source_sha": task["source_sha"],
+            "runtime_requirements": task["runtime_requirements"],
         }
     )
     (output_dir / "record.json").write_bytes(canonical_bytes(record) + b"\n")
@@ -424,6 +480,16 @@ def _dependency_lock(config: dict[str, Any], architecture: str) -> dict[str, Any
     }
 
 
+def _runtime_requirements(config: dict[str, Any]) -> list[str]:
+    toolchain = config["toolchain"]
+    return sorted(
+        [
+            "packaging==" + toolchain["python_build"]["packaging"]["version"],
+            "wrapt==" + toolchain["wrapt"]["version"],
+        ]
+    )
+
+
 def project_build_task(
     config: dict[str, Any],
     intent: TagIntent,
@@ -458,6 +524,7 @@ def project_build_task(
         "cpu_arch": architecture,
         "platform": _PLATFORMS[architecture],
         "runner": _RUNNERS[architecture],
+        "python_version": profile["python_version"],
         "python_abi": profile["python_abi"],
         "wheel_platform": profile["wheel_platform"],
         "base_version": (
@@ -473,6 +540,7 @@ def project_build_task(
         "forbidden_native": forbidden_native,
         "dependency_lock_sha256": "sha256:"
         + hashlib.sha256(canonical_bytes(dependency_lock)).hexdigest(),
+        "runtime_requirements": _runtime_requirements(config),
         "write_authority": [],
     }
     return sha256_envelope(unsigned)
@@ -525,6 +593,70 @@ def authority_from_task(
         "required_native": task["required_native"],
         "forbidden_native": task["forbidden_native"],
         "build_context_sha256": build_context_sha256,
+    }
+
+
+def wheel_build_config_from_task(
+    task: dict[str, Any], authority: dict[str, Any]
+) -> dict[str, Any]:
+    """Project the canonical pre-Buildx setup wrapper for a production task."""
+    task = verify_envelope(
+        task,
+        kind="ucm-production-wheel-build-task",
+        schema_version=1,
+        exact_keys=_PRODUCTION_WHEEL_TASK_KEYS,
+    )
+    if not isinstance(authority, dict) or set(authority) != _PRODUCTION_AUTHORITY_KEYS:
+        raise ProductionError("production wheel build authority fields are not exact")
+    builder = task["builder"]
+    expected = {
+        "schema_version": 2,
+        "kind": "ucm-native-build-authority",
+        "spec_id": task["spec_id"],
+        "profile_id": task["profile_id"],
+        "distribution": task["distribution"],
+        "base_version": task["base_version"],
+        "stage": task["stage"],
+        "cpu_arch": task["cpu_arch"],
+        "platform": task["platform"],
+        "wheel_version": task["wheel_version"],
+        "source_sha": task["source_sha"],
+        "task_sha256": "sha256:" + task["sha256"],
+        "builder_coordinate": (f"{builder['repository']}@{builder['manifest_digest']}"),
+        "builder_config_digest": builder["config_digest"],
+        "dependency_lock_sha256": task["dependency_lock_sha256"],
+        "required_native": task["required_native"],
+        "forbidden_native": task["forbidden_native"],
+    }
+    mismatches = [
+        field for field, value in expected.items() if authority.get(field) != value
+    ]
+    if mismatches:
+        raise ProductionError(
+            f"production wheel build authority differs from task: {mismatches}"
+        )
+    profile = task["profile_id"]
+    profile_settings = _PROFILE_BUILD_SETTINGS.get(profile)
+    if (
+        profile_settings is None
+        or task["distribution"] != profile_settings[0]
+        or task["spec_id"] != f"{profile}-{task['cpu_arch']}"
+        or task["platform"] != _PLATFORMS.get(task["cpu_arch"])
+        or task["python_version"] != "3.12"
+        or task["python_abi"] != "cp312"
+    ):
+        raise ProductionError("production wheel build task profile is invalid")
+    return {
+        "authority": authority,
+        "distribution": task["distribution"],
+        "kind": "ucm-wheel-build-config",
+        "platform": profile_settings[1],
+        "python": {
+            "abi": task["python_abi"],
+            "version": task["python_version"],
+        },
+        "runtime_requirements": task["runtime_requirements"],
+        "schema_version": 1,
     }
 
 
@@ -606,7 +738,7 @@ def _inspect_wheel(path: Path, task: dict[str, Any]) -> dict[str, Any]:
         raise ProductionError("wheel distribution differs from production task")
     if version != task["wheel_version"]:
         raise ProductionError("wheel version differs from production task")
-    if requires_dist != ["wrapt==1.17.2"]:
+    if requires_dist != task["runtime_requirements"]:
         raise ProductionError("wheel dependency metadata is not the reviewed closure")
     return {
         "distribution": distribution,

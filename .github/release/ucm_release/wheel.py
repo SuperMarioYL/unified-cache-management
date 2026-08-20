@@ -89,6 +89,101 @@ EXTERNAL_REQUIRED_FIELDS = {
     "relation",
     "required_at",
 }
+WHEEL_BUILD_CONFIG_KIND = "ucm-wheel-build-config"
+WHEEL_BUILD_CONFIG_FIELDS = {
+    "authority",
+    "distribution",
+    "kind",
+    "platform",
+    "python",
+    "runtime_requirements",
+    "schema_version",
+}
+EXTENDED_V1_AUTHORITY_FIELDS = {
+    "schema_version",
+    "kind",
+    "task_id",
+    "spec_id",
+    "profile_id",
+    "cpu_arch",
+    "platform",
+    "build",
+    "python_version",
+    "python_abi",
+    "wheel_version",
+    "wheel_platform",
+    "source_sha",
+    "source_tree",
+    "source_archive_sha256",
+    "source_date_epoch",
+    "task_sha256",
+    "builder_coordinate",
+    "builder_config_digest",
+    "dependency_lock_sha256",
+    "tool_wheels",
+    "required_native",
+    "forbidden_native",
+    "runtime_patch_manifest_sha256",
+    "runtime_requirements",
+    "build_context_sha256",
+}
+PRODUCTION_V2_AUTHORITY_FIELDS = {
+    "schema_version",
+    "kind",
+    "spec_id",
+    "profile_id",
+    "distribution",
+    "base_version",
+    "stage",
+    "cpu_arch",
+    "platform",
+    "wheel_version",
+    "source_sha",
+    "source_tree",
+    "source_archive_sha256",
+    "source_date_epoch",
+    "task_sha256",
+    "builder_coordinate",
+    "builder_config_digest",
+    "dependency_lock_sha256",
+    "tool_wheels",
+    "required_native",
+    "forbidden_native",
+    "build_context_sha256",
+}
+PROFILE_BUILD_SETTINGS = {
+    "cuda130": ("uc-manager-cuda", "cuda"),
+    "cann900-a2": ("uc-manager-cann-a2", "ascend"),
+    "cann900-a3": ("uc-manager-cann-a3", "ascend-a3"),
+}
+WHEEL_BUILD_PYTHON = {"abi": "cp312", "version": "3.12"}
+WHEEL_BUILD_RUNTIME_REQUIREMENTS = ["packaging==24.2", "wrapt==1.17.2"]
+PRODUCTION_WHEEL_TASK_FIELDS = {
+    "kind",
+    "schema_version",
+    "spec_id",
+    "profile_id",
+    "distribution",
+    "cpu_arch",
+    "platform",
+    "runner",
+    "python_version",
+    "python_abi",
+    "wheel_platform",
+    "base_version",
+    "stage",
+    "wheel_version",
+    "source_sha",
+    "source_identity_sha256",
+    "builder",
+    "runtime",
+    "required_native",
+    "forbidden_native",
+    "dependency_lock_sha256",
+    "runtime_requirements",
+    "write_authority",
+    "sha256",
+}
 
 
 _WHEEL_DECLARATION_FIELDS = (
@@ -520,6 +615,352 @@ def _canonical_record(path: Path, label: str) -> dict[str, Any]:
     return value
 
 
+def _validate_native_lists(authority: dict[str, Any]) -> None:
+    required = authority.get("required_native")
+    forbidden = authority.get("forbidden_native")
+    if (
+        not isinstance(required, list)
+        or not required
+        or not isinstance(forbidden, list)
+        or not forbidden
+        or any(
+            not isinstance(item, str) or re.fullmatch(r"[a-z0-9_]+", item) is None
+            for item in [*required, *forbidden]
+        )
+        or len(required) != len(set(required))
+        or len(forbidden) != len(set(forbidden))
+        or set(required) & set(forbidden)
+    ):
+        raise ValueError("build authority native target lists are invalid")
+
+
+def _validate_wheel_build_authority(authority: object) -> dict[str, Any]:
+    if not isinstance(authority, dict):
+        raise ValueError("wheel build authority must be an object")
+    schema_version = authority.get("schema_version")
+    expected_fields = {
+        1: EXTENDED_V1_AUTHORITY_FIELDS,
+        2: PRODUCTION_V2_AUTHORITY_FIELDS,
+    }.get(schema_version)
+    if expected_fields is None or set(authority) != expected_fields:
+        raise ValueError(
+            "wheel build authority must be extended schema-v1 or production schema-v2"
+        )
+    cpu_arch = authority.get("cpu_arch")
+    if (
+        authority.get("kind") != AUTHORITY_KIND
+        or cpu_arch not in {"amd64", "arm64"}
+        or authority.get("platform") != f"linux/{cpu_arch}"
+        or re.fullmatch(r"[0-9a-f]{40}", str(authority.get("source_sha"))) is None
+        or re.fullmatch(r"[0-9a-f]{40}", str(authority.get("source_tree"))) is None
+        or any(
+            DIGEST_RE.fullmatch(str(authority.get(field))) is None
+            for field in (
+                "source_archive_sha256",
+                "task_sha256",
+                "builder_config_digest",
+                "dependency_lock_sha256",
+                "build_context_sha256",
+            )
+        )
+        or re.fullmatch(
+            r"[^@ ]+@sha256:[0-9a-f]{64}",
+            str(authority.get("builder_coordinate")),
+        )
+        is None
+        or type(authority.get("source_date_epoch")) is not int
+        or not 315532800 <= authority["source_date_epoch"] <= 4354819199
+        or not isinstance(authority.get("wheel_version"), str)
+        or not authority["wheel_version"]
+    ):
+        raise ValueError("wheel build authority identity is invalid")
+    tools = authority.get("tool_wheels")
+    if (
+        not isinstance(tools, dict)
+        or not tools
+        or (schema_version == 2 and len(tools) != 7)
+        or any(
+            not isinstance(name, str)
+            or not name.endswith(".whl")
+            or DIGEST_RE.fullmatch(str(digest)) is None
+            for name, digest in tools.items()
+        )
+    ):
+        raise ValueError("wheel build authority tool wheels are invalid")
+    _validate_native_lists(authority)
+    if schema_version == 1:
+        build = authority.get("build")
+        profile_settings = PROFILE_BUILD_SETTINGS.get(authority.get("profile_id"))
+        if (
+            re.fullmatch(r"wheel-[0-9a-f]{64}", str(authority.get("task_id"))) is None
+            or profile_settings is None
+            or authority.get("spec_id") != f"{authority.get('profile_id')}-{cpu_arch}"
+            or not isinstance(build, dict)
+            or set(build) != {"docker_target", "platform_arg"}
+            or not all(isinstance(value, str) and value for value in build.values())
+            or build.get("platform_arg") != profile_settings[1]
+            or authority.get("python_version") != "3.12"
+            or authority.get("python_abi") != "cp312"
+            or authority.get("runtime_requirements") != WHEEL_BUILD_RUNTIME_REQUIREMENTS
+            or DIGEST_RE.fullmatch(str(authority.get("runtime_patch_manifest_sha256")))
+            is None
+        ):
+            raise ValueError("extended schema-v1 build authority is invalid")
+    else:
+        profile = authority.get("profile_id")
+        expected = PROFILE_BUILD_SETTINGS.get(profile)
+        base_version = str(authority.get("base_version"))
+        stage = authority.get("stage")
+        stage_patterns = {
+            "draft": re.escape(base_version) + r"\.dev[1-9][0-9]*",
+            "rc": re.escape(base_version) + r"rc[1-9][0-9]*",
+            "stable": re.escape(base_version),
+            "hotfix": re.escape(base_version),
+        }
+        if (
+            expected is None
+            or authority.get("distribution") != expected[0]
+            or authority.get("spec_id") != f"{profile}-{cpu_arch}"
+            or re.fullmatch(
+                r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)",
+                base_version,
+            )
+            is None
+            or stage not in stage_patterns
+            or re.fullmatch(stage_patterns[stage], str(authority["wheel_version"]))
+            is None
+        ):
+            raise ValueError("production schema-v2 build authority is invalid")
+    return authority
+
+
+def _validate_wheel_build_config_value(config: object) -> dict[str, Any]:
+    if not isinstance(config, dict) or set(config) != WHEEL_BUILD_CONFIG_FIELDS:
+        raise ValueError("wheel build config fields are not exact")
+    if (
+        config.get("kind") != WHEEL_BUILD_CONFIG_KIND
+        or config.get("schema_version") != 1
+        or config.get("python") != WHEEL_BUILD_PYTHON
+        or config.get("runtime_requirements") != WHEEL_BUILD_RUNTIME_REQUIREMENTS
+    ):
+        raise ValueError("wheel build config contract is invalid")
+    authority = _validate_wheel_build_authority(config.get("authority"))
+    profile = authority["profile_id"]
+    expected = PROFILE_BUILD_SETTINGS.get(profile)
+    if expected is None:
+        raise ValueError("wheel build config profile is invalid")
+    distribution, platform_arg = expected
+    if authority["schema_version"] == 1:
+        platform_arg = authority["build"]["platform_arg"]
+        if (
+            authority["python_version"] != config["python"]["version"]
+            or authority["python_abi"] != config["python"]["abi"]
+            or authority["runtime_requirements"] != config["runtime_requirements"]
+        ):
+            raise ValueError("wheel build config differs from schema-v1 authority")
+    if (
+        config.get("distribution") != distribution
+        or config.get("platform") != platform_arg
+    ):
+        raise ValueError("wheel build config profile projection is invalid")
+    return config
+
+
+def load_wheel_build_config(path: Path) -> dict[str, Any]:
+    """Load the sole canonical setup release-mode input."""
+    return _validate_wheel_build_config_value(
+        _canonical_record(path, "wheel build config")
+    )
+
+
+def prepare_wheel_source(config_path: Path, source_root: Path) -> dict[str, Any]:
+    """Rewrite only the authorized PEP 621 project-name assignment."""
+    config = load_wheel_build_config(config_path)
+    project_path = Path(source_root) / "pyproject.toml"
+    if not project_path.is_file() or project_path.is_symlink():
+        raise ValueError("wheel source pyproject.toml must be one regular file")
+    raw = project_path.read_bytes()
+    try:
+        raw.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError("wheel source pyproject.toml must be UTF-8") from error
+    table_pattern = re.compile(
+        rb"(?m)^[ \t]*\[{1,2}[^\r\n]+?\]{1,2}[ \t]*(?:#[^\r\n]*)?(?:\r?\n|$)"
+    )
+    tables = list(table_pattern.finditer(raw))
+    project_tables = [
+        (index, table)
+        for index, table in enumerate(tables)
+        if re.fullmatch(
+            rb"[ \t]*\[[ \t]*project[ \t]*\][ \t]*(?:#[^\r\n]*)?(?:\r?\n|$)",
+            table.group(),
+        )
+    ]
+    if len(project_tables) != 1:
+        raise ValueError("wheel source must contain exactly one [project] table")
+    table_index, project_table = project_tables[0]
+    section_start = project_table.end()
+    section_end = (
+        tables[table_index + 1].start() if table_index + 1 < len(tables) else len(raw)
+    )
+    section = raw[section_start:section_end]
+    assignments = list(re.finditer(rb"(?m)^[ \t]*name[ \t]*=", section))
+    if len(assignments) != 1:
+        raise ValueError("wheel source [project] must contain exactly one name")
+    line_start = assignments[0].start()
+    line_end_match = re.search(rb"\r?\n|$", section[assignments[0].end() :])
+    assert line_end_match is not None
+    line_end = assignments[0].end() + line_end_match.end()
+    line = section[line_start:line_end]
+    value_match = re.fullmatch(
+        rb"(?P<prefix>[ \t]*name[ \t]*=[ \t]*)(?P<quote>[\"'])"
+        rb"(?P<name>uc-manager)(?P=quote)"
+        rb"(?P<suffix>[ \t]*(?:#[^\r\n]*)?)(?P<newline>\r?\n|$)",
+        line,
+    )
+    if value_match is None:
+        raise ValueError("wheel source [project] name must be exactly uc-manager")
+    name_start = section_start + line_start + value_match.start("name")
+    name_end = section_start + line_start + value_match.end("name")
+    rewritten = (
+        raw[:name_start] + str(config["distribution"]).encode("utf-8") + raw[name_end:]
+    )
+    project_path.write_bytes(rewritten)
+    return {
+        "distribution": config["distribution"],
+        "kind": "ucm-wheel-source-preparation",
+        "project_file": "pyproject.toml",
+        "schema_version": 1,
+    }
+
+
+def _validate_production_wheel_task(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != PRODUCTION_WHEEL_TASK_FIELDS:
+        raise ValueError("production wheel task fields are not exact")
+    task = copy.deepcopy(value)
+    payload = {key: item for key, item in task.items() if key != "sha256"}
+    actual_hash = hashlib.sha256(canonical_bytes(payload)).hexdigest()
+    profile = task.get("profile_id")
+    settings = PROFILE_BUILD_SETTINGS.get(profile)
+    cpu_arch = task.get("cpu_arch")
+    stage = task.get("stage")
+    base_version = str(task.get("base_version"))
+    wheel_version = str(task.get("wheel_version"))
+    stage_patterns = {
+        "draft": re.escape(base_version) + r"\.dev[1-9][0-9]*",
+        "rc": re.escape(base_version) + r"rc[1-9][0-9]*",
+        "stable": re.escape(base_version),
+        "hotfix": re.escape(base_version),
+    }
+    if (
+        task.get("kind") != "ucm-production-wheel-build-task"
+        or task.get("schema_version") != 1
+        or task.get("sha256") != actual_hash
+        or settings is None
+        or task.get("distribution") != settings[0]
+        or cpu_arch not in {"amd64", "arm64"}
+        or task.get("spec_id") != f"{profile}-{cpu_arch}"
+        or task.get("platform") != f"linux/{cpu_arch}"
+        or task.get("python_version") != "3.12"
+        or task.get("python_abi") != "cp312"
+        or task.get("runtime_requirements") != WHEEL_BUILD_RUNTIME_REQUIREMENTS
+        or re.fullmatch(
+            r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)",
+            base_version,
+        )
+        is None
+        or stage not in stage_patterns
+        or re.fullmatch(stage_patterns[stage], wheel_version) is None
+        or re.fullmatch(r"[0-9a-f]{40}", str(task.get("source_sha"))) is None
+        or re.fullmatch(r"[0-9a-f]{64}", str(task.get("source_identity_sha256")))
+        is None
+        or DIGEST_RE.fullmatch(str(task.get("dependency_lock_sha256"))) is None
+        or task.get("write_authority") != []
+    ):
+        raise ValueError("production wheel task contract is invalid")
+    _validate_native_lists(task)
+    builder = task.get("builder")
+    if (
+        not isinstance(builder, dict)
+        or not isinstance(builder.get("repository"), str)
+        or not builder["repository"]
+        or any(
+            DIGEST_RE.fullmatch(str(builder.get(field))) is None
+            for field in ("manifest_digest", "config_digest")
+        )
+    ):
+        raise ValueError("production wheel task builder is invalid")
+    return task
+
+
+def _validate_production_task_authority(
+    task: dict[str, Any], authority: dict[str, Any]
+) -> None:
+    builder = task["builder"]
+    expected = {
+        "schema_version": 2,
+        "kind": AUTHORITY_KIND,
+        "spec_id": task["spec_id"],
+        "profile_id": task["profile_id"],
+        "distribution": task["distribution"],
+        "base_version": task["base_version"],
+        "stage": task["stage"],
+        "cpu_arch": task["cpu_arch"],
+        "platform": task["platform"],
+        "wheel_version": task["wheel_version"],
+        "source_sha": task["source_sha"],
+        "task_sha256": "sha256:" + task["sha256"],
+        "builder_coordinate": (f"{builder['repository']}@{builder['manifest_digest']}"),
+        "builder_config_digest": builder["config_digest"],
+        "dependency_lock_sha256": task["dependency_lock_sha256"],
+        "required_native": task["required_native"],
+        "forbidden_native": task["forbidden_native"],
+    }
+    mismatches = [
+        field for field, value in expected.items() if authority.get(field) != value
+    ]
+    if mismatches:
+        raise ValueError(
+            f"production build authority differs from selected task: {mismatches}"
+        )
+
+
+def build_wheel_config(
+    task_path: Path, authority_path: Path, output: Path
+) -> dict[str, Any]:
+    """Project one canonical setup input from a selected wheel task."""
+    authority = _canonical_record(authority_path, "build authority")
+    _validate_wheel_build_authority(authority)
+    task_value = _canonical_record(task_path, "selected wheel task")
+    if authority["schema_version"] == 1:
+        task = _validate_wheel_task(task_value)
+        _validate_build_authority(authority, task["spec_id"], task)
+        distribution = task["dist_name"]
+        platform_arg = task["build"]["platform_arg"]
+    else:
+        task = _validate_production_wheel_task(task_value)
+        _validate_production_task_authority(task, authority)
+        distribution = task["distribution"]
+        platform_arg = PROFILE_BUILD_SETTINGS[task["profile_id"]][1]
+    result = {
+        "authority": authority,
+        "distribution": distribution,
+        "kind": WHEEL_BUILD_CONFIG_KIND,
+        "platform": platform_arg,
+        "python": {
+            "abi": task["python_abi"],
+            "version": task["python_version"],
+        },
+        "runtime_requirements": task["runtime_requirements"],
+        "schema_version": 1,
+    }
+    _validate_wheel_build_config_value(result)
+    output = Path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    _write_canonical(output, result)
+    return result
+
+
 def _tool_wheel_authority(task: dict[str, Any]) -> dict[str, str]:
     records = task["dependency_lock"]["build_tools"]
     if (
@@ -814,35 +1255,7 @@ def _validate_build_authority(
     spec_id: str,
     task: dict[str, Any],
 ) -> dict[str, Any]:
-    fields = {
-        "schema_version",
-        "kind",
-        "task_id",
-        "spec_id",
-        "profile_id",
-        "cpu_arch",
-        "platform",
-        "build",
-        "python_version",
-        "python_abi",
-        "wheel_version",
-        "wheel_platform",
-        "source_sha",
-        "source_tree",
-        "source_archive_sha256",
-        "source_date_epoch",
-        "task_sha256",
-        "builder_coordinate",
-        "builder_config_digest",
-        "dependency_lock_sha256",
-        "tool_wheels",
-        "required_native",
-        "forbidden_native",
-        "runtime_patch_manifest_sha256",
-        "runtime_requirements",
-        "build_context_sha256",
-    }
-    if set(authority) != fields:
+    if set(authority) != EXTENDED_V1_AUTHORITY_FIELDS:
         raise ValueError("build authority fields are not exact")
     if DIGEST_RE.fullmatch(str(authority["build_context_sha256"])) is None:
         raise ValueError("build authority context digest is invalid")

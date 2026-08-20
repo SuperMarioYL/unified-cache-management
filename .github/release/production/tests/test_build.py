@@ -17,6 +17,7 @@ from ucm_release_production.build import (
     authority_from_task,
     compare_wheel_candidates,
     project_build_task,
+    wheel_build_config_from_task,
 )
 from ucm_release_production.common import (
     ProductionError,
@@ -148,6 +149,12 @@ def test_project_build_tasks_are_exactly_three_profiles_by_two_arches() -> None:
     assert all(task["wheel_version"] == "0.6.0rc1" for task in tasks)
     assert all(task["source_sha"] == SOURCE_SHA for task in tasks)
     assert all(task["write_authority"] == [] for task in tasks)
+    assert all(task["python_version"] == "3.12" for task in tasks)
+    assert all(task["python_abi"] == "cp312" for task in tasks)
+    assert all(
+        task["runtime_requirements"] == ["packaging==24.2", "wrapt==1.17.2"]
+        for task in tasks
+    )
     assert all(task["sha256"] for task in tasks)
     assert "OctoCat" not in canonical_bytes(tasks).decode()
 
@@ -195,6 +202,133 @@ def test_projected_task_is_the_only_schema_v2_setup_authority_source() -> None:
         "@sha256:638fc04eaa3654fcf14688096ed4e9d88ea0d905fa8685eed4b36d5fffe8fd8d"
     )
     assert authority["tool_wheels"] == tools
+
+
+def test_production_task_projects_the_exact_wheel_build_wrapper() -> None:
+    config = load_config(CONFIG)
+    intent = parse_tag("v0.6.0rc1", config)
+    task = project_build_task(
+        config,
+        intent,
+        _source(intent.stage, intent.tag_name, intent.release_branch),
+        "cann900-a2-arm64",
+    )
+    authority = authority_from_task(
+        task,
+        source_tree="6" * 40,
+        source_archive_sha256="sha256:" + "7" * 64,
+        source_date_epoch=1_700_000_000,
+        build_context_sha256="sha256:" + "8" * 64,
+        tool_wheels={f"tool-{index}.whl": "sha256:" + "5" * 64 for index in range(7)},
+    )
+
+    wrapper = wheel_build_config_from_task(task, authority)
+
+    assert canonical_bytes(wrapper) + b"\n" == (
+        json.dumps(
+            {
+                "authority": authority,
+                "distribution": "uc-manager-cann-a2",
+                "kind": "ucm-wheel-build-config",
+                "platform": "ascend",
+                "python": {"abi": "cp312", "version": "3.12"},
+                "runtime_requirements": [
+                    "packaging==24.2",
+                    "wrapt==1.17.2",
+                ],
+                "schema_version": 1,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        + b"\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("tag", "stage", "base_version", "wheel_version"),
+    [
+        ("draft/v0.6.0-1", "draft", "0.6.0", "0.6.0.dev1"),
+        ("v0.6.0rc1", "rc", "0.6.0", "0.6.0rc1"),
+        ("v0.6.0", "stable", "0.6.0", "0.6.0"),
+        ("v0.6.1", "hotfix", "0.6.1", "0.6.1"),
+    ],
+)
+def test_wheel_build_wrapper_preserves_every_production_stage(
+    tag: str, stage: str, base_version: str, wheel_version: str
+) -> None:
+    config = load_config(CONFIG)
+    intent = parse_tag(tag, config)
+    task = project_build_task(
+        config,
+        intent,
+        _source(intent.stage, intent.tag_name, intent.release_branch),
+        "cuda130-amd64",
+    )
+    authority = authority_from_task(
+        task,
+        source_tree="6" * 40,
+        source_archive_sha256="sha256:" + "7" * 64,
+        source_date_epoch=1_700_000_000,
+        build_context_sha256="sha256:" + "8" * 64,
+        tool_wheels={f"tool-{index}.whl": "sha256:" + "5" * 64 for index in range(7)},
+    )
+
+    wrapper = wheel_build_config_from_task(task, authority)
+
+    assert authority["stage"] == stage
+    assert authority["base_version"] == base_version
+    assert authority["wheel_version"] == wheel_version
+    assert wrapper["distribution"] == "uc-manager-cuda"
+    assert wrapper["platform"] == "cuda"
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda value: value.update(spec_id="cann900-a2-amd64"),
+        lambda value: value.update(profile_id="cann900-a2"),
+        lambda value: value.update(distribution="uc-manager-cann-a2"),
+        lambda value: value.update(base_version="0.6.1"),
+        lambda value: value.update(stage="stable"),
+        lambda value: value.update(cpu_arch="arm64", platform="linux/arm64"),
+        lambda value: value.update(platform="linux/arm64"),
+        lambda value: value.update(wheel_version="0.6.0"),
+        lambda value: value.update(source_sha="9" * 40),
+        lambda value: value.update(task_sha256="sha256:" + "9" * 64),
+        lambda value: value.update(
+            builder_coordinate="registry.example/other@sha256:" + "9" * 64
+        ),
+        lambda value: value.update(builder_config_digest="sha256:" + "9" * 64),
+        lambda value: value.update(dependency_lock_sha256="sha256:" + "9" * 64),
+        lambda value: value.update(required_native=["ucmtrans"]),
+        lambda value: value.update(forbidden_native=["hash_retrieval_backend"]),
+    ],
+)
+def test_wheel_build_wrapper_rejects_every_production_authority_overlap(
+    mutation: object,
+) -> None:
+    config = load_config(CONFIG)
+    intent = parse_tag("v0.6.0rc1", config)
+    task = project_build_task(
+        config,
+        intent,
+        _source(intent.stage, intent.tag_name, intent.release_branch),
+        "cuda130-amd64",
+    )
+    authority = authority_from_task(
+        task,
+        source_tree="6" * 40,
+        source_archive_sha256="sha256:" + "7" * 64,
+        source_date_epoch=1_700_000_000,
+        build_context_sha256="sha256:" + "8" * 64,
+        tool_wheels={f"tool-{index}.whl": "sha256:" + "5" * 64 for index in range(7)},
+    )
+    mutation(authority)
+
+    with pytest.raises(ProductionError, match="authority"):
+        wheel_build_config_from_task(task, authority)
 
 
 @pytest.mark.parametrize(
@@ -248,6 +382,7 @@ def _wheel(
         "ucm/native.so": payload if payload is not None else _elf64(),
         f"{dist_info}/METADATA": (
             f"Metadata-Version: 2.1\nName: {distribution}\nVersion: {version}\n"
+            "Requires-Dist: packaging==24.2\n"
             "Requires-Dist: wrapt==1.17.2\n\n"
         ).encode(),
         f"{dist_info}/WHEEL": (

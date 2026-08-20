@@ -186,6 +186,7 @@ def test_image_recipe_is_complete_and_context_reopens_pinned_wheels(
             "file_sha256": "sha256:" + hashlib.sha256(wheel.read_bytes()).hexdigest(),
             "task_sha256": "sha256:" + task["sha256"],
             "source_sha": SOURCE,
+            "runtime_requirements": task["runtime_requirements"],
         }
     )
     wrapt = config["toolchain"]["wrapt"]["amd64"]
@@ -232,6 +233,7 @@ def test_image_context_rejects_wheel_record_drift(tmp_path: Path) -> None:
             "file_sha256": "sha256:" + hashlib.sha256(wheel.read_bytes()).hexdigest(),
             "task_sha256": "sha256:" + "9" * 64,
             "source_sha": SOURCE,
+            "runtime_requirements": task["runtime_requirements"],
         }
     )
 

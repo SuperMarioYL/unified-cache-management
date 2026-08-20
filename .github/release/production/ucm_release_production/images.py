@@ -93,6 +93,7 @@ def prepare_image_context(
         or wheel_record.get("source_sha") != task.get("source_sha")
         or wheel_record.get("version") != task.get("wheel_version")
         or wheel_record.get("distribution") != task.get("distribution")
+        or wheel_record.get("runtime_requirements") != task.get("runtime_requirements")
     ):
         raise ProductionError("image wheel record differs from build task")
     wheel_path = Path(wheel_path)
