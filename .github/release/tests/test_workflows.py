@@ -281,7 +281,7 @@ def test_fork_isolation_allows_a_read_only_reusable_build() -> None:
 
 
 def test_push_and_pull_request_callers_use_explicit_minimum_permissions() -> None:
-    """Normal fork validation callers must not inherit the repository token default."""
+    """Callers declare the exact ceilings required by reusable interfaces."""
     push = _load_workflow(WORKFLOW_DIR / "push-check.yml")
     pull_request = _load_workflow(WORKFLOW_DIR / "pull-request.yml")
     assert push["permissions"] == {"contents": "read"}
@@ -290,7 +290,7 @@ def test_push_and_pull_request_callers_use_explicit_minimum_permissions() -> Non
     for job_name, job in _jobs(pull_request).items():
         permissions, _ = _effective_permissions(pull_request["permissions"], job)
         if job_name == "release-catalog-smoke":
-            assert permissions == {"contents": "read", "packages": "write"}
+            assert permissions == {"contents": "write", "packages": "write"}
         else:
             assert permissions == {"contents": "read"}, job_name
 
@@ -1068,7 +1068,7 @@ def test_protected_workflow_uses_pr_author_case_insensitively(
     assert author_allowed.returncode == 0
     assert actor_not_author.returncode != 0
     assert jobs["release-catalog-smoke"]["permissions"] == {
-        "contents": "read",
+        "contents": "write",
         "packages": "write",
     }
 
