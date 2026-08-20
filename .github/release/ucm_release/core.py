@@ -1477,6 +1477,8 @@ def _validate_cross_config(
         raise ValueError("PyPI channel requires the exact three release distributions")
     if any(publish[channel]["enabled"] for channel in PUBLISH_CHANNELS[:-1]) and not publish["github_release"]["enabled"]:
         raise ValueError("enabled public channels require the GitHub Release Draft barrier")
+    if publish["dockerhub"]["enabled"] and not publish["ghcr"]["enabled"]:
+        raise ValueError("Docker Hub publication requires GHCR source publication")
     profiles = release["wheel_profiles"]
     for profile in profiles:
         architectures = set(profile["cpu_arch"])

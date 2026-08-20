@@ -1,6 +1,7 @@
 # fmt: off
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -18,6 +19,7 @@ from . import core, registry
 Run = Callable[..., subprocess.CompletedProcess[Any]]
 HttpGet = Callable[[str], dict[str, Any]]
 GithubApi = Callable[..., dict[str, Any] | None]
+BytesGet = Callable[[str], bytes]
 
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 _INDEX_MEDIA_TYPES = {
@@ -137,14 +139,16 @@ def _require_protected_plan(plan: dict[str, Any]) -> None:
         )
 
 
-def _require_draft_state(plan: dict[str, Any], draft_state: Path | None) -> dict[str, Any]:
+def _require_release_binding(
+    plan: dict[str, Any], draft_state: Path | None
+) -> tuple[dict[str, Any], bool]:
     if draft_state is None:
-        raise ValueError("publication write requires a GitHub Release Draft state")
+        raise ValueError("publication write requires a GitHub Release binding")
     try:
         state = core.load_json(Path(draft_state))
     except (OSError, ValueError) as error:
-        raise ValueError("GitHub Release Draft state is unreadable") from error
-    expected_keys = {
+        raise ValueError("GitHub Release binding is unreadable") from error
+    common_keys = {
         "kind",
         "schema_version",
         "channel",
@@ -156,8 +160,7 @@ def _require_draft_state(plan: dict[str, Any], draft_state: Path | None) -> dict
         "draft",
     }
     if (
-        set(state) != expected_keys
-        or state.get("kind") != "ucm-publication-result"
+        state.get("kind") != "ucm-publication-result"
         or state.get("schema_version") != 1
         or state.get("channel") != "github_release"
         or state.get("stage") != "draft"
@@ -167,10 +170,25 @@ def _require_draft_state(plan: dict[str, Any], draft_state: Path | None) -> dict
         or not isinstance(state.get("release_id"), int)
         or isinstance(state.get("release_id"), bool)
         or state["release_id"] < 1
-        or state.get("draft") is not True
     ):
-        raise ValueError("GitHub Release Draft state differs from resolved plan")
-    return state
+        raise ValueError("GitHub Release Draft state or public binding differs from resolved plan")
+    if state.get("draft") is True:
+        if set(state) != common_keys:
+            raise ValueError(
+                "GitHub Release Draft state or public binding differs from resolved plan"
+            )
+        return state, False
+    if (
+        state.get("draft") is False
+        and state.get("status") == "reused"
+        and set(state) == common_keys | {"asset_names"}
+        and state.get("asset_names")
+        == sorted([*_expected_wheels(plan), _expected_chart(plan)])
+    ):
+        return state, True
+    raise ValueError(
+        "GitHub Release Draft state or public binding differs from resolved plan"
+    )
 
 
 def _wheel_filename(task: dict[str, Any]) -> str:
@@ -224,11 +242,19 @@ def publish_pypi(
     assert config is not None
     _require_protected_plan(plan)
     if stage == "publish":
-        _require_draft_state(plan, draft_state)
+        _binding, already_public = _require_release_binding(plan, draft_state)
     elif draft_state is not None:
         raise ValueError("PyPI readback does not accept a Draft state")
     wheel_paths = _validate_named_files(wheels, _expected_wheels(plan), "PyPI publication")
     if stage == "publish":
+        if already_public:
+            return _result(
+                plan,
+                "pypi",
+                stage,
+                "reused",
+                filenames=[path.name for path in wheel_paths],
+            )
         command = [sys.executable, "-m", "twine", "upload", "--repository-url", config["index"], *[str(path) for path in wheel_paths]]
         _invoke(run, command)
         return _result(plan, "pypi", stage, "published", filenames=[path.name for path in wheel_paths])
@@ -363,6 +389,8 @@ def _load_member_results(
         raise ValueError("GHCR publish requires six unique resolved image tasks")
     by_family: dict[str, list[dict[str, Any]]] = {}
     seen_tasks: set[str] = set()
+    schema = core.load_json(core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json")
+    member_schema = schema["$defs"]["registryMemberRecord"]
     required = {
         "schema_version",
         "kind",
@@ -387,6 +415,12 @@ def _load_member_results(
     }
     for path in entries:
         record = core.load_json(path)
+        core.validate_schema(record, member_schema, root=schema)
+        expected_record_sha256 = core.sha256_value(
+            {key: value for key, value in record.items() if key != "record_sha256"}
+        )
+        if record.get("record_sha256") != expected_record_sha256:
+            raise ValueError("member record_sha256 is not reproducible")
         if not required <= set(record):
             raise ValueError(f"member result {path.name} is missing publication fields")
         task_sha = record["publication_task_sha256"]
@@ -444,6 +478,124 @@ def _load_member_results(
             is None
         ):
             raise ValueError("member staging digest/config evidence is invalid")
+        content_identity = record["content_identity"]
+        expected_content_identity_sha256 = core.sha256_value(
+            {
+                key: value
+                for key, value in content_identity.items()
+                if key != "content_identity_sha256"
+            }
+        )
+        if (
+            content_identity["content_identity_sha256"]
+            != expected_content_identity_sha256
+            or record["content_identity_sha256"]
+            != expected_content_identity_sha256
+            or content_identity["manifest_digest"] != member_digest
+            or content_identity["config_digest"] != config_digest
+            or content_identity["task_sha256"] != task["task_sha256"]
+            or content_identity["build_key_sha256"] != record["build_key_sha256"]
+            or content_identity["wheel_sha256"] != record["wheel_sha256"]
+            or content_identity["recipe_sha256"] != record["recipe_sha256"]
+            or content_identity["source"]["repository"]
+            != plan["source"]["repository"]
+            or content_identity["source"]["commit"] != plan["source"]["commit"]
+            or record["source_sha"] != content_identity["source"]["commit"]
+        ):
+            raise ValueError("member content identity/provenance is inconsistent")
+        expected_annotations = {
+            "io.ucm.release.build-key-sha256": record["build_key_sha256"],
+            "io.ucm.release.candidate-task-sha256": task["task_sha256"],
+            "io.ucm.release.family-id": task["family_task_id"],
+            "io.ucm.release.platform": task["platform"],
+            "io.ucm.release.spec-id": task["spec_id"],
+            "io.ucm.release.wheel-sha256": record["wheel_sha256"],
+        }
+        expected_manifest_annotations = {
+            "io.ucm.release.recipe-sha256": record["recipe_sha256"],
+            "io.ucm.release.task-sha256": task["task_sha256"],
+        }
+        expected_labels = {
+            "org.opencontainers.image.source": content_identity["source"][
+                "repository_url"
+            ],
+            "org.opencontainers.image.revision": plan["source"]["commit"],
+            "io.ucm.release.source-tree": content_identity["source"]["tree"],
+            "io.ucm.release.source-context-sha256": content_identity["source"][
+                "context_sha256"
+            ],
+            "io.ucm.release.build-key-sha256": record["build_key_sha256"],
+            "io.ucm.release.task-sha256": task["task_sha256"],
+            "io.ucm.release.wheel-sha256": record["wheel_sha256"],
+            "io.ucm.release.recipe-sha256": record["recipe_sha256"],
+        }
+        if (
+            record["annotations"] != expected_annotations
+            or record["manifest"]["annotations"] != expected_manifest_annotations
+            or content_identity["annotations"] != expected_manifest_annotations
+            or record["config"]["labels"] != content_identity["labels"]
+            or any(
+                content_identity["labels"].get(key) != value
+                for key, value in expected_labels.items()
+            )
+            or record["member_size"] != record["manifest"]["size"]
+        ):
+            raise ValueError("member provenance annotations are inconsistent")
+        expected_layers: list[dict[str, Any]] = []
+        for layer in content_identity["layers"]:
+            projected = {
+                "media_type": layer["mediaType"],
+                "digest": layer["digest"],
+                "size": layer["size"],
+                "blob_sha256": layer["digest"],
+            }
+            if "annotations" in layer:
+                projected["annotations"] = layer["annotations"]
+            expected_layers.append(projected)
+        if record["layers"] != expected_layers:
+            raise ValueError("member layers differ from content identity")
+        staging_digest = f"{record['staging_repository']}@{member_digest}"
+        staging_reference = (
+            f"{record['staging_repository']}:{record['staging_tag']}"
+        )
+        expected_operations = [
+            {
+                "type": "registry-member-push-by-digest",
+                "capability": "write",
+                "reference": staging_digest,
+            },
+            {
+                "type": "registry-staging-tag-create",
+                "capability": "write",
+                "reference": staging_reference,
+            },
+            {
+                "type": "registry-authenticated-digest-read",
+                "capability": "read",
+                "reference": staging_digest,
+            },
+            {
+                "type": "registry-authenticated-manifest-read",
+                "capability": "read",
+                "reference": staging_digest,
+            },
+            {
+                "type": "registry-authenticated-config-blob-read",
+                "capability": "read",
+                "reference": f"{record['staging_repository']}@{config_digest}",
+            },
+        ]
+        if (
+            record["staging_tag"]
+            != "staging-" + record["build_key_sha256"].removeprefix("sha256:")
+            or record["operations"] != expected_operations
+        ):
+            raise ValueError("member staging operations are not exact")
+        expected_readback_sha256 = core.sha256_value(
+            {"manifest": record["manifest"], "config": record["config"]}
+        )
+        if record["readback_sha256"] != expected_readback_sha256:
+            raise ValueError("member readback_sha256 is not reproducible")
         seen_tasks.add(task_sha)
         by_family.setdefault(task["family_task_id"], []).append(record)
     if seen_tasks != set(tasks_by_sha):
@@ -480,7 +632,9 @@ def publish_ghcr(
         images = _inspect_oci_families(plan, namespace=config["namespace"], configured_targets=True, run=run, crane_binary=crane_binary)
         return _result(plan, "ghcr", stage, "verified", images=images)
 
-    _require_draft_state(plan, draft_state)
+    _binding, already_public = _require_release_binding(plan, draft_state)
+    if already_public:
+        return _result(plan, "ghcr", stage, "reused")
     if members_dir is None:
         raise ValueError("GHCR publish requires a members directory")
     records_by_family = _load_member_results(plan, members_dir)
@@ -541,7 +695,9 @@ def publish_dockerhub(
     _require_protected_plan(plan)
     _require_release_image_matrix(plan)
     if stage == "publish":
-        _require_draft_state(plan, draft_state)
+        _binding, already_public = _require_release_binding(plan, draft_state)
+        if already_public:
+            return _result(plan, "dockerhub", stage, "reused")
         crane = crane_binary or registry.resolve_pinned_crane()
         targets = _family_references(plan, config["namespace"], configured_targets=False)
         for family, target in targets:
@@ -596,7 +752,7 @@ def publish_chart_oci(
     assert config is not None
     _require_protected_plan(plan)
     if stage == "publish":
-        _require_draft_state(plan, draft_state)
+        _binding, already_public = _require_release_binding(plan, draft_state)
         if readback_dir is not None:
             raise ValueError("Chart OCI publish does not accept a readback directory")
     elif draft_state is not None:
@@ -607,6 +763,14 @@ def publish_chart_oci(
         raise ValueError(f"Chart OCI publication requires exact package {expected_filename}")
     namespace = config["namespace"].rstrip("/")
     if stage == "publish":
+        if already_public:
+            return _result(
+                plan,
+                "chart_oci",
+                stage,
+                "reused",
+                filename=expected_filename,
+            )
         _invoke(run, ["helm", "push", str(package), f"oci://{namespace}"])
         return _result(plan, "chart_oci", stage, "published", filename=expected_filename, reference=f"oci://{namespace}/{plan['chart']['name']}:{plan['chart']['version']}")
     if readback_dir is None: raise ValueError("Chart OCI readback requires an output directory")  # noqa: E701
@@ -693,13 +857,166 @@ def _validate_local_release_assets(plan: dict[str, Any], artifacts: Sequence[Pat
         raise ValueError("GitHub Release assets require exact seven release assets") from error
 
 
+def _asset_manifest(paths: Sequence[Path]) -> list[dict[str, Any]]:
+    return sorted(
+        (
+            {
+                "name": path.name,
+                "size": path.stat().st_size,
+                "sha256": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+            for path in paths
+        ),
+        key=lambda item: item["name"],
+    )
+
+
+def _validate_asset_manifest(
+    plan: dict[str, Any], manifest: object
+) -> list[dict[str, Any]]:
+    expected_names = sorted([*_expected_wheels(plan), _expected_chart(plan)])
+    if not isinstance(manifest, list) or len(manifest) != 7:
+        raise ValueError("GitHub Release asset manifest requires exact seven entries")
+    normalized: list[dict[str, Any]] = []
+    for item in manifest:
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"name", "size", "sha256"}
+            or not isinstance(item.get("name"), str)
+            or not isinstance(item.get("size"), int)
+            or isinstance(item.get("size"), bool)
+            or item["size"] < 0
+            or not isinstance(item.get("sha256"), str)
+            or _DIGEST.fullmatch(item["sha256"]) is None
+        ):
+            raise ValueError("GitHub Release asset manifest is malformed")
+        normalized.append(dict(item))
+    normalized.sort(key=lambda item: item["name"])
+    if [item["name"] for item in normalized] != expected_names:
+        raise ValueError("GitHub Release asset manifest differs from exact seven assets")
+    return normalized
+
+
+def _default_github_bytes(url: str) -> bytes:
+    completed = subprocess.run(
+        [
+            "gh",
+            "api",
+            "-H",
+            "Accept: application/octet-stream",
+            url,
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        message = completed.stderr.decode(errors="replace").strip()
+        raise ValueError(f"GitHub asset download failed: {message or f'exit {completed.returncode}'}")
+    return bytes(completed.stdout)
+
+
+def _default_http_bytes(url: str) -> bytes:
+    request = urllib.request.Request(url, headers={"Accept": "application/octet-stream"})
+    with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+        return response.read()
+
+
+def _verify_release_asset_bytes(
+    release: dict[str, Any],
+    expected_manifest: Sequence[dict[str, Any]],
+    *,
+    download_bytes: BytesGet,
+    public: bool,
+) -> None:
+    assets = release.get("assets")
+    if not isinstance(assets, list):
+        raise ValueError("GitHub Release assets are malformed")
+    by_name = {
+        asset.get("name"): asset
+        for asset in assets
+        if isinstance(asset, dict) and isinstance(asset.get("name"), str)
+    }
+    if len(by_name) != len(assets):
+        raise ValueError("GitHub Release assets are malformed")
+    for expected in expected_manifest:
+        asset = by_name.get(expected["name"])
+        if asset is None:
+            continue
+        url_key = "browser_download_url" if public else "url"
+        url = asset.get(url_key)
+        if (
+            not isinstance(asset.get("size"), int)
+            or isinstance(asset.get("size"), bool)
+            or asset["size"] != expected["size"]
+            or not isinstance(url, str)
+            or not url
+        ):
+            raise ValueError(f"GitHub Release asset bytes differ for {expected['name']}")
+        content = download_bytes(url)
+        observed = {
+            "size": len(content),
+            "sha256": "sha256:" + hashlib.sha256(content).hexdigest(),
+        }
+        if observed != {"size": expected["size"], "sha256": expected["sha256"]}:
+            raise ValueError(f"GitHub Release asset bytes differ for {expected['name']}")
+
+
+def _require_asset_state(
+    plan: dict[str, Any], asset_state: Path | None
+) -> dict[str, Any]:
+    if asset_state is None:
+        raise ValueError("GitHub Release finalize/readback requires an asset state")
+    try:
+        state = core.load_json(Path(asset_state))
+    except (OSError, ValueError) as error:
+        raise ValueError("GitHub Release asset state is unreadable") from error
+    expected_keys = {
+        "kind",
+        "schema_version",
+        "channel",
+        "stage",
+        "status",
+        "resolved_plan_sha256",
+        "release_id",
+        "tag",
+        "draft",
+        "asset_names",
+        "asset_manifest",
+    }
+    expected_names = sorted([*_expected_wheels(plan), _expected_chart(plan)])
+    if (
+        set(state) != expected_keys
+        or state.get("kind") != "ucm-publication-result"
+        or state.get("schema_version") != 1
+        or state.get("channel") != "github_release"
+        or state.get("stage") != "assets"
+        or state.get("status") not in {"uploaded", "reused"}
+        or state.get("resolved_plan_sha256") != plan["resolved_plan_sha256"]
+        or state.get("tag") != plan["source"]["release_tag"]
+        or not isinstance(state.get("release_id"), int)
+        or isinstance(state.get("release_id"), bool)
+        or state["release_id"] < 1
+        or not isinstance(state.get("draft"), bool)
+        or state.get("asset_names") != expected_names
+    ):
+        raise ValueError("GitHub Release asset state differs from resolved plan")
+    state["asset_manifest"] = _validate_asset_manifest(
+        plan, state.get("asset_manifest")
+    )
+    return state
+
+
 def publish_github_release(
     plan_path: Path,
     *,
     stage: str,
     artifacts: Sequence[Path] | None = None,
     draft_state: Path | None = None,
+    asset_state: Path | None = None,
     api: GithubApi = _default_github_api,
+    http_get: HttpGet = _default_http_get,
+    download_bytes: BytesGet | None = None,
 ) -> dict[str, Any]:
     if stage not in {"draft", "assets", "finalize", "readback"}:
         raise ValueError("GitHub Release stage must be draft, assets, finalize, or readback")
@@ -707,24 +1024,55 @@ def publish_github_release(
     if skipped is not None: return skipped  # noqa: E701
     _require_protected_plan(plan)
     if stage == "draft":
-        if artifacts is not None or draft_state is not None:
-            raise ValueError("GitHub Release draft does not accept artifacts or Draft state")
+        if artifacts is not None or draft_state is not None or asset_state is not None:
+            raise ValueError("GitHub Release draft does not accept artifacts or state")
         bound_draft = None
     elif stage == "assets":
-        if artifacts is None:
+        if artifacts is None or asset_state is not None:
             raise ValueError("GitHub Release assets stage requires artifact paths")
-        bound_draft = _require_draft_state(plan, draft_state)
+        bound_draft, _already_public = _require_release_binding(plan, draft_state)
     elif stage == "finalize":
         if artifacts is not None:
             raise ValueError("GitHub Release finalize does not accept artifacts")
-        bound_draft = _require_draft_state(plan, draft_state)
+        bound_draft, _already_public = _require_release_binding(plan, draft_state)
+        bound_assets = _require_asset_state(plan, asset_state)
     else:
         if artifacts is not None or draft_state is not None:
             raise ValueError("GitHub Release readback does not accept artifacts or Draft state")
         bound_draft = None
+        bound_assets = _require_asset_state(plan, asset_state)
     repository = plan["source"]["repository"]
     tag = plan["source"]["release_tag"]
     expected_names = sorted([*_expected_wheels(plan), _expected_chart(plan)])
+
+    if stage == "readback":
+        encoded_repository = "/".join(
+            urllib.parse.quote(part, safe="") for part in repository.split("/")
+        )
+        encoded_tag = urllib.parse.quote(tag, safe="")
+        release = http_get(
+            f"https://api.github.com/repos/{encoded_repository}/releases/tags/{encoded_tag}"
+        )
+        names = _validate_public_release(plan, release)
+        if release["id"] != bound_assets["release_id"]:
+            raise ValueError("public GitHub Release differs from asset state")
+        _verify_release_asset_bytes(
+            release,
+            bound_assets["asset_manifest"],
+            download_bytes=download_bytes or _default_http_bytes,
+            public=True,
+        )
+        return _result(
+            plan,
+            "github_release",
+            stage,
+            "verified",
+            release_id=release["id"],
+            tag=tag,
+            draft=False,
+            asset_names=names,
+            asset_manifest=bound_assets["asset_manifest"],
+        )
 
     release = _github_release(plan, api, allow_missing=stage == "draft")
     if stage == "draft":
@@ -748,19 +1096,57 @@ def publish_github_release(
     _validate_release_identity(plan, release)
     if bound_draft is not None and release["id"] != bound_draft["release_id"]:
         raise ValueError("GitHub Release live Draft differs from Draft state")
+    if stage == "finalize" and (
+        release["id"] != bound_assets["release_id"]
+        or bound_draft["draft"] != bound_assets["draft"]
+    ):
+        raise ValueError("GitHub Release asset state differs from release binding")
     if release.get("draft") is False:
         names = _validate_public_release(plan, release)
-        status = "verified" if stage == "readback" else "reused"
-        return _result(plan, "github_release", stage, status, release_id=release["id"], tag=tag, draft=False, asset_names=names)
+        if stage == "assets":
+            local_assets = _validate_local_release_assets(plan, artifacts)
+            manifest = _asset_manifest(local_assets)
+            _verify_release_asset_bytes(
+                release,
+                manifest,
+                download_bytes=download_bytes or _default_github_bytes,
+                public=False,
+            )
+        if stage == "finalize":
+            _verify_release_asset_bytes(
+                release,
+                bound_assets["asset_manifest"],
+                download_bytes=download_bytes or _default_github_bytes,
+                public=False,
+            )
+        status = "reused"
+        details: dict[str, Any] = {
+            "release_id": release["id"],
+            "tag": tag,
+            "draft": False,
+            "asset_names": names,
+        }
+        if stage == "assets":
+            details["asset_manifest"] = manifest
+        elif stage == "finalize":
+            details["asset_manifest"] = bound_assets["asset_manifest"]
+        return _result(plan, "github_release", stage, status, **details)
     if release.get("draft") is not True or release.get("prerelease") is not True:
         raise ValueError("GitHub Release is neither the expected Draft nor public prerelease")
     if stage == "readback": raise ValueError("GitHub Release readback requires a public prerelease")  # noqa: E701
 
     if stage == "assets":
         local_assets = _validate_local_release_assets(plan, artifacts)
+        manifest = _asset_manifest(local_assets)
         current_names = _release_asset_names(release)
         extras = sorted(set(current_names) - set(expected_names))
         if extras: raise ValueError(f"GitHub Release Draft contains unexpected assets: {extras}")  # noqa: E701,E501
+        _verify_release_asset_bytes(
+            release,
+            [item for item in manifest if item["name"] in set(current_names)],
+            download_bytes=download_bytes or _default_github_bytes,
+            public=False,
+        )
         current = set(current_names)
         for path in sorted(local_assets, key=lambda item: item.name):
             if path.name in current: continue  # noqa: E701
@@ -771,15 +1157,27 @@ def publish_github_release(
         reread = _github_release(plan, api, allow_missing=False)
         if not isinstance(reread, dict) or _release_asset_names(reread) != expected_names:
             raise ValueError("GitHub Release Draft does not contain exact seven assets after upload")
-        return _result(plan, "github_release", stage, "uploaded", release_id=release["id"], tag=tag, draft=True, asset_names=expected_names)
+        _verify_release_asset_bytes(
+            reread,
+            manifest,
+            download_bytes=download_bytes or _default_github_bytes,
+            public=False,
+        )
+        return _result(plan, "github_release", stage, "uploaded", release_id=release["id"], tag=tag, draft=True, asset_names=expected_names, asset_manifest=manifest)
 
     names = _release_asset_names(release)
     if names != expected_names:
         raise ValueError("GitHub Release Draft must contain exact seven assets before finalize")
+    _verify_release_asset_bytes(
+        release,
+        bound_assets["asset_manifest"],
+        download_bytes=download_bytes or _default_github_bytes,
+        public=False,
+    )
     finalized = api(f"repos/{repository}/releases/{release['id']}", method="PATCH", body={"draft": False, "prerelease": True})
     if not isinstance(finalized, dict): raise ValueError("GitHub Release finalize returned no release")  # noqa: E701
     _validate_public_release(plan, finalized)
-    return _result(plan, "github_release", stage, "finalized", release_id=release["id"], tag=tag, draft=False, asset_names=names)
+    return _result(plan, "github_release", stage, "finalized", release_id=release["id"], tag=tag, draft=False, asset_names=names, asset_manifest=bound_assets["asset_manifest"])
 
 
 # fmt: on

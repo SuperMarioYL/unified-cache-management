@@ -18,6 +18,9 @@ on:
       draft_artifact:
         type: string
         required: true
+      already_public:
+        type: boolean
+        required: true
     outputs:
       publication_artifact:
         description: Canonical GHCR publication result
@@ -31,7 +34,8 @@ jobs:
     if: >-
       ${{
         !cancelled() && github.event_name == 'push' &&
-        github.ref_type == 'tag' && github.ref_protected == true
+        github.ref_type == 'tag' && github.ref_protected == true &&
+        !inputs.already_public
       }}
     strategy:
       fail-fast: false
@@ -51,9 +55,9 @@ jobs:
     needs: publish-members
     if: >-
       ${{
-        !cancelled() && github.event_name == 'push' &&
+        always() && !cancelled() && github.event_name == 'push' &&
         github.ref_type == 'tag' && github.ref_protected == true &&
-        needs.publish-members.result == 'success'
+        (inputs.already_public || needs.publish-members.result == 'success')
       }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -81,6 +85,7 @@ jobs:
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
       - name: Install checksum-pinned Registry tools
+        if: ${{ !inputs.already_public }}
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/crane" "${HOME}/.docker/cli-plugins"
@@ -97,6 +102,7 @@ jobs:
           test "$("${HOME}/.docker/cli-plugins/docker-buildx" version | awk '{print $2}')" = "${BUILDX_VERSION}"
           echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
       - uses: ./.github/actions/download-artifact-retry
+        if: ${{ !inputs.already_public }}
         with:
           pattern: ucm-member-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/members
@@ -109,6 +115,7 @@ jobs:
           name: ${{ inputs.draft_artifact }}
           path: input/draft
       - name: Authenticate the GHCR index publisher
+        if: ${{ !inputs.already_public }}
         env:
           DOCKER_CONFIG: ${{ runner.temp }}/ucm-ghcr-publish
           GITHUB_TOKEN: ${{ github.token }}
@@ -123,19 +130,24 @@ jobs:
           DOCKER_CONFIG: ${{ runner.temp }}/ucm-ghcr-publish
           SOURCE_SHA: ${{ inputs.source_sha }}
           RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
+          ALREADY_PUBLIC: ${{ inputs.already_public }}
         run: |
           set -euo pipefail
           mkdir -p out/members
           test "$(jq -r '.resolved_plan_sha256' input/plan/resolved-plan.json)" = \
             "${RESOLVED_PLAN_SHA256}"
           test "$(jq '.image_tasks | length' input/plan/resolved-plan.json)" = 6
-          while IFS= read -r task_id; do
-            physical="ucm-member-${task_id}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
-            source="input/members/${physical}/member-record.json"
-            test -f "${source}"
-            cp "${source}" "out/members/${task_id}.json"
-          done < <(jq -r '.image_tasks[].task_id' input/plan/resolved-plan.json)
-          test "$(find out/members -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')" = 6
+          if [[ "${ALREADY_PUBLIC}" == false ]]; then
+            while IFS= read -r task_id; do
+              physical="ucm-member-${task_id}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+              source="input/members/${physical}/member-record.json"
+              test -f "${source}"
+              cp "${source}" "out/members/${task_id}.json"
+            done < <(jq -r '.image_tasks[].task_id' input/plan/resolved-plan.json)
+            test "$(find out/members -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')" = 6
+          else
+            test "${ALREADY_PUBLIC}" == true
+          fi
           PYTHONPATH=.github/release python -m ucm_release publish ghcr \
             --plan input/plan/resolved-plan.json \
             --stage publish \

@@ -154,6 +154,18 @@ def build_parser() -> argparse.ArgumentParser:
         return result
     catalog_resolve.set_defaults(func=_cmd_resolve)
 
+    validate_main_loop = catalog_actions.add_parser("validate-main-loop")
+    validate_main_loop.add_argument("--plan", type=Path, required=True)
+    validate_main_loop.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
+    validate_main_loop.add_argument('--schema-dir', type=Path, default=core.DEFAULT_SCHEMA_DIR)  # fmt: skip  # noqa: E501
+
+    def _cmd_validate_main_loop(a):
+        plan = core.load_json(a.plan)
+        catalog = core.load_catalog(a.catalog, a.schema_dir)
+        counts = registry.validate_main_full_loop_plan(plan, catalog)
+        return {"kind": "ucm-main-full-loop-validation", "schema_version": 1, **counts}
+    validate_main_loop.set_defaults(func=_cmd_validate_main_loop)
+
     recipe_matrix = catalog_actions.add_parser("recipe-matrix")
     recipe_matrix.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
     recipe_matrix.add_argument('--schema-dir', type=Path, default=core.DEFAULT_SCHEMA_DIR)  # fmt: skip  # noqa: E501
@@ -260,15 +272,16 @@ def build_parser() -> argparse.ArgumentParser:
     publish_github_release.add_argument('--stage', choices=('draft', 'assets', 'finalize', 'readback'), required=True)  # fmt: skip  # noqa: E501
     publish_github_release.add_argument("--artifacts-dir", type=Path)
     publish_github_release.add_argument("--draft-state", type=Path)
+    publish_github_release.add_argument("--asset-state", type=Path)
     publish_github_release.add_argument("--output", type=Path, required=True)
 
     def _cmd_publish_github_release(a):
-        if a.stage == 'draft': _validate_stage_inputs(a, forbidden=('artifacts_dir', 'draft_state'))  # noqa: E701,E501
-        elif a.stage == 'assets': _validate_stage_inputs(a, required=('artifacts_dir', 'draft_state'))  # noqa: E701,E501
-        elif a.stage == 'finalize': _validate_stage_inputs(a, required=('draft_state',), forbidden=('artifacts_dir',))  # noqa: E701,E501
-        else: _validate_stage_inputs(a, forbidden=('artifacts_dir', 'draft_state'))  # noqa: E701,E501
+        if a.stage == 'draft': _validate_stage_inputs(a, forbidden=('artifacts_dir', 'draft_state', 'asset_state'))  # noqa: E701,E501
+        elif a.stage == 'assets': _validate_stage_inputs(a, required=('artifacts_dir', 'draft_state'), forbidden=('asset_state',))  # noqa: E701,E501
+        elif a.stage == 'finalize': _validate_stage_inputs(a, required=('draft_state', 'asset_state'), forbidden=('artifacts_dir',))  # noqa: E701,E501
+        else: _validate_stage_inputs(a, required=('asset_state',), forbidden=('artifacts_dir', 'draft_state'))  # noqa: E701,E501
         artifacts = sorted(a.artifacts_dir.iterdir()) if a.artifacts_dir is not None else None  # fmt: skip  # noqa: E501
-        return publish.publish_github_release(a.plan, stage=a.stage, artifacts=artifacts, draft_state=a.draft_state)  # fmt: skip  # noqa: E501
+        return publish.publish_github_release(a.plan, stage=a.stage, artifacts=artifacts, draft_state=a.draft_state, asset_state=a.asset_state)  # fmt: skip  # noqa: E501
     publish_github_release.set_defaults(func=_cmd_publish_github_release, publication_result=True)
 
     core_parser = groups.add_parser("core")

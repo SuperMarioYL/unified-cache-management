@@ -590,6 +590,11 @@ def test_release_routes_use_full_matrices_and_develop_only_daily_dispatch() -> N
     assert 'build_image_matrix="${smoke_image_matrix}"' not in plan_text
     assert "publish=$(jq -c '.publish' out/plan/resolved-plan.json)" in plan_text
     assert "publish plan" not in plan_text
+    assert (
+        plan_text.index("catalog resolve")
+        < plan_text.index("catalog validate-main-loop")
+        < plan_text.index("resolved_plan_sha256=")
+    )
     assert jobs["plan"]["outputs"]["publish"] == "${{ steps.plan.outputs.publish }}"
 
     chart = jobs["package-chart"]
@@ -621,6 +626,7 @@ def test_release_routes_use_full_matrices_and_develop_only_daily_dispatch() -> N
         "resolved_plan_artifact",
         "resolved_plan_sha256",
         "draft_artifact",
+        "already_public",
     }
 
 
@@ -634,6 +640,8 @@ def test_protected_ghcr_publisher_reuses_six_same_run_oci_builds() -> None:
     assert jobs["publish-members"]["strategy"]["matrix"] == (
         "${{ fromJSON(inputs.image_matrix) }}"
     )
+    assert "!inputs.already_public" in str(jobs["publish-members"]["if"])
+    assert "inputs.already_public" in str(jobs["publish-ghcr"]["if"])
     publish_text = "\n".join(_strings(jobs["publish-ghcr"]))
     for fragment in (
         "ucm-member-${task_id}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}",
@@ -682,6 +690,20 @@ def test_protected_ghcr_publisher_reuses_six_same_run_oci_builds() -> None:
         "config",
     ):
         assert field in member_text
+    for fragment in (
+        'crane manifest "${staging_repo}@${manifest_digest}"',
+        'crane blob "${staging_repo}@${config_digest}"',
+        "out/remote-manifest.json",
+        "out/remote-config.json",
+        'cmp "${local_manifest}" out/remote-manifest.json',
+        'cmp "${local_config}" out/remote-config.json',
+        "registry-authenticated-manifest-read",
+        "registry-authenticated-config-blob-read",
+        "out/remote-readback.json",
+        "jq -cjS . out/remote-readback.json",
+    ):
+        assert fragment in member_text
+    assert "printf '%s' \"${ops}\" | sha256sum" not in member_text
 
 
 def test_release_channels_are_draft_bound_and_fail_closed_at_readback_barrier() -> None:
@@ -730,6 +752,30 @@ def test_release_channels_are_draft_bound_and_fail_closed_at_readback_barrier() 
         "--draft-state input/draft/github-release-draft.json",
     ):
         assert fragment in assets_text
+    assert jobs["publish-release-assets"]["outputs"]["asset_artifact"] == (
+        "${{ steps.publish.outputs.artifact }}"
+    )
+
+    finalize = jobs["finalize-github-prerelease"]
+    assert set(finalize["needs"]) == {
+        "plan",
+        "prepare-release-draft",
+        "publish-release-assets",
+        "channel-readback-barrier",
+    }
+    assert "--asset-state input/assets-state/github-release-assets.json" in (
+        "\n".join(_strings(finalize))
+    )
+    public_readback = jobs["github-release-public-readback"]
+    assert set(public_readback["needs"]) == {
+        "plan",
+        "publish-release-assets",
+        "finalize-github-prerelease",
+    }
+    public_text = "\n".join(_strings(public_readback))
+    assert "--asset-state input/assets-state/github-release-assets.json" in public_text
+    assert "GH_TOKEN" not in public_text
+    assert "gh api" not in public_text
 
     chart_publish = "\n".join(_strings(jobs["publish-chart-oci"]))
     chart_readback = "\n".join(_strings(jobs["chart-oci-readback"]))

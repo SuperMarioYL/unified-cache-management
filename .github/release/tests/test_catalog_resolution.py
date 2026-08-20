@@ -269,6 +269,28 @@ def test_resolved_plan_freezes_publish_and_removes_secondary_authorities() -> No
     registry.validate_resolved_plan(plan)
 
 
+def test_main_full_loop_validator_requires_exact_current_six_six_three() -> None:
+    catalog = core.load_catalog()
+    plan = _resolve_fixture(catalog, source_sha="a" * 40)
+
+    assert registry.validate_main_full_loop_plan(plan, catalog) == {
+        "wheel_tasks": 6,
+        "image_tasks": 6,
+        "family_tasks": 3,
+        "profile_architectures": 6,
+    }
+
+    missing = copy.deepcopy(plan)
+    missing["wheel_tasks"].pop()
+    with pytest.raises(ValueError, match="exactly 6 wheel, 6 image, and 3 family"):
+        registry.validate_main_full_loop_plan(missing, catalog)
+
+    duplicate = copy.deepcopy(plan)
+    duplicate["wheel_tasks"][0]["profile_id"] = "wrong-profile"
+    with pytest.raises(ValueError, match="current profile/architecture closure"):
+        registry.validate_main_full_loop_plan(duplicate, catalog)
+
+
 def test_resolved_plan_rejects_publish_drift() -> None:
     plan = _resolve_fixture(core.load_catalog(), source_sha="b" * 40)
     plan["publish"]["ghcr"]["enabled"] = False

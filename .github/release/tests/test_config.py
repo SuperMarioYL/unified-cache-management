@@ -291,6 +291,20 @@ def test_enabled_public_channel_requires_github_release_draft_barrier(
         core.load_catalog(path)
 
 
+def test_dockerhub_publication_requires_ghcr_source_channel(tmp_path: Path) -> None:
+    core = importlib.import_module("ucm_release.core")
+    release = yaml.safe_load(
+        (REPO_ROOT / ".github" / "release" / "release.yaml").read_text(encoding="utf-8")
+    )
+    release["publish"]["dockerhub"]["enabled"] = True
+    release["publish"]["ghcr"]["enabled"] = False
+    path = tmp_path / "release.yaml"
+    path.write_text(yaml.safe_dump(release, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Docker Hub publication requires GHCR"):
+        core.load_catalog(path)
+
+
 @pytest.mark.parametrize(
     ("channel", "extra"),
     [

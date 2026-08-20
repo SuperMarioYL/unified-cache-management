@@ -245,15 +245,33 @@ jobs:
           crane push "${layout}" "${staging_ref}"
           observed_digest="$(crane digest "${staging_ref}")"
           test "${observed_digest}" = "${manifest_digest}"
-          ops="$(jq -cnS --arg staging "${staging_repo}" --arg digest "${manifest_digest}" --arg tag "${staging_tag}" \
-            '[{type:"registry-member-push-by-digest",capability:"write",reference:($staging+"@"+$digest)},{type:"registry-staging-tag-create",capability:"write",reference:($staging+":"+$tag)},{type:"registry-authenticated-digest-read",capability:"read",reference:($staging+"@"+$digest)}]')"
-          readback_sha256="sha256:$(printf '%s' "${ops}" | sha256sum | cut -d' ' -f1)"
+          local_manifest="${layout}/blobs/sha256/${manifest_digest#sha256:}"
+          local_config="${layout}/blobs/sha256/${config_digest#sha256:}"
+          crane manifest "${staging_repo}@${manifest_digest}" >out/remote-manifest.json
+          crane blob "${staging_repo}@${config_digest}" >out/remote-config.json
+          test "sha256:$(sha256sum out/remote-manifest.json | cut -d' ' -f1)" = "${manifest_digest}"
+          test "sha256:$(sha256sum out/remote-config.json | cut -d' ' -f1)" = "${config_digest}"
+          cmp "${local_manifest}" out/remote-manifest.json
+          cmp "${local_config}" out/remote-config.json
+          test "$(wc -c <out/remote-manifest.json | tr -d ' ')" = "${manifest_size}"
+          test "$(wc -c <out/remote-config.json | tr -d ' ')" = "${config_size}"
+          jq -e --arg config_digest "${config_digest}" \
+            '.config.digest == $config_digest and (.layers | type == "array") and (.layers | length > 0)' \
+            out/remote-manifest.json >/dev/null
+          ops="$(jq -cnS --arg staging "${staging_repo}" --arg digest "${manifest_digest}" --arg config_digest "${config_digest}" --arg tag "${staging_tag}" \
+            '[{type:"registry-member-push-by-digest",capability:"write",reference:($staging+"@"+$digest)},{type:"registry-staging-tag-create",capability:"write",reference:($staging+":"+$tag)},{type:"registry-authenticated-digest-read",capability:"read",reference:($staging+"@"+$digest)},{type:"registry-authenticated-manifest-read",capability:"read",reference:($staging+"@"+$digest)},{type:"registry-authenticated-config-blob-read",capability:"read",reference:($staging+"@"+$config_digest)}]')"
+          jq -cnS --arg manifest_media_type "${manifest_media_type}" --arg manifest_digest "${manifest_digest}" \
+            --argjson manifest_size "${manifest_size}" --arg config_digest "${config_digest}" \
+            --argjson config_size "${config_size}" --slurpfile ir "${ir}" \
+            '{manifest:{media_type:$manifest_media_type,digest:$manifest_digest,size:$manifest_size,annotations:$ir[0].content_identity.annotations},config:{media_type:"application/vnd.oci.image.config.v1+json",digest:$config_digest,size:$config_size,blob_sha256:$config_digest,labels:$ir[0].content_identity.labels}}' \
+            >out/remote-readback.json
+          readback_sha256="sha256:$(jq -cjS . out/remote-readback.json | sha256sum | cut -d' ' -f1)"
           jq -cnS --slurpfile ir "${ir}" --arg staging_repo "${staging_repo}" --arg staging_tag "${staging_tag}" \
             --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" \
             --arg manifest_media_type "${manifest_media_type}" --arg manifest_size "${manifest_size}" \
             --arg config_digest "${config_digest}" --arg config_size "${config_size}" --argjson ops "${ops}" \
             --arg readback_sha256 "${readback_sha256}" \
-            '{schema_version:1,kind:"ucm-registry-member-publication",status:"passed",resolved_plan_sha256:$resolved_plan_sha256,spec_id:$ir[0].spec_id,profile_id:$ir[0].profile_id,family_id:$ir[0].family_id,platform:$ir[0].target_platform,target_repository:$ir[0].target_repository,target_tag:$ir[0].target_tag,staging_repository:$staging_repo,staging_visibility:"private",staging_tag:$staging_tag,candidate_task_sha256:$ir[0].task_key,publication_task_sha256:$ir[0].task_key,build_key_sha256:$ir[0].build_key_sha256,wheel_sha256:$ir[0].wheel.sha256,member_digest:$ir[0].oci.digest,member_size:($manifest_size|tonumber),config_digest:$config_digest,annotations:{"io.ucm.release.build-key-sha256":$ir[0].build_key_sha256,"io.ucm.release.candidate-task-sha256":$ir[0].task_key,"io.ucm.release.family-id":$ir[0].family_id,"io.ucm.release.platform":$ir[0].target_platform,"io.ucm.release.spec-id":$ir[0].spec_id,"io.ucm.release.wheel-sha256":$ir[0].wheel.sha256},source_sha:$ir[0].source.commit,image_result_sha256:$ir[0].result_sha256,recipe_sha256:$ir[0].recipe_sha256,content_identity_sha256:$ir[0].content_identity_sha256,content_identity:$ir[0].content_identity,manifest:{media_type:$manifest_media_type,digest:$ir[0].oci.digest,size:($manifest_size|tonumber),annotations:$ir[0].content_identity.annotations},config:{media_type:"application/vnd.oci.image.config.v1+json",digest:$config_digest,size:($config_size|tonumber),blob_sha256:$config_digest,labels:$ir[0].content_identity.labels},layers:[$ir[0].content_identity.layers[]|{media_type:.mediaType,digest:.digest,size:.size,blob_sha256:.digest}],readback_sha256:$readback_sha256,operations:$ops}' \
+            '{schema_version:1,kind:"ucm-registry-member-publication",status:"passed",resolved_plan_sha256:$resolved_plan_sha256,spec_id:$ir[0].spec_id,profile_id:$ir[0].profile_id,family_id:$ir[0].family_id,platform:$ir[0].target_platform,target_repository:$ir[0].target_repository,target_tag:$ir[0].target_tag,staging_repository:$staging_repo,staging_visibility:"private",staging_tag:$staging_tag,candidate_task_sha256:$ir[0].task_key,publication_task_sha256:$ir[0].task_key,build_key_sha256:$ir[0].build_key_sha256,wheel_sha256:$ir[0].wheel.sha256,member_digest:$ir[0].oci.digest,member_size:($manifest_size|tonumber),config_digest:$config_digest,annotations:{"io.ucm.release.build-key-sha256":$ir[0].build_key_sha256,"io.ucm.release.candidate-task-sha256":$ir[0].task_key,"io.ucm.release.family-id":$ir[0].family_id,"io.ucm.release.platform":$ir[0].target_platform,"io.ucm.release.spec-id":$ir[0].spec_id,"io.ucm.release.wheel-sha256":$ir[0].wheel.sha256},source_sha:$ir[0].source.commit,image_result_sha256:$ir[0].result_sha256,recipe_sha256:$ir[0].recipe_sha256,content_identity_sha256:$ir[0].content_identity_sha256,content_identity:$ir[0].content_identity,manifest:{media_type:$manifest_media_type,digest:$ir[0].oci.digest,size:($manifest_size|tonumber),annotations:$ir[0].content_identity.annotations},config:{media_type:"application/vnd.oci.image.config.v1+json",digest:$config_digest,size:($config_size|tonumber),blob_sha256:$config_digest,labels:$ir[0].content_identity.labels},layers:[$ir[0].content_identity.layers[]|({media_type:.mediaType,digest:.digest,size:.size,blob_sha256:.digest} + (if has("annotations") then {annotations:.annotations} else {} end))],readback_sha256:$readback_sha256,operations:$ops}' \
             >out/member-record.base.json
           record_sha256="sha256:$(jq -cjS . out/member-record.base.json | sha256sum | cut -d' ' -f1)"
           jq -cS --arg sha "${record_sha256}" '.record_sha256 = $sha' out/member-record.base.json >out/member-record.json
@@ -295,6 +313,7 @@ jobs:
           name: ${{ steps.record.outputs.member_artifact }}
           path: |
             out/member-record.json
+            out/remote-readback.json
             out/member-audit.json
             out/selected-task.json
             out/upstream-drift.json

@@ -987,6 +987,64 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
     if plan['expected_artifacts'] != expected_artifacts: raise ValueError('resolved plan artifact set mismatch')  # noqa: E701,E501
 
 
+def validate_main_full_loop_plan(
+    plan: dict[str, Any], catalog: dict[str, Any]
+) -> dict[str, int]:
+    wheel_tasks = plan.get("wheel_tasks")
+    image_tasks = plan.get("image_tasks")
+    family_tasks = plan.get("family_tasks")
+    if (
+        not isinstance(wheel_tasks, list)
+        or not isinstance(image_tasks, list)
+        or not isinstance(family_tasks, list)
+        or len(wheel_tasks) != 6
+        or len(image_tasks) != 6
+        or len(family_tasks) != 3
+    ):
+        raise ValueError(
+            "main full loop requires exactly 6 wheel, 6 image, and 3 family tasks"
+        )
+    expected_profile_architectures = {
+        (profile["id"], architecture)
+        for profile in catalog["wheel_profiles"]
+        for architecture in profile["cpu_arch"]
+    }
+    wheel_profile_architectures = {
+        (task.get("profile_id"), task.get("cpu_arch")) for task in wheel_tasks
+    }
+    image_profile_architectures = {
+        (task.get("profile_id"), task.get("cpu_arch")) for task in image_tasks
+    }
+    if (
+        len(expected_profile_architectures) != 6
+        or wheel_profile_architectures != expected_profile_architectures
+        or image_profile_architectures != expected_profile_architectures
+    ):
+        raise ValueError(
+            "main full loop differs from current profile/architecture closure"
+        )
+    for family in family_tasks:
+        members = [
+            task
+            for task in image_tasks
+            if task.get("family_task_id") == family.get("task_id")
+        ]
+        if len(members) != 2 or {task.get("platform") for task in members} != {
+            "linux/amd64",
+            "linux/arm64",
+        }:
+            raise ValueError(
+                "main full loop requires exact amd64 and arm64 members per family"
+            )
+    validate_resolved_plan(plan)
+    return {
+        "wheel_tasks": 6,
+        "image_tasks": 6,
+        "family_tasks": 3,
+        "profile_architectures": 6,
+    }
+
+
 def select_task(
     plan: dict[str, Any],
     *,

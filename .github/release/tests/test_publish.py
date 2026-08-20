@@ -8,6 +8,7 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
@@ -207,6 +208,18 @@ def _draft_state(
     return path
 
 
+def _public_binding(plan_path: Path, tmp_path: Path) -> Path:
+    return _draft_state(
+        plan_path,
+        tmp_path,
+        mutation={
+            "status": "reused",
+            "draft": False,
+            "asset_names": sorted([*WHEELS, CHART]),
+        },
+    )
+
+
 def _member_records(plan_path: Path, directory: Path) -> Path:
     plan = core.load_json(plan_path)
     directory.mkdir(parents=True, exist_ok=True)
@@ -216,7 +229,75 @@ def _member_records(plan_path: Path, directory: Path) -> Path:
         config_digest = (
             AMD64_CONFIG_DIGEST if architecture == "amd64" else ARM64_CONFIG_DIGEST
         )
-        record = {
+        build_key = "sha256:" + "6" * 64
+        wheel_sha = "sha256:" + "7" * 64
+        recipe_sha = "sha256:" + "8" * 64
+        layer_digest = "sha256:" + "9" * 64
+        manifest_annotations = {
+            "io.ucm.release.recipe-sha256": recipe_sha,
+            "io.ucm.release.task-sha256": task["task_sha256"],
+        }
+        labels = {
+            "org.opencontainers.image.source": (
+                "https://github.com/" + plan["source"]["repository"]
+            ),
+            "org.opencontainers.image.revision": plan["source"]["commit"],
+            "io.ucm.release.source-tree": "b" * 40,
+            "io.ucm.release.source-context-sha256": "sha256:" + "a" * 64,
+            "io.ucm.release.build-key-sha256": build_key,
+            "io.ucm.release.task-sha256": task["task_sha256"],
+            "io.ucm.release.wheel-sha256": wheel_sha,
+            "io.ucm.release.recipe-sha256": recipe_sha,
+        }
+        content_identity = {
+            "manifest_digest": member_digest,
+            "config_digest": config_digest,
+            "layers": [
+                {
+                    "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                    "digest": layer_digest,
+                    "size": 19,
+                }
+            ],
+            "diff_ids": ["sha256:" + "c" * 64],
+            "annotations": manifest_annotations,
+            "labels": labels,
+            "created": "2026-08-20T00:00:00Z",
+            "history": [{"created_by": "fixture"}],
+            "source": {
+                "repository": plan["source"]["repository"],
+                "repository_url": (
+                    "https://github.com/" + plan["source"]["repository"]
+                ),
+                "commit": plan["source"]["commit"],
+                "tree": "b" * 40,
+                "archive_sha256": "sha256:" + "d" * 64,
+                "context_sha256": "sha256:" + "a" * 64,
+            },
+            "task_sha256": task["task_sha256"],
+            "build_key_sha256": build_key,
+            "wheel_sha256": wheel_sha,
+            "recipe_sha256": recipe_sha,
+        }
+        content_identity["content_identity_sha256"] = core.sha256_value(
+            content_identity
+        )
+        manifest = {
+            "media_type": "application/vnd.oci.image.manifest.v1+json",
+            "digest": member_digest,
+            "size": 101,
+            "annotations": manifest_annotations,
+        }
+        config = {
+            "media_type": "application/vnd.oci.image.config.v1+json",
+            "digest": config_digest,
+            "size": 79,
+            "blob_sha256": config_digest,
+            "labels": labels,
+        }
+        staging_tag = "staging-" + build_key.removeprefix("sha256:")
+        staging_repository = plan["source"]["staging_repository"]
+        record: dict[str, object] = {
             "schema_version": 1,
             "kind": "ucm-registry-member-publication",
             "status": "passed",
@@ -227,24 +308,71 @@ def _member_records(plan_path: Path, directory: Path) -> Path:
             "platform": task["platform"],
             "target_repository": task["target_repository"],
             "target_tag": task["target_tag"],
-            "staging_repository": plan["source"]["staging_repository"],
+            "staging_repository": staging_repository,
             "staging_visibility": "private",
-            "staging_tag": "staging-" + task["task_sha256"].removeprefix("sha256:"),
+            "staging_tag": staging_tag,
             "candidate_task_sha256": task["task_sha256"],
             "publication_task_sha256": task["task_sha256"],
+            "build_key_sha256": build_key,
+            "wheel_sha256": wheel_sha,
             "member_digest": member_digest,
+            "member_size": 101,
             "config_digest": config_digest,
-            "manifest": {
-                "media_type": "application/vnd.oci.image.manifest.v1+json",
-                "digest": member_digest,
-            },
-            "config": {
-                "media_type": "application/vnd.oci.image.config.v1+json",
-                "digest": config_digest,
-                "blob_sha256": config_digest,
+            "annotations": {
+                "io.ucm.release.build-key-sha256": build_key,
+                "io.ucm.release.candidate-task-sha256": task["task_sha256"],
+                "io.ucm.release.family-id": task["family_task_id"],
+                "io.ucm.release.platform": task["platform"],
+                "io.ucm.release.spec-id": task["spec_id"],
+                "io.ucm.release.wheel-sha256": wheel_sha,
             },
             "source_sha": plan["source"]["commit"],
+            "image_result_sha256": "sha256:" + "e" * 64,
+            "recipe_sha256": recipe_sha,
+            "content_identity_sha256": content_identity["content_identity_sha256"],
+            "content_identity": content_identity,
+            "manifest": manifest,
+            "config": config,
+            "layers": [
+                {
+                    "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+                    "digest": layer_digest,
+                    "size": 19,
+                    "blob_sha256": layer_digest,
+                }
+            ],
+            "readback_sha256": core.sha256_value(
+                {"manifest": manifest, "config": config}
+            ),
+            "operations": [
+                {
+                    "type": "registry-member-push-by-digest",
+                    "capability": "write",
+                    "reference": f"{staging_repository}@{member_digest}",
+                },
+                {
+                    "type": "registry-staging-tag-create",
+                    "capability": "write",
+                    "reference": f"{staging_repository}:{staging_tag}",
+                },
+                {
+                    "type": "registry-authenticated-digest-read",
+                    "capability": "read",
+                    "reference": f"{staging_repository}@{member_digest}",
+                },
+                {
+                    "type": "registry-authenticated-manifest-read",
+                    "capability": "read",
+                    "reference": f"{staging_repository}@{member_digest}",
+                },
+                {
+                    "type": "registry-authenticated-config-blob-read",
+                    "capability": "read",
+                    "reference": f"{staging_repository}@{config_digest}",
+                },
+            ],
         }
+        record["record_sha256"] = core.sha256_value(record)
         (directory / f"{task['task_id']}.json").write_bytes(
             core.canonical_bytes(record) + b"\n"
         )
@@ -347,9 +475,45 @@ class OciRunner:
 
 
 class GithubApi:
-    def __init__(self, release: dict[str, object] | None = None) -> None:
+    def __init__(
+        self,
+        release: dict[str, object] | None = None,
+        contents: dict[str, bytes] | None = None,
+    ) -> None:
         self.release = copy.deepcopy(release)
+        self.contents = dict(contents or {})
+        if self.release is not None:
+            for asset in self.release.get("assets", []):
+                name = asset["name"]
+                self.contents.setdefault(name, (name + "-bytes").encode())
         self.calls: list[dict[str, object]] = []
+
+    @staticmethod
+    def _asset(asset_id: int, name: str, content: bytes) -> dict[str, object]:
+        return {
+            "id": asset_id,
+            "name": name,
+            "size": len(content),
+            "url": f"https://api.github.test/assets/{asset_id}",
+            "browser_download_url": f"https://downloads.github.test/{name}",
+        }
+
+    def download(self, url: str) -> bytes:
+        if "/assets/" in url:
+            asset_id = int(url.rsplit("/", 1)[1])
+            assert self.release is not None
+            name = next(
+                asset["name"]
+                for asset in self.release["assets"]
+                if asset["id"] == asset_id
+            )
+        else:
+            name = urllib.parse.unquote(url.rsplit("/", 1)[1])
+        return self.contents[name]
+
+    def public_json(self, _url: str) -> dict[str, object]:
+        assert self.release is not None
+        return copy.deepcopy(self.release)
 
     def __call__(
         self,
@@ -388,11 +552,13 @@ class GithubApi:
             return copy.deepcopy(self.release)
         if method == "POST" and "uploads.github.com" in path:
             assert self.release is not None
-            name = path.rsplit("name=", 1)[1]
-            self.release["assets"].append(
-                {"id": len(self.release["assets"]) + 1, "name": name}
-            )
-            return {"id": len(self.release["assets"]), "name": name}
+            assert isinstance(body, bytes)
+            name = urllib.parse.unquote(path.rsplit("name=", 1)[1])
+            asset_id = len(self.release["assets"]) + 1
+            self.contents[name] = body
+            asset = self._asset(asset_id, name, body)
+            self.release["assets"].append(asset)
+            return copy.deepcopy(asset)
         if method == "PATCH":
             assert self.release is not None and isinstance(body, dict)
             self.release.update(body)
@@ -408,7 +574,10 @@ def _public_release(asset_names: list[str] | None = None) -> dict[str, object]:
         "target_commitish": "a" * 40,
         "draft": False,
         "prerelease": True,
-        "assets": [{"id": index, "name": name} for index, name in enumerate(names)],
+        "assets": [
+            GithubApi._asset(index, name, (name + "-bytes").encode())
+            for index, name in enumerate(names, start=1)
+        ],
     }
 
 
@@ -579,6 +748,53 @@ def test_publish_rejects_draft_state_drift_before_transport(
     assert calls == []
 
 
+def test_public_release_binding_makes_every_channel_publish_a_zero_write_reuse(
+    plan_path: Path, tmp_path: Path
+) -> None:
+    publication = importlib.import_module("ucm_release.publish")
+    for channel in ("pypi", "dockerhub"):
+        _rewrite_channel(plan_path, channel, True)
+    artifacts = _artifacts(tmp_path / "artifacts")
+    binding = _public_binding(plan_path, tmp_path)
+    calls: list[object] = []
+
+    def runner(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    results = [
+        publication.publish_pypi(
+            plan_path,
+            artifacts[:-1],
+            stage="publish",
+            draft_state=binding,
+            run=runner,
+        ),
+        publication.publish_ghcr(
+            plan_path,
+            stage="publish",
+            members_dir=tmp_path / "missing-members",
+            draft_state=binding,
+            run=runner,
+        ),
+        publication.publish_dockerhub(
+            plan_path,
+            stage="publish",
+            draft_state=binding,
+            run=runner,
+        ),
+        publication.publish_chart_oci(
+            plan_path,
+            artifacts[-1],
+            stage="publish",
+            draft_state=binding,
+            run=runner,
+        ),
+    ]
+
+    assert [result["status"] for result in results] == ["reused"] * 4
+    assert calls == []
+
+
 def test_pypi_publish_and_readback_use_exact_six_wheels_and_three_dists(
     plan_path: Path, tmp_path: Path
 ) -> None:
@@ -737,6 +953,11 @@ def test_ghcr_publish_validates_six_members_and_creates_three_indexes(
         ("missing", "exactly six member-result JSON files"),
         ("target", "member target differs from resolved image task"),
         ("plan", "member resolved_plan_sha256 differs from resolved plan"),
+        ("record", "record_sha256"),
+        ("readback", "readback_sha256"),
+        ("content", "content identity"),
+        ("operations", "operations"),
+        ("layers", "layers"),
     ],
 )
 def test_ghcr_publish_rejects_missing_or_drifted_member_results_before_transport(
@@ -751,8 +972,33 @@ def test_ghcr_publish_rejects_missing_or_drifted_member_results_before_transport
         record = core.load_json(first)
         if mutation == "target":
             record["target_tag"] = "wrong"
-        else:
+        elif mutation == "plan":
             record["resolved_plan_sha256"] = "sha256:" + "9" * 64
+        elif mutation == "record":
+            record["record_sha256"] = "sha256:" + "0" * 64
+        elif mutation == "readback":
+            record["readback_sha256"] = "sha256:" + "0" * 64
+        elif mutation == "content":
+            record["content_identity"]["wheel_sha256"] = "sha256:" + "0" * 64
+            record["content_identity"]["content_identity_sha256"] = core.sha256_value(
+                {
+                    key: value
+                    for key, value in record["content_identity"].items()
+                    if key != "content_identity_sha256"
+                }
+            )
+            record["content_identity_sha256"] = record["content_identity"][
+                "content_identity_sha256"
+            ]
+        elif mutation == "operations":
+            record["operations"].pop()
+        else:
+            record["layers"][0]["digest"] = "sha256:" + "0" * 64
+            record["layers"][0]["blob_sha256"] = "sha256:" + "0" * 64
+        if mutation != "record":
+            record["record_sha256"] = core.sha256_value(
+                {key: value for key, value in record.items() if key != "record_sha256"}
+            )
         first.write_bytes(core.canonical_bytes(record) + b"\n")
     calls: list[object] = []
 
@@ -964,6 +1210,30 @@ def test_github_assets_validate_complete_local_set_before_api_write(
     assert all(call["method"] == "GET" for call in api.calls)
 
 
+def test_github_assets_reject_same_names_with_wrong_existing_bytes_before_write(
+    plan_path: Path, tmp_path: Path
+) -> None:
+    publication = importlib.import_module("ucm_release.publish")
+    artifacts = _artifacts(tmp_path / "artifacts")
+    release = _public_release()
+    release["draft"] = True
+    contents = {path.name: path.read_bytes() for path in artifacts}
+    contents[WHEELS[0]] = b"wrong-existing-bytes"
+    api = GithubApi(release, contents)
+
+    with pytest.raises(ValueError, match="asset bytes differ"):
+        publication.publish_github_release(
+            plan_path,
+            stage="assets",
+            artifacts=artifacts,
+            draft_state=_draft_state(plan_path, tmp_path),
+            api=api,
+            download_bytes=api.download,
+        )
+
+    assert all(call["method"] == "GET" for call in api.calls)
+
+
 def test_github_release_draft_assets_finalize_and_readback(
     plan_path: Path, tmp_path: Path
 ) -> None:
@@ -980,17 +1250,39 @@ def test_github_release_draft_assets_finalize_and_readback(
         artifacts=artifacts,
         draft_state=draft_state,
         api=api,
+        download_bytes=api.download,
     )
+    asset_state = tmp_path / "asset-state.json"
+    asset_state.write_bytes(core.canonical_bytes(assets) + b"\n")
     finalized = publication.publish_github_release(
-        plan_path, stage="finalize", draft_state=draft_state, api=api
+        plan_path,
+        stage="finalize",
+        draft_state=draft_state,
+        asset_state=asset_state,
+        api=api,
+        download_bytes=api.download,
     )
-    readback = publication.publish_github_release(plan_path, stage="readback", api=api)
+    authenticated_calls = len(api.calls)
+    readback = publication.publish_github_release(
+        plan_path,
+        stage="readback",
+        asset_state=asset_state,
+        api=lambda *_args, **_kwargs: pytest.fail(
+            "public readback used authenticated GitHub API"
+        ),
+        http_get=api.public_json,
+        download_bytes=api.download,
+    )
 
     assert draft["status"] == "created"
     assert assets["status"] == "uploaded"
     assert assets["asset_names"] == sorted([*WHEELS, CHART])
+    assert len(assets["asset_manifest"]) == 7
     assert finalized["status"] == "finalized"
     assert readback["status"] == "verified"
+    assert finalized["asset_manifest"] == assets["asset_manifest"]
+    assert readback["asset_manifest"] == assets["asset_manifest"]
+    assert len(api.calls) == authenticated_calls
     assert {
         draft["resolved_plan_sha256"],
         assets["resolved_plan_sha256"],
@@ -1001,24 +1293,92 @@ def test_github_release_draft_assets_finalize_and_readback(
     assert [call["body"] for call in patches] == [{"draft": False, "prerelease": True}]
 
 
+def test_public_github_readback_rejects_wrong_same_name_bytes(
+    plan_path: Path, tmp_path: Path
+) -> None:
+    publication = importlib.import_module("ucm_release.publish")
+    artifacts = _artifacts(tmp_path / "artifacts")
+    api = GithubApi(_public_release())
+    manifest = publication._asset_manifest(artifacts)
+    state = {
+        "kind": "ucm-publication-result",
+        "schema_version": 1,
+        "channel": "github_release",
+        "stage": "assets",
+        "status": "reused",
+        "resolved_plan_sha256": core.load_json(plan_path)["resolved_plan_sha256"],
+        "release_id": 41,
+        "tag": "v0.7.59rc1",
+        "draft": False,
+        "asset_names": sorted([*WHEELS, CHART]),
+        "asset_manifest": manifest,
+    }
+    asset_state = tmp_path / "asset-state.json"
+    asset_state.write_bytes(core.canonical_bytes(state) + b"\n")
+    api.contents[WHEELS[0]] = b"wrong-public-bytes"
+
+    with pytest.raises(ValueError, match="asset bytes differ"):
+        publication.publish_github_release(
+            plan_path,
+            stage="readback",
+            asset_state=asset_state,
+            http_get=api.public_json,
+            download_bytes=api.download,
+        )
+
+
 @pytest.mark.parametrize("stage", ["draft", "assets", "finalize", "readback"])
 def test_github_release_rerun_reuses_exact_public_release_without_writes(
     plan_path: Path, tmp_path: Path, stage: str
 ) -> None:
     publication = importlib.import_module("ucm_release.publish")
     api = GithubApi(_public_release())
-    artifacts = _artifacts(tmp_path) if stage == "assets" else None
-    draft_state = (
-        _draft_state(plan_path, tmp_path) if stage in {"assets", "finalize"} else None
-    )
+    artifacts = _artifacts(tmp_path)
+    public_binding = _public_binding(plan_path, tmp_path)
+    asset_result = {
+        "kind": "ucm-publication-result",
+        "schema_version": 1,
+        "channel": "github_release",
+        "stage": "assets",
+        "status": "reused",
+        "resolved_plan_sha256": core.load_json(plan_path)["resolved_plan_sha256"],
+        "release_id": 41,
+        "tag": "v0.7.59rc1",
+        "draft": False,
+        "asset_names": sorted([*WHEELS, CHART]),
+        "asset_manifest": publication._asset_manifest(artifacts),
+    }
+    asset_state = tmp_path / "asset-state.json"
+    asset_state.write_bytes(core.canonical_bytes(asset_result) + b"\n")
 
-    result = publication.publish_github_release(
-        plan_path,
-        stage=stage,
-        artifacts=artifacts,
-        draft_state=draft_state,
-        api=api,
-    )
+    kwargs: dict[str, object] = {"stage": stage}
+    if stage == "draft":
+        kwargs["api"] = api
+    elif stage == "assets":
+        kwargs.update(
+            artifacts=artifacts,
+            draft_state=public_binding,
+            api=api,
+            download_bytes=api.download,
+        )
+    elif stage == "finalize":
+        kwargs.update(
+            draft_state=public_binding,
+            asset_state=asset_state,
+            api=api,
+            download_bytes=api.download,
+        )
+    else:
+        kwargs.update(
+            asset_state=asset_state,
+            api=lambda *_args, **_kwargs: pytest.fail(
+                "public readback used authenticated API"
+            ),
+            http_get=api.public_json,
+            download_bytes=api.download,
+        )
+
+    result = publication.publish_github_release(plan_path, **kwargs)
 
     assert result["status"] in {"reused", "verified"}
     assert all(call["method"] == "GET" for call in api.calls)
@@ -1106,6 +1466,32 @@ def test_cli_publish_surface_has_no_layered_switches() -> None:
             "--output",
             "out.json",
         ],
+        [
+            "publish",
+            "github-release",
+            "--plan",
+            "p.json",
+            "--stage",
+            "finalize",
+            "--draft-state",
+            "draft.json",
+            "--asset-state",
+            "assets.json",
+            "--output",
+            "out.json",
+        ],
+        [
+            "publish",
+            "github-release",
+            "--plan",
+            "p.json",
+            "--stage",
+            "readback",
+            "--asset-state",
+            "assets.json",
+            "--output",
+            "out.json",
+        ],
     ):
         parser.parse_args(operation)
 
@@ -1127,6 +1513,8 @@ def test_every_publish_cli_writes_exact_stdout_to_atomic_output(
     package = tmp_path / CHART
     package.write_bytes(b"chart")
     draft_state = _draft_state(plan_path, tmp_path)
+    asset_state = tmp_path / "asset-state.json"
+    asset_state.write_text("{}\n", encoding="utf-8")
 
     commands = [
         (
@@ -1274,6 +1662,8 @@ def test_every_publish_cli_writes_exact_stdout_to_atomic_output(
                 "finalize",
                 "--draft-state",
                 str(draft_state),
+                "--asset-state",
+                str(asset_state),
             ],
         ),
         (
@@ -1285,6 +1675,8 @@ def test_every_publish_cli_writes_exact_stdout_to_atomic_output(
                 str(plan_path),
                 "--stage",
                 "readback",
+                "--asset-state",
+                str(asset_state),
             ],
         ),
     ]

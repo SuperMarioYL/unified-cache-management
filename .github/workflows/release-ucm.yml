@@ -134,6 +134,8 @@ jobs:
             --lane "${lane}" --source-sha "${GITHUB_SHA}" \
             --builder-catalog input/builders/builder-catalog.json \
             --output out/plan/resolved-plan.json >/dev/null
+          PYTHONPATH=.github/release python -m ucm_release catalog validate-main-loop \
+            --plan out/plan/resolved-plan.json >/dev/null
           resolved_plan_sha256="$(jq -r '.resolved_plan_sha256' out/plan/resolved-plan.json)"
           logical_artifact="$(jq -r '.expected_artifacts.resolved_plan' out/plan/resolved-plan.json)"
           resolved_plan_artifact="${logical_artifact}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
@@ -230,6 +232,7 @@ jobs:
     environment: release-production
     outputs:
       draft_artifact: ${{ steps.draft.outputs.draft_artifact }}
+      already_public: ${{ steps.draft.outputs.already_public }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -259,7 +262,12 @@ jobs:
             --stage draft \
             --output out/github-release-draft.json
           artifact="ucm-publication-github-draft-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
-          echo "draft_artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+          draft="$(jq -r '.draft' out/github-release-draft.json)"
+          [[ "${draft}" == true || "${draft}" == false ]]
+          {
+            echo "draft_artifact=${artifact}"
+            echo "already_public=$([[ "${draft}" == false ]] && echo true || echo false)"
+          } >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ steps.draft.outputs.draft_artifact }}
@@ -289,6 +297,7 @@ jobs:
       resolved_plan_artifact: ${{ needs.plan.outputs.resolved_plan_artifact }}
       resolved_plan_sha256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
       draft_artifact: ${{ needs.prepare-release-draft.outputs.draft_artifact }}
+      already_public: ${{ needs.prepare-release-draft.outputs.already_public == 'true' }}
 
   ghcr-readback:
     needs: [plan, publish-ghcr]
@@ -822,6 +831,8 @@ jobs:
     permissions:
       contents: write
     environment: release-production
+    outputs:
+      asset_artifact: ${{ steps.publish.outputs.artifact }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -949,7 +960,11 @@ jobs:
             "${GITHUB_RELEASE_DRAFT_RESULT}" "${GITHUB_RELEASE_ASSETS_RESULT}"
 
   finalize-github-prerelease:
-    needs: [plan, prepare-release-draft, channel-readback-barrier]
+    needs:
+      - plan
+      - prepare-release-draft
+      - publish-release-assets
+      - channel-readback-barrier
     if: >-
       ${{
         !cancelled() && github.event_name == 'push' &&
@@ -983,6 +998,10 @@ jobs:
         with:
           name: ${{ needs.prepare-release-draft.outputs.draft_artifact }}
           path: input/draft
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ needs.publish-release-assets.outputs.asset_artifact }}
+          path: input/assets-state
       - id: finalize
         env:
           GH_TOKEN: ${{ github.token }}
@@ -994,6 +1013,7 @@ jobs:
             --plan input/plan/resolved-plan.json \
             --stage finalize \
             --draft-state input/draft/github-release-draft.json \
+            --asset-state input/assets-state/github-release-assets.json \
             --output out/github-release-finalize.json
           artifact="ucm-publication-github-finalize-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           echo "artifact=${artifact}" >>"${GITHUB_OUTPUT}"
@@ -1006,7 +1026,7 @@ jobs:
           retention-days: 90
 
   github-release-public-readback:
-    needs: [plan, finalize-github-prerelease]
+    needs: [plan, publish-release-assets, finalize-github-prerelease]
     if: >-
       ${{
         !cancelled() && github.event_name == 'push' &&
@@ -1034,9 +1054,12 @@ jobs:
         with:
           name: ${{ needs.plan.outputs.resolved_plan_artifact }}
           path: input/plan
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ needs.publish-release-assets.outputs.asset_artifact }}
+          path: input/assets-state
       - id: readback
         env:
-          GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
         run: |
           set -euo pipefail
@@ -1044,6 +1067,7 @@ jobs:
           PYTHONPATH=.github/release python -m ucm_release publish github-release \
             --plan input/plan/resolved-plan.json \
             --stage readback \
+            --asset-state input/assets-state/github-release-assets.json \
             --output out/github-release-readback.json
           artifact="ucm-publication-github-readback-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           echo "artifact=${artifact}" >>"${GITHUB_OUTPUT}"
