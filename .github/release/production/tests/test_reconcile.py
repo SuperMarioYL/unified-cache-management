@@ -3,13 +3,11 @@ from __future__ import annotations
 import copy
 
 import pytest
-
+from conftest import PRODUCTION_ROOT
 from ucm_release_production.common import ProductionError, sha256_envelope
 from ucm_release_production.config import load_config
 from ucm_release_production.reconcile import build_inventory, plan_publication
 from ucm_release_production.tags import parse_tag
-
-from conftest import PRODUCTION_ROOT
 
 CONFIG = PRODUCTION_ROOT / "production-release.json"
 SOURCE = "1" * 40

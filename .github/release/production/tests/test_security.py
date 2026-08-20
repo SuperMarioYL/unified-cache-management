@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-
 from conftest import REPO_ROOT
 
 WORKFLOW_ROOT = REPO_ROOT / ".github" / "workflows"

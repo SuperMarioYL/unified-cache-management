@@ -4,7 +4,6 @@ import hashlib
 from pathlib import Path
 
 import pytest
-
 from ucm_release_production.common import (
     ProductionError,
     canonical_bytes,

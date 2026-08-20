@@ -1,20 +1,21 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
-import copy
 
 import pytest
-
+from conftest import PRODUCTION_ROOT, REPO_ROOT
+from jsonschema import Draft202012Validator
 from ucm_release_production.common import ProductionError
 from ucm_release_production.config import derive_repository, load_config
 
-from conftest import PRODUCTION_ROOT, REPO_ROOT
-
 CONFIG = PRODUCTION_ROOT / "production-release.json"
+CONFIG_SCHEMA = PRODUCTION_ROOT / "schemas" / "production-release-config.schema.json"
 FINGERPRINTS = PRODUCTION_ROOT / "tests" / "fixtures" / "legacy-workflow-sha256.json"
 
 LEGACY_WORKFLOWS = {
+    "_build-chart.yml",
     "_build-image.yml",
     "_build-wheel.yml",
     "_publish-image-member.yml",
@@ -77,9 +78,70 @@ def test_config_has_exact_product_and_profile_closure() -> None:
     assert all(
         item["cpu_arch"] == ["amd64", "arm64"] for item in config["build_profiles"]
     )
+    assert [item["build_platform"] for item in config["build_profiles"]] == [
+        "cuda",
+        "ascend",
+        "ascend-a3",
+    ]
+    assert config["toolchain"]["runtime_requirements"] == [
+        "packaging==24.2",
+        "wrapt==1.17.2",
+    ]
     assert config["channels"]["draft"]["image_visibility"] == "private"
     assert config["channels"]["rc"]["image_visibility"] == "public"
     assert config["external_channels"] == {"docker_hub": False, "pypi": False}
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("distribution", "uc-manager-cann-a2"),
+        ("build_platform", "ascend"),
+        ("wheel_platform", "linux"),
+        ("python_version", "3.11"),
+        ("python_abi", "cp311"),
+    ],
+)
+def test_production_profile_rejects_every_exact_tuple_drift(
+    field: str, value: str
+) -> None:
+    from ucm_release_production.config import validate_config
+
+    config = copy.deepcopy(load_config(CONFIG))
+    config["build_profiles"][0][field] = value
+
+    with pytest.raises(ProductionError, match=field):
+        validate_config(config)
+
+
+def test_production_config_schema_closes_profile_and_runtime_authority() -> None:
+    config = json.loads(CONFIG.read_text(encoding="utf-8"))
+    schema = json.loads(CONFIG_SCHEMA.read_text(encoding="utf-8"))
+    validator = Draft202012Validator(schema)
+
+    validator.validate(config)
+    config["build_profiles"][0]["wheel_platform"] = "evil"
+    assert list(validator.iter_errors(config))
+
+
+@pytest.mark.parametrize("inverse", [False, True])
+def test_config_rejects_ambiguous_or_inverse_profile_discriminator(
+    inverse: bool,
+) -> None:
+    from ucm_release_production.config import validate_config
+
+    config = copy.deepcopy(load_config(CONFIG))
+    profile = config["build_profiles"][0]
+    if inverse:
+        profile["profile_id"] = profile.pop("id")
+    else:
+        profile["profile_id"] = "cann900-a2"
+
+    with pytest.raises(
+        ProductionError,
+        match="must contain id and must not contain profile_id",
+    ):
+        validate_config(config)
 
 
 def test_config_accepts_only_explicit_external_channel_coordinates() -> None:

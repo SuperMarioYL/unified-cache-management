@@ -20,55 +20,67 @@ jobs:
 
       - id: fetch_base_and_pr_branches
         env:
+          BASE_REF: ${{ github.base_ref }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPOSITORY: ${{ github.repository }}
+          HEAD_REPOSITORY_CLONE_URL: ${{ github.event.pull_request.head.repo.clone_url }}
         run: |
-          git fetch origin ${{ github.base_ref }}
+          set -euo pipefail
+          git fetch -- origin "${BASE_REF}"
 
-          if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+          if [ "${HEAD_REPOSITORY}" != "${BASE_REPOSITORY}" ]; then
             echo "PR is from a fork, adding remote."
-            git remote add fork ${{ github.event.pull_request.head.repo.clone_url }}
-            git fetch fork $HEAD_REF
-            HEAD_BRANCH_NAME=fork/$HEAD_REF
-            echo "HEAD_BRANCH_NAME=$HEAD_BRANCH_NAME" >> $GITHUB_OUTPUT
+            git remote add fork "${HEAD_REPOSITORY_CLONE_URL}"
+            git fetch -- fork "${HEAD_REF}"
+            HEAD_BRANCH_NAME="fork/${HEAD_REF}"
+            echo "HEAD_BRANCH_NAME=${HEAD_BRANCH_NAME}" >> "${GITHUB_OUTPUT}"
           else
-            git fetch origin $HEAD_REF
-            HEAD_BRANCH_NAME=origin/$HEAD_REF
-            echo "HEAD_BRANCH_NAME=$HEAD_BRANCH_NAME" >> $GITHUB_OUTPUT
+            git fetch -- origin "${HEAD_REF}"
+            HEAD_BRANCH_NAME="origin/${HEAD_REF}"
+            echo "HEAD_BRANCH_NAME=${HEAD_BRANCH_NAME}" >> "${GITHUB_OUTPUT}"
           fi
 
       # protect the workflows dir, only allow specific users to modify
       - id: permission-check
         env:
-          ACTOR: ${{ github.actor }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_BRANCH_NAME: ${{ steps.fetch_base_and_pr_branches.outputs.HEAD_BRANCH_NAME }}
         run: |
-          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...${{ steps.fetch_base_and_pr_branches.outputs.HEAD_BRANCH_NAME }})
-          echo "CHANGED_FILES=$CHANGED_FILES"
+          set -euo pipefail
+          CHANGED_FILES=$(git diff --name-only "origin/${BASE_REF}...${HEAD_BRANCH_NAME}" --)
+          echo "CHANGED_FILES=${CHANGED_FILES}"
 
-          if ! echo "$CHANGED_FILES" | grep -q '^\.github/workflows/'; then
-            echo "No .github/workflows changes, allow."
+          if ! echo "${CHANGED_FILES}" | grep -Eq '^\.github/(workflows/|release/)'; then
+            echo "No protected workflow or release-authority changes, allow."
             exit 0
           fi
 
-          ALLOWED_USERS=("dante159753" "mag1c-h" "yuanzhg078")
+          ALLOWED_USERS=("dante159753" "mag1c-h" "yuanzhg078" "SuperMarioYL")
+          author_lc="$(printf '%s' "${PR_AUTHOR}" | tr '[:upper:]' '[:lower:]')"
 
-          echo ".github changes detected, check if user is allowed..."
-          ACTOR="${{ github.actor }}"
-          echo "PR author: $ACTOR"
+          echo "Workflow or release-authority changes detected, check if user is allowed..."
+          echo "PR author: ${PR_AUTHOR}"
 
           for u in "${ALLOWED_USERS[@]}"; do
-            if [[ "$ACTOR" == "$u" ]]; then
+            allowed_lc="$(printf '%s' "${u}" | tr '[:upper:]' '[:lower:]')"
+            if [[ "${author_lc}" == "${allowed_lc}" ]]; then
               echo "Authorized user, allowing change."
               exit 0
             fi
           done
 
-          echo "::error:: Only privileged users may modify .github/workflows/"
+          echo "::error:: Only privileged users may modify .github/workflows/ or .github/release/"
           exit 1
 
       - id: uptodate-check
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_BRANCH_NAME: ${{ steps.fetch_base_and_pr_branches.outputs.HEAD_BRANCH_NAME }}
         run: |
-
-          if git merge-base --is-ancestor "origin/${{ github.base_ref }}" "${{ steps.fetch_base_and_pr_branches.outputs.HEAD_BRANCH_NAME }}"; then
+          set -euo pipefail
+          if git merge-base --is-ancestor "origin/${BASE_REF}" "${HEAD_BRANCH_NAME}"; then
             echo "PR branch is up-to-date with target branch, continue workflow."
           else
             echo "::error::PR branch is OUT-OF-DATE with target branch, stop workflow, please update your branch and try again."
@@ -81,245 +93,115 @@ jobs:
       contents: read
     uses: ./.github/workflows/lint-and-test.yml
 
-  test-build-vllm-ascend:
-    timeout-minutes: 25
-    runs-on: ubuntu-24.04-arm
+  release-catalog-smoke:
+    needs: [pre-check]
+    # GitHub validates the reusable workflow's maximum permissions before
+    # evaluating lane-specific job conditions. The PR lane itself never runs
+    # the formal-tag publication jobs.
     permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          fetch-depth: 0
-          persist-credentials: false
+      contents: write
+      packages: write
+    uses: ./.github/workflows/release-ucm.yml
+    with:
+      deliver_full_oci: false
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
-        with:
-          version: v0.19.2
-          driver-opts: image=moby/buildkit:v0.18.2@sha256:86c0ad9d1137c186e9d455912167df20e530bdf7f7c19de802e892bb8ca16552
-
-      - name: Build Image
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25
-        with:
-          context: .
-          file: ./docker/Dockerfile.ucm-vllm-ascend.a2-v0.20.2rc1
-          build-args: |
-            PIP_INDEX_URL=https://pypi.org/simple
-          tags: ucm-npu:latest
-          push: false
-          load: false
-          cache-from: type=gha,scope=npu
-          cache-to: type=gha,mode=max,scope=npu,ignore-error=true
-
-  test-build-vllm-cuda-v0-20-2:
-    timeout-minutes: 25
+  repository-recipe-plan:
+    needs: [pre-check]
+    timeout-minutes: 10
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+    outputs:
+      recipe_matrix: ${{ steps.recipes.outputs.recipe_matrix }}
+      recipe_catalog_sha256: ${{ steps.recipes.outputs.recipe_catalog_sha256 }}
+      recipe_matrix_sha256: ${{ steps.recipes.outputs.recipe_matrix_sha256 }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
-          version: v0.19.2
-          driver-opts: image=moby/buildkit:v0.18.2@sha256:86c0ad9d1137c186e9d455912167df20e530bdf7f7c19de802e892bb8ca16552
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - id: recipes
+        name: Project repository recipe lanes from the catalog
+        run: |
+          set -euo pipefail
+          PYTHONPATH=.github/release python -m ucm_release catalog recipe-matrix \
+            --lane pr-smoke --output pr-smoke-recipes.json >/dev/null
+          jq -e 'keys | sort == ["catalog_sha256","count","include","kind","lane","matrix_sha256","protected_environment","schema_version"]' pr-smoke-recipes.json
+          {
+            echo "recipe_matrix=$(jq -cS '{include: .include}' pr-smoke-recipes.json)"
+            echo "recipe_catalog_sha256=$(jq -r '.catalog_sha256' pr-smoke-recipes.json)"
+            echo "recipe_matrix_sha256=$(jq -r '.matrix_sha256' pr-smoke-recipes.json)"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Build Image
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25
-        with:
-          context: .
-          file: ./docker/Dockerfile.ucm-vllm-cuda-v0.20.2
-          build-args: |
-            PIP_INDEX_URL=https://pypi.org/simple
-          tags: ucm-gpu-v0.20.2:latest
-          push: false
-          load: false
-          cache-from: type=gha,scope=gpu-v0.20.2
-          cache-to: type=gha,mode=max,scope=gpu-v0.20.2,ignore-error=true
-
-  test-build-sglang:
+  repository-docker-smoke:
+    needs: [pre-check, repository-recipe-plan]
     timeout-minutes: 25
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.repository-recipe-plan.outputs.recipe_matrix) }}
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
-
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - id: recipe
+        name: Reopen exact catalog recipe task
+        env:
+          TASK_ID: ${{ matrix.task_id }}
+          EXPECTED_CATALOG_SHA256: ${{ needs.repository-recipe-plan.outputs.recipe_catalog_sha256 }}
+          EXPECTED_MATRIX_SHA256: ${{ needs.repository-recipe-plan.outputs.recipe_matrix_sha256 }}
+          EXPECTED_TASK_SHA256: ${{ matrix.task_sha256 }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=.github/release python -m ucm_release catalog select-recipe \
+            --lane pr-smoke \
+            --task-id "${TASK_ID}" \
+            --expected-catalog-sha256 "${EXPECTED_CATALOG_SHA256}" \
+            --expected-matrix-sha256 "${EXPECTED_MATRIX_SHA256}" \
+            --expected-task-sha256 "${EXPECTED_TASK_SHA256}" \
+            --output selected-recipe.json >/dev/null
+          {
+            echo "task_id=$(jq -r '.task_id' selected-recipe.json)"
+            echo "path=$(jq -r '.path' selected-recipe.json)"
+            echo "platform=$(jq -r '.platform' selected-recipe.json)"
+            echo "cache_scope=$(jq -r '.cache_scope' selected-recipe.json)"
+            echo "build_args<<UCM_BUILD_ARGS"
+            jq -r '.build_args | join("\n")' selected-recipe.json
+            echo "UCM_BUILD_ARGS"
+          } >> "$GITHUB_OUTPUT"
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
         with:
           version: v0.19.2
           driver-opts: image=moby/buildkit:v0.18.2@sha256:86c0ad9d1137c186e9d455912167df20e530bdf7f7c19de802e892bb8ca16552
-
-      - name: Build Image
+      - name: Build catalog-selected repository recipe
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25
         with:
           context: .
-          file: ./docker/Dockerfile.ucm-sglang-cuda-v0.5.5
-          build-args: |
-            PIP_INDEX_URL=https://pypi.org/simple
-          tags: ucm-sglang:latest
+          file: ${{ steps.recipe.outputs.path }}
+          platforms: ${{ steps.recipe.outputs.platform }}
+          build-args: ${{ steps.recipe.outputs.build_args }}
+          tags: ucm-recipe-smoke:${{ steps.recipe.outputs.task_id }}
           push: false
           load: false
-          cache-from: type=gha,scope=gpu
-          cache-to: type=gha,mode=max,scope=gpu,ignore-error=true
-
-  test-build-mindie:
-    timeout-minutes: 25
-    runs-on: ubuntu-24.04-arm
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
-        with:
-          version: v0.19.2
-          driver-opts: image=moby/buildkit:v0.18.2@sha256:86c0ad9d1137c186e9d455912167df20e530bdf7f7c19de802e892bb8ca16552
-
-      - name: Build Image
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25
-        with:
-          context: .
-          file: ./docker/Dockerfile.ucm-mindie-ascend.a2-v2
-          build-args: |
-            PIP_INDEX_URL=https://pypi.org/simple
-          tags: ucm-mindie:latest
-          push: false
-          load: false
-          cache-from: type=gha,scope=npu
-          cache-to: type=gha,mode=max,scope=npu,ignore-error=true
-
-  test-e2e-pc-a2:
-    timeout-minutes: 20
-    runs-on: [self-hosted, npu, a2]
-    needs: lint-and-unit-tests
-    permissions:
-      contents: read
-    steps:
-      - name: Clean repo
-        run: |
-          if [ -d "${{ github.workspace }}" ]; then
-            cd ${{ github.workspace }}
-            rm -rf ./*
-            rm -rf .[!.]*
-          fi
-
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          fetch-depth: 1
-          show-progress: false
-          persist-credentials: false
-
-      - name: Install Docker CLI
-        run: |
-          SUDO=""
-          if [ "$(id -u)" -ne 0 ]; then
-            if command -v sudo &> /dev/null; then
-              SUDO="sudo"
-            else
-              echo "Docker CLI installation requires root or sudo"
-              exit 1
-            fi
-          fi
-          if ! command -v docker &> /dev/null; then
-            echo "Docker CLI not found, installing..."
-            ${SUDO} apt-get update
-            ${SUDO} apt-get install -y docker.io
-          else
-            echo "Docker CLI already installed"
-          fi
-          if ! ${SUDO} docker info >/dev/null 2>&1; then
-            echo "Docker daemon is not reachable from the runner."
-            echo "Mount /var/run/docker.sock into the runner container so this job can build and run test images on the host Docker daemon."
-            exit 1
-          fi
-
-      - name: Generate Docker Image Version
-        id: version
-        run: |
-          DATE=$(date +%Y%m%d)
-          SHORT_SHA=$(echo '${{ github.sha }}' | cut -c1-7)
-          REF_NAME=$(echo '${{ github.ref_name }}' | tr '/' '-')
-          VERSION="${REF_NAME}-${DATE}-${{ github.run_number }}-${SHORT_SHA}"
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Docker image version: ${VERSION}"
-
-      - name: Build
-        run: |
-          SUDO=""
-          if [ "$(id -u)" -ne 0 ] && command -v sudo &> /dev/null; then
-            SUDO="sudo"
-          fi
-          cd ${{ github.workspace }}
-          ${SUDO} docker build \
-            --build-arg http_proxy="${http_proxy:-}" \
-            --build-arg https_proxy="${https_proxy:-}" \
-            --build-arg no_proxy="repo.huaweicloud.com,${no_proxy:-}" \
-            --build-arg PIP_INDEX_URL=https://repo.huaweicloud.com/repository/pypi/simple \
-            -t ucm-e2etest-pc-a2:${{ steps.version.outputs.version }} \
-            -f ./docker/Dockerfile.ucm-vllm-ascend.a2-v0.18.0 ./
-
-      - name: Test E2E Online Inference in Docker
-        run: |
-          RESULT_DIR="${{ github.workspace }}/test_results"
-          RESULT_FILE="${{ steps.version.outputs.version }}-online-inference.xml"
-          CONTAINER_NAME="ucm-e2etest-pc-a2-${{ steps.version.outputs.version }}"
-          SUDO=""
-          if [ "$(id -u)" -ne 0 ] && command -v sudo &> /dev/null; then
-            SUDO="sudo"
-          fi
-          A2_E2E_HOST_DEVICE="${A2_E2E_HOST_DEVICE:-/dev/vdavinci212}"
-          echo "Using Ascend host device: ${A2_E2E_HOST_DEVICE}"
-          mkdir -p "${RESULT_DIR}"
-          rm -f "${RESULT_DIR}/${RESULT_FILE}"
-          ${SUDO} docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
-          set +e
-          ${SUDO} docker run --name "${CONTAINER_NAME}" \
-            --ipc=host \
-            --device "${A2_E2E_HOST_DEVICE}:/dev/davinci0" \
-            --device /dev/davinci_manager \
-            --device /dev/devmm_svm \
-            --device /dev/hisi_hdc \
-            -v /usr/local/dcmi:/usr/local/dcmi \
-            -v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi \
-            -v /usr/local/Ascend/driver/lib64/:/usr/local/Ascend/driver/lib64/ \
-            -v /usr/local/Ascend/driver/version.info:/usr/local/Ascend/driver/version.info \
-            -v /etc/ascend_install.info:/etc/ascend_install.info \
-            -v /home/huangmy/models:/home/models:ro \
-            -e http_proxy="${http_proxy:-}" \
-            -e https_proxy="${https_proxy:-}" \
-            -e no_proxy="${no_proxy:-}" \
-            --entrypoint /bin/bash \
-            ucm-e2etest-pc-a2:${{ steps.version.outputs.version }} \
-            -lc "mkdir -p /workspace/test_results && cd /workspace/unified-cache-management/test && pip install -r requirements.txt && python3 -m pytest -x --stage=1 --feature=online_inference --platform=npu -k 'test_online_accuracy_hbm_ssd_mixed_a2_pc' --junitxml=/workspace/test_results/${RESULT_FILE}"
-          TEST_RC=$?
-          ${SUDO} docker cp "${CONTAINER_NAME}:/workspace/test_results/${RESULT_FILE}" "${RESULT_DIR}/${RESULT_FILE}" >/dev/null 2>&1 || true
-          ${SUDO} docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
-          exit "${TEST_RC}"
-
-      - name: Cleanup Docker Image
-        if: ${{ always() && steps.version.outputs.version != '' }}
-        run: |
-          SUDO=""
-          if [ "$(id -u)" -ne 0 ] && command -v sudo &> /dev/null; then
-            SUDO="sudo"
-          fi
-          ${SUDO} docker rm -f "ucm-e2etest-pc-a2-${{ steps.version.outputs.version }}" >/dev/null 2>&1 || true
-          ${SUDO} docker rmi ucm-e2etest-pc-a2:${{ steps.version.outputs.version }} || true
-
-      - name: Cleanup Test Results
-        if: ${{ always() && steps.version.outputs.version != '' }}
-        run: |
-          rm -f "${{ github.workspace }}/test_results/${{ steps.version.outputs.version }}-online-inference.xml" || true
+          cache-from: type=gha,scope=${{ steps.recipe.outputs.cache_scope }}
+          cache-to: type=gha,mode=max,scope=${{ steps.recipe.outputs.cache_scope }},ignore-error=true

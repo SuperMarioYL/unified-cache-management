@@ -12,7 +12,7 @@
           "properties": {
             "type": {"const": "registry-member-push-by-digest"},
             "capability": {"const": "write"},
-            "reference": {"type": "string", "pattern": "^ghcr\\.io/supermarioyl/ucm-release-staging@sha256:[0-9a-f]{64}$"}
+            "reference": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@sha256:[0-9a-f]{64}$"}
           }
         },
         {
@@ -22,7 +22,7 @@
           "properties": {
             "type": {"const": "registry-staging-tag-create"},
             "capability": {"const": "write"},
-            "reference": {"type": "string", "pattern": "^ghcr\\.io/supermarioyl/ucm-release-staging:staging-[0-9a-f]{64}$"}
+            "reference": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*:staging-[0-9a-f]{64}$"}
           }
         },
         {
@@ -32,7 +32,7 @@
           "properties": {
             "type": {"const": "registry-authenticated-digest-read"},
             "capability": {"const": "read"},
-            "reference": {"type": "string", "pattern": "^ghcr\\.io/supermarioyl/ucm-release-staging@sha256:[0-9a-f]{64}$"}
+            "reference": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@sha256:[0-9a-f]{64}$"}
           }
         },
         {
@@ -42,7 +42,7 @@
           "properties": {
             "type": {"const": "registry-authenticated-manifest-read"},
             "capability": {"const": "read"},
-            "reference": {"type": "string", "pattern": "^ghcr\\.io/supermarioyl/ucm-release-staging@sha256:[0-9a-f]{64}$"}
+            "reference": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@sha256:[0-9a-f]{64}$"}
           }
         },
         {
@@ -52,7 +52,7 @@
           "properties": {
             "type": {"const": "registry-authenticated-config-blob-read"},
             "capability": {"const": "read"},
-            "reference": {"type": "string", "pattern": "^ghcr\\.io/supermarioyl/ucm-release-staging@sha256:[0-9a-f]{64}$"}
+            "reference": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@sha256:[0-9a-f]{64}$"}
           }
         },
         {
@@ -62,7 +62,7 @@
           "properties": {
             "type": {"const": "registry-authenticated-layer-blob-read"},
             "capability": {"const": "read"},
-            "reference": {"type": "string", "pattern": "^ghcr\\.io/supermarioyl/ucm-release-staging@sha256:[0-9a-f]{64}$"}
+            "reference": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@sha256:[0-9a-f]{64}$"}
           }
         },
         {
@@ -72,7 +72,7 @@
           "properties": {
             "type": {"const": "registry-authenticated-staging-prewrite-read"},
             "capability": {"const": "read"},
-            "reference": {"type": "string", "pattern": "^ghcr\\.io/supermarioyl/ucm-release-staging:staging-[0-9a-f]{64}$"}
+            "reference": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*:staging-[0-9a-f]{64}$"}
           }
         },
         {
@@ -82,7 +82,7 @@
           "properties": {
             "type": {"const": "registry-anonymous-prewrite-visibility-read"},
             "capability": {"const": "read"},
-            "reference": {"type": "string", "pattern": "^ghcr\\.io/supermarioyl/ucm-release-staging:staging-[0-9a-f]{64}$"}
+            "reference": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*:staging-[0-9a-f]{64}$"}
           }
         },
         {
@@ -92,7 +92,7 @@
           "properties": {
             "type": {"const": "registry-anonymous-visibility-read"},
             "capability": {"const": "read"},
-            "reference": {"type": "string", "pattern": "^ghcr\\.io/supermarioyl/ucm-release-staging:staging-[0-9a-f]{64}$"}
+            "reference": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*:staging-[0-9a-f]{64}$"}
           }
         }
       ]
@@ -104,7 +104,7 @@
       "properties": {
         "type": {"const": "registry-index-create"},
         "capability": {"const": "write"},
-        "reference": {"type": "string", "pattern": "^ghcr\\.io/supermarioyl/(?:vllm-openai:v0\\.21\\.0-ucm-0\\.5\\.0rc1-r1|vllm-ascend:v0\\.22\\.1rc1(?:-a3)?-ucm-0\\.5\\.0rc1-r1)$"}
+        "reference": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"}
       }
     },
     "registryCollisionModel": {
@@ -146,9 +146,9 @@
       "properties": {
         "io.ucm.release.build-key-sha256": {"$ref": "#/$defs/digest"},
         "io.ucm.release.candidate-task-sha256": {"$ref": "#/$defs/digest"},
-        "io.ucm.release.family-id": {"enum": ["cuda130", "cann900-a2", "cann900-a3"]},
-        "io.ucm.release.platform": {"enum": ["linux/amd64", "linux/arm64"]},
-        "io.ucm.release.spec-id": {"enum": ["cuda130-amd64", "cuda130-arm64", "cann900-a2-amd64", "cann900-a2-arm64", "cann900-a3-amd64", "cann900-a3-arm64"]},
+        "io.ucm.release.family-id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
+        "io.ucm.release.platform": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$"},
+        "io.ucm.release.spec-id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
         "io.ucm.release.wheel-sha256": {"$ref": "#/$defs/digest"}
       }
     },
@@ -166,7 +166,7 @@
       "additionalProperties": {"type": "string"},
       "required": ["org.opencontainers.image.source", "org.opencontainers.image.revision", "io.ucm.release.source-tree", "io.ucm.release.source-context-sha256", "io.ucm.release.build-key-sha256", "io.ucm.release.task-sha256", "io.ucm.release.wheel-sha256", "io.ucm.release.recipe-sha256"],
       "properties": {
-        "org.opencontainers.image.source": {"const": "https://github.com/SuperMarioYL/unified-cache-management"},
+        "org.opencontainers.image.source": {"type": "string", "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
         "org.opencontainers.image.revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
         "io.ucm.release.source-tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
         "io.ucm.release.source-context-sha256": {"$ref": "#/$defs/digest"},
@@ -206,8 +206,10 @@
         "source": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["commit", "tree", "archive_sha256", "context_sha256"],
+          "required": ["repository", "repository_url", "commit", "tree", "archive_sha256", "context_sha256"],
           "properties": {
+            "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+            "repository_url": {"type": "string", "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
             "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
             "tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
             "archive_sha256": {"$ref": "#/$defs/digest"},
@@ -247,18 +249,19 @@
     "registryMemberRecord": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema_version", "kind", "status", "spec_id", "profile_id", "family_id", "platform", "target_repository", "target_tag", "staging_repository", "staging_visibility", "staging_tag", "candidate_task_sha256", "publication_task_sha256", "build_key_sha256", "wheel_sha256", "member_digest", "member_size", "config_digest", "annotations", "source_sha", "image_result_sha256", "recipe_sha256", "content_identity_sha256", "content_identity", "manifest", "config", "layers", "readback_sha256", "prewrite_visibility_evidence_sha256", "visibility_evidence_sha256", "collision_model", "operations", "record_sha256"],
+      "required": ["schema_version", "kind", "status", "resolved_plan_sha256", "spec_id", "profile_id", "family_id", "platform", "target_repository", "target_tag", "staging_repository", "staging_visibility", "staging_tag", "candidate_task_sha256", "publication_task_sha256", "build_key_sha256", "wheel_sha256", "member_digest", "member_size", "config_digest", "annotations", "source_sha", "image_result_sha256", "recipe_sha256", "content_identity_sha256", "content_identity", "manifest", "config", "layers", "readback_sha256", "operations", "record_sha256"],
       "properties": {
         "schema_version": {"type": "integer", "const": 1},
         "kind": {"const": "ucm-registry-member-publication"},
         "status": {"const": "passed"},
-        "spec_id": {"enum": ["cuda130-amd64", "cuda130-arm64", "cann900-a2-amd64", "cann900-a2-arm64", "cann900-a3-amd64", "cann900-a3-arm64"]},
-        "profile_id": {"enum": ["cuda130", "cann900-a2", "cann900-a3"]},
-        "family_id": {"enum": ["cuda130", "cann900-a2", "cann900-a3"]},
-        "platform": {"enum": ["linux/amd64", "linux/arm64"]},
-        "target_repository": {"enum": ["ghcr.io/supermarioyl/vllm-openai", "ghcr.io/supermarioyl/vllm-ascend"]},
-        "target_tag": {"enum": ["v0.21.0-ucm-0.5.0rc1-r1", "v0.22.1rc1-ucm-0.5.0rc1-r1", "v0.22.1rc1-a3-ucm-0.5.0rc1-r1"]},
-        "staging_repository": {"const": "ghcr.io/supermarioyl/ucm-release-staging"},
+        "resolved_plan_sha256": {"$ref": "#/$defs/digest"},
+        "spec_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
+        "profile_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
+        "family_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
+        "platform": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$"},
+        "target_repository": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$"},
+        "target_tag": {"type": "string", "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"},
+        "staging_repository": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$"},
         "staging_visibility": {"const": "private"},
         "staging_tag": {"type": "string", "pattern": "^staging-[0-9a-f]{64}$"},
         "candidate_task_sha256": {"$ref": "#/$defs/digest"},
@@ -278,9 +281,6 @@
         "config": {"$ref": "#/$defs/registryConfig"},
         "layers": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/registryLayer"}},
         "readback_sha256": {"$ref": "#/$defs/digest"},
-        "prewrite_visibility_evidence_sha256": {"$ref": "#/$defs/digest"},
-        "visibility_evidence_sha256": {"$ref": "#/$defs/digest"},
-        "collision_model": {"$ref": "#/$defs/registryCollisionModel"},
         "operations": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/registryMemberOperation"}},
         "record_sha256": {"$ref": "#/$defs/digest"}
       }
@@ -294,13 +294,13 @@
         "kind": {"const": "ucm-registry-index-publication"},
         "status": {"const": "passed"},
         "source_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
-        "family_id": {"enum": ["cuda130", "cann900-a2", "cann900-a3"]},
-        "target_repository": {"enum": ["ghcr.io/supermarioyl/vllm-openai", "ghcr.io/supermarioyl/vllm-ascend"]},
-        "target_tag": {"enum": ["v0.21.0-ucm-0.5.0rc1-r1", "v0.22.1rc1-ucm-0.5.0rc1-r1", "v0.22.1rc1-a3-ucm-0.5.0rc1-r1"]},
+        "family_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
+        "target_repository": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$"},
+        "target_tag": {"type": "string", "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"},
         "index_build_key_sha256": {"$ref": "#/$defs/digest"},
         "index_digest": {"$ref": "#/$defs/digest"},
         "manifest_sha256": {"$ref": "#/$defs/digest"},
-        "member_digests": {"type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": {"$ref": "#/$defs/digest"}},
+        "member_digests": {"type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/digest"}},
         "authenticated_readback_sha256": {"$ref": "#/$defs/digest"},
         "authenticated_closure_sha256": {"$ref": "#/$defs/digest"},
         "anonymous_readback_sha256": {"$ref": "#/$defs/digest"},
@@ -320,8 +320,8 @@
             "status": {"enum": ["candidate", "blocked"]},
             "candidate_task_sha256": {"$ref": "#/$defs/digest"},
             "publication_task_sha256": {"$ref": "#/$defs/digest"},
-            "member_records": {"type": "array", "maxItems": 6, "items": {"$ref": "#/$defs/registryMemberRecord"}},
-            "index_records": {"type": "array", "maxItems": 3, "items": {"$ref": "#/$defs/registryIndexRecord"}}
+            "member_records": {"type": "array", "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/registryMemberRecord"}},
+            "index_records": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/registryIndexRecord"}}
           }
         },
         {
@@ -334,30 +334,17 @@
             "publication_task_sha256": {"$ref": "#/$defs/digest"},
             "member_records": {
               "type": "array",
-              "minItems": 6,
-              "maxItems": 6,
+              "minItems": 1,
+              "maxItems": 128,
               "uniqueItems": true,
-              "prefixItems": [
-                {"$ref": "#/$defs/registryMemberRecord", "properties": {"spec_id": {"const": "cuda130-amd64"}, "profile_id": {"const": "cuda130"}, "family_id": {"const": "cuda130"}, "platform": {"const": "linux/amd64"}, "target_repository": {"const": "ghcr.io/supermarioyl/vllm-openai"}, "target_tag": {"const": "v0.21.0-ucm-0.5.0rc1-r1"}, "annotations": {"properties": {"io.ucm.release.spec-id": {"const": "cuda130-amd64"}, "io.ucm.release.family-id": {"const": "cuda130"}, "io.ucm.release.platform": {"const": "linux/amd64"}}}}},
-                {"$ref": "#/$defs/registryMemberRecord", "properties": {"spec_id": {"const": "cuda130-arm64"}, "profile_id": {"const": "cuda130"}, "family_id": {"const": "cuda130"}, "platform": {"const": "linux/arm64"}, "target_repository": {"const": "ghcr.io/supermarioyl/vllm-openai"}, "target_tag": {"const": "v0.21.0-ucm-0.5.0rc1-r1"}, "annotations": {"properties": {"io.ucm.release.spec-id": {"const": "cuda130-arm64"}, "io.ucm.release.family-id": {"const": "cuda130"}, "io.ucm.release.platform": {"const": "linux/arm64"}}}}},
-                {"$ref": "#/$defs/registryMemberRecord", "properties": {"spec_id": {"const": "cann900-a2-amd64"}, "profile_id": {"const": "cann900-a2"}, "family_id": {"const": "cann900-a2"}, "platform": {"const": "linux/amd64"}, "target_repository": {"const": "ghcr.io/supermarioyl/vllm-ascend"}, "target_tag": {"const": "v0.22.1rc1-ucm-0.5.0rc1-r1"}, "annotations": {"properties": {"io.ucm.release.spec-id": {"const": "cann900-a2-amd64"}, "io.ucm.release.family-id": {"const": "cann900-a2"}, "io.ucm.release.platform": {"const": "linux/amd64"}}}}},
-                {"$ref": "#/$defs/registryMemberRecord", "properties": {"spec_id": {"const": "cann900-a2-arm64"}, "profile_id": {"const": "cann900-a2"}, "family_id": {"const": "cann900-a2"}, "platform": {"const": "linux/arm64"}, "target_repository": {"const": "ghcr.io/supermarioyl/vllm-ascend"}, "target_tag": {"const": "v0.22.1rc1-ucm-0.5.0rc1-r1"}, "annotations": {"properties": {"io.ucm.release.spec-id": {"const": "cann900-a2-arm64"}, "io.ucm.release.family-id": {"const": "cann900-a2"}, "io.ucm.release.platform": {"const": "linux/arm64"}}}}},
-                {"$ref": "#/$defs/registryMemberRecord", "properties": {"spec_id": {"const": "cann900-a3-amd64"}, "profile_id": {"const": "cann900-a3"}, "family_id": {"const": "cann900-a3"}, "platform": {"const": "linux/amd64"}, "target_repository": {"const": "ghcr.io/supermarioyl/vllm-ascend"}, "target_tag": {"const": "v0.22.1rc1-a3-ucm-0.5.0rc1-r1"}, "annotations": {"properties": {"io.ucm.release.spec-id": {"const": "cann900-a3-amd64"}, "io.ucm.release.family-id": {"const": "cann900-a3"}, "io.ucm.release.platform": {"const": "linux/amd64"}}}}},
-                {"$ref": "#/$defs/registryMemberRecord", "properties": {"spec_id": {"const": "cann900-a3-arm64"}, "profile_id": {"const": "cann900-a3"}, "family_id": {"const": "cann900-a3"}, "platform": {"const": "linux/arm64"}, "target_repository": {"const": "ghcr.io/supermarioyl/vllm-ascend"}, "target_tag": {"const": "v0.22.1rc1-a3-ucm-0.5.0rc1-r1"}, "annotations": {"properties": {"io.ucm.release.spec-id": {"const": "cann900-a3-arm64"}, "io.ucm.release.family-id": {"const": "cann900-a3"}, "io.ucm.release.platform": {"const": "linux/arm64"}}}}}
-              ],
-              "items": false
+              "items": {"$ref": "#/$defs/registryMemberRecord"}
             },
             "index_records": {
               "type": "array",
-              "minItems": 3,
-              "maxItems": 3,
+              "minItems": 1,
+              "maxItems": 64,
               "uniqueItems": true,
-              "prefixItems": [
-                {"$ref": "#/$defs/registryIndexRecord", "properties": {"family_id": {"const": "cann900-a3"}, "target_repository": {"const": "ghcr.io/supermarioyl/vllm-ascend"}, "target_tag": {"const": "v0.22.1rc1-a3-ucm-0.5.0rc1-r1"}}},
-                {"$ref": "#/$defs/registryIndexRecord", "properties": {"family_id": {"const": "cann900-a2"}, "target_repository": {"const": "ghcr.io/supermarioyl/vllm-ascend"}, "target_tag": {"const": "v0.22.1rc1-ucm-0.5.0rc1-r1"}}},
-                {"$ref": "#/$defs/registryIndexRecord", "properties": {"family_id": {"const": "cuda130"}, "target_repository": {"const": "ghcr.io/supermarioyl/vllm-openai"}, "target_tag": {"const": "v0.21.0-ucm-0.5.0rc1-r1"}}}
-              ],
-              "items": false
+              "items": {"$ref": "#/$defs/registryIndexRecord"}
             }
           }
         }
@@ -368,9 +355,9 @@
       "additionalProperties": false,
       "required": ["dependency", "provider", "expected_mount_root", "relation", "required_at"],
       "properties": {
-        "dependency": {"const": "libascend_hal.so"},
-        "provider": {"const": "host-ascend-driver"},
-        "expected_mount_root": {"const": "/usr/local/Ascend/driver/lib64"},
+        "dependency": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+$"},
+        "provider": {"type": "string", "minLength": 1},
+        "expected_mount_root": {"type": "string", "pattern": "^/[^ ]+$"},
         "relation": {"const": "transitive"},
         "required_at": {"const": "device-runtime"}
       }
@@ -378,13 +365,12 @@
   },
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "kind", "ucm_version", "config_sha256", "compatibility_sha256", "declared_wheel_count", "eligible_wheel_count", "wheel_specs", "blockers", "publication", "status"],
+  "required": ["schema_version", "kind", "ucm_version", "config_sha256", "declared_wheel_count", "eligible_wheel_count", "wheel_specs", "blockers", "publication", "status"],
   "properties": {
     "schema_version": {"const": 1},
     "kind": {"const": "ucm-core-release-manifest"},
     "ucm_version": {"type": "string"},
     "config_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-    "compatibility_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "declared_wheel_count": {"type": "integer", "minimum": 1},
     "eligible_wheel_count": {"type": "integer", "minimum": 0},
     "wheel_specs": {
@@ -395,22 +381,22 @@
         "required": ["spec_id", "accelerator", "accelerator_runtime", "npu_arch_or_na", "os", "cpu_arch", "python_version", "python_abi", "wheel_version", "wheel_platform", "binary_profile_id", "validation_targets", "required_native", "forbidden_native", "allowed_dt_needed", "external_required_dependencies", "locks", "runner", "build_eligible", "blocked_reasons", "declaration_sha256"],
         "properties": {
           "spec_id": {"type": "string"},
-          "accelerator": {"enum": ["cuda", "ascend"]},
+          "accelerator": {"type": "string", "minLength": 1},
           "accelerator_runtime": {"type": "string"},
-          "npu_arch_or_na": {"enum": ["na", "a2", "a3"]},
-          "os": {"enum": ["ubuntu-22.04", "openEuler-24.03"]},
-          "cpu_arch": {"enum": ["amd64", "arm64"]},
-          "python_version": {"enum": ["3.11", "3.12"]},
-          "python_abi": {"enum": ["cp311", "cp312"]},
+          "npu_arch_or_na": {"type": "string", "minLength": 1},
+          "os": {"type": "string", "minLength": 1},
+          "cpu_arch": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+          "python_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$"},
+          "python_abi": {"type": "string", "pattern": "^cp[0-9]{2,}$"},
           "wheel_version": {"type": "string"},
-          "wheel_platform": {"enum": ["manylinux_2_28", "linux"]},
+          "wheel_platform": {"type": "string", "minLength": 1},
           "binary_profile_id": {"type": "string"},
           "validation_targets": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
           "required_native": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
           "forbidden_native": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
           "allowed_dt_needed": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
-          "external_required_dependencies": {"type": "array", "maxItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/externalRequiredDependency"}},
-          "locks": {"type": "array", "minItems": 2, "items": {"type": "object"}},
+          "external_required_dependencies": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/externalRequiredDependency"}},
+          "locks": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"type": "object"}},
           "runner": {"type": "object"},
           "build_eligible": {"type": "boolean"},
           "blocked_reasons": {"type": "array", "items": {"type": "string"}},
@@ -428,15 +414,17 @@
         "registry": {"$ref": "#/$defs/registryPublication"},
         "assets": {
           "type": "array",
-          "minItems": 2,
+          "minItems": 1,
+          "maxItems": 128,
+          "uniqueItems": true,
           "items": {
             "type": "object",
             "additionalProperties": false,
             "required": ["id", "type", "required", "status"],
             "properties": {
               "id": {"type": "string"},
-              "type": {"enum": ["wheel", "helm-chart"]},
-              "required": {"const": true},
+              "type": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+              "required": {"type": "boolean"},
               "status": {"enum": ["blocked", "candidate"]}
             }
           }

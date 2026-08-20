@@ -4,7 +4,6 @@ import re
 from typing import Any
 
 import yaml
-
 from conftest import REPO_ROOT
 
 WORKFLOW_ROOT = REPO_ROOT / ".github" / "workflows"
@@ -47,7 +46,7 @@ def test_candidate_is_tag_only_read_only_and_has_one_aggregate_artifact() -> Non
     workflow = _workflow("production-tag-candidate.yml")
 
     assert workflow["name"] == "UCM Production Tag Candidate"
-    assert workflow["on"] == {"push": {"tags": ["draft/v*", "v*"]}}
+    assert workflow["on"] == {"push": {"tags": ["draft/v*"]}}
     assert workflow["permissions"] == {"contents": "read"}
     assert workflow["concurrency"]["cancel-in-progress"] is False
     assert set(workflow["jobs"]) == {
@@ -141,6 +140,82 @@ def test_candidate_reusables_have_closed_inputs_and_cache_only_intermediates() -
     assert image_build["env"]["SOURCE_DATE_EPOCH"] == (
         "${{ inputs.source_date_epoch }}"
     )
+
+
+def test_production_wheel_workflow_stages_trusted_config_before_buildx() -> None:
+    workflow = _workflow("_production-build-wheel.yml")
+    steps = workflow["jobs"]["build"]["steps"]
+    resolve_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Resolve production wheel authority"
+    )
+    build_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Build and seal production wheel"
+    )
+    assert resolve_index < build_index
+
+    resolve_source = str(steps[resolve_index]["run"])
+    for fragment in (
+        "out/projection/build-authority.json",
+        "out/projection/build-projection.json",
+        "out/projection/wheel-build.json",
+        "out/source-context/wheel-build.json",
+        "control/.github/release/ucm_release",
+        "out/source-context/trusted-control/ucm_release",
+    ):
+        assert fragment in resolve_source
+
+    build_source = str(steps[build_index]["run"])
+    assert "--target production-wheel" in build_source
+    assert "UCM_RELEASE_" not in build_source
+    assert "SOURCE_DATE_EPOCH=" not in build_source
+    assert "PLATFORM=" not in build_source
+
+
+def test_production_image_workflows_use_complete_runtime_wheel_context() -> None:
+    candidate = _workflow("_production-build-image.yml")
+    resolve = next(
+        step
+        for step in candidate["jobs"]["build"]["steps"]
+        if step.get("name") == "Resolve trusted image recipe and dependency lock"
+    )
+    resolve_source = str(resolve["run"])
+    assert "packaging==" in resolve_source
+    assert "wrapt==" in resolve_source
+    assert "image context" in resolve_source
+    assert "out/image-context.json" in resolve_source
+
+    candidate_build = next(
+        step
+        for step in candidate["jobs"]["build"]["steps"]
+        if step.get("name") == "Build and inspect production OCI member"
+    )
+    candidate_build_source = str(candidate_build["run"])
+    assert "runtime_wheel_names" in candidate_build_source
+    assert "PACKAGING_WHEEL=${packaging_name}" in candidate_build_source
+    assert "WRAPT_WHEEL=${wrapt_name}" in candidate_build_source
+    assert "--target production-runtime" in candidate_build_source
+
+    publisher = _workflow("_production-publish-image-member.yml")
+    publisher_context = next(
+        step
+        for step in publisher["jobs"]["publish"]["steps"]
+        if step.get("name") == "Download and verify pinned runtime dependencies"
+    )
+    publisher_source = str(publisher_context["run"])
+    assert "packaging==" in publisher_source
+    assert "wrapt==" in publisher_source
+    assert "out/image-context.json" in publisher_source
+
+    publisher_build = next(
+        step
+        for step in publisher["jobs"]["publish"]["steps"]
+        if step.get("name") == "Rebuild and compare the exact candidate OCI closure"
+    )
+    assert "PACKAGING_WHEEL" in str(publisher_build["run"])
 
 
 def test_controller_has_only_successful_candidate_workflow_run_route() -> None:

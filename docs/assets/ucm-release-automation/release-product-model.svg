@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="560" viewBox="0 0 1440 560" role="img" aria-labelledby="title desc">
+  <title id="title">UCM 发布产品模型</title>
+  <desc id="desc">同一个正式版本计划驱动 Wheel、镜像和 Chart 三类产物发布，并汇总到 GitHub Release。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#64748B"/>
+    </marker>
+    <style>
+      .canvas{fill:#FAFAFA}.title{font:700 28px Inter,'PingFang SC','Microsoft YaHei',sans-serif;fill:#111827}
+      .sub{font:400 15px Inter,'PingFang SC','Microsoft YaHei',sans-serif;fill:#64748B}
+      .label{font:700 18px Inter,'PingFang SC','Microsoft YaHei',sans-serif;fill:#1F2937}
+      .text{font:400 15px Inter,'PingFang SC','Microsoft YaHei',sans-serif;fill:#374151}
+      .small{font:400 13px Inter,'PingFang SC','Microsoft YaHei',sans-serif;fill:#64748B}
+      .core{fill:#E1F5FE;stroke:#0277BD;stroke-width:2}.wheel{fill:#E8F5E9;stroke:#43A047;stroke-width:2}
+      .image{fill:#FFF3E0;stroke:#F59E0B;stroke-width:2}.chart{fill:#F3E8FF;stroke:#8B5CF6;stroke-width:2}
+      .channel{fill:#FFFFFF;stroke:#94A3B8;stroke-width:1.5}.release{fill:#FFF9C4;stroke:#D4A72C;stroke-width:2}
+      .line{fill:none;stroke:#64748B;stroke-width:2;marker-end:url(#arrow)}
+      .metaLine{fill:none;stroke:#64748B;stroke-width:1.6;stroke-dasharray:6 5;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect class="canvas" width="1440" height="560"/>
+  <text class="title" x="48" y="48">UCM 发布产品模型</text>
+  <text class="sub" x="48" y="76">一个版本计划，三类产物分别发布；GitHub Release 是正式版本入口，不承担容器和 Chart 的文件存储。</text>
+
+  <rect class="core" x="48" y="210" width="210" height="104" rx="12"/>
+  <text class="label" x="153" y="247" text-anchor="middle">正式版本 Tag</text>
+  <text class="text" x="153" y="275" text-anchor="middle">版本、源码提交</text>
+  <text class="text" x="153" y="298" text-anchor="middle">发布说明</text>
+
+  <rect class="core" x="318" y="190" width="220" height="144" rx="12"/>
+  <text class="label" x="428" y="230" text-anchor="middle">版本计划</text>
+  <text class="text" x="428" y="260" text-anchor="middle">确定产品版本</text>
+  <text class="text" x="428" y="285" text-anchor="middle">展开构建矩阵</text>
+  <text class="text" x="428" y="310" text-anchor="middle">生成发布批次</text>
+  <path class="line" d="M258 262 H318"/>
+
+  <rect class="wheel" x="608" y="108" width="230" height="104" rx="12"/>
+  <text class="label" x="723" y="145" text-anchor="middle">Wheel 发布</text>
+  <text class="text" x="723" y="175" text-anchor="middle">按 Python / 后端 / 架构构建</text>
+  <text class="small" x="723" y="198" text-anchor="middle">包名 uc-manager</text>
+
+  <rect class="image" x="608" y="228" width="230" height="104" rx="12"/>
+  <text class="label" x="723" y="265" text-anchor="middle">镜像发布</text>
+  <text class="text" x="723" y="295" text-anchor="middle">按上游版本 / 后端 / 架构构建</text>
+  <text class="small" x="723" y="318" text-anchor="middle">同一镜像同步到两个 Registry</text>
+
+  <rect class="chart" x="608" y="348" width="230" height="104" rx="12"/>
+  <text class="label" x="723" y="385" text-anchor="middle">Chart 发布</text>
+  <text class="text" x="723" y="415" text-anchor="middle">检查、打包 OCI Chart</text>
+  <text class="small" x="723" y="438" text-anchor="middle">包名 unified-cache-pd</text>
+
+  <path class="line" d="M538 236 H574 V160 H608"/>
+  <path class="line" d="M538 262 H608"/>
+  <path class="line" d="M538 288 H574 V400 H608"/>
+
+  <rect class="channel" x="912" y="94" width="190" height="70" rx="10"/>
+  <text class="label" x="1007" y="124" text-anchor="middle">PyPI</text>
+  <text class="small" x="1007" y="148" text-anchor="middle">正式 Wheel</text>
+  <rect class="channel" x="912" y="206" width="190" height="70" rx="10"/>
+  <text class="label" x="1007" y="236" text-anchor="middle">GHCR</text>
+  <text class="small" x="1007" y="260" text-anchor="middle">正式多架构镜像</text>
+  <rect class="channel" x="912" y="292" width="190" height="70" rx="10"/>
+  <text class="label" x="1007" y="322" text-anchor="middle">Docker Hub</text>
+  <text class="small" x="1007" y="346" text-anchor="middle">正式多架构镜像</text>
+  <rect class="channel" x="912" y="388" width="190" height="70" rx="10"/>
+  <text class="label" x="1007" y="418" text-anchor="middle">GitHub Packages</text>
+  <text class="small" x="1007" y="442" text-anchor="middle">正式 OCI Chart</text>
+
+  <path class="line" d="M838 148 H912"/>
+  <path class="line" d="M838 270 H880 V241 H912"/>
+  <path class="line" d="M838 290 H880 V327 H912"/>
+  <path class="line" d="M838 410 H912"/>
+
+  <rect class="release" x="1160" y="190" width="230" height="170" rx="12"/>
+  <text class="label" x="1275" y="230" text-anchor="middle">GitHub Release</text>
+  <text class="text" x="1275" y="263" text-anchor="middle">Wheel 文件与校验和</text>
+  <text class="text" x="1275" y="290" text-anchor="middle">镜像与 Chart 地址</text>
+  <text class="text" x="1275" y="317" text-anchor="middle">变更说明与兼容矩阵</text>
+  <text class="small" x="1275" y="344" text-anchor="middle">正式版本的统一入口</text>
+  <path class="line" d="M838 182 H870 V180 H1128 V230 H1160"/>
+  <path class="metaLine" d="M1102 241 H1128 V273 H1160"/>
+  <path class="metaLine" d="M1102 327 H1138 V290 H1160"/>
+  <path class="metaLine" d="M1102 423 H1148 V318 H1160"/>
+</svg>

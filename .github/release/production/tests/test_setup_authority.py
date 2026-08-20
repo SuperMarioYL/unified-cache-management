@@ -10,8 +10,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
-from conftest import REPO_ROOT
+from conftest import PRODUCTION_ROOT, REPO_ROOT
+from ucm_release_production.build import (
+    authority_from_task,
+    project_build_task,
+    tool_wheel_authority,
+    wheel_build_config_from_task,
+)
+from ucm_release_production.common import canonical_bytes, sha256_envelope
+from ucm_release_production.config import load_config
+from ucm_release_production.tags import parse_tag
 
 SOURCE_SHA = "1" * 40
 SOURCE_TREE = "2" * 40
@@ -22,6 +30,7 @@ PROFILE_DISTRIBUTIONS = {
     "cann900-a2": "uc-manager-cann-a2",
     "cann900-a3": "uc-manager-cann-a3",
 }
+PRODUCTION_CONFIG = PRODUCTION_ROOT / "production-release.json"
 
 
 def _architecture() -> str:
@@ -31,7 +40,6 @@ def _architecture() -> str:
 def _authority(
     *,
     profile: str = "cuda130",
-    schema_version: int = 2,
     distribution: str | None = None,
     base_version: str = "0.6.0",
     stage: str = "rc",
@@ -39,9 +47,9 @@ def _authority(
 ) -> dict[str, Any]:
     architecture = _architecture()
     if wheel_version is None:
-        wheel_version = "0.5.0rc1+cuda130" if schema_version == 1 else "0.6.0rc1"
+        wheel_version = "0.6.0rc1"
     result: dict[str, Any] = {
-        "schema_version": schema_version,
+        "schema_version": 2,
         "kind": "ucm-native-build-authority",
         "spec_id": f"{profile}-{architecture}",
         "profile_id": profile,
@@ -61,14 +69,13 @@ def _authority(
         "forbidden_native": ["mooncakestore"],
         "build_context_sha256": DIGEST,
     }
-    if schema_version == 2:
-        result.update(
-            {
-                "distribution": distribution or PROFILE_DISTRIBUTIONS[profile],
-                "base_version": base_version,
-                "stage": stage,
-            }
-        )
+    result.update(
+        {
+            "distribution": distribution or PROFILE_DISTRIBUTIONS[profile],
+            "base_version": base_version,
+            "stage": stage,
+        }
+    )
     return result
 
 
@@ -77,6 +84,9 @@ def _source_copy(tmp_path: Path, version: str) -> Path:
     root.mkdir()
     shutil.copyfile(REPO_ROOT / "setup.py", root / "setup.py")
     (root / "version.ini").write_text(f"VLLM_UC_VERSION={version}\n", encoding="utf-8")
+    release_package = root / ".github" / "release" / "ucm_release"
+    release_package.parent.mkdir(parents=True)
+    shutil.copytree(REPO_ROOT / ".github" / "release" / "ucm_release", release_package)
     return root
 
 
@@ -85,13 +95,11 @@ def _run_setup(
     authority: dict[str, Any],
     *,
     env_mutation: dict[str, str] | None = None,
+    source_version: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    source_version = "0.5.0rc1" if authority["schema_version"] == 1 else "0.6.0"
-    source = _source_copy(tmp_path, source_version)
-    authority_path = tmp_path / "authority.json"
-    authority_path.write_text(
-        json.dumps(authority, sort_keys=True, separators=(",", ":")) + "\n",
-        encoding="utf-8",
+    source = _source_copy(
+        tmp_path,
+        source_version or str(authority.get("base_version", "0.6.0")),
     )
     profile = str(authority["profile_id"])
     platform_name = (
@@ -102,28 +110,29 @@ def _run_setup(
     env = {
         key: value
         for key, value in os.environ.items()
-        if not key.startswith("UCM_RELEASE_") and key != "SOURCE_DATE_EPOCH"
+        if not key.startswith("UCM_RELEASE_")
+        and key
+        not in {"UCM_BUILD_CONFIG", "SOURCE_DATE_EPOCH", "PLATFORM", "UCM_DIST_NAME"}
     }
-    env.update(
-        {
-            "UCM_RELEASE_BUILD": "1",
-            "UCM_RELEASE_AUTHORITY_FILE": str(authority_path),
-            "UCM_RELEASE_PROFILE": profile,
-            "UCM_RELEASE_SOURCE_SHA": SOURCE_SHA,
-            "UCM_RELEASE_VERSION": str(authority["wheel_version"]),
-            "UCM_RELEASE_BUILD_KEY": DIGEST,
-            "UCM_RELEASE_REQUIRED_TARGETS": "ucmtrans",
-            "UCM_RELEASE_FORBIDDEN_TARGETS": "mooncakestore",
-            "SOURCE_DATE_EPOCH": SOURCE_DATE_EPOCH,
-            "PLATFORM": platform_name,
-        }
+    build_config = {
+        "authority": authority,
+        "distribution": PROFILE_DISTRIBUTIONS[profile],
+        "kind": "ucm-wheel-build-config",
+        "platform": platform_name,
+        "python": {"abi": "cp312", "version": "3.12"},
+        "runtime_requirements": ["packaging==24.2", "wrapt==1.17.2"],
+        "schema_version": 1,
+    }
+    config_path = tmp_path / "wheel-build.json"
+    config_path.write_text(
+        json.dumps(build_config, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
     )
-    if authority["schema_version"] == 2:
-        env["UCM_RELEASE_DISTRIBUTION"] = str(authority["distribution"])
+    env["UCM_BUILD_CONFIG"] = str(config_path)
     if env_mutation:
         env.update(env_mutation)
     return subprocess.run(
-        [sys.executable, "setup.py", "--name", "--version"],
+        [shutil.which("python") or sys.executable, "setup.py", "--name", "--version"],
         cwd=source,
         env=env,
         text=True,
@@ -132,15 +141,8 @@ def _run_setup(
     )
 
 
-def test_schema_v1_release_authority_still_builds_uc_manager(tmp_path: Path) -> None:
-    result = _run_setup(tmp_path, _authority(schema_version=1))
-
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.splitlines()[-2:] == ["uc-manager", "0.5.0rc1+cuda130"]
-
-
 @pytest.mark.parametrize("profile", list(PROFILE_DISTRIBUTIONS))
-def test_schema_v2_authority_controls_exact_distribution(
+def test_schema_v2_build_config_controls_exact_distribution(
     tmp_path: Path, profile: str
 ) -> None:
     result = _run_setup(tmp_path, _authority(profile=profile))
@@ -152,24 +154,110 @@ def test_schema_v2_authority_controls_exact_distribution(
     ]
 
 
+def test_generated_schema_v2_config_runs_root_setup_without_version_ini(
+    tmp_path: Path,
+) -> None:
+    config = load_config(PRODUCTION_CONFIG)
+    intent = parse_tag("v0.6.0rc1", config)
+    source = sha256_envelope(
+        {
+            "kind": "ucm-production-source-identity",
+            "schema_version": 1,
+            "repository": "OctoCat/unified-cache-management",
+            "repository_id": 42,
+            "stage": intent.stage,
+            "tag_name": intent.tag_name,
+            "tag_object_sha": "2" * 40,
+            "source_commit_sha": SOURCE_SHA,
+            "source_branch": intent.release_branch,
+            "tagger": "release-operator",
+            "tagged_at": "2026-08-13T08:00:00Z",
+            "tag_message_sha256": "3" * 64,
+            "control_default_branch": "develop",
+            "control_sha": "4" * 40,
+            "lineage": None,
+        }
+    )
+    architecture = _architecture()
+    task = project_build_task(
+        config,
+        intent,
+        source,
+        f"cuda130-{architecture}",
+    )
+    authority = authority_from_task(
+        task,
+        source_tree="5" * 40,
+        source_archive_sha256="sha256:" + "6" * 64,
+        source_date_epoch=int(SOURCE_DATE_EPOCH),
+        build_context_sha256="sha256:" + "7" * 64,
+        tool_wheels=tool_wheel_authority(config, architecture),
+    )
+    build_config = wheel_build_config_from_task(task, authority)
+    config_path = tmp_path / "wheel-build.json"
+    config_path.write_bytes(canonical_bytes(build_config) + b"\n")
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("UCM_RELEASE_")
+        and key
+        not in {"UCM_BUILD_CONFIG", "SOURCE_DATE_EPOCH", "PLATFORM", "UCM_DIST_NAME"}
+    }
+    env["UCM_BUILD_CONFIG"] = str(config_path)
+
+    result = subprocess.run(
+        [sys.executable, "setup.py", "--version"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert not (REPO_ROOT / "version.ini").exists()
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[-1] == "0.6.0rc1"
+
+
+@pytest.mark.parametrize(
+    ("stage", "base_version", "wheel_version"),
+    [
+        ("draft", "0.6.0", "0.6.0.dev1"),
+        ("rc", "0.6.0", "0.6.0rc1"),
+        ("stable", "0.6.0", "0.6.0"),
+        ("hotfix", "0.6.1", "0.6.1"),
+    ],
+)
+def test_schema_v2_build_config_preserves_stage_version_rules(
+    tmp_path: Path, stage: str, base_version: str, wheel_version: str
+) -> None:
+    result = _run_setup(
+        tmp_path,
+        _authority(
+            stage=stage,
+            base_version=base_version,
+            wheel_version=wheel_version,
+        ),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[-1] == wheel_version
+
+
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
-        (lambda value: value.update(distribution="uc-manager-evil"), "distribution"),
-        (lambda value: value.update(distribution="uc-manager-cann-a2"), "distribution"),
-        (lambda value: value.pop("stage"), "fields"),
-        (lambda value: value.update(unexpected=True), "fields"),
+        (lambda value: value.update(distribution="uc-manager-evil"), "invalid"),
+        (lambda value: value.update(distribution="uc-manager-cann-a2"), "invalid"),
+        (lambda value: value.pop("stage"), "schema-v2"),
+        (lambda value: value.update(unexpected=True), "schema-v2"),
         (
             lambda value: value.update(stage="stable", wheel_version="0.6.0+local"),
-            "version",
+            "invalid",
         ),
         (
             lambda value: value.update(stage="draft", wheel_version="0.6.0rc1"),
-            "version",
-        ),
-        (
-            lambda value: value.update(base_version="0.6.1", wheel_version="0.6.1rc1"),
-            "version.ini",
+            "invalid",
         ),
     ],
 )
@@ -185,22 +273,41 @@ def test_schema_v2_authority_mutations_fail_closed(
     assert message.lower() in result.stderr.lower()
 
 
-def test_schema_v2_environment_must_match_distribution(tmp_path: Path) -> None:
+def test_schema_v2_build_config_ignores_legacy_release_environment(
+    tmp_path: Path,
+) -> None:
     result = _run_setup(
         tmp_path,
         _authority(),
-        env_mutation={"UCM_RELEASE_DISTRIBUTION": "uc-manager-cann-a3"},
+        env_mutation={
+            "UCM_RELEASE_DISTRIBUTION": "uc-manager-cann-a3",
+            "UCM_RELEASE_VERSION": "9.9.9",
+            "PLATFORM": "maca",
+            "SOURCE_DATE_EPOCH": "1",
+            "UCM_DIST_NAME": "ignored",
+        },
     )
 
-    assert result.returncode != 0
-    assert "distribution" in result.stderr.lower()
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[-2:] == ["uc-manager-cuda", "0.6.0rc1"]
 
 
-def test_schema_v1_rejects_schema_v2_extra_fields(tmp_path: Path) -> None:
-    authority = _authority(schema_version=1)
-    authority["distribution"] = "uc-manager-cuda"
+def test_setup_rejects_compact_schema_v1_authority(tmp_path: Path) -> None:
+    authority = _authority()
+    authority["schema_version"] = 1
+    for field in ("distribution", "base_version", "stage"):
+        authority.pop(field)
 
     result = _run_setup(tmp_path, authority)
 
     assert result.returncode != 0
-    assert "fields" in result.stderr.lower()
+    assert "extended schema-v1 or production schema-v2" in result.stderr
+
+
+def test_schema_v2_build_config_ignores_non_authoritative_version_ini(
+    tmp_path: Path,
+) -> None:
+    result = _run_setup(tmp_path, _authority(), source_version="0.6.1")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[-1] == "0.6.0rc1"

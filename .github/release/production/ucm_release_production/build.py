@@ -8,8 +8,8 @@ import email.parser
 import hashlib
 import io
 import re
-import subprocess
 import struct
+import subprocess
 import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -17,18 +17,72 @@ from typing import Any
 from .common import (
     ProductionError,
     canonical_bytes,
+    require_exact_keys,
     require_lower_commit_sha,
+    require_lower_sha256,
     require_sha256_digest,
+    require_string,
     sha256_envelope,
     verify_envelope,
 )
-from .config import validate_config
+from .config import validate_config, validate_production_wheel_profile
 from .tags import TagIntent
 
 _PROFILES = ("cuda130", "cann900-a2", "cann900-a3")
 _ARCHITECTURES = ("amd64", "arm64")
 _RUNNERS = {"amd64": "ubuntu-24.04", "arm64": "ubuntu-24.04-arm"}
 _PLATFORMS = {"amd64": "linux/amd64", "arm64": "linux/arm64"}
+_PRODUCTION_WHEEL_TASK_KEYS = {
+    "kind",
+    "schema_version",
+    "spec_id",
+    "profile_id",
+    "distribution",
+    "build_platform",
+    "cpu_arch",
+    "platform",
+    "runner",
+    "python_version",
+    "python_abi",
+    "wheel_platform",
+    "base_version",
+    "stage",
+    "wheel_version",
+    "source_sha",
+    "source_identity_sha256",
+    "builder",
+    "runtime",
+    "required_native",
+    "forbidden_native",
+    "dependency_lock_sha256",
+    "runtime_requirements",
+    "write_authority",
+    "sha256",
+}
+_PRODUCTION_AUTHORITY_KEYS = {
+    "schema_version",
+    "kind",
+    "spec_id",
+    "profile_id",
+    "distribution",
+    "base_version",
+    "stage",
+    "cpu_arch",
+    "platform",
+    "wheel_version",
+    "source_sha",
+    "source_tree",
+    "source_archive_sha256",
+    "source_date_epoch",
+    "task_sha256",
+    "builder_coordinate",
+    "builder_config_digest",
+    "dependency_lock_sha256",
+    "tool_wheels",
+    "required_native",
+    "forbidden_native",
+    "build_context_sha256",
+}
 _NATIVE_REQUIRED_COMMON = (
     "ucmtrans",
     "metrics",
@@ -183,24 +237,11 @@ def docker_build_projection(
         build_context_sha256=context["build_context_sha256"],
         tool_wheels=tools,
     )
-    platform_arg = {
-        "cuda130": "cuda",
-        "cann900-a2": "ascend",
-        "cann900-a3": "ascend-a3",
-    }[task["profile_id"]]
     build_args: dict[str, str] = {
-        "SOURCE_DATE_EPOCH": str(epoch),
         "UCM_BUILDER_IMAGE": (
             f"{task['builder']['repository']}@{task['builder']['manifest_digest']}"
         ),
-        "PLATFORM": platform_arg,
-        "UCM_RELEASE_PROFILE": task["profile_id"],
-        "UCM_RELEASE_DISTRIBUTION": task["distribution"],
-        "UCM_RELEASE_SOURCE_SHA": task["source_sha"],
-        "UCM_RELEASE_VERSION": task["wheel_version"],
-        "UCM_RELEASE_BUILD_KEY": "sha256:" + task["sha256"],
-        "UCM_RELEASE_REQUIRED_TARGETS": ",".join(task["required_native"]),
-        "UCM_RELEASE_FORBIDDEN_TARGETS": ",".join(task["forbidden_native"]),
+        "UCM_BUILD_CONFIG": "wheel-build.json",
     }
     prefixes = {
         "build": "BUILD",
@@ -297,6 +338,111 @@ def _verify_task_native_members(
         raise ProductionError("wheel required/forbidden native closure differs")
 
 
+def validate_production_wheel_task(value: object) -> dict[str, Any]:
+    """Validate one complete canonical production wheel-task envelope."""
+    if not isinstance(value, dict):
+        raise ProductionError("production wheel task must be an object")
+    validate_production_wheel_profile(
+        value,
+        identity_field="profile_id",
+        label="production wheel task",
+    )
+    try:
+        task = verify_envelope(
+            value,
+            kind="ucm-production-wheel-build-task",
+            schema_version=1,
+            exact_keys=_PRODUCTION_WHEEL_TASK_KEYS,
+        )
+    except ProductionError as error:
+        if str(error).startswith("envelope sha256"):
+            raise ProductionError(
+                f"production wheel task hash is invalid: {error}"
+            ) from None
+        raise
+    architecture = task["cpu_arch"]
+    if (
+        architecture not in _ARCHITECTURES
+        or task["spec_id"] != f"{task['profile_id']}-{architecture}"
+        or task["platform"] != _PLATFORMS[architecture]
+        or task["runner"] != _RUNNERS[architecture]
+    ):
+        raise ProductionError("production wheel task cpu_arch/spec/platform is invalid")
+    base_version = str(task["base_version"])
+    escaped = re.escape(base_version)
+    stage_patterns = {
+        "draft": rf"{escaped}\.dev[1-9][0-9]*",
+        "rc": rf"{escaped}rc[1-9][0-9]*",
+        "stable": escaped,
+        "hotfix": escaped,
+    }
+    stage = task["stage"]
+    if (
+        re.fullmatch(
+            r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)",
+            base_version,
+        )
+        is None
+        or stage not in stage_patterns
+        or re.fullmatch(stage_patterns[stage], str(task["wheel_version"])) is None
+    ):
+        raise ProductionError("production wheel task stage/version is invalid")
+    require_lower_commit_sha(task["source_sha"], "production wheel task source_sha")
+    require_lower_sha256(
+        task["source_identity_sha256"],
+        "production wheel task source_identity_sha256",
+    )
+    require_sha256_digest(
+        task["dependency_lock_sha256"],
+        "production wheel task dependency_lock_sha256",
+    )
+    requirements = task["runtime_requirements"]
+    if (
+        not isinstance(requirements, list)
+        or not requirements
+        or requirements != sorted(requirements)
+        or len(requirements) != len(set(requirements))
+        or any(
+            not isinstance(item, str)
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*==[^*=\s]+", item) is None
+            for item in requirements
+        )
+    ):
+        raise ProductionError("production wheel task runtime_requirements are invalid")
+    required = task["required_native"]
+    forbidden = task["forbidden_native"]
+    if (
+        not isinstance(required, list)
+        or not required
+        or not isinstance(forbidden, list)
+        or not forbidden
+        or len(required) != len(set(required))
+        or len(forbidden) != len(set(forbidden))
+        or set(required) & set(forbidden)
+    ):
+        raise ProductionError("production wheel task native target lists are invalid")
+    for label in ("builder", "runtime"):
+        record = task[label]
+        if not isinstance(record, dict):
+            raise ProductionError(f"production wheel task {label} is invalid")
+        require_exact_keys(
+            record,
+            {"repository", "tag", "index_digest", "manifest_digest", "config_digest"},
+            f"production wheel task {label}",
+        )
+        require_string(
+            record["repository"], f"production wheel task {label}.repository"
+        )
+        require_string(record["tag"], f"production wheel task {label}.tag")
+        for field in ("index_digest", "manifest_digest", "config_digest"):
+            require_sha256_digest(
+                record[field], f"production wheel task {label}.{field}"
+            )
+    if task["write_authority"] != []:
+        raise ProductionError("production wheel task write authority is invalid")
+    return task
+
+
 def seal_built_wheel(
     raw_wheel: Path,
     output_dir: Path,
@@ -305,6 +451,7 @@ def seal_built_wheel(
 ) -> dict[str, Any]:
     """Canonicalize one native wheel and bind its schema-v2 build authority."""
 
+    task = validate_production_wheel_task(task)
     raw_wheel = Path(raw_wheel)
     output_dir = Path(output_dir)
     if not raw_wheel.is_file() or raw_wheel.is_symlink():
@@ -316,18 +463,22 @@ def seal_built_wheel(
     try:
         with zipfile.ZipFile(raw_wheel) as archive:
             metadata, record_name, _ = _metadata(archive)
+            wheel_name, wheel_metadata = _wheel_metadata(
+                archive, record_name, task, allow_raw=True
+            )
             _record(archive, record_name)
             entries = {
                 item.filename: archive.read(item.filename)
                 for item in archive.infolist()
                 if not item.is_dir() and item.filename != record_name
             }
+            entries[wheel_name] = wheel_metadata
     except zipfile.BadZipFile:
         raise ProductionError("raw production wheel is not a ZIP archive") from None
     if (
         metadata.get("Name") != task["distribution"]
         or metadata.get("Version") != task["wheel_version"]
-        or metadata.get_all("Requires-Dist", []) != ["wrapt==1.17.2"]
+        or metadata.get_all("Requires-Dist", []) != task["runtime_requirements"]
     ):
         raise ProductionError("raw production wheel metadata differs from task")
     _verify_task_native_members(entries, task)
@@ -352,10 +503,9 @@ def seal_built_wheel(
     timestamp_values = list(time.gmtime(epoch)[:6])
     timestamp_values[5] -= timestamp_values[5] % 2
     timestamp = tuple(timestamp_values)
-    architecture = {"amd64": "x86_64", "arm64": "aarch64"}[task["cpu_arch"]]
     filename = (
         f"{task['distribution'].replace('-', '_')}-{task['wheel_version']}-"
-        f"cp312-cp312-{task['wheel_platform']}_{architecture}.whl"
+        f"{_expected_wheel_tag(task)}.whl"
     )
     if output_dir.exists() and any(output_dir.iterdir()):
         raise ProductionError("production wheel output directory must be empty")
@@ -382,6 +532,9 @@ def seal_built_wheel(
             "file_sha256": inspected["sha256"],
             "task_sha256": "sha256:" + task["sha256"],
             "source_sha": task["source_sha"],
+            "python_abi": task["python_abi"],
+            "wheel_platform": task["wheel_platform"],
+            "runtime_requirements": task["runtime_requirements"],
         }
     )
     (output_dir / "record.json").write_bytes(canonical_bytes(record) + b"\n")
@@ -444,6 +597,11 @@ def project_build_task(
     )
     source_value, source_sha = _source_identity(source, intent)
     profile = _profile(config, profile_id)
+    validate_production_wheel_profile(
+        profile,
+        identity_field="id",
+        label="projected build profile",
+    )
     required_native = list(_NATIVE_REQUIRED_COMMON)
     if profile_id != "cuda130":
         required_native.append("mooncakestore")
@@ -455,9 +613,11 @@ def project_build_task(
         "spec_id": spec_id,
         "profile_id": profile_id,
         "distribution": profile["distribution"],
+        "build_platform": profile["build_platform"],
         "cpu_arch": architecture,
         "platform": _PLATFORMS[architecture],
         "runner": _RUNNERS[architecture],
+        "python_version": profile["python_version"],
         "python_abi": profile["python_abi"],
         "wheel_platform": profile["wheel_platform"],
         "base_version": (
@@ -473,9 +633,10 @@ def project_build_task(
         "forbidden_native": forbidden_native,
         "dependency_lock_sha256": "sha256:"
         + hashlib.sha256(canonical_bytes(dependency_lock)).hexdigest(),
+        "runtime_requirements": list(config["toolchain"]["runtime_requirements"]),
         "write_authority": [],
     }
-    return sha256_envelope(unsigned)
+    return validate_production_wheel_task(sha256_envelope(unsigned))
 
 
 def authority_from_task(
@@ -528,6 +689,65 @@ def authority_from_task(
     }
 
 
+def wheel_build_config_from_task(
+    task: dict[str, Any], authority: dict[str, Any]
+) -> dict[str, Any]:
+    """Project the canonical pre-Buildx setup wrapper for a production task."""
+    task = validate_production_wheel_task(task)
+    if not isinstance(authority, dict) or set(authority) != _PRODUCTION_AUTHORITY_KEYS:
+        raise ProductionError("production wheel build authority fields are not exact")
+    builder = task["builder"]
+    expected = {
+        "schema_version": 2,
+        "kind": "ucm-native-build-authority",
+        "spec_id": task["spec_id"],
+        "profile_id": task["profile_id"],
+        "distribution": task["distribution"],
+        "base_version": task["base_version"],
+        "stage": task["stage"],
+        "cpu_arch": task["cpu_arch"],
+        "platform": task["platform"],
+        "wheel_version": task["wheel_version"],
+        "source_sha": task["source_sha"],
+        "task_sha256": "sha256:" + task["sha256"],
+        "builder_coordinate": (f"{builder['repository']}@{builder['manifest_digest']}"),
+        "builder_config_digest": builder["config_digest"],
+        "dependency_lock_sha256": task["dependency_lock_sha256"],
+        "required_native": task["required_native"],
+        "forbidden_native": task["forbidden_native"],
+    }
+    mismatches = [
+        field for field, value in expected.items() if authority.get(field) != value
+    ]
+    if mismatches:
+        raise ProductionError(
+            f"production wheel build authority differs from task: {mismatches}"
+        )
+    if (
+        not isinstance(task.get("runtime_requirements"), list)
+        or not task["runtime_requirements"]
+        or any(
+            not isinstance(item, str) or not item
+            for item in task["runtime_requirements"]
+        )
+    ):
+        raise ProductionError(
+            "production wheel build task runtime_requirements are invalid"
+        )
+    return {
+        "authority": authority,
+        "distribution": task["distribution"],
+        "kind": "ucm-wheel-build-config",
+        "platform": task["build_platform"],
+        "python": {
+            "abi": task["python_abi"],
+            "version": task["python_version"],
+        },
+        "runtime_requirements": task["runtime_requirements"],
+        "schema_version": 1,
+    }
+
+
 def _safe_member(name: str) -> bool:
     if not name or "\\" in name or name.startswith("/"):
         return False
@@ -547,6 +767,62 @@ def _metadata(archive: zipfile.ZipFile) -> tuple[email.message.Message, str, byt
     raw_metadata = archive.read(metadata_names[0])
     metadata = email.parser.BytesParser().parsebytes(raw_metadata)
     return metadata, record_names[0], raw_metadata
+
+
+def _expected_wheel_tag(task: dict[str, Any]) -> str:
+    architecture = {"amd64": "x86_64", "arm64": "aarch64"}.get(task.get("cpu_arch"))
+    wheel_platform = task.get("wheel_platform")
+    python_abi = task.get("python_abi")
+    if (
+        architecture is None
+        or not isinstance(wheel_platform, str)
+        or not wheel_platform
+        or not isinstance(python_abi, str)
+        or not python_abi
+    ):
+        raise ProductionError("production task wheel_platform is invalid")
+    return f"{python_abi}-{python_abi}-{wheel_platform}_{architecture}"
+
+
+def _wheel_metadata(
+    archive: zipfile.ZipFile,
+    record_name: str,
+    task: dict[str, Any],
+    *,
+    allow_raw: bool = False,
+) -> tuple[str, bytes]:
+    names = [item.filename for item in archive.infolist() if not item.is_dir()]
+    wheel_names = [name for name in names if name.endswith(".dist-info/WHEEL")]
+    if len(wheel_names) != 1:
+        raise ProductionError("wheel must contain exactly one WHEEL file")
+    dist_info = PurePosixPath(record_name).parent.as_posix()
+    wheel_name = wheel_names[0]
+    if wheel_name != f"{dist_info}/WHEEL":
+        raise ProductionError("wheel WHEEL file differs from its dist-info directory")
+    raw = archive.read(wheel_name)
+    parsed = email.parser.BytesParser().parsebytes(raw)
+    expected_tag = _expected_wheel_tag(task)
+    observed_tags = parsed.get_all("Tag", [])
+    allowed_tags = {expected_tag}
+    if allow_raw and task.get("build_platform") == "cuda":
+        allowed_tags.add(expected_tag.replace(task["wheel_platform"], "linux", 1))
+    if len(observed_tags) != 1 or observed_tags[0] not in allowed_tags:
+        raise ProductionError("wheel Tag differs from production task")
+    tag_line = re.compile(rb"(?m)^Tag:[ \t]*[^\r\n]*(?P<newline>\r?\n|$)")
+    matches = list(tag_line.finditer(raw))
+    if len(matches) != 1:
+        raise ProductionError("wheel must contain exactly one textual Tag header")
+    match = matches[0]
+    canonical = (
+        raw[: match.start()]
+        + b"Tag: "
+        + expected_tag.encode("ascii")
+        + match.group("newline")
+        + raw[match.end() :]
+    )
+    if not allow_raw and canonical != raw:
+        raise ProductionError("wheel Tag header is noncanonical")
+    return wheel_name, canonical
 
 
 def _record(archive: zipfile.ZipFile, record_name: str) -> None:
@@ -595,6 +871,7 @@ def _inspect_wheel(path: Path, task: dict[str, Any]) -> dict[str, Any]:
     try:
         with zipfile.ZipFile(path) as archive:
             metadata, record_name, _ = _metadata(archive)
+            _wheel_metadata(archive, record_name, task)
             _record(archive, record_name)
             _native_architecture(archive, task["cpu_arch"])
     except zipfile.BadZipFile:
@@ -606,7 +883,7 @@ def _inspect_wheel(path: Path, task: dict[str, Any]) -> dict[str, Any]:
         raise ProductionError("wheel distribution differs from production task")
     if version != task["wheel_version"]:
         raise ProductionError("wheel version differs from production task")
-    if requires_dist != ["wrapt==1.17.2"]:
+    if requires_dist != task["runtime_requirements"]:
         raise ProductionError("wheel dependency metadata is not the reviewed closure")
     return {
         "distribution": distribution,

@@ -4,7 +4,6 @@ import json
 from collections.abc import Mapping
 
 import pytest
-
 from ucm_release_production.common import ProductionError
 from ucm_release_production.github_api import GitHubClient, read_trusted_identity
 

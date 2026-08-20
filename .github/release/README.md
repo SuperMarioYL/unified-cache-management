@@ -5,15 +5,16 @@ This directory owns the repository release contracts and the unified
 built by GitHub Actions; they are not prepared or uploaded from a developer
 machine.
 
-## Current feature-candidate result
+## Historical feature-candidate evidence (fixed catalog snapshot)
 
-The exact-six hosted path and its same-SHA determinism check completed at source
-commit [`b9de1b3a29ae094e4c6d3895b0b642e92aa8ab42`](https://github.com/SuperMarioYL/unified-cache-management/commit/b9de1b3a29ae094e4c6d3895b0b642e92aa8ab42):
+The then-current six-task hosted path and its same-SHA determinism check
+completed at source
+commit [`b9de1b3a29ae094e4c6d3895b0b642e92aa8ab42`](https://github.com/{owner}/unified-cache-management/commit/b9de1b3a29ae094e4c6d3895b0b642e92aa8ab42):
 
-- [Push Commit Checks run 31329098122](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098122)
+- [Push Commit Checks run 31329098122](https://github.com/{owner}/unified-cache-management/actions/runs/31329098122)
   succeeded.
-- [Release UCM core artifacts run 31329098205, attempt 1](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/attempts/1)
-  and [attempt 2](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/attempts/2)
+- [Release UCM core artifacts run 31329098205, attempt 1](https://github.com/{owner}/unified-cache-management/actions/runs/31329098205/attempts/1)
+  and [attempt 2](https://github.com/{owner}/unified-cache-management/actions/runs/31329098205/attempts/2)
   both succeeded. Each produced 15 Actions Artifacts: six real wheels, one
   Chart, six real compact image artifacts, one three-family image aggregate,
   and one final evidence aggregate.
@@ -29,22 +30,19 @@ commit [`b9de1b3a29ae094e4c6d3895b0b642e92aa8ab42`](https://github.com/SuperMari
   payload are exact. Only the expected `github.run_attempt` envelope field was
   excluded.
 
-This is real hosted build evidence, not a release. The workflows have no GHCR
-login or push, create no Git tag or GitHub Release, and do not write upstream.
-Registry publication/readback, matching CUDA/A2/A3 device execution, cluster
-acceptance, and protected Tag production remain open. Repository contents stay
-read-only; the intended remote output of this feature lane is the temporary
-Actions Artifact upload.
+This section records one historical catalog snapshot. Its six members and three
+families are regression evidence, not the active matrix authority. The active
+workflow always uses the complete task and family sets in one frozen resolved
+plan.
 
 ## Layout
 
 | Path | Role |
 | --- | --- |
-| `release.yaml` | Version, exact six reviewed tasks across three profiles, immutable builders, upstream images, dependency locks, Chart, and runner mapping |
-| `compatibility.yaml` | Accepted CUDA/CANN, A2/A3, OS, CPU, ABI, and upstream-channel rules |
+| `release.yaml` | Catalog-owned source identity, profiles, compatibility rules, upstream products, immutable builders, dependency locks, Chart, runners, and publication targets |
 | `ucm_release/` | Strict configuration, wheel, Chart, Registry, image, and aggregation implementation |
 | `schemas/` | Configuration, release-manifest, and image-result contracts |
-| `docker/` | Multi-stage wheel/image Dockerfile and three verification helpers |
+| `docker/` | Separate six-stage wheel, install-only runtime, and builder Dockerfiles plus three verification helpers |
 | `tests/` | Structural, behavioral, mutation, workflow, and loop checks |
 | `charts/ucm` | Product Helm Chart with source provenance |
 
@@ -52,15 +50,19 @@ The four release workflows are:
 
 | Workflow | Current feature responsibility |
 | --- | --- |
-| `_build-wheel.yml` | Build, seal, reopen, inspect, and upload one reviewed native wheel |
-| `_build-image.yml` | Reopen the same-run wheel, verify the pinned upstream base, install UCM and locked `wrapt`, build a local OCI archive, fully scan it, delete the large archive, and upload compact evidence |
-| `release-vllm-images.yml` | Build all six image members, enforce a six-of-six barrier, form three dual-architecture candidate plans, and emit the feature-only deterministic zero marker after exact-six closure validation |
-| `release-ucm.yml` | Project the exact six tasks, build all wheels, package the Chart, invoke the image workflow, enforce the final barrier, and upload the final aggregate |
+| `_build-wheel.yml` | Materialize canonical build authority/config on the host, build, seal, reopen, inspect, and upload one reviewed native wheel |
+| `_build-image.yml` | Reopen the same-run wheel, verify the pinned upstream base, install UCM and all locked runtime dependencies, build a local OCI archive, fully scan it, delete the large archive, and upload compact evidence |
+| `release-vllm-images.yml` | Build every planner-selected image member, enforce the frozen task-set barrier, form planner-selected family plans, and emit the feature-only deterministic zero marker after complete closure validation |
+| `release-ucm.yml` | Resolve one frozen plan, build every selected wheel and image task, package the Chart, enforce complete task/family barriers, and aggregate or publish only plan-bound artifacts |
 
-All feature jobs use `contents: read`. A `v*` or non-fork invocation enters the
-explicit blocked job; the current implementation does not publish a Tag lane.
+Feature jobs use read-only repository permissions. Protected publication jobs
+remain separately repository-, tag-, environment-, task-, and plan-gated.
 
-## Exact six matrix
+## Historical six-task catalog snapshot
+
+The following table describes the hosted evidence above only. Additions,
+renames, or removals in `release.yaml` are projected into opaque task IDs by the
+resolver; this table is not consumed by production code.
 
 | Family | Task IDs | Wheel tag | Hosted runner |
 | --- | --- | --- | --- |
@@ -70,21 +72,23 @@ explicit blocked job; the current implementation does not publish a Tag lane.
 
 The wheel versions are `0.5.0rc1+cuda130`,
 `0.5.0rc1+cann900.a2`, and `0.5.0rc1+cann900.a3`. Each wheel artifact contains
-the `.whl`, its canonical inspection and seal, source-context records, the
-resolved task/toolchain authority, disk evidence, and the native build log.
+the `.whl`, its canonical inspection and seal, `build-authority.json`,
+`wheel-build.json`, source-context records, the resolved task/toolchain
+authority, disk evidence, and the native build log.
 CANN's `libascend_hal.so` record remains a structured
 `kind=external-required` host-driver dependency; it is not bundled or treated
 as an unresolved dependency.
 
-The image context is install-only. It contains the Dockerfile, three helpers,
-the exact UCM wheel, the architecture-specific `wrapt==1.17.2` wheel,
+The image context for that snapshot was install-only. It contained the
+runtime Dockerfile, three helpers, the exact UCM wheel, the selected task's
+locked runtime wheels,
 `requirements.lock`, `image-recipe.json`, and `image-authority.json`; it does
 not contain the UCM source or compile UCM again. The full OCI archive is scanned
 inside its build job and then removed. The uploaded compact artifact keeps the
 index, manifest, config, descriptor/diff-ID closure, build records, and logs,
 but not the large layer blobs.
 
-## Artifact names and readback
+## Historical artifact names and readback
 
 The latest successful attempt exposes these artifact groups on the release run
 page:
@@ -95,10 +99,10 @@ page:
 - `ucm-real-images-<source-sha>`: one image-family aggregate;
 - `release-loop-evidence-<source-sha>`: one final aggregate.
 
-Direct links for the latest attempt are the [Chart](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/artifacts/9042724281),
-[image aggregate](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/artifacts/9042832261),
-and [final aggregate](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31329098205/artifacts/9042839761).
-Use the API below for the six wheel and six image links because every rerun
+Direct links for the latest attempt are the [Chart](https://github.com/{owner}/unified-cache-management/actions/runs/31329098205/artifacts/9042724281),
+[image aggregate](https://github.com/{owner}/unified-cache-management/actions/runs/31329098205/artifacts/9042832261),
+and [final aggregate](https://github.com/{owner}/unified-cache-management/actions/runs/31329098205/artifacts/9042839761).
+For that snapshot, use the API below for the six wheel and six image links because every rerun
 replaces the current artifact IDs.
 
 Artifacts have the workflow's three-day retention. Artifact IDs are
@@ -108,7 +112,7 @@ a prior attempt:
 ```bash
 set -euo pipefail
 
-readonly REPOSITORY=SuperMarioYL/unified-cache-management
+readonly REPOSITORY={owner}/unified-cache-management
 readonly RUN_ID=31329098205
 readonly SOURCE_SHA=b9de1b3a29ae094e4c6d3895b0b642e92aa8ab42
 
@@ -161,18 +165,18 @@ diff IDs, compact closure, content identity, result, authority, and recipe. All
 three family plans, the candidate inventory, and the deterministic zero marker
 matched as well.
 
-## What `second_reconcile.task_count == 0` means
+## What the historical `second_reconcile.task_count == 0` means
 
-The image aggregate first reopens the exact six same-run wheel and image
-artifacts, creates three unpublished family plans, and places those plans into a
-deterministic feature candidate inventory. After those gates pass, the current
-implementation directly emits this canonical marker:
+The recorded image aggregate first reopened the complete same-run wheel and
+image task sets from that frozen plan, created its unpublished family plans,
+and placed those plans into a deterministic feature candidate inventory. After
+those gates passed, it emitted this canonical marker:
 
 ```json
 {"decision":"already-present","task_count":0,"tasks":[]}
 ```
 
-The marker records that aggregation reached the validated exact-six closure. It
+The marker records that aggregation reached the validated frozen-plan closure. It
 does not recompute an expected task set or call Registry reconciliation.
 
 It is not a target-GHCR query, publication digest readback, or proof that a
@@ -184,12 +188,12 @@ comparison, not from the zero marker alone.
 
 ## Historical determinism failure and fix
 
-The earlier [run 31324468754](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/31324468754)
+The earlier [run 31324468754](https://github.com/{owner}/unified-cache-management/actions/runs/31324468754)
 at `166e0f474a3adab88917d65b7af61ea948f7492c` remains useful negative
 evidence. Both attempts completed, and their wheels and Chart matched, but all
 six image identities drifted. The shared cause was the generated
 `/var/cache/ldconfig/aux-cache` in both runtime stages. Commit
-[`ea931a95c231835a4bb4af353821084af9b998e6`](https://github.com/SuperMarioYL/unified-cache-management/commit/ea931a95c231835a4bb4af353821084af9b998e6)
+[`ea931a95c231835a4bb4af353821084af9b998e6`](https://github.com/{owner}/unified-cache-management/commit/ea931a95c231835a4bb4af353821084af9b998e6)
 removes that cache in the same layer that runs `ldconfig`; the new two-attempt
 comparison is the hosted proof that the image identities now repeat.
 
@@ -203,9 +207,10 @@ Run contract checks from the repository root:
 
 ```bash
 export PYTHONPATH=.github/release
-python -m ucm_release config validate
+python -m ucm_release catalog validate
+python -m ucm_release catalog resolve --help
+python -m ucm_release catalog select --help
 python -m ucm_release core tag-preflight --lane feature-candidate
-python -m ucm_release core hosted-matrix --help
 python -m ucm_release wheel context --help
 python -m ucm_release wheel inspect --help
 python -m ucm_release chart package --help
@@ -229,9 +234,9 @@ but they are not the current feature result.
 
 ## Remaining release work
 
-The feature build and same-SHA artifact comparison are complete. Production
-still requires a separately authorized protected Tag path, Registry write and
-digest readback, a GitHub prerelease and asset readback, matching CUDA/A2/A3
-runtime/device evidence, and cluster workload acceptance. Until those events
-occur, keep all six images unpublished and do not describe this feature run as
-a formal release.
+The fixed-snapshot feature build and same-SHA artifact comparison above are
+complete. Production evidence remains event-specific: protected hosted build,
+Registry write and anonymous digest readback, GitHub prerelease asset readback,
+matching accelerator runtime/device evidence, and cluster workload acceptance
+must each be reported separately. A local contract pass does not establish any
+of those external outcomes.

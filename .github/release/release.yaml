@@ -1,307 +1,126 @@
 kind: release-config
-schema_version: 1
-ucm_version: 0.5.0rc1
-version_file: version.ini
-source:
-  repository: SuperMarioYL/unified-cache-management
-  owner: SuperMarioYL
-  default_branch: develop
-  release_tag: v0.5.0rc1
-  release_policy: owner-reviewed-v1
-  protected_environment: release-production
+schema_version: 2
+image_revision: 1
+source: {staging_repository: 'ghcr.io/{owner}/ucm-release-staging', default_branch: develop, protected_environment: release-production}
 lanes: [feature-candidate, protected-tag]
-runner_map:
-  amd64: ubuntu-24.04
-  arm64: ubuntu-24.04-arm
-python_runtime_dependencies:
-  - wrapt==1.17.2
-python_build_lock:
-  install_flags:
-    - --no-index
-    - --find-links
-    - --require-hashes
-    - "--only-binary=:all:"
-  packages:
-    build:
-      version: 1.3.0
-      filename: build-1.3.0-py3-none-any.whl
-      sha256: sha256:7145f0b5061ba90a1500d60bd1b13ca0a8a4cebdd0cc16ed8adf1c0e739f43b4
-    pyproject-hooks:
-      version: 1.2.0
-      filename: pyproject_hooks-1.2.0-py3-none-any.whl
-      sha256: sha256:9e5c6bfa8dcc30091c74b0cf803c81fdd29d94f01992a7707bc97babb1141913
-    packaging:
-      version: "24.2"
-      filename: packaging-24.2-py3-none-any.whl
-      sha256: sha256:09abb1bccd265c01f4a3aa3f7a7db064b36514d2cba19a2f694fe6150451a759
-    setuptools:
-      version: 75.8.2
-      filename: setuptools-75.8.2-py3-none-any.whl
-      sha256: sha256:558e47c15f1811c1fa7adbd0096669bf76c1d3f433f58324df69f3f5ecac4e8f
-    wheel:
-      version: 0.45.1
-      filename: wheel-0.45.1-py3-none-any.whl
-      sha256: sha256:708e7481cc80179af0e556bbf0cc00b8444c7321e2700b8d8580231d13017248
-  pyyaml:
-    version: 6.0.2
-    artifacts:
-      amd64:
-        filename: PyYAML-6.0.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
-        sha256: sha256:80bab7bfc629882493af4aa31a4cfa43a4c57c83813253626916b8c7ada83476
-      arm64:
-        filename: PyYAML-6.0.2-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
-        sha256: sha256:1f71ea527786de97d1a0cc0eacd1defc0985dcf6b3f17bb77dcfc8c34bec4dc5
-  cmake:
-    version: 3.31.6
-    artifacts:
-      amd64:
-        filename: cmake-3.31.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
-        sha256: sha256:1c8b05df0602365da91ee6a3336fe57525b137706c4ab5675498f662ae1dbcec
-      arm64:
-        filename: cmake-3.31.6-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
-        sha256: sha256:42d9883b8958da285d53d5f69d40d9650c2d1bcf922d82b3ebdceb2b3a7d4521
-wrapt_wheels:
-  amd64:
-    filename: wrapt-1.17.2-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl
-    sha256: sha256:bc570b5f14a79734437cb7b0500376b6b791153314986074486e0b0fa8d71d98
-  arm64:
-    filename: wrapt-1.17.2-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
-    sha256: sha256:5bb1d0dbf99411f3d871deb6faa9aabb9d4e744d67dcaaa05399af89d847a91d
+runner_map: {amd64: ubuntu-24.04, arm64: ubuntu-24.04-arm}
+publish:
+  pypi:
+    enabled: false
+    index: https://upload.pypi.org/legacy/
+    dists: [uc-manager-cuda, uc-manager-cann-a2, uc-manager-cann-a3]
+  ghcr: {enabled: true, namespace: 'ghcr.io/{owner}'}
+  dockerhub: {enabled: false, namespace: 'docker.io/{owner}'}
+  chart_oci: {enabled: true, namespace: 'ghcr.io/{owner}/charts'}
+  github_release: {enabled: true}
+upstream_products:
+- id: vllm
+  runtime_product: vllm
+  repository: docker.io/vllm/vllm-openai
+  target_repository: ghcr.io/{owner}/vllm-openai
+  version_specifier: '>=0.21,<0.22'
+  channels: [stable]
+  variants:
+  - id: default
+    tag_suffix: ''
+    npu_arch: na
+    runtime_patch_variants: {vllm: default}
+  required_cpu_architectures: [amd64, arm64]
+- id: vllm-ascend
+  runtime_product: vllm-ascend
+  repository: quay.io/ascend/vllm-ascend
+  target_repository: ghcr.io/{owner}/vllm-ascend
+  version_specifier: '>=0.22.1rc1,<0.23'
+  channels: [rc]
+  variants:
+  - id: a2
+    tag_suffix: ''
+    npu_arch: a2
+    soc_versions: [ascend910b1]
+    runtime_patch_variants: {vllm: default, vllm-ascend: a2}
+  - id: a3
+    tag_suffix: -a3
+    npu_arch: a3
+    soc_versions: [ascend910_9391]
+    runtime_patch_variants: {vllm: default, vllm-ascend: a3}
+  required_cpu_architectures: [amd64, arm64]
+compatibility:
+  rules:
+  - id: cuda-supported
+    upstream_products: [vllm]
+    version_specifier: '>=0.21,<0.22'
+    variants: [default]
+    accelerator: cuda
+    accelerator_runtimes: [cuda-13.0]
+    npu_architectures: [na]
+    operating_systems: [ubuntu-22.04]
+    cpu_architectures: [amd64, arm64]
+    python_abis: [cp312]
+    upstream_channels: [stable]
+  - id: ascend-supported
+    upstream_products: [vllm-ascend]
+    version_specifier: '>=0.22.1rc1,<0.23'
+    variants: [a2, a3]
+    accelerator: ascend
+    accelerator_runtimes: [cann-9.0.0]
+    npu_architectures: [a2, a3]
+    operating_systems: [ubuntu-22.04]
+    cpu_architectures: [amd64, arm64]
+    python_abis: [cp312]
+    upstream_channels: [rc]
+  excluded_upstream_patterns: [nightly, dev, custom, 310p, a5, -a2]
 chart:
   source: charts/ucm
   name: unified-cache-pd
-  version: 0.5.0-rc.1
-  app_version: 0.5.0rc1
-  publication_target: github-release
   validation_cases:
-    - name: cuda
-      values: charts/ucm/models/cuda/values-qwen3-0p6b-1e1.yaml
-      image_repository: docker.io/vllm/vllm-openai
-      image_digest: sha256:a230095847e93bd4df9888b33dab956fa9504537b828a23657d2b26fed57b5c9
-      expected_resource: nvidia.com/gpu
-    - name: a2
-      values: charts/ucm/models/ascend/values-qwen3-0p6b-1e1.yaml
-      image_repository: quay.io/ascend/vllm-ascend
-      image_digest: sha256:9008b47081282612abfe4d28069ce34436752c980fd06f7599343213205ce64d
-      expected_resource: huawei.com/Ascend910
-    - name: a3
-      values: charts/ucm/models/ascend/values-qwen3-0p6b-1e1.yaml
-      image_repository: quay.io/ascend/vllm-ascend
-      image_digest: sha256:e3d89f09a1c1d85f0ec6a1cc26e3c807b7bc8a7ec0f97a830dbef63ab50d8f81
-      expected_resource: huawei.com/Ascend910
+  - {name: cuda, values: charts/ucm/models/cuda/values-qwen3-0p6b-1e1.yaml, product_id: vllm, variant: default, expected_resource: nvidia.com/gpu}
+  - {name: a2, values: charts/ucm/models/ascend/values-qwen3-0p6b-1e1.yaml, product_id: vllm-ascend, variant: a2, expected_resource: huawei.com/Ascend910}
+  - {name: a3, values: charts/ucm/models/ascend/values-qwen3-0p6b-1e1.yaml, product_id: vllm-ascend, variant: a3, expected_resource: huawei.com/Ascend910}
 wheel_profiles:
-  - id: cuda130
-    accelerator: cuda
-    accelerator_runtime: cuda-13.0
-    npu_arch: [na]
-    os: [ubuntu-22.04]
-    cpu_arch: [amd64, arm64]
-    python_version: "3.12"
-    python_abi: cp312
-    wheel_version: 0.5.0rc1+cuda130
-    wheel_platform: manylinux_2_28
-    binary_profile_id: release-cuda130
-    allowed_dt_needed: [ld-linux-aarch64.so.1, ld-linux-x86-64.so.2, libc.so.6, libcuda.so.1, libcudart.so.13, libdl.so.2, libgcc_s.so.1, libm.so.6, libmetrics.so, libpthread.so.0, librt.so.1, libstdc++.so.6]
-    external_required_dependencies: []
-    validation_targets: [cuda-13.0]
-    required_native:
-      - ucmtrans
-      - metrics
-      - ucmmetrics
-      - ucmlogger
-      - ucmnfsstore
-      - ucmpcstore
-      - posixstore
-      - compressor
-      - cachestore
-      - emptystore
-      - fakestore
-      - ucmpipelinestore
-    forbidden_native:
-      - mooncakestore
-      - ds3fsstore
-      - uc_hash_ext
-      - ucm_custom_ops
-      - hash_retrieval_backend
-      - hamming
-      - gsa_prefetch
-      - kvstar_retrieve
-      - retrieval_backend
-      - gsa_offload_ops
-    builders:
-      amd64:
-        root:
-          repository: docker.io/pytorch/manylinux2_28-builder
-          tag: cuda13.0
-          index_digest: sha256:83d73c3fd2782b23de8a1873820236273d8a6db911aea15c017766c9a40e723c
-          manifest_digest: sha256:746796491b3a375ee352c60ad1265c599bb1aa1762a0de46927e0f4139832918
-          config_digest: sha256:0c34d69ef0b04dbf678564146d299bdad59f7d2b8e166b4f59df5e2fce3a34f2
-        sources: []
-        copy_paths: []
-        preflight: [cp312, native-soabi, gcc-toolset-13, g++, make, git, nvcc-13.0.88, cuda-13.0.2-headers, cmake-3.31.6]
-      arm64:
-        root:
-          repository: docker.io/pytorch/manylinuxaarch64-builder
-          tag: cuda13.0
-          index_digest: sha256:ab80e6e1e9d3170faae3590bfcdc7097d209306998073e8b696a1c1456853dfa
-          manifest_digest: sha256:48eb3eb1b3ab79fb30e49d3692a60dc15f05a3d1c4ba328400af5f06b2e6949c
-          config_digest: sha256:be379de193a3c28da06ad14d2681842350986c46fbcbebf8d0d47ef3c9bd7f7e
-        sources: []
-        copy_paths: []
-        preflight: [cp312, native-soabi, gcc-toolset-13, g++, make, git, nvcc-13.0.88, cuda-13.0.2-headers, cmake-3.31.6]
-  - id: cann900-a2
-    accelerator: ascend
-    accelerator_runtime: cann-9.0.0
-    npu_arch: [a2]
-    os: [ubuntu-22.04]
-    cpu_arch: [amd64, arm64]
-    python_version: "3.12"
-    python_abi: cp312
-    wheel_version: 0.5.0rc1+cann900.a2
-    wheel_platform: linux
-    binary_profile_id: release-cann900-a2
-    allowed_dt_needed: [ascend_transport.so, ld-linux-aarch64.so.1, ld-linux-x86-64.so.2, libc.so.6, libascendcl.so, libasio.so, libcurl.so.4, libdl.so.2, libgcc_s.so.1, libglog.so.1, libibverbs.so.1, libjsoncpp.so.25, libm.so.6, libmetrics.so, libmooncake_store.so, libnuma.so.1, libpthread.so.0, librt.so.1, libruntime.so, libstdc++.so.6, libtransfer_engine.so, libunwind.so.8]
-    external_required_dependencies:
-      - dependency: libascend_hal.so
-        provider: host-ascend-driver
-        expected_mount_root: /usr/local/Ascend/driver/lib64
-        relation: transitive
-        required_at: device-runtime
-    validation_targets: [a2]
-    required_native:
-      - ucmtrans
-      - metrics
-      - ucmmetrics
-      - ucmlogger
-      - ucmnfsstore
-      - ucmpcstore
-      - posixstore
-      - compressor
-      - cachestore
-      - emptystore
-      - fakestore
-      - ucmpipelinestore
-      - mooncakestore
-    forbidden_native: [ds3fsstore, uc_hash_ext, ucm_custom_ops, hash_retrieval_backend, hamming, gsa_prefetch, kvstar_retrieve, retrieval_backend, gsa_offload_ops]
-    builders:
-      amd64:
-        root:
-          repository: quay.io/ascend/vllm-ascend
-          tag: v0.22.1rc1
-          index_digest: sha256:9008b47081282612abfe4d28069ce34436752c980fd06f7599343213205ce64d
-          manifest_digest: sha256:a4176a62da7ff54e8eaf2e68e09578917d5c93dab6d2c9c7ebce551781e117b3
-          config_digest: sha256:0539c8ff2dbe3f02d6e5de0d8a463e1d6142482d41e5139dc4b957a191951c8b
-        sources: []
-        copy_paths: []
-        preflight: [cp312, native-soabi, gcc, g++, make, git, cmake-3.31.6, cann-9.0.0-toolkit, ccec, mooncake-headers, mooncake-library]
-      arm64:
-        root:
-          repository: quay.io/ascend/vllm-ascend
-          tag: v0.22.1rc1
-          index_digest: sha256:9008b47081282612abfe4d28069ce34436752c980fd06f7599343213205ce64d
-          manifest_digest: sha256:638fc04eaa3654fcf14688096ed4e9d88ea0d905fa8685eed4b36d5fffe8fd8d
-          config_digest: sha256:1b8f114d14c4d0bea66ca32ebb5afe34bd1e10bfd0802b930ed678a116aaf078
-        sources: []
-        copy_paths: []
-        preflight: [cp312, native-soabi, gcc, g++, make, git, cmake-3.31.6, cann-9.0.0-toolkit, ccec, mooncake-headers, mooncake-library]
-  - id: cann900-a3
-    accelerator: ascend
-    accelerator_runtime: cann-9.0.0
-    npu_arch: [a3]
-    os: [ubuntu-22.04]
-    cpu_arch: [amd64, arm64]
-    python_version: "3.12"
-    python_abi: cp312
-    wheel_version: 0.5.0rc1+cann900.a3
-    wheel_platform: linux
-    binary_profile_id: release-cann900-a3
-    allowed_dt_needed: [ascend_transport.so, ld-linux-aarch64.so.1, ld-linux-x86-64.so.2, libc.so.6, libascendcl.so, libasio.so, libcurl.so.4, libdl.so.2, libgcc_s.so.1, libglog.so.1, libibverbs.so.1, libjsoncpp.so.25, libm.so.6, libmetrics.so, libmooncake_store.so, libnuma.so.1, libpthread.so.0, librt.so.1, libruntime.so, libstdc++.so.6, libtransfer_engine.so, libunwind.so.8]
-    external_required_dependencies:
-      - dependency: libascend_hal.so
-        provider: host-ascend-driver
-        expected_mount_root: /usr/local/Ascend/driver/lib64
-        relation: transitive
-        required_at: device-runtime
-    validation_targets: [a3]
-    required_native:
-      - ucmtrans
-      - metrics
-      - ucmmetrics
-      - ucmlogger
-      - ucmnfsstore
-      - ucmpcstore
-      - posixstore
-      - compressor
-      - cachestore
-      - emptystore
-      - fakestore
-      - ucmpipelinestore
-      - mooncakestore
-    forbidden_native: [ds3fsstore, uc_hash_ext, ucm_custom_ops, hash_retrieval_backend, hamming, gsa_prefetch, kvstar_retrieve, retrieval_backend, gsa_offload_ops]
-    builders:
-      amd64:
-        root:
-          repository: quay.io/ascend/vllm-ascend
-          tag: v0.22.1rc1-a3
-          index_digest: sha256:e3d89f09a1c1d85f0ec6a1cc26e3c807b7bc8a7ec0f97a830dbef63ab50d8f81
-          manifest_digest: sha256:ac166d960b3cb1b584f6ec413e5f4ef353b78049aa2b85e22b0e04eb8770eae4
-          config_digest: sha256:9c5cc2811d8dd9f26e871389723bc432fc321ba7bf46279ec423cbdd4daf9853
-        sources: []
-        copy_paths: []
-        preflight: [cp312, native-soabi, gcc, g++, make, git, cmake-3.31.6, cann-9.0.0-a3-toolkit, ccec, architecture-specific-ascend-root, mooncake-headers, mooncake-library]
-      arm64:
-        root:
-          repository: quay.io/ascend/vllm-ascend
-          tag: v0.22.1rc1-a3
-          index_digest: sha256:e3d89f09a1c1d85f0ec6a1cc26e3c807b7bc8a7ec0f97a830dbef63ab50d8f81
-          manifest_digest: sha256:28f44b9c94c7667a7cbcd6b7b91432f03e4dffe476784dfd9fd82f036bdb1e4d
-          config_digest: sha256:c4d766b5f04fe6238a74731d67a215bb6331072ba242c7c5f24a25f99ce36c3b
-        sources: []
-        copy_paths: []
-        preflight: [cp312, native-soabi, gcc, g++, make, git, cmake-3.31.6, cann-9.0.0-a3-toolkit, ccec, architecture-specific-ascend-root, mooncake-headers, mooncake-library]
-image_families:
-  - id: cuda130
-    profile_id: cuda130
-    runtime:
-      repository: docker.io/vllm/vllm-openai
-      tag: v0.21.0
-      index_digest: sha256:a230095847e93bd4df9888b33dab956fa9504537b828a23657d2b26fed57b5c9
-      members:
-        amd64:
-          manifest_digest: sha256:4ac9b7c6dabc3ec762c0edef4e9245abe98373844da91cc53ee42e5c58280c5b
-          config_digest: sha256:2497255b1272ba3ae9581acd51349f840038f228d0709cd9f6a142d39008d290
-        arm64:
-          manifest_digest: sha256:4f63b83537c4cbd82822403965f395877054dc3b69612e7044ecd649a9badb02
-          config_digest: sha256:f023269abe06db3a1a7cd9e170a0f5bd2b333a19ef9cb99ed8df97a70345bc25
-    target_repository: ghcr.io/supermarioyl/vllm-openai
-    target_tag: v0.21.0-ucm-0.5.0rc1-r1
-  - id: cann900-a2
-    profile_id: cann900-a2
-    runtime:
-      repository: quay.io/ascend/vllm-ascend
-      tag: v0.22.1rc1
-      index_digest: sha256:9008b47081282612abfe4d28069ce34436752c980fd06f7599343213205ce64d
-      members:
-        amd64:
-          manifest_digest: sha256:a4176a62da7ff54e8eaf2e68e09578917d5c93dab6d2c9c7ebce551781e117b3
-          config_digest: sha256:0539c8ff2dbe3f02d6e5de0d8a463e1d6142482d41e5139dc4b957a191951c8b
-        arm64:
-          manifest_digest: sha256:638fc04eaa3654fcf14688096ed4e9d88ea0d905fa8685eed4b36d5fffe8fd8d
-          config_digest: sha256:1b8f114d14c4d0bea66ca32ebb5afe34bd1e10bfd0802b930ed678a116aaf078
-    target_repository: ghcr.io/supermarioyl/vllm-ascend
-    target_tag: v0.22.1rc1-ucm-0.5.0rc1-r1
-  - id: cann900-a3
-    profile_id: cann900-a3
-    runtime:
-      repository: quay.io/ascend/vllm-ascend
-      tag: v0.22.1rc1-a3
-      index_digest: sha256:e3d89f09a1c1d85f0ec6a1cc26e3c807b7bc8a7ec0f97a830dbef63ab50d8f81
-      members:
-        amd64:
-          manifest_digest: sha256:ac166d960b3cb1b584f6ec413e5f4ef353b78049aa2b85e22b0e04eb8770eae4
-          config_digest: sha256:9c5cc2811d8dd9f26e871389723bc432fc321ba7bf46279ec423cbdd4daf9853
-        arm64:
-          manifest_digest: sha256:28f44b9c94c7667a7cbcd6b7b91432f03e4dffe476784dfd9fd82f036bdb1e4d
-          config_digest: sha256:c4d766b5f04fe6238a74731d67a215bb6331072ba242c7c5f24a25f99ce36c3b
-    target_repository: ghcr.io/supermarioyl/vllm-ascend
-    target_tag: v0.22.1rc1-a3-ucm-0.5.0rc1-r1
+- id: cuda130
+  build: {docker_target: wheel, platform_arg: cuda}
+  accelerator: cuda
+  accelerator_runtime: cuda-13.0
+  npu_arch: [na]
+  os: [ubuntu-22.04]
+  cpu_arch: [amd64, arm64]
+  python_version: '3.12'
+  python_abi: cp312
+  dist_name: uc-manager-cuda
+  wheel_platform: manylinux_2_28
+  builder_manylinux: manylinux_2_28
+  binary_profile_id: release-cuda130
+  external_required_dependencies: []
+  validation_targets: [cuda-13.0]
+- id: cann900-a2
+  build: {docker_target: wheel, platform_arg: ascend}
+  accelerator: ascend
+  accelerator_runtime: cann-9.0.0
+  npu_arch: [a2]
+  os: [ubuntu-22.04]
+  cpu_arch: [amd64, arm64]
+  python_version: '3.12'
+  python_abi: cp312
+  dist_name: uc-manager-cann-a2
+  wheel_platform: linux
+  builder_manylinux: manylinux_2_34
+  binary_profile_id: release-cann900-a2
+  external_required_dependencies:
+  - {dependency: libascend_hal.so, provider: host-ascend-driver, expected_mount_root: /usr/local/Ascend/driver/lib64, relation: transitive, required_at: device-runtime}
+  validation_targets: [a2]
+- id: cann900-a3
+  build: {docker_target: wheel, platform_arg: ascend-a3}
+  accelerator: ascend
+  accelerator_runtime: cann-9.0.0
+  npu_arch: [a3]
+  os: [ubuntu-22.04]
+  cpu_arch: [amd64, arm64]
+  python_version: '3.12'
+  python_abi: cp312
+  dist_name: uc-manager-cann-a3
+  wheel_platform: linux
+  builder_manylinux: manylinux_2_34
+  binary_profile_id: release-cann900-a3
+  external_required_dependencies:
+  - {dependency: libascend_hal.so, provider: host-ascend-driver, expected_mount_root: /usr/local/Ascend/driver/lib64, relation: transitive, required_at: device-runtime}
+  validation_targets: [a3]

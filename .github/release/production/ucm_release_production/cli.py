@@ -10,12 +10,12 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from .common import ProductionError, load_json, verify_envelope, write_json
 from .build import (
     docker_build_projection,
     prepare_source_context,
     project_build_task,
     seal_built_wheel,
+    wheel_build_config_from_task,
 )
 from .candidate import (
     candidate_run_document,
@@ -25,9 +25,10 @@ from .candidate import (
     seal_candidate,
 )
 from .chart import package_chart
+from .common import ProductionError, load_json, verify_envelope, write_json
 from .config import load_config
-from .evidence import assemble_evidence, render_summary
 from .environment import environment_evidence
+from .evidence import assemble_evidence, render_summary
 from .github_api import GitHubClient, read_trusted_identity
 from .github_release import (
     GitHubReleaseClient,
@@ -380,6 +381,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.output_dir / "build-projection.json",
                 {key: value for key, value in projected.items() if key != "authority"},
                 "production Docker projection",
+            )
+            write_json(
+                args.output_dir / "wheel-build.json",
+                wheel_build_config_from_task(task_value, projected["authority"]),
+                "production wheel build config",
             )
             return 0
         if args.command == "build" and args.build_command == "seal-wheel":

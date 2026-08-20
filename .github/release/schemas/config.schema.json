@@ -1,10 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://modelengine-group.example/ucm/config.schema.json",
-  "oneOf": [
-    {"$ref": "#/$defs/release"},
-    {"$ref": "#/$defs/compatibility"}
-  ],
+  "$ref": "#/$defs/release",
   "$defs": {
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "externalRequiredDependency": {
@@ -12,9 +9,9 @@
       "additionalProperties": false,
       "required": ["dependency", "provider", "expected_mount_root", "relation", "required_at"],
       "properties": {
-        "dependency": {"const": "libascend_hal.so"},
-        "provider": {"const": "host-ascend-driver"},
-        "expected_mount_root": {"const": "/usr/local/Ascend/driver/lib64"},
+        "dependency": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+$"},
+        "provider": {"type": "string", "minLength": 1},
+        "expected_mount_root": {"type": "string", "pattern": "^/[^ ]+$"},
         "relation": {"const": "transitive"},
         "required_at": {"const": "device-runtime"}
       }
@@ -38,199 +35,366 @@
         "sha256": {"$ref": "#/$defs/digest"}
       }
     },
+    "pythonAbiArtifacts": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^cp[0-9]{2,}$"},
+      "additionalProperties": {
+        "type": "object",
+        "minProperties": 1,
+        "maxProperties": 64,
+        "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+        "additionalProperties": {"$ref": "#/$defs/lockedWheel"}
+      }
+    },
     "buildDescriptor": {
       "type": "object",
       "additionalProperties": false,
       "required": ["repository", "tag", "index_digest", "manifest_digest", "config_digest"],
       "properties": {
-        "repository": {"type": "string", "pattern": "^(docker\\.io|quay\\.io)/[a-z0-9_.-]+/[a-z0-9_.-]+$"},
+        "repository": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$"},
         "tag": {"type": "string", "minLength": 1},
         "index_digest": {"$ref": "#/$defs/digest"},
         "manifest_digest": {"$ref": "#/$defs/digest"},
         "config_digest": {"$ref": "#/$defs/digest"}
       }
     },
+    "builderRoot": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "tag"],
+          "properties": {
+            "repository": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$"},
+            "tag": {"type": "string", "minLength": 1}
+          }
+        },
+        {"$ref": "#/$defs/buildDescriptor"}
+      ]
+    },
+    "builderCheck": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "version", "abi"],
+          "properties": {
+            "kind": {"const": "python"},
+            "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$"},
+            "abi": {"type": "string", "pattern": "^cp[0-9]+$"}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "prefix"],
+          "properties": {
+            "kind": {"const": "python-soabi"},
+            "prefix": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "name"],
+          "properties": {
+            "kind": {"const": "command"},
+            "name": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.+-]*$"}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "name", "arguments", "contains"],
+          "properties": {
+            "kind": {"const": "command-version"},
+            "name": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.+-]*$"},
+            "arguments": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+            "contains": {"type": "string", "minLength": 1}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "path"],
+          "properties": {
+            "kind": {"enum": ["file", "directory", "library-cache", "shared-library-dependencies"]},
+            "path": {"type": "string", "pattern": "^/[^ ]+$"}
+          }
+        }
+      ]
+    },
     "builder": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["root", "sources", "copy_paths", "preflight"],
+      "required": ["sources", "copy_paths", "checks"],
       "properties": {
-        "root": {"$ref": "#/$defs/buildDescriptor"},
+        "root": {"$ref": "#/$defs/builderRoot"},
         "sources": {
           "type": "array",
-          "maxItems": 1,
+          "maxItems": 64,
           "uniqueItems": true,
           "items": {"$ref": "#/$defs/buildDescriptor"}
         },
         "copy_paths": {
           "type": "array",
-          "maxItems": 2,
+          "maxItems": 64,
           "uniqueItems": true,
           "items": {"type": "string", "pattern": "^/[^ ]+$"}
         },
-        "preflight": {
+        "checks": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": {"type": "string", "minLength": 1}
+          "items": {"$ref": "#/$defs/builderCheck"}
         }
       }
     },
     "builders": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["amd64", "arm64"],
-      "properties": {
-        "amd64": {"$ref": "#/$defs/builder"},
-        "arm64": {"$ref": "#/$defs/builder"}
-      }
+      "minProperties": 1,
+      "maxProperties": 64,
+      "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+      "additionalProperties": {"$ref": "#/$defs/builder"}
     },
     "wheelProfile": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "id", "accelerator", "accelerator_runtime", "npu_arch", "os",
-        "cpu_arch", "python_version", "python_abi", "wheel_version",
-        "wheel_platform", "binary_profile_id", "allowed_dt_needed", "external_required_dependencies", "validation_targets", "required_native",
-        "forbidden_native", "builders"
+        "id", "build", "accelerator", "accelerator_runtime", "npu_arch", "os",
+        "wheel_platform", "builder_manylinux", "binary_profile_id", "external_required_dependencies", "validation_targets"
       ],
       "properties": {
-        "id": {"enum": ["cuda130", "cann900-a2", "cann900-a3"]},
-        "accelerator": {"enum": ["cuda", "ascend"]},
-        "accelerator_runtime": {"enum": ["cuda-13.0", "cann-9.0.0"]},
+        "id": {"type": "string", "minLength": 1},
+        "build": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["docker_target", "platform_arg"],
+          "properties": {
+            "docker_target": {"const": "wheel"},
+            "platform_arg": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"}
+          }
+        },
+        "accelerator": {"type": "string", "minLength": 1},
+        "accelerator_runtime": {"type": "string", "minLength": 1},
         "npu_arch": {
-          "type": "array", "minItems": 1, "maxItems": 1, "uniqueItems": true,
-          "items": {"enum": ["na", "a2", "a3"]}
+          "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
         },
         "os": {
-          "type": "array", "minItems": 1, "maxItems": 1, "uniqueItems": true,
-          "items": {"const": "ubuntu-22.04"}
+          "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
         },
         "cpu_arch": {
-          "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true,
-          "items": {"enum": ["amd64", "arm64"]}
+          "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"}
         },
-        "python_version": {"const": "3.12"},
-        "python_abi": {"const": "cp312"},
-        "wheel_version": {"type": "string", "pattern": "^0\\.5\\.0rc1\\+(cuda130|cann900\\.(a2|a3))$"},
-        "wheel_platform": {"enum": ["manylinux_2_28", "linux"]},
-        "binary_profile_id": {"type": "string", "pattern": "^release-(cuda130|cann900-a[23])$"},
+        "python_version": {"type": "string", "minLength": 1},
+        "python_abi": {"type": "string", "minLength": 1},
+        "wheel_version": {"type": "string", "minLength": 1},
+        "dist_name": {"type": "string", "pattern": "^uc-manager(-[a-z0-9]+(-[a-z0-9]+)?)?$"},
+        "wheel_platform": {"type": "string", "minLength": 1},
+        "builder_manylinux": {"type": "string", "pattern": "^manylinux_[0-9]+_[0-9]+$"},
+        "binary_profile_id": {"type": "string", "minLength": 1},
         "allowed_dt_needed": {
           "type": "array", "minItems": 1, "uniqueItems": true,
           "items": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+$"}
         },
         "external_required_dependencies": {
-          "type": "array", "maxItems": 1, "uniqueItems": true,
+          "type": "array", "maxItems": 64, "uniqueItems": true,
           "items": {"$ref": "#/$defs/externalRequiredDependency"}
         },
         "validation_targets": {
           "type": "array", "minItems": 1, "uniqueItems": true,
-          "items": {"enum": ["cuda-13.0", "a2", "a3"]}
+          "items": {"type": "string", "minLength": 1}
         },
         "required_native": {
-          "type": "array", "minItems": 12, "maxItems": 13, "uniqueItems": true,
+          "type": "array", "minItems": 1, "uniqueItems": true,
           "items": {"type": "string", "minLength": 1}
         },
         "forbidden_native": {
-          "type": "array", "minItems": 9, "maxItems": 10, "uniqueItems": true,
+          "type": "array", "minItems": 1, "uniqueItems": true,
           "items": {"type": "string", "minLength": 1}
         },
         "builders": {"$ref": "#/$defs/builders"}
       }
     },
-    "runtimeMember": {
+    "runtimePatchImport": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["manifest_digest", "config_digest"],
+      "required": ["module"],
       "properties": {
-        "manifest_digest": {"$ref": "#/$defs/digest"},
-        "config_digest": {"$ref": "#/$defs/digest"}
-      }
-    },
-    "runtime": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["repository", "tag", "index_digest", "members"],
-      "properties": {
-        "repository": {"enum": ["docker.io/vllm/vllm-openai", "quay.io/ascend/vllm-ascend"]},
-        "tag": {"enum": ["v0.21.0", "v0.22.1rc1", "v0.22.1rc1-a3"]},
-        "index_digest": {"$ref": "#/$defs/digest"},
-        "members": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["amd64", "arm64"],
-          "properties": {
-            "amd64": {"$ref": "#/$defs/runtimeMember"},
-            "arm64": {"$ref": "#/$defs/runtimeMember"}
-          }
+        "module": {"type": "string", "pattern": "^ucm(\\.[A-Za-z_][A-Za-z0-9_]*)+$"},
+        "when": {
+          "type": "object", "additionalProperties": false,
+          "required": ["sparse"],
+          "properties": {"sparse": {"type": "boolean"}}
         }
       }
     },
-    "imageFamily": {
+    "runtimePatchRule": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "profile_id", "runtime", "target_repository", "target_tag"],
+      "required": ["id", "order", "product", "version_specifier", "channels", "variants", "strategy", "imports"],
       "properties": {
-        "id": {"enum": ["cuda130", "cann900-a2", "cann900-a3"]},
-        "profile_id": {"enum": ["cuda130", "cann900-a2", "cann900-a3"]},
-        "runtime": {"$ref": "#/$defs/runtime"},
-        "target_repository": {"enum": ["ghcr.io/supermarioyl/vllm-openai", "ghcr.io/supermarioyl/vllm-ascend"]},
-        "target_tag": {"enum": ["v0.21.0-ucm-0.5.0rc1-r1", "v0.22.1rc1-ucm-0.5.0rc1-r1", "v0.22.1rc1-a3-ucm-0.5.0rc1-r1"]}
+        "id": {"type": "string", "minLength": 1},
+        "order": {"type": "integer", "minimum": 0},
+        "product": {"enum": ["vllm", "vllm-ascend"]},
+        "version_specifier": {"type": "string", "minLength": 1},
+        "channels": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["stable", "rc"]}},
+        "variants": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "strategy": {"enum": ["imports", "none"]},
+        "imports": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/runtimePatchImport"}}
       }
     },
     "chartCase": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "values", "image_repository", "image_digest", "expected_resource"],
+      "required": ["name", "values", "product_id", "variant", "expected_resource"],
       "properties": {
-        "name": {"enum": ["cuda", "a2", "a3"]},
+        "name": {"type": "string", "minLength": 1},
         "values": {"type": "string", "minLength": 1},
-        "image_repository": {"enum": ["docker.io/vllm/vllm-openai", "quay.io/ascend/vllm-ascend"]},
-        "image_digest": {"$ref": "#/$defs/digest"},
-        "expected_resource": {"enum": ["nvidia.com/gpu", "huawei.com/Ascend910"]}
+        "product_id": {"type": "string", "minLength": 1},
+        "variant": {"type": "string", "minLength": 1},
+        "expected_resource": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"}
       }
     },
     "chart": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["source", "name", "version", "app_version", "publication_target", "validation_cases"],
+      "required": ["source", "name", "validation_cases"],
       "properties": {
-        "source": {"const": "charts/ucm"},
-        "name": {"const": "unified-cache-pd"},
-        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+-rc\\.[0-9]+$"},
-        "app_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+rc[0-9]+$"},
-        "publication_target": {"const": "github-release"},
+        "source": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "app_version": {"type": "string", "minLength": 1},
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["remote", "commit", "tree_sha256"],
+          "properties": {
+            "remote": {"type": "string", "minLength": 1},
+            "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+            "tree_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+          }
+        },
         "validation_cases": {
-          "type": "array", "minItems": 3, "maxItems": 3,
+          "type": "array", "minItems": 1, "maxItems": 64,
           "items": {"$ref": "#/$defs/chartCase"}
         }
+      }
+    },
+    "publishPypi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "index", "dists"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "index": {"type": "string", "minLength": 1},
+        "dists": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1, "uniqueItems": true}
+      }
+    },
+    "publishOci": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "namespace"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "namespace": {"type": "string", "minLength": 1}
+      }
+    },
+    "publishGithubRelease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {"type": "boolean"}
+      }
+    },
+    "publish": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pypi", "ghcr", "dockerhub", "chart_oci", "github_release"],
+      "properties": {
+        "pypi": {"$ref": "#/$defs/publishPypi"},
+        "ghcr": {"$ref": "#/$defs/publishOci"},
+        "dockerhub": {"$ref": "#/$defs/publishOci"},
+        "chart_oci": {"$ref": "#/$defs/publishOci"},
+        "github_release": {"$ref": "#/$defs/publishGithubRelease"}
+      }
+    },
+    "dockerRecipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "path", "status", "lanes", "product", "backend", "variant",
+        "upstream_version", "base_image", "cpu_arch", "platform", "runner", "build_mode",
+        "cache_scope", "build_args", "engine_type", "install_hook",
+        "exclusion_reason"
+      ],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
+        "path": {"type": "string", "pattern": "^docker/Dockerfile\\.ucm-[a-z0-9][a-z0-9._-]{0,127}$"},
+        "status": {"enum": ["active", "legacy", "nightly", "specialized"]},
+        "lanes": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"enum": ["pr-smoke", "hardware-e2e", "manual", "formal-release"]}
+        },
+        "product": {"type": "string", "minLength": 1},
+        "backend": {"type": "string", "minLength": 1},
+        "variant": {"type": "string", "minLength": 1},
+        "upstream_version": {"type": "string", "minLength": 1},
+        "base_image": {
+          "type": "object", "additionalProperties": false,
+          "required": ["source", "name_version"],
+          "properties": {
+            "source": {"type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]+)?(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$"},
+            "name_version": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"}
+          }
+        },
+        "cpu_arch": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+        "platform": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$"},
+        "runner": {
+          "oneOf": [
+            {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+            {
+              "type": "array", "minItems": 1, "uniqueItems": true,
+              "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"}
+            }
+          ]
+        },
+        "build_mode": {"enum": ["generic-install-only", "legacy-source-build"]},
+        "cache_scope": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.-]+$"},
+        "build_args": {
+          "type": "array", "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*=[A-Za-z0-9][A-Za-z0-9._~:/?@%+,=-]*$"}
+        },
+        "engine_type": {"type": "string", "minLength": 1},
+        "install_hook": {"enum": ["required", "none"]},
+        "upstream_product_id": {"type": "string", "minLength": 1},
+        "upstream_variant": {"type": "string", "minLength": 1},
+        "exclusion_reason": {"type": "string", "minLength": 1}
       }
     },
     "release": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "kind", "schema_version", "ucm_version", "version_file", "source",
-        "lanes", "runner_map", "python_runtime_dependencies",
-        "python_build_lock", "wrapt_wheels", "chart", "wheel_profiles",
-        "image_families"
+        "kind", "schema_version", "image_revision", "source",
+        "lanes", "runner_map", "upstream_products", "compatibility",
+        "chart", "publish", "wheel_profiles"
       ],
       "properties": {
         "kind": {"const": "release-config"},
-        "schema_version": {"type": "integer", "const": 1},
-        "ucm_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+rc[0-9]+$"},
-        "version_file": {"const": "version.ini"},
+        "schema_version": {"type": "integer", "const": 2},
+        "ucm_version": {"type": "string", "minLength": 1},
+        "image_revision": {"type": "integer", "minimum": 1},
         "source": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["repository", "owner", "default_branch", "release_tag", "release_policy", "protected_environment"],
+          "required": ["staging_repository", "default_branch", "protected_environment"],
           "properties": {
-            "repository": {"const": "SuperMarioYL/unified-cache-management"},
-            "owner": {"const": "SuperMarioYL"},
-            "default_branch": {"const": "develop"},
-            "release_tag": {"const": "v0.5.0rc1"},
-            "release_policy": {"const": "owner-reviewed-v1"},
-            "protected_environment": {"const": "release-production"}
+            "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+            "staging_repository": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-z0-9_.-]+(?:/[a-z0-9_.-]+)*$"},
+            "default_branch": {"type": "string", "minLength": 1},
+            "release_tag": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(?:rc[0-9]+)?(?:[a-z]+[0-9]*)?(?:\\.dev[0-9]+)?(?:\\+[a-z0-9.]+)?$"},
+            "protected_environment": {"type": "string", "minLength": 1}
           }
         },
         "lanes": {
@@ -239,16 +403,50 @@
         },
         "runner_map": {
           "type": "object",
-          "additionalProperties": false,
-          "required": ["amd64", "arm64"],
-          "properties": {
-            "amd64": {"const": "ubuntu-24.04"},
-            "arm64": {"const": "ubuntu-24.04-arm"}
-          }
+          "minProperties": 1,
+          "maxProperties": 64,
+          "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+          "additionalProperties": {"type": "string", "minLength": 1}
         },
+        "pr_smoke": {"$ref": "#/$defs/prSmoke"},
+        "docker_recipes": {
+          "type": "array", "minItems": 1,
+          "items": {"$ref": "#/$defs/dockerRecipe"}
+        },
+        "upstream_products": {
+          "type": "array", "minItems": 1,
+          "items": {"$ref": "#/$defs/upstreamProduct"}
+        },
+        "compatibility": {"$ref": "#/$defs/catalogCompatibility"},
+        "runtime_patch_rules": {
+          "type": "array", "minItems": 1,
+          "items": {"$ref": "#/$defs/runtimePatchRule"}
+        },
+        "matrix_limits": {"$ref": "#/$defs/matrixLimits"},
+        "scan_limits": {"$ref": "#/$defs/scanLimits"},
         "python_runtime_dependencies": {
-          "type": "array", "minItems": 1, "maxItems": 1,
-          "prefixItems": [{"const": "wrapt==1.17.2"}], "items": false
+          "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true,
+          "items": {
+            "oneOf": [
+            {
+              "type": "object", "additionalProperties": false,
+              "required": ["requirement", "import_name", "wheel_artifacts"],
+              "properties": {
+                "requirement": {"type": "string", "minLength": 1},
+                "import_name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_.]*$"},
+                "wheel_artifacts": {"$ref": "#/$defs/pythonAbiArtifacts"}
+              }
+            },
+            {
+              "type": "object", "additionalProperties": false,
+              "required": ["python_build_lock", "import_name"],
+              "properties": {
+                "python_build_lock": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+$"},
+                "import_name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_.]*$"}
+              }
+            }
+            ]
+          }
         },
         "python_build_lock": {
           "type": "object",
@@ -261,31 +459,18 @@
             },
             "packages": {
               "type": "object",
-              "additionalProperties": false,
-              "required": ["build", "pyproject-hooks", "packaging", "setuptools", "wheel"],
-              "properties": {
-                "build": {"$ref": "#/$defs/lockedPackage"},
-                "pyproject-hooks": {"$ref": "#/$defs/lockedPackage"},
-                "packaging": {"$ref": "#/$defs/lockedPackage"},
-                "setuptools": {"$ref": "#/$defs/lockedPackage"},
-                "wheel": {"$ref": "#/$defs/lockedPackage"}
-              }
+              "minProperties": 1,
+              "maxProperties": 64,
+              "propertyNames": {"pattern": "^[A-Za-z0-9_.+-]+$"},
+              "additionalProperties": {"$ref": "#/$defs/lockedPackage"}
             },
             "pyyaml": {
               "type": "object",
               "additionalProperties": false,
               "required": ["version", "artifacts"],
               "properties": {
-                "version": {"const": "6.0.2"},
-                "artifacts": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": ["amd64", "arm64"],
-                  "properties": {
-                    "amd64": {"$ref": "#/$defs/lockedWheel"},
-                    "arm64": {"$ref": "#/$defs/lockedWheel"}
-                  }
-                }
+                "version": {"type": "string", "minLength": 1},
+                "artifacts": {"$ref": "#/$defs/pythonAbiArtifacts"}
               }
             },
             "cmake": {
@@ -293,68 +478,132 @@
               "additionalProperties": false,
               "required": ["version", "artifacts"],
               "properties": {
-                "version": {"const": "3.31.6"},
+                "version": {"type": "string", "minLength": 1},
                 "artifacts": {
                   "type": "object",
-                  "additionalProperties": false,
-                  "required": ["amd64", "arm64"],
-                  "properties": {
-                    "amd64": {"$ref": "#/$defs/lockedWheel"},
-                    "arm64": {"$ref": "#/$defs/lockedWheel"}
-                  }
+                  "minProperties": 1,
+                  "maxProperties": 64,
+                  "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+                  "additionalProperties": {"$ref": "#/$defs/lockedWheel"}
                 }
               }
             }
           }
         },
-        "wrapt_wheels": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["amd64", "arm64"],
-          "properties": {
-            "amd64": {"$ref": "#/$defs/lockedWheel"},
-            "arm64": {"$ref": "#/$defs/lockedWheel"}
-          }
-        },
         "chart": {"$ref": "#/$defs/chart"},
+        "publish": {"$ref": "#/$defs/publish"},
         "wheel_profiles": {
-          "type": "array", "minItems": 1, "maxItems": 3,
+          "type": "array", "minItems": 1,
           "items": {"$ref": "#/$defs/wheelProfile"}
-        },
-        "image_families": {
-          "type": "array", "minItems": 1, "maxItems": 3,
-          "items": {"$ref": "#/$defs/imageFamily"}
         }
       }
     },
-    "compatibilityRule": {
+    "upstreamVariant": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "accelerator", "accelerator_runtimes", "npu_architectures", "operating_systems", "cpu_architectures", "python_abis", "upstream_channels"],
+      "required": ["id", "tag_suffix", "npu_arch", "runtime_patch_variants"],
       "properties": {
         "id": {"type": "string", "minLength": 1},
-        "accelerator": {"enum": ["cuda", "ascend"]},
-        "accelerator_runtimes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-        "npu_architectures": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["na", "a2", "a3"]}},
-        "operating_systems": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"const": "ubuntu-22.04"}},
-        "cpu_architectures": {"type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": {"enum": ["amd64", "arm64"]}},
-        "python_abis": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"const": "cp312"}},
-        "upstream_channels": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"enum": ["stable", "rc"]}}
+        "tag_suffix": {"type": "string", "pattern": "^(|-[a-z0-9][a-z0-9.-]*)$"},
+        "npu_arch": {"type": "string", "minLength": 1},
+        "soc_versions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "runtime_patch_variants": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": false,
+          "properties": {
+            "vllm": {"type": "string", "minLength": 1},
+            "vllm-ascend": {"type": "string", "minLength": 1}
+          }
+        }
       }
     },
-    "compatibility": {
+    "prSmokeSelector": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "schema_version", "ucm_version", "rules", "excluded_upstream_patterns"],
+      "required": ["product_id", "variant", "cpu_arch"],
       "properties": {
-        "kind": {"const": "compatibility-config"},
-        "schema_version": {"type": "integer", "const": 1},
-        "ucm_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+rc[0-9]+$"},
-        "rules": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/compatibilityRule"}},
-        "excluded_upstream_patterns": {
-          "type": "array", "minItems": 6, "maxItems": 6, "uniqueItems": true,
-          "items": {"enum": ["nightly", "dev", "custom", "310p", "a5", "explicit-a2-suffix"]}
+        "product_id": {"type": "string", "minLength": 1},
+        "variant": {"type": "string", "minLength": 1},
+        "cpu_arch": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"}
+      }
+    },
+    "prSmoke": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["image_selectors"],
+      "properties": {
+        "image_selectors": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"$ref": "#/$defs/prSmokeSelector"}
         }
+      }
+    },
+    "upstreamProduct": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "runtime_product", "repository", "target_repository", "version_specifier", "channels", "variants", "required_cpu_architectures"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "runtime_product": {"enum": ["vllm", "vllm-ascend"]},
+        "repository": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$"},
+        "target_repository": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$"},
+        "target_tag_suffix": {"type": "string", "pattern": "^-[A-Za-z0-9_.-]+$"},
+        "version_specifier": {"type": "string", "minLength": 1},
+        "channels": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["stable", "rc"]}},
+        "variants": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/upstreamVariant"}},
+        "required_cpu_architectures": {"type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"}}
+      }
+    },
+    "catalogCompatibilityRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "upstream_products", "version_specifier", "variants", "accelerator", "accelerator_runtimes", "npu_architectures", "operating_systems", "cpu_architectures", "python_abis", "upstream_channels"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "upstream_products": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "version_specifier": {"type": "string", "minLength": 1},
+        "variants": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "accelerator": {"type": "string", "minLength": 1},
+        "accelerator_runtimes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "npu_architectures": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "operating_systems": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "cpu_architectures": {"type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"}},
+        "python_abis": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "upstream_channels": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["stable", "rc"]}}
+      }
+    },
+    "catalogCompatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rules", "excluded_upstream_patterns"],
+      "properties": {
+        "rules": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/catalogCompatibilityRule"}},
+        "excluded_upstream_patterns": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "matrixLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_wheel_tasks", "max_image_tasks", "max_family_tasks"],
+      "properties": {
+        "max_wheel_tasks": {"type": "integer", "minimum": 1},
+        "max_image_tasks": {"type": "integer", "minimum": 1},
+        "max_family_tasks": {"type": "integer", "minimum": 1}
+      }
+    },
+    "scanLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_tags_per_repository", "max_selected_upstreams"],
+      "properties": {
+        "max_tags_per_repository": {"type": "integer", "minimum": 1},
+        "max_selected_upstreams": {"type": "integer", "minimum": 1}
       }
     }
   }

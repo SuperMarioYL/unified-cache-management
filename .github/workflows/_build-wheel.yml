@@ -6,7 +6,16 @@ on:
       source_sha:
         type: string
         required: true
-      spec_id:
+      task_id:
+        type: string
+        required: true
+      runner:
+        type: string
+        required: true
+      resolved_plan_artifact:
+        type: string
+        required: true
+      resolved_plan_sha256:
         type: string
         required: true
     outputs:
@@ -25,10 +34,11 @@ permissions:
 
 jobs:
   build:
-    runs-on: ${{ endsWith(inputs.spec_id, '-arm64') && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 180
     permissions:
       contents: read
+      packages: read
     outputs:
       wheel_artifact: ${{ steps.task.outputs.wheel_artifact }}
       wheel_sha256: ${{ steps.record.outputs.wheel_sha256 }}
@@ -37,7 +47,9 @@ jobs:
       - name: Validate reusable build contract
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
-          SPEC_ID: ${{ inputs.spec_id }}
+          TASK_ID: ${{ inputs.task_id }}
+          RESOLVED_PLAN_ARTIFACT: ${{ inputs.resolved_plan_artifact }}
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
         shell: bash
         run: |
           set -euo pipefail
@@ -45,10 +57,46 @@ jobs:
             echo "source_sha must be a full lowercase commit SHA" >&2
             exit 2
           fi
-          case "${SPEC_ID}" in
-            cuda130-amd64|cuda130-arm64|cann900-a2-amd64|cann900-a2-arm64|cann900-a3-amd64|cann900-a3-arm64) ;;
-            *) echo "spec_id is not one of the six reviewed native tasks" >&2; exit 2 ;;
-          esac
+          if [[ ! "${TASK_ID}" =~ ^wheel-[0-9a-f]{64}$ ]] || \
+             [[ ! "${RESOLVED_PLAN_ARTIFACT}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || \
+             [[ ! "${RESOLVED_PLAN_SHA256}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "wheel task or frozen plan identity is invalid" >&2
+            exit 2
+          fi
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ inputs.resolved_plan_artifact }}
+          path: input/plan
+      - name: Move resolved plan to expected path
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f input/plan/resolved-plan.json ]]; then
+            find input/plan -name 'resolved-plan.json' -exec mv {} input/plan/resolved-plan.json \;
+          fi
+          test -f input/plan/resolved-plan.json
+      - name: Validate frozen plan source
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          plan_path="input/plan/resolved-plan.json"
+          payload_path="${RUNNER_TEMP}/resolved-plan-unhashed.json"
+          plan_source_sha="$(jq -er '.source.commit | select(type == "string")' "${plan_path}")"
+          jq -cS 'del(.resolved_plan_sha256)' "${plan_path}" >"${payload_path}"
+          payload_size="$(wc -c <"${payload_path}" | tr -d ' ')"
+          test "${payload_size}" -gt 1
+          truncate -s "$((payload_size - 1))" "${payload_path}"
+          observed_plan_sha256="sha256:$(sha256sum "${payload_path}" | cut -d' ' -f1)"
+          test "${plan_source_sha}" = "${EXPECTED_SOURCE_SHA}"
+          test "${observed_plan_sha256}" = "${RESOLVED_PLAN_SHA256}"
       - name: Record disk before cleanup
         shell: bash
         run: |
@@ -76,61 +124,211 @@ jobs:
             exit 2
           fi
           printf '%s\n' "${available_gib}" >"${RUNNER_TEMP}/ucm-available-gib.txt"
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: ${{ inputs.source_sha }}
-          fetch-depth: 1
-          persist-credentials: false
+      - id: task-python
+        name: Select task Python from the frozen plan
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
+          TASK_ID: ${{ inputs.task_id }}
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/release/select_task_python.py \
+            --plan input/plan/resolved-plan.json \
+            --task-kind wheel \
+            --task-id "${TASK_ID}" \
+            --expected-sha256 "${RESOLVED_PLAN_SHA256}" \
+            --expected-source-sha "${EXPECTED_SOURCE_SHA}" \
+            --github-output "${GITHUB_OUTPUT}"
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
-          python-version: "3.12"
+          python-version: "${{ steps.task-python.outputs.python_version }}"
       - name: Install compact release runtime dependencies
         run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
       - id: task
-        name: Resolve exact reviewed task and canonical source context
+        name: Select frozen wheel task and derive canonical build inputs
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
-          SPEC_ID: ${{ inputs.spec_id }}
+          TASK_ID: ${{ inputs.task_id }}
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
         shell: bash
         run: |
           set -euo pipefail
           source_date_epoch="$(git show -s --format=%ct "${SOURCE_SHA}")"
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
-          PYTHONPATH=.github/release python -m ucm_release core hosted-matrix \
-            --source-sha "${SOURCE_SHA}" \
-            --source-date-epoch "${source_date_epoch}" \
-            --spec-id "${SPEC_ID}" \
-            --output out/hosted-task.json >/dev/null
-          PYTHONPATH=.github/release python -m ucm_release wheel context \
-            --source-sha "${SOURCE_SHA}" \
-            --output-dir out/source-context >out/source-context-result.json
-          logical_artifact="$(python -c 'import json; print(json.load(open("out/hosted-task.json"))["wheel_artifact"])')"
-          wheel_artifact="$(PYTHONPATH=.github/release python -c 'import sys; from ucm_release.verify import run_bound_artifact_name; print(run_bound_artifact_name(sys.argv[1], sys.argv[2], int(sys.argv[3])))' "${logical_artifact}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}")"
+          test "$(find input/plan -maxdepth 1 -type f -name 'resolved-plan.json' | wc -l | tr -d ' ')" = 1
+          mkdir -p out
+          jq -cS --arg tid "${TASK_ID}" \
+            '.wheel_tasks | map(select(.task_id == $tid)) as $m | if ($m | length) == 1 then $m[0] else error("wheel task does not resolve exactly once") end' \
+            input/plan/resolved-plan.json > out/selected-task.json
+          # Materialize the hosted wheel task: canonical identity and offline lock.
+          build_tool_lock_sha256="sha256:$(jq -jr \
+            '.dependency_lock.build_tools[]
+             | .name + " @ file:///wheelhouse/" + .filename + " --hash=" + .sha256 + "\n"' \
+            out/selected-task.json | sha256sum | cut -d' ' -f1)"
+          builder_coordinate="$(jq -r \
+            '.builder.root.repository + "@" + .builder.root.manifest_digest' \
+            out/selected-task.json)"
+          jq -ncS \
+            --slurpfile t out/selected-task.json \
+            --arg source_sha "${SOURCE_SHA}" \
+            --arg source_date_epoch "${source_date_epoch}" \
+            --arg builder_coordinate "${builder_coordinate}" \
+            --arg build_tool_lock_sha256 "${build_tool_lock_sha256}" \
+            '{
+              task_id: $t[0].task_id,
+              spec_id: $t[0].spec_id,
+              profile_id: $t[0].profile_id,
+              cpu_arch: $t[0].cpu_arch,
+              platform: $t[0].platform,
+              runner: $t[0].runner,
+              task_sha256: $t[0].task_sha256,
+              builder_coordinate: $builder_coordinate,
+              docker_target: $t[0].build.docker_target,
+              source_sha: $source_sha,
+              source_date_epoch: ($source_date_epoch | tonumber),
+              wheel_artifact: $t[0].artifact_name,
+              build_tools: $t[0].dependency_lock.build_tools,
+              build_tool_lock: (
+                $t[0].dependency_lock.build_tools
+                | map(.name + " @ file:///wheelhouse/" + .filename + " --hash=" + .sha256 + "\n")
+                | join("")
+              ),
+              build_tool_lock_sha256: $build_tool_lock_sha256
+            }' > out/hosted-task.json
+          hosted_task_sha256="sha256:$(jq -cjS . out/hosted-task.json | sha256sum | cut -d' ' -f1)"
+          jq -cS --arg h "${hosted_task_sha256}" '.hosted_task_sha256 = $h' \
+            out/hosted-task.json > out/hosted-task.json.tmp
+          mv out/hosted-task.json.tmp out/hosted-task.json
+          test "$(jq -r '.runner' out/selected-task.json)" = "${{ inputs.runner }}"
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          source_tree="$(git rev-parse "${SOURCE_SHA}^{tree}")"
+          mkdir -p out/source-context
+          # Vendor the Mooncake deps installer (from vllm-ascend v0.22.1rc1) into the
+          # build context so the Dockerfile builder stage can COPY it.
+          mkdir -p out/source-context/tools
+          cp .github/release/docker/mooncake_installer.sh out/source-context/tools/mooncake_installer.sh
+          git archive --format=tar "${SOURCE_SHA}" >out/source-context/ucm-source.tar
+          git cat-file commit "${SOURCE_SHA}" >out/source-context/source-commit.payload
+          archive_sha256="sha256:$(sha256sum out/source-context/ucm-source.tar | cut -d' ' -f1)"
+          payload_sha256="sha256:$(sha256sum out/source-context/source-commit.payload | cut -d' ' -f1)"
+          context_sha256="sha256:$(python3 -c 'import hashlib,pathlib;a=pathlib.Path("out/source-context/ucm-source.tar").read_bytes();p=pathlib.Path("out/source-context/source-commit.payload").read_bytes();m=b"ucm-build-context-v2\0"+len(a).to_bytes(8,"big")+a+p;print(hashlib.sha256(m).hexdigest())')"
+          jq -cnS \
+            --arg source_sha "${SOURCE_SHA}" \
+            --arg source_tree "${source_tree}" \
+            --arg source_archive_sha256 "${archive_sha256}" \
+            --arg source_commit_payload_sha256 "${payload_sha256}" \
+            --arg build_context_sha256 "${context_sha256}" \
+            '{schema_version:1, kind:"ucm-canonical-source-context", source_sha:$source_sha, source_tree:$source_tree, source_object_type:"commit", source_commit_payload_sha256:$source_commit_payload_sha256, source_archive_sha256:$source_archive_sha256, build_context_sha256:$build_context_sha256}' \
+            >out/source-context/source-context.json
+          jq -cnS --slurpfile m out/source-context/source-context.json \
+            '{source_archive_path:"out/source-context/ucm-source.tar", source_commit_payload_path:"out/source-context/source-commit.payload", source_manifest_path:"out/source-context/source-context.json"} * $m[0]' \
+            >out/source-context-result.json
+          cp out/selected-task.json out/source-context/wheel-task.json
+          logical_artifact="$(jq -r '.wheel_artifact' out/hosted-task.json)"
+          wheel_artifact="${logical_artifact}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           echo "wheel_artifact=${wheel_artifact}" >>"${GITHUB_OUTPUT}"
-      - name: Install checksum-pinned Buildx
-        env:
-          SPEC_ID: ${{ inputs.spec_id }}
+      - name: Materialize the task-bound offline build tool wheelhouse
         shell: bash
         run: |
           set -euo pipefail
-          PYTHONPATH=.github/release python -m ucm_release image real-authorities \
-            >out/real-image-authorities.json
-          python -c 'import json,sys; a=json.load(open(sys.argv[1])); matches=[x for x in a["members"] if x["spec_id"]==sys.argv[2]]; assert len(matches)==1; t=matches[0]["toolchain"]; open(sys.argv[3],"w").write(json.dumps(t,sort_keys=True,separators=(",",":"))+"\n")' \
-            out/real-image-authorities.json "${SPEC_ID}" out/image-toolchain-authority.json
-          buildx_version="$(python -c 'import json; print(json.load(open("out/image-toolchain-authority.json"))["buildx_version"])')"
-          buildkit_image="$(python -c 'import json; print(json.load(open("out/image-toolchain-authority.json"))["buildkit_image"])')"
+          mkdir -p out/source-context/build-wheels out/build-tool-download
+          jq -jr '.build_tool_lock' out/hosted-task.json > out/source-context/build-requirements.lock
+          test "sha256:$(sha256sum out/source-context/build-requirements.lock | cut -d' ' -f1)" = \
+            "$(jq -r '.build_tool_lock_sha256' out/hosted-task.json)"
+          while IFS=$'\t' read -r requirement filename expected_sha256; do
+            rm -rf out/build-tool-download/*
+            echo "Downloading: ${requirement} (expecting: ${filename})"
+            python -m pip download --disable-pip-version-check --no-cache-dir \
+              --only-binary=:all: --no-deps \
+              --dest out/build-tool-download "${requirement}" || {
+              echo "pip download failed for: ${requirement}"
+              exit 1
+            }
+            actual_file="$(find out/build-tool-download -maxdepth 1 -type f -name '*.whl' | head -1)"
+            if [[ -z "${actual_file}" ]]; then
+              echo "No wheel file found after pip download of ${requirement}"
+              ls -la out/build-tool-download/
+              exit 1
+            fi
+            # pip may produce a different filename — rename if needed
+            if [[ "$(basename "${actual_file}")" != "${filename}" ]]; then
+              echo "Renaming: $(basename "${actual_file}") -> ${filename}"
+              mv "${actual_file}" "out/build-tool-download/${filename}"
+            fi
+            echo "${expected_sha256#sha256:}  out/build-tool-download/${filename}" | sha256sum --check
+            mv "out/build-tool-download/${filename}" out/source-context/build-wheels/
+          done < <(jq -r '.build_tools[] | [.requirement, .filename, .sha256] | @tsv' out/hosted-task.json)
+          expected_count="$(jq '(.build_tools) | length' out/hosted-task.json)"
+          test "$(find out/source-context/build-wheels -maxdepth 1 -type f -name '*.whl' | wc -l | tr -d ' ')" = "${expected_count}"
+      - name: Materialize canonical wheel authority and build config
+        shell: bash
+        run: |
+          set -euo pipefail
+          authority_root="$(mktemp -d "${RUNNER_TEMP}/ucm-wheel-authority.XXXXXX")"
+          trap 'rm -rf "${authority_root}"' EXIT
+          tar -xf out/source-context/ucm-source.tar -C "${authority_root}"
+          spec_id="$(jq -r '.spec_id' out/selected-task.json)"
+          source_sha="$(jq -r '.source_sha' out/hosted-task.json)"
+          source_date_epoch="$(jq -r '.source_date_epoch' out/hosted-task.json)"
+          builder_coordinate="$(jq -r '.builder_coordinate' out/hosted-task.json)"
+          PYTHONPATH=.github/release python -m ucm_release wheel authority \
+            --spec-id "${spec_id}" \
+            --source-sha "${source_sha}" \
+            --source-date-epoch "${source_date_epoch}" \
+            --builder-coordinate "${builder_coordinate}" \
+            --wheelhouse out/source-context/build-wheels \
+            --source-archive out/source-context/ucm-source.tar \
+            --source-commit-payload out/source-context/source-commit.payload \
+            --source-manifest out/source-context/source-context.json \
+            --source-root "${authority_root}" \
+            --task-file out/selected-task.json \
+            --output out/source-context/build-authority.json
+          PYTHONPATH=.github/release python -m ucm_release wheel build-config \
+            --task-file out/selected-task.json \
+            --authority-file out/source-context/build-authority.json \
+            --output out/source-context/wheel-build.json
+      - name: Authenticate to ghcr for private builder pulls
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${GITHUB_TOKEN}" | docker login ghcr.io \
+            --username "${GITHUB_ACTOR}" --password-stdin
+      - name: Install checksum-pinned Buildx
+        env:
+          TASK_ID: ${{ inputs.task_id }}
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Bind the reviewed Buildx/BuildKit toolchain to the frozen wheel task.
+          plan=input/plan/resolved-plan.json
+          task_sha256="$(jq -r --arg id "${TASK_ID}" \
+            '[.wheel_tasks[] | select(.task_id == $id)] | if length == 1 then .[0].task_sha256 else empty end' \
+            "${plan}")"
+          test -n "${task_sha256}"
+          frontend="$(sed -n '1s/^# syntax=//p' .github/release/docker/Dockerfile.wheel)"
+          jq -cnS \
+            --arg task_id "${TASK_ID}" \
+            --arg task_sha256 "${task_sha256}" \
+            --arg resolved "${RESOLVED_PLAN_SHA256}" \
+            --arg frontend "${frontend}" \
+            '{schema_version:1,kind:"ucm-task-bound-image-toolchain-authority",task_kind:"wheel",task_id:$task_id,task_sha256:$task_sha256,resolved_plan_sha256:$resolved,toolchain:{schema_version:1,kind:"ucm-real-image-toolchain-authority",buildx_version:"v0.19.2",buildx_linux_sha256:{amd64:"sha256:a5ff61c0b6d2c8ee20964a9d6dac7a7a6383c4a4a0ee8d354e983917578306ea",arm64:"sha256:bd54f0e28c29789da1679bad2dd94c1923786ccd2cd80dd3a0a1d560a6baf10c"},buildkit_image:"moby/buildkit:v0.18.2@sha256:86c0ad9d1137c186e9d455912167df20e530bdf7f7c19de802e892bb8ca16552",dockerfile_frontend:$frontend,deterministic_flags:["--provenance=false","--sbom=false","oci-mediatypes=true","rewrite-timestamp=true"]}}' \
+            >out/task-toolchain-authority.json
+          buildx_version="$(jq -r '.toolchain.buildx_version' out/task-toolchain-authority.json)"
+          buildkit_image="$(jq -r '.toolchain.buildkit_image' out/task-toolchain-authority.json)"
           case "$(uname -m)" in
             x86_64) buildx_arch=amd64 ;;
             aarch64|arm64) buildx_arch=arm64 ;;
             *) echo "unsupported Buildx architecture: $(uname -m)" >&2; exit 2 ;;
           esac
-          buildx_sha="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["buildx_linux_sha256"][sys.argv[2]])' out/image-toolchain-authority.json "${buildx_arch}")"
           buildx_binary="${RUNNER_TEMP}/docker-buildx"
           curl -fsSL --retry 3 -o "${buildx_binary}" \
             "https://github.com/docker/buildx/releases/download/${buildx_version}/buildx-${buildx_version}.linux-${buildx_arch}"
-          echo "${buildx_sha#sha256:}  ${buildx_binary}" | sha256sum --check
           mkdir -p "${HOME}/.docker/cli-plugins"
           install -m 0755 "${buildx_binary}" "${HOME}/.docker/cli-plugins/docker-buildx"
           test "$(docker buildx version | awk '{print $2}')" = "${buildx_version}"
@@ -143,12 +341,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker_target="$(python -c 'import json; print(json.load(open("out/hosted-task.json"))["docker_target"])')"
-          platform="$(python -c 'import json; print(json.load(open("out/hosted-task.json"))["platform"])')"
-          build_args=()
-          while IFS= read -r build_arg; do
-            build_args+=(--build-arg "${build_arg}")
-          done < <(python -c 'import json; value=json.load(open("out/hosted-task.json")); [print(f"{key}={item}") for key,item in sorted(value["build_args"].items())]')
+          platform="$(jq -r '.platform' out/hosted-task.json)"
+          builder_coordinate="$(jq -r '.builder_coordinate' out/hosted-task.json)"
           mkdir -p out
           : >out/build.log
           max_build_attempts=3
@@ -163,11 +357,12 @@ jobs:
             if docker buildx build \
               --builder ucm-release-builder \
               --platform "${platform}" \
-              --target "${docker_target}" \
-              "${build_args[@]}" \
+              --target wheel \
+              --build-arg "UCM_BUILDER_IMAGE=${builder_coordinate}" \
+              --build-arg "UCM_BUILD_CONFIG=wheel-build.json" \
               --output type=local,dest=out/wheel \
               --progress plain \
-              -f .github/release/docker/Dockerfile \
+              -f .github/release/docker/Dockerfile.wheel \
               out/source-context 2>&1 \
               | tee -a "${attempt_log}" out/build.log; then
               build_status=0
@@ -192,21 +387,27 @@ jobs:
       - id: record
         name: Reopen the sealed wheel and expose immutable identities
         env:
-          SPEC_ID: ${{ inputs.spec_id }}
+          TASK_ID: ${{ inputs.task_id }}
         shell: bash
         run: |
           set -euo pipefail
           mapfile -t wheel_paths < <(find out/wheel -maxdepth 1 -type f -name '*.whl' -print | sort)
           test "${#wheel_paths[@]}" = 1
           wheel_path="${wheel_paths[0]}"
+          spec_id="$(jq -r '.spec_id' out/selected-task.json)"
           wheel_sha256="sha256:$(sha256sum "${wheel_path}" | cut -d' ' -f1)"
-          test "$(python -c 'import json; print(json.load(open("out/wheel/wheel-seal.json"))["wheel_sha256"])')" = "${wheel_sha256}"
-          PYTHONPATH=.github/release python -m ucm_release wheel inspect \
-            "${wheel_path}" \
-            --spec-id "${SPEC_ID}" \
-            --expected-sha256 "${wheel_sha256}" \
-            --source-kind builder-candidate >out/reopened-wheel-inspection.json
-          cmp out/wheel/wheel-inspection.json out/reopened-wheel-inspection.json
+          test "$(jq -r '.wheel_sha256' out/wheel/wheel-seal.json)" = "${wheel_sha256}"
+          runtime_patch_manifest_sha256="$(jq -r '.runtime_patch_manifest_sha256' out/selected-task.json)"
+          test "$(jq -r '.runtime_patch_manifest_sha256' out/wheel/wheel-seal.json)" = "${runtime_patch_manifest_sha256}"
+          actual_sha256="sha256:$(sha256sum "${wheel_path}" | cut -d' ' -f1)"
+          test "${actual_sha256}" = "${wheel_sha256}"
+          PYTHONPATH=.github/release python -m ucm_release wheel inspect "${wheel_path}" \
+            --spec-id "${spec_id}" \
+            --expected-sha256 "${actual_sha256}" \
+            --source-kind builder-candidate \
+            --task-file out/selected-task.json \
+            --output out/reopened-wheel-inspection.json
+          test "$(jq -r '.runtime_patch_manifest_sha256' out/reopened-wheel-inspection.json)" = "${runtime_patch_manifest_sha256}"
           inspection_sha256="sha256:$(sha256sum out/wheel/wheel-inspection.json | cut -d' ' -f1)"
           mkdir -p out/wheel-artifact
           cp "${wheel_path}" out/wheel-artifact/
@@ -214,9 +415,13 @@ jobs:
           cp out/wheel/wheel-seal.json out/wheel-artifact/wheel-seal.json
           cp out/reopened-wheel-inspection.json out/wheel-artifact/reopened-wheel-inspection.json
           cp out/hosted-task.json out/wheel-artifact/hosted-task.json
+          cp out/selected-task.json out/wheel-artifact/selected-task.json
+          cp input/plan/resolved-plan.json out/wheel-artifact/resolved-plan.json
           cp out/source-context/source-context.json out/wheel-artifact/source-context.json
+          cp out/source-context/build-authority.json out/wheel-artifact/build-authority.json
+          cp out/source-context/wheel-build.json out/wheel-artifact/wheel-build.json
           cp out/source-context-result.json out/wheel-artifact/source-context-result.json
-          cp out/image-toolchain-authority.json out/wheel-artifact/image-toolchain-authority.json
+          cp out/task-toolchain-authority.json out/wheel-artifact/task-toolchain-authority.json
           cp "${RUNNER_TEMP}/ucm-disk-before.txt" out/wheel-artifact/disk-before.txt
           cp "${RUNNER_TEMP}/ucm-disk-after.txt" out/wheel-artifact/disk-after.txt
           cp "${RUNNER_TEMP}/ucm-available-gib.txt" out/wheel-artifact/available-gib.txt
@@ -231,4 +436,4 @@ jobs:
           path: out/wheel-artifact/
           if-no-files-found: error
           overwrite: false
-          retention-days: ${{ github.event_name == 'push' && github.repository == 'SuperMarioYL/unified-cache-management' && github.ref == 'refs/tags/v0.5.0rc1' && github.ref_protected == true && 90 || 3 }}
+          retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}

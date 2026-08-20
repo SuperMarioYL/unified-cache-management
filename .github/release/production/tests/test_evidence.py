@@ -3,12 +3,10 @@ from __future__ import annotations
 import copy
 
 import pytest
+from conftest import PRODUCTION_ROOT
 from jsonschema import Draft202012Validator
-
 from ucm_release_production.common import ProductionError, sha256_envelope
 from ucm_release_production.evidence import assemble_evidence, render_summary
-
-from conftest import PRODUCTION_ROOT
 
 
 def _record(channel: str, status: str = "complete") -> dict[str, object]:

@@ -1,0 +1,2 @@
+ARG PY_VERSION=3.12
+FROM quay.io/ascend/manylinux:9.1.0-910b-manylinux_2_34-py${PY_VERSION}

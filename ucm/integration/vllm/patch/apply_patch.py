@@ -26,13 +26,16 @@ Monkey patching module for vLLM to apply UCM patches automatically.
 This replaces the need for manual `git apply` commands.
 """
 
-from typing import Optional
+import importlib
+import json
+import os
+import re
+from importlib import metadata, resources
+from typing import Any, Optional
 
 from ucm.logger import init_logger
 
 logger = init_logger(__name__)
-
-import os
 
 ENABLE_SPARSE = os.getenv("ENABLE_SPARSE", "0").lower() in (
     "1",
@@ -43,197 +46,236 @@ ENABLE_SPARSE = os.getenv("ENABLE_SPARSE", "0").lower() in (
 ENABLE_UCM_PATCH = os.environ.get("ENABLE_UCM_PATCH", "").lower() in ("1", "true")
 
 
-def _read_vllm_ascend_version_raw() -> Optional[str]:
-    """Read vllm_ascend version string, stripping only build metadata (+xxx)."""
-
-    def _strip_build(v: Optional[str]) -> Optional[str]:
-        if not v:
-            return None
-        return str(v).strip().split("+", 1)[0]
-
-    try:
-        from importlib.metadata import PackageNotFoundError, version
-
-        try:
-            return _strip_build(version("vllm-ascend"))
-        except PackageNotFoundError:
-            return None
-    except Exception:
-        pass
-
-    try:
-        import importlib
-
-        mod = importlib.import_module("vllm_ascend")
-        return _strip_build(getattr(mod, "__version__", None))
-    except Exception:
-        return None
-
-
-def _norm_vllm_ascend_version(v: Optional[str]) -> Optional[str]:
-    if not v:
-        return None
-    # common suffixes: 0.11.0.post1 / 0.11.0rc1
-    v = v.split(".post", 1)[0]
-    v = v.split("rc", 1)[0]
-    return v
-
-
 def get_vllm_ascend_version_full() -> Optional[str]:
-    """Detect vllm_ascend version preserving rc/post suffixes (e.g. 0.18.0rc1)."""
-    return _read_vllm_ascend_version_raw()
+    """Detect the installed vLLM-Ascend distribution version."""
+    try:
+        return metadata.version("vllm-ascend")
+    except metadata.PackageNotFoundError:
+        return None
 
 
 def get_vllm_ascend_version() -> Optional[str]:
-    """Detect normalized vllm_ascend version (e.g. 0.18.0rc1 -> 0.18.0)."""
-    return _norm_vllm_ascend_version(_read_vllm_ascend_version_raw())
-
-
-_vllm_version: Optional[str] = None
+    """Backward-compatible alias preserving the full PEP 440 version."""
+    return get_vllm_ascend_version_full()
 
 
 def get_vllm_version() -> Optional[str]:
-    """Detect vLLM version."""
-    global _vllm_version
-    if _vllm_version is not None:
-        return _vllm_version
-
+    """Detect the installed vLLM distribution version."""
     try:
-        # Try to get version from vllm module
-        import vllm as vllm_pkg
-
-        vllm_version = vllm_pkg.__version__
-        return vllm_version
-    except ImportError:
-        logger.warning("vLLM is not installed")
-        return None
-    except Exception as e:
-        logger.warning(f"Failed to detect vLLM version: {e}")
+        return metadata.version("vllm")
+    except metadata.PackageNotFoundError:
         return None
 
 
-def get_supported_versions() -> list[str]:
-    """Get patch-required vLLM versions."""
-    return [
-        "0.11.0",
-        "0.17.0",
-        "0.18.0",
-        "0.19.1",
-        "0.20.2",
-        "0.21.0",
-        "0.22.1",
-        "0.23.0",
+def _canonical_bytes(value: object) -> bytes:
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+
+
+def _validate_runtime_patch_manifest(manifest: object) -> dict[str, Any]:
+    from packaging.specifiers import InvalidSpecifier, SpecifierSet
+
+    if (
+        not isinstance(manifest, dict)
+        or set(manifest) != {"schema_version", "kind", "rules"}
+        or manifest.get("schema_version") != 1
+        or manifest.get("kind") != "ucm-runtime-patch-rules"
+        or not isinstance(manifest.get("rules"), list)
+        or not manifest["rules"]
+    ):
+        raise ValueError("malformed runtime patch manifest")
+    seen_ids: set[str] = set()
+    seen_orders: set[int] = set()
+    previous_order = -1
+    for rule in manifest["rules"]:
+        fields = {
+            "id",
+            "order",
+            "product",
+            "version_specifier",
+            "channels",
+            "variants",
+            "strategy",
+            "imports",
+        }
+        if not isinstance(rule, dict) or set(rule) != fields:
+            raise ValueError("malformed runtime patch manifest rule")
+        identifier = rule["id"]
+        order = rule["order"]
+        if (
+            not isinstance(identifier, str)
+            or not identifier
+            or identifier in seen_ids
+            or not isinstance(order, int)
+            or isinstance(order, bool)
+            or order < 0
+            or order in seen_orders
+            or order < previous_order
+            or rule["product"] not in {"vllm", "vllm-ascend"}
+        ):
+            raise ValueError("malformed runtime patch manifest identity")
+        seen_ids.add(identifier)
+        seen_orders.add(order)
+        previous_order = order
+        try:
+            SpecifierSet(str(rule["version_specifier"]))
+        except InvalidSpecifier as error:
+            raise ValueError("malformed runtime patch manifest specifier") from error
+        if any(
+            not isinstance(values, list)
+            or not values
+            or len(values) != len(set(values))
+            for values in (rule["channels"], rule["variants"])
+        ) or not set(rule["channels"]).issubset({"stable", "rc"}):
+            raise ValueError("malformed runtime patch manifest applicability")
+        imports = rule["imports"]
+        if (
+            rule["strategy"] not in {"imports", "none"}
+            or not isinstance(imports, list)
+            or (rule["strategy"] == "none") != (imports == [])
+        ):
+            raise ValueError("malformed runtime patch manifest strategy")
+        for declaration in imports:
+            if not isinstance(declaration, dict) or set(declaration) not in (
+                {"module"},
+                {"module", "when"},
+            ):
+                raise ValueError("malformed runtime patch manifest import")
+            module = declaration["module"]
+            if (
+                not isinstance(module, str)
+                or re.fullmatch(r"ucm(?:\.[A-Za-z_][A-Za-z0-9_]*)+", module) is None
+            ):
+                raise ValueError("malformed runtime patch manifest module")
+            if "when" in declaration and (
+                not isinstance(declaration["when"], dict)
+                or set(declaration["when"]) != {"sparse"}
+                or not isinstance(declaration["when"]["sparse"], bool)
+            ):
+                raise ValueError("malformed runtime patch manifest condition")
+    return manifest
+
+
+def _load_runtime_patch_manifest() -> dict[str, Any]:
+    try:
+        raw = (
+            resources.files(__package__)
+            .joinpath("runtime_patch_rules.json")
+            .read_bytes()
+        )
+        manifest = json.loads(raw)
+    except (FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("runtime patch manifest is missing or invalid") from error
+    validated = _validate_runtime_patch_manifest(manifest)
+    if raw != _canonical_bytes(validated) + b"\n":
+        raise ValueError("runtime patch manifest is noncanonical")
+    return validated
+
+
+def _runtime_channel(version: Any) -> str:
+    return "rc" if version.pre is not None and version.pre[0] == "rc" else "stable"
+
+
+def select_runtime_patch_rule(
+    manifest: object,
+    product: str,
+    version: str,
+    *,
+    variant: str | None = None,
+) -> dict[str, Any]:
+    from packaging.specifiers import SpecifierSet
+    from packaging.version import InvalidVersion, Version
+
+    validated = _validate_runtime_patch_manifest(manifest)
+    if not isinstance(variant, str) or not variant:
+        raise ValueError(f"runtime variant is required for {product}")
+    try:
+        parsed = Version(version)
+    except InvalidVersion as error:
+        raise ValueError(
+            f"installed {product} version is not valid PEP 440: {version}"
+        ) from error
+    channel = _runtime_channel(parsed)
+    matches = [
+        rule
+        for rule in validated["rules"]
+        if rule["product"] == product
+        and channel in rule["channels"]
+        and variant in rule["variants"]
+        and SpecifierSet(rule["version_specifier"]).contains(parsed, prereleases=True)
     ]
+    if not matches:
+        raise ValueError(
+            f"no runtime patch rule for {product} {version} channel={channel} "
+            f"variant={variant}"
+        )
+    if len(matches) > 1:
+        raise ValueError(
+            f"overlapping runtime patch rules for {product} {version}: "
+            + ", ".join(rule["id"] for rule in matches)
+        )
+    return matches[0]
+
+
+def _apply_rule(rule: dict[str, Any]) -> None:
+    if rule["strategy"] == "none":
+        return
+    for declaration in rule["imports"]:
+        condition = declaration.get("when")
+        if condition is not None and condition["sparse"] != ENABLE_SPARSE:
+            continue
+        logger.info("UCM importing runtime patch adapter %s", declaration["module"])
+        importlib.import_module(declaration["module"])
+
+
+def _runtime_patch_variants(installed_products: set[str]) -> dict[str, str]:
+    raw = os.getenv("UCM_RUNTIME_PATCH_VARIANTS")
+    try:
+        variants = json.loads(raw) if raw is not None else None
+    except json.JSONDecodeError as error:
+        raise ValueError("runtime patch variant map is invalid JSON") from error
+    if (
+        not isinstance(variants, dict)
+        or set(variants) != installed_products
+        or any(
+            not isinstance(product, str) or not isinstance(variant, str) or not variant
+            for product, variant in variants.items()
+        )
+    ):
+        raise ValueError(
+            "runtime patch variant map must name exactly the installed products"
+        )
+    if raw != _canonical_bytes(variants).decode("utf-8"):
+        raise ValueError("runtime patch variant map must use canonical JSON")
+    return variants
 
 
 def apply_all_patches() -> None:
-    """Apply all vLLM patches based on detected version."""
-    version: Optional[str] = None
+    """Apply only the ordered adapters declared by the packaged manifest."""
     try:
-        from ucm.integration.vllm.patch.logger_patch import patch_logger
-
+        importlib.import_module("ucm.integration.vllm.patch.logger_patch")
         if not ENABLE_UCM_PATCH:
             return
-
-        version = get_vllm_version()
-        if version is None:
+        manifest = _load_runtime_patch_manifest()
+        vllm_version = get_vllm_version()
+        if vllm_version is None:
             raise ValueError("Could not detect vLLM version")
-
-        supported_versions = get_supported_versions()
-        if version not in supported_versions:
-            logger.warning(
-                f"No version-specific vLLM patches available for vLLM {version}. "
-                f"Versions applicable for UCM patches: {', '.join(supported_versions)}."
+        ascend_version = get_vllm_ascend_version_full()
+        versions = {"vllm": vllm_version}
+        if ascend_version is not None:
+            versions["vllm-ascend"] = ascend_version
+        variants = _runtime_patch_variants(set(versions))
+        for product, version in versions.items():
+            _apply_rule(
+                select_runtime_patch_rule(
+                    manifest,
+                    product,
+                    version,
+                    variant=variants[product],
+                )
             )
-
-        ascend_version = get_vllm_ascend_version()
-        # UCM PATCH: vllm-ascend registers UCMConnector as an alias for the
-        # concrete UCMConnectorV1 class used by MultiConnector metrics.
-        if ascend_version in {
-            "0.18.0",
-            "0.19.1",
-            "0.20.2",
-            "0.22.1",
-            "0.23.0",
-        }:
-            logger.info("UCM patching vllm-ascend UCM connector metrics alias...")
-            import ucm.integration.vllm.patch.ucm_connector_registration_patch
-
-        # Apply vllm/vllm-ascend version-specific patches
-        # vllm patches
-        match version:
-            case "0.11.0":
-                logger.info("UCM patching vllm for pc...")
-                import ucm.integration.vllm.patch.v0110.vllm.pc_patch
-
-                if ENABLE_SPARSE:
-                    logger.info("UCM patching vllm for sparse...")
-                    import ucm.integration.vllm.patch.v0110.vllm.sparse_patch
-            case "0.18.0":
-                logger.info("UCM patching vllm for pc...")
-                import ucm.integration.vllm.patch.v0180.vllm.pc_patch
-            case "0.19.1":
-                logger.info("UCM patching vllm for pc...")
-                import ucm.integration.vllm.patch.v0191.vllm.pc_patch
-            case _:
-                pass
-
-        major, minor, *_ = version.split(".")
-        if (int(major), int(minor)) >= (0, 18):
-            logger.info("UCM patching vllm for load-failure recovery...")
-            import ucm.integration.vllm.patch.load_failure_patch
-
-        # vllm_ascend patches
-        match ascend_version:
-            case "0.11.0":
-                logger.info("UCM patching vllm-ascend for pc...")
-                import ucm.integration.vllm.patch.v0110.vllm_ascend.pc_ascend_patch
-
-                if ENABLE_SPARSE:
-                    logger.info("UCM patching vllm-ascend for sparse...")
-                    import ucm.integration.vllm.patch.v0110.vllm_ascend.sparse_ascend_patch
-            case "0.18.0":
-                logger.info("UCM patching vllm-ascend for pc...")
-                import ucm.integration.vllm.patch.v0180.vllm_ascend.pc_ascend_patch
-            case "0.17.0":
-                logger.info(f"UCM patching vllm-ascend {ascend_version} for pc...")
-                import ucm.integration.vllm.patch.v0180.vllm_ascend.ucm_connector_patch
-            case "0.19.1":
-                logger.info(f"UCM patching vllm-ascend {ascend_version} for pc...")
-                import ucm.integration.vllm.patch.v0191.vllm_ascend.cpu_binding_patch
-                import ucm.integration.vllm.patch.v0191.vllm_ascend.pc_ascend_patch
-            case "0.20.2":
-                logger.info(
-                    "UCM patching vllm-ascend 0.20.2 for hybrid cache recovery..."
-                )
-                import ucm.integration.vllm.patch.v0202.vllm_ascend.ascend_hybrid_cache_patch
-                import ucm.integration.vllm.patch.v0202.vllm_ascend.cpu_binding_patch
-            case "0.21.0":
-                logger.info(
-                    "UCM patching vllm-ascend 0.21.0 for hybrid cache recovery..."
-                )
-                import ucm.integration.vllm.patch.v0210.vllm_ascend.ascend_hybrid_cache_patch
-                import ucm.integration.vllm.patch.v0210.vllm_ascend.cpu_binding_patch
-            case "0.22.1":
-                logger.info(
-                    "UCM patching vllm-ascend 0.22.1 for hybrid cache "
-                    "recovery and CPU affinity..."
-                )
-                import ucm.integration.vllm.patch.v0221.vllm_ascend.ascend_hybrid_cache_patch
-                import ucm.integration.vllm.patch.v0221.vllm_ascend.cpu_binding_patch
-            case "0.23.0":
-                logger.info(
-                    "UCM patching vllm-ascend 0.23.0 for hybrid cache "
-                    "recovery, CPU affinity, and SFA KV transfer..."
-                )
-                import ucm.integration.vllm.patch.v0230.vllm_ascend.ascend_hybrid_cache_patch
-                import ucm.integration.vllm.patch.v0230.vllm_ascend.cpu_binding_patch
-                import ucm.integration.vllm.patch.v0230.vllm_ascend.sfa_kv_transfer_patch
-            case _:
-                pass
-
         logger.info("UCM patch initialization completed!")
-
     except Exception as e:
         logger.error(f"Failed to apply vLLM patches: {e}\n")
         raise

@@ -31,8 +31,33 @@ _CONFIG_KEYS = {
     "external_channels",
     "toolchain",
 }
-_PROFILE_IDS = ["cuda130", "cann900-a2", "cann900-a3"]
-_DISTRIBUTIONS = ["uc-manager-cuda", "uc-manager-cann-a2", "uc-manager-cann-a3"]
+_PRODUCTION_WHEEL_PROFILES = {
+    "cuda130": {
+        "distribution": "uc-manager-cuda",
+        "build_platform": "cuda",
+        "wheel_platform": "manylinux_2_28",
+        "python_version": "3.12",
+        "python_abi": "cp312",
+    },
+    "cann900-a2": {
+        "distribution": "uc-manager-cann-a2",
+        "build_platform": "ascend",
+        "wheel_platform": "linux",
+        "python_version": "3.12",
+        "python_abi": "cp312",
+    },
+    "cann900-a3": {
+        "distribution": "uc-manager-cann-a3",
+        "build_platform": "ascend-a3",
+        "wheel_platform": "linux",
+        "python_version": "3.12",
+        "python_abi": "cp312",
+    },
+}
+_PROFILE_IDS = list(_PRODUCTION_WHEEL_PROFILES)
+_DISTRIBUTIONS = [
+    _PRODUCTION_WHEEL_PROFILES[profile]["distribution"] for profile in _PROFILE_IDS
+]
 _IMAGE_BASENAMES = ["ucm-cuda", "ucm-cann-a2", "ucm-cann-a3"]
 _REPOSITORY = re.compile(
     r"(?P<owner>[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))/(?P<name>[A-Za-z0-9._-]{1,100})",
@@ -51,6 +76,32 @@ def _array(value: object, label: str) -> list[Any]:
     if not isinstance(value, list):
         raise ProductionError(f"{label} must be an array")
     return value
+
+
+def validate_production_wheel_profile(
+    value: object,
+    *,
+    identity_field: str,
+    label: str = "production wheel profile",
+) -> dict[str, Any]:
+    """Validate the exact profile tuple shared by config, projection, and sealing."""
+    profile = _object(value, label)
+    if identity_field not in {"id", "profile_id"}:
+        raise ProductionError("production profile identity field is invalid")
+    forbidden_identity = "profile_id" if identity_field == "id" else "id"
+    if identity_field not in profile or forbidden_identity in profile:
+        raise ProductionError(
+            f"{label} must contain {identity_field} and must not contain "
+            f"{forbidden_identity}"
+        )
+    profile_id = profile[identity_field]
+    expected = _PRODUCTION_WHEEL_PROFILES.get(profile_id)
+    if expected is None:
+        raise ProductionError(f"{label} profile_id is invalid")
+    for field, expected_value in expected.items():
+        if profile.get(field) != expected_value:
+            raise ProductionError(f"{label} {field} differs from profile authority")
+    return profile
 
 
 def _validate_digest_tree(value: object, label: str) -> None:
@@ -118,15 +169,19 @@ def _validate_products(config: dict[str, Any]) -> None:
 
 def _validate_profiles(config: dict[str, Any]) -> None:
     profiles = _array(config["build_profiles"], "build_profiles")
-    if [item.get("id") for item in profiles if isinstance(item, dict)] != _PROFILE_IDS:
-        raise ProductionError("build profile order must be CUDA, CANN A2, CANN A3")
     for index, profile in enumerate(profiles):
         item = _object(profile, f"build_profiles[{index}]")
+        validate_production_wheel_profile(
+            item,
+            identity_field="id",
+            label=f"build_profiles[{index}]",
+        )
         require_exact_keys(
             item,
             {
                 "id",
                 "distribution",
+                "build_platform",
                 "cpu_arch",
                 "python_version",
                 "python_abi",
@@ -136,12 +191,8 @@ def _validate_profiles(config: dict[str, Any]) -> None:
             },
             f"build_profiles[{index}]",
         )
-        if item["distribution"] != _DISTRIBUTIONS[index]:
-            raise ProductionError("build profile distribution mapping is invalid")
         if item["cpu_arch"] != ["amd64", "arm64"]:
             raise ProductionError("every build profile must target amd64 and arm64")
-        if item["python_version"] != "3.12" or item["python_abi"] != "cp312":
-            raise ProductionError("production Python ABI must be CPython 3.12")
         for lock_name in ("builders", "runtime"):
             locks = _object(item[lock_name], f"build_profiles[{index}].{lock_name}")
             require_exact_keys(locks, {"amd64", "arm64"}, lock_name)
@@ -161,6 +212,8 @@ def _validate_profiles(config: dict[str, Any]) -> None:
                 require_string(lock["repository"], f"{lock_name}.{arch}.repository")
                 require_string(lock["tag"], f"{lock_name}.{arch}.tag")
                 _validate_digest_tree(lock, f"{lock_name}.{arch}")
+    if [item["id"] for item in profiles] != _PROFILE_IDS:
+        raise ProductionError("build profile order must be CUDA, CANN A2, CANN A3")
 
 
 def _validate_channels(config: dict[str, Any]) -> None:
@@ -262,13 +315,47 @@ def validate_config(value: object) -> dict[str, Any]:
     toolchain = _object(config["toolchain"], "toolchain")
     require_exact_keys(
         toolchain,
-        {"legacy_release_config_sha256", "python_build", "pyyaml", "cmake", "wrapt"},
+        {
+            "legacy_release_config_sha256",
+            "runtime_requirements",
+            "python_build",
+            "pyyaml",
+            "cmake",
+            "wrapt",
+        },
         "toolchain",
     )
     require_lower_sha256(
         toolchain["legacy_release_config_sha256"],
         "toolchain.legacy_release_config_sha256",
     )
+    runtime_requirements = _array(
+        toolchain["runtime_requirements"], "toolchain.runtime_requirements"
+    )
+    if (
+        not runtime_requirements
+        or runtime_requirements != sorted(runtime_requirements)
+        or len(runtime_requirements) != len(set(runtime_requirements))
+    ):
+        raise ProductionError(
+            "toolchain.runtime_requirements must be unique and sorted"
+        )
+    python_build = _object(toolchain["python_build"], "toolchain.python_build")
+    for requirement in runtime_requirements:
+        if not isinstance(requirement, str):
+            raise ProductionError("toolchain runtime requirement is invalid")
+        name, separator, version = requirement.partition("==")
+        record = python_build.get(name, toolchain.get(name))
+        if (
+            separator != "=="
+            or not name
+            or not version
+            or not isinstance(record, dict)
+            or record.get("version") != version
+        ):
+            raise ProductionError(
+                f"toolchain runtime requirement is not pinned by toolchain: {requirement!r}"
+            )
     _validate_digest_tree(toolchain, "toolchain")
     lowered = canonical_bytes(config).lower()
     if b"supermarioyl" in lowered or b"modelengine-group" in lowered:

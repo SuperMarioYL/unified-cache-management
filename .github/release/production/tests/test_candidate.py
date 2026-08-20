@@ -10,7 +10,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
-
+from conftest import PRODUCTION_ROOT
 from ucm_release_production.candidate import (
     EXPECTED_IMAGE_SPECS,
     CandidateBundle,
@@ -26,8 +26,6 @@ from ucm_release_production.common import (
 )
 from ucm_release_production.config import load_config
 from ucm_release_production.tags import intent_document, parse_tag
-
-from conftest import PRODUCTION_ROOT
 
 CONFIG = PRODUCTION_ROOT / "production-release.json"
 SOURCE = "1" * 40
@@ -62,16 +60,18 @@ def _wheel(path: Path, distribution: str, version: str, architecture: str) -> No
     normalized = distribution.replace("-", "_")
     dist_info = f"{normalized}-{version}.dist-info"
     tag_arch = "x86_64" if architecture == "amd64" else "aarch64"
+    wheel_platform = "manylinux_2_28" if distribution == "uc-manager-cuda" else "linux"
     entries = {
         "ucm/__init__.py": b"",
         "ucm/native.so": _elf(architecture),
         f"{dist_info}/METADATA": (
             f"Metadata-Version: 2.1\nName: {distribution}\nVersion: {version}\n"
+            "Requires-Dist: packaging==24.2\n"
             "Requires-Dist: wrapt==1.17.2\n\n"
         ).encode(),
         f"{dist_info}/WHEEL": (
             "Wheel-Version: 1.0\nGenerator: candidate-test\n"
-            f"Root-Is-Purelib: false\nTag: cp312-cp312-manylinux_2_28_{tag_arch}\n\n"
+            f"Root-Is-Purelib: false\nTag: cp312-cp312-{wheel_platform}_{tag_arch}\n\n"
         ).encode(),
     }
     record_name = f"{dist_info}/RECORD"
@@ -176,6 +176,14 @@ def _candidate_root(tmp_path: Path) -> Path:
                     "task_sha256": "sha256:"
                     + hashlib.sha256(spec_id.encode()).hexdigest(),
                     "source_sha": SOURCE,
+                    "python_abi": "cp312",
+                    "wheel_platform": (
+                        "manylinux_2_28" if profile == "cuda130" else "linux"
+                    ),
+                    "runtime_requirements": [
+                        "packaging==24.2",
+                        "wrapt==1.17.2",
+                    ],
                 },
             )
     chart = root / "chart" / "unified-cache-pd-0.6.0-rc.1.tgz"

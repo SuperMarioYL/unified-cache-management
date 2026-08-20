@@ -98,7 +98,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p out context input/wrapt
+          mkdir -p out input/runtime-download
           printf '%s' "${SOURCE_IDENTITY_B64}" | base64 --decode >out/source-identity.json
           PYTHONPATH=control/.github/release/production python -m ucm_release_production tag parse \
             --config control/.github/release/production/production-release.json \
@@ -107,10 +107,6 @@ jobs:
             --config control/.github/release/production/production-release.json \
             --intent out/tag-intent.json --source out/source-identity.json \
             --spec-id "${SPEC_ID}" --output out/build-task.json
-          PYTHONPATH=control/.github/release/production python -m ucm_release_production image recipe \
-            --config control/.github/release/production/production-release.json \
-            --task out/build-task.json --intent out/tag-intent.json \
-            --output out/image-recipe.json
           wheel_root="cache/candidate/wheels/${SPEC_ID}"
           wheel_path="$(find "${wheel_root}" -maxdepth 1 -type f -name '*.whl' -print)"
           test -n "${wheel_path}"
@@ -122,24 +118,36 @@ jobs:
             arm64) pip_platform=manylinux2014_aarch64 ;;
             *) exit 2 ;;
           esac
-          python -m pip download --disable-pip-version-check --no-cache-dir \
-            --only-binary=:all: --no-deps --platform "${pip_platform}" \
-            --python-version 312 --implementation cp --abi cp312 \
-            --dest input/wrapt wrapt==1.17.2
-          wrapt_path="$(find input/wrapt -maxdepth 1 -type f -name '*.whl' -print)"
-          test -n "${wrapt_path}"
-          expected_wrapt="$(python -c 'import json,sys; c=json.load(open("control/.github/release/production/production-release.json")); print(c["toolchain"]["wrapt"][sys.argv[1]]["sha256"])' "${architecture}")"
-          test "$(sha256sum "${wrapt_path}" | cut -d' ' -f1)" = "${expected_wrapt}"
-          cp "${wheel_path}" context/
-          cp "${wrapt_path}" context/
-          cp control/.github/release/production/docker/Dockerfile.image context/Dockerfile
-          distribution="$(python -c 'import json; print(json.load(open("out/build-task.json"))["distribution"])')"
-          wheel_name="$(basename "${wheel_path}")"
-          wrapt_name="$(basename "${wrapt_path}")"
-          {
-            printf '%s @ file:///wheelhouse/%s --hash=%s\n' "${distribution}" "${wheel_name}" "${wheel_sha}"
-            printf 'wrapt @ file:///wheelhouse/%s --hash=sha256:%s\n' "${wrapt_name}" "${expected_wrapt}"
-          } >context/requirements.lock
+          python - "${architecture}" <<'PY' >out/runtime-wheels.tsv
+          import json
+          import sys
+
+          config = json.load(open("control/.github/release/production/production-release.json"))
+          architecture = sys.argv[1]
+          packaging = config["toolchain"]["python_build"]["packaging"]
+          wrapt_group = config["toolchain"]["wrapt"]
+          wrapt = wrapt_group[architecture]
+          print(f"packaging=={packaging['version']}\t{packaging['filename']}\t{packaging['sha256']}")
+          print(f"wrapt=={wrapt_group['version']}\t{wrapt['filename']}\t{wrapt['sha256']}")
+          PY
+          while IFS=$'\t' read -r requirement filename expected_sha256; do
+            rm -rf input/runtime-download/*
+            python -m pip download --disable-pip-version-check --no-cache-dir \
+              --only-binary=:all: --no-deps --platform "${pip_platform}" \
+              --python-version 312 --implementation cp --abi cp312 \
+              --dest input/runtime-download "${requirement}"
+            test -f "input/runtime-download/${filename}"
+            test "$(sha256sum "input/runtime-download/${filename}" | cut -d' ' -f1)" = \
+              "${expected_sha256}"
+            mv "input/runtime-download/${filename}" "${wheel_root}/${filename}"
+          done <out/runtime-wheels.tsv
+          PYTHONPATH=control/.github/release/production python -m ucm_release_production image context \
+            --config control/.github/release/production/production-release.json \
+            --task out/build-task.json --intent out/tag-intent.json \
+            --wheel-record "${wheel_root}/record.json" --wheel "${wheel_path}" \
+            --dockerfile control/.github/release/production/docker/Dockerfile.image \
+            --output-dir context --recipe-output out/image-recipe.json \
+            >out/image-context.json
       - name: Install checksum-pinned Buildx
         env:
           BUILDX_VERSION: v0.19.2
@@ -177,15 +185,18 @@ jobs:
           task_sha="$(python -c 'import json; print("sha256:"+json.load(open("out/build-task.json"))["sha256"])')"
           image_tag="$(python -c 'import json; print(json.load(open("out/image-recipe.json"))["image_tag"])')"
           recipe_sha="$(python -c 'import json; print("sha256:"+json.load(open("out/image-recipe.json"))["sha256"])')"
-          wheel_path="$(find context -maxdepth 1 -type f -name 'uc_manager_*.whl' -print)"
-          wrapt_path="$(find context -maxdepth 1 -type f -name 'wrapt-*.whl' -print)"
+          wheel_name="$(python -c 'import json; print(json.load(open("out/image-context.json"))["wheel_name"])')"
+          packaging_name="$(python -c 'import json; print(next(name for name in json.load(open("out/image-context.json"))["runtime_wheel_names"] if name.startswith("packaging-")))')"
+          wrapt_name="$(python -c 'import json; print(next(name for name in json.load(open("out/image-context.json"))["runtime_wheel_names"] if name.startswith("wrapt-")))')"
+          wheel_path="context/${wheel_name}"
           wheel_sha="sha256:$(sha256sum "${wheel_path}" | cut -d' ' -f1)"
           docker buildx build --builder ucm-production-image --platform "${platform}" \
             --target production-runtime --provenance=false --sbom=false \
             --build-arg "BASE_IMAGE=${base}" --build-arg "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}" \
             --build-arg "UCM_DISTRIBUTION=${distribution}" \
-            --build-arg "UCM_WHEEL=$(basename "${wheel_path}")" \
-            --build-arg "WRAPT_WHEEL=$(basename "${wrapt_path}")" \
+            --build-arg "UCM_WHEEL=${wheel_name}" \
+            --build-arg "PACKAGING_WHEEL=${packaging_name}" \
+            --build-arg "WRAPT_WHEEL=${wrapt_name}" \
             --build-arg "UCM_SOURCE_SHA=${SOURCE_SHA}" --build-arg "UCM_IMAGE_TAG=${image_tag}" \
             --build-arg "UCM_SPEC_ID=${SPEC_ID}" --build-arg "UCM_TASK_SHA256=${task_sha}" \
             --build-arg "UCM_WHEEL_SHA256=${wheel_sha}" --build-arg "UCM_RECIPE_SHA256=${recipe_sha}" \

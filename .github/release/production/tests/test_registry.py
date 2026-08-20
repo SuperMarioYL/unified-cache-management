@@ -7,7 +7,6 @@ from typing import Any
 
 import pytest
 from jsonschema import Draft202012Validator
-
 from ucm_release_production.common import ProductionError, canonical_bytes
 from ucm_release_production.registry import (
     AuthorizationDenied,

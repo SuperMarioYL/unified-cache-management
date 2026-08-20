@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
-
+from conftest import PRODUCTION_ROOT
 from ucm_release_production.cli import main
 from ucm_release_production.common import ProductionError, load_json, verify_envelope
 from ucm_release_production.config import load_config
@@ -15,8 +15,6 @@ from ucm_release_production.tags import (
     parse_tag,
     verify_ref_snapshot,
 )
-
-from conftest import PRODUCTION_ROOT
 
 CONFIG = PRODUCTION_ROOT / "production-release.json"
 SOURCE = "1" * 40
