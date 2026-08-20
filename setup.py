@@ -48,14 +48,19 @@ RELEASE_BUILD = RELEASE_BUILD_VALUE == "1"
 
 def get_source_version() -> str:
     import subprocess
+
     describe = subprocess.run(
         ["git", "-C", ROOT_DIR, "describe", "--tags", "--dirty"],
-        text=True, capture_output=True, check=False,
+        text=True,
+        capture_output=True,
+        check=False,
     ).stdout.strip()
     if not describe:
-        raise RuntimeError("git describe failed; tag the commit or build with UCM_RELEASE_BUILD=1")
+        raise RuntimeError(
+            "git describe failed; tag the commit or build with UCM_RELEASE_BUILD=1"
+        )
     dirty = describe.endswith("-dirty")
-    desc = describe[:-len("-dirty")] if dirty else describe
+    desc = describe[: -len("-dirty")] if dirty else describe
     desc = desc[1:] if desc.startswith("v") else desc
     match = re.fullmatch(r"(\d+(?:\.\d+)*(?:[a-z]+\d*)?)-(\d+)-g([0-9a-f]+)", desc)
     if match is None:
@@ -65,6 +70,16 @@ def get_source_version() -> str:
         base = f"{base}.dev{distance}"
         local = [f"g{sha}"] + (["dirty"] if dirty else [])
     return f"{base}+{'.'.join(local)}" if local else base
+
+
+def get_version_ini_version() -> str:
+    version_path = os.path.join(ROOT_DIR, "version.ini")
+    with open(version_path, encoding="utf-8") as version_file:
+        for line in version_file:
+            key, separator, value = line.strip().partition("=")
+            if separator and key == "VLLM_UC_VERSION" and value:
+                return value
+    raise RuntimeError(f"VLLM_UC_VERSION is missing from {version_path}")
 
 
 def _required_release_value(name: str) -> str:
@@ -82,19 +97,14 @@ def _release_authority() -> dict[str, object]:
         authority = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise RuntimeError(f"release authority is invalid JSON: {error}") from error
-    fields = {
+    compact_fields = {
         "schema_version",
         "kind",
-        "task_id",
         "spec_id",
         "profile_id",
         "cpu_arch",
         "platform",
-        "build",
-        "python_version",
-        "python_abi",
         "wheel_version",
-        "wheel_platform",
         "source_sha",
         "source_tree",
         "source_archive_sha256",
@@ -106,11 +116,34 @@ def _release_authority() -> dict[str, object]:
         "tool_wheels",
         "required_native",
         "forbidden_native",
-        "runtime_patch_manifest_sha256",
-        "runtime_requirements",
         "build_context_sha256",
     }
-    if not isinstance(authority, dict) or set(authority) != fields:
+    extended_v1_fields = compact_fields | {
+        "task_id",
+        "build",
+        "python_version",
+        "python_abi",
+        "wheel_platform",
+        "runtime_patch_manifest_sha256",
+        "runtime_requirements",
+    }
+    if not isinstance(authority, dict):
+        raise RuntimeError("release authority must be a JSON object")
+    schema_version = authority.get("schema_version")
+    if type(schema_version) is not int or schema_version not in {1, 2}:
+        raise RuntimeError("release authority schema_version must be 1 or 2")
+    authority_fields = set(authority)
+    if schema_version == 1:
+        fields_are_exact = (
+            authority_fields == compact_fields or authority_fields == extended_v1_fields
+        )
+    else:
+        fields_are_exact = authority_fields == compact_fields | {
+            "distribution",
+            "base_version",
+            "stage",
+        }
+    if not fields_are_exact:
         raise RuntimeError("release authority fields are not exact")
     canonical = json.dumps(
         authority, sort_keys=True, separators=(",", ":"), ensure_ascii=False
@@ -118,9 +151,7 @@ def _release_authority() -> dict[str, object]:
     if raw != canonical + b"\n":
         raise RuntimeError("release authority is noncanonical")
     if (
-        authority["schema_version"] != 1
-        or authority["kind"] != "ucm-native-build-authority"
-        or re.fullmatch(r"wheel-[0-9a-f]{64}", str(authority["task_id"])) is None
+        authority["kind"] != "ucm-native-build-authority"
         or re.fullmatch(r"[0-9a-f]{40}", str(authority["source_sha"])) is None
         or re.fullmatch(r"[0-9a-f]{40}", str(authority["source_tree"])) is None
         or re.fullmatch(r"sha256:[0-9a-f]{64}", str(authority["source_archive_sha256"]))
@@ -128,11 +159,6 @@ def _release_authority() -> dict[str, object]:
         or re.fullmatch(r"sha256:[0-9a-f]{64}", str(authority["build_context_sha256"]))
         is None
         or re.fullmatch(r"sha256:[0-9a-f]{64}", str(authority["task_sha256"])) is None
-        or re.fullmatch(
-            r"sha256:[0-9a-f]{64}",
-            str(authority["runtime_patch_manifest_sha256"]),
-        )
-        is None
         or re.fullmatch(
             r"[^@ ]+@sha256:[0-9a-f]{64}", str(authority["builder_coordinate"])
         )
@@ -145,42 +171,50 @@ def _release_authority() -> dict[str, object]:
         is None
     ):
         raise RuntimeError("release authority identity is invalid")
-    build = authority["build"]
-    if (
-        not isinstance(build, dict)
-        or set(build) != {"docker_target", "platform_arg"}
-        or not all(isinstance(value, str) and value for value in build.values())
-        or not isinstance(authority["python_version"], str)
-        or re.fullmatch(r"[0-9]+\.[0-9]+", authority["python_version"]) is None
-        or authority["python_abi"]
-        != "cp" + authority["python_version"].replace(".", "")
-        or not isinstance(authority["wheel_platform"], str)
-        or not authority["wheel_platform"]
-        or not isinstance(authority["runtime_requirements"], list)
-        or not 1 <= len(authority["runtime_requirements"]) <= 64
-        or authority["runtime_requirements"]
-        != sorted(authority["runtime_requirements"])
-        or len(
-            {
-                str(requirement).partition("==")[0].lower().replace("_", "-")
-                for requirement in authority["runtime_requirements"]
-            }
-        )
-        != len(authority["runtime_requirements"])
-        or any(
-            re.fullmatch(
-                r"[A-Za-z0-9][A-Za-z0-9_.-]*==[^*\s=]+",
-                str(requirement),
+    extended_schema_v1 = authority_fields == extended_v1_fields
+    if extended_schema_v1:
+        build = authority["build"]
+        if (
+            re.fullmatch(r"wheel-[0-9a-f]{64}", str(authority["task_id"])) is None
+            or re.fullmatch(
+                r"sha256:[0-9a-f]{64}",
+                str(authority["runtime_patch_manifest_sha256"]),
             )
             is None
-            for requirement in authority["runtime_requirements"]
-        )
-    ):
-        raise RuntimeError("release authority build settings are invalid")
+            or not isinstance(build, dict)
+            or set(build) != {"docker_target", "platform_arg"}
+            or not all(isinstance(value, str) and value for value in build.values())
+            or not isinstance(authority["python_version"], str)
+            or re.fullmatch(r"[0-9]+\.[0-9]+", authority["python_version"]) is None
+            or authority["python_abi"]
+            != "cp" + authority["python_version"].replace(".", "")
+            or not isinstance(authority["wheel_platform"], str)
+            or not authority["wheel_platform"]
+            or not isinstance(authority["runtime_requirements"], list)
+            or not 1 <= len(authority["runtime_requirements"]) <= 64
+            or authority["runtime_requirements"]
+            != sorted(authority["runtime_requirements"])
+            or len(
+                {
+                    str(requirement).partition("==")[0].lower().replace("_", "-")
+                    for requirement in authority["runtime_requirements"]
+                }
+            )
+            != len(authority["runtime_requirements"])
+            or any(
+                re.fullmatch(
+                    r"[A-Za-z0-9][A-Za-z0-9_.-]*==[^*\s=]+",
+                    str(requirement),
+                )
+                is None
+                for requirement in authority["runtime_requirements"]
+            )
+        ):
+            raise RuntimeError("release authority build settings are invalid")
     tools = authority["tool_wheels"]
     if (
         not isinstance(tools, dict)
-        or not 1 <= len(tools) <= 64
+        or not (1 <= len(tools) <= 64 if extended_schema_v1 else len(tools) == 7)
         or any(
             not isinstance(name, str)
             or re.fullmatch(r"sha256:[0-9a-f]{64}", str(value)) is None
@@ -188,7 +222,39 @@ def _release_authority() -> dict[str, object]:
         )
     ):
         raise RuntimeError("release authority tool wheel evidence is invalid")
+    if schema_version == 2:
+        distributions = {
+            "cuda130": "uc-manager-cuda",
+            "cann900-a2": "uc-manager-cann-a2",
+            "cann900-a3": "uc-manager-cann-a3",
+        }
+        profile = authority["profile_id"]
+        if (
+            profile not in distributions
+            or authority["distribution"] != distributions[profile]
+            or re.fullmatch(
+                r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)",
+                str(authority["base_version"]),
+                re.ASCII,
+            )
+            is None
+            or authority["stage"] not in {"draft", "rc", "stable", "hotfix"}
+        ):
+            raise RuntimeError("release authority production distribution is invalid")
     return authority
+
+
+def _release_architecture() -> str:
+    machine = host_platform.machine().lower()
+    architecture = {
+        "x86_64": "amd64",
+        "amd64": "amd64",
+        "aarch64": "arm64",
+        "arm64": "arm64",
+    }.get(machine)
+    if architecture is None:
+        raise RuntimeError(f"unsupported native release architecture: {machine}")
+    return architecture
 
 
 def _release_settings() -> dict[str, object] | None:
@@ -197,30 +263,120 @@ def _release_settings() -> dict[str, object] | None:
     if PLATFORM is None:
         raise RuntimeError("PLATFORM is required when UCM_RELEASE_BUILD=1")
     authority = _release_authority()
-    task_id = _required_release_value("UCM_RELEASE_TASK_ID")
-    spec_id = _required_release_value("UCM_RELEASE_SPEC_ID")
+    extended_schema_v1 = authority["schema_version"] == 1 and "task_id" in authority
     profile = _required_release_value("UCM_RELEASE_PROFILE")
     source_sha = _required_release_value("UCM_RELEASE_SOURCE_SHA")
     version = _required_release_value("UCM_RELEASE_VERSION")
     build_key = _required_release_value("UCM_RELEASE_BUILD_KEY")
-    python_version = _required_release_value("UCM_RELEASE_PYTHON_VERSION")
-    python_abi = _required_release_value("UCM_RELEASE_PYTHON_ABI")
-    wheel_platform = _required_release_value("UCM_RELEASE_WHEEL_PLATFORM")
-    build_settings_raw = _required_release_value("UCM_RELEASE_BUILD_SETTINGS")
-    runtime_patch_manifest_sha256 = _required_release_value(
-        "UCM_RUNTIME_PATCH_MANIFEST_SHA256"
-    )
     source_date_epoch = _required_release_value("SOURCE_DATE_EPOCH")
     required = _required_release_value("UCM_RELEASE_REQUIRED_TARGETS").split(",")
     forbidden = _required_release_value("UCM_RELEASE_FORBIDDEN_TARGETS").split(",")
-    try:
-        build_settings = json.loads(build_settings_raw)
-    except json.JSONDecodeError as error:
-        raise RuntimeError("UCM_RELEASE_BUILD_SETTINGS is invalid JSON") from error
-    if not isinstance(build_settings, dict) or build_settings_raw != json.dumps(
-        build_settings, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ):
-        raise RuntimeError("UCM_RELEASE_BUILD_SETTINGS must be canonical JSON")
+    architecture = _release_architecture()
+    extended_settings: dict[str, object] = {}
+    if extended_schema_v1:
+        task_id = _required_release_value("UCM_RELEASE_TASK_ID")
+        spec_id = _required_release_value("UCM_RELEASE_SPEC_ID")
+        python_version = _required_release_value("UCM_RELEASE_PYTHON_VERSION")
+        python_abi = _required_release_value("UCM_RELEASE_PYTHON_ABI")
+        wheel_platform = _required_release_value("UCM_RELEASE_WHEEL_PLATFORM")
+        build_settings_raw = _required_release_value("UCM_RELEASE_BUILD_SETTINGS")
+        runtime_patch_manifest_sha256 = _required_release_value(
+            "UCM_RUNTIME_PATCH_MANIFEST_SHA256"
+        )
+        try:
+            build_settings = json.loads(build_settings_raw)
+        except json.JSONDecodeError as error:
+            raise RuntimeError("UCM_RELEASE_BUILD_SETTINGS is invalid JSON") from error
+        if not isinstance(build_settings, dict) or build_settings_raw != json.dumps(
+            build_settings, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ):
+            raise RuntimeError("UCM_RELEASE_BUILD_SETTINGS must be canonical JSON")
+        invoking_python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+        invoking_python_abi = f"cp{sys.version_info.major}{sys.version_info.minor}"
+        contract_values = {
+            "task": (task_id, authority["task_id"]),
+            "platform": (PLATFORM, authority["build"]["platform_arg"]),
+            "spec": (spec_id, authority["spec_id"]),
+            "Python version": (python_version, authority["python_version"]),
+            "Python ABI": (python_abi, authority["python_abi"]),
+            "invoking Python version": (invoking_python_version, python_version),
+            "invoking Python ABI": (invoking_python_abi, python_abi),
+            "wheel platform": (wheel_platform, authority["wheel_platform"]),
+            "build settings": (build_settings, authority["build"]),
+            "runtime patch manifest": (
+                runtime_patch_manifest_sha256,
+                authority["runtime_patch_manifest_sha256"],
+            ),
+        }
+        extended_settings = {
+            "spec_id": spec_id,
+            "task_id": task_id,
+            "python_version": python_version,
+            "python_abi": python_abi,
+            "wheel_platform": wheel_platform,
+            "build": build_settings,
+            "runtime_patch_manifest_sha256": runtime_patch_manifest_sha256,
+            "runtime_requirements": authority["runtime_requirements"],
+        }
+    else:
+        if profile not in {"cuda130", "cann900-a2", "cann900-a3"}:
+            raise RuntimeError(f"invalid UCM_RELEASE_PROFILE={profile!r}")
+        expected_platform = (
+            "ascend-a3"
+            if profile.endswith("-a3")
+            else "ascend" if profile.endswith("-a2") else "cuda"
+        )
+        if PLATFORM != expected_platform:
+            raise RuntimeError(
+                f"PLATFORM={PLATFORM!r} is inconsistent with release profile {profile!r}"
+            )
+        source_version = get_version_ini_version()
+        if authority["schema_version"] == 1:
+            if os.getenv("UCM_RELEASE_DISTRIBUTION") is not None:
+                raise RuntimeError(
+                    "UCM_RELEASE_DISTRIBUTION is not valid for schema-v1 authority"
+                )
+            distribution = "uc-manager"
+            expected_suffix = profile.replace("-a", ".a")
+            if version != f"{source_version}+{expected_suffix}":
+                raise RuntimeError(
+                    f"release version {version!r} is inconsistent with "
+                    f"{source_version!r} and profile {profile!r}"
+                )
+        else:
+            distribution = _required_release_value("UCM_RELEASE_DISTRIBUTION")
+            if distribution != authority["distribution"]:
+                raise RuntimeError(
+                    "release distribution differs from reviewed build authority"
+                )
+            base_version = str(authority["base_version"])
+            if source_version != base_version:
+                raise RuntimeError(
+                    "production base_version differs from version.ini source authority"
+                )
+            escaped = re.escape(base_version)
+            stage_patterns = {
+                "draft": rf"{escaped}\.dev[1-9][0-9]*",
+                "rc": rf"{escaped}rc[1-9][0-9]*",
+                "stable": escaped,
+                "hotfix": escaped,
+            }
+            if (
+                re.fullmatch(stage_patterns[str(authority["stage"])], version, re.ASCII)
+                is None
+            ):
+                raise RuntimeError(
+                    "production release version is inconsistent with stage and base version"
+                )
+        contract_values = {
+            "spec": (f"{profile}-{architecture}", authority["spec_id"]),
+        }
+        extended_settings = {
+            "spec_id": f"{profile}-{architecture}",
+            "distribution": distribution,
+            "authority_schema_version": authority["schema_version"],
+            "stage": authority.get("stage"),
+        }
     if re.fullmatch(r"[0-9a-f]{40}", source_sha) is None:
         raise RuntimeError("UCM_RELEASE_SOURCE_SHA must be a full lowercase Git commit")
     if re.fullmatch(r"sha256:[0-9a-f]{64}", build_key) is None:
@@ -241,39 +397,16 @@ def _release_settings() -> dict[str, object] | None:
         or set(required) & set(forbidden)
     ):
         raise RuntimeError("release required/forbidden target lists are invalid")
-    machine = host_platform.machine().lower()
-    architecture = {
-        "x86_64": "amd64",
-        "amd64": "amd64",
-        "aarch64": "arm64",
-        "arm64": "arm64",
-    }.get(machine)
-    if architecture is None:
-        raise RuntimeError(f"unsupported native release architecture: {machine}")
-    invoking_python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-    invoking_python_abi = f"cp{sys.version_info.major}{sys.version_info.minor}"
     authority_values = {
-        "task": (task_id, authority["task_id"]),
         "profile": (profile, authority["profile_id"]),
-        "platform": (PLATFORM, authority["build"]["platform_arg"]),
         "source": (source_sha, authority["source_sha"]),
         "version": (version, authority["wheel_version"]),
         "build key": (build_key, authority["task_sha256"]),
         "source epoch": (int(source_date_epoch), authority["source_date_epoch"]),
         "architecture": (architecture, authority["cpu_arch"]),
-        "spec": (spec_id, authority["spec_id"]),
-        "Python version": (python_version, authority["python_version"]),
-        "Python ABI": (python_abi, authority["python_abi"]),
-        "invoking Python version": (invoking_python_version, python_version),
-        "invoking Python ABI": (invoking_python_abi, python_abi),
-        "wheel platform": (wheel_platform, authority["wheel_platform"]),
-        "build settings": (build_settings, authority["build"]),
-        "runtime patch manifest": (
-            runtime_patch_manifest_sha256,
-            authority["runtime_patch_manifest_sha256"],
-        ),
         "required targets": (required, authority["required_native"]),
         "forbidden targets": (forbidden, authority["forbidden_native"]),
+        **contract_values,
     }
     mismatches = [
         name
@@ -297,15 +430,8 @@ def _release_settings() -> dict[str, object] | None:
         "required": required,
         "forbidden": forbidden,
         "architecture": architecture,
-        "spec_id": spec_id,
-        "task_id": task_id,
-        "python_version": python_version,
-        "python_abi": python_abi,
-        "wheel_platform": wheel_platform,
-        "build": build_settings,
-        "runtime_patch_manifest_sha256": runtime_patch_manifest_sha256,
-        "runtime_requirements": authority["runtime_requirements"],
         "build_context_sha256": authority["build_context_sha256"],
+        **extended_settings,
     }
 
 
@@ -316,6 +442,12 @@ def get_release_version() -> str:
     if RELEASE_SETTINGS is not None:
         return str(RELEASE_SETTINGS["version"])
     return get_source_version()
+
+
+def get_release_distribution() -> str:
+    if RELEASE_SETTINGS is not None and "distribution" in RELEASE_SETTINGS:
+        return str(RELEASE_SETTINGS["distribution"])
+    return os.environ.get("UCM_DIST_NAME", "uc-manager")
 
 
 def get_abi_flag_from_env() -> str:
@@ -550,7 +682,7 @@ def inject_pth():
 
 
 setup(
-    name=os.environ.get("UCM_DIST_NAME", "uc-manager"),
+    name=get_release_distribution(),
     version=get_release_version(),
     description="Unified Cache Management",
     author="Unified Cache Team",
@@ -563,7 +695,7 @@ setup(
     python_requires=">=3.10",
     install_requires=(
         list(RELEASE_SETTINGS["runtime_requirements"])
-        if RELEASE_SETTINGS is not None
+        if RELEASE_SETTINGS is not None and "runtime_requirements" in RELEASE_SETTINGS
         else ["wrapt==1.17.2"]
     ),
     ext_modules=[CMakeExtension(name="ucm", source_dir=ROOT_DIR)],

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/ucm/release/v2/environment-verification.schema.json",
+  "title": "UCM simulated environment verification",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["gates", "kind", "mode", "production_gate", "reason", "schema_version", "simulated_verdict", "status"],
+  "properties": {
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["production", "simulated_environment"],
+      "properties": {
+        "production": {"$ref": "#/$defs/blocked_gate"},
+        "simulated_environment": {"$ref": "#/$defs/simulated_gate"}
+      }
+    },
+    "kind": {"const": "environment-verification"},
+    "mode": {"const": "dry-run"},
+    "production_gate": {"const": "blocked"},
+    "reason": {"const": "simulated-evidence-cannot-satisfy-production-gate"},
+    "schema_version": {"const": 2},
+    "simulated_verdict": {"enum": ["passed", "failed"]},
+    "status": {"const": "accepted"}
+  },
+  "$defs": {
+    "blocked_gate": {"type": "object", "additionalProperties": false, "required": ["status"], "properties": {"status": {"const": "blocked"}}},
+    "simulated_gate": {"type": "object", "additionalProperties": false, "required": ["status"], "properties": {"status": {"enum": ["passed", "failed"]}}}
+  },
+  "allOf": [
+    {"if": {"properties": {"simulated_verdict": {"const": "passed"}}, "required": ["simulated_verdict"]}, "then": {"properties": {"gates": {"properties": {"simulated_environment": {"properties": {"status": {"const": "passed"}}}}}}}},
+    {"if": {"properties": {"simulated_verdict": {"const": "failed"}}, "required": ["simulated_verdict"]}, "then": {"properties": {"gates": {"properties": {"simulated_environment": {"properties": {"status": {"const": "failed"}}}}}}}}
+  ]
+}

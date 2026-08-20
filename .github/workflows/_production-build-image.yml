@@ -1,0 +1,209 @@
+name: Reusable production install-only UCM image build
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        type: string
+        required: true
+      tag_name:
+        type: string
+        required: true
+      spec_id:
+        type: string
+        required: true
+      candidate_run_id:
+        type: string
+        required: true
+      candidate_run_attempt:
+        type: string
+        required: true
+      source_identity_b64:
+        type: string
+        required: true
+      source_date_epoch:
+        type: string
+        required: true
+      control_sha:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ endsWith(inputs.spec_id, '-arm64') && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 210
+    permissions:
+      contents: read
+    steps:
+      - name: Validate production image build inputs
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          TAG_NAME: ${{ inputs.tag_name }}
+          SPEC_ID: ${{ inputs.spec_id }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CANDIDATE_RUN_ATTEMPT: ${{ inputs.candidate_run_attempt }}
+          SOURCE_IDENTITY_B64: ${{ inputs.source_identity_b64 }}
+          SOURCE_DATE_EPOCH: ${{ inputs.source_date_epoch }}
+          CONTROL_SHA: ${{ inputs.control_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${CANDIDATE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${CANDIDATE_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${SOURCE_IDENTITY_B64}" =~ ^[A-Za-z0-9+/=]+$ ]]
+          [[ "${SOURCE_DATE_EPOCH}" =~ ^[1-9][0-9]{8,9}$ ]]
+          [[ "${CONTROL_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          case "${SPEC_ID}" in
+            cuda130-amd64|cuda130-arm64|cann900-a2-amd64|cann900-a2-arm64|cann900-a3-amd64|cann900-a3-arm64) ;;
+            *) exit 2 ;;
+          esac
+          case "${TAG_NAME}" in draft/v*|v*) ;; *) exit 2 ;; esac
+      - name: Free disk for immutable production runtime
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.control_sha }}
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - name: Restore exact same-run production wheel
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: cache/candidate/wheels/${{ inputs.spec_id }}
+          key: production-candidate-wheel-${{ github.repository_id }}-${{ inputs.candidate_run_id }}-${{ inputs.candidate_run_attempt }}-${{ inputs.control_sha }}-${{ inputs.source_sha }}-${{ inputs.spec_id }}
+          enableCrossOsArchive: false
+          fail-on-cache-miss: true
+      - name: Resolve trusted image recipe and dependency lock
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_DATE_EPOCH: ${{ inputs.source_date_epoch }}
+          TAG_NAME: ${{ inputs.tag_name }}
+          SPEC_ID: ${{ inputs.spec_id }}
+          SOURCE_IDENTITY_B64: ${{ inputs.source_identity_b64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out context input/wrapt
+          printf '%s' "${SOURCE_IDENTITY_B64}" | base64 --decode >out/source-identity.json
+          PYTHONPATH=control/.github/release/production python -m ucm_release_production tag parse \
+            --config control/.github/release/production/production-release.json \
+            --tag "${TAG_NAME}" --output out/tag-intent.json
+          PYTHONPATH=control/.github/release/production python -m ucm_release_production build task \
+            --config control/.github/release/production/production-release.json \
+            --intent out/tag-intent.json --source out/source-identity.json \
+            --spec-id "${SPEC_ID}" --output out/build-task.json
+          PYTHONPATH=control/.github/release/production python -m ucm_release_production image recipe \
+            --config control/.github/release/production/production-release.json \
+            --task out/build-task.json --intent out/tag-intent.json \
+            --output out/image-recipe.json
+          wheel_root="cache/candidate/wheels/${SPEC_ID}"
+          wheel_path="$(find "${wheel_root}" -maxdepth 1 -type f -name '*.whl' -print)"
+          test -n "${wheel_path}"
+          wheel_sha="sha256:$(sha256sum "${wheel_path}" | cut -d' ' -f1)"
+          test "${wheel_sha}" = "$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["file_sha256"])' "${wheel_root}/record.json")"
+          architecture="${SPEC_ID##*-}"
+          case "${architecture}" in
+            amd64) pip_platform=manylinux2014_x86_64 ;;
+            arm64) pip_platform=manylinux2014_aarch64 ;;
+            *) exit 2 ;;
+          esac
+          python -m pip download --disable-pip-version-check --no-cache-dir \
+            --only-binary=:all: --no-deps --platform "${pip_platform}" \
+            --python-version 312 --implementation cp --abi cp312 \
+            --dest input/wrapt wrapt==1.17.2
+          wrapt_path="$(find input/wrapt -maxdepth 1 -type f -name '*.whl' -print)"
+          test -n "${wrapt_path}"
+          expected_wrapt="$(python -c 'import json,sys; c=json.load(open("control/.github/release/production/production-release.json")); print(c["toolchain"]["wrapt"][sys.argv[1]]["sha256"])' "${architecture}")"
+          test "$(sha256sum "${wrapt_path}" | cut -d' ' -f1)" = "${expected_wrapt}"
+          cp "${wheel_path}" context/
+          cp "${wrapt_path}" context/
+          cp control/.github/release/production/docker/Dockerfile.image context/Dockerfile
+          distribution="$(python -c 'import json; print(json.load(open("out/build-task.json"))["distribution"])')"
+          wheel_name="$(basename "${wheel_path}")"
+          wrapt_name="$(basename "${wrapt_path}")"
+          {
+            printf '%s @ file:///wheelhouse/%s --hash=%s\n' "${distribution}" "${wheel_name}" "${wheel_sha}"
+            printf 'wrapt @ file:///wheelhouse/%s --hash=sha256:%s\n' "${wrapt_name}" "${expected_wrapt}"
+          } >context/requirements.lock
+      - name: Install checksum-pinned Buildx
+        env:
+          BUILDX_VERSION: v0.19.2
+          BUILDX_LINUX_AMD64_SHA256: a5ff61c0b6d2c8ee20964a9d6dac7a7a6383c4a4a0ee8d354e983917578306ea
+          BUILDX_LINUX_ARM64_SHA256: bd54f0e28c29789da1679bad2dd94c1923786ccd2cd80dd3a0a1d560a6baf10c
+          BUILDKIT_IMAGE: moby/buildkit:v0.18.2@sha256:86c0ad9d1137c186e9d455912167df20e530bdf7f7c19de802e892bb8ca16552
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) arch=amd64; digest="${BUILDX_LINUX_AMD64_SHA256}" ;;
+            aarch64|arm64) arch=arm64; digest="${BUILDX_LINUX_ARM64_SHA256}" ;;
+            *) exit 2 ;;
+          esac
+          binary="${RUNNER_TEMP}/docker-buildx"
+          curl -fsSL --retry 3 -o "${binary}" \
+            "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-${arch}"
+          echo "${digest}  ${binary}" | sha256sum --check
+          mkdir -p "${HOME}/.docker/cli-plugins"
+          install -m 0755 "${binary}" "${HOME}/.docker/cli-plugins/docker-buildx"
+          docker buildx create --name ucm-production-image \
+            --driver docker-container --driver-opt "image=${BUILDKIT_IMAGE}" --use
+          docker buildx inspect ucm-production-image --bootstrap
+      - name: Build and inspect production OCI member
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_DATE_EPOCH: ${{ inputs.source_date_epoch }}
+          SPEC_ID: ${{ inputs.spec_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          platform="$(python -c 'import json; print(json.load(open("out/build-task.json"))["platform"])')"
+          base="$(python -c 'import json; r=json.load(open("out/image-recipe.json"))["base"]; print("{}@{}".format(r["repository"],r["manifest_digest"]))')"
+          distribution="$(python -c 'import json; print(json.load(open("out/build-task.json"))["distribution"])')"
+          task_sha="$(python -c 'import json; print("sha256:"+json.load(open("out/build-task.json"))["sha256"])')"
+          image_tag="$(python -c 'import json; print(json.load(open("out/image-recipe.json"))["image_tag"])')"
+          recipe_sha="$(python -c 'import json; print("sha256:"+json.load(open("out/image-recipe.json"))["sha256"])')"
+          wheel_path="$(find context -maxdepth 1 -type f -name 'uc_manager_*.whl' -print)"
+          wrapt_path="$(find context -maxdepth 1 -type f -name 'wrapt-*.whl' -print)"
+          wheel_sha="sha256:$(sha256sum "${wheel_path}" | cut -d' ' -f1)"
+          docker buildx build --builder ucm-production-image --platform "${platform}" \
+            --target production-runtime --provenance=false --sbom=false \
+            --build-arg "BASE_IMAGE=${base}" --build-arg "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}" \
+            --build-arg "UCM_DISTRIBUTION=${distribution}" \
+            --build-arg "UCM_WHEEL=$(basename "${wheel_path}")" \
+            --build-arg "WRAPT_WHEEL=$(basename "${wrapt_path}")" \
+            --build-arg "UCM_SOURCE_SHA=${SOURCE_SHA}" --build-arg "UCM_IMAGE_TAG=${image_tag}" \
+            --build-arg "UCM_SPEC_ID=${SPEC_ID}" --build-arg "UCM_TASK_SHA256=${task_sha}" \
+            --build-arg "UCM_WHEEL_SHA256=${wheel_sha}" --build-arg "UCM_RECIPE_SHA256=${recipe_sha}" \
+            --annotation "manifest:org.opencontainers.image.revision=${SOURCE_SHA}" \
+            --annotation "manifest:org.opencontainers.image.version=${image_tag}" \
+            --output type=oci,dest=out/image.oci.tar,oci-mediatypes=true,rewrite-timestamp=true \
+            --progress plain context
+          PYTHONPATH=control/.github/release/production python -m ucm_release_production image extract \
+            --archive out/image.oci.tar --output-dir out/oci-layout
+          PYTHONPATH=control/.github/release/production python -m ucm_release_production image inspect \
+            --layout out/oci-layout --recipe out/image-recipe.json \
+            --wheel-sha256 "${wheel_sha}" --output out/closure.json
+          rm -rf out/candidate-image
+          mkdir -p "cache/candidate/images/${SPEC_ID}"
+          cp out/closure.json "cache/candidate/images/${SPEC_ID}/closure.json"
+      - name: Save exact image closure in same-run cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: cache/candidate/images/${{ inputs.spec_id }}
+          key: production-candidate-image-${{ github.repository_id }}-${{ inputs.candidate_run_id }}-${{ inputs.candidate_run_attempt }}-${{ inputs.control_sha }}-${{ inputs.source_sha }}-${{ inputs.spec_id }}
+          enableCrossOsArchive: false

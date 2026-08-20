@@ -1,0 +1,186 @@
+# syntax=docker/dockerfile:1.12.1@sha256:93bfd3b68c109427185cd78b4779fc82b484b0b7618e36d0f104d4d801e66d25
+# check=skip=SecretsUsedInArgOrEnv
+ARG UCM_BUILDER_IMAGE=registry.invalid/ucm/builder@sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+FROM ${UCM_BUILDER_IMAGE} AS production-wheel-build
+
+ARG UCM_BUILDER_IMAGE
+ARG SOURCE_DATE_EPOCH
+ARG TARGETARCH
+ARG PLATFORM
+ARG UCM_RELEASE_PROFILE
+ARG UCM_RELEASE_DISTRIBUTION
+ARG UCM_RELEASE_SOURCE_SHA
+ARG UCM_RELEASE_VERSION
+ARG UCM_RELEASE_BUILD_KEY
+ARG UCM_RELEASE_REQUIRED_TARGETS
+ARG UCM_RELEASE_FORBIDDEN_TARGETS
+ARG BUILD_VERSION
+ARG BUILD_FILENAME
+ARG BUILD_SHA256
+ARG PYPROJECT_HOOKS_VERSION
+ARG PYPROJECT_HOOKS_FILENAME
+ARG PYPROJECT_HOOKS_SHA256
+ARG PACKAGING_VERSION
+ARG PACKAGING_FILENAME
+ARG PACKAGING_SHA256
+ARG SETUPTOOLS_VERSION
+ARG SETUPTOOLS_FILENAME
+ARG SETUPTOOLS_SHA256
+ARG WHEEL_VERSION
+ARG WHEEL_FILENAME
+ARG WHEEL_SHA256
+ARG PYYAML_VERSION
+ARG PYYAML_FILENAME
+ARG PYYAML_SHA256
+ARG CMAKE_VERSION
+ARG CMAKE_FILENAME
+ARG CMAKE_SHA256
+
+SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
+ENV TZ=UTC PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_DEFAULT_TIMEOUT=30 PIP_RETRIES=2 \
+    PYTHONDONTWRITEBYTECODE=1
+ARG LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH="/usr/local/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+
+RUN if [[ -x /opt/python/cp312-cp312/bin/python ]]; then \
+      ln -s /opt/python/cp312-cp312/bin/python /usr/local/bin/ucm-python; \
+    elif command -v python3.12 >/dev/null; then \
+      ln -s "$(command -v python3.12)" /usr/local/bin/ucm-python; \
+    elif command -v python3 >/dev/null && [[ "$(python3 -c 'import sys; print(sys.version_info[:2])')" == "(3, 12)" ]]; then \
+      ln -s "$(command -v python3)" /usr/local/bin/ucm-python; \
+    else \
+      echo 'immutable builder lacks CPython 3.12' >&2; exit 1; \
+    fi
+
+RUN <<EOF
+test "${UCM_BUILDER_IMAGE}" != "${UCM_BUILDER_IMAGE%@sha256:*}"
+mkdir -p /wheelhouse
+ucm-python -m pip download --dest /wheelhouse --no-deps --only-binary=:all: \
+  "build==${BUILD_VERSION}" \
+  "pyproject-hooks==${PYPROJECT_HOOKS_VERSION}" \
+  "packaging==${PACKAGING_VERSION}" \
+  "setuptools==${SETUPTOOLS_VERSION}" \
+  "wheel==${WHEEL_VERSION}" \
+  "PyYAML==${PYYAML_VERSION}" \
+  "cmake==${CMAKE_VERSION}"
+check_wheel() {
+  local filename="$1" expected="${2#sha256:}" actual
+  test -f "/wheelhouse/${filename}"
+  actual="$(sha256sum "/wheelhouse/${filename}" | cut -d' ' -f1)"
+  test "${actual}" = "${expected}"
+}
+check_wheel "${BUILD_FILENAME}" "${BUILD_SHA256}"
+check_wheel "${PYPROJECT_HOOKS_FILENAME}" "${PYPROJECT_HOOKS_SHA256}"
+check_wheel "${PACKAGING_FILENAME}" "${PACKAGING_SHA256}"
+check_wheel "${SETUPTOOLS_FILENAME}" "${SETUPTOOLS_SHA256}"
+check_wheel "${WHEEL_FILENAME}" "${WHEEL_SHA256}"
+check_wheel "${PYYAML_FILENAME}" "${PYYAML_SHA256}"
+check_wheel "${CMAKE_FILENAME}" "${CMAKE_SHA256}"
+cat > /tmp/requirements.lock <<LOCK
+build==${BUILD_VERSION} --hash=${BUILD_SHA256}
+pyproject-hooks==${PYPROJECT_HOOKS_VERSION} --hash=${PYPROJECT_HOOKS_SHA256}
+packaging==${PACKAGING_VERSION} --hash=${PACKAGING_SHA256}
+setuptools==${SETUPTOOLS_VERSION} --hash=${SETUPTOOLS_SHA256}
+wheel==${WHEEL_VERSION} --hash=${WHEEL_SHA256}
+PyYAML==${PYYAML_VERSION} --hash=${PYYAML_SHA256}
+cmake==${CMAKE_VERSION} --hash=${CMAKE_SHA256}
+LOCK
+ucm-python -m pip install --no-index --find-links=/wheelhouse --require-hashes \
+  --only-binary=:all: -r /tmp/requirements.lock
+EOF
+
+WORKDIR /workspace/ucm
+COPY ucm-source.tar /tmp/ucm-source.tar
+COPY source-commit.payload /tmp/source-commit.payload
+COPY source-context.json /tmp/source-context.json
+COPY build-authority.json /tmp/build-authority.json
+
+RUN ucm-python - <<'PY'
+import hashlib
+import json
+import subprocess
+import tarfile
+from pathlib import Path
+
+context = json.loads(Path('/tmp/source-context.json').read_bytes())
+authority = json.loads(Path('/tmp/build-authority.json').read_bytes())
+archive = Path('/tmp/ucm-source.tar').read_bytes()
+commit = Path('/tmp/source-commit.payload').read_bytes()
+if authority['schema_version'] != 2:
+    raise SystemExit('production authority must use schema v2')
+if context['source_sha'] != authority['source_sha']:
+    raise SystemExit('source context SHA differs from authority')
+if context['source_tree'] != authority['source_tree']:
+    raise SystemExit('source tree differs from authority')
+if 'sha256:' + hashlib.sha256(archive).hexdigest() != authority['source_archive_sha256']:
+    raise SystemExit('source archive digest differs from authority')
+actual_commit = subprocess.check_output(
+    ['git', 'hash-object', '-t', 'commit', '--stdin'], input=commit, text=False
+).decode().strip()
+if actual_commit != authority['source_sha']:
+    raise SystemExit('source commit payload differs from authority')
+with tarfile.open('/tmp/ucm-source.tar', mode='r:') as source:
+    source.extractall('/workspace/ucm', filter='data')
+PY
+
+RUN <<'EOF'
+test -n "${TARGETARCH}"
+test -n "${PLATFORM}"
+test -n "${UCM_RELEASE_PROFILE}"
+test -n "${UCM_RELEASE_DISTRIBUTION}"
+test -n "${UCM_RELEASE_SOURCE_SHA}"
+test -n "${UCM_RELEASE_VERSION}"
+test -n "${UCM_RELEASE_BUILD_KEY}"
+case "${TARGETARCH}:$(uname -m)" in
+  amd64:x86_64|arm64:aarch64) ;;
+  *) echo "TARGETARCH does not match native builder" >&2; exit 1 ;;
+esac
+case "${PLATFORM}" in
+  cuda) test -f /usr/local/cuda/include/cuda.h ;;
+  ascend|ascend-a3)
+    test -f /usr/local/Ascend/ascend-toolkit/latest/include/acl/acl.h
+    test -f /usr/local/Ascend/ascend-toolkit/latest/lib64/libascendcl.so
+    test -f /usr/local/include/transfer_engine.h
+    test -f /usr/local/lib/libmooncake_store.so
+    ;;
+  *) echo "unsupported PLATFORM=${PLATFORM}" >&2; exit 1 ;;
+esac
+EOF
+
+RUN UCM_AUTHORITY_FILE=/tmp/build-authority.json UCM_PROJECT_FILE=/workspace/ucm/pyproject.toml ucm-python - <<'PY'
+import json
+import os
+import re
+from pathlib import Path
+
+authority = json.loads(Path(os.environ["UCM_AUTHORITY_FILE"]).read_bytes())
+distribution = authority.get("distribution")
+allowed = {"uc-manager-cuda", "uc-manager-cann-a2", "uc-manager-cann-a3"}
+if distribution not in allowed:
+    raise SystemExit("production distribution is not approved")
+project_path = Path(os.environ["UCM_PROJECT_FILE"])
+project = project_path.read_text(encoding="utf-8")
+pattern = r'(?m)^(name = )"uc-manager"$'
+project, count = re.subn(pattern, rf'\1"{distribution}"', project)
+if count != 1:
+    raise SystemExit("pyproject production name source is not exact")
+project_path.write_text(project, encoding="utf-8")
+PY
+
+RUN PATH="$(ucm-python -c 'import sysconfig; print(sysconfig.get_path("scripts"))'):${PATH}" \
+    UCM_RELEASE_BUILD=1 \
+    PLATFORM="${PLATFORM}" \
+    UCM_RELEASE_PROFILE="${UCM_RELEASE_PROFILE}" \
+    UCM_RELEASE_DISTRIBUTION="${UCM_RELEASE_DISTRIBUTION}" \
+    UCM_RELEASE_SOURCE_SHA="${UCM_RELEASE_SOURCE_SHA}" \
+    UCM_RELEASE_VERSION="${UCM_RELEASE_VERSION}" \
+    UCM_RELEASE_BUILD_KEY="${UCM_RELEASE_BUILD_KEY}" \
+    UCM_RELEASE_REQUIRED_TARGETS="${UCM_RELEASE_REQUIRED_TARGETS}" \
+    UCM_RELEASE_FORBIDDEN_TARGETS="${UCM_RELEASE_FORBIDDEN_TARGETS}" \
+    UCM_RELEASE_AUTHORITY_FILE=/tmp/build-authority.json \
+    SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}" \
+    ucm-python -m build --no-isolation --wheel --outdir /out
+
+FROM scratch AS production-wheel
+COPY --from=production-wheel-build /out /

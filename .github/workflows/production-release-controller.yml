@@ -1,0 +1,235 @@
+name: UCM Production Release Controller
+
+on:
+  workflow_run:
+    workflows: [UCM Production Tag Candidate]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-controller-${{ github.repository_id }}-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  trust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      control_sha: ${{ steps.control.outputs.control_sha }}
+      source_sha: ${{ steps.control.outputs.source_sha }}
+      tag_name: ${{ steps.control.outputs.tag_name }}
+      candidate_run_id: ${{ steps.control.outputs.candidate_run_id }}
+      candidate_run_attempt: ${{ steps.control.outputs.candidate_run_attempt }}
+      candidate_artifact_name: ${{ steps.identity.outputs.candidate_artifact_name }}
+      tag_object_sha: ${{ steps.identity.outputs.tag_object_sha }}
+    steps:
+      - id: event
+        name: Validate candidate event before checkout
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REPOSITORY: ${{ github.repository }}
+          EVENT_REPOSITORY_ID: ${{ github.repository_id }}
+          HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          HEAD_REPOSITORY_ID: ${{ github.event.workflow_run.head_repository.id }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          WORKFLOW_PATH: ${{ github.event.workflow_run.path }}
+          WORKFLOW_EVENT: ${{ github.event.workflow_run.event }}
+          WORKFLOW_STATUS: ${{ github.event.workflow_run.status }}
+          WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          TAG_NAME: ${{ github.event.workflow_run.head_branch }}
+          CANDIDATE_RUN_ID: ${{ github.event.workflow_run.id }}
+          CANDIDATE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GITHUB_REF_NAME_VALUE: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import re
+
+          exact = {
+              "EVENT_NAME": "workflow_run",
+              "WORKFLOW_NAME": "UCM Production Tag Candidate",
+              "WORKFLOW_PATH": ".github/workflows/production-tag-candidate.yml",
+              "WORKFLOW_EVENT": "push",
+              "WORKFLOW_STATUS": "completed",
+              "WORKFLOW_CONCLUSION": "success",
+          }
+          for name, expected in exact.items():
+              if os.environ[name] != expected:
+                  raise SystemExit(f"candidate event {name} differs")
+          if os.environ["HEAD_REPOSITORY"] != os.environ["EVENT_REPOSITORY"]:
+              raise SystemExit("candidate head_repository differs")
+          if os.environ["HEAD_REPOSITORY_ID"] != os.environ["EVENT_REPOSITORY_ID"]:
+              raise SystemExit("candidate repository_id differs")
+          if os.environ["GITHUB_REF_NAME_VALUE"] != os.environ["DEFAULT_BRANCH"]:
+              raise SystemExit("production controller is not on default branch")
+          if not re.fullmatch(r"[0-9a-f]{40}", os.environ["SOURCE_SHA"]):
+              raise SystemExit("candidate source SHA is invalid")
+          number = r"(?:0|[1-9][0-9]*)"
+          positive = r"[1-9][0-9]*"
+          tag = os.environ["TAG_NAME"]
+          patterns = (
+              rf"draft/v{number}\.{number}\.{number}-{positive}",
+              rf"v{number}\.{number}\.{number}rc{positive}",
+              rf"v{number}\.{number}\.{number}",
+          )
+          if not any(re.fullmatch(pattern, tag, re.ASCII) for pattern in patterns):
+              raise SystemExit("candidate Tag is invalid")
+          for name in ("CANDIDATE_RUN_ID", "CANDIDATE_RUN_ATTEMPT", "EVENT_REPOSITORY_ID"):
+              if not re.fullmatch(r"[1-9][0-9]*", os.environ[name]):
+                  raise SystemExit(f"candidate {name} is invalid")
+          PY
+      - name: Fetch first trusted default branch control ref
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --request GET --fail --silent --show-error --retry 3 --max-redirs 0 \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${REPOSITORY}/git/ref/heads/${DEFAULT_BRANCH}" \
+            --output "${RUNNER_TEMP}/control-ref-first.json"
+      - name: Fetch second trusted default branch control ref
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --request GET --fail --silent --show-error --retry 3 --max-redirs 0 \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${REPOSITORY}/git/ref/heads/${DEFAULT_BRANCH}" \
+            --output "${RUNNER_TEMP}/control-ref-second.json"
+      - id: control
+        name: Bind controller and candidate identities
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          TAG_NAME: ${{ github.event.workflow_run.head_branch }}
+          CANDIDATE_RUN_ID: ${{ github.event.workflow_run.id }}
+          CANDIDATE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+
+          def pairs(items):
+              value = {}
+              for key, item in items:
+                  if key in value:
+                      raise SystemExit("duplicate default branch response key")
+                  value[key] = item
+              return value
+
+          def observed(name):
+              value = json.loads(
+                  (Path(os.environ["RUNNER_TEMP"]) / name).read_text(),
+                  object_pairs_hook=pairs,
+              )
+              if value.get("ref") != f"refs/heads/{os.environ['DEFAULT_BRANCH']}":
+                  raise SystemExit("default branch ref differs")
+              target = value.get("object")
+              if not isinstance(target, dict) or target.get("type") != "commit":
+                  raise SystemExit("default branch target differs")
+              sha = target.get("sha")
+              if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+                  raise SystemExit("default branch SHA is invalid")
+              return sha
+
+          first = observed("control-ref-first.json")
+          second = observed("control-ref-second.json")
+          if first != second or first != os.environ["WORKFLOW_SHA"]:
+              raise SystemExit("workflow_sha differs from double-read default branch")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+              for key, value in {
+                  "control_sha": first,
+                  "source_sha": os.environ["SOURCE_SHA"],
+                  "tag_name": os.environ["TAG_NAME"],
+                  "candidate_run_id": os.environ["CANDIDATE_RUN_ID"],
+                  "candidate_run_attempt": os.environ["CANDIDATE_RUN_ATTEMPT"],
+              }.items():
+                  output.write(f"{key}={value}\n")
+          PY
+      - name: Checkout trusted production controller
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ steps.control.outputs.control_sha }}
+          path: control
+          persist-credentials: false
+      - id: identity
+        name: Reopen candidate run through the trusted GitHub API client
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          CANDIDATE_RUN_ID: ${{ steps.control.outputs.candidate_run_id }}
+          CONTROL_SHA: ${{ steps.control.outputs.control_sha }}
+          SOURCE_SHA: ${{ steps.control.outputs.source_sha }}
+          TAG_NAME: ${{ steps.control.outputs.tag_name }}
+          CANDIDATE_RUN_ATTEMPT: ${{ steps.control.outputs.candidate_run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          PYTHONPATH=control/.github/release/production python -m ucm_release_production trusted identity \
+            --repository "${REPOSITORY}" --run-id "${CANDIDATE_RUN_ID}" \
+            --output out/trusted-identity.json
+          python - <<'PY'
+          import json
+          import os
+          value = json.load(open("out/trusted-identity.json"))
+          expected = {
+              "control_sha": os.environ["CONTROL_SHA"],
+              "source_sha": os.environ["SOURCE_SHA"],
+              "tag_name": os.environ["TAG_NAME"],
+              "run_id": int(os.environ["CANDIDATE_RUN_ID"]),
+              "run_attempt": int(os.environ["CANDIDATE_RUN_ATTEMPT"]),
+          }
+          for key, item in expected.items():
+              if value[key] != item:
+                  raise SystemExit(f"trusted API identity differs: {key}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"candidate_artifact_name={value['candidate_artifact']['name']}\n")
+              output.write(f"tag_object_sha={value['tag_object_sha']}\n")
+          PY
+      - name: Verify trusted reusable controller bytes are present
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f control/.github/workflows/_production-release-controller.yml
+          test -f control/.github/release/production/production-release.json
+
+  invoke:
+    needs: trust
+    permissions:
+      actions: read
+      contents: write
+      packages: write
+    uses: ./.github/workflows/_production-release-controller.yml
+    with:
+      control_sha: ${{ needs.trust.outputs.control_sha }}
+      source_sha: ${{ needs.trust.outputs.source_sha }}
+      tag_name: ${{ needs.trust.outputs.tag_name }}
+      candidate_run_id: ${{ needs.trust.outputs.candidate_run_id }}
+      candidate_run_attempt: ${{ needs.trust.outputs.candidate_run_attempt }}
+      candidate_artifact_name: ${{ needs.trust.outputs.candidate_artifact_name }}
+      tag_object_sha: ${{ needs.trust.outputs.tag_object_sha }}
