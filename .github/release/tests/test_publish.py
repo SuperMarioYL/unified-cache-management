@@ -566,6 +566,42 @@ class GithubApi:
         raise AssertionError((path, method))
 
 
+class DraftByIdGithubApi(GithubApi):
+    def __call__(
+        self,
+        path: str,
+        *,
+        method: str = "GET",
+        body: object | None = None,
+        content_type: str | None = None,
+        allow_missing: bool = False,
+    ) -> dict[str, object] | None:
+        if method == "GET" and "/releases/tags/" in path:
+            raise ValueError("GitHub Draft tag lookup failed: HTTP 404")
+        if (
+            method == "GET"
+            and self.release is not None
+            and path.endswith(f"/releases/{self.release['id']}")
+        ):
+            self.calls.append(
+                {
+                    "path": path,
+                    "method": method,
+                    "body": body,
+                    "content_type": content_type,
+                    "allow_missing": allow_missing,
+                }
+            )
+            return copy.deepcopy(self.release)
+        return super().__call__(
+            path,
+            method=method,
+            body=body,
+            content_type=content_type,
+            allow_missing=allow_missing,
+        )
+
+
 def _public_release(asset_names: list[str] | None = None) -> dict[str, object]:
     names = asset_names if asset_names is not None else [*WHEELS, CHART]
     return {
@@ -1232,6 +1268,40 @@ def test_github_assets_reject_same_names_with_wrong_existing_bytes_before_write(
         )
 
     assert all(call["method"] == "GET" for call in api.calls)
+
+
+def test_github_assets_resolve_same_run_draft_by_release_id_when_tag_lookup_is_missing(
+    plan_path: Path, tmp_path: Path
+) -> None:
+    publication = importlib.import_module("ucm_release.publish")
+    artifacts = _artifacts(tmp_path / "artifacts")
+    api = DraftByIdGithubApi(
+        {
+            "id": 41,
+            "tag_name": "v0.7.59rc1",
+            "target_commitish": "a" * 40,
+            "draft": True,
+            "prerelease": True,
+            "assets": [],
+        }
+    )
+
+    result = publication.publish_github_release(
+        plan_path,
+        stage="assets",
+        artifacts=artifacts,
+        draft_state=_draft_state(plan_path, tmp_path),
+        api=api,
+        download_bytes=api.download,
+    )
+
+    assert result["status"] == "uploaded"
+    assert result["release_id"] == 41
+    get_paths = [call["path"] for call in api.calls if call["method"] == "GET"]
+    assert get_paths == [
+        "repos/release-org/unified-cache-management/releases/41",
+        "repos/release-org/unified-cache-management/releases/41",
+    ]
 
 
 def test_github_release_draft_assets_finalize_and_readback(
