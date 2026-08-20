@@ -10,6 +10,7 @@ deletes rather than observable behaviour.
 from __future__ import annotations
 
 import importlib
+import json
 import shutil
 import subprocess
 import sys
@@ -19,6 +20,28 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RELEASE_ROOT = REPO_ROOT / ".github" / "release"
+
+
+def _digest(character: str) -> str:
+    return "sha256:" + character * 64
+
+
+def _builder_resolver_transport(
+    registry, monkeypatch: pytest.MonkeyPatch, responses: list[str]
+) -> list[list[str]]:
+    calls: list[list[str]] = []
+    payloads = iter(responses)
+    monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: "crane")
+
+    def run(binary: str, arguments: list[str]):
+        assert binary == "crane"
+        calls.append(arguments)
+        return subprocess.CompletedProcess(
+            [binary, *arguments], 0, stdout=next(payloads), stderr=""
+        )
+
+    monkeypatch.setattr(registry, "_run_registry_tool", run)
+    return calls
 
 
 def _modules():
@@ -75,3 +98,146 @@ def test_registry_subprocess_environment_is_minimal_and_keeps_login_config(
     assert registry._crane(str(crane), "digest", reference) == "sha256:" + "1" * 64
     assert invocation["env"] == environment
     assert invocation["arguments"] == [str(crane), "digest", reference]
+
+
+@pytest.mark.parametrize(
+    ("platforms", "message"),
+    [
+        (
+            [{"os": "linux", "architecture": "arm64", "digest": _digest("2")}],
+            "no linux/amd64 member",
+        ),
+        (
+            [
+                {"os": "linux", "architecture": "amd64", "digest": _digest("2")},
+                {"os": "linux", "architecture": "amd64", "digest": _digest("3")},
+            ],
+            "multiple linux/amd64 members",
+        ),
+    ],
+)
+def test_builder_index_requires_exactly_one_requested_architecture(
+    monkeypatch: pytest.MonkeyPatch,
+    platforms: list[dict[str, str]],
+    message: str,
+) -> None:
+    registry, _ = _modules()
+    index = {
+        "mediaType": "application/vnd.oci.image.index.v1+json",
+        "manifests": [
+            {
+                "digest": item["digest"],
+                "platform": {"os": item["os"], "architecture": item["architecture"]},
+            }
+            for item in platforms
+        ],
+    }
+    _builder_resolver_transport(
+        registry, monkeypatch, [_digest("1"), json.dumps(index)]
+    )
+
+    with pytest.raises(ValueError, match=message):
+        registry.resolve_builder_root(
+            "ghcr.io/release-org/ucm-builder-vllm",
+            "cuda13.0-cp312-manylinux2_28-amd64-r1",
+            architecture="amd64",
+        )
+
+
+def test_single_manifest_builder_config_proves_requested_architecture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry, _ = _modules()
+    manifest = {
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "config": {"digest": _digest("2")},
+    }
+    calls = _builder_resolver_transport(
+        registry,
+        monkeypatch,
+        [
+            _digest("1"),
+            json.dumps(manifest),
+            json.dumps({"os": "linux", "architecture": "amd64"}),
+        ],
+    )
+
+    result = registry.resolve_builder_root(
+        "ghcr.io/release-org/ucm-builder-vllm",
+        "cuda13.0-cp312-manylinux2_28-amd64-r1",
+        architecture="amd64",
+    )
+
+    immutable_reference = "ghcr.io/release-org/ucm-builder-vllm@" + _digest("1")
+    assert calls[-1] == ["config", immutable_reference]
+    assert result == {
+        "index_digest": _digest("1"),
+        "manifest_digest": _digest("1"),
+        "config_digest": _digest("2"),
+        "operations": [
+            {
+                "type": "crane-digest",
+                "capability": "read",
+                "reference": "ghcr.io/release-org/ucm-builder-vllm:cuda13.0-cp312-manylinux2_28-amd64-r1",
+            },
+            {
+                "type": "crane-manifest",
+                "capability": "read",
+                "reference": immutable_reference,
+            },
+            {
+                "type": "crane-config",
+                "capability": "read",
+                "reference": immutable_reference,
+            },
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"os": "linux", "architecture": "arm64"},
+        {"os": "windows", "architecture": "amd64"},
+    ],
+)
+def test_single_manifest_builder_rejects_config_platform_mismatch(
+    monkeypatch: pytest.MonkeyPatch, config: dict[str, str]
+) -> None:
+    registry, _ = _modules()
+    manifest = {
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "config": {"digest": _digest("2")},
+    }
+    _builder_resolver_transport(
+        registry,
+        monkeypatch,
+        [_digest("1"), json.dumps(manifest), json.dumps(config)],
+    )
+
+    with pytest.raises(ValueError, match="does not match requested linux/amd64"):
+        registry.resolve_builder_root(
+            "ghcr.io/release-org/ucm-builder-vllm",
+            "cuda13.0-cp312-manylinux2_28-amd64-r1",
+            architecture="amd64",
+        )
+
+
+def test_single_manifest_builder_rejects_malformed_config_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry, _ = _modules()
+    manifest = {
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "config": {"digest": _digest("2")},
+    }
+    _builder_resolver_transport(
+        registry, monkeypatch, [_digest("1"), json.dumps(manifest), "not-json"]
+    )
+
+    with pytest.raises(json.JSONDecodeError):
+        registry.resolve_builder_root(
+            "ghcr.io/release-org/ucm-builder-vllm",
+            "cuda13.0-cp312-manylinux2_28-amd64-r1",
+            architecture="amd64",
+        )

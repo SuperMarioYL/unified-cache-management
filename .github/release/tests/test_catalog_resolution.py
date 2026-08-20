@@ -11,6 +11,7 @@ suites were removed per the slimming plan.
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib
 import json
 import sys
@@ -48,35 +49,149 @@ def _builder_catalog() -> dict[str, object]:
     )
 
 
-def _resolved_builder_root() -> dict[str, object]:
+def _builder_digest_chain(
+    repository: str, tag: str, architecture: str
+) -> dict[str, str]:
+    def digest(role: str) -> str:
+        identity = f"{repository}\0{tag}\0{architecture}\0{role}".encode()
+        return "sha256:" + hashlib.sha256(identity).hexdigest()
+
     return {
-        "index_digest": "sha256:" + "f" * 64,
-        "manifest_digest": "sha256:" + "e" * 64,
-        "config_digest": "sha256:" + "d" * 64,
+        "index_digest": digest("index"),
+        "manifest_digest": digest("manifest"),
+        "config_digest": digest("config"),
+    }
+
+
+def _resolved_builder_root(
+    repository: str, tag: str, architecture: str
+) -> dict[str, object]:
+    return {
+        **_builder_digest_chain(repository, tag, architecture),
         "operations": [],
     }
+
+
+def _expected_builder_roots() -> dict[tuple[str, str], dict[str, str]]:
+    references = {
+        ("cuda130", "amd64"): (
+            "ghcr.io/release-org/ucm-builder-vllm",
+            "cuda13.0-cp312-manylinux2_28-amd64-r1",
+        ),
+        ("cuda130", "arm64"): (
+            "ghcr.io/release-org/ucm-builder-vllm",
+            "cuda13.0-cp312-manylinux2_28-arm64-r1",
+        ),
+        ("cann900-a2", "amd64"): (
+            "ghcr.io/release-org/ucm-builder-vllm-ascend",
+            "cann9.0.0-a2-cp312-manylinux2_34-mooncake0.3.9-amd64-r1",
+        ),
+        ("cann900-a2", "arm64"): (
+            "ghcr.io/release-org/ucm-builder-vllm-ascend",
+            "cann9.0.0-a2-cp312-manylinux2_34-mooncake0.3.9-arm64-r1",
+        ),
+        ("cann900-a3", "amd64"): (
+            "ghcr.io/release-org/ucm-builder-vllm-ascend",
+            "cann9.0.0-a3-cp312-manylinux2_34-mooncake0.3.9-amd64-r1",
+        ),
+        ("cann900-a3", "arm64"): (
+            "ghcr.io/release-org/ucm-builder-vllm-ascend",
+            "cann9.0.0-a3-cp312-manylinux2_34-mooncake0.3.9-arm64-r1",
+        ),
+    }
+    return {
+        (profile_id, architecture): {
+            "repository": repository,
+            "tag": tag,
+            **_builder_digest_chain(repository, tag, architecture),
+        }
+        for (profile_id, architecture), (repository, tag) in references.items()
+    }
+
+
+def _wheel_builder_roots(plan: dict[str, object]) -> dict[tuple[str, str], object]:
+    return {
+        (task["profile_id"], task["cpu_arch"]): task["builder"]["root"]
+        for task in plan["wheel_tasks"]
+    }
+
+
+def _install_live_registry_fakes(monkeypatch: pytest.MonkeyPatch) -> None:
+    discovery = _registry_fixture()["repositories"]
+    enumerate_fixture = registry.enumerate_repository_tags
+    resolve_fixture = registry.resolve_repository_tag
+    monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: "crane")
+
+    def enumerate_tags(repository: str, *, fixture=None, max_tags: int):
+        assert fixture is None
+        result = enumerate_fixture(
+            repository, fixture=discovery[repository], max_tags=max_tags
+        )
+        result["operations"] = [
+            {
+                "type": "crane-tag-list",
+                "capability": "read",
+                "reference": repository,
+            }
+        ]
+        return result
+
+    def resolve_tag(
+        repository: str,
+        upstream_tag: str,
+        *,
+        required_architectures: list[str],
+        fixture=None,
+    ):
+        assert fixture is None
+        result = resolve_fixture(
+            repository,
+            upstream_tag,
+            required_architectures=required_architectures,
+            fixture=discovery[repository]["snapshots"][upstream_tag],
+        )
+        reference = f"{repository}:{upstream_tag}"
+        result["operations"] = [
+            {"type": "crane-digest", "capability": "read", "reference": reference}
+        ]
+        return result
+
+    def inspect_variant(crane, repository, digest, product):
+        assert crane == "crane"
+        if product["id"] == "vllm":
+            return "default", None
+        snapshots = discovery[repository]["snapshots"]
+        tag = next(
+            tag
+            for tag, snapshot in snapshots.items()
+            if snapshot["index_digest"] == digest
+        )
+        return ("a3" if tag.endswith("-a3") else "a2"), None
+
+    monkeypatch.setattr(registry, "enumerate_repository_tags", enumerate_tags)
+    monkeypatch.setattr(registry, "resolve_repository_tag", resolve_tag)
+    monkeypatch.setattr(registry, "_inspect_upstream_variant", inspect_variant)
 
 
 def _resolved_catalog(catalog: dict[str, object]) -> dict[str, object]:
     selection = builders.select_builders(_builder_catalog(), catalog)
     bound = builders.bind_selection(catalog, selection)
-    root = _resolved_builder_root()
     for profile in bound["wheel_profiles"]:
-        for requirement in profile["builders"].values():
+        for architecture, requirement in profile["builders"].items():
             unresolved = requirement["root"]
             requirement["root"] = {
                 "repository": unresolved["repository"],
                 "tag": unresolved["tag"],
-                "index_digest": root["index_digest"],
-                "manifest_digest": root["manifest_digest"],
-                "config_digest": root["config_digest"],
+                **_builder_digest_chain(
+                    unresolved["repository"], unresolved["tag"], architecture
+                ),
             }
     return bound
 
 
 def _resolve_fixture(catalog: dict[str, object], *, source_sha: str):
     with mock.patch.object(
-        registry, "resolve_builder_root", return_value=_resolved_builder_root()
+        registry, "resolve_builder_root", side_effect=_resolved_builder_root
     ):
         return registry.resolve_catalog(
             catalog,
@@ -92,7 +207,7 @@ def test_registry_resolves_exactly_the_six_selected_builder_refs(monkeypatch) ->
 
     def resolve_builder(repository: str, tag: str, *, architecture: str):
         calls.append((repository, tag, architecture))
-        return _resolved_builder_root()
+        return _resolved_builder_root(repository, tag, architecture)
 
     monkeypatch.setattr(registry, "resolve_builder_root", resolve_builder)
 
@@ -104,21 +219,63 @@ def test_registry_resolves_exactly_the_six_selected_builder_refs(monkeypatch) ->
         fixture=_registry_fixture(),
     )
 
-    assert len(calls) == 6
-    assert {repository for repository, _, _ in calls} == {
-        "ghcr.io/release-org/ucm-builder-vllm",
-        "ghcr.io/release-org/ucm-builder-vllm-ascend",
-    }
-    assert all("12.9" not in tag and "9.1.0" not in tag for _, tag, _ in calls)
-    assert {architecture for _, _, architecture in calls} == {"amd64", "arm64"}
-    for task in plan["wheel_tasks"]:
-        assert task["builder"]["root"] == {
-            "repository": task["builder"]["root"]["repository"],
-            "tag": task["builder"]["root"]["tag"],
-            "index_digest": "sha256:" + "f" * 64,
-            "manifest_digest": "sha256:" + "e" * 64,
-            "config_digest": "sha256:" + "d" * 64,
-        }
+    expected = _expected_builder_roots()
+    assert calls == [
+        (root["repository"], root["tag"], architecture)
+        for (_, architecture), root in expected.items()
+    ]
+    assert _wheel_builder_roots(plan) == expected
+
+
+def test_registry_normal_scan_binds_distinct_builder_digest_chains(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, str, str]] = []
+
+    def resolve_builder(repository: str, tag: str, *, architecture: str):
+        calls.append((repository, tag, architecture))
+        return _resolved_builder_root(repository, tag, architecture)
+
+    _install_live_registry_fakes(monkeypatch)
+    monkeypatch.setattr(registry, "resolve_builder_root", resolve_builder)
+
+    plan = registry.resolve_catalog(
+        core.load_catalog(),
+        builder_catalog=_builder_catalog(),
+        source_sha="c" * 40,
+        lane="feature-candidate",
+    )
+
+    expected = _expected_builder_roots()
+    assert plan["fixture_only"] is False
+    assert calls == [
+        (root["repository"], root["tag"], architecture)
+        for (_, architecture), root in expected.items()
+    ]
+    assert _wheel_builder_roots(plan) == expected
+    assert all(
+        not operation["type"].startswith("fixture-") for operation in plan["operations"]
+    )
+
+
+def test_resolve_catalog_propagates_builder_resolution_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def reject_builder(repository: str, tag: str, *, architecture: str):
+        raise ValueError(
+            f"builder {repository}:{tag} does not provide linux/{architecture}"
+        )
+
+    monkeypatch.setattr(registry, "resolve_builder_root", reject_builder)
+
+    with pytest.raises(ValueError, match="does not provide linux/amd64"):
+        registry.resolve_catalog(
+            core.load_catalog(),
+            builder_catalog=_builder_catalog(),
+            source_sha="d" * 40,
+            lane="feature-candidate",
+            fixture=_registry_fixture(),
+        )
 
 
 def test_arm64_only_family_binds_control_runner_and_tool_arch_in_plan() -> None:
@@ -161,7 +318,7 @@ def test_arm64_only_family_binds_control_runner_and_tool_arch_in_plan() -> None:
     ]
 
     with mock.patch.object(
-        registry, "resolve_builder_root", return_value=_resolved_builder_root()
+        registry, "resolve_builder_root", side_effect=_resolved_builder_root
     ):
         plan = registry.resolve_catalog(
             catalog,
@@ -498,12 +655,20 @@ def test_release_plan_relaxed_rejects_non_pep440_version() -> None:
         )
 
 
-def test_resolve_pinned_upstreams_inspect_variant(monkeypatch) -> None:
-    catalog = _resolved_catalog(_catalog_for_plan())
-    products_by_repo = {p["repository"]: p for p in catalog["upstream_products"]}
-    fake = "sha256:" + "0" * 64
+def test_resolve_catalog_pin_path_inspects_variant_and_binds_builders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    builder_calls: list[tuple[str, str, str]] = []
+    upstream_index = "sha256:" + "7" * 64
 
-    def fake_resolve(repository, upstream_tag, required_architectures):
+    def resolve_builder(repository: str, tag: str, *, architecture: str):
+        builder_calls.append((repository, tag, architecture))
+        return _resolved_builder_root(repository, tag, architecture)
+
+    def resolve_upstream(
+        repository, upstream_tag, *, required_architectures, fixture=None
+    ):
+        assert fixture is None
         return {
             "operations": [
                 {
@@ -515,15 +680,22 @@ def test_resolve_pinned_upstreams_inspect_variant(monkeypatch) -> None:
             "snapshot": {
                 "repository": repository,
                 "tag": upstream_tag,
-                "index_digest": fake,
+                "index_digest": upstream_index,
                 "members": {
-                    a: {"manifest_digest": fake, "config_digest": fake}
-                    for a in required_architectures
+                    architecture: {
+                        "manifest_digest": "sha256:"
+                        + ("8" if architecture == "amd64" else "9") * 64,
+                        "config_digest": "sha256:"
+                        + ("a" if architecture == "amd64" else "b") * 64,
+                    }
+                    for architecture in required_architectures
                 },
             },
         }
 
-    monkeypatch.setattr(registry, "resolve_repository_tag", fake_resolve)
+    monkeypatch.setattr(registry, "resolve_builder_root", resolve_builder)
+    monkeypatch.setattr(registry, "resolve_repository_tag", resolve_upstream)
+    monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: "crane")
     monkeypatch.setattr(
         registry,
         "_inspect_upstream_variant",
@@ -532,22 +704,25 @@ def test_resolve_pinned_upstreams_inspect_variant(monkeypatch) -> None:
         ),
     )
 
-    operations: list = []
-    ru = registry._resolve_pinned_upstreams(
-        catalog,
-        ["quay.io/ascend/vllm-ascend:v0.23.0-a3"],
-        products_by_repo,
-        "crane",
-        operations,
+    plan = registry.resolve_catalog(
+        core.load_catalog(),
+        builder_catalog=_builder_catalog(),
+        source_sha="e" * 40,
+        lane="feature-candidate",
+        pin_upstreams=["quay.io/ascend/vllm-ascend:v0.23.0-a3"],
     )
-    assert len(ru) == 1
-    snap = ru[0]
+
+    assert len(plan["resolved_upstreams"]) == 1
+    snap = plan["resolved_upstreams"][0]
     assert snap["variant"] == "a3"  # inspect-determined, not the tag suffix
     assert snap["version"] == "0.23.0"  # grammar-extracted (v0.23.0-a3)
     assert snap["channel"] == "stable"  # 0.23.0 is not a prerelease
-    assert any(op["type"] == "crane-config" for op in operations)
-    # full relaxed plan builds (0.23.0 is outside the product specifier)
-    plan = core.ReleasePlan.build(
-        catalog, ru, lane="feature-candidate", relaxed=True, repository_root=ROOT
-    )
-    assert plan.image_tasks and plan.wheel_tasks
+    assert any(op["type"] == "crane-config" for op in plan["operations"])
+    expected = _expected_builder_roots()
+    assert builder_calls == [
+        (root["repository"], root["tag"], architecture)
+        for (_, architecture), root in expected.items()
+    ]
+    assert _wheel_builder_roots(plan) == {
+        key: root for key, root in expected.items() if key[0] == "cann900-a3"
+    }

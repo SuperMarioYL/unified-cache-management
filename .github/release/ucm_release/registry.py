@@ -361,24 +361,27 @@ def resolve_builder_root(
     if media_type in OCI_INDEX_MEDIA_TYPES:
         descriptors = doc.get("manifests")
         if not isinstance(descriptors, list): raise ValueError('builder index must contain a manifests array')  # noqa: E701,E501
-        for descriptor in descriptors:
-            if not isinstance(descriptor, dict) or not isinstance(descriptor.get("platform"), dict): continue  # noqa: E701,E501
-            plat = descriptor["platform"]
-            if plat.get("os") == "linux" and plat.get("architecture") == architecture:
-                manifest_digest = _digest(descriptor.get("digest"), "builder member manifest")
-                child_reference = f"{repository}@{manifest_digest}"
-                operations.append({'type': 'crane-manifest', 'capability': 'read', 'reference': child_reference})  # fmt: skip  # noqa: E501
-                child_result = _run_registry_tool(crane_binary, ['manifest', child_reference])  # fmt: skip  # noqa: E501
-                child = _unique_json(child_result.stdout, f'builder member manifest {manifest_digest}')  # fmt: skip  # noqa: E501
-                config_descriptor = child.get("config")
-                if not isinstance(config_descriptor, dict): raise ValueError('builder member manifest requires a config descriptor')  # noqa: E701,E501
-                config_digest = _digest(config_descriptor.get("digest"), "builder member config")
-                return {'index_digest': top_digest, 'manifest_digest': manifest_digest, 'config_digest': config_digest, 'operations': operations}  # fmt: skip  # noqa: E501
-        raise ValueError(f"builder {tagged_reference} has no linux/{architecture} member")
+        matches = [descriptor for descriptor in descriptors if isinstance(descriptor, dict) and isinstance(descriptor.get('platform'), dict) and descriptor['platform'].get('os') == 'linux' and descriptor['platform'].get('architecture') == architecture]  # fmt: skip  # noqa: E501
+        if not matches: raise ValueError(f"builder {tagged_reference} has no linux/{architecture} member")  # noqa: E701,E501
+        if len(matches) != 1: raise ValueError(f"builder {tagged_reference} has multiple linux/{architecture} members")  # noqa: E701,E501
+        manifest_digest = _digest(matches[0].get("digest"), "builder member manifest")
+        child_reference = f"{repository}@{manifest_digest}"
+        operations.append({'type': 'crane-manifest', 'capability': 'read', 'reference': child_reference})  # fmt: skip  # noqa: E501
+        child_result = _run_registry_tool(crane_binary, ['manifest', child_reference])  # fmt: skip  # noqa: E501
+        child = _unique_json(child_result.stdout, f'builder member manifest {manifest_digest}')  # fmt: skip  # noqa: E501
+        config_descriptor = child.get("config")
+        if not isinstance(config_descriptor, dict): raise ValueError('builder member manifest requires a config descriptor')  # noqa: E701,E501
+        config_digest = _digest(config_descriptor.get("digest"), "builder member config")
+        return {'index_digest': top_digest, 'manifest_digest': manifest_digest, 'config_digest': config_digest, 'operations': operations}  # fmt: skip  # noqa: E501
     if media_type in OCI_MANIFEST_MEDIA_TYPES:
         config_descriptor = doc.get("config")
         if not isinstance(config_descriptor, dict): raise ValueError('builder manifest requires a config descriptor')  # noqa: E701,E501
         config_digest = _digest(config_descriptor.get("digest"), "builder config")
+        operations.append({'type': 'crane-config', 'capability': 'read', 'reference': top_reference})  # fmt: skip  # noqa: E501
+        config_result = _run_registry_tool(crane_binary, ["config", top_reference])
+        config = _unique_json(config_result.stdout, "builder config")
+        if config.get("os") != "linux" or config.get("architecture") != architecture:
+            raise ValueError(f"builder {tagged_reference} config does not match requested linux/{architecture}")  # fmt: skip  # noqa: E501
         return {'index_digest': top_digest, 'manifest_digest': top_digest, 'config_digest': config_digest, 'operations': operations}  # fmt: skip  # noqa: E501
     raise ValueError(f"builder {tagged_reference} returned unrecognized mediaType {media_type!r}")
 
