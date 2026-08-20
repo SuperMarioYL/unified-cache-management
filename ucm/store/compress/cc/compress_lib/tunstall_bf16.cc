@@ -45,7 +45,7 @@ static uint8_t bf16_pack_extra8(const uint16_t* p_src)
     return extra8;
 }
 
-void CompressBF16ToFP8(uint8_t* p_dst, const uint16_t* p_src, size_t n_bf16)
+static void compress_bf16_to_fp8(uint8_t* p_dst, const uint16_t* p_src, size_t n_bf16)
 {
     for (size_t i = 0; i < n_bf16; i++) {
         uint16_t x = p_src[i];
@@ -68,7 +68,7 @@ static void decompress_fp8_to_bf16(uint16_t* p_dst, const uint8_t* p_src, size_t
     }
 }
 
-int DecompressFP8ToBF16Inplace(uint8_t* p_data, size_t n_bf16)
+static int decompress_fp8_to_bf16_inplace(uint8_t* p_data, size_t n_bf16)
 {
 #if !defined(NEON_DECOMPRESSION)
     for (size_t i = n_bf16; i > 0; i--) {
@@ -162,7 +162,7 @@ int TunstallCompressBF16(uint8_t* p_dst,         // 需要 n_bf16*2 字节, 但�
     RET_ERROR_IF(R_ERR_UNSUPPORT, n_bf16 == 0 || n_bf16 > 0xFFFFFFFFU);
 
     if (n_bf16 < MIN_BF16_COUNT || n_bf16 % 32 != 0) {  // 数据量不够多，或者不是 32 的倍数
-        CompressBF16ToFP8(p_dst, p_src, n_bf16);     // fallback 到 FP8 压缩
+        compress_bf16_to_fp8(p_dst, p_src, n_bf16);     // fallback 到 FP8 压缩
         p_dst[n_bf16 / 2] &=
             0xFE;  // 确保 p_dst[n_bf16/2] != TS_MODE_DYNAMIC, 避免被识别成 tunstall 模式
         return R_TS_OK;
@@ -185,7 +185,7 @@ int TunstallCompressBF16(uint8_t* p_dst,         // 需要 n_bf16*2 字节, 但�
 
     if (err ||
         tunstall_len > (n_bf16 / 2)) {  // tunstall 压缩错误，或者无法保证压缩到 n_bf16 / 2 字节内
-        CompressBF16ToFP8(p_dst, p_src, n_bf16);  // fallback 到 FP8 压缩
+        compress_bf16_to_fp8(p_dst, p_src, n_bf16);  // fallback 到 FP8 压缩
         p_dst[n_bf16 / 2] &=
             0xFE;  // 确保 p_dst[n_bf16/2] != TS_MODE_DYNAMIC, 避免被识别成 tunstall 模式
         return R_TS_OK;
@@ -637,7 +637,7 @@ int TunstallDecompressBF16Inplace(
     RET_ERROR_IF(R_ERR_UNSUPPORT, n_bf16 == 0 || n_bf16 > 0xFFFFFFFFU);
 
     if ((n_bf16 % 32 != 0) || (p_data[n_bf16 / 2] != TS_MODE_DYNAMIC)) {
-        return DecompressFP8ToBF16Inplace(p_data, n_bf16);
+        return decompress_fp8_to_bf16_inplace(p_data, n_bf16);
     } else {
         return decompress_tunstall_trunc_inplace(p_data, n_bf16);
     }
