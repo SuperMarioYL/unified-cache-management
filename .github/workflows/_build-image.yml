@@ -210,7 +210,7 @@ jobs:
           matches="$(jq -c --arg id "${TASK_ID}" '[.image_tasks[] | select(.task_id == $id)]' "${plan}")"
           test "$(jq 'length' <<<"${matches}")" = "1"
           source_repo="$(jq -r '.source.repository' "${plan}")"
-          frontend="$(sed -n '1s/^# syntax=//p' .github/release/docker/Dockerfile)"
+          frontend="$(sed -n '1s/^# syntax=//p' .github/release/docker/Dockerfile.runtime)"
           toolchain="$(jq -cnS --arg frontend "${frontend}" \
             '{schema_version:1,kind:"ucm-real-image-toolchain-authority",buildx_version:"v0.19.2",buildx_linux_sha256:{amd64:"sha256:a5ff61c0b6d2c8ee20964a9d6dac7a7a6383c4a4a0ee8d354e983917578306ea",arm64:"sha256:bd54f0e28c29789da1679bad2dd94c1923786ccd2cd80dd3a0a1d560a6baf10c"},buildkit_image:"moby/buildkit:v0.18.2@sha256:86c0ad9d1137c186e9d455912167df20e530bdf7f7c19de802e892bb8ca16552",dockerfile_frontend:$frontend,deterministic_flags:["--provenance=false","--sbom=false","oci-mediatypes=true","rewrite-timestamp=true"]}')"
           toolchain_sha256="sha256:$(printf '%s' "${toolchain}" | sha256sum | cut -d' ' -f1)"
@@ -423,12 +423,13 @@ jobs:
           dep_lock_sha256="sha256:$(sha256sum context/requirements.lock | cut -d' ' -f1)"
           preinstall="$(printf '%s' "${deps}" | jq -c --arg dist "${dist_name}" '["python","-m","pip","uninstall","--yes",$dist,sort_by(.name)[].name]')"
           pip_command='["python","-m","pip","install","--no-index","--find-links=/wheelhouse","--require-hashes","--only-binary=:all:","--no-cache-dir","--disable-pip-version-check","-r","/wheelhouse/requirements.lock"]'
-          cp .github/release/docker/Dockerfile .github/release/docker/install_ucm.py .github/release/docker/inspect_runtime.py .github/release/docker/verify_base_image.py context/
+          cp .github/release/docker/Dockerfile.runtime context/Dockerfile
+          cp .github/release/docker/install_ucm.py .github/release/docker/inspect_runtime.py .github/release/docker/verify_base_image.py context/
           cp "${wheel_path}" "context/${wheel_name}"
           while IFS= read -r dep; do cp "${dep}" "context/$(basename "${dep}")"; done < <(find input/runtime-dependencies -maxdepth 1 -type f -name '*.whl' -print | sort)
           # Compute the reviewed Docker implementation digest.
           implementation="$(jq -cnS \
-            --arg df "sha256:$(sha256sum .github/release/docker/Dockerfile | cut -d' ' -f1)" \
+            --arg df "sha256:$(sha256sum .github/release/docker/Dockerfile.runtime | cut -d' ' -f1)" \
             --arg iu "sha256:$(sha256sum .github/release/docker/install_ucm.py | cut -d' ' -f1)" \
             --arg ir "sha256:$(sha256sum .github/release/docker/inspect_runtime.py | cut -d' ' -f1)" \
             --arg vb "sha256:$(sha256sum .github/release/docker/verify_base_image.py | cut -d' ' -f1)" \
@@ -555,7 +556,7 @@ jobs:
           ci="$(jq -cS --arg sha "${ci_sha}" '.content_identity_sha256 = $sha' <<<"${ci}")"
           # Recompute the reviewed Docker implementation digest.
           implementation="$(jq -cnS \
-            --arg df "sha256:$(sha256sum .github/release/docker/Dockerfile | cut -d' ' -f1)" \
+            --arg df "sha256:$(sha256sum .github/release/docker/Dockerfile.runtime | cut -d' ' -f1)" \
             --arg iu "sha256:$(sha256sum .github/release/docker/install_ucm.py | cut -d' ' -f1)" \
             --arg ir "sha256:$(sha256sum .github/release/docker/inspect_runtime.py | cut -d' ' -f1)" \
             --arg vb "sha256:$(sha256sum .github/release/docker/verify_base_image.py | cut -d' ' -f1)" \

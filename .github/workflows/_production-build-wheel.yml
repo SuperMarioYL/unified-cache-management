@@ -115,7 +115,14 @@ jobs:
             --config control/.github/release/production/production-release.json \
             --task out/build-task.json --source-context out/source-context/source-context.json \
             --source-date-epoch "${source_epoch}" --output-dir out/projection
+          test -f out/projection/build-authority.json
+          test -f out/projection/build-projection.json
+          test -f out/projection/wheel-build.json
           cp out/projection/build-authority.json out/source-context/build-authority.json
+          cp out/projection/wheel-build.json out/source-context/wheel-build.json
+          mkdir -p out/source-context/trusted-control
+          cp -R control/.github/release/ucm_release \
+            out/source-context/trusted-control/ucm_release
       - name: Install checksum-pinned Buildx
         env:
           BUILDX_VERSION: v0.19.2

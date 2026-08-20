@@ -163,13 +163,11 @@ jobs:
           jq -cS --arg tid "${TASK_ID}" \
             '.wheel_tasks | map(select(.task_id == $tid)) as $m | if ($m | length) == 1 then $m[0] else error("wheel task does not resolve exactly once") end' \
             input/plan/resolved-plan.json > out/selected-task.json
-          # Materialize the hosted wheel task: canonical build inputs, lock, and identity.
-          # Mirrors verify.hosted_wheel_task so out/hosted-task.json is byte-faithful.
+          # Materialize the hosted wheel task: canonical identity and offline lock.
           build_tool_lock_sha256="sha256:$(jq -jr \
             '.dependency_lock.build_tools[]
              | .name + " @ file:///wheelhouse/" + .filename + " --hash=" + .sha256 + "\n"' \
             out/selected-task.json | sha256sum | cut -d' ' -f1)"
-          build_settings="$(jq -cS '.build' out/selected-task.json)"
           builder_coordinate="$(jq -r \
             '.builder.root.repository + "@" + .builder.root.manifest_digest' \
             out/selected-task.json)"
@@ -178,10 +176,7 @@ jobs:
             --arg source_sha "${SOURCE_SHA}" \
             --arg source_date_epoch "${source_date_epoch}" \
             --arg builder_coordinate "${builder_coordinate}" \
-            --arg build_settings "${build_settings}" \
             --arg build_tool_lock_sha256 "${build_tool_lock_sha256}" \
-            --arg required_targets "$(jq -r '.required_native | join(",")' out/selected-task.json)" \
-            --arg forbidden_targets "$(jq -r '.forbidden_native | join(",")' out/selected-task.json)" \
             '{
               task_id: $t[0].task_id,
               spec_id: $t[0].spec_id,
@@ -201,26 +196,7 @@ jobs:
                 | map(.name + " @ file:///wheelhouse/" + .filename + " --hash=" + .sha256 + "\n")
                 | join("")
               ),
-              build_tool_lock_sha256: $build_tool_lock_sha256,
-              build_args: {
-                SOURCE_DATE_EPOCH: $source_date_epoch,
-                UCM_BUILDER_IMAGE: $builder_coordinate,
-                PLATFORM: $t[0].build.platform_arg,
-                UCM_RELEASE_TASK_ID: $t[0].task_id,
-                UCM_RELEASE_SPEC_ID: $t[0].spec_id,
-                UCM_RELEASE_PROFILE: $t[0].profile_id,
-                UCM_RELEASE_SOURCE_SHA: $source_sha,
-                UCM_RELEASE_VERSION: $t[0].wheel_version,
-                UCM_RELEASE_BUILD_KEY: $t[0].task_sha256,
-                UCM_RELEASE_PYTHON_VERSION: $t[0].python_version,
-                UCM_RELEASE_PYTHON_ABI: $t[0].python_abi,
-                UCM_RELEASE_WHEEL_PLATFORM: $t[0].wheel_platform,
-                UCM_RELEASE_DIST_NAME: $t[0].dist_name,
-                UCM_RELEASE_BUILD_SETTINGS: $build_settings,
-                UCM_RUNTIME_PATCH_MANIFEST_SHA256: $t[0].runtime_patch_manifest_sha256,
-                UCM_RELEASE_REQUIRED_TARGETS: $required_targets,
-                UCM_RELEASE_FORBIDDEN_TARGETS: $forbidden_targets
-              }
+              build_tool_lock_sha256: $build_tool_lock_sha256
             }' > out/hosted-task.json
           hosted_task_sha256="sha256:$(jq -cjS . out/hosted-task.json | sha256sum | cut -d' ' -f1)"
           jq -cS --arg h "${hosted_task_sha256}" '.hosted_task_sha256 = $h' \
@@ -287,6 +263,33 @@ jobs:
           done < <(jq -r '.build_tools[] | [.requirement, .filename, .sha256] | @tsv' out/hosted-task.json)
           expected_count="$(jq '(.build_tools) | length' out/hosted-task.json)"
           test "$(find out/source-context/build-wheels -maxdepth 1 -type f -name '*.whl' | wc -l | tr -d ' ')" = "${expected_count}"
+      - name: Materialize canonical wheel authority and build config
+        shell: bash
+        run: |
+          set -euo pipefail
+          authority_root="$(mktemp -d "${RUNNER_TEMP}/ucm-wheel-authority.XXXXXX")"
+          trap 'rm -rf "${authority_root}"' EXIT
+          tar -xf out/source-context/ucm-source.tar -C "${authority_root}"
+          spec_id="$(jq -r '.spec_id' out/selected-task.json)"
+          source_sha="$(jq -r '.source_sha' out/hosted-task.json)"
+          source_date_epoch="$(jq -r '.source_date_epoch' out/hosted-task.json)"
+          builder_coordinate="$(jq -r '.builder_coordinate' out/hosted-task.json)"
+          PYTHONPATH=.github/release python -m ucm_release wheel authority \
+            --spec-id "${spec_id}" \
+            --source-sha "${source_sha}" \
+            --source-date-epoch "${source_date_epoch}" \
+            --builder-coordinate "${builder_coordinate}" \
+            --wheelhouse out/source-context/build-wheels \
+            --source-archive out/source-context/ucm-source.tar \
+            --source-commit-payload out/source-context/source-commit.payload \
+            --source-manifest out/source-context/source-context.json \
+            --source-root "${authority_root}" \
+            --task-file out/selected-task.json \
+            --output out/source-context/build-authority.json
+          PYTHONPATH=.github/release python -m ucm_release wheel build-config \
+            --task-file out/selected-task.json \
+            --authority-file out/source-context/build-authority.json \
+            --output out/source-context/wheel-build.json
       - name: Authenticate to ghcr for private builder pulls
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -308,7 +311,7 @@ jobs:
             '[.wheel_tasks[] | select(.task_id == $id)] | if length == 1 then .[0].task_sha256 else empty end' \
             "${plan}")"
           test -n "${task_sha256}"
-          frontend="$(sed -n '1s/^# syntax=//p' .github/release/docker/Dockerfile)"
+          frontend="$(sed -n '1s/^# syntax=//p' .github/release/docker/Dockerfile.wheel)"
           jq -cnS \
             --arg task_id "${TASK_ID}" \
             --arg task_sha256 "${task_sha256}" \
@@ -338,12 +341,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker_target="$(jq -r '.docker_target' out/hosted-task.json)"
           platform="$(jq -r '.platform' out/hosted-task.json)"
-          build_args=()
-          while IFS= read -r build_arg; do
-            build_args+=(--build-arg "${build_arg}")
-          done < <(jq -r '.build_args | to_entries | sort_by(.key)[] | "\(.key)=\(.value)"' out/hosted-task.json)
+          builder_coordinate="$(jq -r '.builder_coordinate' out/hosted-task.json)"
           mkdir -p out
           : >out/build.log
           max_build_attempts=3
@@ -358,11 +357,12 @@ jobs:
             if docker buildx build \
               --builder ucm-release-builder \
               --platform "${platform}" \
-              --target "${docker_target}" \
-              "${build_args[@]}" \
+              --target wheel \
+              --build-arg "UCM_BUILDER_IMAGE=${builder_coordinate}" \
+              --build-arg "UCM_BUILD_CONFIG=wheel-build.json" \
               --output type=local,dest=out/wheel \
               --progress plain \
-              -f .github/release/docker/Dockerfile \
+              -f .github/release/docker/Dockerfile.wheel \
               out/source-context 2>&1 \
               | tee -a "${attempt_log}" out/build.log; then
               build_status=0
@@ -418,6 +418,8 @@ jobs:
           cp out/selected-task.json out/wheel-artifact/selected-task.json
           cp input/plan/resolved-plan.json out/wheel-artifact/resolved-plan.json
           cp out/source-context/source-context.json out/wheel-artifact/source-context.json
+          cp out/source-context/build-authority.json out/wheel-artifact/build-authority.json
+          cp out/source-context/wheel-build.json out/wheel-artifact/wheel-build.json
           cp out/source-context-result.json out/wheel-artifact/source-context-result.json
           cp out/task-toolchain-authority.json out/wheel-artifact/task-toolchain-authority.json
           cp "${RUNNER_TEMP}/ucm-disk-before.txt" out/wheel-artifact/disk-before.txt

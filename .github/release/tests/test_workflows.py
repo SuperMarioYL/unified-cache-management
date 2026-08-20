@@ -383,6 +383,122 @@ def test_builder_dockerfile_targets_official_manylinux_pool() -> None:
     assert "apt-get" not in dockerfile
 
 
+def test_release_dockerfiles_split_wheel_and_runtime_responsibilities() -> None:
+    docker_root = REPO_ROOT / ".github" / "release" / "docker"
+    wheel_path = docker_root / "Dockerfile.wheel"
+    runtime_path = docker_root / "Dockerfile.runtime"
+
+    assert not (docker_root / "Dockerfile").exists()
+    assert wheel_path.is_file()
+    assert runtime_path.is_file()
+    assert (docker_root / "Dockerfile.builder").is_file()
+
+    wheel_source = wheel_path.read_text(encoding="utf-8")
+    stages = re.findall(r"^FROM .+ AS ([a-z0-9-]+)$", wheel_source, re.MULTILINE)
+    assert stages == [
+        "wheel-builder",
+        "wheel-python",
+        "wheel-source",
+        "wheel-config",
+        "wheel-build",
+        "wheel",
+    ]
+    assert "FROM scratch AS wheel" in wheel_source
+    assert set(re.findall(r"^ARG ([A-Z0-9_]+)", wheel_source, re.MULTILINE)) <= {
+        "LD_LIBRARY_PATH",
+        "UCM_BUILDER_IMAGE",
+        "UCM_BUILD_CONFIG",
+    }
+    for forbidden in (
+        "UCM_RELEASE_",
+        "ARG PLATFORM",
+        "ARG SOURCE_DATE_EPOCH",
+        "ARG UCM_DIST_NAME",
+        "re.subn",
+        'pyproject.toml"); t =',
+    ):
+        assert forbidden not in wheel_source
+    assert "wheel prepare-source" in wheel_source
+
+    runtime_source = runtime_path.read_text(encoding="utf-8")
+    runtime_stages = re.findall(
+        r"^FROM .+ AS ([a-z0-9-]+)$", runtime_source, re.MULTILINE
+    )
+    assert runtime_stages == [
+        "runtime-install",
+        "runtime",
+        "runtime-real-install",
+        "runtime-real",
+    ]
+    assert "--target runtime-real" not in runtime_source
+
+
+def test_wheel_workflow_materializes_config_before_buildx_with_two_build_args() -> None:
+    workflow = _load_workflow(WORKFLOW_DIR / "_build-wheel.yml")
+    steps = _steps(_jobs(workflow)["build"])
+    names = [step.get("name") for step in steps]
+    authority_name = "Materialize canonical wheel authority and build config"
+    authority_index = names.index(authority_name)
+    wheelhouse_index = names.index(
+        "Materialize the task-bound offline build tool wheelhouse"
+    )
+    build_index = names.index("Build, seal, and export the real native wheel")
+    assert wheelhouse_index < authority_index < build_index
+
+    task_source = str(
+        _named_step(
+            _jobs(workflow)["build"],
+            "Select frozen wheel task and derive canonical build inputs",
+        )["run"]
+    )
+    assert "build_args:" not in task_source
+
+    authority_source = str(steps[authority_index]["run"])
+    for fragment in (
+        "wheel authority",
+        "--task-file out/selected-task.json",
+        "--builder-coordinate",
+        "--wheelhouse out/source-context/build-wheels",
+        "--source-archive out/source-context/ucm-source.tar",
+        "--source-root",
+        "--output out/source-context/build-authority.json",
+        "wheel build-config",
+        "--authority-file out/source-context/build-authority.json",
+        "--output out/source-context/wheel-build.json",
+    ):
+        assert fragment in authority_source
+
+    build_source = str(steps[build_index]["run"])
+    assert "-f .github/release/docker/Dockerfile.wheel" in build_source
+    assert "--target wheel" in build_source
+    assert "UCM_BUILDER_IMAGE=${builder_coordinate}" in build_source
+    assert "UCM_BUILD_CONFIG=wheel-build.json" in build_source
+    assert ".build_args" not in build_source
+    assert "UCM_RELEASE_" not in build_source
+
+    record_source = str(
+        _named_step(
+            _jobs(workflow)["build"],
+            "Reopen the sealed wheel and expose immutable identities",
+        )["run"]
+    )
+    assert "build-authority.json" in record_source
+    assert "wheel-build.json" in record_source
+
+
+def test_image_workflow_hashes_runtime_source_but_keeps_context_filename() -> None:
+    workflow = _load_workflow(WORKFLOW_DIR / "_build-image.yml")
+    source = "\n".join(_strings(workflow))
+    runtime_path = ".github/release/docker/Dockerfile.runtime"
+
+    assert f"sed -n '1s/^# syntax=//p' {runtime_path}" in source
+    assert f"cp {runtime_path} context/Dockerfile" in source
+    assert source.count(f"sha256sum {runtime_path}") == 2
+    assert 'files:{"Dockerfile":$df' in source
+    assert "--target runtime-real" in source
+    assert ".github/release/docker/Dockerfile |" not in source
+
+
 def test_release_and_bot_consume_same_run_builder_catalog() -> None:
     release = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
     assert "workflow_call" in release["on"]

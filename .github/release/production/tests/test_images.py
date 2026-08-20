@@ -36,6 +36,18 @@ def test_production_image_dockerfile_starts_cleanup_as_a_new_instruction() -> No
     assert "\nPY\nRUN rm -rf /wheelhouse\n" in dockerfile
 
 
+def test_production_image_dockerfile_copies_complete_runtime_wheelhouse() -> None:
+    source = (PRODUCTION_ROOT / "docker" / "Dockerfile.image").read_text(
+        encoding="utf-8"
+    )
+
+    assert "ARG PACKAGING_WHEEL" in source
+    assert "ARG WRAPT_WHEEL" in source
+    assert "COPY ${PACKAGING_WHEEL} /wheelhouse/${PACKAGING_WHEEL}" in source
+    assert "COPY ${WRAPT_WHEEL} /wheelhouse/${WRAPT_WHEEL}" in source
+    assert "FROM ${BASE_IMAGE} AS production-runtime" in source
+
+
 def test_extract_oci_archive_accepts_buildkit_directory_members(tmp_path: Path) -> None:
     archive_path = tmp_path / "image.oci"
     blob_name = "blobs/sha256/" + "1" * 64

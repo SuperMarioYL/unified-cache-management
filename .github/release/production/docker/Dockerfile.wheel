@@ -1,20 +1,12 @@
 # syntax=docker/dockerfile:1.12.1@sha256:93bfd3b68c109427185cd78b4779fc82b484b0b7618e36d0f104d4d801e66d25
 # check=skip=SecretsUsedInArgOrEnv
 ARG UCM_BUILDER_IMAGE=registry.invalid/ucm/builder@sha256:0000000000000000000000000000000000000000000000000000000000000000
+ARG UCM_BUILD_CONFIG=wheel-build.json
 
 FROM ${UCM_BUILDER_IMAGE} AS production-wheel-build
 
 ARG UCM_BUILDER_IMAGE
-ARG SOURCE_DATE_EPOCH
-ARG TARGETARCH
-ARG PLATFORM
-ARG UCM_RELEASE_PROFILE
-ARG UCM_RELEASE_DISTRIBUTION
-ARG UCM_RELEASE_SOURCE_SHA
-ARG UCM_RELEASE_VERSION
-ARG UCM_RELEASE_BUILD_KEY
-ARG UCM_RELEASE_REQUIRED_TARGETS
-ARG UCM_RELEASE_FORBIDDEN_TARGETS
+ARG UCM_BUILD_CONFIG
 ARG BUILD_VERSION
 ARG BUILD_FILENAME
 ARG BUILD_SHA256
@@ -40,18 +32,35 @@ ARG CMAKE_SHA256
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 ENV TZ=UTC PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_DEFAULT_TIMEOUT=30 PIP_RETRIES=2 \
     PYTHONDONTWRITEBYTECODE=1
+# Ascend builders resolve Mooncake from /usr/local/lib. Preserve any inherited
+# builder search path while prepending that reviewed location.
 ARG LD_LIBRARY_PATH
 ENV LD_LIBRARY_PATH="/usr/local/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
-RUN if [[ -x /opt/python/cp312-cp312/bin/python ]]; then \
-      ln -s /opt/python/cp312-cp312/bin/python /usr/local/bin/ucm-python; \
-    elif command -v python3.12 >/dev/null; then \
-      ln -s "$(command -v python3.12)" /usr/local/bin/ucm-python; \
-    elif command -v python3 >/dev/null && [[ "$(python3 -c 'import sys; print(sys.version_info[:2])')" == "(3, 12)" ]]; then \
-      ln -s "$(command -v python3)" /usr/local/bin/ucm-python; \
+COPY ${UCM_BUILD_CONFIG} /tmp/wheel-build.json
+COPY trusted-control/ucm_release /tmp/release-control/ucm_release
+RUN bootstrap_python=""; \
+    if command -v python3 >/dev/null; then \
+      bootstrap_python="$(command -v python3)"; \
+    elif command -v python >/dev/null; then \
+      bootstrap_python="$(command -v python)"; \
     else \
-      echo 'immutable builder lacks CPython 3.12' >&2; exit 1; \
-    fi
+      bootstrap_python="$(find -L /opt/python -path '*/bin/python' -type f -perm -111 2>/dev/null | sort | head -n 1 || true)"; \
+    fi; \
+    test -n "${bootstrap_python}"; \
+    python_version="$(${bootstrap_python} -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["python"]["version"])')"; \
+    python_abi="$(${bootstrap_python} -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["python"]["abi"])')"; \
+    python_candidate="/opt/python/${python_abi}-${python_abi}/bin/python"; \
+    if [[ -x "${python_candidate}" ]]; then \
+      selected_python="${python_candidate}"; \
+    elif command -v "python${python_version}" >/dev/null; then \
+      selected_python="$(command -v "python${python_version}")"; \
+    elif [[ "$(${bootstrap_python} -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" == "${python_version}" ]]; then \
+      selected_python="${bootstrap_python}"; \
+    else \
+      echo "immutable builder lacks ${python_abi}" >&2; exit 1; \
+    fi; \
+    ln -s "${selected_python}" /usr/local/bin/ucm-python
 
 RUN <<EOF
 test "${UCM_BUILDER_IMAGE}" != "${UCM_BUILDER_IMAGE%@sha256:*}"
@@ -94,7 +103,6 @@ WORKDIR /workspace/ucm
 COPY ucm-source.tar /tmp/ucm-source.tar
 COPY source-commit.payload /tmp/source-commit.payload
 COPY source-context.json /tmp/source-context.json
-COPY build-authority.json /tmp/build-authority.json
 
 RUN ucm-python - <<'PY'
 import hashlib
@@ -103,8 +111,9 @@ import subprocess
 import tarfile
 from pathlib import Path
 
+config = json.loads(Path('/tmp/wheel-build.json').read_bytes())
+authority = config['authority']
 context = json.loads(Path('/tmp/source-context.json').read_bytes())
-authority = json.loads(Path('/tmp/build-authority.json').read_bytes())
 archive = Path('/tmp/ucm-source.tar').read_bytes()
 commit = Path('/tmp/source-commit.payload').read_bytes()
 if authority['schema_version'] != 2:
@@ -123,63 +132,34 @@ if actual_commit != authority['source_sha']:
 with tarfile.open('/tmp/ucm-source.tar', mode='r:') as source:
     source.extractall('/workspace/ucm', filter='data')
 PY
+RUN rm -rf /workspace/ucm/.github/release/ucm_release; \
+    mkdir -p /workspace/ucm/.github/release; \
+    cp -a /tmp/release-control/ucm_release /workspace/ucm/.github/release/ucm_release
+RUN expected_arch="$(ucm-python -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["authority"]["cpu_arch"])')"; \
+    case "${expected_arch}:$(uname -m)" in \
+      amd64:x86_64|arm64:aarch64) ;; \
+      *) echo "configured architecture does not match native builder" >&2; exit 1 ;; \
+    esac; \
+    build_platform="$(ucm-python -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["platform"])')"; \
+    case "${build_platform}" in \
+      cuda) test -f /usr/local/cuda/include/cuda.h ;; \
+      ascend|ascend-a3) \
+        test -f /usr/local/Ascend/ascend-toolkit/latest/include/acl/acl.h; \
+        test -f /usr/local/Ascend/ascend-toolkit/latest/lib64/libascendcl.so; \
+        test -f /usr/local/include/transfer_engine.h; \
+        test -f /usr/local/lib/libmooncake_store.so \
+        ;; \
+      *) echo "unsupported configured build platform" >&2; exit 1 ;; \
+    esac
+RUN PYTHONPATH=/workspace/ucm/.github/release \
+    ucm-python -m ucm_release wheel prepare-source \
+      --build-config /tmp/wheel-build.json \
+      --source-root /workspace/ucm
 
-RUN <<'EOF'
-test -n "${TARGETARCH}"
-test -n "${PLATFORM}"
-test -n "${UCM_RELEASE_PROFILE}"
-test -n "${UCM_RELEASE_DISTRIBUTION}"
-test -n "${UCM_RELEASE_SOURCE_SHA}"
-test -n "${UCM_RELEASE_VERSION}"
-test -n "${UCM_RELEASE_BUILD_KEY}"
-case "${TARGETARCH}:$(uname -m)" in
-  amd64:x86_64|arm64:aarch64) ;;
-  *) echo "TARGETARCH does not match native builder" >&2; exit 1 ;;
-esac
-case "${PLATFORM}" in
-  cuda) test -f /usr/local/cuda/include/cuda.h ;;
-  ascend|ascend-a3)
-    test -f /usr/local/Ascend/ascend-toolkit/latest/include/acl/acl.h
-    test -f /usr/local/Ascend/ascend-toolkit/latest/lib64/libascendcl.so
-    test -f /usr/local/include/transfer_engine.h
-    test -f /usr/local/lib/libmooncake_store.so
-    ;;
-  *) echo "unsupported PLATFORM=${PLATFORM}" >&2; exit 1 ;;
-esac
-EOF
-
-RUN UCM_AUTHORITY_FILE=/tmp/build-authority.json UCM_PROJECT_FILE=/workspace/ucm/pyproject.toml ucm-python - <<'PY'
-import json
-import os
-import re
-from pathlib import Path
-
-authority = json.loads(Path(os.environ["UCM_AUTHORITY_FILE"]).read_bytes())
-distribution = authority.get("distribution")
-allowed = {"uc-manager-cuda", "uc-manager-cann-a2", "uc-manager-cann-a3"}
-if distribution not in allowed:
-    raise SystemExit("production distribution is not approved")
-project_path = Path(os.environ["UCM_PROJECT_FILE"])
-project = project_path.read_text(encoding="utf-8")
-pattern = r'(?m)^(name = )"uc-manager"$'
-project, count = re.subn(pattern, rf'\1"{distribution}"', project)
-if count != 1:
-    raise SystemExit("pyproject production name source is not exact")
-project_path.write_text(project, encoding="utf-8")
-PY
-
-RUN PATH="$(ucm-python -c 'import sysconfig; print(sysconfig.get_path("scripts"))'):${PATH}" \
-    UCM_RELEASE_BUILD=1 \
-    PLATFORM="${PLATFORM}" \
-    UCM_RELEASE_PROFILE="${UCM_RELEASE_PROFILE}" \
-    UCM_RELEASE_DISTRIBUTION="${UCM_RELEASE_DISTRIBUTION}" \
-    UCM_RELEASE_SOURCE_SHA="${UCM_RELEASE_SOURCE_SHA}" \
-    UCM_RELEASE_VERSION="${UCM_RELEASE_VERSION}" \
-    UCM_RELEASE_BUILD_KEY="${UCM_RELEASE_BUILD_KEY}" \
-    UCM_RELEASE_REQUIRED_TARGETS="${UCM_RELEASE_REQUIRED_TARGETS}" \
-    UCM_RELEASE_FORBIDDEN_TARGETS="${UCM_RELEASE_FORBIDDEN_TARGETS}" \
-    UCM_RELEASE_AUTHORITY_FILE=/tmp/build-authority.json \
-    SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}" \
+RUN source_date_epoch="$(ucm-python -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["authority"]["source_date_epoch"])')"; \
+    PATH="$(ucm-python -c 'import sysconfig; print(sysconfig.get_path("scripts"))'):${PATH}" \
+    SOURCE_DATE_EPOCH="${source_date_epoch}" \
+    UCM_BUILD_CONFIG=/tmp/wheel-build.json \
     ucm-python -m build --no-isolation --wheel --outdir /out
 
 FROM scratch AS production-wheel

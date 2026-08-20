@@ -22,8 +22,9 @@ LEGACY_RELEASE_ROOTS = (
     REPO_ROOT / "docker" / "release",
 )
 EXPECTED_DOCKER_FILES = {
-    "Dockerfile",
     "Dockerfile.builder",
+    "Dockerfile.runtime",
+    "Dockerfile.wheel",
     "install_ucm.py",
     "inspect_runtime.py",
     "mooncake_installer.sh",

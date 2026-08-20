@@ -6,6 +6,7 @@ FROM ${BASE_IMAGE} AS production-runtime
 ARG SOURCE_DATE_EPOCH
 ARG UCM_DISTRIBUTION
 ARG UCM_WHEEL
+ARG PACKAGING_WHEEL
 ARG WRAPT_WHEEL
 ARG UCM_SOURCE_SHA
 ARG UCM_IMAGE_TAG
@@ -22,6 +23,7 @@ LABEL org.opencontainers.image.revision="${UCM_SOURCE_SHA}" \
       io.ucm.release.recipe-sha256="${UCM_RECIPE_SHA256}"
 
 COPY ${UCM_WHEEL} /wheelhouse/${UCM_WHEEL}
+COPY ${PACKAGING_WHEEL} /wheelhouse/${PACKAGING_WHEEL}
 COPY ${WRAPT_WHEEL} /wheelhouse/${WRAPT_WHEEL}
 COPY requirements.lock /wheelhouse/requirements.lock
 

@@ -238,18 +238,10 @@ def docker_build_projection(
         tool_wheels=tools,
     )
     build_args: dict[str, str] = {
-        "SOURCE_DATE_EPOCH": str(epoch),
         "UCM_BUILDER_IMAGE": (
             f"{task['builder']['repository']}@{task['builder']['manifest_digest']}"
         ),
-        "PLATFORM": task["build_platform"],
-        "UCM_RELEASE_PROFILE": task["profile_id"],
-        "UCM_RELEASE_DISTRIBUTION": task["distribution"],
-        "UCM_RELEASE_SOURCE_SHA": task["source_sha"],
-        "UCM_RELEASE_VERSION": task["wheel_version"],
-        "UCM_RELEASE_BUILD_KEY": "sha256:" + task["sha256"],
-        "UCM_RELEASE_REQUIRED_TARGETS": ",".join(task["required_native"]),
-        "UCM_RELEASE_FORBIDDEN_TARGETS": ",".join(task["forbidden_native"]),
+        "UCM_BUILD_CONFIG": "wheel-build.json",
     }
     prefixes = {
         "build": "BUILD",

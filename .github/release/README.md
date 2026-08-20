@@ -42,7 +42,7 @@ plan.
 | `release.yaml` | Catalog-owned source identity, profiles, compatibility rules, upstream products, immutable builders, dependency locks, Chart, runners, and publication targets |
 | `ucm_release/` | Strict configuration, wheel, Chart, Registry, image, and aggregation implementation |
 | `schemas/` | Configuration, release-manifest, and image-result contracts |
-| `docker/` | Multi-stage wheel/image Dockerfile and three verification helpers |
+| `docker/` | Separate six-stage wheel, install-only runtime, and builder Dockerfiles plus three verification helpers |
 | `tests/` | Structural, behavioral, mutation, workflow, and loop checks |
 | `charts/ucm` | Product Helm Chart with source provenance |
 
@@ -50,8 +50,8 @@ The four release workflows are:
 
 | Workflow | Current feature responsibility |
 | --- | --- |
-| `_build-wheel.yml` | Build, seal, reopen, inspect, and upload one reviewed native wheel |
-| `_build-image.yml` | Reopen the same-run wheel, verify the pinned upstream base, install UCM and locked `wrapt`, build a local OCI archive, fully scan it, delete the large archive, and upload compact evidence |
+| `_build-wheel.yml` | Materialize canonical build authority/config on the host, build, seal, reopen, inspect, and upload one reviewed native wheel |
+| `_build-image.yml` | Reopen the same-run wheel, verify the pinned upstream base, install UCM and all locked runtime dependencies, build a local OCI archive, fully scan it, delete the large archive, and upload compact evidence |
 | `release-vllm-images.yml` | Build every planner-selected image member, enforce the frozen task-set barrier, form planner-selected family plans, and emit the feature-only deterministic zero marker after complete closure validation |
 | `release-ucm.yml` | Resolve one frozen plan, build every selected wheel and image task, package the Chart, enforce complete task/family barriers, and aggregate or publish only plan-bound artifacts |
 
@@ -72,15 +72,16 @@ resolver; this table is not consumed by production code.
 
 The wheel versions are `0.5.0rc1+cuda130`,
 `0.5.0rc1+cann900.a2`, and `0.5.0rc1+cann900.a3`. Each wheel artifact contains
-the `.whl`, its canonical inspection and seal, source-context records, the
-resolved task/toolchain authority, disk evidence, and the native build log.
+the `.whl`, its canonical inspection and seal, `build-authority.json`,
+`wheel-build.json`, source-context records, the resolved task/toolchain
+authority, disk evidence, and the native build log.
 CANN's `libascend_hal.so` record remains a structured
 `kind=external-required` host-driver dependency; it is not bundled or treated
 as an unresolved dependency.
 
 The image context for that snapshot was install-only. It contained the
-Dockerfile, three helpers, the exact UCM wheel, the selected task's locked
-`wrapt` wheel,
+runtime Dockerfile, three helpers, the exact UCM wheel, the selected task's
+locked runtime wheels,
 `requirements.lock`, `image-recipe.json`, and `image-authority.json`; it does
 not contain the UCM source or compile UCM again. The full OCI archive is scanned
 inside its build job and then removed. The uploaded compact artifact keeps the

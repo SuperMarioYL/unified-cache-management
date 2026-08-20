@@ -2,7 +2,7 @@
 
 <!-- Generated from .github/release/release.yaml; do not edit manually. -->
 
-These repository recipes are compatibility source builds. They do not own the formal release flow, which uses `.github/release/docker/Dockerfile` with a sealed wheel.
+These repository recipes are compatibility source builds. They do not own the formal release flow, which uses `.github/release/docker/Dockerfile.wheel` and `.github/release/docker/Dockerfile.runtime` with a sealed wheel.
 
 | ID | Recipe | Base image | Status | Lanes | Build mode | Formal-release boundary |
 | --- | --- | --- | --- | --- | --- | --- |

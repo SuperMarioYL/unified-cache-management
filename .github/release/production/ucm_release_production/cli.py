@@ -15,6 +15,7 @@ from .build import (
     prepare_source_context,
     project_build_task,
     seal_built_wheel,
+    wheel_build_config_from_task,
 )
 from .candidate import (
     candidate_run_document,
@@ -380,6 +381,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.output_dir / "build-projection.json",
                 {key: value for key, value in projected.items() if key != "authority"},
                 "production Docker projection",
+            )
+            write_json(
+                args.output_dir / "wheel-build.json",
+                wheel_build_config_from_task(task_value, projected["authority"]),
+                "production wheel build config",
             )
             return 0
         if args.command == "build" and args.build_command == "seal-wheel":

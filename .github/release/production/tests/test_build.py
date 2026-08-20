@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import zipfile
@@ -17,6 +18,7 @@ from conftest import PRODUCTION_ROOT, REPO_ROOT
 from ucm_release_production.build import (
     authority_from_task,
     compare_wheel_candidates,
+    docker_build_projection,
     project_build_task,
     seal_built_wheel,
     wheel_build_config_from_task,
@@ -33,73 +35,30 @@ CONFIG = PRODUCTION_ROOT / "production-release.json"
 SOURCE_SHA = "1" * 40
 
 
-def _project_name_projection() -> str:
+def test_production_wheel_dockerfile_consumes_only_canonical_release_config() -> None:
     source = (
         REPO_ROOT / ".github" / "release" / "production" / "docker" / "Dockerfile.wheel"
     ).read_text(encoding="utf-8")
-    marker = (
-        "RUN UCM_AUTHORITY_FILE=/tmp/build-authority.json "
-        "UCM_PROJECT_FILE=/workspace/ucm/pyproject.toml ucm-python - <<'PY'\n"
-    )
-    assert source.count(marker) == 1
-    body, separator, _ = source.partition(marker)[2].partition("\nPY\n")
-    assert separator
-    return body
 
-
-@pytest.mark.parametrize(
-    "distribution",
-    ["uc-manager-cuda", "uc-manager-cann-a2", "uc-manager-cann-a3"],
-)
-def test_production_dockerfile_projects_authorized_pep621_name(
-    tmp_path: Path, distribution: str
-) -> None:
-    authority = tmp_path / "authority.json"
-    project = tmp_path / "pyproject.toml"
-    authority.write_text(json.dumps({"distribution": distribution}), encoding="utf-8")
-    project.write_text('[project]\nname = "uc-manager"\n', encoding="utf-8")
-    env = {
-        **os.environ,
-        "UCM_AUTHORITY_FILE": str(authority),
-        "UCM_PROJECT_FILE": str(project),
+    release_args = {
+        name
+        for name in re.findall(r"^ARG ([A-Z0-9_]+)", source, re.MULTILINE)
+        if name.startswith("UCM_")
     }
-
-    result = subprocess.run(
-        [sys.executable, "-c", _project_name_projection()],
-        env=env,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert project.read_text(encoding="utf-8") == (
-        f'[project]\nname = "{distribution}"\n'
-    )
-
-
-def test_production_dockerfile_rejects_unapproved_pep621_name(tmp_path: Path) -> None:
-    authority = tmp_path / "authority.json"
-    project = tmp_path / "pyproject.toml"
-    authority.write_text(
-        json.dumps({"distribution": "uc-manager-unknown"}), encoding="utf-8"
-    )
-    project.write_text('[project]\nname = "uc-manager"\n', encoding="utf-8")
-
-    result = subprocess.run(
-        [sys.executable, "-c", _project_name_projection()],
-        env={
-            **os.environ,
-            "UCM_AUTHORITY_FILE": str(authority),
-            "UCM_PROJECT_FILE": str(project),
-        },
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert "distribution" in result.stderr
+    assert release_args == {"UCM_BUILDER_IMAGE", "UCM_BUILD_CONFIG"}
+    for forbidden in (
+        "UCM_RELEASE_",
+        "ARG PLATFORM",
+        "ARG SOURCE_DATE_EPOCH",
+        "ARG UCM_DIST_NAME",
+        "re.subn",
+    ):
+        assert forbidden not in source
+    assert "COPY ${UCM_BUILD_CONFIG} /tmp/wheel-build.json" in source
+    assert "COPY trusted-control/ucm_release /tmp/release-control/ucm_release" in source
+    assert "wheel prepare-source" in source
+    assert "UCM_BUILD_CONFIG=/tmp/wheel-build.json" in source
+    assert "FROM scratch AS production-wheel" in source
 
 
 def _source(stage: str, tag_name: str, branch: str) -> dict[str, object]:
@@ -256,6 +215,108 @@ def test_production_task_projects_the_exact_wheel_build_wrapper() -> None:
         ).encode("utf-8")
         + b"\n"
     )
+
+
+def test_production_docker_projection_has_exact_reduced_build_arguments() -> None:
+    config = load_config(CONFIG)
+    intent = parse_tag("v0.6.0rc1", config)
+    task = project_build_task(
+        config,
+        intent,
+        _source(intent.stage, intent.tag_name, intent.release_branch),
+        "cuda130-amd64",
+    )
+    context = {
+        "source_tree": "6" * 40,
+        "source_archive_sha256": "sha256:" + "7" * 64,
+        "build_context_sha256": "sha256:" + "8" * 64,
+    }
+
+    projection = docker_build_projection(config, task, context, 1_700_000_000)
+
+    prefixes = {
+        "BUILD",
+        "PYPROJECT_HOOKS",
+        "PACKAGING",
+        "SETUPTOOLS",
+        "WHEEL",
+        "PYYAML",
+        "CMAKE",
+    }
+    expected = {"UCM_BUILDER_IMAGE", "UCM_BUILD_CONFIG"} | {
+        f"{prefix}_{suffix}"
+        for prefix in prefixes
+        for suffix in ("VERSION", "FILENAME", "SHA256")
+    }
+    assert set(projection["build_args"]) == expected
+    assert projection["build_args"]["UCM_BUILD_CONFIG"] == "wheel-build.json"
+    assert projection["docker_target"] == "production-wheel"
+    assert not any(name.startswith("UCM_RELEASE_") for name in expected)
+    assert not {"PLATFORM", "SOURCE_DATE_EPOCH", "UCM_DIST_NAME"} & expected
+
+
+def test_production_projection_cli_writes_all_three_canonical_records(
+    tmp_path: Path,
+) -> None:
+    config = load_config(CONFIG)
+    intent = parse_tag("v0.6.0rc1", config)
+    task = project_build_task(
+        config,
+        intent,
+        _source(intent.stage, intent.tag_name, intent.release_branch),
+        "cann900-a2-arm64",
+    )
+    context = {
+        "source_tree": "6" * 40,
+        "source_archive_sha256": "sha256:" + "7" * 64,
+        "build_context_sha256": "sha256:" + "8" * 64,
+    }
+    task_path = tmp_path / "task.json"
+    context_path = tmp_path / "source-context.json"
+    task_path.write_bytes(canonical_bytes(task) + b"\n")
+    context_path.write_bytes(canonical_bytes(context) + b"\n")
+    output_dir = tmp_path / "projection"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ucm_release_production",
+            "build",
+            "projection",
+            "--config",
+            str(CONFIG),
+            "--task",
+            str(task_path),
+            "--source-context",
+            str(context_path),
+            "--source-date-epoch",
+            "1700000000",
+            "--output-dir",
+            str(output_dir),
+        ],
+        cwd=REPO_ROOT,
+        env={
+            **os.environ,
+            "PYTHONPATH": str(PRODUCTION_ROOT),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert {path.name for path in output_dir.iterdir()} == {
+        "build-authority.json",
+        "build-projection.json",
+        "wheel-build.json",
+    }
+    authority = json.loads((output_dir / "build-authority.json").read_bytes())
+    wheel_config = json.loads((output_dir / "wheel-build.json").read_bytes())
+    assert wheel_config == wheel_build_config_from_task(task, authority)
+    for path in output_dir.iterdir():
+        value = json.loads(path.read_bytes())
+        assert path.read_bytes() == canonical_bytes(value) + b"\n"
 
 
 @pytest.mark.parametrize(

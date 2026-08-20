@@ -53,6 +53,16 @@ readbacks recorded in its production evidence Artifact. Draft and RC explicitly
 record `waived-for-preview` for environment testing. They do not prove GPU/NPU
 hardware execution, Kubernetes acceptance, or a Stable public release.
 
+## Build input boundary
+
+The production wheel projection writes three canonical records before Docker:
+`build-authority.json`, `build-projection.json`, and `wheel-build.json`.
+`Dockerfile.wheel` consumes the selected builder plus `wheel-build.json`, uses
+the trusted-control `ucm_release` implementation for source preparation, and
+leaves final sealing to the host workflow. `Dockerfile.image` retains the
+`production-runtime` target and installs the UCM wheel together with every
+runtime wheel named by the closed image context (`packaging` and `wrapt`).
+
 ## Local verification
 
 Run the three suites separately because legacy and v2 contain test modules with
