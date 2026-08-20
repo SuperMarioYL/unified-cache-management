@@ -122,4 +122,4 @@ jobs:
           path: out/artifact/
           if-no-files-found: error
           overwrite: false
-          retention-days: 7
+          retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}

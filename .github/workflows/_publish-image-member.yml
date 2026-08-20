@@ -30,26 +30,13 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    permissions:
-      contents: read
-    uses: ./.github/workflows/_build-image.yml
-    with:
-      source_sha: ${{ inputs.source_sha }}
-      task_id: ${{ inputs.task_id }}
-      runner: ${{ inputs.runner }}
-      resolved_plan_artifact: ${{ inputs.resolved_plan_artifact }}
-      resolved_plan_sha256: ${{ inputs.resolved_plan_sha256 }}
-      deliver_full_oci: false
-
   publish-member:
-    needs: build
     if: >-
       ${{
         !cancelled() &&
-        needs.build.result == 'success' &&
         github.event_name == 'push' &&
-        github.ref_type == 'tag'
+        github.ref_type == 'tag' &&
+        github.ref_protected == true
       }}
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 120
@@ -107,9 +94,6 @@ jobs:
           test "$(jq -r '.fixture_only' input/plan/resolved-plan.json)" = "false"
       - name: Recheck exact protected authority in the writer job
         env:
-          UCM_RELEASE_POLICY: ${{ vars.UCM_RELEASE_POLICY }}
-          GITHUB_ACTOR: ${{ github.actor }}
-          GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
         shell: bash
         run: |
@@ -171,11 +155,11 @@ jobs:
             > out/upstream-drift.json
       - uses: ./.github/actions/download-artifact-retry
         with:
-          name: ${{ needs.build.outputs.internal_oci_artifact }}
+          name: ucm-internal-oci-${{ inputs.task_id }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/oci
       - uses: ./.github/actions/download-artifact-retry
         with:
-          name: ${{ needs.build.outputs.image_artifact }}
+          name: ucm-image-${{ inputs.task_id }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/image
       - name: Flatten image artifact layout
         shell: bash
@@ -192,8 +176,6 @@ jobs:
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
           TASK_ID: ${{ inputs.task_id }}
-          OCI_ARTIFACT: ${{ needs.build.outputs.internal_oci_artifact }}
-          IMAGE_ARTIFACT: ${{ needs.build.outputs.image_artifact }}
           RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
         run: |
           set -euo pipefail
@@ -212,10 +194,11 @@ jobs:
             '.source_sha == $sha and .task_id == $tid' "$hosted_task" >/dev/null
           # Run-bound artifact names: reject stale or cross-attempt artifacts.
           expected_oci="ucm-internal-oci-${TASK_ID}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
-          test "${OCI_ARTIFACT}" = "${expected_oci}"
+          test -f input/oci/image.oci.tar
           logical_image="$(jq -r '.image_artifact' "$hosted_task")"
           expected_image="${logical_image}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
-          test "${IMAGE_ARTIFACT}" = "${expected_image}"
+          test "${expected_oci}" = "ucm-internal-oci-${TASK_ID}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          test "${expected_image}" = "ucm-image-${TASK_ID}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
       - name: Authenticate the pinned publisher to GHCR
         env:
           DOCKER_CONFIG: ${{ runner.temp }}/ucm-member-docker-config
@@ -230,12 +213,9 @@ jobs:
         name: Publish and reopen one canonical private member
         env:
           DOCKER_CONFIG: ${{ runner.temp }}/ucm-member-docker-config
-          UCM_RELEASE_POLICY: ${{ vars.UCM_RELEASE_POLICY }}
           SOURCE_SHA: ${{ inputs.source_sha }}
           TASK_ID: ${{ inputs.task_id }}
           RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
-          GITHUB_ACTOR: ${{ github.actor }}
-          GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         shell: bash
         run: |
           set -euo pipefail
@@ -269,10 +249,11 @@ jobs:
             '[{type:"registry-member-push-by-digest",capability:"write",reference:($staging+"@"+$digest)},{type:"registry-staging-tag-create",capability:"write",reference:($staging+":"+$tag)},{type:"registry-authenticated-digest-read",capability:"read",reference:($staging+"@"+$digest)}]')"
           readback_sha256="sha256:$(printf '%s' "${ops}" | sha256sum | cut -d' ' -f1)"
           jq -cnS --slurpfile ir "${ir}" --arg staging_repo "${staging_repo}" --arg staging_tag "${staging_tag}" \
+            --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" \
             --arg manifest_media_type "${manifest_media_type}" --arg manifest_size "${manifest_size}" \
             --arg config_digest "${config_digest}" --arg config_size "${config_size}" --argjson ops "${ops}" \
             --arg readback_sha256 "${readback_sha256}" \
-            '{schema_version:1,kind:"ucm-registry-member-publication",status:"passed",spec_id:$ir[0].spec_id,profile_id:$ir[0].profile_id,family_id:$ir[0].family_id,platform:$ir[0].target_platform,target_repository:$ir[0].target_repository,target_tag:$ir[0].target_tag,staging_repository:$staging_repo,staging_visibility:"private",staging_tag:$staging_tag,candidate_task_sha256:$ir[0].task_key,publication_task_sha256:$ir[0].task_key,build_key_sha256:$ir[0].build_key_sha256,wheel_sha256:$ir[0].wheel.sha256,member_digest:$ir[0].oci.digest,member_size:($manifest_size|tonumber),config_digest:$config_digest,annotations:{"io.ucm.release.build-key-sha256":$ir[0].build_key_sha256,"io.ucm.release.candidate-task-sha256":$ir[0].task_key,"io.ucm.release.family-id":$ir[0].family_id,"io.ucm.release.platform":$ir[0].target_platform,"io.ucm.release.spec-id":$ir[0].spec_id,"io.ucm.release.wheel-sha256":$ir[0].wheel.sha256},source_sha:$ir[0].source.commit,image_result_sha256:$ir[0].result_sha256,recipe_sha256:$ir[0].recipe_sha256,content_identity_sha256:$ir[0].content_identity_sha256,content_identity:$ir[0].content_identity,manifest:{media_type:$manifest_media_type,digest:$ir[0].oci.digest,size:($manifest_size|tonumber),annotations:$ir[0].content_identity.annotations},config:{media_type:"application/vnd.oci.image.config.v1+json",digest:$config_digest,size:($config_size|tonumber),blob_sha256:$config_digest,labels:$ir[0].content_identity.labels},layers:[$ir[0].content_identity.layers[]|{media_type:.mediaType,digest:.digest,size:.size,blob_sha256:.digest}],readback_sha256:$readback_sha256,operations:$ops}' \
+            '{schema_version:1,kind:"ucm-registry-member-publication",status:"passed",resolved_plan_sha256:$resolved_plan_sha256,spec_id:$ir[0].spec_id,profile_id:$ir[0].profile_id,family_id:$ir[0].family_id,platform:$ir[0].target_platform,target_repository:$ir[0].target_repository,target_tag:$ir[0].target_tag,staging_repository:$staging_repo,staging_visibility:"private",staging_tag:$staging_tag,candidate_task_sha256:$ir[0].task_key,publication_task_sha256:$ir[0].task_key,build_key_sha256:$ir[0].build_key_sha256,wheel_sha256:$ir[0].wheel.sha256,member_digest:$ir[0].oci.digest,member_size:($manifest_size|tonumber),config_digest:$config_digest,annotations:{"io.ucm.release.build-key-sha256":$ir[0].build_key_sha256,"io.ucm.release.candidate-task-sha256":$ir[0].task_key,"io.ucm.release.family-id":$ir[0].family_id,"io.ucm.release.platform":$ir[0].target_platform,"io.ucm.release.spec-id":$ir[0].spec_id,"io.ucm.release.wheel-sha256":$ir[0].wheel.sha256},source_sha:$ir[0].source.commit,image_result_sha256:$ir[0].result_sha256,recipe_sha256:$ir[0].recipe_sha256,content_identity_sha256:$ir[0].content_identity_sha256,content_identity:$ir[0].content_identity,manifest:{media_type:$manifest_media_type,digest:$ir[0].oci.digest,size:($manifest_size|tonumber),annotations:$ir[0].content_identity.annotations},config:{media_type:"application/vnd.oci.image.config.v1+json",digest:$config_digest,size:($config_size|tonumber),blob_sha256:$config_digest,labels:$ir[0].content_identity.labels},layers:[$ir[0].content_identity.layers[]|{media_type:.mediaType,digest:.digest,size:.size,blob_sha256:.digest}],readback_sha256:$readback_sha256,operations:$ops}' \
             >out/member-record.base.json
           record_sha256="sha256:$(jq -cjS . out/member-record.base.json | sha256sum | cut -d' ' -f1)"
           jq -cS --arg sha "${record_sha256}" '.record_sha256 = $sha' out/member-record.base.json >out/member-record.json

@@ -20,6 +20,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 EXPECTED_RELEASE_WORKFLOWS = {
+    "_build-chart.yml",
     "_build-image.yml",
     "_publish-image-member.yml",
     "_build-wheel.yml",
@@ -552,6 +553,25 @@ def test_release_and_bot_consume_same_run_builder_catalog() -> None:
     assert "--pin-upstream" in bot_plan_text
 
 
+def test_formal_v_tag_has_one_entry_and_no_layered_publication_inputs() -> None:
+    release = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
+    assert release["on"]["push"] == {"tags": ["v*"]}
+    assert release["on"]["schedule"] == [{"cron": "0 6 * * *"}]
+    assert release["on"]["workflow_dispatch"] is None
+    assert set(release["on"]["workflow_call"]["inputs"]) == {"deliver_full_oci"}
+
+    production = _load_workflow(WORKFLOW_DIR / "production-tag-candidate.yml")
+    assert production["on"] == {"push": {"tags": ["draft/v*"]}}
+
+    formal_entries = []
+    for path in WORKFLOW_DIR.glob("*.yml"):
+        workflow = _load_workflow(path)
+        push = workflow.get("on", {}).get("push")
+        if isinstance(push, dict) and "v*" in push.get("tags", []):
+            formal_entries.append(path.name)
+    assert formal_entries == ["release-ucm.yml"]
+
+
 def test_release_routes_use_full_matrices_and_develop_only_daily_dispatch() -> None:
     workflow = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
     jobs = _jobs(workflow)
@@ -568,7 +588,274 @@ def test_release_routes_use_full_matrices_and_develop_only_daily_dispatch() -> N
     assert 'build_image_matrix="${image_matrix}"' in plan_text
     assert 'build_wheel_matrix="${smoke_wheel_matrix}"' not in plan_text
     assert 'build_image_matrix="${smoke_image_matrix}"' not in plan_text
-    assert "dry_run_val=true" in plan_text
+    assert "publish=$(jq -c '.publish' out/plan/resolved-plan.json)" in plan_text
+    assert "publish plan" not in plan_text
+    assert jobs["plan"]["outputs"]["publish"] == "${{ steps.plan.outputs.publish }}"
+
+    chart = jobs["package-chart"]
+    assert chart["uses"] == "./.github/workflows/_build-chart.yml"
+    assert chart["needs"] == "plan"
+
+    images = jobs["build-images"]
+    assert set(images["needs"]) == {"plan", "build-wheels", "package-chart"}
+    assert images["uses"] == "./.github/workflows/release-vllm-images.yml"
+    assert images["with"]["image_matrix"] == (
+        "${{ needs.plan.outputs.build_image_matrix }}"
+    )
+    assert images["with"]["wheel_matrix"] == (
+        "${{ needs.plan.outputs.build_wheel_matrix }}"
+    )
+
+    protected = jobs["publish-ghcr"]
+    assert set(protected["needs"]) == {
+        "plan",
+        "build-images",
+        "prepare-release-draft",
+    }
+    assert protected["uses"] == (
+        "./.github/workflows/release-vllm-images-protected.yml"
+    )
+    assert set(protected["with"]) == {
+        "source_sha",
+        "image_matrix",
+        "resolved_plan_artifact",
+        "resolved_plan_sha256",
+        "draft_artifact",
+    }
+
+
+def test_protected_ghcr_publisher_reuses_six_same_run_oci_builds() -> None:
+    protected = _load_workflow(WORKFLOW_DIR / "release-vllm-images-protected.yml")
+    jobs = _jobs(protected)
+    assert list(jobs) == ["publish-members", "publish-ghcr"]
+    assert jobs["publish-members"]["uses"] == (
+        "./.github/workflows/_publish-image-member.yml"
+    )
+    assert jobs["publish-members"]["strategy"]["matrix"] == (
+        "${{ fromJSON(inputs.image_matrix) }}"
+    )
+    publish_text = "\n".join(_strings(jobs["publish-ghcr"]))
+    for fragment in (
+        "ucm-member-${task_id}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}",
+        "test \"$(find out/members -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')\" = 6",
+        "publish ghcr",
+        "--stage publish",
+        "--members-dir out/members",
+        "--draft-state input/draft/github-release-draft.json",
+        "--output out/ghcr-publication.json",
+    ):
+        assert fragment in publish_text
+    for obsolete in (
+        "provisional",
+        "authenticated-readback",
+        "parent-plans",
+        "anonymous-passed",
+    ):
+        assert obsolete not in "\n".join(_strings(protected))
+
+    member = _load_workflow(WORKFLOW_DIR / "_publish-image-member.yml")
+    member_jobs = _jobs(member)
+    assert list(member_jobs) == ["publish-member"]
+    member_text = "\n".join(_strings(member))
+    assert "./.github/workflows/_build-image.yml" not in member_text
+    assert (
+        "ucm-internal-oci-${TASK_ID}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+        in member_text
+    )
+    assert (
+        "ucm-image-${TASK_ID}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+        in member_text
+    )
+    for field in (
+        "resolved_plan_sha256",
+        "source_sha",
+        "publication_task_sha256",
+        "family_id",
+        "platform",
+        "target_repository",
+        "target_tag",
+        "staging_repository",
+        "staging_tag",
+        "member_digest",
+        "config_digest",
+        "manifest",
+        "config",
+    ):
+        assert field in member_text
+
+
+def test_release_channels_are_draft_bound_and_fail_closed_at_readback_barrier() -> None:
+    workflow = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
+    jobs = _jobs(workflow)
+    draft = jobs["prepare-release-draft"]
+    assert set(draft["needs"]) == {
+        "plan",
+        "build-wheels",
+        "package-chart",
+        "build-images",
+    }
+    draft_text = "\n".join(_strings(draft))
+    assert "publish github-release" in draft_text
+    assert "--stage draft" in draft_text
+    assert "--output out/github-release-draft.json" in draft_text
+
+    channels = {
+        "pypi": ("publish-pypi", "pypi-readback"),
+        "ghcr": ("publish-ghcr", "ghcr-readback"),
+        "dockerhub": ("publish-dockerhub", "dockerhub-readback"),
+        "chart_oci": ("publish-chart-oci", "chart-oci-readback"),
+    }
+    for channel, (writer_name, reader_name) in channels.items():
+        writer = jobs[writer_name]
+        reader = jobs[reader_name]
+        assert f"fromJSON(needs.plan.outputs.publish).{channel}.enabled" in str(
+            writer["if"]
+        )
+        assert f"fromJSON(needs.plan.outputs.publish).{channel}.enabled" in str(
+            reader["if"]
+        )
+        assert "--stage publish" in "\n".join(_strings(writer)) or channel == "ghcr"
+        assert "--stage readback" in "\n".join(_strings(reader))
+    assert "needs.publish-ghcr.result == 'success'" in str(
+        jobs["publish-dockerhub"]["if"]
+    )
+
+    assets_text = "\n".join(_strings(jobs["publish-release-assets"]))
+    for fragment in (
+        'test "${#wheels[@]}" = 6',
+        'test "${#charts[@]}" = 1',
+        'test ! -e "${target}"',
+        "--stage assets",
+        "--artifacts-dir out/assets",
+        "--draft-state input/draft/github-release-draft.json",
+    ):
+        assert fragment in assets_text
+
+    chart_publish = "\n".join(_strings(jobs["publish-chart-oci"]))
+    chart_readback = "\n".join(_strings(jobs["chart-oci-readback"]))
+    assert "helm registry login ghcr.io" in chart_publish
+    assert "--stage publish" in chart_publish
+    assert "helm registry login" not in chart_readback
+    assert 'test ! -e "${HELM_REGISTRY_CONFIG}"' in chart_readback
+    assert "--stage readback" in chart_readback
+    assert "--readback-dir out/readback" in chart_readback
+
+    barrier = jobs["channel-readback-barrier"]
+    assert "always()" in str(barrier["if"])
+    assert set(barrier["needs"]) == {
+        "plan",
+        "prepare-release-draft",
+        "publish-pypi",
+        "pypi-readback",
+        "publish-ghcr",
+        "ghcr-readback",
+        "publish-dockerhub",
+        "dockerhub-readback",
+        "publish-chart-oci",
+        "chart-oci-readback",
+        "publish-release-assets",
+    }
+    barrier_step = _steps(barrier)[0]
+    command = str(barrier_step["run"])
+    publish = yaml.safe_load(
+        (REPO_ROOT / ".github" / "release" / "release.yaml").read_text(encoding="utf-8")
+    )["publish"]
+    valid = {
+        "PUBLISH": __import__("json").dumps(publish),
+        "PYPI_PUBLISH_RESULT": "skipped",
+        "PYPI_READBACK_RESULT": "skipped",
+        "GHCR_PUBLISH_RESULT": "success",
+        "GHCR_READBACK_RESULT": "success",
+        "DOCKERHUB_PUBLISH_RESULT": "skipped",
+        "DOCKERHUB_READBACK_RESULT": "skipped",
+        "CHART_OCI_PUBLISH_RESULT": "success",
+        "CHART_OCI_READBACK_RESULT": "success",
+        "GITHUB_RELEASE_DRAFT_RESULT": "success",
+        "GITHUB_RELEASE_ASSETS_RESULT": "success",
+    }
+    assert (
+        subprocess.run(
+            ["bash", "-c", command], env={**os.environ, **valid}, check=False
+        ).returncode
+        == 0
+    )
+    for name in (
+        "PYPI_PUBLISH_RESULT",
+        "GHCR_READBACK_RESULT",
+        "DOCKERHUB_READBACK_RESULT",
+        "CHART_OCI_PUBLISH_RESULT",
+        "GITHUB_RELEASE_ASSETS_RESULT",
+    ):
+        assert (
+            subprocess.run(
+                ["bash", "-c", command],
+                env={**os.environ, **valid, name: "failed"},
+                check=False,
+            ).returncode
+            != 0
+        )
+
+
+def test_active_main_release_workflows_have_no_superseded_policy_or_fake_readback() -> (
+    None
+):
+    names = {
+        "release-ucm.yml",
+        "release-vllm-images.yml",
+        "release-vllm-images-protected.yml",
+        "_publish-image-member.yml",
+        "_build-chart.yml",
+    }
+    source = "\n".join(
+        (WORKFLOW_DIR / name).read_text(encoding="utf-8") for name in names
+    )
+    for forbidden in (
+        "anonymous-passed",
+        "UCM_PUBLISH_",
+        "publish_channels",
+        "dry_run",
+        "UCM_RELEASE_POLICY",
+    ):
+        assert forbidden not in source
+
+
+def test_reusable_chart_and_image_builds_are_read_only_and_tag_retained() -> None:
+    chart = _load_workflow(WORKFLOW_DIR / "_build-chart.yml")
+    chart_job = _jobs(chart)["package-chart"]
+    assert chart_job["permissions"] == {"contents": "read"}
+    chart_upload = next(
+        step
+        for step in _steps(chart_job)
+        if str(step.get("uses", "")).startswith("actions/upload-artifact@")
+    )
+    assert chart_upload["with"]["retention-days"] == (
+        "${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}"
+    )
+
+    images = _load_workflow(WORKFLOW_DIR / "release-vllm-images.yml")
+    image_jobs = _jobs(images)
+    assert list(image_jobs) == ["build-images", "aggregate-images"]
+    assert image_jobs["build-images"]["permissions"] == {"contents": "read"}
+    assert image_jobs["build-images"]["uses"] == (
+        "./.github/workflows/_build-image.yml"
+    )
+    source = "\n".join(_strings(images)).lower()
+    for forbidden in (
+        "packages: write",
+        "docker login",
+        "crane push",
+        "helm push",
+        "publish ghcr",
+    ):
+        assert forbidden not in source
+
+    build_image = _load_workflow(WORKFLOW_DIR / "_build-image.yml")
+    bridge = _named_step(
+        _jobs(build_image)["build"], "Upload protected internal OCI bridge"
+    )
+    assert "github.ref_type == 'tag'" in str(bridge["if"])
+    assert bridge["with"]["compression-level"] == 0
+    assert bridge["with"]["retention-days"] == 90
 
 
 def test_terminal_jobs_run_for_their_event_without_result_dependent_if() -> None:
@@ -584,22 +871,23 @@ def test_terminal_jobs_run_for_their_event_without_result_dependent_if() -> None
             "plan",
             "build-wheels",
             "package-chart",
-            "reconcile-images-feature",
+            "build-images",
         },
         "daily-loop-success": {
             "plan",
             "build-wheels",
             "package-chart",
-            "reconcile-images-feature",
+            "build-images",
         },
         "release-loop-success": {
             "plan",
             "build-wheels",
             "package-chart",
-            "reconcile-images-protected",
+            "build-images",
             "prepare-release-draft",
-            "anonymous-registry-readback",
-            "publish-release",
+            "channel-readback-barrier",
+            "finalize-github-prerelease",
+            "github-release-public-readback",
         },
     }
     applicability = {

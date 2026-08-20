@@ -23,7 +23,7 @@ PRODUCTION_WORKFLOWS = (
 
 _REVIEWED_SHA256 = {
     "production-tag-candidate.yml": (
-        "9c409c13b9417eed3cb8f231a2105c0d3816e4995239f2b109f9df1241824559"
+        "e8587a4a18fc3e71cc5afd87c537207f8690c696dacce4bcac8711d26b1a634d"
     ),
     "_production-build-wheel.yml": (
         "6096ba555e807327edcdfe1e49761b8a30813a0e88d2e3a98eed7766848a3552"

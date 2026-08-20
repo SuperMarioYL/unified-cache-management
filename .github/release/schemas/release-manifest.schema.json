@@ -249,11 +249,12 @@
     "registryMemberRecord": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema_version", "kind", "status", "spec_id", "profile_id", "family_id", "platform", "target_repository", "target_tag", "staging_repository", "staging_visibility", "staging_tag", "candidate_task_sha256", "publication_task_sha256", "build_key_sha256", "wheel_sha256", "member_digest", "member_size", "config_digest", "annotations", "source_sha", "image_result_sha256", "recipe_sha256", "content_identity_sha256", "content_identity", "manifest", "config", "layers", "readback_sha256", "operations", "record_sha256"],
+      "required": ["schema_version", "kind", "status", "resolved_plan_sha256", "spec_id", "profile_id", "family_id", "platform", "target_repository", "target_tag", "staging_repository", "staging_visibility", "staging_tag", "candidate_task_sha256", "publication_task_sha256", "build_key_sha256", "wheel_sha256", "member_digest", "member_size", "config_digest", "annotations", "source_sha", "image_result_sha256", "recipe_sha256", "content_identity_sha256", "content_identity", "manifest", "config", "layers", "readback_sha256", "operations", "record_sha256"],
       "properties": {
         "schema_version": {"type": "integer", "const": 1},
         "kind": {"const": "ucm-registry-member-publication"},
         "status": {"const": "passed"},
+        "resolved_plan_sha256": {"$ref": "#/$defs/digest"},
         "spec_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
         "profile_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
         "family_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},

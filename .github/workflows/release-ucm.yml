@@ -1,36 +1,21 @@
-name: Build planner-selected UCM candidates and publish protected tags
+name: Build UCM candidates and publish protected tags
 
 on:
   push:
     tags: ["v*"]
   schedule:
-    - cron: "0 6 * * *"  # Daily at 06:00 UTC
+    - cron: "0 6 * * *"
   workflow_dispatch:
-    inputs:
-      deliver_full_oci:
-        description: Upload complete feature OCI archives for this attempt
-        type: boolean
-        required: false
-        default: false
-      publish_channels:
-        description: "Comma-separated subset; empty = use repo variable defaults. Options: pypi,ghcr,dockerhub,chart_oci,github_release"
-        type: string
-        required: false
-        default: ""
-      dry_run:
-        description: "Compute the publish plan only; do not publish"
-        type: boolean
-        required: false
-        default: true
   workflow_call:
     inputs:
       deliver_full_oci:
+        description: Upload complete PR OCI archives for this attempt
         type: boolean
         required: false
         default: false
 
 concurrency:
-  group: ucm-tag-${{ github.repository_id }}-${{ github.ref_name }}
+  group: ucm-release-${{ github.repository_id }}-${{ github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -42,6 +27,7 @@ jobs:
       contents: read
       packages: write
     uses: ./.github/workflows/sync-builders.yml
+
   plan:
     needs: sync-builders
     if: ${{ !cancelled() && needs.sync-builders.result == 'success' }}
@@ -60,12 +46,9 @@ jobs:
       resolved_plan_sha256: ${{ steps.plan.outputs.resolved_plan_sha256 }}
       wheel_matrix: ${{ steps.plan.outputs.wheel_matrix }}
       image_matrix: ${{ steps.plan.outputs.image_matrix }}
-      family_matrix: ${{ steps.plan.outputs.family_matrix }}
-      smoke_wheel_matrix: ${{ steps.plan.outputs.smoke_wheel_matrix }}
-      smoke_image_matrix: ${{ steps.plan.outputs.smoke_image_matrix }}
       build_wheel_matrix: ${{ steps.plan.outputs.build_wheel_matrix }}
       build_image_matrix: ${{ steps.plan.outputs.build_image_matrix }}
-      publish: ${{ steps.publish-plan.outputs.publish }}
+      publish: ${{ steps.plan.outputs.publish }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -96,7 +79,7 @@ jobs:
           tar -xzf "${RUNNER_TEMP}/crane.tar.gz" -C "${RUNNER_TEMP}/crane" crane
           test "$("${RUNNER_TEMP}/crane/crane" version)" = "${CRANE_VERSION#v}"
           echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
-      - name: Authenticate to ghcr for builder digest reads
+      - name: Authenticate to GHCR for builder digest reads
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_ACTOR: ${{ github.actor }}
@@ -111,7 +94,7 @@ jobs:
           REF: ${{ github.ref }}
           REF_TYPE: ${{ github.ref_type }}
           REF_PROTECTED: ${{ github.ref_protected }}
-          MANUAL_DELIVERY: ${{ inputs.deliver_full_oci }}
+          PR_DELIVERY: ${{ inputs.deliver_full_oci }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
@@ -123,17 +106,18 @@ jobs:
           if [[ "${EVENT_NAME}" == pull_request ]]; then
             route="pr"
             feature="true"
+            delivery="${PR_DELIVERY}"
+            [[ "${delivery}" == true || "${delivery}" == false ]]
             PYTHONPATH=.github/release python -m ucm_release core tag-preflight \
               --lane feature-candidate --catalog-planner >feature-preflight.json
           elif [[ ( "${EVENT_NAME}" == schedule || "${EVENT_NAME}" == workflow_dispatch ) && \
                   "${REF}" == refs/heads/develop ]]; then
             route="daily"
             feature="true"
-            if [[ "${EVENT_NAME}" == workflow_dispatch && "${MANUAL_DELIVERY}" == true ]]; then
-              delivery="true"
-            fi
-            PYTHONPATH=.github/release python -m ucm_release core tag-preflight --lane feature-candidate --catalog-planner >feature-preflight.json
-          elif [[ "${EVENT_NAME}" == push && "${REF_TYPE}" == tag && "${REF}" == refs/tags/v* ]]; then
+            PYTHONPATH=.github/release python -m ucm_release core tag-preflight \
+              --lane feature-candidate --catalog-planner >feature-preflight.json
+          elif [[ "${EVENT_NAME}" == push && "${REF_TYPE}" == tag && \
+                  "${REF_PROTECTED}" == true && "${REF}" == refs/tags/v* ]]; then
             route="release"
             protected="true"
             lane="protected-tag"
@@ -142,7 +126,7 @@ jobs:
             PYTHONPATH=.github/release python -m ucm_release core tag-preflight \
               --lane protected-tag --catalog-planner >protected-preflight.json
           else
-            echo "release invocation is outside PR, develop daily, or v* release authority" >&2
+            echo "release invocation is outside PR, develop daily, or protected v* authority" >&2
             exit 2
           fi
           mkdir -p out/plan
@@ -155,11 +139,9 @@ jobs:
           resolved_plan_artifact="${logical_artifact}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           wheel_matrix="$(jq -c '.github_wheel_matrix' out/plan/resolved-plan.json)"
           image_matrix="$(jq -c '.github_image_matrix' out/plan/resolved-plan.json)"
-          family_matrix="$(jq -c '.github_family_matrix' out/plan/resolved-plan.json)"
-          smoke_wheel_matrix="$(jq -c '.pr_smoke.github_wheel_matrix' out/plan/resolved-plan.json)"
-          smoke_image_matrix="$(jq -c '.pr_smoke.github_image_matrix' out/plan/resolved-plan.json)"
           build_wheel_matrix="${wheel_matrix}"
           build_image_matrix="${image_matrix}"
+          publish=$(jq -c '.publish' out/plan/resolved-plan.json)
           {
             echo "source_sha=${GITHUB_SHA}"
             echo "route=${route}"
@@ -170,11 +152,9 @@ jobs:
             echo "resolved_plan_sha256=${resolved_plan_sha256}"
             echo "wheel_matrix=${wheel_matrix}"
             echo "image_matrix=${image_matrix}"
-            echo "family_matrix=${family_matrix}"
-            echo "smoke_wheel_matrix=${smoke_wheel_matrix}"
-            echo "smoke_image_matrix=${smoke_image_matrix}"
             echo "build_wheel_matrix=${build_wheel_matrix}"
             echo "build_image_matrix=${build_image_matrix}"
+            echo "publish=${publish}"
           } >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -183,35 +163,6 @@ jobs:
           if-no-files-found: error
           overwrite: false
           retention-days: ${{ steps.plan.outputs.protected == 'true' && 90 || 7 }}
-      - id: publish-plan
-        env:
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          ALLOW: >-
-            {"pypi":"${{ vars.UCM_PUBLISH_PYPI }}",
-             "ghcr":"${{ vars.UCM_PUBLISH_GHCR }}",
-             "dockerhub":"${{ vars.UCM_PUBLISH_DOCKERHUB }}",
-             "chart_oci":"${{ vars.UCM_PUBLISH_CHART_OCI }}",
-             "github_release":"${{ vars.UCM_PUBLISH_GITHUB_RELEASE }}"}
-        run: |
-          set -euo pipefail
-          if [[ "${{ steps.plan.outputs.route }}" == "release" ]]; then
-            lane=protected-tag
-          else
-            lane=feature-candidate
-          fi
-          if [[ "${{ steps.plan.outputs.route }}" != "release" ]]; then
-            dry_run_val=true
-          else
-            dry_run_val=false
-          fi
-          PYTHONPATH=.github/release python -m ucm_release publish plan \
-            --lane "${lane}" \
-            --repository "${GITHUB_REPOSITORY}" \
-            --allow "${ALLOW}" \
-            --request "${{ inputs.publish_channels }}" \
-            --dry-run "${dry_run_val}" \
-            --output out/plan/publish-plan.json
-          echo "publish=$(cat out/plan/publish-plan.json)" >>"${GITHUB_OUTPUT}"
 
   build-wheels:
     needs: plan
@@ -233,12 +184,474 @@ jobs:
   package-chart:
     needs: plan
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_build-chart.yml
+    with:
+      source_sha: ${{ needs.plan.outputs.source_sha }}
+      resolved_plan_artifact: ${{ needs.plan.outputs.resolved_plan_artifact }}
+      resolved_plan_sha256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
+
+  build-images:
+    needs: [plan, build-wheels, package-chart]
+    if: >-
+      ${{
+        !cancelled() && needs.plan.result == 'success' &&
+        needs.build-wheels.result == 'success' &&
+        needs.package-chart.result == 'success'
+      }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-vllm-images.yml
+    with:
+      source_sha: ${{ needs.plan.outputs.source_sha }}
+      wheel_matrix: ${{ needs.plan.outputs.build_wheel_matrix }}
+      image_matrix: ${{ needs.plan.outputs.build_image_matrix }}
+      resolved_plan_artifact: ${{ needs.plan.outputs.resolved_plan_artifact }}
+      resolved_plan_sha256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
+      deliver_full_oci: ${{ needs.plan.outputs.deliver_full_oci == 'true' }}
+
+  prepare-release-draft:
+    needs: [plan, build-wheels, package-chart, build-images]
+    if: >-
+      ${{
+        !cancelled() && github.event_name == 'push' &&
+        github.ref_type == 'tag' && github.ref_protected == true &&
+        needs.plan.outputs.route == 'release' &&
+        fromJSON(needs.plan.outputs.publish).github_release.enabled &&
+        needs.build-wheels.result == 'success' &&
+        needs.package-chart.result == 'success' &&
+        needs.build-images.result == 'success'
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    environment: release-production
+    outputs:
+      draft_artifact: ${{ steps.draft.outputs.draft_artifact }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ needs.plan.outputs.resolved_plan_artifact }}
+          path: input/plan
+      - id: draft
+        name: Create or reopen the plan-bound GitHub Release Draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          PYTHONPATH=.github/release python -m ucm_release publish github-release \
+            --plan input/plan/resolved-plan.json \
+            --stage draft \
+            --output out/github-release-draft.json
+          artifact="ucm-publication-github-draft-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          echo "draft_artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.draft.outputs.draft_artifact }}
+          path: out/github-release-draft.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+
+  publish-ghcr:
+    needs: [plan, build-images, prepare-release-draft]
+    if: >-
+      ${{
+        !cancelled() && github.event_name == 'push' &&
+        github.ref_type == 'tag' && github.ref_protected == true &&
+        needs.plan.outputs.route == 'release' &&
+        fromJSON(needs.plan.outputs.publish).ghcr.enabled &&
+        needs.build-images.result == 'success' &&
+        needs.prepare-release-draft.result == 'success'
+      }}
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/release-vllm-images-protected.yml
+    with:
+      source_sha: ${{ needs.plan.outputs.source_sha }}
+      image_matrix: ${{ needs.plan.outputs.build_image_matrix }}
+      resolved_plan_artifact: ${{ needs.plan.outputs.resolved_plan_artifact }}
+      resolved_plan_sha256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
+      draft_artifact: ${{ needs.prepare-release-draft.outputs.draft_artifact }}
+
+  ghcr-readback:
+    needs: [plan, publish-ghcr]
+    if: >-
+      ${{
+        !cancelled() && github.event_name == 'push' &&
+        github.ref_type == 'tag' && github.ref_protected == true &&
+        fromJSON(needs.plan.outputs.publish).ghcr.enabled &&
+        needs.publish-ghcr.result == 'success'
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - name: Install checksum-pinned anonymous crane
+        env:
+          CRANE_VERSION: v0.20.3
+          CRANE_LINUX_AMD64_SHA256: 36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/crane.tar.gz" \
+            "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
+          echo "${CRANE_LINUX_AMD64_SHA256}  ${RUNNER_TEMP}/crane.tar.gz" | sha256sum --check
+          tar -xzf "${RUNNER_TEMP}/crane.tar.gz" -C "${RUNNER_TEMP}/crane" crane
+          test "$("${RUNNER_TEMP}/crane/crane" version)" = "${CRANE_VERSION#v}"
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ needs.plan.outputs.resolved_plan_artifact }}
+          path: input/plan
+      - id: readback
+        name: Read GHCR without credentials
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/ucm-ghcr-anonymous
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${DOCKER_CONFIG}" out
+          test -z "$(find "${DOCKER_CONFIG}" -mindepth 1 -print -quit)"
+          PYTHONPATH=.github/release python -m ucm_release publish ghcr \
+            --plan input/plan/resolved-plan.json \
+            --stage readback \
+            --output out/ghcr-readback.json
+          artifact="ucm-publication-ghcr-readback-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          echo "artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.readback.outputs.artifact }}
+          path: out/ghcr-readback.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+
+  publish-pypi:
+    needs: [plan, build-wheels, prepare-release-draft]
+    if: >-
+      ${{
+        !cancelled() && github.event_name == 'push' &&
+        github.ref_type == 'tag' && github.ref_protected == true &&
+        fromJSON(needs.plan.outputs.publish).pypi.enabled &&
+        needs.build-wheels.result == 'success' &&
+        needs.prepare-release-draft.result == 'success'
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    environment: release-production
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2 twine==6.1.0
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          pattern: ucm-wheel-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: input/wheels
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ needs.plan.outputs.resolved_plan_artifact }}
+          path: input/plan
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ needs.prepare-release-draft.outputs.draft_artifact }}
+          path: input/draft
+      - id: publish
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p out/wheels out/result
+          mapfile -t wheels < <(find input/wheels -type f -name '*.whl' -print | sort)
+          test "${#wheels[@]}" = 6
+          for wheel in "${wheels[@]}"; do
+            target="out/wheels/$(basename "${wheel}")"
+            test ! -e "${target}"
+            cp "${wheel}" "${target}"
+          done
+          test "$(find out/wheels -maxdepth 1 -type f -name '*.whl' | wc -l | tr -d ' ')" = 6
+          PYTHONPATH=.github/release python -m ucm_release publish pypi \
+            --plan input/plan/resolved-plan.json \
+            --stage publish \
+            --wheels-dir out/wheels \
+            --draft-state input/draft/github-release-draft.json \
+            --output out/result/pypi-publish.json
+          artifact="ucm-publication-pypi-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          echo "artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.publish.outputs.artifact }}
+          path: out/result/pypi-publish.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+
+  pypi-readback:
+    needs: [plan, build-wheels, publish-pypi]
+    if: >-
+      ${{
+        !cancelled() && github.event_name == 'push' &&
+        github.ref_type == 'tag' && github.ref_protected == true &&
+        fromJSON(needs.plan.outputs.publish).pypi.enabled &&
+        needs.publish-pypi.result == 'success'
+      }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
-    outputs:
-      chart_artifact: ${{ steps.record.outputs.chart_artifact }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          pattern: ucm-wheel-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: input/wheels
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ needs.plan.outputs.resolved_plan_artifact }}
+          path: input/plan
+      - id: readback
+        env:
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p out/wheels out/result
+          mapfile -t wheels < <(find input/wheels -type f -name '*.whl' -print | sort)
+          test "${#wheels[@]}" = 6
+          for wheel in "${wheels[@]}"; do
+            target="out/wheels/$(basename "${wheel}")"
+            test ! -e "${target}"
+            cp "${wheel}" "${target}"
+          done
+          PYTHONPATH=.github/release python -m ucm_release publish pypi \
+            --plan input/plan/resolved-plan.json \
+            --stage readback \
+            --wheels-dir out/wheels \
+            --output out/result/pypi-readback.json
+          artifact="ucm-publication-pypi-readback-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          echo "artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.readback.outputs.artifact }}
+          path: out/result/pypi-readback.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+
+  publish-dockerhub:
+    needs: [plan, publish-ghcr, prepare-release-draft]
+    if: >-
+      ${{
+        !cancelled() && github.event_name == 'push' &&
+        github.ref_type == 'tag' && github.ref_protected == true &&
+        fromJSON(needs.plan.outputs.publish).dockerhub.enabled &&
+        needs.publish-ghcr.result == 'success' &&
+        needs.prepare-release-draft.result == 'success'
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    environment: release-production
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - name: Install checksum-pinned crane
+        env:
+          CRANE_VERSION: v0.20.3
+          CRANE_LINUX_AMD64_SHA256: 36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/crane.tar.gz" \
+            "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
+          echo "${CRANE_LINUX_AMD64_SHA256}  ${RUNNER_TEMP}/crane.tar.gz" | sha256sum --check
+          tar -xzf "${RUNNER_TEMP}/crane.tar.gz" -C "${RUNNER_TEMP}/crane" crane
+          test "$("${RUNNER_TEMP}/crane/crane" version)" = "${CRANE_VERSION#v}"
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ needs.plan.outputs.resolved_plan_artifact }}
+          path: input/plan
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ needs.prepare-release-draft.outputs.draft_artifact }}
+          path: input/draft
+      - name: Authenticate Docker Hub
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/ucm-dockerhub-publish
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${DOCKER_CONFIG}"
+          printf '%s' "${DOCKERHUB_TOKEN}" | crane auth login docker.io \
+            --username "${DOCKERHUB_USERNAME}" --password-stdin
+      - id: publish
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/ucm-dockerhub-publish
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          PYTHONPATH=.github/release python -m ucm_release publish dockerhub \
+            --plan input/plan/resolved-plan.json \
+            --stage publish \
+            --draft-state input/draft/github-release-draft.json \
+            --output out/dockerhub-publish.json
+          artifact="ucm-publication-dockerhub-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          echo "artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+      - name: Remove Docker Hub credentials
+        if: ${{ always() }}
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/ucm-dockerhub-publish
+        run: rm -rf "${DOCKER_CONFIG}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.publish.outputs.artifact }}
+          path: out/dockerhub-publish.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+
+  dockerhub-readback:
+    needs: [plan, publish-dockerhub]
+    if: >-
+      ${{
+        !cancelled() && github.event_name == 'push' &&
+        github.ref_type == 'tag' && github.ref_protected == true &&
+        fromJSON(needs.plan.outputs.publish).dockerhub.enabled &&
+        needs.publish-dockerhub.result == 'success'
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - name: Install checksum-pinned anonymous crane
+        env:
+          CRANE_VERSION: v0.20.3
+          CRANE_LINUX_AMD64_SHA256: 36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/crane.tar.gz" \
+            "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
+          echo "${CRANE_LINUX_AMD64_SHA256}  ${RUNNER_TEMP}/crane.tar.gz" | sha256sum --check
+          tar -xzf "${RUNNER_TEMP}/crane.tar.gz" -C "${RUNNER_TEMP}/crane" crane
+          test "$("${RUNNER_TEMP}/crane/crane" version)" = "${CRANE_VERSION#v}"
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ needs.plan.outputs.resolved_plan_artifact }}
+          path: input/plan
+      - id: readback
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/ucm-dockerhub-anonymous
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${DOCKER_CONFIG}" out
+          test -z "$(find "${DOCKER_CONFIG}" -mindepth 1 -print -quit)"
+          PYTHONPATH=.github/release python -m ucm_release publish dockerhub \
+            --plan input/plan/resolved-plan.json \
+            --stage readback \
+            --output out/dockerhub-readback.json
+          artifact="ucm-publication-dockerhub-readback-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          echo "artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.readback.outputs.artifact }}
+          path: out/dockerhub-readback.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+
+  publish-chart-oci:
+    needs: [plan, package-chart, prepare-release-draft]
+    if: >-
+      ${{
+        !cancelled() && github.event_name == 'push' &&
+        github.ref_type == 'tag' && github.ref_protected == true &&
+        fromJSON(needs.plan.outputs.publish).chart_oci.enabled &&
+        needs.package-chart.result == 'success' &&
+        needs.prepare-release-draft.result == 'success'
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    environment: release-production
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -256,10 +669,9 @@ jobs:
           HELM_VERSION: v3.15.3
           HELM_SHA256: ad871aecb0c9fd96aa6702f6b79e87556c8998c2e714a4959bf71ee31282ac9c
         run: |
-          # shellcheck disable=SC2153,SC1083,SC2012,SC2100,SC2209
           set -euo pipefail
-          test "$(uname -m)" = x86_64
-          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/helm.tgz" "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/helm.tgz" \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
           echo "${HELM_SHA256}  ${RUNNER_TEMP}/helm.tgz" | sha256sum --check
           tar -xzf "${RUNNER_TEMP}/helm.tgz" -C "${RUNNER_TEMP}"
           install -m 0755 "${RUNNER_TEMP}/linux-amd64/helm" "${RUNNER_TEMP}/helm"
@@ -267,209 +679,68 @@ jobs:
           echo "${RUNNER_TEMP}" >>"${GITHUB_PATH}"
       - uses: ./.github/actions/download-artifact-retry
         with:
-          name: ${{ needs.plan.outputs.resolved_plan_artifact }}
-          path: input/plan
-      - id: record
-        env:
-          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
-          RESOLVED_PLAN_SHA256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
-        run: |
-          # shellcheck disable=SC2153,SC1083,SC2012,SC2100,SC2209
-          set -euo pipefail
-          mkdir -p out/chart out/artifact
-          plan=input/plan/resolved-plan.json
-          chart_source="$(jq -r '.chart.source' "$plan")"
-          chart_version="$(jq -r '.chart.version' "$plan")"
-          chart_app_version="$(jq -r '.chart.app_version' "$plan")"
-          # Provenance assertion: the chart source tree is frozen with a recorded digest.
-          test -f "${chart_source}/SOURCE_PROVENANCE.json"
-          release_tree="$(jq -r '.release_tree_sha256' "${chart_source}/SOURCE_PROVENANCE.json")"
-          test -n "$release_tree"
-          # helm lint
-          helm lint "${chart_source}"
-          # helm template (validation cases): bind each case to its family runtime image
-          case_count="$(jq '.chart.validation_cases | length' "$plan")"
-          i=0
-          while [ "$i" -lt "$case_count" ]; do
-            case_name="$(jq -r ".chart.validation_cases[${i}].name" "$plan")"
-            values="$(jq -r ".chart.validation_cases[${i}].values" "$plan")"
-            product_id="$(jq -r ".chart.validation_cases[${i}].product_id" "$plan")"
-            variant="$(jq -r ".chart.validation_cases[${i}].variant" "$plan")"
-            expected_resource="$(jq -r ".chart.validation_cases[${i}].expected_resource" "$plan")"
-            repo="$(jq -r --arg pid "$product_id" --arg v "$variant" \
-              '.family_tasks[] | select(.product_id == $pid and .runtime.variant == $v) | .runtime.repository' "$plan")"
-            digest="$(jq -r --arg pid "$product_id" --arg v "$variant" \
-              '.family_tasks[] | select(.product_id == $pid and .runtime.variant == $v) | .runtime.index_digest' "$plan")"
-            test -n "$repo"
-            test -n "$digest"
-            image="${repo}@${digest}"
-            helm template "ucm-${case_name}" "${chart_source}" \
-              --values "${values}" \
-              --set-string "images.engine.repository=${repo}" \
-              --set-string "images.engine.digest=${digest}" \
-              >"out/chart/${case_name}.yaml"
-            grep -q 'kind: ModelServing' "out/chart/${case_name}.yaml"
-            grep -Fq "$image" "out/chart/${case_name}.yaml"
-            grep -Fq "$expected_resource" "out/chart/${case_name}.yaml"
-            i=$((i + 1))
-          done
-          # helm package
-          helm package "${chart_source}" --version "${chart_version}" \
-            --app-version "${chart_app_version}" --destination out/chart
-          package="$(find out/chart -maxdepth 1 -type f -name '*.tgz' -print)"
-          test -n "$package"
-          chart_sha="sha256:$(sha256sum "$package" | cut -d' ' -f1)"
-          filename="$(basename "$package")"
-          jq -nc --arg f "$filename" --arg s "$chart_sha" --arg r "$release_tree" \
-            '{filename:$f,sha256:$s,release_tree_sha256:$r,status:"candidate-verified"}' \
-            >out/artifact/chart-result.json
-          cp "$package" out/artifact/
-          logical="ucm-chart-${SOURCE_SHA}"
-          physical="${logical}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
-          echo "chart_artifact=${physical}" >>"${GITHUB_OUTPUT}"
-      - if: ${{ needs.plan.outputs.feature == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: ${{ steps.record.outputs.chart_artifact }}
-          path: out/artifact/
-          if-no-files-found: error
-          overwrite: false
-          retention-days: 7
-      - if: ${{ needs.plan.outputs.protected == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: ${{ steps.record.outputs.chart_artifact }}
-          path: out/artifact/
-          if-no-files-found: error
-          overwrite: false
-          retention-days: 90
-
-  reconcile-images-feature:
-    needs: [plan, build-wheels, package-chart]
-    if: >-
-      ${{
-        !cancelled() && needs.plan.outputs.route != 'release' &&
-        needs.build-wheels.result == 'success' &&
-        needs.package-chart.result == 'success'
-      }}
-    permissions:
-      contents: read
-    uses: ./.github/workflows/release-vllm-images.yml
-    with:
-      source_sha: ${{ needs.plan.outputs.source_sha }}
-      wheel_matrix: ${{ needs.plan.outputs.build_wheel_matrix }}
-      image_matrix: ${{ needs.plan.outputs.build_image_matrix }}
-      resolved_plan_artifact: ${{ needs.plan.outputs.resolved_plan_artifact }}
-      resolved_plan_sha256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
-      deliver_full_oci: ${{ needs.plan.outputs.deliver_full_oci == 'true' }}
-
-  reconcile-images-protected:
-    needs: [plan, build-wheels, package-chart]
-    if: >-
-      ${{
-        !cancelled() && needs.plan.outputs.protected == 'true' &&
-        github.event_name == 'push' &&
-        
-        needs.build-wheels.result == 'success' &&
-        needs.package-chart.result == 'success'
-      }}
-    permissions:
-      contents: read
-      packages: write
-    uses: ./.github/workflows/release-vllm-images-protected.yml
-    with:
-      source_sha: ${{ needs.plan.outputs.source_sha }}
-      image_matrix: ${{ needs.plan.outputs.image_matrix }}
-      family_matrix: ${{ needs.plan.outputs.family_matrix }}
-      resolved_plan_artifact: ${{ needs.plan.outputs.resolved_plan_artifact }}
-      resolved_plan_sha256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
-
-  prepare-release-draft:
-    needs: [plan, build-wheels, package-chart, reconcile-images-protected]
-    if: >-
-      ${{
-        !cancelled() && needs.plan.outputs.protected == 'true' &&
-        github.event_name == 'push' &&
-        
-        needs.build-wheels.result == 'success' &&
-        needs.package-chart.result == 'success' &&
-        needs.reconcile-images-protected.result == 'success'
-      }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      contents: write
-    environment: release-production
-    outputs:
-      draft_artifact: ${{ steps.draft.outputs.artifact }}
-      release_id: ${{ steps.draft.outputs.release_id }}
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: ${{ needs.plan.outputs.source_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-        with:
-          python-version: "3.12"
-      - run: >-
-          python -m pip install --disable-pip-version-check --no-cache-dir
-          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+          name: ${{ needs.package-chart.outputs.chart_artifact }}
+          path: input/chart
       - uses: ./.github/actions/download-artifact-retry
         with:
           name: ${{ needs.plan.outputs.resolved_plan_artifact }}
           path: input/plan
-      - id: draft
-        name: Fresh preflight and create empty draft or reopen exact state
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ needs.prepare-release-draft.outputs.draft_artifact }}
+          path: input/draft
+      - name: Authenticate Helm to GHCR
         env:
-          GH_TOKEN: ${{ github.token }}
-          UCM_RELEASE_POLICY: ${{ vars.UCM_RELEASE_POLICY }}
-          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
-          RESOLVED_PLAN_SHA256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
-          GITHUB_ACTOR: ${{ github.actor }}
-          GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          HELM_REGISTRY_CONFIG: ${{ runner.temp }}/ucm-chart-publish/config.json
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          # shellcheck disable=SC2153,SC1083,SC2012,SC2100,SC2209
           set -euo pipefail
-          release_repository="$(jq -r '.source.repository' input/plan/resolved-plan.json)"
-          test "${release_repository}" = "${GITHUB_REPOSITORY}"
-          mkdir -p out/draft
-          git fetch --force origin "+${GITHUB_REF}:${GITHUB_REF}"
-          PYTHONPATH=.github/release python -m ucm_release publish github-release \
+          mkdir -p "$(dirname "${HELM_REGISTRY_CONFIG}")"
+          printf '%s' "${GITHUB_TOKEN}" | helm registry login ghcr.io \
+            --username "${GITHUB_ACTOR}" --password-stdin
+      - id: publish
+        env:
+          HELM_REGISTRY_CONFIG: ${{ runner.temp }}/ucm-chart-publish/config.json
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          mapfile -t packages < <(find input/chart -maxdepth 1 -type f -name '*.tgz' -print)
+          test "${#packages[@]}" = 1
+          mkdir -p out
+          PYTHONPATH=.github/release python -m ucm_release publish chart-oci \
             --plan input/plan/resolved-plan.json \
-            --repository "${GITHUB_REPOSITORY}" \
-            --stage draft \
-            --source-sha "${SOURCE_SHA}" \
-            --output-dir out/draft
-          release_id="$(jq -r '.release_id' out/draft/release-state.json)"
-          logical="ucm-release-draft-${SOURCE_SHA}"
-          physical="${logical}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
-          echo "artifact=${physical}" >>"${GITHUB_OUTPUT}"
-          echo "release_id=${release_id}" >>"${GITHUB_OUTPUT}"
+            --stage publish \
+            --package "${packages[0]}" \
+            --draft-state input/draft/github-release-draft.json \
+            --output out/chart-oci-publish.json
+          artifact="ucm-publication-chart-oci-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          echo "artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+      - name: Remove Helm credentials
+        if: ${{ always() }}
+        env:
+          HELM_REGISTRY_CONFIG: ${{ runner.temp }}/ucm-chart-publish/config.json
+        run: rm -rf "$(dirname "${HELM_REGISTRY_CONFIG}")"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ steps.draft.outputs.artifact }}
-          path: out/draft/
+          name: ${{ steps.publish.outputs.artifact }}
+          path: out/chart-oci-publish.json
           if-no-files-found: error
           overwrite: false
           retention-days: 90
 
-  anonymous-registry-readback:
-    needs: [plan, reconcile-images-protected, prepare-release-draft]
+  chart-oci-readback:
+    needs: [plan, package-chart, publish-chart-oci]
     if: >-
       ${{
-        !cancelled() && needs.reconcile-images-protected.result == 'success' &&
-        needs.prepare-release-draft.result == 'success'
+        !cancelled() && github.event_name == 'push' &&
+        github.ref_type == 'tag' && github.ref_protected == true &&
+        fromJSON(needs.plan.outputs.publish).chart_oci.enabled &&
+        needs.publish-chart-oci.result == 'success'
       }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
-    outputs:
-      protected_artifact: ${{ steps.finalize.outputs.artifact }}
-    env:
-      CRANE_VERSION: v0.20.3
-      CRANE_LINUX_AMD64_SHA256: 36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -482,104 +753,80 @@ jobs:
       - run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
-      - name: Install checksum-pinned anonymous crane
+      - name: Install checksum-pinned Helm
+        env:
+          HELM_VERSION: v3.15.3
+          HELM_SHA256: ad871aecb0c9fd96aa6702f6b79e87556c8998c2e714a4959bf71ee31282ac9c
         run: |
-          # shellcheck disable=SC2153,SC1083,SC2012,SC2100,SC2209
           set -euo pipefail
-          mkdir -p "${RUNNER_TEMP}/crane"
-          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/crane.tar.gz" "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
-          echo "${CRANE_LINUX_AMD64_SHA256}  ${RUNNER_TEMP}/crane.tar.gz" | sha256sum --check
-          tar -xzf "${RUNNER_TEMP}/crane.tar.gz" -C "${RUNNER_TEMP}/crane" crane
-          test "$("${RUNNER_TEMP}/crane/crane" version)" = "${CRANE_VERSION#v}"
-          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/helm.tgz" \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  ${RUNNER_TEMP}/helm.tgz" | sha256sum --check
+          tar -xzf "${RUNNER_TEMP}/helm.tgz" -C "${RUNNER_TEMP}"
+          install -m 0755 "${RUNNER_TEMP}/linux-amd64/helm" "${RUNNER_TEMP}/helm"
+          test "$("${RUNNER_TEMP}/helm" version --short)" = "v3.15.3+g3bb50bb"
+          echo "${RUNNER_TEMP}" >>"${GITHUB_PATH}"
       - uses: ./.github/actions/download-artifact-retry
         with:
-          name: ucm-registry-authenticated-${{ needs.plan.outputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: input/authenticated
+          name: ${{ needs.package-chart.outputs.chart_artifact }}
+          path: input/chart
       - uses: ./.github/actions/download-artifact-retry
         with:
           name: ${{ needs.plan.outputs.resolved_plan_artifact }}
           path: input/plan
-      - id: finalize
+      - id: readback
         env:
+          HELM_CACHE_HOME: ${{ runner.temp }}/ucm-chart-anonymous/cache
+          HELM_CONFIG_HOME: ${{ runner.temp }}/ucm-chart-anonymous/config
+          HELM_DATA_HOME: ${{ runner.temp }}/ucm-chart-anonymous/data
+          HELM_REGISTRY_CONFIG: ${{ runner.temp }}/ucm-chart-anonymous/registry/config.json
           SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
-          RESOLVED_PLAN_SHA256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
         run: |
-          # shellcheck disable=SC2153,SC1083,SC2012,SC2100,SC2209
           set -euo pipefail
-          mkdir -p out/protected/finalized
-          while IFS= read -r family; do
-            jq -cnS --arg family "${family}" --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" '{parent_plans: "input/authenticated/parent-plans.json", provisional: ("input/authenticated/provisionals/" + $family + ".json"), family_task_id: $family, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256}' > out/finalize-request.json
-            prov_path="$(jq -r '.provisional' out/finalize-request.json)"
-            jq -cnS \
-              --slurpfile prov "$prov_path" \
-              --slurpfile pp input/authenticated/parent-plans.json \
-              --arg family "$family" \
-              --arg resolved_plan_sha256 "$RESOLVED_PLAN_SHA256" \
-              '($prov[0]) as $p | ($pp[0]) as $parent | {schema_version:1, kind:"ucm-registry-index-finalized", status:"anonymous-passed", source_sha:$p.source_sha, family_id:$p.family_id, target_repository:$p.target_repository, target_tag:$p.target_tag, index_digest:($p.member_digests[0]), member_digests:$p.member_digests, provisional_sha256:$p.provisional_sha256, parent_plans_sha256:$parent.plans_sha256, resolved_plan_sha256:$resolved_plan_sha256, family_task_id:$p.family_task_id}' \
-              > "out/protected/finalized/${family}.json"
-          done < <(jq -r '.family_tasks[].task_id' input/plan/resolved-plan.json)
-          cp input/authenticated/parent-plans.json out/protected/parent-plans.json
-          cp input/authenticated/member-collection.json out/protected/member-collection.json
-          cp input/authenticated/provisional-collection.json out/protected/provisional-collection.json
-          cp input/plan/resolved-plan.json out/protected/resolved-plan.json
-          cp -R input/authenticated/member-records out/protected/member-records
-          jq -cnS \
-            --argjson member_records "$(find out/protected/member-records -maxdepth 1 -type f -name '*.json' -print | sort | jq -R . | jq -s .)" \
-            --argjson finalized_indexes "$(find out/protected/finalized -maxdepth 1 -type f -name '*.json' -print | sort | jq -R . | jq -s .)" \
-            --arg source_sha "$SOURCE_SHA" \
-            --arg resolved_plan_sha256 "$RESOLVED_PLAN_SHA256" \
-            --arg github_run_id "$GITHUB_RUN_ID" \
-            --argjson github_run_attempt "$GITHUB_RUN_ATTEMPT" \
-            '{member_records: $member_records, member_collection: "out/protected/member-collection.json", finalized_indexes: $finalized_indexes, provisional_collection: "out/protected/provisional-collection.json", parent_plans: "out/protected/parent-plans.json", source_sha: $source_sha, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $resolved_plan_sha256, run: {run_id: $github_run_id, run_attempt: $github_run_attempt}}' \
-            > out/protected-request.json
-          req=out/protected-request.json
-          jq -cnS \
-            --argjson member_records "$(jq -c '.member_records' "$req")" \
-            --argjson finalized_indexes "$(jq -c '.finalized_indexes' "$req")" \
-            --slurpfile coll out/protected/member-collection.json \
-            --slurpfile prov out/protected/provisional-collection.json \
-            --slurpfile pp out/protected/parent-plans.json \
-            --arg source_sha "$(jq -r '.source_sha' "$req")" \
-            --arg resolved_plan_sha256 "$(jq -r '.resolved_plan_sha256' "$req")" \
-            --argjson run "$(jq -c '.run' "$req")" \
-            '($coll[0].member_record_sha256s // {}) as $member_sha | {schema_version:1, kind:"ucm-registry-protected-publication", lane:"protected-tag", source_sha:$source_sha, resolved_plan_sha256:$resolved_plan_sha256, member_records:$member_records, finalized_indexes:$finalized_indexes, member_record_sha256s:$member_sha, provisional_sha256s:($prov[0].provisional_sha256s // {}), parent_plans_sha256:$pp[0].plans_sha256, operations:([$member_records[] | {type:"registry-member-push-by-digest",capability:"write"}] + [$finalized_indexes[] | {type:"registry-index-create",capability:"write"}]), publication:{status:"protected",attempt:true}, run:$run}' \
-            > out/protected/protected-publication.json
-          logical="ucm-registry-protected-${SOURCE_SHA}"
-          physical="${logical}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
-          echo "artifact=${physical}" >>"${GITHUB_OUTPUT}"
+          root="${RUNNER_TEMP}/ucm-chart-anonymous"
+          rm -rf "${root}"
+          mkdir -p "${HELM_CACHE_HOME}" "${HELM_CONFIG_HOME}" "${HELM_DATA_HOME}" \
+            "$(dirname "${HELM_REGISTRY_CONFIG}")" out/readback out/result
+          test ! -e "${HELM_REGISTRY_CONFIG}"
+          mapfile -t packages < <(find input/chart -maxdepth 1 -type f -name '*.tgz' -print)
+          test "${#packages[@]}" = 1
+          PYTHONPATH=.github/release python -m ucm_release publish chart-oci \
+            --plan input/plan/resolved-plan.json \
+            --stage readback \
+            --package "${packages[0]}" \
+            --readback-dir out/readback \
+            --output out/result/chart-oci-readback.json
+          artifact="ucm-publication-chart-oci-readback-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          echo "artifact=${artifact}" >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ steps.finalize.outputs.artifact }}
-          path: out/protected/
+          name: ${{ steps.readback.outputs.artifact }}
+          path: out/result/chart-oci-readback.json
           if-no-files-found: error
           overwrite: false
           retention-days: 90
 
-  publish-release:
-    needs: [plan, build-wheels, package-chart, prepare-release-draft, anonymous-registry-readback]
+  publish-release-assets:
+    needs: [plan, build-wheels, package-chart, prepare-release-draft]
     if: >-
       ${{
-        !cancelled() &&
-        github.event_name == 'push' &&
-        
+        !cancelled() && github.event_name == 'push' &&
+        github.ref_type == 'tag' && github.ref_protected == true &&
+        fromJSON(needs.plan.outputs.publish).github_release.enabled &&
         needs.build-wheels.result == 'success' &&
         needs.package-chart.result == 'success' &&
-        needs.prepare-release-draft.result == 'success' &&
-        needs.anonymous-registry-readback.result == 'success'
+        needs.prepare-release-draft.result == 'success'
       }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     permissions:
       contents: write
     environment: release-production
-    outputs:
-      release_state_artifact: ${{ steps.publish.outputs.artifact }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ needs.plan.outputs.source_sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -601,103 +848,236 @@ jobs:
           path: input/plan
       - uses: ./.github/actions/download-artifact-retry
         with:
-          name: ucm-release-draft-${{ needs.plan.outputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: ${{ needs.prepare-release-draft.outputs.draft_artifact }}
           path: input/draft
-      - uses: ./.github/actions/download-artifact-retry
-        with:
-          name: ucm-registry-protected-${{ needs.plan.outputs.source_sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: input/protected
       - id: publish
-        name: Rehash the exact planner asset set and publish or reuse prerelease
         env:
           GH_TOKEN: ${{ github.token }}
-          UCM_RELEASE_POLICY: ${{ vars.UCM_RELEASE_POLICY }}
           SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
-          RESOLVED_PLAN_SHA256: ${{ needs.plan.outputs.resolved_plan_sha256 }}
-          RELEASE_ID: ${{ needs.prepare-release-draft.outputs.release_id }}
-          GITHUB_ACTOR: ${{ github.actor }}
-          GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: |
-          # shellcheck disable=SC2153,SC1083,SC2012,SC2100,SC2209
           set -euo pipefail
-          release_repository="$(jq -r '.source.repository' input/plan/resolved-plan.json)"
-          test "${release_repository}" = "${GITHUB_REPOSITORY}"
-          mkdir -p out out/artifacts
-          git fetch --force origin "+${GITHUB_REF}:${GITHUB_REF}"
-          cp input/draft/release-state.json out/release-state.json
-          find input/wheels -type f -name '*.whl' -exec cp -p {} out/artifacts/ \;
-          duplicates="$(find input/wheels -type f -name '*.whl' -exec basename {} \; | sort | uniq -d)"
-          if [ -n "${duplicates}" ]; then
-            echo "ERROR: duplicate wheel filenames would clobber each other in the release:" >&2
-            printf '%s\n' "${duplicates}" >&2
-            exit 2
-          fi
-          chart_package="$(find input/chart -maxdepth 1 -type f -name '*.tgz' -print)"
-          test -n "${chart_package}"
-          cp "${chart_package}" out/artifacts/
+          mkdir -p out/assets out/result
+          mapfile -t wheels < <(find input/wheels -type f -name '*.whl' -print | sort)
+          mapfile -t charts < <(find input/chart -maxdepth 1 -type f -name '*.tgz' -print)
+          test "${#wheels[@]}" = 6
+          test "${#charts[@]}" = 1
+          for source in "${wheels[@]}" "${charts[@]}"; do
+            target="out/assets/$(basename "${source}")"
+            test ! -e "${target}"
+            cp "${source}" "${target}"
+          done
+          test "$(find out/assets -maxdepth 1 -type f | wc -l | tr -d ' ')" = 7
           PYTHONPATH=.github/release python -m ucm_release publish github-release \
             --plan input/plan/resolved-plan.json \
-            --repository "${GITHUB_REPOSITORY}" \
-            --stage finalize \
-            --source-sha "${SOURCE_SHA}" \
-            --output-dir out
-          logical="ucm-release-authenticated-${SOURCE_SHA}"
-          physical="${logical}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
-          echo "artifact=${physical}" >>"${GITHUB_OUTPUT}"
-      - name: Publish wheels to PyPI
-        if: fromJSON(needs.plan.outputs.publish).pypi
-        # download-artifact materializes each wheel one directory deep, so the wheel files live at
-        # input/wheels/<artifact-name>/*.whl (the job's own find ... -name '*.whl' confirms this).
-        run: python -m twine upload --non-interactive input/wheels/*/*.whl
-
-      - name: Push chart to OCI registry
-        if: fromJSON(needs.plan.outputs.publish).chart_oci
-        run: helm push input/chart/*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
-
-      - name: Copy images to Docker Hub
-        if: fromJSON(needs.plan.outputs.publish).dockerhub
-        run: |
-          set -euo pipefail
-          # The frozen resolved plan lists selected upstreams under .resolved_upstreams (not
-          # .upstream_products); each entry carries .target_repository (ghcr.io/<owner>/<name>)
-          # and .target_tag (the strict OCI tag the family image was published under).
-          while IFS=$'\t' read -r repo tag; do
-            crane copy "${repo}:${tag}" "docker.io/${{ github.repository_owner }}/$(basename "${repo}"):${tag}"
-          done < <(jq -r '.resolved_upstreams[] | "\(.target_repository)\t\(.target_tag)"' input/plan/resolved-plan.json)
+            --stage assets \
+            --artifacts-dir out/assets \
+            --draft-state input/draft/github-release-draft.json \
+            --output out/result/github-release-assets.json
+          artifact="ucm-publication-github-assets-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          echo "artifact=${artifact}" >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ steps.publish.outputs.artifact }}
-          path: out/
+          path: out/result/github-release-assets.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+
+  channel-readback-barrier:
+    needs:
+      - plan
+      - prepare-release-draft
+      - publish-pypi
+      - pypi-readback
+      - publish-ghcr
+      - ghcr-readback
+      - publish-dockerhub
+      - dockerhub-readback
+      - publish-chart-oci
+      - chart-oci-readback
+      - publish-release-assets
+    if: >-
+      ${{
+        always() && github.event_name == 'push' &&
+        github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v')
+      }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Require the frozen enabled channels and only those channels
+        env:
+          PUBLISH: ${{ needs.plan.outputs.publish }}
+          PYPI_PUBLISH_RESULT: ${{ needs.publish-pypi.result }}
+          PYPI_READBACK_RESULT: ${{ needs.pypi-readback.result }}
+          GHCR_PUBLISH_RESULT: ${{ needs.publish-ghcr.result }}
+          GHCR_READBACK_RESULT: ${{ needs.ghcr-readback.result }}
+          DOCKERHUB_PUBLISH_RESULT: ${{ needs.publish-dockerhub.result }}
+          DOCKERHUB_READBACK_RESULT: ${{ needs.dockerhub-readback.result }}
+          CHART_OCI_PUBLISH_RESULT: ${{ needs.publish-chart-oci.result }}
+          CHART_OCI_READBACK_RESULT: ${{ needs.chart-oci-readback.result }}
+          GITHUB_RELEASE_DRAFT_RESULT: ${{ needs.prepare-release-draft.result }}
+          GITHUB_RELEASE_ASSETS_RESULT: ${{ needs.publish-release-assets.result }}
+        run: |
+          set -euo pipefail
+          check_channel() {
+            local channel="$1"
+            local writer="$2"
+            local reader="$3"
+            local enabled
+            enabled="$(jq -r --arg channel "${channel}" '.[$channel].enabled' <<<"${PUBLISH}")"
+            case "${enabled}" in
+              true)
+                test "${writer}" = success
+                test "${reader}" = success
+                ;;
+              false)
+                test "${writer}" = skipped
+                test "${reader}" = skipped
+                ;;
+              *)
+                echo "invalid frozen publish flag for ${channel}: ${enabled}" >&2
+                return 2
+                ;;
+            esac
+          }
+          check_channel pypi "${PYPI_PUBLISH_RESULT}" "${PYPI_READBACK_RESULT}"
+          check_channel ghcr "${GHCR_PUBLISH_RESULT}" "${GHCR_READBACK_RESULT}"
+          check_channel dockerhub "${DOCKERHUB_PUBLISH_RESULT}" "${DOCKERHUB_READBACK_RESULT}"
+          check_channel chart_oci "${CHART_OCI_PUBLISH_RESULT}" "${CHART_OCI_READBACK_RESULT}"
+          check_channel github_release \
+            "${GITHUB_RELEASE_DRAFT_RESULT}" "${GITHUB_RELEASE_ASSETS_RESULT}"
+
+  finalize-github-prerelease:
+    needs: [plan, prepare-release-draft, channel-readback-barrier]
+    if: >-
+      ${{
+        !cancelled() && github.event_name == 'push' &&
+        github.ref_type == 'tag' && github.ref_protected == true &&
+        fromJSON(needs.plan.outputs.publish).github_release.enabled &&
+        needs.prepare-release-draft.result == 'success' &&
+        needs.channel-readback-barrier.result == 'success'
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    environment: release-production
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ needs.plan.outputs.resolved_plan_artifact }}
+          path: input/plan
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ needs.prepare-release-draft.outputs.draft_artifact }}
+          path: input/draft
+      - id: finalize
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          PYTHONPATH=.github/release python -m ucm_release publish github-release \
+            --plan input/plan/resolved-plan.json \
+            --stage finalize \
+            --draft-state input/draft/github-release-draft.json \
+            --output out/github-release-finalize.json
+          artifact="ucm-publication-github-finalize-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          echo "artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.finalize.outputs.artifact }}
+          path: out/github-release-finalize.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+
+  github-release-public-readback:
+    needs: [plan, finalize-github-prerelease]
+    if: >-
+      ${{
+        !cancelled() && github.event_name == 'push' &&
+        github.ref_type == 'tag' && github.ref_protected == true &&
+        fromJSON(needs.plan.outputs.publish).github_release.enabled &&
+        needs.finalize-github-prerelease.result == 'success'
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ needs.plan.outputs.resolved_plan_artifact }}
+          path: input/plan
+      - id: readback
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          PYTHONPATH=.github/release python -m ucm_release publish github-release \
+            --plan input/plan/resolved-plan.json \
+            --stage readback \
+            --output out/github-release-readback.json
+          artifact="ucm-publication-github-readback-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          echo "artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.readback.outputs.artifact }}
+          path: out/github-release-readback.json
           if-no-files-found: error
           overwrite: false
           retention-days: 90
 
   pr-loop-success:
-    needs: [plan, build-wheels, package-chart, reconcile-images-feature]
+    needs: [plan, build-wheels, package-chart, build-images]
     if: ${{ always() && github.event_name == 'pull_request' }}
     runs-on: ubuntu-24.04
     steps:
-      - name: Require every PR loop stage
+      - name: Require every PR build stage
         env:
           PLAN_RESULT: ${{ needs.plan.result }}
           WHEELS_RESULT: ${{ needs.build-wheels.result }}
           CHART_RESULT: ${{ needs.package-chart.result }}
-          IMAGES_RESULT: ${{ needs.reconcile-images-feature.result }}
+          IMAGES_RESULT: ${{ needs.build-images.result }}
         run: |
           set -euo pipefail
-          for result in \
-            "${PLAN_RESULT}" \
-            "${WHEELS_RESULT}" \
-            "${CHART_RESULT}" \
-            "${IMAGES_RESULT}"; do
-            if [ "${result}" != success ]; then
-              echo "required PR loop stage ended ${result}" >&2
+          for result in "${PLAN_RESULT}" "${WHEELS_RESULT}" \
+            "${CHART_RESULT}" "${IMAGES_RESULT}"; do
+            test "${result}" = success || {
+              echo "required PR build stage ended ${result}" >&2
               exit 1
-            fi
+            }
           done
 
   daily-loop-success:
-    needs: [plan, build-wheels, package-chart, reconcile-images-feature]
+    needs: [plan, build-wheels, package-chart, build-images]
     if: >-
       ${{
         always() &&
@@ -707,23 +1087,20 @@ jobs:
       }}
     runs-on: ubuntu-24.04
     steps:
-      - name: Require every daily loop stage
+      - name: Require every daily build stage
         env:
           PLAN_RESULT: ${{ needs.plan.result }}
           WHEELS_RESULT: ${{ needs.build-wheels.result }}
           CHART_RESULT: ${{ needs.package-chart.result }}
-          IMAGES_RESULT: ${{ needs.reconcile-images-feature.result }}
+          IMAGES_RESULT: ${{ needs.build-images.result }}
         run: |
           set -euo pipefail
-          for result in \
-            "${PLAN_RESULT}" \
-            "${WHEELS_RESULT}" \
-            "${CHART_RESULT}" \
-            "${IMAGES_RESULT}"; do
-            if [ "${result}" != success ]; then
-              echo "required daily loop stage ended ${result}" >&2
+          for result in "${PLAN_RESULT}" "${WHEELS_RESULT}" \
+            "${CHART_RESULT}" "${IMAGES_RESULT}"; do
+            test "${result}" = success || {
+              echo "required daily build stage ended ${result}" >&2
               exit 1
-            fi
+            }
           done
 
   release-loop-success:
@@ -731,39 +1108,36 @@ jobs:
       - plan
       - build-wheels
       - package-chart
-      - reconcile-images-protected
+      - build-images
       - prepare-release-draft
-      - anonymous-registry-readback
-      - publish-release
+      - channel-readback-barrier
+      - finalize-github-prerelease
+      - github-release-public-readback
     if: >-
       ${{
-        always() &&
-        github.event_name == 'push' &&
+        always() && github.event_name == 'push' &&
         startsWith(github.ref, 'refs/tags/v')
       }}
     runs-on: ubuntu-24.04
     steps:
-      - name: Require every release loop stage
+      - name: Require the complete public release loop
         env:
           PLAN_RESULT: ${{ needs.plan.result }}
           WHEELS_RESULT: ${{ needs.build-wheels.result }}
           CHART_RESULT: ${{ needs.package-chart.result }}
-          IMAGES_RESULT: ${{ needs.reconcile-images-protected.result }}
+          IMAGES_RESULT: ${{ needs.build-images.result }}
           DRAFT_RESULT: ${{ needs.prepare-release-draft.result }}
-          READBACK_RESULT: ${{ needs.anonymous-registry-readback.result }}
-          PUBLISH_RESULT: ${{ needs.publish-release.result }}
+          BARRIER_RESULT: ${{ needs.channel-readback-barrier.result }}
+          FINALIZE_RESULT: ${{ needs.finalize-github-prerelease.result }}
+          PUBLIC_READBACK_RESULT: ${{ needs.github-release-public-readback.result }}
         run: |
           set -euo pipefail
-          for result in \
-            "${PLAN_RESULT}" \
-            "${WHEELS_RESULT}" \
-            "${CHART_RESULT}" \
-            "${IMAGES_RESULT}" \
-            "${DRAFT_RESULT}" \
-            "${READBACK_RESULT}" \
-            "${PUBLISH_RESULT}"; do
-            if [ "${result}" != success ]; then
+          for result in "${PLAN_RESULT}" "${WHEELS_RESULT}" \
+            "${CHART_RESULT}" "${IMAGES_RESULT}" "${DRAFT_RESULT}" \
+            "${BARRIER_RESULT}" "${FINALIZE_RESULT}" \
+            "${PUBLIC_READBACK_RESULT}"; do
+            test "${result}" = success || {
               echo "required release loop stage ended ${result}" >&2
               exit 1
-            fi
+            }
           done

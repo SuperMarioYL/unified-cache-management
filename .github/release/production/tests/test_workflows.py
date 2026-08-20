@@ -46,7 +46,7 @@ def test_candidate_is_tag_only_read_only_and_has_one_aggregate_artifact() -> Non
     workflow = _workflow("production-tag-candidate.yml")
 
     assert workflow["name"] == "UCM Production Tag Candidate"
-    assert workflow["on"] == {"push": {"tags": ["draft/v*", "v*"]}}
+    assert workflow["on"] == {"push": {"tags": ["draft/v*"]}}
     assert workflow["permissions"] == {"contents": "read"}
     assert workflow["concurrency"]["cancel-in-progress"] is False
     assert set(workflow["jobs"]) == {

@@ -1,4 +1,4 @@
-name: Build planner-selected UCM feature candidates
+name: Build planner-selected UCM image candidates
 
 on:
   workflow_call:
@@ -23,14 +23,14 @@ on:
         required: true
     outputs:
       loop_artifact:
-        description: Feature-only deterministic image candidate evidence
-        value: ${{ jobs.aggregate-feature.outputs.loop_artifact }}
+        description: Deterministic same-run image candidate evidence
+        value: ${{ jobs.aggregate-images.outputs.loop_artifact }}
 
 permissions:
   contents: read
 
 jobs:
-  build-images-feature:
+  build-images:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(inputs.image_matrix) }}
@@ -45,12 +45,12 @@ jobs:
       resolved_plan_sha256: ${{ inputs.resolved_plan_sha256 }}
       deliver_full_oci: ${{ inputs.deliver_full_oci }}
 
-  aggregate-feature:
-    needs: [build-images-feature]
+  aggregate-images:
+    needs: [build-images]
     if: >-
       ${{
         !cancelled() &&
-        needs.build-images-feature.result == 'success'
+        needs.build-images.result == 'success'
       }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -114,4 +114,4 @@ jobs:
           path: out/
           if-no-files-found: error
           overwrite: false
-          retention-days: 7
+          retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}

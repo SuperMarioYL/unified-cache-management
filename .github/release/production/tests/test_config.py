@@ -15,6 +15,7 @@ CONFIG_SCHEMA = PRODUCTION_ROOT / "schemas" / "production-release-config.schema.
 FINGERPRINTS = PRODUCTION_ROOT / "tests" / "fixtures" / "legacy-workflow-sha256.json"
 
 LEGACY_WORKFLOWS = {
+    "_build-chart.yml",
     "_build-image.yml",
     "_build-wheel.yml",
     "_publish-image-member.yml",
