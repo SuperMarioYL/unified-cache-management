@@ -885,6 +885,13 @@ def test_reusable_chart_and_image_builds_are_read_only_and_tag_retained() -> Non
     assert image_jobs["build-images"]["uses"] == (
         "./.github/workflows/_build-image.yml"
     )
+    aggregate_step = next(
+        step
+        for step in _steps(image_jobs["aggregate-images"])
+        if step.get("id") == "aggregate"
+    )
+    aggregate_command = str(aggregate_step["run"])
+    assert '"$d/image-result.json"' in aggregate_command
     source = "\n".join(_strings(images)).lower()
     for forbidden in (
         "packages: write",
@@ -896,6 +903,14 @@ def test_reusable_chart_and_image_builds_are_read_only_and_tag_retained() -> Non
         assert forbidden not in source
 
     build_image = _load_workflow(WORKFLOW_DIR / "_build-image.yml")
+    compact_upload = next(
+        step
+        for step in _steps(_jobs(build_image)["build"])
+        if str(step.get("uses", "")).startswith("actions/upload-artifact@")
+    )
+    compact_paths = str(compact_upload["with"]["path"])
+    assert "out/image-result.json" in compact_paths
+    assert "input/plan/resolved-plan.json" not in compact_paths
     bridge = _named_step(
         _jobs(build_image)["build"], "Upload protected internal OCI bridge"
     )

@@ -648,7 +648,6 @@ jobs:
             out/selected-task.json
             out/selected-wheel-task.json
             out/task-binding.json
-            input/plan/resolved-plan.json
             out/real-image-authority.json
             out/reopened-wheel-inspection.json
             out/image-archive.sha256
