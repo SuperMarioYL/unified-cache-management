@@ -9,9 +9,12 @@ the slimming plan -- they asserted "we wrote what we wrote", not behaviour.
 
 from __future__ import annotations
 
+import gzip
+import io
 import os
 import re
 import subprocess
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -917,6 +920,149 @@ def test_reusable_chart_and_image_builds_are_read_only_and_tag_retained() -> Non
     assert "github.ref_type == 'tag'" in str(bridge["if"])
     assert bridge["with"]["compression-level"] == 0
     assert bridge["with"]["retention-days"] == 90
+
+
+def test_chart_source_timestamps_are_normalized_to_checked_out_commit(
+    tmp_path: Path,
+) -> None:
+    """A rerun must not inherit checkout-specific chart mtimes."""
+    workflow = _load_workflow(WORKFLOW_DIR / "_build-chart.yml")
+    chart_job = _jobs(workflow)["package-chart"]
+    step_names = {str(step.get("name", "")) for step in _steps(chart_job)}
+    assert "Normalize chart source timestamps" in step_names
+    command = str(_named_step(chart_job, "Normalize chart source timestamps")["run"])
+
+    repository = tmp_path / "repository"
+    chart_source = repository / "chart" / "templates"
+    chart_source.mkdir(parents=True)
+    (chart_source / "deployment.yaml").write_text("kind: Deployment\n")
+    subprocess.run(["git", "init", "-q", str(repository)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repository), "config", "user.email", "ci@example.com"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repository), "config", "user.name", "CI"], check=True
+    )
+    subprocess.run(["git", "-C", str(repository), "add", "chart"], check=True)
+    commit_environment = {
+        **os.environ,
+        "GIT_AUTHOR_DATE": "2023-11-14T22:13:20+00:00",
+        "GIT_COMMITTER_DATE": "2023-11-14T22:13:20+00:00",
+    }
+    subprocess.run(
+        ["git", "-C", str(repository), "commit", "-q", "-m", "chart"],
+        env=commit_environment,
+        check=True,
+    )
+    source_sha = subprocess.check_output(
+        ["git", "-C", str(repository), "rev-parse", "HEAD"], text=True
+    ).strip()
+    plan_dir = repository / "input" / "plan"
+    plan_dir.mkdir(parents=True)
+    (plan_dir / "resolved-plan.json").write_text(
+        '{"chart":{"source":"chart"}}\n', encoding="utf-8"
+    )
+    for path in (repository / "chart").rglob("*"):
+        os.utime(path, (1_800_000_000, 1_800_000_000), follow_symlinks=False)
+    os.utime(
+        repository / "chart",
+        (1_800_000_000, 1_800_000_000),
+        follow_symlinks=False,
+    )
+
+    normalized = subprocess.run(
+        ["bash", "-c", command],
+        cwd=repository,
+        env={
+            **os.environ,
+            "SOURCE_SHA": source_sha,
+            "GITHUB_OUTPUT": str(tmp_path / "source-time.out"),
+        },
+        check=False,
+    )
+
+    assert normalized.returncode == 0
+    expected_epoch = 1_700_000_000
+    paths = [repository / "chart", *(repository / "chart").rglob("*")]
+    assert paths
+    assert {int(path.lstat().st_mtime) for path in paths} == {expected_epoch}
+
+    subprocess.run(
+        ["git", "-C", str(repository), "commit", "--allow-empty", "-q", "-m", "next"],
+        env={
+            **os.environ,
+            "GIT_AUTHOR_DATE": "2023-11-14T22:13:21+00:00",
+            "GIT_COMMITTER_DATE": "2023-11-14T22:13:21+00:00",
+        },
+        check=True,
+    )
+    mismatched_checkout = subprocess.run(
+        ["bash", "-c", command],
+        cwd=repository,
+        env={
+            **os.environ,
+            "SOURCE_SHA": source_sha,
+            "GITHUB_OUTPUT": str(tmp_path / "mismatch.out"),
+        },
+        check=False,
+    )
+    assert mismatched_checkout.returncode != 0
+
+
+def test_chart_archive_normalizer_preserves_members_and_removes_time_drift(
+    tmp_path: Path,
+) -> None:
+    """Helm's wall-clock tar metadata must not change rerun package bytes."""
+    workflow = _load_workflow(WORKFLOW_DIR / "_build-chart.yml")
+    chart_job = _jobs(workflow)["package-chart"]
+    step_names = {str(step.get("name", "")) for step in _steps(chart_job)}
+    assert "Normalize chart package metadata" in step_names
+    command = str(_named_step(chart_job, "Normalize chart package metadata")["run"])
+
+    member_name = "unified-cache-pd/Chart.yaml"
+    member_bytes = b"apiVersion: v2\nname: unified-cache-pd\nversion: 0.7.59-rc.1\n"
+
+    def write_package(path: Path, timestamp: int) -> None:
+        with path.open("wb") as raw:
+            with gzip.GzipFile(
+                filename="", mode="wb", fileobj=raw, mtime=timestamp
+            ) as compressed:
+                with tarfile.open(fileobj=compressed, mode="w") as archive:
+                    member = tarfile.TarInfo(member_name)
+                    member.mode = 0o644
+                    member.mtime = timestamp
+                    member.size = len(member_bytes)
+                    archive.addfile(member, io.BytesIO(member_bytes))
+
+    first = tmp_path / "first.tgz"
+    second = tmp_path / "second.tgz"
+    write_package(first, 1_700_000_001)
+    write_package(second, 1_800_000_002)
+    assert first.read_bytes() != second.read_bytes()
+
+    for package in (first, second):
+        result = subprocess.run(
+            ["bash", "-c", command],
+            env={
+                **os.environ,
+                "CHART_PACKAGE": str(package),
+                "SOURCE_DATE_EPOCH": "1700000000",
+            },
+            check=False,
+        )
+        assert result.returncode == 0
+
+    assert first.read_bytes() == second.read_bytes()
+    assert int.from_bytes(first.read_bytes()[4:8], "little") == 1_700_000_000
+    with tarfile.open(first, "r:gz") as archive:
+        members = archive.getmembers()
+        assert [(member.name, int(member.mtime)) for member in members] == [
+            (member_name, 1_700_000_000)
+        ]
+        extracted = archive.extractfile(members[0])
+        assert extracted is not None
+        assert extracted.read() == member_bytes
 
 
 def test_terminal_jobs_run_for_their_event_without_result_dependent_if() -> None:
