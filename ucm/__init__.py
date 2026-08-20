@@ -22,7 +22,7 @@
 # SOFTWARE.
 #
 
-from ucm.integration.vllm.patch.logger_patch import patch_logger
+from ucm.integration.vllm.patch.logger_patch import patch_logger as patch_logger
 
 _UCM_BACKEND_DISTS = ("uc-manager-cuda", "uc-manager-cann-a2", "uc-manager-cann-a3")
 
