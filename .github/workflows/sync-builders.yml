@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
   workflow_call:
     outputs:
-      builder_catalog_artifact:
-        description: Discovered Builder catalog for this run
-        value: ${{ jobs.prepare.outputs.builder_catalog_artifact }}
+      capability_catalog_artifact:
+        description: Canonical Capability Catalog for this run
+        value: ${{ jobs.assemble-capability-catalog.outputs.capability_catalog_artifact }}
 
 permissions:
   contents: read
@@ -20,17 +20,16 @@ concurrency:
 
 jobs:
   prepare:
-    name: Prepare builders
+    name: Discover Builder sources
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
-      builder_catalog_artifact: ${{ steps.plan.outputs.builder_catalog_artifact }}
-      has_missing: ${{ steps.plan.outputs.has_missing }}
-      matrix: ${{ steps.plan.outputs.matrix }}
+      builder_catalog_artifact: ${{ steps.source.outputs.builder_catalog_artifact }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+          fetch-depth: 1
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.12"
@@ -38,110 +37,618 @@ jobs:
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
-      - name: Authenticate to GHCR
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          printf '%s' "${GITHUB_TOKEN}" | docker login ghcr.io \
-            --username "${GITHUB_ACTOR}" --password-stdin
-      - id: plan
-        name: Discover builders and compute missing targets
+      - id: source
+        name: Freeze source Builder discovery
         run: |
           set -euo pipefail
           mkdir -p out
           PYTHONPATH=.github/release python -m ucm_release builders discover \
-            --output out/builder-catalog.json >/dev/null
-          printf '{}\n' >out/existing-tags.json
-          while IFS=$'\t' read -r repository tag; do
-            tags='[]'
-            if docker buildx imagetools inspect "${repository}:${tag}" >/dev/null 2>&1; then
-              tags="$(jq -cn --arg tag "${tag}" '[$tag]')"
-            fi
-            jq --arg repository "${repository}" --argjson tags "${tags}" \
-              '.[$repository] = ((.[$repository] // []) + $tags | unique | sort)' \
-              out/existing-tags.json >out/existing-tags.next.json
-            mv out/existing-tags.next.json out/existing-tags.json
-          done < <(jq -r '.builders[] | [.target_repository,.target_tag] | @tsv' \
-            out/builder-catalog.json)
-          PYTHONPATH=.github/release python -m ucm_release builders sync-plan \
-            --catalog out/builder-catalog.json \
-            --existing out/existing-tags.json \
-            --output out/builder-sync-plan.json >/dev/null
-          count="$(jq '.builders | length' out/builder-sync-plan.json)"
-          artifact="ucm-builder-catalog-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
-          {
-            echo "builder_catalog_artifact=${artifact}"
-            echo "matrix=$(jq -c '.matrix' out/builder-sync-plan.json)"
-            if [ "${count}" -gt 0 ]; then
-              echo "has_missing=true"
-            else
-              echo "has_missing=false"
-            fi
-          } >>"${GITHUB_OUTPUT}"
+            --source-only \
+            --output out/legacy-builder-catalog.json >/dev/null
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          legacy = json.loads(Path("out/legacy-builder-catalog.json").read_text())
+          rows = []
+          for item in legacy["builders"]:
+              if item["build_mode"] == "copy":
+                  continue
+              source_repository, source_tag = item["source_image"].rsplit(":", 1)
+              source_digest = subprocess.run(
+                  ["docker", "buildx", "imagetools", "inspect", "--format",
+                   "{{json .Manifest.Digest}}", item["source_image"]],
+                  check=True, text=True, stdout=subprocess.PIPE,
+              ).stdout.strip().strip('"')
+              accelerator = item["accelerator"]
+              recipe_path = (
+                  ".github/release/docker/Dockerfile.builder"
+                  if accelerator == "ascend"
+                  else ".github/release/builders.yaml"
+              )
+              source_path = (
+                  f".github/workflows/dockerfiles/Dockerfile.buildwheel.{item['variant']}"
+                  if accelerator == "ascend"
+                  else ".buildkite/release-pipeline.yaml"
+              )
+              recipe_bytes = Path(recipe_path).read_bytes()
+              target_tag = re.sub(
+                  r"-mooncake[^-]+", "", item["target_tag"], flags=re.IGNORECASE
+              )
+              target_tag = re.sub(r"-cp[0-9]+-", "-cp-all-", target_tag)
+              rows.append({
+                  "project": item["project"],
+                  "accelerator": accelerator,
+                  "accelerator_runtime": item["accelerator_runtime"],
+                  "variant": item["variant"],
+                  "cpu_architecture": item["cpu_arch"],
+                  "manylinux": item["manylinux"],
+                  "source_kind": (
+                      "buildkite-build-base-image" if accelerator == "cuda"
+                      else "buildwheel-dockerfile"
+                  ),
+                  "source_path": source_path,
+                  "source_image_repository": source_repository,
+                  "source_image_tag": source_tag,
+                  "source_image_digest": source_digest,
+                  "recipe_path": recipe_path,
+                  "recipe_source_commit": os.environ["GITHUB_SHA"],
+                  "recipe_sha256": "sha256:" + hashlib.sha256(recipe_bytes).hexdigest(),
+                  "toolchain_sha256": "sha256:" + hashlib.sha256(
+                      Path(".github/release/toolchain.lock.yaml").read_bytes()
+                  ).hexdigest(),
+                  "target_repository": item["target_repository"],
+                  "target_tag": target_tag,
+              })
+          value = {
+              "kind": "ucm-builder-discovery",
+              "schema_version": 3,
+              "source_sha": os.environ["GITHUB_SHA"],
+              "upstream_reads": [],
+              "builders": sorted(rows, key=lambda row: json.dumps(row, sort_keys=True)),
+          }
+          Path("out/builder-catalog.json").write_text(
+              json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+          )
+          PY
+          artifact="ucm-builder-source-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          echo "builder_catalog_artifact=${artifact}" >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ steps.plan.outputs.builder_catalog_artifact }}
+          name: ${{ steps.source.outputs.builder_catalog_artifact }}
           path: out/builder-catalog.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
+
+  discover-runtimes:
+    name: Discover immutable runtimes
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      runtime_discovery_artifact: ${{ steps.discover.outputs.runtime_discovery_artifact }}
+      runtime_probe_matrix: ${{ steps.discover.outputs.runtime_probe_matrix }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.prepare.outputs.builder_catalog_artifact }}
+          path: input/builder-source
+      - name: Install discovery tools
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-cache-dir \
+            --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 \
+            https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
+            | tar -xz -C "${RUNNER_TEMP}/crane" crane
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - id: discover
+        name: Discover vllm and vllm-ascend runtime facts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          PYTHONPATH=.github/release python - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import urllib.request
+          from pathlib import Path
+          import yaml
+          from packaging.specifiers import SpecifierSet
+          from packaging.version import InvalidVersion, Version
+          from ucm_release.capabilities import _runtime_record
+
+          release = yaml.safe_load(Path(".github/release/release.yaml").read_text())
+          scan_limit = release["discovery"]["scan_limits"]["max_selected_upstreams"]
+          builder_source = json.loads(
+              Path("input/builder-source/builder-catalog.json").read_text()
+          )
+          ascend_variants = sorted({
+              item["variant"] for item in builder_source["builders"]
+              if item["accelerator"] == "ascend" and item["variant"] != "310p"
+          })
+          architectures_by_accelerator = {
+              accelerator: sorted({
+                  item["cpu_architecture"] for item in builder_source["builders"]
+                  if item["accelerator"] == accelerator
+              })
+              for accelerator in ("cuda", "ascend")
+          }
+          projects = {"vllm": "vllm-project/vllm", "vllm-ascend": "vllm-project/vllm-ascend"}
+          records = []
+          matrix = []
+          for product in release["upstream_products"]:
+              product_id = product["id"]
+              repository = product["repository"]
+              specifier = SpecifierSet(product["version_specifier"])
+              tags = subprocess.run(
+                  ["crane", "ls", repository], check=True, text=True,
+                  stdout=subprocess.PIPE,
+              ).stdout.splitlines()
+              selected = []
+              for tag in tags:
+                  version_text = tag.removeprefix("v").split("-", 1)[0]
+                  try:
+                      version = Version(version_text)
+                  except InvalidVersion:
+                      continue
+                  if specifier.contains(version, prereleases=True):
+                      selected.append((version, tag))
+              for version, tag in sorted(selected, reverse=True)[:scan_limit]:
+                  reference = f"{repository}:{tag}"
+                  digest = subprocess.run(
+                      ["crane", "digest", reference], check=True, text=True,
+                      stdout=subprocess.PIPE,
+                  ).stdout.strip()
+                  config = json.loads(subprocess.run(
+                      ["crane", "config", f"{repository}@{digest}"],
+                      check=True, text=True, stdout=subprocess.PIPE,
+                  ).stdout)
+                  env = config.get("config", {}).get("Env", [])
+                  env_map = dict(item.split("=", 1) for item in env if "=" in item)
+                  variant = "default"
+                  if product_id == "vllm-ascend":
+                      suffix = tag.removeprefix(f"v{version}").lstrip("-")
+                      variant = suffix or env_map.get("VLLM_ASCEND_VARIANT")
+                      variant = variant or env_map.get("ASCEND_VARIANT")
+                      variant = variant or ascend_variants[0]
+                  accelerator = "cuda" if product_id == "vllm" else "ascend"
+                  version_key = "CUDA_VERSION" if accelerator == "cuda" else "CANN_VERSION"
+                  runtime = ("cuda-" if accelerator == "cuda" else "cann-") + str(env_map[version_key])
+                  project = projects[product_id]
+                  git_tag = "v" + str(version)
+                  request = urllib.request.Request(
+                      f"https://api.github.com/repos/{project}/git/ref/tags/{git_tag}",
+                      headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}"},
+                  )
+                  with urllib.request.urlopen(request) as response:
+                      git_commit = json.load(response)["object"]["sha"]
+                  for architecture in architectures_by_accelerator[accelerator]:
+                      runtime_dockerfile = (
+                          f"https://raw.githubusercontent.com/{project}/{git_commit}/docker/Dockerfile"
+                      )
+                      mooncake_version = None
+                      if accelerator == "ascend":
+                          with urllib.request.urlopen(runtime_dockerfile) as response:
+                              dockerfile = response.read().decode()
+                          match = re.search(r"(?m)^ARG MOONCAKE_TAG=v?([^\s]+)", dockerfile)
+                          if match is None:
+                              continue
+                          mooncake_version = match.group(1)
+                      record = {
+                          "product_id": product_id,
+                          "runtime_version": str(version),
+                          "channel": "rc" if version.is_prerelease else "stable",
+                          "variant": variant,
+                          "cpu_architecture": architecture,
+                          "accelerator": accelerator,
+                          "accelerator_runtime": runtime,
+                          "mooncake_version": mooncake_version,
+                          "runtime_image_repository": repository,
+                          "runtime_image_tag": tag,
+                          "runtime_image_digest": digest,
+                          "git_tag": git_tag,
+                          "git_commit": git_commit,
+                      }
+                      records.append(record)
+                      if accelerator == "ascend":
+                          normalized = _runtime_record(record)
+                          matrix.append({
+                              "id": f"{product_id}-{tag}-{architecture}",
+                              "runtime_id": normalized["runtime_id"],
+                              "runtime_image": normalized["runtime_image"],
+                              "runtime_image_digest": digest,
+                              "runtime_dockerfile": runtime_dockerfile,
+                              "cpu_architecture": architecture,
+                              "runner": (
+                                  "ubuntu-24.04-arm" if architecture == "arm64"
+                                  else "ubuntu-24.04"
+                              ),
+                          })
+          value = {
+              "kind": "ucm-runtime-discovery", "schema_version": 3,
+              "source_sha": os.environ["GITHUB_SHA"],
+              "runtime_candidates": records,
+          }
+          Path("out/runtime-discovery.json").write_text(
+              json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+          )
+          Path("out/runtime-matrix.json").write_text(
+              json.dumps({"include": matrix}, sort_keys=True, separators=(",", ":"))
+          )
+          PY
+          artifact="ucm-runtime-discovery-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          {
+            echo "runtime_discovery_artifact=${artifact}"
+            echo "runtime_probe_matrix=$(cat out/runtime-matrix.json)"
+          } >>"${GITHUB_OUTPUT}"
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.discover.outputs.runtime_discovery_artifact }}
+          path: out/runtime-discovery.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
+
+  probe-mooncake:
+    name: Mooncake probe · ${{ matrix.id }}
+    needs: discover-runtimes
+    if: ${{ always() && needs.discover-runtimes.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover-runtimes.outputs.runtime_probe_matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Probe declared and installed Mooncake
+        env:
+          RUNTIME_ID: ${{ matrix.runtime_id }}
+          RUNTIME_IMAGE: ${{ matrix.runtime_image }}
+          RUNTIME_IMAGE_DIGEST: ${{ matrix.runtime_image_digest }}
+          RUNTIME_DOCKERFILE: ${{ matrix.runtime_dockerfile }}
+          CPU_ARCHITECTURE: ${{ matrix.cpu_architecture }}
+        run: |
+          set -euo pipefail
+          mkdir -p out/mooncake-probe
+          case "${RUNTIME_IMAGE}" in
+            *@sha256:*) ;;
+            *) exit 2 ;;
+          esac
+          dockerfile="$(curl -fsSL "${RUNTIME_DOCKERFILE}")"
+          declared_version="$(sed -nE 's/^ARG MOONCAKE_TAG=v?([^[:space:]]+).*$/\1/p' <<<"${dockerfile}" | head -1)"
+          docker run --rm "${RUNTIME_IMAGE}" sh -lc \
+            'test -d /usr/local/include/mooncake &&
+             find /usr/local/lib -maxdepth 1 -type f -name "*mooncake*" -print -quit | grep -q . &&
+             (pkg-config --modversion mooncake 2>/dev/null || cat /usr/local/lib/mooncake.version)' \
+            >out/mooncake-probe/installed-version.txt
+          installed_version="$(cat out/mooncake-probe/installed-version.txt)"
+          if [ "${declared_version}" != "${installed_version}" ]; then
+            jq -n --arg runtime_id "${RUNTIME_ID}" --arg runtime_image "${RUNTIME_IMAGE}" \
+              --arg runtime_image_digest "${RUNTIME_IMAGE_DIGEST}" \
+              --arg runtime_dockerfile "${RUNTIME_DOCKERFILE}" \
+              --arg cpu_architecture "${CPU_ARCHITECTURE}" \
+              --arg runner "${RUNNER_NAME}" \
+              --arg declared_version "${declared_version}" \
+              --arg installed_version "${installed_version}" \
+              '{runtime_id:$runtime_id,runtime_image:$runtime_image,runtime_image_digest:$runtime_image_digest,runtime_dockerfile:$runtime_dockerfile,cpu_architecture:$cpu_architecture,runner:$runner,declared_version:$declared_version,installed_version:$installed_version,headers_path:"/usr/local/include/mooncake",libraries_path:"/usr/local/lib",reason_code:"mooncake-version-mismatch"}' \
+              >out/mooncake-probe/result.json
+          else
+            jq -n --arg runtime_id "${RUNTIME_ID}" --arg runtime_image "${RUNTIME_IMAGE}" \
+              --arg runtime_image_digest "${RUNTIME_IMAGE_DIGEST}" \
+              --arg cpu_architecture "${CPU_ARCHITECTURE}" --arg runner "${RUNNER_NAME}" \
+              --arg declared_version "${declared_version}" \
+              --arg installed_version "${installed_version}" \
+              '{runtime_id:$runtime_id,runtime_image:$runtime_image,runtime_image_digest:$runtime_image_digest,runtime_dockerfile:env.RUNTIME_DOCKERFILE,cpu_architecture:$cpu_architecture,runner:$runner,declared_version:$declared_version,installed_version:$installed_version,headers_path:"/usr/local/include/mooncake",libraries_path:"/usr/local/lib"}' \
+              >out/mooncake-probe/result.json
+          fi
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ucm-mooncake-probe-${{ matrix.id }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: out/mooncake-probe/result.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
+
+  plan-builder-sync:
+    name: Plan physical Builder synchronization
+    needs: [prepare, discover-runtimes, probe-mooncake]
+    if: ${{ always() && needs.prepare.result == 'success' && needs.discover-runtimes.result == 'success' }}
+    runs-on: ubuntu-24.04
+    outputs:
+      builder_plan_artifact: ${{ steps.plan.outputs.builder_plan_artifact }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with: {python-version: "3.12"}
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.prepare.outputs.builder_catalog_artifact }}
+          path: input/builder-source
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.discover-runtimes.outputs.runtime_discovery_artifact }}
+          path: input/runtime-discovery
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: ucm-mooncake-probe-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: input/mooncake-probes
+          merge-multiple: true
+      - id: plan
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          PYTHONPATH=.github/release python -m ucm_release builders plan-facts \
+            --builder-catalog input/builder-source/builder-catalog.json \
+            --runtime-discovery input/runtime-discovery/runtime-discovery.json \
+            --mooncake-probes input/mooncake-probes \
+            --output out/builder-sync-plan.json >/dev/null
+          artifact="ucm-builder-plan-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          {
+            echo "matrix=$(jq -c '.matrix' out/builder-sync-plan.json)"
+            echo "builder_plan_artifact=${artifact}"
+          } >>"${GITHUB_OUTPUT}"
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.plan.outputs.builder_plan_artifact }}
+          path: out/builder-sync-plan.json
           if-no-files-found: error
           overwrite: false
           retention-days: 7
 
   build-missing:
     name: Builder · ${{ matrix.label }}
-    needs: prepare
-    if: ${{ needs.prepare.outputs.has_missing == 'true' }}
+    needs: plan-builder-sync
+    if: ${{ always() && needs.plan-builder-sync.result == 'success' }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
-    runs-on: ${{ matrix.cpu_arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+      matrix: ${{ fromJSON(needs.plan-builder-sync.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          persist-credentials: false
+        with: {persist-credentials: false}
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
       - name: Authenticate to GHCR
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
           printf '%s' "${GITHUB_TOKEN}" | docker login ghcr.io \
             --username "${GITHUB_ACTOR}" --password-stdin
-      - name: Build missing Builder
+      - id: build
+        name: Build missing Builder
         env:
           BUILD_MODE: ${{ matrix.build_mode }}
-          SOURCE_IMAGE: ${{ matrix.source_image }}
+          SOURCE_IMAGE: ${{ matrix.source_image_repository }}@${{ matrix.source_image_digest }}
           TARGET_REPOSITORY: ${{ matrix.target_repository }}
           TARGET_TAG: ${{ matrix.target_tag }}
+          RUNTIME_IMAGE: ${{ matrix.mooncake_source_runtime_image }}
+          RUNTIME_ID: ${{ matrix.mooncake_source_runtime_id }}
+          MOONCAKE_VERSION: ${{ matrix.mooncake_version }}
         run: |
           set -euo pipefail
           target="${TARGET_REPOSITORY}:${TARGET_TAG}"
           if docker buildx imagetools inspect "${target}" >/dev/null 2>&1; then
-            echo "Builder already exists: ${target}"
+            echo "status=existing" >>"${GITHUB_OUTPUT}"
             exit 0
           fi
           case "${BUILD_MODE}" in
-            mirror|copy)
-              docker buildx imagetools create --tag "${target}" "${SOURCE_IMAGE}"
-              ;;
+            mirror) docker buildx imagetools create --tag "${target}" "${SOURCE_IMAGE}" ;;
             extend)
-              mooncake_version="$(printf '%s' "${TARGET_TAG}" | sed -nE \
-                's/^.*-mooncake([0-9]+\.[0-9]+\.[0-9]+)-.*$/\1/p')"
-              test -n "${mooncake_version}"
-              mkdir -p context/tools
-              cp .github/release/docker/mooncake_installer.sh \
-                context/tools/mooncake_installer.sh
+              case "${RUNTIME_IMAGE}" in
+                *@sha256:*) ;;
+                *) exit 2 ;;
+              esac
               docker buildx build --push \
-                --platform "linux/${{ matrix.cpu_arch }}" \
+                --platform "linux/${{ matrix.cpu_architecture }}" \
                 --file .github/release/docker/Dockerfile.builder \
                 --build-arg "CANN_BASE=${SOURCE_IMAGE}" \
-                --build-arg "MOONCAKE_TAG=v${mooncake_version}" \
-                --tag "${target}" context
+                --build-arg "MOONCAKE_RUNTIME_IMAGE=${RUNTIME_IMAGE}" \
+                --tag "${target}" .
               ;;
-            *)
-              echo "unsupported Builder mode: ${BUILD_MODE}" >&2
-              exit 2
-              ;;
+            *) exit 2 ;;
           esac
-          docker buildx imagetools inspect "${target}" >/dev/null
+          echo "status=built" >>"${GITHUB_OUTPUT}"
+      - name: Seal Builder Result
+        if: ${{ always() }}
+        env:
+          BUILDER_PLAN_ID: ${{ matrix.builder_plan_id }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          BUILD_STATUS: ${{ steps.build.outputs.status }}
+          TARGET_REPOSITORY: ${{ matrix.target_repository }}
+          TARGET_TAG: ${{ matrix.target_tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p out/builder-result
+          target_digest=null; digest_readback=false; status=failed
+          if [ "${BUILD_OUTCOME}" = success ]; then
+            docker buildx imagetools inspect --format '{{json .Manifest.Digest}}' \
+              "${TARGET_REPOSITORY}:${TARGET_TAG}" >out/builder-result/digest.json
+            target_digest="$(tr -d '"' <out/builder-result/digest.json)"
+            digest_readback=true; status="${BUILD_STATUS}"
+          fi
+          jq -n --arg builder_plan_id "${BUILDER_PLAN_ID}" --arg status "${status}" \
+            --arg target_repository "${TARGET_REPOSITORY}" --arg target_tag "${TARGET_TAG}" \
+            --arg target_builder_digest "${target_digest}" --argjson digest_readback "${digest_readback}" \
+            --arg outcome "${BUILD_OUTCOME}" \
+            '{builder_plan_id:$builder_plan_id,status:$status,target_repository:$target_repository,target_tag:$target_tag,target_builder_digest:(if $target_builder_digest=="null" then null else $target_builder_digest end),digest_readback:$digest_readback,evidence:{phase:"build",outcome:$outcome}}' \
+            >out/builder-result/result.json
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ucm-builder-result-${{ matrix.id }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: out/builder-result/result.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
+
+  collect-builder-revisions:
+    name: Collect immutable Builder facts
+    needs: [plan-builder-sync, build-missing]
+    if: ${{ always() && needs.plan-builder-sync.result == 'success' }}
+    runs-on: ubuntu-24.04
+    outputs:
+      builder_facts_artifact: ${{ steps.collect.outputs.builder_facts_artifact }}
+      python_probe_matrix: ${{ steps.collect.outputs.python_probe_matrix }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with: {python-version: "3.12"}
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.plan-builder-sync.outputs.builder_plan_artifact }}
+          path: input/builder-plan
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: ucm-builder-result-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: input/builder-results
+          merge-multiple: true
+      - id: collect
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          PYTHONPATH=.github/release python -m ucm_release builders collect-facts \
+            --plan input/builder-plan/builder-sync-plan.json \
+            --results input/builder-results \
+            --output out/builder-facts.json >/dev/null
+          artifact="ucm-builder-facts-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          {
+            echo "builder_facts_artifact=${artifact}"
+            echo "python_probe_matrix=$(jq -c '.python_probe_matrix' out/builder-facts.json)"
+          } >>"${GITHUB_OUTPUT}"
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.collect.outputs.builder_facts_artifact }}
+          path: out/builder-facts.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
+
+  probe-python:
+    name: Python ABI probe · ${{ matrix.id }}
+    needs: collect-builder-revisions
+    if: ${{ always() && needs.collect-builder-revisions.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.collect-builder-revisions.outputs.python_probe_matrix) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Enumerate all Builder interpreters
+        env:
+          BUILDER_IMAGE: ${{ matrix.builder_image }}
+          BUILDER_FACT_ID: ${{ matrix.builder_fact_id }}
+          TARGET_BUILDER_DIGEST: ${{ matrix.target_builder_digest }}
+          CPU_ARCHITECTURE: ${{ matrix.cpu_architecture }}
+        run: |
+          set -euo pipefail
+          case "${BUILDER_IMAGE}" in
+            *@sha256:*) ;;
+            *) exit 2 ;;
+          esac
+          mkdir -p out/python-probe
+          docker run --rm -v "${PWD}/out/python-probe:/out" "${BUILDER_IMAGE}" \
+            bash -ceu '
+              for interpreter in /opt/python/cp*-cp*/bin/python; do
+                [ -x "${interpreter}" ] || continue
+                abi="$(basename "$(dirname "$(dirname "${interpreter}")")" | cut -d- -f1)"
+                version="$(${interpreter} -c "import platform; print(platform.python_version())")"
+                wheel_tag="$(${interpreter} -c "from packaging.tags import sys_tags; print(next(sys_tags()))")"
+                jq -n --arg interpreter_path "${interpreter}" --arg python_version "${version%.*}" \
+                  --arg python_abi "${abi}" --arg wheel_tag "${wheel_tag}" \
+                  "{interpreter_path:\$interpreter_path,python_version:\$python_version,python_abi:\$python_abi,wheel_tag:\$wheel_tag}" >>/out/probes.jsonl
+              done'
+          jq -s --arg builder_fact_id "${BUILDER_FACT_ID}" --arg builder_image "${BUILDER_IMAGE}" \
+            --arg target_builder_digest "${TARGET_BUILDER_DIGEST}" \
+            --arg cpu_architecture "${CPU_ARCHITECTURE}" --arg runner "${RUNNER_NAME}" \
+            '{probes:[.[] + {builder_fact_id:$builder_fact_id,builder_image:$builder_image,target_builder_digest:$target_builder_digest,cpu_architecture:$cpu_architecture,runner:$runner}]}' \
+            out/python-probe/probes.jsonl >out/python-probe/result.json
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ucm-python-probe-${{ matrix.id }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: out/python-probe/result.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
+
+  assemble-capability-catalog:
+    name: Assemble canonical Capability Catalog
+    needs:
+      [collect-builder-revisions, probe-python, discover-runtimes, probe-mooncake]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    outputs:
+      capability_catalog_artifact: ${{ steps.catalog.outputs.capability_catalog_artifact }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with: {python-version: "3.12"}
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.collect-builder-revisions.outputs.builder_facts_artifact }}
+          path: input/builders
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: ucm-python-probe-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: input/python-probes
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.discover-runtimes.outputs.runtime_discovery_artifact }}
+          path: input/runtime-discovery
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: ucm-mooncake-probe-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: input/mooncake-probes
+          merge-multiple: true
+      - id: catalog
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          PYTHONPATH=.github/release python -m ucm_release catalog assemble-capabilities \
+            --builder-facts input/builders/builder-facts.json \
+            --python-probes input/python-probes \
+            --runtime-discovery input/runtime-discovery/runtime-discovery.json \
+            --mooncake-probes input/mooncake-probes \
+            --output out/capability-catalog.json >/dev/null
+          artifact="ucm-capability-catalog-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          echo "capability_catalog_artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.catalog.outputs.capability_catalog_artifact }}
+          path: out/capability-catalog.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7

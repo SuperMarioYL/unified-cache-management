@@ -137,6 +137,92 @@ EXCLUSION_FIELDS = frozenset(
         "evidence",
     }
 )
+BUILDER_SYNC_FIELDS = frozenset(
+    {"mode", "target_digests_verified", "deletions"}
+)
+BUILDER_FACT_FIELDS = frozenset(
+    {
+        "builder_fact_id",
+        "project",
+        "accelerator",
+        "accelerator_runtime",
+        "variant",
+        "cpu_architecture",
+        "manylinux",
+        "source_kind",
+        "source_path",
+        "source_image_repository",
+        "source_image_tag",
+        "source_image_digest",
+        "recipe_path",
+        "recipe_source_commit",
+        "recipe_sha256",
+        "toolchain_sha256",
+        "target_repository",
+        "target_tag",
+        "target_builder_digest",
+        "mooncake_source_runtime_id",
+        "mooncake_source_runtime_image",
+        "mooncake_version",
+    }
+)
+BUILDER_FACT_IDENTITY_FIELDS = (
+    "accelerator",
+    "accelerator_runtime",
+    "variant",
+    "cpu_architecture",
+    "manylinux",
+    "source_image_repository",
+    "source_image_digest",
+    "recipe_path",
+    "recipe_source_commit",
+    "recipe_sha256",
+    "toolchain_sha256",
+    "target_repository",
+    "target_tag",
+    "target_builder_digest",
+    "mooncake_source_runtime_id",
+    "mooncake_source_runtime_image",
+    "mooncake_version",
+)
+PYTHON_PROBE_FIELDS = frozenset(
+    {
+        "builder_fact_id",
+        "builder_image",
+        "target_builder_digest",
+        "cpu_architecture",
+        "runner",
+        "interpreter_path",
+        "python_version",
+        "python_abi",
+        "wheel_tag",
+    }
+)
+BUILDER_FAILURE_FIELDS = frozenset(
+    {
+        "builder_plan_id",
+        "status",
+        "reason_code",
+        "source_kind",
+        "source_id",
+        "target_repository",
+        "target_tag",
+        "target_builder_digest",
+        "digest_readback",
+        "evidence",
+    }
+)
+MOONCAKE_PROBE_FIELDS = frozenset(
+    {
+        "runtime_image_digest",
+        "cpu_architecture",
+        "runner",
+        "declared_version",
+        "installed_version",
+        "headers_path",
+        "libraries_path",
+    }
+)
 
 _CAPABILITY_IDENTITY_FIELDS = (
     "accelerator",
@@ -398,6 +484,78 @@ def _runtime_record(raw: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
+def _validate_builder_sync(value: object) -> dict[str, Any]:
+    sync = _mapping(value, "builder_sync")
+    _exact_fields(sync, BUILDER_SYNC_FIELDS, "builder_sync")
+    if sync["mode"] != "append-only":
+        raise ValueError("builder_sync mode must be append-only")
+    if sync["target_digests_verified"] is not True:
+        raise ValueError("builder_sync target digests must be verified")
+    if sync["deletions"] != []:
+        raise ValueError("builder_sync must not delete Builder revisions")
+    return sync
+
+
+def _validate_builder_fact(value: object, label: str) -> dict[str, Any]:
+    fact = _mapping(value, label)
+    _exact_fields(fact, BUILDER_FACT_FIELDS, label)
+    fact_id = _digest(fact["builder_fact_id"], f"{label} ID")
+    for field in (
+        "project",
+        "accelerator",
+        "accelerator_runtime",
+        "variant",
+        "cpu_architecture",
+        "manylinux",
+        "source_kind",
+        "source_path",
+        "source_image_repository",
+        "source_image_tag",
+        "recipe_path",
+        "target_repository",
+        "target_tag",
+    ):
+        _string(fact[field], f"{label} {field}")
+    compact_accelerator_runtime(fact["accelerator_runtime"])
+    if normalize_variant(fact["variant"]) != fact["variant"]:
+        raise ValueError(f"{label} variant is not canonical")
+    if fact["accelerator"] not in {"cuda", "ascend"}:
+        raise ValueError(f"{label} accelerator is unsupported")
+    if fact["cpu_architecture"] not in {"amd64", "arm64"}:
+        raise ValueError(f"{label} architecture is unsupported")
+    if _MANYLINUX.fullmatch(fact["manylinux"]) is None:
+        raise ValueError(f"{label} manylinux is invalid")
+    _digest(fact["source_image_digest"], f"{label} source digest")
+    _commit(fact["recipe_source_commit"], f"{label} recipe commit")
+    _digest(fact["recipe_sha256"], f"{label} recipe digest")
+    _digest(fact["toolchain_sha256"], f"{label} toolchain digest")
+    _digest(fact["target_builder_digest"], f"{label} target digest")
+    if fact_id != _canonical_digest(
+        _identity(fact, BUILDER_FACT_IDENTITY_FIELDS)
+    ):
+        raise ValueError(f"{label} ID is not canonical")
+    if fact["accelerator"] == "cuda":
+        if any(
+            fact[field] is not None
+            for field in (
+                "mooncake_source_runtime_id",
+                "mooncake_source_runtime_image",
+                "mooncake_version",
+            )
+        ):
+            raise ValueError(f"{label} CUDA Mooncake provenance must be null")
+    else:
+        _digest(
+            fact["mooncake_source_runtime_id"], f"{label} Mooncake runtime ID"
+        )
+        _string(
+            fact["mooncake_source_runtime_image"],
+            f"{label} Mooncake runtime image",
+        )
+        compact_mooncake_version(fact["mooncake_version"])
+    return fact
+
+
 def assemble_capability_catalog(
     *,
     builder_discovery: object,
@@ -441,17 +599,42 @@ def assemble_capability_catalog(
         runtime_by_id.values(), key=lambda item: item["runtime_id"]
     )
 
-    probes_by_builder: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    facts_by_id: dict[str, dict[str, Any]] = {}
+    for index, raw_value in enumerate(
+        _array(builders_input.get("builder_facts"), "Builder facts")
+    ):
+        fact = _validate_builder_fact(raw_value, f"Builder facts[{index}]")
+        fact_id = fact["builder_fact_id"]
+        previous = facts_by_id.get(fact_id)
+        if previous is not None and previous != fact:
+            raise ValueError(f"conflicting Builder fact {fact_id}")
+        facts_by_id[fact_id] = fact
+
+    probes_by_fact: dict[str, list[dict[str, Any]]] = {}
+    probes_by_coordinate: dict[tuple[str, str], dict[str, Any]] = {}
     for index, raw_value in enumerate(
         _array(python_input.get("probes"), "Python probes")
     ):
         probe = _mapping(raw_value, f"Python probes[{index}]")
+        _exact_fields(probe, PYTHON_PROBE_FIELDS, f"Python probes[{index}]")
+        fact_id = _digest(probe.get("builder_fact_id"), "Python probe Builder ID")
+        fact = facts_by_id.get(fact_id)
+        if fact is None:
+            raise ValueError("Python probe references an unknown Builder fact")
         digest = _digest(
-            probe.get("builder_source_image_digest"), "Python probe Builder digest"
+            probe.get("target_builder_digest"), "Python probe target digest"
         )
+        if digest != fact["target_builder_digest"]:
+            raise ValueError("Python probe target digest differs from Builder fact")
+        expected_image = f"{fact['target_repository']}@{digest}"
+        if probe.get("builder_image") != expected_image:
+            raise ValueError("Python probe target image differs from Builder fact")
         architecture = _string(
             probe.get("cpu_architecture"), "Python probe cpu_architecture"
         )
+        if architecture != fact["cpu_architecture"]:
+            raise ValueError("Python probe architecture differs from Builder fact")
+        _string(probe.get("runner"), "Python probe runner")
         abi = _string(probe.get("python_abi"), "Python probe python_abi")
         version = _string(probe.get("python_version"), "Python probe python_version")
         if python_version_from_abi(abi) != version:
@@ -464,13 +647,19 @@ def assemble_capability_catalog(
             raise ValueError("Python probe path and ABI differ")
         if not wheel_tag.startswith(f"{abi}-{abi}-"):
             raise ValueError("Python probe wheel tag and ABI differ")
-        probes_by_builder.setdefault((digest, architecture), []).append(probe)
+        coordinate = (fact_id, interpreter)
+        previous = probes_by_coordinate.get(coordinate)
+        if previous is not None and previous != probe:
+            raise ValueError("conflicting Python probe for one Builder interpreter")
+        probes_by_coordinate[coordinate] = probe
+        probes_by_fact.setdefault(fact_id, []).append(probe)
 
     mooncake_by_runtime: dict[tuple[str, str], dict[str, Any]] = {}
     for index, raw_value in enumerate(
         _array(mooncake_input.get("probes"), "Mooncake probes")
     ):
         probe = _mapping(raw_value, f"Mooncake probes[{index}]")
+        _exact_fields(probe, MOONCAKE_PROBE_FIELDS, f"Mooncake probes[{index}]")
         key = (
             _digest(probe.get("runtime_image_digest"), "Mooncake runtime digest"),
             _string(probe.get("cpu_architecture"), "Mooncake probe cpu_architecture"),
@@ -481,8 +670,9 @@ def assemble_capability_catalog(
 
     capability_by_id: dict[str, dict[str, Any]] = {}
     revision_by_id: dict[str, dict[str, Any]] = {}
+    fact_by_revision_id: dict[str, dict[str, Any]] = {}
     for index, raw_value in enumerate(
-        _array(builders_input.get("builders"), "discovered builders")
+        _array(builders_input.get("builders", []), "discovered builders")
     ):
         builder = _mapping(raw_value, f"discovered builders[{index}]")
         variant = normalize_variant(builder.get("variant"))
@@ -499,35 +689,73 @@ def assemble_capability_catalog(
                     evidence={"variant": "310p"},
                 )
             )
-            continue
-        architecture = _string(
-            builder.get("cpu_architecture"), "Builder cpu_architecture"
+    for raw_failure in _array(builders_input.get("failures", []), "Builder failures"):
+        failure = _mapping(raw_failure, "Builder failure")
+        _exact_fields(failure, BUILDER_FAILURE_FIELDS, "Builder failure")
+        if failure["status"] != "failed" or failure["reason_code"] != (
+            "builder-sync-failed"
+        ):
+            raise ValueError("Builder failure status/reason is invalid")
+        if failure["target_builder_digest"] is not None:
+            raise ValueError("Failed Builder must not claim a target digest")
+        if failure["digest_readback"] is not False:
+            raise ValueError("Failed Builder must record failed digest readback")
+        exclusions.append(
+            _exclusion(
+                reason_code="builder-sync-failed",
+                source_kind=_string(
+                    failure["source_kind"], "Builder failure source_kind"
+                ),
+                source_id=_string(
+                    failure["source_id"], "Builder failure source_id"
+                ),
+                evidence={
+                    "builder_plan_id": _digest(
+                        failure["builder_plan_id"], "Builder failure plan ID"
+                    ),
+                    "status": "failed",
+                    "target_repository": _string(
+                        failure["target_repository"],
+                        "Builder failure target repository",
+                    ),
+                    "target_tag": _string(
+                        failure["target_tag"], "Builder failure target tag"
+                    ),
+                    "target_builder_digest": None,
+                    "digest_readback": False,
+                    "failure": copy.deepcopy(
+                        _mapping(failure["evidence"], "Builder failure evidence")
+                    ),
+                },
+            )
         )
-        source_digest = _digest(
-            builder.get("source_image_digest"), "Builder source image digest"
-        )
-        probes = probes_by_builder.get((source_digest, architecture))
+
+    for fact_id, fact in facts_by_id.items():
+        builder = fact
+        variant = fact["variant"]
+        architecture = fact["cpu_architecture"]
+        source_digest = fact["source_image_digest"]
+        probes = probes_by_fact.get(fact_id)
         if not probes:
             raise ValueError("Builder has no matching native Python probe")
-        accelerator = _string(builder.get("accelerator"), "Builder accelerator")
-        accelerator_runtime = _string(
-            builder.get("accelerator_runtime"), "Builder accelerator_runtime"
-        )
-        matching_runtimes = [
-            runtime
-            for runtime in runtime_candidates
-            if runtime["accelerator"] == accelerator
-            and runtime["accelerator_runtime"] == accelerator_runtime
-            and runtime["variant"] == variant
-            and runtime["cpu_architecture"] == architecture
-        ]
-        if accelerator == "ascend" and not matching_runtimes:
-            raise ValueError("Ascend Builder has no matching runtime candidate")
-        mooncake_versions = (
-            {runtime["mooncake_version"] for runtime in matching_runtimes}
-            if accelerator == "ascend"
-            else {None}
-        )
+        accelerator = fact["accelerator"]
+        accelerator_runtime = fact["accelerator_runtime"]
+        if accelerator == "ascend":
+            runtime = runtime_by_id.get(fact["mooncake_source_runtime_id"])
+            if runtime is None:
+                raise ValueError("Ascend Builder fact references an unknown runtime")
+            if fact["mooncake_source_runtime_image"] != runtime["runtime_image"]:
+                raise ValueError("Ascend Builder fact runtime image differs")
+            if fact["mooncake_version"] != runtime["mooncake_version"]:
+                raise ValueError("Ascend Builder fact Mooncake version differs")
+            runtime_digest = runtime["runtime_image"].rsplit("@", 1)[1]
+            probe = mooncake_by_runtime.get((runtime_digest, architecture))
+            if probe is None or not (
+                probe["declared_version"]
+                == probe["installed_version"]
+                == fact["mooncake_version"]
+            ):
+                raise ValueError("Ascend Builder fact lacks verified copy provenance")
         for probe in probes:
             python_version = _string(
                 probe.get("python_version"), "Python probe python_version"
@@ -538,7 +766,7 @@ def assemble_capability_catalog(
                     _exclusion(
                         reason_code="python-requires-mismatch",
                         source_kind="python-probe",
-                        source_id=f"{source_digest}:{probe['interpreter_path']}",
+                        source_id=f"{fact_id}:{probe['interpreter_path']}",
                         evidence={
                             "python_abi": python_abi,
                             "python_requires": python_requires,
@@ -546,7 +774,7 @@ def assemble_capability_catalog(
                     )
                 )
                 continue
-            for mooncake_version in mooncake_versions:
+            for mooncake_version in {fact["mooncake_version"]}:
                 capability = {
                     "builder_capability_id": "",
                     "accelerator": accelerator,
@@ -608,6 +836,7 @@ def assemble_capability_catalog(
                         f"{revision['builder_revision_id']}"
                     )
                 revision_by_id[revision["builder_revision_id"]] = revision
+                fact_by_revision_id[revision["builder_revision_id"]] = fact
                 existing = capability_by_id.get(capability["builder_capability_id"])
                 if existing is None:
                     existing = capability
@@ -650,27 +879,42 @@ def assemble_capability_catalog(
                     )
             for revision_id in capability["builder_revision_ids"]:
                 revision = revision_by_id[revision_id]
+                fact = fact_by_revision_id[revision_id]
+                if capability["accelerator"] == "ascend" and runtime[
+                    "runtime_id"
+                ] != fact["mooncake_source_runtime_id"]:
+                    if mooncake_probe is not None and (
+                        mooncake_probe.get("installed_version")
+                        != mooncake_probe.get("declared_version")
+                    ):
+                        exclusions.append(
+                            _exclusion(
+                                reason_code="mooncake-version-mismatch",
+                                source_kind="mooncake-probe",
+                                source_id=runtime["runtime_image"],
+                                builder_capability_id=capability[
+                                    "builder_capability_id"
+                                ],
+                                builder_revision_id=revision_id,
+                                runtime_id=runtime["runtime_id"],
+                                evidence={
+                                    "declared_version": mooncake_probe[
+                                        "declared_version"
+                                    ],
+                                    "installed_version": mooncake_probe[
+                                        "installed_version"
+                                    ],
+                                },
+                            )
+                        )
+                    continue
                 if mooncake_probe is not None and (
                     mooncake_probe.get("installed_version")
                     != mooncake_probe.get("declared_version")
                 ):
-                    exclusions.append(
-                        _exclusion(
-                            reason_code="mooncake-version-mismatch",
-                            source_kind="mooncake-probe",
-                            source_id=runtime["runtime_image"],
-                            builder_capability_id=capability["builder_capability_id"],
-                            builder_revision_id=revision_id,
-                            runtime_id=runtime["runtime_id"],
-                            evidence={
-                                "declared_version": mooncake_probe["declared_version"],
-                                "installed_version": mooncake_probe[
-                                    "installed_version"
-                                ],
-                            },
-                        )
+                    raise ValueError(
+                        "Builder fact names an unverified Mooncake runtime"
                     )
-                    continue
                 binding = {
                     "builder_capability_id": capability["builder_capability_id"],
                     "builder_revision_id": revision_id,
@@ -714,7 +958,7 @@ def assemble_capability_catalog(
         "source_sha": source_sha,
         "upstream_reads": upstream_reads,
         "builder_sync": copy.deepcopy(
-            _mapping(builders_input.get("builder_sync"), "builder_sync")
+            _validate_builder_sync(builders_input.get("builder_sync"))
         ),
         "builder_capabilities": builder_capabilities,
         "builder_revisions": builder_revisions,
@@ -762,7 +1006,7 @@ def validate_capability_catalog(value: object) -> dict[str, Any]:
         raise ValueError("Capability Catalog schema_version must be 3")
     _commit(catalog["source_sha"], "Capability Catalog source_sha")
     _array(catalog["upstream_reads"], "Capability Catalog upstream_reads")
-    _mapping(catalog["builder_sync"], "Capability Catalog builder_sync")
+    _validate_builder_sync(catalog["builder_sync"])
     catalog_digest = _digest(catalog["catalog_sha256"], "Catalog digest")
     projection = {key: item for key, item in catalog.items() if key != "catalog_sha256"}
     if catalog_digest != _canonical_digest(projection):
@@ -999,7 +1243,11 @@ def validate_capability_catalog(value: object) -> dict[str, Any]:
                 _digest(reference, f"Exclusion {label} ID")
                 if reference not in known:
                     raise ValueError(f"Exclusion references an unknown {label}")
-        if reason in {"python-requires-mismatch", "variant-filtered-310p"}:
+        if reason in {
+            "python-requires-mismatch",
+            "variant-filtered-310p",
+            "builder-sync-failed",
+        }:
             if any(
                 item is not None for item in (capability_id, revision_id, runtime_id)
             ):

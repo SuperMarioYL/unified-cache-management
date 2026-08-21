@@ -8,7 +8,7 @@ from pathlib import Path
 
 import yaml
 
-from . import builders, compact, core, registry, wheel
+from . import builders, capabilities, compact, core, registry, wheel
 
 catalog_resolution = registry
 
@@ -28,6 +28,85 @@ def _write(path: Path, value: object) -> None:
     path.write_bytes(core.canonical_bytes(value) + b"\n")
 
 
+def _load_result_records(path: Path, key: str, kind: str) -> dict[str, object]:
+    paths = [path] if path.is_file() else sorted(path.rglob("result.json"))
+    records: list[object] = []
+    for item_path in paths:
+        value = core.load_json(item_path)
+        nested = value.get(key)
+        if isinstance(nested, list):
+            records.extend(nested)
+        else:
+            records.append(value)
+    return {"kind": kind, "schema_version": 3, key: records}
+
+
+def _load_mooncake_probes(path: Path) -> dict[str, object]:
+    collected = _load_result_records(
+        path, "probes", "ucm-runtime-mooncake-probes"
+    )
+    raw_probes = collected.get("probes")
+    if not isinstance(raw_probes, list):
+        raise ValueError("Mooncake probe collection must contain probes")
+    probes = []
+    for raw in raw_probes:
+        if not isinstance(raw, dict):
+            raise ValueError("Mooncake probe Result must be an object")
+        probes.append(
+            {
+                field: raw[field]
+                for field in capabilities.MOONCAKE_PROBE_FIELDS
+            }
+        )
+    collected["probes"] = probes
+    return collected
+
+
+def _builder_catalog_projection(value: object) -> dict[str, object]:
+    catalog = capabilities.validate_capability_catalog(value)
+    revisions = {
+        item["builder_revision_id"]: item for item in catalog["builder_revisions"]
+    }
+    builders_by_coordinate: dict[tuple[str, ...], dict[str, str]] = {}
+    for capability in catalog["builder_capabilities"]:
+        revision = revisions[capability["builder_revision_ids"][-1]]
+        accelerator = capability["accelerator"]
+        builder = {
+            "project": (
+                "vllm-project/vllm"
+                if accelerator == "cuda"
+                else "vllm-project/vllm-ascend"
+            ),
+            "accelerator": accelerator,
+            "accelerator_runtime": capability["accelerator_runtime"],
+            "variant": capability["variant"],
+            "python_abi": capability["python_abi"],
+            "manylinux": capability["manylinux"],
+            "cpu_arch": capability["cpu_architecture"],
+            "source_image": f"{revision['source_image_repository']}:catalog-source",
+            "target_repository": revision["target_repository"],
+            "target_tag": revision["target_tag"],
+            "build_mode": "mirror" if accelerator == "cuda" else "extend",
+        }
+        coordinate = tuple(
+            builder[field]
+            for field in (
+                "accelerator",
+                "accelerator_runtime",
+                "variant",
+                "python_abi",
+                "manylinux",
+                "cpu_arch",
+            )
+        )
+        builders_by_coordinate[coordinate] = builder
+    return {
+        "kind": "ucm-builder-catalog",
+        "schema_version": 1,
+        "builders": [builders_by_coordinate[key] for key in sorted(builders_by_coordinate)],
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m ucm_release")
     groups = parser.add_subparsers(dest="group", required=True)
@@ -39,11 +118,15 @@ def build_parser() -> argparse.ArgumentParser:
     builders_discover.add_argument("--config", type=Path, default=builders.DEFAULT_CONFIG)
     builders_discover.add_argument("--snapshot", "--snapshot-dir", dest="snapshot", type=Path)
     builders_discover.add_argument("--owner")
+    builders_discover.add_argument("--source-only", action="store_true")
     builders_discover.add_argument("--output", type=Path, required=True)
 
     def _cmd_builders_discover(a):
         result = builders.discover_builders(
-            a.config, snapshot_dir=a.snapshot, owner=a.owner
+            a.config,
+            snapshot_dir=a.snapshot,
+            owner=a.owner,
+            source_only=a.source_only,
         )
         a.output.parent.mkdir(parents=True, exist_ok=True)
         _write(a.output, result)
@@ -68,6 +151,40 @@ def build_parser() -> argparse.ArgumentParser:
 
     builders_sync_plan.set_defaults(func=_cmd_builders_sync_plan)
 
+    builders_plan_facts = builders_actions.add_parser("plan-facts")
+    builders_plan_facts.add_argument("--builder-catalog", type=Path, required=True)
+    builders_plan_facts.add_argument("--runtime-discovery", type=Path, required=True)
+    builders_plan_facts.add_argument("--mooncake-probes", type=Path, required=True)
+    builders_plan_facts.add_argument("--output", type=Path, required=True)
+
+    def _cmd_builders_plan_facts(a):
+        result = builders.plan_builder_facts(
+            core.load_json(a.builder_catalog),
+            core.load_json(a.runtime_discovery),
+            _load_mooncake_probes(a.mooncake_probes),
+        )
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.output, result)
+        return result
+
+    builders_plan_facts.set_defaults(func=_cmd_builders_plan_facts)
+
+    builders_collect_facts = builders_actions.add_parser("collect-facts")
+    builders_collect_facts.add_argument("--plan", type=Path, required=True)
+    builders_collect_facts.add_argument("--results", type=Path, required=True)
+    builders_collect_facts.add_argument("--output", type=Path, required=True)
+
+    def _cmd_builders_collect_facts(a):
+        result = builders.collect_builder_facts(
+            core.load_json(a.plan),
+            _load_result_records(a.results, "results", "ucm-builder-results"),
+        )
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.output, result)
+        return result
+
+    builders_collect_facts.set_defaults(func=_cmd_builders_collect_facts)
+
     builders_select = builders_actions.add_parser("select")
     builders_select.add_argument("--catalog", type=Path, required=True)
     builders_select.add_argument("--release", type=Path, default=builders.DEFAULT_RELEASE)
@@ -89,15 +206,22 @@ def build_parser() -> argparse.ArgumentParser:
     compact_plan = compact_actions.add_parser("plan")
     compact_plan.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
     compact_plan.add_argument("--schema-dir", type=Path, default=core.DEFAULT_SCHEMA_DIR)
-    compact_plan.add_argument("--builder-catalog", type=Path, required=True)
+    compact_catalog = compact_plan.add_mutually_exclusive_group(required=True)
+    compact_catalog.add_argument("--builder-catalog", type=Path)
+    compact_catalog.add_argument("--capability-catalog", type=Path)
     compact_plan.add_argument("--route", choices=tuple(sorted(compact.ROUTES)), required=True)
     compact_plan.add_argument("--pin-upstream", action="append", default=None)
     compact_plan.add_argument("--output", type=Path, required=True)
 
     def _cmd_compact_plan(a):
+        builder_catalog = (
+            _builder_catalog_projection(core.load_json(a.capability_catalog))
+            if a.capability_catalog is not None
+            else core.load_json(a.builder_catalog)
+        )
         result = compact.resolve_plan(
             core.load_catalog(a.catalog, a.schema_dir),
-            builder_catalog=core.load_json(a.builder_catalog),
+            builder_catalog=builder_catalog,
             route=a.route,
             pinned_upstreams=a.pin_upstream,
         )
@@ -136,6 +260,30 @@ def build_parser() -> argparse.ArgumentParser:
 
     catalog_parser = groups.add_parser("catalog")
     catalog_actions = catalog_parser.add_subparsers(dest="action", required=True)
+    assemble_capabilities = catalog_actions.add_parser("assemble-capabilities")
+    assemble_capabilities.add_argument("--builder-facts", type=Path, required=True)
+    assemble_capabilities.add_argument("--python-probes", type=Path, required=True)
+    assemble_capabilities.add_argument("--runtime-discovery", type=Path, required=True)
+    assemble_capabilities.add_argument("--mooncake-probes", type=Path, required=True)
+    assemble_capabilities.add_argument("--output", type=Path, required=True)
+
+    def _cmd_assemble_capabilities(a):
+        release = core.load_catalog()
+        result = capabilities.assemble_capability_catalog(
+            builder_discovery=core.load_json(a.builder_facts),
+            python_probes=_load_result_records(
+                a.python_probes, "probes", "ucm-builder-python-probes"
+            ),
+            runtime_discovery=core.load_json(a.runtime_discovery),
+            mooncake_probes=_load_mooncake_probes(a.mooncake_probes),
+            python_requires=release["discovery"]["python_requires"],
+        )
+        capabilities.validate_capability_catalog(result)
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.output, result)
+        return result
+
+    assemble_capabilities.set_defaults(func=_cmd_assemble_capabilities)
     catalog_validate = catalog_actions.add_parser("validate")
     catalog_validate.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
     catalog_validate.add_argument('--schema-dir', type=Path, default=core.DEFAULT_SCHEMA_DIR)  # fmt: skip  # noqa: E501

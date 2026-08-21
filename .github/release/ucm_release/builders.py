@@ -12,7 +12,7 @@ import urllib.request
 from pathlib import Path
 from typing import Iterable
 
-from . import core
+from . import capabilities, core
 
 RELEASE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = RELEASE_ROOT / "builders.yaml"
@@ -43,6 +43,145 @@ _IDENTITY_FIELDS = (
     *CAPABILITY_FIELDS,
     "target_repository",
 )
+
+BUILDER_FACT_PLAN_FIELDS = frozenset(
+    {"kind", "schema_version", "source_sha", "builder_plans", "failures", "matrix"}
+)
+BUILDER_PLAN_FIELDS = frozenset(
+    {
+        "builder_plan_id",
+        "project",
+        "accelerator",
+        "accelerator_runtime",
+        "variant",
+        "cpu_architecture",
+        "manylinux",
+        "source_kind",
+        "source_path",
+        "source_image_repository",
+        "source_image_tag",
+        "source_image_digest",
+        "recipe_path",
+        "recipe_source_commit",
+        "recipe_sha256",
+        "toolchain_sha256",
+        "target_repository",
+        "target_tag",
+        "build_mode",
+        "runner",
+        "mooncake_source_runtime_id",
+        "mooncake_source_runtime_image",
+        "mooncake_version",
+    }
+)
+BUILDER_PLAN_IDENTITY_FIELDS = (
+    "accelerator",
+    "accelerator_runtime",
+    "variant",
+    "cpu_architecture",
+    "manylinux",
+    "source_image_repository",
+    "source_image_digest",
+    "recipe_path",
+    "recipe_source_commit",
+    "recipe_sha256",
+    "toolchain_sha256",
+    "target_repository",
+    "target_tag",
+    "mooncake_source_runtime_id",
+    "mooncake_source_runtime_image",
+    "mooncake_version",
+)
+BUILDER_PLAN_FAILURE_FIELDS = frozenset(
+    {
+        "reason_code",
+        "source_kind",
+        "source_id",
+        "builder_plan_id",
+        "runtime_id",
+        "evidence",
+    }
+)
+BUILDER_RESULT_FIELDS = frozenset(
+    {
+        "builder_plan_id",
+        "status",
+        "target_repository",
+        "target_tag",
+        "target_builder_digest",
+        "digest_readback",
+        "evidence",
+    }
+)
+COLLECTED_BUILDER_FACT_FIELDS = frozenset(
+    {
+        "kind",
+        "schema_version",
+        "source_sha",
+        "builder_sync",
+        "builder_facts",
+        "failures",
+        "python_probe_matrix",
+    }
+)
+COLLECTED_FAILURE_FIELDS = frozenset(
+    {
+        "builder_plan_id",
+        "status",
+        "reason_code",
+        "source_kind",
+        "source_id",
+        "target_repository",
+        "target_tag",
+        "target_builder_digest",
+        "digest_readback",
+        "evidence",
+    }
+)
+PROBE_MATRIX_ROW_FIELDS = frozenset(
+    {
+        "id",
+        "builder_fact_id",
+        "builder_image",
+        "target_builder_digest",
+        "runner",
+        "cpu_architecture",
+    }
+)
+_SOURCE_BUILDER_FIELDS = frozenset(
+    {
+        "project",
+        "accelerator",
+        "accelerator_runtime",
+        "variant",
+        "cpu_architecture",
+        "manylinux",
+        "source_kind",
+        "source_path",
+        "source_image_repository",
+        "source_image_tag",
+        "source_image_digest",
+        "recipe_path",
+        "recipe_source_commit",
+        "recipe_sha256",
+        "toolchain_sha256",
+        "target_repository",
+        "target_tag",
+    }
+)
+_MOONCAKE_PROBE_FIELDS = frozenset(
+    {
+        "runtime_image_digest",
+        "cpu_architecture",
+        "runner",
+        "declared_version",
+        "installed_version",
+        "headers_path",
+        "libraries_path",
+    }
+)
+_ASCEND_TARGET_SEPARATOR = "-rt-"
+_ASCEND_TARGET_PREFIX_BUDGET = 60
 
 
 def _read_yaml(path: Path) -> object:
@@ -82,7 +221,9 @@ def _require_string(mapping: dict[str, object], key: str, context: str) -> str:
     return value
 
 
-def load_config(path: Path = DEFAULT_CONFIG) -> dict[str, object]:
+def load_config(
+    path: Path = DEFAULT_CONFIG, *, require_legacy_mooncake: bool = True
+) -> dict[str, object]:
     """Load and structurally validate the sole builder discovery config."""
     config = _require_mapping(_read_yaml(path), str(path))
     if config.get("kind") != "builder-discovery-config":
@@ -121,31 +262,33 @@ def load_config(path: Path = DEFAULT_CONFIG) -> dict[str, object]:
             excluded = project.get("exclude_variants")
             if excluded != ["310p"]:
                 raise ValueError(f"{context}: exclude_variants must contain only 310p")
-            _require_string(project, "mooncake_version", context)
+            if require_legacy_mooncake:
+                _require_string(project, "mooncake_version", context)
     if discoveries != {"vllm-buildkite", "vllm-ascend-dockerfiles"}:
         raise ValueError(f"{path}: vLLM and vLLM-Ascend discovery are both required")
-    retained = config.get("retained_builders")
-    if not isinstance(retained, list) or not retained:
-        raise ValueError(f"{path}: retained_builders must be a non-empty list")
-    for index, raw in enumerate(retained):
-        context = f"{path}: retained_builders[{index}]"
-        item = _require_mapping(raw, context)
-        for key in (
-            "project",
-            "accelerator",
-            "accelerator_runtime",
-            "variant",
-            "python_abi",
-            "manylinux",
-            "cpu_arch",
-            "source_image",
-            "target_repository",
-            "build_mode",
-            "mooncake_version",
-        ):
-            _require_string(item, key, context)
-        if item["build_mode"] != "copy":
-            raise ValueError(f"{context}: retained build_mode must be copy")
+    if require_legacy_mooncake:
+        retained = config.get("retained_builders")
+        if not isinstance(retained, list) or not retained:
+            raise ValueError(f"{path}: retained_builders must be a non-empty list")
+        for index, raw in enumerate(retained):
+            context = f"{path}: retained_builders[{index}]"
+            item = _require_mapping(raw, context)
+            for key in (
+                "project",
+                "accelerator",
+                "accelerator_runtime",
+                "variant",
+                "python_abi",
+                "manylinux",
+                "cpu_arch",
+                "source_image",
+                "target_repository",
+                "build_mode",
+                "mooncake_version",
+            ):
+                _require_string(item, key, context)
+            if item["build_mode"] != "copy":
+                raise ValueError(f"{context}: retained build_mode must be copy")
     return config
 
 
@@ -516,12 +659,21 @@ def _parse_ascend_dockerfile(text: str, context: str) -> tuple[str, str, str]:
 
 
 def _discover_ascend(
-    project: dict[str, object], source: object, owner: str
+    project: dict[str, object],
+    source: object,
+    owner: str,
+    *,
+    include_mooncake_tag: bool = True,
+    apply_variant_exclusions: bool = True,
 ) -> list[dict[str, str]]:
     project_name = str(project["project"])
     directory = str(project["dockerfile_directory"])
     prefix = str(project["dockerfile_prefix"])
-    excluded = set(project["exclude_variants"])  # type: ignore[arg-type]
+    excluded = (
+        set(project["exclude_variants"])  # type: ignore[arg-type]
+        if apply_variant_exclusions
+        else set()
+    )
     filenames = source.list(directory, prefix)  # type: ignore[attr-defined]
     if not filenames:
         raise ValueError(f"{project_name}/{directory}: missing {prefix}* matrix")
@@ -553,7 +705,9 @@ def _discover_ascend(
                         ),
                         "build_mode": str(project["build_mode"]),
                     },
-                    str(project["mooncake_version"]),
+                    str(project["mooncake_version"])
+                    if include_mooncake_tag
+                    else None,
                 )
             )
     return items
@@ -597,9 +751,12 @@ def discover_builders(
     *,
     snapshot_dir: Path | None = None,
     owner: str | None = None,
+    source_only: bool = False,
 ) -> dict[str, object]:
     """Discover current upstream builders and append explicit retained builders."""
-    config = load_config(config_path)
+    config = load_config(
+        config_path, require_legacy_mooncake=not source_only
+    )
     resolved_owner = _owner(owner)
     discovered: list[dict[str, str]] = []
     for raw in config["projects"]:  # type: ignore[union-attr]
@@ -613,8 +770,17 @@ def discover_builders(
         if project["discovery"] == "vllm-buildkite":
             discovered.extend(_discover_vllm(project, source, resolved_owner))
         else:
-            discovered.extend(_discover_ascend(project, source, resolved_owner))
-    discovered.extend(_retained_items(config, resolved_owner))
+            discovered.extend(
+                _discover_ascend(
+                    project,
+                    source,
+                    resolved_owner,
+                    include_mooncake_tag=not source_only,
+                    apply_variant_exclusions=not source_only,
+                )
+            )
+    if not source_only:
+        discovered.extend(_retained_items(config, resolved_owner))
     return {
         "kind": "ucm-builder-catalog",
         "schema_version": 1,
@@ -679,6 +845,343 @@ def compute_sync_plan(catalog: object, existing_tags: object) -> dict[str, objec
         "schema_version": 1,
         "builders": missing,
         "matrix": {"include": matrix},
+    }
+
+
+def _closed_fields(
+    value: dict[str, object], expected: frozenset[str], label: str
+) -> None:
+    if set(value) != expected:
+        raise ValueError(
+            f"{label} fields mismatch: missing={sorted(expected - set(value))}, "
+            f"extra={sorted(set(value) - expected)}"
+        )
+
+
+def _fact_digest(value: dict[str, object], fields: tuple[str, ...]) -> str:
+    return core.sha256_value({field: value[field] for field in fields})
+
+
+def _ascend_runtime_target_tag(
+    source_target_tag: str, runtime_id: str, runtime_image_digest: str
+) -> str:
+    suffix = core.sha256_value(
+        {
+            "source_target_tag": source_target_tag,
+            "runtime_id": runtime_id,
+            "runtime_image_digest": runtime_image_digest,
+        }
+    ).split(":", 1)[1]
+    prefix = re.sub(r"[^A-Za-z0-9._-]", "-", source_target_tag)
+    prefix = prefix[:_ASCEND_TARGET_PREFIX_BUDGET].rstrip(".-")
+    if not prefix or re.match(r"^[A-Za-z0-9_]", prefix) is None:
+        prefix = "_" + prefix[1:]
+    return f"{prefix}{_ASCEND_TARGET_SEPARATOR}{suffix}"
+
+
+def _builder_plan(
+    source: dict[str, object],
+    *,
+    runtime_id: str | None,
+    runtime_image: str | None,
+    mooncake_version: str | None,
+    target_tag: str,
+) -> dict[str, object]:
+    plan = {
+        "builder_plan_id": "",
+        **{field: copy.deepcopy(source[field]) for field in _SOURCE_BUILDER_FIELDS},
+        "target_tag": target_tag,
+        "build_mode": "mirror" if source["accelerator"] == "cuda" else "extend",
+        "runner": (
+            "ubuntu-24.04-arm"
+            if source["cpu_architecture"] == "arm64"
+            else "ubuntu-24.04"
+        ),
+        "mooncake_source_runtime_id": runtime_id,
+        "mooncake_source_runtime_image": runtime_image,
+        "mooncake_version": mooncake_version,
+    }
+    plan["builder_plan_id"] = _fact_digest(
+        plan, BUILDER_PLAN_IDENTITY_FIELDS
+    )
+    return plan
+
+
+def plan_builder_facts(
+    builder_discovery: object,
+    runtime_discovery: object,
+    mooncake_probes: object,
+) -> dict[str, object]:
+    """Plan ABI-independent physical Builder targets from verified runtime facts."""
+    discovery = _require_mapping(builder_discovery, "Builder discovery")
+    runtimes_input = _require_mapping(runtime_discovery, "runtime discovery")
+    probes_input = _require_mapping(mooncake_probes, "Mooncake probes")
+    source_sha = _require_string(discovery, "source_sha", "Builder discovery")
+    sources = discovery.get("builders")
+    if not isinstance(sources, list):
+        raise ValueError("Builder discovery builders must be an array")
+    runtime_values = runtimes_input.get("runtime_candidates")
+    if not isinstance(runtime_values, list):
+        raise ValueError("runtime discovery candidates must be an array")
+    probe_values = probes_input.get("probes")
+    if not isinstance(probe_values, list):
+        raise ValueError("Mooncake probes must be an array")
+
+    runtimes: list[tuple[dict[str, object], dict[str, Any]]] = []
+    for index, raw in enumerate(runtime_values):
+        runtime = _require_mapping(raw, f"runtime candidates[{index}]")
+        record = capabilities._runtime_record(runtime)
+        runtimes.append((runtime, record))
+
+    probes: dict[tuple[str, str], dict[str, object]] = {}
+    for index, raw in enumerate(probe_values):
+        probe = _require_mapping(raw, f"Mooncake probes[{index}]")
+        _closed_fields(probe, _MOONCAKE_PROBE_FIELDS, f"Mooncake probes[{index}]")
+        key = (
+            capabilities._digest(
+                probe.get("runtime_image_digest"), "Mooncake runtime digest"
+            ),
+            _require_string(probe, "cpu_architecture", "Mooncake probe"),
+        )
+        previous = probes.get(key)
+        if previous is not None and previous != probe:
+            raise ValueError("conflicting Mooncake probe for one runtime")
+        probes[key] = probe
+
+    plans_by_id: dict[str, dict[str, object]] = {}
+    failures: list[dict[str, object]] = []
+    for index, raw in enumerate(sources):
+        source = _require_mapping(raw, f"Builder sources[{index}]")
+        _closed_fields(source, _SOURCE_BUILDER_FIELDS, f"Builder sources[{index}]")
+        variant = capabilities.normalize_variant(source.get("variant"))
+        if variant == "310p":
+            continue
+        accelerator = _require_string(source, "accelerator", "Builder source")
+        if accelerator == "cuda":
+            planned = _builder_plan(
+                source,
+                runtime_id=None,
+                runtime_image=None,
+                mooncake_version=None,
+                target_tag=_require_string(
+                    source, "target_tag", "Builder source"
+                ),
+            )
+            plans_by_id[planned["builder_plan_id"]] = planned
+            continue
+        compatible = [
+            (runtime, record)
+            for runtime, record in runtimes
+            if all(
+                runtime[field] == source[field]
+                for field in (
+                    "accelerator",
+                    "accelerator_runtime",
+                    "variant",
+                    "cpu_architecture",
+                )
+            )
+        ]
+        for runtime, record in compatible:
+            runtime_id = record["runtime_id"]
+            probe = probes.get(
+                (runtime["runtime_image_digest"], runtime["cpu_architecture"])
+            )
+            if probe is None or not (
+                probe["declared_version"]
+                == probe["installed_version"]
+                == runtime["mooncake_version"]
+            ):
+                evidence = {
+                    "declared_version": (
+                        None if probe is None else probe["declared_version"]
+                    ),
+                    "installed_version": (
+                        None if probe is None else probe["installed_version"]
+                    ),
+                }
+                failures.append(
+                    {
+                        "reason_code": "mooncake-version-mismatch",
+                        "source_kind": "mooncake-probe",
+                        "source_id": runtime_id,
+                        "builder_plan_id": None,
+                        "runtime_id": runtime_id,
+                        "evidence": evidence,
+                    }
+                )
+                continue
+            target_tag = _ascend_runtime_target_tag(
+                _require_string(source, "target_tag", "Builder source"),
+                runtime_id,
+                runtime["runtime_image_digest"],
+            )
+            planned = _builder_plan(
+                source,
+                runtime_id=runtime_id,
+                runtime_image=record["runtime_image"],
+                mooncake_version=runtime["mooncake_version"],
+                target_tag=target_tag,
+            )
+            previous = plans_by_id.get(planned["builder_plan_id"])
+            if previous is not None and previous != planned:
+                raise ValueError("conflicting physical Builder plan identity")
+            plans_by_id[planned["builder_plan_id"]] = planned
+
+    plans = sorted(plans_by_id.values(), key=lambda item: item["builder_plan_id"])
+    failures.sort(
+        key=lambda item: (
+            str(item["reason_code"]),
+            str(item["source_id"]),
+            str(item["runtime_id"] or ""),
+        )
+    )
+    return {
+        "kind": "ucm-builder-fact-plan",
+        "schema_version": 3,
+        "source_sha": source_sha,
+        "builder_plans": plans,
+        "failures": failures,
+        "matrix": {
+            "include": [
+                {
+                    "id": item["builder_plan_id"],
+                    "label": (
+                        f"{str(item['accelerator_runtime']).upper()} · "
+                        f"{item['variant']} · {item['cpu_architecture']}"
+                    ),
+                    **copy.deepcopy(item),
+                }
+                for item in plans
+            ]
+        },
+    }
+
+
+def collect_builder_facts(
+    plan: object, builder_results: object
+) -> dict[str, object]:
+    """Reconcile one exact Result per planned Builder and freeze target facts."""
+    planned = _require_mapping(plan, "Builder fact plan")
+    _closed_fields(planned, BUILDER_FACT_PLAN_FIELDS, "Builder fact plan")
+    results_value = _require_mapping(builder_results, "Builder Results")
+    if results_value.get("kind") != "ucm-builder-results":
+        raise ValueError("Builder Results kind is invalid")
+    if results_value.get("schema_version") != 3:
+        raise ValueError("Builder Results schema_version must be 3")
+    result_items = results_value.get("results")
+    if not isinstance(result_items, list):
+        raise ValueError("Builder Results results must be an array")
+    plan_items = planned.get("builder_plans")
+    if not isinstance(plan_items, list):
+        raise ValueError("Builder plan rows must be an array")
+    plans_by_id: dict[str, dict[str, object]] = {}
+    for index, raw in enumerate(plan_items):
+        item = _require_mapping(raw, f"Builder plans[{index}]")
+        _closed_fields(item, BUILDER_PLAN_FIELDS, f"Builder plans[{index}]")
+        plan_id = capabilities._digest(item["builder_plan_id"], "Builder plan ID")
+        if plan_id in plans_by_id:
+            raise ValueError("duplicate Builder plan ID")
+        plans_by_id[plan_id] = item
+    results_by_id: dict[str, dict[str, object]] = {}
+    for index, raw in enumerate(result_items):
+        item = _require_mapping(raw, f"Builder Results[{index}]")
+        _closed_fields(item, BUILDER_RESULT_FIELDS, f"Builder Results[{index}]")
+        plan_id = capabilities._digest(item["builder_plan_id"], "Builder Result ID")
+        if plan_id in results_by_id:
+            raise ValueError("duplicate Builder Result ID")
+        results_by_id[plan_id] = item
+    if set(results_by_id) != set(plans_by_id):
+        raise ValueError("Builder Result IDs do not exactly match planned IDs")
+
+    facts: list[dict[str, object]] = []
+    failures: list[dict[str, object]] = []
+    rows: list[dict[str, object]] = []
+    for plan_id in sorted(plans_by_id):
+        planned_item = plans_by_id[plan_id]
+        result = results_by_id[plan_id]
+        if any(
+            result[field] != planned_item[field]
+            for field in ("target_repository", "target_tag")
+        ):
+            raise ValueError("Builder Result target differs from its plan")
+        status = result.get("status")
+        if status in {"existing", "built"}:
+            if result.get("digest_readback") is not True:
+                raise ValueError("resolved Builder Result requires digest readback")
+            target_digest = capabilities._digest(
+                result.get("target_builder_digest"), "Builder target digest"
+            )
+            fact = {
+                "builder_fact_id": "",
+                **{
+                    field: copy.deepcopy(planned_item[field])
+                    for field in capabilities.BUILDER_FACT_FIELDS
+                    if field
+                    not in {"builder_fact_id", "target_builder_digest"}
+                },
+                "target_builder_digest": target_digest,
+            }
+            fact["builder_fact_id"] = _fact_digest(
+                fact, capabilities.BUILDER_FACT_IDENTITY_FIELDS
+            )
+            facts.append(fact)
+            rows.append(
+                {
+                    "id": fact["builder_fact_id"],
+                    "builder_fact_id": fact["builder_fact_id"],
+                    "builder_image": (
+                        f"{fact['target_repository']}@{target_digest}"
+                    ),
+                    "target_builder_digest": target_digest,
+                    "runner": planned_item["runner"],
+                    "cpu_architecture": planned_item["cpu_architecture"],
+                }
+            )
+        elif status == "failed":
+            if result.get("digest_readback") is not False:
+                raise ValueError("failed Builder Result cannot verify a digest")
+            evidence = copy.deepcopy(result["evidence"])
+            if not isinstance(evidence, dict):
+                raise ValueError("failed Builder Result evidence must be an object")
+            evidence.setdefault(
+                "plan",
+                {
+                    field: copy.deepcopy(planned_item[field])
+                    for field in BUILDER_PLAN_IDENTITY_FIELDS
+                },
+            )
+            failures.append(
+                {
+                    "builder_plan_id": plan_id,
+                    "status": "failed",
+                    "reason_code": "builder-sync-failed",
+                    "source_kind": "builder-plan",
+                    "source_id": plan_id,
+                    "target_repository": planned_item["target_repository"],
+                    "target_tag": planned_item["target_tag"],
+                    "target_builder_digest": result.get("target_builder_digest"),
+                    "digest_readback": False,
+                    "evidence": evidence,
+                }
+            )
+        else:
+            raise ValueError(f"unsupported Builder Result status {status!r}")
+    facts.sort(key=lambda item: item["builder_fact_id"])
+    failures.sort(key=lambda item: item["builder_plan_id"])
+    rows.sort(key=lambda item: item["builder_fact_id"])
+    return {
+        "kind": "ucm-collected-builder-facts",
+        "schema_version": 3,
+        "source_sha": planned["source_sha"],
+        "builder_sync": {
+            "mode": "append-only",
+            "target_digests_verified": True,
+            "deletions": [],
+        },
+        "builder_facts": facts,
+        "failures": failures,
+        "python_probe_matrix": {"include": rows},
     }
 
 

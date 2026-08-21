@@ -138,8 +138,8 @@ jobs:
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: ${{ needs.sync-builders.outputs.builder_catalog_artifact }}
-          path: input/builders
+          name: ${{ needs.sync-builders.outputs.capability_catalog_artifact }}
+          path: input/capabilities
       - name: Install crane for tag discovery
         run: |
           set -euo pipefail
@@ -156,7 +156,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out/plan
-          args=(--builder-catalog input/builders/builder-catalog.json --route pr \
+          args=(--capability-catalog input/capabilities/capability-catalog.json --route pr \
             --output out/plan/release-plan.json)
           if [ "${SUBCOMMAND}" = image ]; then
             while IFS= read -r ref; do
