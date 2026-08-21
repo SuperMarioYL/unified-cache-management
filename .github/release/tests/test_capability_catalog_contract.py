@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import copy
 import hashlib
 import importlib
@@ -581,10 +582,32 @@ def test_runtime_candidate_normalization_is_public_identity_authority() -> None:
         assert runtime["runtime_id"] == _runtime_id(raw)
 
     assert fixture == original
-    builders_source = (
-        RELEASE_ROOT / "ucm_release" / "builders.py"
-    ).read_text(encoding="utf-8")
-    assert "capabilities._runtime_record" not in builders_source
+    builders_tree = ast.parse(
+        (RELEASE_ROOT / "ucm_release" / "builders.py").read_text(
+            encoding="utf-8"
+        )
+    )
+    plan_function = next(
+        node
+        for node in builders_tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "plan_builder_facts"
+    )
+    capability_calls = {
+        f"{call.func.value.id}.{call.func.attr}"
+        for call in ast.walk(plan_function)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and isinstance(call.func.value, ast.Name)
+        and call.func.value.id == "capabilities"
+    }
+    assert "capabilities.normalize_runtime_candidate" in capability_calls
+    assert "capabilities._runtime_record" not in capability_calls
+    top_level_functions = {
+        node.name
+        for node in builders_tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert "normalize_runtime_candidate" not in top_level_functions
 
 
 def test_runtime_candidates_remain_multi_version_and_git_source_bound() -> None:
