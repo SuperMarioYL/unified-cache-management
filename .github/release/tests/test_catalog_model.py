@@ -239,6 +239,63 @@ def _snapshot(version: str, tag: str, character: str) -> dict[str, object]:
     }
 
 
+def _runtime_patch_manifest(*rules: dict[str, object]) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "kind": "ucm-runtime-patch-rules",
+        "rules": list(rules),
+    }
+
+
+def _runtime_patch_rule(rule_id: str = "vllm-none") -> dict[str, object]:
+    return {
+        "id": rule_id,
+        "order": 10,
+        "product": "vllm",
+        "version_specifier": "==0.17.0.*",
+        "channels": ["stable"],
+        "variants": ["default"],
+        "strategy": "none",
+        "imports": [],
+    }
+
+
+def test_runtime_patch_probe_returns_none_for_unsupported_target() -> None:
+    manifest = _runtime_patch_manifest(_runtime_patch_rule())
+    unknown = _snapshot("0.18.0", "v0.18.0", "4")
+
+    assert core.find_runtime_patch_rule(manifest, unknown, "default") is None
+
+
+def test_runtime_patch_probe_preserves_explicit_none_strategy() -> None:
+    manifest = _runtime_patch_manifest(_runtime_patch_rule())
+    explicit_none = _snapshot("0.17.0", "v0.17.0", "5")
+
+    assert (
+        core.find_runtime_patch_rule(manifest, explicit_none, "default")["strategy"]
+        == "none"
+    )
+
+
+def test_runtime_patch_probe_rejects_overlapping_strategies() -> None:
+    manifest = _runtime_patch_manifest(
+        _runtime_patch_rule("vllm-none-left"),
+        _runtime_patch_rule("vllm-none-right"),
+    )
+    known = _snapshot("0.17.0", "v0.17.0", "6")
+
+    with pytest.raises(ValueError, match="overlapping"):
+        core.find_runtime_patch_rule(manifest, known, "default")
+
+
+def test_runtime_patch_strict_wrapper_still_rejects_unsupported_target() -> None:
+    manifest = _runtime_patch_manifest(_runtime_patch_rule())
+    unknown = _snapshot("0.18.0", "v0.18.0", "7")
+
+    with pytest.raises(ValueError, match="no runtime patch strategy"):
+        core._matching_runtime_patch_rule(manifest, unknown, "default")
+
+
 def test_catalog_rejects_invalid_pep440_specifier() -> None:
     catalog = _catalog()
     catalog["compatibility"]["rules"][0]["version_specifier"] = ">0.18*"

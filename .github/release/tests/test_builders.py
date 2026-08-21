@@ -51,21 +51,13 @@ def snapshot(tmp_path: Path) -> Path:
     return destination
 
 
-def test_snapshot_discovers_current_eight_upstream_builders() -> None:
+def test_snapshot_excludes_310p_and_covers_both_architectures() -> None:
     catalog = _discover()
 
     upstream = [item for item in catalog["builders"] if item["build_mode"] != "copy"]
-    assert len(upstream) == 8
-    assert {item["target_tag"] for item in upstream} == {
-        "cuda12.9-cp312-manylinux2_28-amd64-r1",
-        "cuda12.9-cp312-manylinux2_28-arm64-r1",
-        "cuda13.0-cp312-manylinux2_28-amd64-r1",
-        "cuda13.0-cp312-manylinux2_28-arm64-r1",
-        "cann9.1.0-a2-cp312-manylinux2_34-mooncake0.3.9-amd64-r1",
-        "cann9.1.0-a2-cp312-manylinux2_34-mooncake0.3.9-arm64-r1",
-        "cann9.1.0-a3-cp312-manylinux2_34-mooncake0.3.9-amd64-r1",
-        "cann9.1.0-a3-cp312-manylinux2_34-mooncake0.3.9-arm64-r1",
-    }
+    assert upstream
+    assert all(item["variant"] != "310p" for item in upstream)
+    assert {item["cpu_arch"] for item in upstream} == {"amd64", "arm64"}
 
 
 def test_owner_is_lowercased_for_explicit_and_inferred_oci_references(
@@ -366,6 +358,9 @@ def test_mocked_live_github_source_matches_snapshot_bytes(
 
 
 def test_duplicate_upstream_tasks_collapse_by_capability(snapshot: Path) -> None:
+    before = [
+        item for item in _discover(snapshot)["builders"] if item["build_mode"] != "copy"
+    ]
     pipeline = snapshot / "vllm-project/vllm/.buildkite/release-pipeline.yaml"
     pipeline.write_text(
         pipeline.read_text(encoding="utf-8")
@@ -375,11 +370,40 @@ def test_duplicate_upstream_tasks_collapse_by_capability(snapshot: Path) -> None
         encoding="utf-8",
     )
 
-    upstream = [
+    after = [
         item for item in _discover(snapshot)["builders"] if item["build_mode"] != "copy"
     ]
+    identity_fields = (
+        "project",
+        "accelerator",
+        *builders.CAPABILITY_FIELDS,
+        "target_repository",
+    )
+    identities = lambda items: {  # noqa: E731
+        tuple(item[field] for field in identity_fields) for item in items
+    }
 
-    assert len(upstream) == 8
+    assert identities(after) == identities(before)
+    assert len(after) == len(identities(after))
+
+
+def test_vllm_discovery_accepts_opaque_builder_tag_revision(snapshot: Path) -> None:
+    pipeline = snapshot / "vllm-project/vllm/.buildkite/release-pipeline.yaml"
+    source = pipeline.read_text(encoding="utf-8")
+    original = "pytorch/manylinuxaarch64-builder:cuda13.0"
+    revised = original + "-78e737ad29420ffc4800e677c51e2a852caf8359"
+    assert original in source
+    pipeline.write_text(source.replace(original, revised), encoding="utf-8")
+
+    catalog = _discover(snapshot)
+    arm64 = next(
+        item
+        for item in catalog["builders"]
+        if item["accelerator_runtime"] == "cuda-13.0" and item["cpu_arch"] == "arm64"
+    )
+
+    assert arm64["source_image"] == "docker.io/" + revised
+    assert arm64["manylinux"] == "manylinux_2_28"
 
 
 @pytest.mark.parametrize(

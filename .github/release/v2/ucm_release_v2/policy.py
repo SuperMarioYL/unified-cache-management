@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
 from typing import Any
 
-from .common import canonical_json, sha256_envelope
+from .common import canonical_json
 
 
 class PolicyError(ValueError):
@@ -333,7 +332,7 @@ def audit_repository_policy(
     )
 
     checks.sort(key=lambda item: item["id"])
-    unsigned = {
+    return {
         "checks": checks,
         "compliant": all(item["status"] == "passed" for item in checks),
         "expected_repository": expected_repository,
@@ -342,8 +341,4 @@ def audit_repository_policy(
         "observed_repository": observed_repository,
         "repository_role": repository_role,
         "schema_version": 2,
-        "snapshot_sha256": hashlib.sha256(
-            canonical_json(snapshot).encode()
-        ).hexdigest(),
     }
-    return sha256_envelope(unsigned)

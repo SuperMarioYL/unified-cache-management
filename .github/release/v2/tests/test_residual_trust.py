@@ -243,4 +243,4 @@ def test_policy_summary_names_omitted_free_form_evidence() -> None:
     assert "check['evidence']" not in source
     assert "repository identity" in source
     assert "compliance status" in source
-    assert "report digest" in source
+    assert "report digest" not in source

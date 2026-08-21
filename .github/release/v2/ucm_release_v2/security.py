@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import ast
-import hashlib
-import json
 import re
 import shlex
 from dataclasses import dataclass
@@ -346,11 +344,18 @@ _ALLOWED_DEFINITIONS_BY_SUFFIX = {
         "_audit_action",
         "_audit_python_command",
         "_audit_shell",
+        "_audit_triggers",
         "_backend_guard_loader_is_exact",
         "_curl_argv",
+        "_develop_inline_validator_is_semantic",
+        "_expression_matches",
         "_extract_canonical_heredocs",
-        "_normalized_context_sha256",
+        "_failing_guard_index",
+        "_is_os_environ",
+        "_observed_function_is_semantic",
+        "_output_block_index",
         "_permissions",
+        "_single_assignment_index",
         "_wheels_path_provenance_is_exact",
         "audit_python_source",
         "audit_repository",
@@ -754,391 +759,45 @@ _REUSABLE_JOB_POLICY: dict[str, dict[str, object]] = {
         },
     },
 }
-_WORKFLOW_ROOT_CONTEXT_SHA256 = {
-    "develop-release-dry-run.yml": "495ee94bafd436906a5fa98352cdcf72aa74e727aad280234836b7ccc073ead5",
-    "draft-environment-dry-run.yml": "71b9432d78f32014aeb7eb9dff3b00563749be6c839a320ca04e24e80437fe11",
-    "nightly-release-dry-run.yml": "cc224e399395b6c3a291c9a14c5a5af6add36ce16ecb56ae909becc91bea13b6",
-    "pr-release-dry-run.yml": "9e3334fd84ca5f792ce7a30226900e5b6793a3e76dbe2a664e84631d4b3b8bdb",
-    "release-cleanup-dry-run.yml": "dceb7fab44f3b91cd164281dfa58b3ed2ad0a30e8c62da0078f6c9f1996aaeb9",
-    "release-control-dry-run.yml": "05a6548780ee605cc1810a236185c9f5703d9cc8e933764b92a2ce48ffc31a39",
-    "release-lifecycle-dry-run.yml": "927516474ab2a6d31a46a85eb6b8e220b2f0a1a90a374b3aa2fe16f95f1bbf26",
-    "repository-policy-audit-dry-run.yml": "a3c417a6a1b416166245bf831b213fdefa15096d15a3ea016422f9e6f9b757ff",
+
+_WORKFLOW_EVENT_POLICY = {
+    "develop-release-dry-run.yml": {"workflow_run"},
+    "draft-environment-dry-run.yml": {"workflow_dispatch"},
+    "nightly-release-dry-run.yml": {"schedule"},
+    "pr-release-dry-run.yml": {"pull_request", "issue_comment"},
+    "release-cleanup-dry-run.yml": {"workflow_dispatch"},
+    "release-control-dry-run.yml": {"workflow_call"},
+    "release-lifecycle-dry-run.yml": {"workflow_dispatch"},
+    "repository-policy-audit-dry-run.yml": {"workflow_dispatch"},
 }
-_WORKFLOW_JOB_CONTEXT_SHA256 = {
-    (
-        "release-control-dry-run.yml",
-        "control",
-    ): "e70acb2037dfa0762d05a72a3a09e0ab38cfaa862652aaa271018d88f7016c5d",
-    (
-        "release-control-dry-run.yml",
-        "simulated-environment",
-    ): "d635781efa1a87d9c73850d52c1e6d5f0b121ad222f475b3eeed224ad4ba9112",
-    (
-        "release-control-dry-run.yml",
-        "release-preview",
-    ): "0bb6e32c8e1a48444e120a00c99d57866f4b024c5d5857312a1c0f441638ebcf",
-    (
-        "release-control-dry-run.yml",
-        "cleanup-preview",
-    ): "c5c23def7fa2fa1bdd7fc7cd7a615f452755554032b02deb320bc8f54998dca9",
-    (
-        "release-control-dry-run.yml",
-        "policy-audit",
-    ): "3a365ccc4265aefe353814cd7ccdecfcbf0637307f2be29632106f7fa8468553",
-    (
-        "develop-release-dry-run.yml",
-        "develop-preview",
-    ): "c66916d6c28770a3df90edf0cb4c05edfcc6aa1ee805fb76a0ce4ce4d478499b",
-    (
-        "draft-environment-dry-run.yml",
-        "simulated-environment",
-    ): "c66916d6c28770a3df90edf0cb4c05edfcc6aa1ee805fb76a0ce4ce4d478499b",
-    (
-        "nightly-release-dry-run.yml",
-        "nightly-preview",
-    ): "c66916d6c28770a3df90edf0cb4c05edfcc6aa1ee805fb76a0ce4ce4d478499b",
-    (
-        "pr-release-dry-run.yml",
-        "pull-request-preview",
-    ): "21b33fe86324ba77d3b3e7b1484027f69cff775bd803b2975b47e21199beab6c",
-    (
-        "pr-release-dry-run.yml",
-        "issue-comment-preview",
-    ): "69485ec91f90f88e00009ee08fdd304da1278e12ebf34e76f11ba5147baafe32",
-    (
-        "release-cleanup-dry-run.yml",
-        "cleanup-preview",
-    ): "c66916d6c28770a3df90edf0cb4c05edfcc6aa1ee805fb76a0ce4ce4d478499b",
-    (
-        "release-lifecycle-dry-run.yml",
-        "release-preview",
-    ): "c66916d6c28770a3df90edf0cb4c05edfcc6aa1ee805fb76a0ce4ce4d478499b",
-    (
-        "repository-policy-audit-dry-run.yml",
-        "policy-audit",
-    ): "c66916d6c28770a3df90edf0cb4c05edfcc6aa1ee805fb76a0ce4ce4d478499b",
+_DEVELOP_WORKFLOW_RUN_POLICY = {
+    "workflows": ["Push Commit Checks"],
+    "branches": ["develop"],
+    "types": ["completed"],
 }
-_WORKFLOW_JOB_STEP_SEQUENCE_SHA256 = {
-    (
-        "develop-release-dry-run.yml",
-        "develop-preview",
-    ): "f8d4e4ace99c317d758baebc066331e99bf76ce6afd401423b2de5ade1c83040",
-    (
-        "nightly-release-dry-run.yml",
-        "nightly-preview",
-    ): "47c349bd0c0c42724ed2006c0e7a72fe74b7f81615cbc540085c335b1291d14a",
-    (
-        "pr-release-dry-run.yml",
-        "pull-request-preview",
-    ): "ad1cef939a705e74281ab5e9a773e3e94941e870e1e91bd40bff3cb0b03157a0",
-    (
-        "pr-release-dry-run.yml",
-        "issue-comment-preview",
-    ): "13efc165abd8ca4ffbd2a15f02a84d6cd838b93ec857acab289c7a532366163b",
-    (
-        "release-control-dry-run.yml",
-        "control",
-    ): "abeb6a0eb4121bfbb8f2c4730ca3f7ad9cb73ed6a46fbc9e2a9b0067e1b902ab",
-    (
-        "release-control-dry-run.yml",
-        "simulated-environment",
-    ): "90a11f2f5a4d6f0e12a625dddb33e3d6b6c12189d988069e537d25624a4d7755",
-    (
-        "release-control-dry-run.yml",
-        "release-preview",
-    ): "f6464c9d5abb931f4787a53a6540e1ea992dd0c21017939173cf69f2d17ef900",
-    (
-        "release-control-dry-run.yml",
-        "cleanup-preview",
-    ): "44e5aaf28be095ad3bcc9e1945d494e5f3a838ffff31c7311c8fcc6d4c892d14",
-    (
-        "release-control-dry-run.yml",
-        "policy-audit",
-    ): "9838c8ea90e827704467b5d1240b694085541923b14713c8d50ac825a0cc2c4e",
+_DEVELOP_TRUST_STEP_ENV_POLICY = {
+    "CONFIGURED_MAIN": "main",
+    "DEFAULT_BRANCH": "${{ github.event.repository.default_branch }}",
+    "EVENT_REPOSITORY": "${{ github.repository }}",
+    "GITHUB_REF_NAME": "${{ github.ref_name }}",
+    "HEAD_BRANCH": "${{ github.event.workflow_run.head_branch }}",
+    "HEAD_REPOSITORY": "${{ github.event.workflow_run.head_repository.full_name }}",
+    "HEAD_SHA": "${{ github.event.workflow_run.head_sha }}",
+    "WORKFLOW_CONCLUSION": "${{ github.event.workflow_run.conclusion }}",
+    "WORKFLOW_EVENT": "${{ github.event.workflow_run.event }}",
+    "WORKFLOW_NAME": "${{ github.event.workflow_run.name }}",
+    "WORKFLOW_PATH": "${{ github.event.workflow_run.path }}",
+    "WORKFLOW_SHA": "${{ github.workflow_sha }}",
 }
-_RUN_STEP_CONTEXT_SHA256 = {
-    (
-        "release-control-dry-run.yml",
-        "Fetch first trusted main control ref",
-    ): "d0cf1f7bd5f505c39bf8d93ec2797786d0e92bea7c4734d2abb3a03018bbe8c6",
-    (
-        "release-control-dry-run.yml",
-        "Fetch second trusted main control ref",
-    ): "1a852c0c35d6e09a16ea90857f8eceadacf94bed5610f7dd7ec941589ae4adae",
-    (
-        "release-control-dry-run.yml",
-        "Validate exact trusted reusable controller identity",
-    ): "9fe1ac0b3d405e044ebe653f6788539417f4ace31ba23f4006f2ea56c129a7ac",
-    (
-        "release-control-dry-run.yml",
-        "Validate immutable manual identity",
-    ): "83fa715973c9d49c4a49639f6a93315769f7416ba05b8fead9dc8716feb32233",
-    (
-        "release-control-dry-run.yml",
-        "Generate Draft plan",
-    ): "7bc6685cab78fd02ac08b0812243838fc9544be7dac12ae02c0238e579447a8a",
-    (
-        "release-control-dry-run.yml",
-        "Create deterministic offline artifact fixtures",
-    ): "996aa9349456ec9408e1d50d1e3cc5e02d673c660211a850e317df30c40e01a1",
-    (
-        "release-control-dry-run.yml",
-        "Export simulate and verify environment evidence",
-    ): "81323a54d2f1b75225d68ef27950784b54e0ddbef14326221c95a1844860ce81",
-    (
-        "release-control-dry-run.yml",
-        "Write simulated evidence summary",
-    ): "206b5d22b3e4085dc2df9b3d0a2e5dad8d55b738a55b099b8e27b490e0f50436",
-    (
-        "release-control-dry-run.yml",
-        "Normalize untrusted JSON inputs without shell interpolation",
-    ): "1f2dc6c608dee184b13f0d75e62e6dda82c6fe326a0bb5ae5e6e2b4671168185",
-    (
-        "release-control-dry-run.yml",
-        "Generate and reopen protected lifecycle plan",
-    ): "a78a76135d2d4506ef4ae5c58558604039e58917b4a3d363c13361343ae85ddf",
-    (
-        "release-control-dry-run.yml",
-        "Reconcile the offline inventory without execution",
-    ): "454d3b86744129f21fbff0d96a74de9c00526ee2fdbb483ed6a5465b82963c30",
-    (
-        "release-control-dry-run.yml",
-        "Render release preview Markdown",
-    ): "c30f2b15475961fc1984f55abcabbff2b8b4eda0e5be58a8dc880d87d2df991f",
-    (
-        "release-control-dry-run.yml",
-        "Write release preview summary",
-    ): "3d12a65ac2ebaa606354572c015562866cd03d72c211e96c711730eb8ecfc32d",
-    (
-        "release-control-dry-run.yml",
-        "Normalize strict offline inventory",
-    ): "bb47a4e651a2b7f239bb2949b3cebea1f4b2840d7304c85b55823c81390965d2",
-    (
-        "release-control-dry-run.yml",
-        "Generate non-executing cleanup plan",
-    ): "ebf21b9cc52ba9ec6eda1896bbddc1f27a6812e98fed7f4b0363d07420582f0b",
-    (
-        "release-control-dry-run.yml",
-        "Write cleanup preview summary",
-    ): "ae8e0d90f302b3e17af246b3f3515064fd21fff9fede7f020e4f356291abf66c",
-    (
-        "release-control-dry-run.yml",
-        "Normalize strict offline policy snapshot",
-    ): "92f6b081b778fc3a4c0f53f60921bbd4bb92f90e6cd11883e0928a734c95a3f3",
-    (
-        "release-control-dry-run.yml",
-        "Audit repository policy snapshot offline",
-    ): "196deac76c1be75ae761ca3977dc88f65de559d3dc7f3faa323b8f66fea3439a",
-    (
-        "release-control-dry-run.yml",
-        "Write repository policy audit summary",
-    ): "56e268351da6dbd5de6d2504ffd4d9f92f6228dc829c6875392575f109b3ade4",
-    (
-        "develop-release-dry-run.yml",
-        "Fetch first trusted main control ref",
-    ): "d0cf1f7bd5f505c39bf8d93ec2797786d0e92bea7c4734d2abb3a03018bbe8c6",
-    (
-        "develop-release-dry-run.yml",
-        "Fetch second trusted main control ref",
-    ): "1a852c0c35d6e09a16ea90857f8eceadacf94bed5610f7dd7ec941589ae4adae",
-    (
-        "develop-release-dry-run.yml",
-        "Validate trusted controller and develop source event",
-    ): "b148be08e76166bf6384af604134ea129f26a36ac649d042cdc3ac75c204f038",
-    (
-        "develop-release-dry-run.yml",
-        "Generate and validate develop lifecycle preview",
-    ): "2d103b914de6cbd11ecf061bfd052ca0832c78403b88fedee135e0a95c8f1cd7",
-    (
-        "develop-release-dry-run.yml",
-        "Write develop preview summary",
-    ): "4e4e64a29647b415c101087fbea349261f4f1010f5f87be28c112b724d3f1632",
-    (
-        "draft-environment-dry-run.yml",
-        "Fetch first trusted main control ref",
-    ): "d0cf1f7bd5f505c39bf8d93ec2797786d0e92bea7c4734d2abb3a03018bbe8c6",
-    (
-        "draft-environment-dry-run.yml",
-        "Fetch second trusted main control ref",
-    ): "1a852c0c35d6e09a16ea90857f8eceadacf94bed5610f7dd7ec941589ae4adae",
-    (
-        "draft-environment-dry-run.yml",
-        "Validate exact default-main control identity",
-    ): "e3db1eff76224527da74a995a71a587d6fe2a811435051237cdc2282b3653130",
-    (
-        "draft-environment-dry-run.yml",
-        "Validate immutable manual identity",
-    ): "83fa715973c9d49c4a49639f6a93315769f7416ba05b8fead9dc8716feb32233",
-    (
-        "draft-environment-dry-run.yml",
-        "Generate Draft plan",
-    ): "7bc6685cab78fd02ac08b0812243838fc9544be7dac12ae02c0238e579447a8a",
-    (
-        "draft-environment-dry-run.yml",
-        "Create deterministic offline artifact fixtures",
-    ): "996aa9349456ec9408e1d50d1e3cc5e02d673c660211a850e317df30c40e01a1",
-    (
-        "draft-environment-dry-run.yml",
-        "Export simulate and verify environment evidence",
-    ): "81323a54d2f1b75225d68ef27950784b54e0ddbef14326221c95a1844860ce81",
-    (
-        "draft-environment-dry-run.yml",
-        "Write simulated evidence summary",
-    ): "206b5d22b3e4085dc2df9b3d0a2e5dad8d55b738a55b099b8e27b490e0f50436",
-    (
-        "nightly-release-dry-run.yml",
-        "Validate trusted control and derive configured identities",
-    ): "a0557cca7e4276e8c78948cb29a234be4b3f02fe188bdd36f9dee041fede7353",
-    (
-        "nightly-release-dry-run.yml",
-        "Fetch first develop ref observation with read-only GET",
-    ): "5e78bbcd847791bc95499f287805996951003e076b1475c1ba1235472e111417",
-    (
-        "nightly-release-dry-run.yml",
-        "Fetch second develop ref observation with read-only GET",
-    ): "e62bfe4f08696ba78875212537932636929880cbbe7682445dbe22736c0c3b3c",
-    (
-        "nightly-release-dry-run.yml",
-        "Validate stable develop source observations",
-    ): "4c4676f1403a7ec2c3226e14b79b185cb2dd8e7f001634984d57a6e36d625746",
-    (
-        "nightly-release-dry-run.yml",
-        "Generate and validate Nightly lifecycle preview",
-    ): "0191cce0a85cce543dea0dbc490ab430781074a33f04a51908e063b819297d9e",
-    (
-        "nightly-release-dry-run.yml",
-        "Write Nightly preview summary",
-    ): "f0de344ab99a148489b6463b2956915e52f6a5c8bf5e697fecebbf556edcbac7",
-    (
-        "pr-release-dry-run.yml",
-        "Generate and validate PR lifecycle preview",
-    ): "706613baeee3a9ccc239ca757c6beca349c86f4b6683d9715d05a0b4be4a3422",
-    (
-        "pr-release-dry-run.yml",
-        "Write PR preview summary",
-    ): "1ef329e06cba63a87082bf4f817dfc04adff405489500ce19dd7a6452b933880",
-    (
-        "pr-release-dry-run.yml",
-        "Fetch observed PR identity with read-only GET",
-    ): "d896cf68f7bf62776641c1e3da4de8b91967d0825247e8dad088cb0bf6a06da5",
-    (
-        "pr-release-dry-run.yml",
-        "Fetch current PR identity with read-only GET",
-    ): "0e0aa6454d5f230824b437cfba144cfeab31627b9f04e885e3fbbc99a3319517",
-    (
-        "pr-release-dry-run.yml",
-        "Validate and separate observed, current, base, and control identity",
-    ): "5e466dd9059c9da798e81f55b7d6db08dcf196929be432e5b9670d913ee82046",
-    (
-        "pr-release-dry-run.yml",
-        "Parse command without shell interpolation",
-    ): "34b44e2011e63c71e056e69526baed54ce6c1ff5c6b1e1c6cbd9e4dd2b9ef24a",
-    (
-        "pr-release-dry-run.yml",
-        "Generate and validate authorized build preview",
-    ): "e0b79bc120dca619fd635a0da7af72101cb2094f529b38c75337fb383d314dd5",
-    (
-        "pr-release-dry-run.yml",
-        "Write comment command summary",
-    ): "7226ac945a87f10346ba54ee3a9f44c04bf9e8bfffd18f66108efa0dcd5b984c",
-    (
-        "release-cleanup-dry-run.yml",
-        "Fetch first trusted main control ref",
-    ): "d0cf1f7bd5f505c39bf8d93ec2797786d0e92bea7c4734d2abb3a03018bbe8c6",
-    (
-        "release-cleanup-dry-run.yml",
-        "Fetch second trusted main control ref",
-    ): "1a852c0c35d6e09a16ea90857f8eceadacf94bed5610f7dd7ec941589ae4adae",
-    (
-        "release-cleanup-dry-run.yml",
-        "Validate exact default-main control identity",
-    ): "e3db1eff76224527da74a995a71a587d6fe2a811435051237cdc2282b3653130",
-    (
-        "release-cleanup-dry-run.yml",
-        "Normalize strict offline inventory",
-    ): "bb47a4e651a2b7f239bb2949b3cebea1f4b2840d7304c85b55823c81390965d2",
-    (
-        "release-cleanup-dry-run.yml",
-        "Generate non-executing cleanup plan",
-    ): "ebf21b9cc52ba9ec6eda1896bbddc1f27a6812e98fed7f4b0363d07420582f0b",
-    (
-        "release-cleanup-dry-run.yml",
-        "Write cleanup preview summary",
-    ): "ae8e0d90f302b3e17af246b3f3515064fd21fff9fede7f020e4f356291abf66c",
-    (
-        "release-lifecycle-dry-run.yml",
-        "Fetch first trusted main control ref",
-    ): "d0cf1f7bd5f505c39bf8d93ec2797786d0e92bea7c4734d2abb3a03018bbe8c6",
-    (
-        "release-lifecycle-dry-run.yml",
-        "Fetch second trusted main control ref",
-    ): "1a852c0c35d6e09a16ea90857f8eceadacf94bed5610f7dd7ec941589ae4adae",
-    (
-        "release-lifecycle-dry-run.yml",
-        "Validate exact default-main control identity",
-    ): "e3db1eff76224527da74a995a71a587d6fe2a811435051237cdc2282b3653130",
-    (
-        "release-lifecycle-dry-run.yml",
-        "Normalize untrusted JSON inputs without shell interpolation",
-    ): "1f2dc6c608dee184b13f0d75e62e6dda82c6fe326a0bb5ae5e6e2b4671168185",
-    (
-        "release-lifecycle-dry-run.yml",
-        "Generate and reopen protected lifecycle plan",
-    ): "a78a76135d2d4506ef4ae5c58558604039e58917b4a3d363c13361343ae85ddf",
-    (
-        "release-lifecycle-dry-run.yml",
-        "Create deterministic offline artifact fixtures",
-    ): "996aa9349456ec9408e1d50d1e3cc5e02d673c660211a850e317df30c40e01a1",
-    (
-        "release-lifecycle-dry-run.yml",
-        "Reconcile the offline inventory without execution",
-    ): "454d3b86744129f21fbff0d96a74de9c00526ee2fdbb483ed6a5465b82963c30",
-    (
-        "release-lifecycle-dry-run.yml",
-        "Render release preview Markdown",
-    ): "c30f2b15475961fc1984f55abcabbff2b8b4eda0e5be58a8dc880d87d2df991f",
-    (
-        "release-lifecycle-dry-run.yml",
-        "Write release preview summary",
-    ): "3d12a65ac2ebaa606354572c015562866cd03d72c211e96c711730eb8ecfc32d",
-    (
-        "repository-policy-audit-dry-run.yml",
-        "Fetch first trusted main control ref",
-    ): "d0cf1f7bd5f505c39bf8d93ec2797786d0e92bea7c4734d2abb3a03018bbe8c6",
-    (
-        "repository-policy-audit-dry-run.yml",
-        "Fetch second trusted main control ref",
-    ): "1a852c0c35d6e09a16ea90857f8eceadacf94bed5610f7dd7ec941589ae4adae",
-    (
-        "repository-policy-audit-dry-run.yml",
-        "Validate exact default-main control identity",
-    ): "e3db1eff76224527da74a995a71a587d6fe2a811435051237cdc2282b3653130",
-    (
-        "repository-policy-audit-dry-run.yml",
-        "Normalize strict offline policy snapshot",
-    ): "92f6b081b778fc3a4c0f53f60921bbd4bb92f90e6cd11883e0928a734c95a3f3",
-    (
-        "repository-policy-audit-dry-run.yml",
-        "Audit repository policy snapshot offline",
-    ): "196deac76c1be75ae761ca3977dc88f65de559d3dc7f3faa323b8f66fea3439a",
-    (
-        "repository-policy-audit-dry-run.yml",
-        "Write repository policy audit summary",
-    ): "56e268351da6dbd5de6d2504ffd4d9f92f6228dc829c6875392575f109b3ade4",
+_PR_EVENT_POLICY = {
+    "pull_request": {"types": ["opened", "reopened", "synchronize"]},
+    "issue_comment": {"types": ["created"]},
 }
-_TRUST_CRITICAL_RUN_BODY_SHA256 = {
-    (
-        "release-control-dry-run.yml",
-        "control",
-        2,
-        "Validate exact trusted reusable controller identity",
-    ): "2bc4d92740c905240d635081aa8ec5c66a4098c638138e9dc3f90e7dff855cef",
+_TRUSTED_CHECKOUT_PREDECESSORS = {
     (
         "develop-release-dry-run.yml",
-        "develop-preview",
-        2,
-        "Validate trusted controller and develop source event",
-    ): "43b344e7453bf456be10fc0ab7fcd85b968751a97aea050502965c9c3489585d",
+        "Checkout immutable trusted default-main control revision",
+    ): "Validate trusted controller and develop source event",
 }
 
 
@@ -1235,6 +894,285 @@ def _backend_guard_loader_is_exact(tree: ast.AST, node: ast.Call, name: str) -> 
     if not any(candidate is node for candidate in ast.walk(function)):
         return False
     return ast.dump(function, include_attributes=False) == _BACKEND_GUARD_FUNCTION_AST
+
+
+def _expression_matches(node: ast.AST, source: str) -> bool:
+    expected = ast.parse(source, mode="eval").body
+    return ast.dump(node, include_attributes=False) == ast.dump(
+        expected, include_attributes=False
+    )
+
+
+def _single_assignment_index(
+    statements: list[ast.stmt], target: str, expression: str
+) -> int | None:
+    matches: list[int] = []
+    for index, statement in enumerate(statements):
+        if (
+            isinstance(statement, ast.Assign)
+            and len(statement.targets) == 1
+            and isinstance(statement.targets[0], ast.Name)
+            and statement.targets[0].id == target
+            and _expression_matches(statement.value, expression)
+        ):
+            matches.append(index)
+    return matches[0] if len(matches) == 1 else None
+
+
+def _failing_guard_index(statements: list[ast.stmt], test: str) -> int | None:
+    matches: list[int] = []
+    for index, statement in enumerate(statements):
+        if (
+            not isinstance(statement, ast.If)
+            or statement.orelse
+            or not _expression_matches(statement.test, test)
+            or len(statement.body) != 1
+            or not isinstance(statement.body[0], ast.Raise)
+        ):
+            continue
+        exception = statement.body[0].exc
+        if (
+            isinstance(exception, ast.Call)
+            and isinstance(exception.func, ast.Name)
+            and exception.func.id == "SystemExit"
+        ):
+            matches.append(index)
+    return matches[0] if len(matches) == 1 else None
+
+
+def _is_os_environ(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "os"
+        and node.attr == "environ"
+    )
+
+
+def _observed_function_is_semantic(tree: ast.Module) -> bool:
+    functions = [
+        statement
+        for statement in tree.body
+        if isinstance(statement, ast.FunctionDef) and statement.name == "observed"
+    ]
+    if len(functions) != 1:
+        return False
+    body = functions[0].body
+    if len(body) != 7:
+        return False
+    value = _single_assignment_index(
+        body,
+        "value",
+        'json.loads(path.read_text(encoding="utf-8"), '
+        "object_pairs_hook=reject_duplicates)",
+    )
+    main_ref = _failing_guard_index(
+        body,
+        'not isinstance(value, dict) or value.get("ref") != "refs/heads/main"',
+    )
+    target = _single_assignment_index(body, "target", 'value.get("object")')
+    commit = _failing_guard_index(
+        body,
+        'not isinstance(target, dict) or target.get("type") != "commit"',
+    )
+    sha = _single_assignment_index(body, "sha", 'target.get("sha")')
+    sha_format = _failing_guard_index(
+        body,
+        'not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha)',
+    )
+    returned = body[6]
+    return (
+        [value, main_ref, target, commit, sha, sha_format] == [0, 1, 2, 3, 4, 5]
+        and isinstance(returned, ast.Return)
+        and isinstance(returned.value, ast.Name)
+        and returned.value.id == "sha"
+    )
+
+
+def _output_block_index(statements: list[ast.stmt]) -> int | None:
+    expected_context = 'Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8")'
+    expected_body = ast.parse(
+        'output.write(f"control_sha={first}\\n")\n'
+        'output.write(f"source_sha={source_sha}\\n")\n'
+    ).body
+    matches: list[int] = []
+    for index, statement in enumerate(statements):
+        if (
+            not isinstance(statement, ast.With)
+            or len(statement.items) != 1
+            or not _expression_matches(
+                statement.items[0].context_expr, expected_context
+            )
+            or not isinstance(statement.items[0].optional_vars, ast.Name)
+            or statement.items[0].optional_vars.id != "output"
+            or len(statement.body) != len(expected_body)
+            or any(
+                ast.dump(observed, include_attributes=False)
+                != ast.dump(expected, include_attributes=False)
+                for observed, expected in zip(statement.body, expected_body)
+            )
+        ):
+            continue
+        matches.append(index)
+    return matches[0] if len(matches) == 1 else None
+
+
+def _develop_inline_validator_is_semantic(source: str) -> bool:
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+    if not _observed_function_is_semantic(tree):
+        return False
+    body = tree.body
+    default_main = _failing_guard_index(
+        body,
+        'os.environ["CONFIGURED_MAIN"] != "main" '
+        'or os.environ["DEFAULT_BRANCH"] != "main" '
+        'or os.environ["GITHUB_REF"] != "refs/heads/main" '
+        'or os.environ["GITHUB_REF_NAME"] != "main"',
+    )
+    event_repository = _failing_guard_index(
+        body,
+        'os.environ["EVENT_REPOSITORY"] ' '!= "SuperMarioYL/unified-cache-management"',
+    )
+    workflow_name = _failing_guard_index(
+        body, 'os.environ["WORKFLOW_NAME"] != "Push Commit Checks"'
+    )
+    workflow_event = _failing_guard_index(
+        body, 'os.environ["WORKFLOW_EVENT"] != "push"'
+    )
+    workflow_path = _failing_guard_index(
+        body,
+        'os.environ["WORKFLOW_PATH"] ' '!= ".github/workflows/push-check.yml@develop"',
+    )
+    conclusion = _failing_guard_index(
+        body, 'os.environ["WORKFLOW_CONCLUSION"] != "success"'
+    )
+    develop_head = _failing_guard_index(
+        body,
+        'os.environ["HEAD_BRANCH"] != "develop" '
+        'or os.environ["HEAD_REPOSITORY"] '
+        '!= os.environ["EVENT_REPOSITORY"]',
+    )
+    source_sha = _single_assignment_index(body, "source_sha", 'os.environ["HEAD_SHA"]')
+    source_format = _failing_guard_index(
+        body, 'not re.fullmatch(r"[0-9a-f]{40}", source_sha)'
+    )
+    first = _single_assignment_index(
+        body,
+        "first",
+        'observed(Path(os.environ["RUNNER_TEMP"]) / "main-ref-first.json", "first")',
+    )
+    second = _single_assignment_index(
+        body,
+        "second",
+        'observed(Path(os.environ["RUNNER_TEMP"]) / "main-ref-second.json", "second")',
+    )
+    stable_control = _failing_guard_index(
+        body,
+        'first != second or first != os.environ["WORKFLOW_SHA"]',
+    )
+    outputs = _output_block_index(body)
+    positions = [
+        default_main,
+        event_repository,
+        workflow_name,
+        workflow_event,
+        workflow_path,
+        conclusion,
+        develop_head,
+        source_sha,
+        source_format,
+        first,
+        second,
+        stable_control,
+        outputs,
+    ]
+    if any(position is None for position in positions) or positions != sorted(
+        positions
+    ):
+        return False
+    output_block = body[outputs]
+    if not isinstance(output_block, ast.With):
+        return False
+    output_references = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and node.value == "GITHUB_OUTPUT"
+    ]
+    approved_output_names = [
+        output_block.items[0].optional_vars,
+        output_block.body[0].value.func.value,
+        output_block.body[1].value.func.value,
+    ]
+    approved_output_calls = [
+        output_block.items[0].context_expr,
+        output_block.body[0].value,
+        output_block.body[1].value,
+    ]
+    observed_output_names = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name) and node.id == "output"
+    ]
+    if len(output_references) != 1 or (
+        len(observed_output_names) != len(approved_output_names)
+        or any(
+            not any(observed is approved for approved in approved_output_names)
+            for observed in observed_output_names
+        )
+    ):
+        return False
+    output_methods = {"open", "write", "write_bytes", "write_text", "writelines"}
+    if any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in output_methods
+        and not any(node is approved for approved in approved_output_calls)
+        for node in ast.walk(tree)
+    ):
+        return False
+    mutating_environment_methods = {
+        "__delitem__",
+        "__setitem__",
+        "clear",
+        "pop",
+        "popitem",
+        "setdefault",
+        "update",
+    }
+    for node in ast.walk(tree):
+        if (
+            (
+                isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr))
+                and _is_os_environ(node.value)
+            )
+            or (
+                isinstance(node, ast.Subscript)
+                and _is_os_environ(node.value)
+                and isinstance(node.ctx, (ast.Store, ast.Del))
+            )
+            or (_is_os_environ(node) and isinstance(node.ctx, (ast.Store, ast.Del)))
+            or (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and _is_os_environ(node.func.value)
+                and node.func.attr in mutating_environment_methods
+            )
+        ):
+            return False
+    critical_writes = {
+        name: [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Name)
+            and node.id == name
+            and isinstance(node.ctx, (ast.Store, ast.Del))
+        ]
+        for name in ("source_sha", "first", "second")
+    }
+    return all(len(writes) == 1 for writes in critical_writes.values())
 
 
 def audit_python_source(source: str, name: str) -> list[Finding]:
@@ -1406,9 +1344,20 @@ def _permissions(value: object) -> bool:
     return value == {"contents": "read"}
 
 
-def _normalized_context_sha256(value: object) -> str:
-    content = json.dumps(value, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+def _audit_triggers(events: object, name: str) -> list[Finding]:
+    if not isinstance(events, dict):
+        return [Finding(name, "workflow trigger policy requires an object")]
+    expected_events = _WORKFLOW_EVENT_POLICY.get(name)
+    if expected_events is None or set(events) != expected_events:
+        return [Finding(name, "workflow trigger policy differs")]
+    if (
+        name == "develop-release-dry-run.yml"
+        and events.get("workflow_run") != _DEVELOP_WORKFLOW_RUN_POLICY
+    ):
+        return [Finding(name, "workflow_run trigger policy differs")]
+    if name == "pr-release-dry-run.yml" and events != _PR_EVENT_POLICY:
+        return [Finding(name, "pull request trigger policy differs")]
+    return []
 
 
 def _audit_action(step: dict[object, object], name: str) -> list[Finding]:
@@ -1711,60 +1660,25 @@ def audit_workflow_source(source: str, name: str) -> list[Finding]:
         expected_root_keys.add("concurrency")
     if set(workflow) != expected_root_keys:
         findings.append(Finding(name, "workflow keys differ from closed policy"))
-    root_context = {
-        "name": workflow.get("name"),
-        "on": events,
-        "concurrency": workflow.get("concurrency"),
-    }
-    expected_root_context = _WORKFLOW_ROOT_CONTEXT_SHA256.get(name)
-    if (
-        expected_root_context is None
-        or _normalized_context_sha256(root_context) != expected_root_context
-    ):
-        findings.append(
-            Finding(
-                name, "workflow trigger/concurrency context differs from closed policy"
-            )
-        )
+    findings.extend(_audit_triggers(events, name))
     if isinstance(events, dict) and "pull_request_target" in events:
         findings.append(Finding(name, "pull_request_target is forbidden"))
+    concurrency = workflow.get("concurrency")
+    if name != "release-control-dry-run.yml" and (
+        not isinstance(concurrency, dict)
+        or concurrency.get("cancel-in-progress") is not False
+    ):
+        findings.append(
+            Finding(name, "workflow concurrency must not cancel in progress")
+        )
     if not _permissions(workflow.get("permissions")):
         findings.append(Finding(name, "root permissions must be contents: read"))
     jobs = workflow.get("jobs", {})
     if not isinstance(jobs, dict):
         return findings + [Finding(name, "jobs must be an object")]
-    expected_job_names = {
-        job_name
-        for workflow_name, job_name in _WORKFLOW_JOB_CONTEXT_SHA256
-        if workflow_name == name
-    }
     if name in _REUSABLE_JOB_POLICY:
-        expected_job_names = {"invoke-trusted-main-controller"}
-    if set(jobs) != expected_job_names:
-        findings.append(Finding(name, "workflow job names differ from closed policy"))
-    expected_step_job_names = {
-        job_name
-        for workflow_name, job_name in _WORKFLOW_JOB_STEP_SEQUENCE_SHA256
-        if workflow_name == name
-    }
-    observed_step_job_names = {
-        job_name
-        for job_name, job in jobs.items()
-        if isinstance(job, dict) and "steps" in job
-    }
-    if observed_step_job_names != expected_step_job_names:
-        findings.append(Finding(name, "executable job step-sequence coverage differs"))
-    trust_critical_step_names = {
-        step_name
-        for workflow_name, _, _, step_name in _TRUST_CRITICAL_RUN_BODY_SHA256
-        if workflow_name == name
-    }
-    trust_critical_step_counts = {
-        step_name: 0
-        for workflow_name, _, _, step_name in _TRUST_CRITICAL_RUN_BODY_SHA256
-        if workflow_name == name
-    }
-    observed_trust_critical: list[tuple[str, int, str, str]] = []
+        if set(jobs) != {"invoke-trusted-main-controller"}:
+            findings.append(Finding(name, "data-only reusable job set differs"))
     for job_name, job in jobs.items():
         if not isinstance(job, dict):
             findings.append(Finding(name, f"job {job_name} must be an object"))
@@ -1776,7 +1690,6 @@ def audit_workflow_source(source: str, name: str) -> list[Finding]:
                     Finding(name, "data-only reusable job differs from closed policy")
                 )
             continue
-        expected_job_context = _WORKFLOW_JOB_CONTEXT_SHA256.get((name, job_name))
         job_context = {
             key: job[key] for key in ("if", "runs-on", "needs", "outputs") if key in job
         }
@@ -1784,13 +1697,6 @@ def audit_workflow_source(source: str, name: str) -> list[Finding]:
         if set(job) != expected_job_keys:
             findings.append(
                 Finding(name, f"job keys differ from closed policy: {job_name}")
-            )
-        if (
-            expected_job_context is None
-            or _normalized_context_sha256(job_context) != expected_job_context
-        ):
-            findings.append(
-                Finding(name, f"job runs-on/if context differs: {job_name}")
             )
         if job.get("runs-on") != "ubuntu-24.04":
             findings.append(Finding(name, f"job runs-on is not fixed: {job_name}"))
@@ -1802,53 +1708,25 @@ def audit_workflow_source(source: str, name: str) -> list[Finding]:
         if not isinstance(steps, list):
             findings.append(Finding(name, f"job {job_name} steps must be an array"))
             continue
-        ordered_step_identities: list[dict[str, object]] = []
+        seen_step_names: set[str] = set()
         for step in steps:
-            if not isinstance(step, dict):
-                ordered_step_identities.append({"name": None, "type": "invalid"})
-                continue
-            has_action = "uses" in step
-            has_run = "run" in step
-            if has_action and has_run:
-                step_type = "action+run"
-            elif has_action:
-                step_type = "action"
-            elif has_run:
-                step_type = "run"
-            else:
-                step_type = "other"
-            ordered_step_identities.append(
-                {"name": step.get("name"), "type": step_type}
-            )
-        expected_step_sequence = _WORKFLOW_JOB_STEP_SEQUENCE_SHA256.get(
-            (name, job_name)
-        )
-        if (
-            expected_step_sequence is None
-            or _normalized_context_sha256(ordered_step_identities)
-            != expected_step_sequence
-        ):
-            findings.append(Finding(name, f"ordered step sequence differs: {job_name}"))
-        for step_index, step in enumerate(steps):
             if not isinstance(step, dict):
                 findings.append(Finding(name, "workflow step must be an object"))
                 continue
             candidate_step_name = step.get("name")
-            if (
-                isinstance(candidate_step_name, str)
-                and candidate_step_name in trust_critical_step_names
-            ):
-                trust_critical_step_counts[candidate_step_name] += 1
-                observed_trust_critical.append(
-                    (
-                        job_name,
-                        step_index,
-                        candidate_step_name,
-                        _normalized_context_sha256(str(step.get("run", ""))),
-                    )
-                )
             if "uses" in step:
+                predecessor = (
+                    _TRUSTED_CHECKOUT_PREDECESSORS.get((name, candidate_step_name))
+                    if isinstance(candidate_step_name, str)
+                    else None
+                )
+                if predecessor is not None and predecessor not in seen_step_names:
+                    findings.append(
+                        Finding(name, "trusted checkout requires prior validation")
+                    )
                 findings.extend(_audit_action(step, name))
+                if isinstance(candidate_step_name, str):
+                    seen_step_names.add(candidate_step_name)
                 continue
             if "run" not in step:
                 findings.append(
@@ -1866,24 +1744,19 @@ def audit_workflow_source(source: str, name: str) -> list[Finding]:
                         name, f"run step keys differ from closed policy: {step_name}"
                     )
                 )
-            step_context = {
-                key: step[key] for key in ("name", "id", "if", "env") if key in step
-            }
-            expected_step_context = _RUN_STEP_CONTEXT_SHA256.get((name, step_name))
-            if (
-                expected_step_context is None
-                or _normalized_context_sha256(step_context) != expected_step_context
-            ):
-                findings.append(
-                    Finding(
-                        name,
-                        f"run step context differs from closed policy: {step_name}",
-                    )
-                )
             environment = step.get("env", {})
             if not isinstance(environment, dict):
                 findings.append(Finding(name, "step env must be an object"))
             else:
+                if (
+                    name == "develop-release-dry-run.yml"
+                    and step_name
+                    == "Validate trusted controller and develop source event"
+                    and environment != _DEVELOP_TRUST_STEP_ENV_POLICY
+                ):
+                    findings.append(
+                        Finding(name, "develop trust-step env mapping differs")
+                    )
                 for value in environment.values():
                     if (
                         isinstance(value, str)
@@ -1897,25 +1770,24 @@ def audit_workflow_source(source: str, name: str) -> list[Finding]:
                             )
                         )
             run = str(step.get("run", ""))
-            expected_trust_body = _TRUST_CRITICAL_RUN_BODY_SHA256.get(
-                (name, job_name, step_index, step_name)
-            )
-            if (
-                expected_trust_body is not None
-                and _normalized_context_sha256(run) != expected_trust_body
-            ):
-                findings.append(
-                    Finding(
-                        name,
-                        f"trust-critical validator body differs: {step_name}",
-                    )
-                )
+            seen_step_names.add(step_name)
             if not run:
                 continue
             shell_run, embedded_python, heredoc_findings = _extract_canonical_heredocs(
                 run, name
             )
             findings.extend(heredoc_findings)
+            if (
+                name == "develop-release-dry-run.yml"
+                and step_name == "Validate trusted controller and develop source event"
+                and (
+                    len(embedded_python) != 1
+                    or not _develop_inline_validator_is_semantic(embedded_python[0])
+                )
+            ):
+                findings.append(
+                    Finding(name, "develop inline validator contract differs")
+                )
             if "${{" in shell_run:
                 findings.append(
                     Finding(name, "GitHub expression bypasses env boundary")
@@ -1927,27 +1799,6 @@ def audit_workflow_source(source: str, name: str) -> list[Finding]:
                         python_source, f"{name}:embedded-python-{index}"
                     )
                 )
-    for step_name, count in trust_critical_step_counts.items():
-        if count != 1:
-            findings.append(
-                Finding(
-                    name,
-                    "trust-critical validator step must appear exactly once: "
-                    f"{step_name}",
-                )
-            )
-    expected_trust_critical = sorted(
-        (job_name, step_index, step_name, body_digest)
-        for (
-            workflow_name,
-            job_name,
-            step_index,
-            step_name,
-        ), body_digest in _TRUST_CRITICAL_RUN_BODY_SHA256.items()
-        if workflow_name == name
-    )
-    if sorted(observed_trust_critical) != expected_trust_critical:
-        findings.append(Finding(name, "trust-critical validator location/body differs"))
     return findings
 
 

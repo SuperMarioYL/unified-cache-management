@@ -127,6 +127,18 @@ jobs:
         --only-binary=:all: pytest==8.3.5 PyYAML==6.0.2 packaging==24.2
         setuptools==83.0.0
 
+    - name: Fetch fork-source tags when no release tag is reachable
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        if ! git describe --tags --match 'v[0-9]*' HEAD >/dev/null 2>&1; then
+          source_repository_url="$(gh api "repos/${GITHUB_REPOSITORY}" \
+            --jq '.source.clone_url // .parent.clone_url // empty')"
+          test -n "${source_repository_url}"
+          git fetch --force "${source_repository_url}" '+refs/tags/*:refs/tags/*'
+          git describe --tags --match 'v[0-9]*' HEAD >/dev/null
+        fi
+
     - name: Run compact release tests
       run: pytest -q .github/release/tests
 

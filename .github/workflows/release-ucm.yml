@@ -134,8 +134,12 @@ jobs:
             --lane "${lane}" --source-sha "${GITHUB_SHA}" \
             --builder-catalog input/builders/builder-catalog.json \
             --output out/plan/resolved-plan.json >/dev/null
-          PYTHONPATH=.github/release python -m ucm_release catalog validate-main-loop \
+          PYTHONPATH=.github/release python -m ucm_release catalog validate-resolved-plan \
             --plan out/plan/resolved-plan.json >/dev/null
+          if [[ "${lane}" == protected-tag ]]; then
+            PYTHONPATH=.github/release python -m ucm_release catalog validate-main-loop \
+              --plan out/plan/resolved-plan.json >/dev/null
+          fi
           resolved_plan_sha256="$(jq -r '.resolved_plan_sha256' out/plan/resolved-plan.json)"
           logical_artifact="$(jq -r '.expected_artifacts.resolved_plan' out/plan/resolved-plan.json)"
           resolved_plan_artifact="${logical_artifact}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
@@ -412,13 +416,14 @@ jobs:
           set -euo pipefail
           mkdir -p out/wheels out/result
           mapfile -t wheels < <(find input/wheels -type f -name '*.whl' -print | sort)
-          test "${#wheels[@]}" = 6
+          expected_wheels="$(jq '.wheel_tasks | length' input/plan/resolved-plan.json)"
+          test "${#wheels[@]}" = "${expected_wheels}"
           for wheel in "${wheels[@]}"; do
             target="out/wheels/$(basename "${wheel}")"
             test ! -e "${target}"
             cp "${wheel}" "${target}"
           done
-          test "$(find out/wheels -maxdepth 1 -type f -name '*.whl' | wc -l | tr -d ' ')" = 6
+          test "$(find out/wheels -maxdepth 1 -type f -name '*.whl' | wc -l | tr -d ' ')" = "${expected_wheels}"
           PYTHONPATH=.github/release python -m ucm_release publish pypi \
             --plan input/plan/resolved-plan.json \
             --stage publish \
@@ -475,7 +480,8 @@ jobs:
           set -euo pipefail
           mkdir -p out/wheels out/result
           mapfile -t wheels < <(find input/wheels -type f -name '*.whl' -print | sort)
-          test "${#wheels[@]}" = 6
+          expected_wheels="$(jq '.wheel_tasks | length' input/plan/resolved-plan.json)"
+          test "${#wheels[@]}" = "${expected_wheels}"
           for wheel in "${wheels[@]}"; do
             target="out/wheels/$(basename "${wheel}")"
             test ! -e "${target}"
@@ -870,14 +876,16 @@ jobs:
           mkdir -p out/assets out/result
           mapfile -t wheels < <(find input/wheels -type f -name '*.whl' -print | sort)
           mapfile -t charts < <(find input/chart -maxdepth 1 -type f -name '*.tgz' -print)
-          test "${#wheels[@]}" = 6
+          expected_wheels="$(jq '.wheel_tasks | length' input/plan/resolved-plan.json)"
+          expected_assets="$((expected_wheels + 1))"
+          test "${#wheels[@]}" = "${expected_wheels}"
           test "${#charts[@]}" = 1
           for source in "${wheels[@]}" "${charts[@]}"; do
             target="out/assets/$(basename "${source}")"
             test ! -e "${target}"
             cp "${source}" "${target}"
           done
-          test "$(find out/assets -maxdepth 1 -type f | wc -l | tr -d ' ')" = 7
+          test "$(find out/assets -maxdepth 1 -type f | wc -l | tr -d ' ')" = "${expected_assets}"
           PYTHONPATH=.github/release python -m ucm_release publish github-release \
             --plan input/plan/resolved-plan.json \
             --stage assets \
