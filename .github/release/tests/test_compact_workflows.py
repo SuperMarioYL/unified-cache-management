@@ -85,6 +85,58 @@ def _noncomment_shell(text: str) -> str:
     return "\n".join(lines)
 
 
+def _docker_run_commands(source: str) -> list[list[str]]:
+    lines = _noncomment_shell(source).splitlines()
+    commands: list[list[str]] = []
+    for start, line in enumerate(lines):
+        match = re.match(
+            r"^\s*(?:(?:[A-Z_][A-Z0-9_]*)=\S+\s+)*docker\s+run\b",
+            line,
+        )
+        if match is None:
+            continue
+        candidate: list[str] = []
+        for continuation in lines[start:]:
+            candidate.append(continuation)
+            joined = "\n".join(candidate)
+            if joined.rstrip().endswith("\\"):
+                continue
+            try:
+                tokens = shlex.split(joined)
+            except ValueError:
+                continue
+            docker_index = tokens.index("docker")
+            if tokens[docker_index : docker_index + 2] == ["docker", "run"]:
+                commands.append(tokens[docker_index:])
+            break
+    return commands
+
+
+def _mooncake_shell_run_tokens(source: str) -> list[str] | None:
+    matches: list[list[str]] = []
+    image_tokens = {"$RUNTIME_IMAGE", "${RUNTIME_IMAGE}"}
+    for tokens in _docker_run_commands(source):
+        image_positions = [
+            index for index, token in enumerate(tokens) if token in image_tokens
+        ]
+        if len(image_positions) != 1:
+            continue
+        image_position = image_positions[0]
+        entrypoints: list[str] = []
+        for index, token in enumerate(tokens[2:image_position], start=2):
+            if token == "--entrypoint" and index + 1 < image_position:
+                entrypoints.append(tokens[index + 1])
+            elif token.startswith("--entrypoint="):
+                entrypoints.append(token.split("=", 1)[1])
+        if entrypoints != ["sh"]:
+            continue
+        if tokens[image_position + 1 : image_position + 2] != ["-lc"]:
+            continue
+        matches.append(tokens)
+    assert len(matches) <= 1, "ambiguous Mooncake runtime consumers"
+    return matches[0] if matches else None
+
+
 def _shell_variable(variable: str) -> str:
     name = re.escape(variable)
     reference = rf"\$(?:\{{{name}\}}|{name})"
@@ -409,6 +461,59 @@ def _normalized_with(value: dict[str, Any]) -> tuple[tuple[str, object], ...]:
     return tuple(sorted(value.items()))
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "docker run --network none --entrypoint sh --rm "
+            '"${RUNTIME_IMAGE}" -lc true',
+            True,
+            id="separate-entrypoint-with-additional-flags",
+        ),
+        pytest.param(
+            'docker run --rm --entrypoint=sh "$RUNTIME_IMAGE" -lc true',
+            True,
+            id="entrypoint-equals",
+        ),
+        pytest.param(
+            '# docker run --entrypoint sh "${RUNTIME_IMAGE}" -lc true',
+            False,
+            id="comment-is-dead",
+        ),
+        pytest.param(
+            'echo docker run --entrypoint sh "${RUNTIME_IMAGE}" -lc true',
+            False,
+            id="echo-is-not-executable",
+        ),
+        pytest.param(
+            'docker run --entrypoint bash "${RUNTIME_IMAGE}" -lc true',
+            False,
+            id="wrong-entrypoint",
+        ),
+        pytest.param(
+            'docker run --entrypoint sh "${RUNTIME_IMAGE}:latest" -lc true',
+            False,
+            id="image-token-is-not-exact",
+        ),
+        pytest.param(
+            'docker run "${RUNTIME_IMAGE}" --entrypoint sh -lc true',
+            False,
+            id="entrypoint-after-image",
+        ),
+        pytest.param(
+            'docker run --entrypoint sh "${RUNTIME_IMAGE}" -c true',
+            False,
+            id="missing-login-command",
+        ),
+    ],
+)
+def test_mooncake_shell_run_parser_requires_executable_exact_tokens(
+    source: str,
+    expected: bool,
+) -> None:
+    assert (_mooncake_shell_run_tokens(source) is not None) is expected
+
+
 def test_release_workflow_has_six_visible_stages_and_flat_build_matrices() -> None:
     jobs = _load("release-ucm.yml")["jobs"]
 
@@ -584,6 +689,7 @@ def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> 
     assert probe.get("env", {}).get("TARGET_BUILDER_DIGEST") == (
         "${{ matrix.target_builder_digest }}"
     )
+    assert probe.get("env", {}).get("MANYLINUX") == "${{ matrix.manylinux }}"
     run = str(probe["run"])
     _assert_digest_guard_precedes(
         run,
@@ -610,7 +716,19 @@ def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> 
     ):
         assert field in risky_source
     assert "/opt/python/cp*-cp*/bin/python" in risky_source
+    assert "MANYLINUX" in risky_source
+    assert "x86_64" in risky_source
+    assert "aarch64" in risky_source
     assert "sysconfig.get_platform" in risky_source
+    assert re.search(
+        r"(?mi)^\s*platform_tag\s*=.*\bmanylinux\b",
+        risky_source,
+    )
+    assert re.search(r"(?m)^\s*wheel_tag\s*=.*\bplatform_tag\b", risky_source)
+    assert re.search(
+        r"(?m)^\s*(?:platform_tag|wheel_tag)\s*=.*sysconfig\.get_platform",
+        risky_source,
+    ) is None
     probe_source = yaml.safe_dump(probe, sort_keys=False)
     assert "builder_revision_id" not in probe_source
     assert "builder_source_image_digest" not in probe_source
@@ -627,6 +745,7 @@ def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> 
     assert seal.get("env", {}).get("PROBE_OUTCOME") == (
         f"${{{{ steps.{probe['id']}.outcome }}}}"
     )
+    assert seal.get("env", {}).get("MANYLINUX") == "${{ matrix.manylinux }}"
     seal_run = _noncomment_shell(str(seal["run"]))
     producer = _structured_json_producer(seal_run, "out/python-probe/result.json")
     assert producer is not None
@@ -639,6 +758,7 @@ def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> 
         "builder_image",
         "target_builder_digest",
         "cpu_architecture",
+        "manylinux",
         "runner",
         "evidence",
         "success",
@@ -738,9 +858,10 @@ def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version()
     _assert_digest_guard_precedes(
         run,
         "RUNTIME_IMAGE",
-        r'(?m)^\s*docker\s+run\s+--rm\s+--entrypoint\s+sh\s+'
-        r'"\$\{RUNTIME_IMAGE\}"\s+-lc\b',
+        rf"(?m)^\s*docker\s+run\b[\s\S]*?{_shell_variable('RUNTIME_IMAGE')}",
     )
+    command = _mooncake_shell_run_tokens(run)
+    assert command is not None
     seal_steps = [
         step
         for step in job["steps"]

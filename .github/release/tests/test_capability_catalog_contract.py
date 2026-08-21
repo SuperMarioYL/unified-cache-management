@@ -181,6 +181,7 @@ PYTHON_PROBE_FIELDS = {
     "builder_image",
     "target_builder_digest",
     "cpu_architecture",
+    "manylinux",
     "runner",
     "interpreter_path",
     "python_version",
@@ -196,6 +197,7 @@ PYTHON_PROBE_FAILURE_FIELDS = {
     "builder_image",
     "target_builder_digest",
     "cpu_architecture",
+    "manylinux",
     "runner",
     "interpreter_path",
     "builder_capability_id",
@@ -415,8 +417,21 @@ def test_python_probe_fixture_links_exact_fact_and_defers_revision_identity() ->
         )
         assert probe["target_builder_digest"] == fact["target_builder_digest"]
         assert probe["cpu_architecture"] == fact["cpu_architecture"]
+        assert probe["manylinux"] == fact["manylinux"]
+        platform_architecture = {
+            "amd64": "x86_64",
+            "arm64": "aarch64",
+        }[fact["cpu_architecture"]]
+        abi = probe["python_abi"]
+        assert probe["wheel_tag"] == (
+            f'{abi}-{abi}-{fact["manylinux"]}_{platform_architecture}'
+        )
         assert "builder_revision_id" not in probe
         assert "builder_source_image_digest" not in probe
+    for failure in failures:
+        fact = facts[failure["builder_fact_id"]]
+        assert failure["manylinux"] == fact["manylinux"]
+        assert failure["cpu_architecture"] == fact["cpu_architecture"]
 
     multi_abi_fact = next(
         fact
@@ -936,6 +951,7 @@ def test_probe_failures_become_local_exclusions_without_erasing_healthy_facts() 
         python_exclusion["evidence"]["builder_fact_id"]
         == python_failure["builder_fact_id"]
     )
+    assert python_exclusion["evidence"]["manylinux"] == python_failure["manylinux"]
 
     mooncake_exclusion = next(
         item
@@ -981,6 +997,7 @@ def test_all_builder_facts_probe_failed_rejects_empty_capability_catalog() -> No
         )
         failure["target_builder_digest"] = fact["target_builder_digest"]
         failure["cpu_architecture"] = fact["cpu_architecture"]
+        failure["manylinux"] = fact["manylinux"]
         failure["runner"] = (
             "ubuntu-24.04-arm"
             if fact["cpu_architecture"] == "arm64"
@@ -1248,6 +1265,37 @@ def _probe_architecture_mismatch(fixture: dict[str, Any]) -> None:
     fixture["python_probes"]["probes"][0]["cpu_architecture"] = "arm64"
 
 
+def _probe_manylinux_mismatch(fixture: dict[str, Any]) -> None:
+    fixture["python_probes"]["probes"][0]["manylinux"] = "manylinux_2_34"
+
+
+def _probe_failure_manylinux_mismatch(fixture: dict[str, Any]) -> None:
+    fixture["python_probes"]["failures"][0]["manylinux"] = "manylinux_2_34"
+
+
+def _generic_linux_wheel_tag(fixture: dict[str, Any]) -> None:
+    probe = fixture["python_probes"]["probes"][0]
+    architecture = {
+        "amd64": "x86_64",
+        "arm64": "aarch64",
+    }[probe["cpu_architecture"]]
+    probe["wheel_tag"] = (
+        f'{probe["python_abi"]}-{probe["python_abi"]}-linux_{architecture}'
+    )
+
+
+def _wrong_wheel_platform_architecture(fixture: dict[str, Any]) -> None:
+    probe = fixture["python_probes"]["probes"][0]
+    wrong_architecture = {
+        "amd64": "aarch64",
+        "arm64": "x86_64",
+    }[probe["cpu_architecture"]]
+    probe["wheel_tag"] = (
+        f'{probe["python_abi"]}-{probe["python_abi"]}-'
+        f'{probe["manylinux"]}_{wrong_architecture}'
+    )
+
+
 @pytest.mark.parametrize(
     "mutation",
     [
@@ -1257,6 +1305,16 @@ def _probe_architecture_mismatch(fixture: dict[str, Any]) -> None:
         pytest.param(_conflicting_builder_fact, id="conflicting-builder-fact"),
         pytest.param(_conflicting_python_probe, id="conflicting-python-probe"),
         pytest.param(_probe_architecture_mismatch, id="probe-architecture-mismatch"),
+        pytest.param(_probe_manylinux_mismatch, id="probe-manylinux-mismatch"),
+        pytest.param(
+            _probe_failure_manylinux_mismatch,
+            id="probe-failure-manylinux-mismatch",
+        ),
+        pytest.param(_generic_linux_wheel_tag, id="generic-linux-wheel-tag"),
+        pytest.param(
+            _wrong_wheel_platform_architecture,
+            id="wrong-wheel-platform-architecture",
+        ),
     ],
 )
 def test_assembly_rejects_dangling_or_conflicting_physical_fact_linkage(

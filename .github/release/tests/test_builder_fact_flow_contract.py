@@ -144,6 +144,7 @@ PROBE_MATRIX_ROW_FIELDS = {
     "target_builder_digest",
     "runner",
     "cpu_architecture",
+    "manylinux",
 }
 COLLECTED_FIELDS = {
     "kind",
@@ -577,6 +578,7 @@ def test_collect_builder_facts_is_closed_and_matches_catalog_fixture() -> None:
         )
         assert row["target_builder_digest"] == fact["target_builder_digest"]
         assert row["cpu_architecture"] == fact["cpu_architecture"]
+        assert row["manylinux"] == fact["manylinux"]
 
     a2_facts = [
         item
