@@ -35,8 +35,8 @@ def test_unregistered_future_dockerfile_does_not_block_declared_recipes(
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(source.read_bytes())
     (docker_root / "Dockerfile.ucm-vllm-ascend.a2-v0.99.0").write_text(
-        "ARG IMAGE_SOURCE=\"quay.io/ascend\"\n"
-        "ARG IMAGE_NAME_VERSION=\"vllm-ascend:v0.99.0\"\n"
+        'ARG IMAGE_SOURCE="quay.io/ascend"\n'
+        'ARG IMAGE_NAME_VERSION="vllm-ascend:v0.99.0"\n'
         "FROM ${IMAGE_SOURCE}/${IMAGE_NAME_VERSION}\n",
         encoding="utf-8",
     )

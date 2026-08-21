@@ -187,9 +187,7 @@ def test_missing_profile_excludes_unsupported_target_from_feature_plan() -> None
         for item in plan["exclusions"]
     )
     assert plan["image_tasks"]
-    assert all(
-        task["runtime"]["variant"] != "a3" for task in plan["image_tasks"]
-    )
+    assert all(task["runtime"]["variant"] != "a3" for task in plan["image_tasks"])
     assert all(task["runtime"]["variant"] != "a3" for task in plan["family_tasks"])
 
 
@@ -213,9 +211,7 @@ def test_fixture_resolution_excludes_compatibility_without_matching_profile() ->
     release = release_core.load_catalog()
     release["compatibility"]["rules"][0]["accelerator_runtimes"] = ["cuda-12.9"]
     fixture = _fixture_registry()
-    del fixture["repositories"]["docker.io/vllm/vllm-openai"]["snapshots"][
-        "v0.21.2"
-    ]
+    del fixture["repositories"]["docker.io/vllm/vllm-openai"]["snapshots"]["v0.21.2"]
 
     with mock.patch.object(
         release_registry, "resolve_builder_root", return_value=_resolved_builder_root()
@@ -229,14 +225,11 @@ def test_fixture_resolution_excludes_compatibility_without_matching_profile() ->
         )
 
     assert any(
-        item["product_id"] == "vllm"
-        and item["reason"] == "compatibility-unsupported"
+        item["product_id"] == "vllm" and item["reason"] == "compatibility-unsupported"
         for item in plan["exclusions"]
     )
     assert plan["image_tasks"]
-    assert all(
-        task["runtime"]["product_id"] != "vllm" for task in plan["image_tasks"]
-    )
+    assert all(task["runtime"]["product_id"] != "vllm" for task in plan["image_tasks"])
     assert all(task["product_id"] != "vllm" for task in plan["family_tasks"])
     assert all(task["profile_id"] != "cuda130" for task in plan["wheel_tasks"])
 

@@ -21,6 +21,8 @@ LEGACY_RELEASE_ROOTS = (
     REPO_ROOT / "scripts" / "release",
     REPO_ROOT / "docker" / "release",
 )
+
+
 def _source_files(path: Path, *, excluded_parts: set[str] | None = None) -> list[Path]:
     if not path.exists():
         return []
@@ -31,6 +33,7 @@ def _source_files(path: Path, *, excluded_parts: set[str] | None = None) -> list
         if candidate.is_file()
         and not exclusions.intersection(candidate.relative_to(path).parts)
     ]
+
 
 def _forbidden_release_content_paths(repo_root: Path) -> tuple[list[str], list[str]]:
     """Scan both old and new implementation roots, never the contract tests."""
@@ -110,6 +113,7 @@ def test_forbidden_content_scan_covers_the_new_release_tree(tmp_path: Path) -> N
 
     assert opt_paths == [".github/release/ucm_release/runner.py"]
     assert wrapt_paths == [".github/release/ucm_release/wrapt_bundle.py"]
+
 
 def test_release_config_profiles_are_dynamic_and_have_no_runner_escape_hatch() -> None:
     release = yaml.safe_load(
