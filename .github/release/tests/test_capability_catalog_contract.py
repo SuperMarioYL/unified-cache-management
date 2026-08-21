@@ -78,7 +78,10 @@ RUNTIME_FIELDS = {
     "git_tag",
     "git_commit",
 }
-ENTRY_FIELDS = {
+BINDING_FIELDS = {
+    "builder_capability_id",
+    "builder_revision_id",
+    "runtime_id",
     "accelerator",
     "accelerator_runtime",
     "variant",
@@ -89,6 +92,39 @@ ENTRY_FIELDS = {
     "source_image",
     "target_image",
     "mooncake_version",
+    "recipe_path",
+    "recipe_source_commit",
+    "recipe_sha256",
+    "toolchain_sha256",
+    "target_builder_digest",
+    "mooncake_copy_mode",
+    "runtime_image",
+}
+ENTRY_FIELDS = {
+    "builder_capability_id",
+    "builder_revision_id",
+    "runtime_id",
+    "accelerator",
+    "accelerator_runtime",
+    "variant",
+    "cpu_architecture",
+    "manylinux",
+    "python_version",
+    "python_abi",
+    "source_image",
+    "target_image",
+    "mooncake_version",
+    "mooncake_copy_mode",
+    "runtime_image",
+}
+EXCLUSION_FIELDS = {
+    "reason_code",
+    "source_kind",
+    "source_id",
+    "builder_capability_id",
+    "builder_revision_id",
+    "runtime_id",
+    "evidence",
 }
 
 
@@ -149,16 +185,6 @@ def _assert_no_wall_clock_fields(value: object) -> None:
     elif isinstance(value, list):
         for nested in value:
             _assert_no_wall_clock_fields(nested)
-
-
-def _contains_value(value: object, expected: object) -> bool:
-    if value == expected:
-        return True
-    if isinstance(value, dict):
-        return any(_contains_value(nested, expected) for nested in value.values())
-    if isinstance(value, list):
-        return any(_contains_value(nested, expected) for nested in value)
-    return False
 
 
 def test_assembled_catalog_is_closed_digest_bound_and_valid() -> None:
@@ -310,7 +336,8 @@ def test_mooncake_runtime_copy_is_version_exact_and_mismatch_is_local() -> None:
     assert matched_runtime["mooncake_version"] == "0.3.11.post1"
     assert matched["runtime_image"] == matched_runtime["runtime_image"]
     assert matched_binding["runtime_id"] == matched_runtime["runtime_id"]
-    assert _contains_value([matched, matched_binding], "runtime-copy")
+    assert matched["mooncake_copy_mode"] == "runtime-copy"
+    assert matched_binding["mooncake_copy_mode"] == "runtime-copy"
 
     mismatched_runtime = next(
         runtime
@@ -429,8 +456,8 @@ def test_capability_revision_and_runtime_digest_identities_are_recomputable() ->
         assert "@sha256:" in runtime["runtime_image"]
 
 
-def test_bindings_use_exact_revision_runtime_pairs_and_consistent_projections() -> None:
-    """Binding projection drift or capability fallback changes the build target."""
+def test_bindings_entries_and_exclusions_are_closed_and_consistent() -> None:
+    """Open records, projection drift, or fallback change the build target."""
     catalog = _assemble()
     capabilities_by_id = {
         item["builder_capability_id"]: item
@@ -446,6 +473,11 @@ def test_bindings_use_exact_revision_runtime_pairs_and_consistent_projections() 
         (binding["builder_revision_id"], binding["runtime_id"])
         for binding in catalog["bindings"]
     ]
+    assert all(set(binding) == BINDING_FIELDS for binding in catalog["bindings"])
+    assert all(set(entry) == ENTRY_FIELDS for entry in catalog["entries"])
+    assert all(
+        set(exclusion) == EXCLUSION_FIELDS for exclusion in catalog["exclusions"]
+    )
     assert len(pairs) == len(set(pairs))
 
     capability_projection = (
@@ -494,6 +526,14 @@ def test_bindings_use_exact_revision_runtime_pairs_and_consistent_projections() 
         }
         for field in runtime_compatibility:
             assert binding[field] == runtime[field]
+        assert binding["runtime_image"] == runtime["runtime_image"]
+        expected_copy_mode = (
+            "none" if binding["accelerator"] == "cuda" else "runtime-copy"
+        )
+        assert binding["mooncake_copy_mode"] == expected_copy_mode
+        assert (binding["mooncake_version"] is None) == (
+            binding["mooncake_copy_mode"] == "none"
+        )
 
     bindings_by_pair = {
         (binding["builder_revision_id"], binding["runtime_id"]): binding
@@ -504,6 +544,82 @@ def test_bindings_use_exact_revision_runtime_pairs_and_consistent_projections() 
         binding = bindings_by_pair[pair]
         for field in ENTRY_FIELDS:
             assert entry[field] == binding[field]
+
+    for exclusion in catalog["exclusions"]:
+        assert isinstance(exclusion["source_kind"], str)
+        assert exclusion["source_kind"]
+        assert isinstance(exclusion["source_id"], str)
+        assert exclusion["source_id"]
+        assert isinstance(exclusion["evidence"], dict)
+        capability_id = exclusion["builder_capability_id"]
+        revision_id = exclusion["builder_revision_id"]
+        runtime_id = exclusion["runtime_id"]
+        assert capability_id is None or capability_id in capabilities_by_id
+        assert revision_id is None or revision_id in revisions_by_id
+        assert runtime_id is None or runtime_id in runtimes_by_id
+        if exclusion["reason_code"] in {
+            "python-requires-mismatch",
+            "variant-filtered-310p",
+        }:
+            assert capability_id is revision_id is runtime_id is None
+        else:
+            assert exclusion["reason_code"] == "mooncake-version-mismatch"
+            assert capability_id is not None
+            assert revision_id is not None
+            assert runtime_id is not None
+            assert (
+                revisions_by_id[revision_id]["builder_capability_id"]
+                == capability_id
+            )
+
+
+def test_catalog_set_like_arrays_use_approved_canonical_order() -> None:
+    """Canonical digest stability requires one explicit order per set-like array."""
+    catalog = _assemble()
+
+    assert catalog["builder_capabilities"] == sorted(
+        catalog["builder_capabilities"],
+        key=lambda item: item["builder_capability_id"],
+    )
+    assert catalog["builder_revisions"] == sorted(
+        catalog["builder_revisions"],
+        key=lambda item: item["builder_revision_id"],
+    )
+    assert catalog["runtime_candidates"] == sorted(
+        catalog["runtime_candidates"],
+        key=lambda item: item["runtime_id"],
+    )
+    assert catalog["bindings"] == sorted(
+        catalog["bindings"],
+        key=lambda item: (item["builder_revision_id"], item["runtime_id"]),
+    )
+    assert catalog["entries"] == sorted(
+        catalog["entries"],
+        key=lambda item: (
+            item["accelerator"],
+            item["accelerator_runtime"],
+            item["variant"],
+            item["python_abi"],
+            item["cpu_architecture"],
+            item["builder_revision_id"],
+            item["runtime_id"],
+        ),
+    )
+    assert catalog["exclusions"] == sorted(
+        catalog["exclusions"],
+        key=lambda item: (
+            item["reason_code"],
+            item["source_kind"],
+            item["source_id"],
+            item["builder_capability_id"] or "",
+            item["builder_revision_id"] or "",
+            item["runtime_id"] or "",
+        ),
+    )
+    assert all(
+        item["builder_revision_ids"] == sorted(item["builder_revision_ids"])
+        for item in catalog["builder_capabilities"]
+    )
 
 
 def _duplicate_capability_id(catalog: dict[str, Any]) -> None:
@@ -672,6 +788,7 @@ def test_catalog_validation_rejects_noncanonical_or_dangling_objects(
     """Reject-all cannot pass because every mutation starts from a valid Catalog."""
     validate = _require_public_callable("validate_capability_catalog")
     catalog = _assemble()
+    assert validate(copy.deepcopy(catalog)) == catalog
     mutation(catalog)
     _reseal(catalog)
 
@@ -683,6 +800,7 @@ def test_catalog_validation_rejects_malformed_self_digest() -> None:
     """The self digest must be a valid digest and match the canonical projection."""
     validate = _require_public_callable("validate_capability_catalog")
     catalog = _assemble()
+    assert validate(copy.deepcopy(catalog)) == catalog
     catalog["catalog_sha256"] = "sha256:not-a-digest"
 
     with pytest.raises(ValueError):
