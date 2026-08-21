@@ -42,13 +42,18 @@ flowchart LR
     Upstream["上游源码、镜像与 Builder"] --> Catalog
     Catalog --> Candidate["Candidate Plan"]
     Config --> Candidate
+    Previous["上一版 Release Manifest"] --> Candidate
     Candidate --> Build["Build matrices"]
     Build --> BuildResults["Build Result Artifacts"]
-    Previous["上一版 Release Manifest"] --> Admission["Admission"]
+    Previous --> Admission["Admission"]
     Candidate --> Admission
     BuildResults --> Admission
     Admission --> Admitted["Admitted Release Plan"]
-    Admitted --> Publication["并行 Publication DAG"]
+    Admitted --> Trusted["Trusted rebuild and byte compare"]
+    Trusted --> TrustedResults["Trusted Build Result Artifacts"]
+    Admitted --> PublishGate["Publication input gate"]
+    TrustedResults --> PublishGate
+    PublishGate --> Publication["并行 Publication DAG"]
     Publication --> PublicationResults["Publication Result Artifacts"]
     Admitted --> Finalize["Finalize barrier"]
     PublicationResults --> Finalize
@@ -63,7 +68,7 @@ flowchart LR
 | `.github/release/release.yaml` + `schemas/config.schema.json` | 静态产品规则、模板、版本约束、渠道开关、扫描与矩阵上限、首次 v3 bootstrap 策略 | 已发现版本、ABI、架构和构建结果 |
 | `ucm_release/capabilities.py` | 上游读取、规范化、去重、exclusion、Capability Catalog | Distribution 命名和发布准入 |
 | `ucm_release/products.py` | 模板编译、产品展开、精确任务坐标、Candidate Plan、依赖解析冻结 | 构建是否成功 |
-| `ucm_release/results.py` | Build/Publication Result 的统一写入、校验与闭包收集 | 产品选择和 baseline 决策 |
+| `ucm_release/results.py` | Build/Trusted Build/Publication Result 的统一写入、校验与闭包收集 | 产品选择和 baseline 决策 |
 | `ucm_release/admission.py` | baseline 读取、状态机、依赖传播、Admitted Release Plan | 构建与发布动作 |
 | `ucm_release/publication.py` | 发布矩阵、渠道坐标、Release Manifest、最终闭包和 readback 判定 | 上游能力发现 |
 | Workflow | 触发、权限、矩阵 fan-out、Artifact 搬运和失败传播 | 业务映射、固定产品列表、文件 glob 推断 |
@@ -74,7 +79,12 @@ flowchart LR
 
 所有 v3 JSON 对象采用封闭 Schema：顶层包含 `kind`、`schema_version: 3`，禁止未知
 字段；数组按规范坐标排序；重复键、重复坐标、非规范字符串或摘要不匹配均失败。
-每个持久对象包含其规范 JSON 的 `sha256`，后继对象记录所消费对象的摘要。
+每个持久对象包含其规范 JSON 的 `sha256`，后继对象记录所消费对象的摘要。自摘要使用
+明确的 canonical projection：复制完整对象，排除且只排除对象自身的摘要字段（例如
+`catalog_sha256` 或 `result_sha256`），保留所有嵌套对象摘要，按键排序并用 UTF-8、无
+额外空白的规范 JSON 编码后计算 SHA256。作为集合的数据数组必须先按其规范坐标排序，
+具有显式顺序语义的数组保留原顺序。摘要字段本身不参与自身计算，避免递归；校验器以
+相同 projection 重算并拒绝缺失或不匹配。
 
 ## 3. Schema v3 配置权威
 
@@ -187,72 +197,108 @@ Catalog 中用于来源追踪。
 
 ### 4.2 Catalog 条目契约
 
-每个 `entries[]` 至少包含：
+Catalog 不把 Builder 和 runtime 塞进一个会覆盖多版本的唯一键。它包含三个规范数组：
 
-```json
-{
-  "capability_id": "capability-<sha256>",
-  "accelerator": "cuda|ascend",
-  "accelerator_runtime": "cuda-13.0|cann-9.1.0",
-  "variant": "default|a2|a3|<future>",
-  "cpu_architecture": "amd64|arm64|<future>",
-  "manylinux": "manylinux_2_28",
-  "python_version": "3.12",
-  "python_abi": "cp312",
-  "source_image": "registry/repository@sha256:<digest>",
-  "target_image": "ghcr.io/<owner>/<builder>:<immutable-tag>",
-  "mooncake_version": null,
-  "sources": {
-    "project": "vllm-project/vllm",
-    "git_tag": "vX.Y.Z",
-    "git_commit": "<40-hex>",
-    "runtime_image": "repository@sha256:<digest>",
-    "builder_declaration": "path#entry"
-  }
-}
-```
+- `builder_capabilities[]`：某个 Builder 可以构建什么；
+- `runtime_candidates[]`：每一个发现到的 runtime Tag/digest 是什么；
+- `bindings[]`：一个 Builder capability 与一个 runtime candidate 是否组成可构建产品。
 
-Ascend 条目的 `mooncake_version` 必须为验证过的 PEP 440 版本；CUDA 必须为 `null`。
-`source_image` 和 runtime image 使用 digest，`target_image` 是本次 Builder 同步得到的
-不可变坐标。Catalog 的唯一键为：
+Builder capability 至少包含 `builder_id`、`accelerator`、`accelerator_runtime`、
+`variant`、`cpu_architecture`、`manylinux`、`python_version`、`python_abi`、
+`source_image`、`target_image` 和 `mooncake_version`。Ascend 的 Mooncake 是已从匹配
+runtime 复制并验证的版本；CUDA 为显式 `null`。Builder identity 为：
 
 ```text
-accelerator + accelerator_runtime + variant + python_abi + cpu_architecture
+accelerator + accelerator_runtime + variant + python_abi
++ cpu_architecture + manylinux + mooncake_version
 ```
 
-`manylinux`、Python version、Mooncake 或来源在相同键下冲突时不能任选其一，发现失败。
-`exclusions[]` 包含来源坐标、规范 reason code 和证据，不伪造可构建条目。`310p` 使用
-`variant-filtered-310p`；声明/实装 Mooncake 不同使用
-`mooncake-version-mismatch`。
+同一 Builder identity 的 Python version、source image 或 target image 不一致时是来源
+冲突。`source_image` 使用 digest，`target_image` 使用本次 Builder 同步得到的不可变
+坐标；不能因某个 runtime 更新而覆盖另一个 Builder capability。
 
-Catalog 还记录 `source_sha`、上游读取集合、Builder sync 结果、发现时间和
-`catalog_sha256`。时间不参与能力 ID，重跑相同来源应得到相同条目和摘要。
+Runtime candidate 至少包含 `runtime_id`、`product_id`、`runtime_version`、`channel`、
+`variant`、`cpu_architecture`、`accelerator`、`accelerator_runtime`、
+`mooncake_version`、`runtime_image`、`git_tag` 和 `git_commit`。其 identity 为：
+
+```text
+product_id + runtime repository + runtime tag + variant + cpu_architecture
+```
+
+相同 identity 必须解析到唯一 image digest、Git commit、accelerator runtime 和
+Mooncake；不一致是硬失败。不同 Tag/version 各自保留为独立 runtime candidate，不能
+由“最新版本”覆盖或被 Builder identity 去重。因此 growth-safe 选择器可以从完整多版本
+集合中依次评估最新候选、回退候选和 baseline 保留候选。
+
+每个 `bindings[]` 条目以 `builder_id + runtime_id` 为唯一键，并投影出计划所需的完整
+字段：`accelerator`、`accelerator_runtime`、`variant`、`cpu_architecture`、
+`manylinux`、`python_version`、`python_abi`、`source_image`、`target_image`、
+`mooncake_version`。绑定只在 architecture、accelerator runtime、Variant 和 Mooncake
+兼容时产生；同一 runtime 可以绑定多个 Python ABI Builder，同一 Builder 也可以绑定
+多个兼容 runtime candidate。
+
+`exclusions[]` 指向 `builder_id`、`runtime_id` 或来源坐标，并包含规范 reason code 和
+证据，不伪造 binding。`310p` 使用 `variant-filtered-310p`；声明/实装 Mooncake 不同
+使用 `mooncake-version-mismatch`。
+
+Catalog 还记录 `source_sha`、上游读取集合、Builder sync 结果和 `catalog_sha256`，不把
+运行墙钟时间写进内容对象；时间只属于外层 run evidence。重跑相同来源应得到相同能力、
+候选、绑定和摘要。
 
 ## 5. Candidate Plan 与精确任务坐标
 
-`ucm_release plan candidates` 只消费 Schema v3 配置和一个已验证 Catalog。它先按现有
-growth-safe 规则选择每个产品/Variant 的最新可支持 runtime，再让 `products.py`
-展开产品。某个目标不支持形成 exclusion，并继续检查同组下一版本；规则重叠、模板
-冲突或任务坐标重复仍然全局失败。
+`ucm_release plan candidates` 消费 Schema v3 配置、一个已验证 Catalog，以及可选的上一版
+正式 v3 Manifest。它先按现有 growth-safe 规则从完整 `runtime_candidates[]` 为每个
+产品/Variant 选择最新可支持 runtime，再让 `products.py` 展开产品。某个目标不支持形成
+exclusion，并继续检查同组下一版本；规则重叠、模板冲突或任务坐标重复仍然全局失败。
+
+选择“最新”只决定新的 discovered selection，不能删除 baseline。Candidate task set 是
+以下集合的规范并集：
+
+1. 上一版 Manifest 中状态为 `active` 的每个 admission key 对应的
+   `baseline_carry_forward`；
+2. 本次 discovery 选中的每个新候选；
+3. 配置中尚未生效但显式请求评估的 retirement/supersession 目标。
+
+baseline carry-forward 优先在 Catalog bindings 中按 Manifest 的 immutable runtime/builder
+来源重建；若当前 registry 扫描已不列出旧 Tag，可使用 Manifest 冻结的 digest/commit
+坐标和 append-only Builder capability 重建。无法精确重建时保留一个失败任务并产生
+`baseline-source-unavailable` Result，不能直接从计划中消失。这样旧 baseline 和新候选
+在同一 run 共存并分别产生 Build Result。
+
+每个任务除 `admission_key` 外还有 `lineage_key`。Lineage 保留 accelerator runtime、
+Variant、ABI 和 architecture，但不包含 UCM version、上游 runtime version 或 Mooncake
+patch version。不同 accelerator runtime 是可并存的新产品线；同一 lineage 内更高的
+runtime/Mooncake 候选可以由产品规则产生显式 `supersedes` 关系。默认是共存，不允许仅因
+“不是最新”而隐式删除 baseline。`retired` 只来自 Schema v3 中包含旧 key、原因、替代项
+和生效版本的显式 retirement 声明。
 
 ### 5.1 坐标
 
-坐标是结构化字段的规范 JSON，不以数组下标、当前 Profile 名或文件名代替：
+产品坐标和构建实例坐标都是结构化字段的规范 JSON，不以数组下标、当前 Profile 名或
+文件名代替：
 
 ```text
-Wheel = distribution + ucm_version + python_abi + cpu_architecture
+Wheel publication coordinate
+      = distribution + ucm_version + python_abi + cpu_architecture
 
-Runtime Image = accelerator + accelerator_runtime + variant
-              + mooncake_version + python_abi + cpu_architecture
+Runtime Image binding key
+      = accelerator + accelerator_runtime + variant
+      + mooncake_version + python_abi + cpu_architecture
+
+Image build instance
+      = Runtime Image binding key + ucm_version + runtime_id
 
 Image Family = accelerator + accelerator_runtime + variant
              + mooncake_version + runtime_version
 ```
 
-CUDA Runtime Image 的 `mooncake_version` 使用显式 `null`，不能省略。`task_id` 是上述
-坐标规范 JSON 的 `wheel-<sha256>`、`image-<sha256>` 或 `family-<sha256>`；Actions UI
-另用动态 label 显示 Distribution、runtime、Variant、ABI 和 architecture。Artifact
-名称使用 `task_id + run_id + run_attempt`，不会因产品数量增长冲突。
+CUDA Runtime Image 的 `mooncake_version` 使用显式 `null`，不能省略。计划要求的 Runtime
+Image 绑定键保持上述六字段精确闭包；`runtime_id` 只用于区分同一绑定键下的 baseline
+runtime revision 与新 upstream revision。`task_id` 是 build instance 规范 JSON 的
+`wheel-<sha256>`、`image-<sha256>` 或 `family-<sha256>`；Actions UI 另用动态 label 显示
+Distribution、runtime、Variant、ABI 和 architecture。Artifact 名称使用
+`task_id + run_id + run_attempt`，不会因产品数量增长冲突。
 
 每个任务还携带不含本次 UCM version 的稳定 `admission_key`。Wheel 的 admission key
 为 `distribution + python_abi + cpu_architecture`；image 的 admission key 就是上面的
@@ -260,6 +306,12 @@ Runtime Image 绑定键；family 的 admission key 不含上游 runtime patch ve
 正常的 UCM 版本递增仍能匹配上一版正式能力，而新的 accelerator runtime、Mooncake、
 Variant、ABI 或 architecture 会被识别成新能力。`admission_key` 只用于 baseline 状态机，
 不能代替带 UCM version 的精确构建和发布坐标。
+
+同一个 admission key 在 Candidate Plan 中允许至多一个 `candidate_role: baseline` 和
+一个由最新选择器产生的 `candidate_role: successor`；二者以不同 `runtime_id/task_id`
+存在，并由显式 `supersedes` 边连接。若 selection 与 baseline 的 runtime identity 完全
+相同，则去重为一个 `candidate_role: baseline-current` 实例。没有 role/edge 的重复
+admission key 是计划歧义并失败。
 
 Wheel 坐标要求完全唯一。一个 wheel 可以供多个 runtime image 使用，但 image 必须
 通过其 `wheel_task_id` 精确绑定，不能按 `*.whl` 搜索。Runtime Image 键包含
@@ -272,13 +324,15 @@ Mooncake、ABI 和 architecture，防止 CANN runtime 与错误 Mooncake 或 Pyt
 `ucm-candidate-plan` 至少包含：
 
 - `route`、`source_sha`、`ucm_version`、`release_tag`、`config_sha256`、
-  `catalog_sha256`；
+  `catalog_sha256`、可选 `baseline_manifest_sha256`；
 - `capabilities[]`：实际被产品展开消费的 capability IDs；
 - `wheel_tasks[]`：精确坐标、动态 Distribution、Builder digest、manylinux、Python、
   native/ELF 规则、冻结依赖、预期 wheel 文件名和 Artifact 名；
 - `image_tasks[]`：精确坐标、`wheel_task_id`、runtime digest、Mooncake、目标 repository
-  与 member tag、预期 OCI 输出和 Artifact 名；
+  与 member tag、`runtime_id`、`candidate_role`、预期 OCI 输出和 Artifact 名；
 - `family_tasks[]`：动态 family 坐标、member task IDs、每个启用 channel 的目标 index；
+- `baseline_carry_forward[]`、`discovered_selections[]`、显式 `supersessions[]` 和
+  `retirements[]`；
 - `chart_task`：唯一的 Chart 输入、版本、文件名和目标 OCI 坐标；
 - `expected_build_results[]`、`exclusions[]`、动态 Actions matrices 和资源计数；
 - `candidate_plan_sha256`。
@@ -331,24 +385,45 @@ python3
 
 ## 7. Baseline 与准入状态机
 
-`ucm_release plan admit` 消费 Candidate Plan、所有期望 Build Result，以及最近一个公开
-且成功回读的 Schema v3 Release Manifest。baseline 只能来自配置所指 GitHub Release
-渠道中的 Manifest asset；按正式版本顺序选择，验证其 Schema、Repository、渠道、
-Manifest 摘要和公开 readback 状态。Actions Artifact、Draft 或本地文件不能充当正式
-baseline。
+正式 `ucm_release plan admit` 消费 Candidate Plan、所有期望 Build Result，以及
+Candidate Plan 已绑定的最近一个公开且成功回读的 Schema v3 Release Manifest（存在时）。
+`baseline_manifest_sha256: null` 只允许首个 v3 RC 的 `bootstrap: all-passing`。baseline
+只能来自配置所指 GitHub Release 渠道中的 Manifest asset；按正式版本顺序选择，验证其
+Schema、Repository、渠道、Manifest 摘要和公共 readback 状态。Admission 必须重开同一
+Manifest 并与 Candidate Plan 中的 `baseline_manifest_sha256` 相等，Actions Artifact、
+Draft 或本地文件不能充当正式 baseline。
 
-状态机逐项保留任务精确坐标，并用任务的稳定 `admission_key` 与 baseline 建立关系：
+状态机逐项保留任务精确坐标，并用稳定 `admission_key` 加 `candidate_role` 与 baseline
+active revision 建立关系；`successor` 即使复用同一 admission key 仍按新候选评估：
 
-| baseline 关系 | 本次构建 | 决策 | 发布影响 |
+| 候选角色 | 本次构建 | 决策 | 发布影响 |
 | --- | --- | --- | --- |
-| baseline 已正式发布 | success | `admitted` | 保留正式产品 |
-| baseline 已正式发布 | failure 或 Result 缺失 | `blocked-baseline-failure` | 整个发布在任何写入前失败 |
-| baseline 中不存在 | success | `promoted` | 本次进入 admitted 发布闭包 |
-| baseline 中不存在 | failure 或 Result 缺失 | `quarantined` | 仅隔离新项，其他项继续 |
+| baseline active revision | success | `admitted` | 保留正式产品 |
+| baseline active revision | failure 或 Result 缺失 | `blocked-baseline-failure` | 整个发布在任何写入前失败 |
+| successor 或全新 capability | success | `promoted` | 本次进入 admitted 发布闭包 |
+| successor 或全新 capability | failure 或 Result 缺失 | `quarantined` | 仅隔离新项，其他项继续 |
 
-表中的 baseline 关系通过稳定 `admission_key` 建立。上一版 Manifest 中的 admitted key
-在本次 Candidate Plan 完全消失时，产生 `baseline-capability-missing` blocker；不能把
-消失解释成自动退役。依赖失败沿依赖边传播。例如新 wheel 失败时，所有绑定它的新 image/member/family 都
+表中的 baseline 关系通过稳定 `admission_key`、Manifest active runtime identity 和
+`candidate_role` 建立。上一版 Manifest 中 `active` 的 key
+必须出现在 `baseline_carry_forward[]` 并产生 Result；缺失产生
+`baseline-capability-missing` blocker，不能把消失解释成自动退役。
+
+同一 lineage 的 baseline 与 successor 按以下顺序决策：
+
+1. 先独立评估 baseline；其 failure/missing 仍是 blocker，不能被新候选成功掩盖；
+2. 再评估 successor；success 为 `promoted`，failure 为 `quarantined`；
+3. 只有 baseline 和 successor 本次都 success，且 Candidate Plan 存在显式
+   `supersedes: old_task_id -> new_task_id`，Admitted Plan 才把旧 revision 的 lifecycle
+   标为 `superseded`、新 revision 标为 `active`；两者的 admission decision 仍分别是 `admitted`
+   和 `promoted`。否则两者 lifecycle 都保持 `active` 共存；
+4. `retired` 只接受配置中已绑定原因、生效版本和可选替代 key 的显式 retirement，写入
+   Manifest 后从下一版 baseline active set 移除。没有声明的缺失永远不是 retirement。
+
+被 `superseded` 或 `retired` 的历史远端包不删除、不 yank，也不进入本次 publication
+matrix；状态和 successor/原因写入 Manifest。若新候选失败，它只 quarantine，旧 baseline
+继续 active 并发布当前 UCM 版本，因此自动发现升级不会让旧产品线静默消失。
+
+依赖失败沿依赖边传播。例如新 wheel 失败时，所有绑定它的新 image/member/family 都
 quarantine；baseline image 依赖的新生成 wheel 失败时属于 baseline failure，不能降级
 为 quarantine。Chart 和计划/结果收集器没有“新能力”语义，任一失败始终阻断发布。
 quarantine 项保留坐标、失败 Result 和 reason，绝不进入任何发布矩阵。
@@ -358,20 +433,64 @@ quarantine 项保留坐标、失败 Result 和 reason，绝不进入任何发布
 发布，不能用 quarantine 缩小首版 baseline。该 RC 成功后的 Release Manifest 成为
 后续唯一 baseline。非 RC 正式运行不能自行启用 bootstrap。
 
+PR 和 daily 在首个 v3 RC 前没有正式 baseline 时，不生成
+`ucm-admitted-release-plan`。它们调用 `plan admit --mode evaluation`，输出单独的
+`ucm-admission-evaluation`：`formal: false`、`baseline_state: unavailable-pre-v3`、
+`publishable: false`，并把任务标为 `observed-success` 或 `observed-failure`，同时给出
+`bootstrap_all_passing_would_pass`。若已有正式 baseline，PR/daily 仍只输出
+`would-admit`、`would-promote`、`would-quarantine`、`would-block` 的 evaluation，不得
+输出可发布矩阵、取得 Environment 或把预测状态写成正式 admitted/promoted。只有 RC/
+formal route 能生成 Admitted Release Plan。
+
 ### 7.1 Admitted Release Plan
 
 `ucm-admitted-release-plan` 包含 Candidate Plan 身份、baseline Manifest 身份、每个任务
-的 `admitted/promoted/quarantined/blocked` 决策、准入 Build Result 摘要，以及：
+的 `decision`（`admitted/promoted/quarantined/blocked`）和 `lifecycle_state`
+（`active/superseded/retired`，仅成功或显式退役项可用）、准入 Build Result 摘要，以及：
 
 - 精确 `wheel_publication_tasks[]`；
 - 精确 `image_family_publication_tasks[]`，每个 family 内含 member/channel matrix；
 - 唯一 `chart_publication_task`；
 - 精确 `github_asset_tasks[]`；
+- 精确 `expected_trusted_build_results[]`；
 - `expected_publication_results[]`；
 - `releasable`、`blockers[]`、`quarantine[]` 和 `admitted_plan_sha256`。
 
-正式入口只有 `releasable: true` 才能取得发布 Environment。任何 blocker、Schema 错误、
-Result 重复、未计划 Result 或精确闭包不等都在创建 Draft 或登录 Registry 前失败。
+正式入口只有 `releasable: true` 才启动只读 trusted rebuild；只有后续
+`publication-input-gate.ready: true` 的 publication Jobs 才能取得发布 Environment。
+任何 blocker、Schema 错误、Result 重复、未计划 Result、trusted compare 失败或精确闭包
+不等都在创建 Draft 或登录 Registry 前失败。
+
+### 7.2 Trusted rebuild 与 publication input gate
+
+Trusted rebuild 位于 Admission 之后、任何 publication 之前。它只消费不可变 Admitted
+Plan、Candidate Build Result 中的成功 wheel bytes，以及默认分支可信控制代码；不会
+回写 Candidate/Admitted Plan，因此数据流无环：
+
+```text
+Candidate Plan -> candidate build Results -> Admitted Plan
+Admitted Plan -> trusted rebuild/compare Results -> publication input gate
+Admitted Plan + trusted closure -> publication matrices
+```
+
+`trusted-rebuild` 按 Admitted Plan 中 lifecycle 为 `active` 且 decision 为
+`admitted/promoted` 的 wheel task 动态展开。每个任务用默认
+分支可信配方独立构建 A、B 两份 wheel，逐字节校验 `A == B == candidate wheel`，并重新
+核对 Distribution、version、ABI、architecture、METADATA、RECORD、ELF 与依赖闭包。
+它只读且不取得发布 Environment。
+
+每个任务无论比较成功或失败都上传 `ucm-trusted-build-result`，复用 Result envelope 并
+增加 `admitted_plan_sha256`、`candidate_build_result_sha256`、`candidate_wheel_sha256`、
+`rebuild_a_sha256`、`rebuild_b_sha256`、三个 byte-equality 判定和验证结论。失败、取消或
+Result 缺失均不能成为 publication 输入。
+
+`collect-trusted-build-results` 以 `if: always()` 运行，按 Admitted Plan 的
+`expected_trusted_build_results[]` 拒绝 missing/duplicate/unexpected/failure，生成
+`ucm-trusted-build-closure`。随后的 `publication-input-gate` 只校验 Admitted Plan 与该
+closure 的摘要和精确任务集，输出 `ready: true|false`；不重新做准入，也不产生第二份
+Admitted Plan。所有 publication 分支同时依赖此 gate，只有 `ready: true` 才能取得写
+权限。Image member publisher 只使用 closure 中已比较的 wheel，并继续按 Candidate image
+Result 的 OCI closure 验证装配结果。
 
 ## 8. 全并行 Publication DAG
 
@@ -380,10 +499,14 @@ Result 重复、未计划 Result 或精确闭包不等都在创建 Draft 或登�
 
 ```mermaid
 flowchart TD
-    Admit["Admitted Release Plan"] --> Families["publish-image-families matrix"]
-    Admit --> PyPI["publish-pypi-wheels matrix"]
-    Admit --> Chart["publish-chart"]
-    Admit --> Draft["create-github-draft"]
+    Admit["Admitted Release Plan"] --> Trusted["trusted-rebuild matrix"]
+    Trusted --> Compare["collect trusted Results"]
+    Admit --> Gate["publication-input-gate"]
+    Compare --> Gate
+    Gate --> Families["publish-image-families matrix"]
+    Gate --> PyPI["publish-pypi-wheels matrix"]
+    Gate --> Chart["publish-chart"]
+    Gate --> Draft["create-github-draft"]
     Draft --> Assets["publish-github-assets matrix"]
 
     subgraph family["每个 reusable image-family workflow"]
@@ -399,11 +522,15 @@ flowchart TD
     Final --> Manifest["Manifest + publish Release + readback"]
 ```
 
-`publish-image-families` 使用 Admitted Plan 产生的顶层动态 family matrix，并调用一个
-reusable `_publish-image-family.yml`。reusable workflow 内部再以该 family 的
+`publication-input-gate` 成功后，`publish-image-families` 使用 Admitted Plan 产生的
+顶层动态 family matrix，并调用 reusable `_publish-image-family.yml`。reusable workflow
+内部再以该 family 的
 `architecture × enabled channel` member matrix 并行发布；其 index Job 只 `needs`
-该 family 的 member matrix，并对计划中实际 member 坐标组成 index。它不等待其他
-family、PyPI、Chart 或 GitHub assets，也不假设 architecture 是固定两项。
+该 family 的 member matrix，声明 `if: always()`，并从 Result Artifacts 对计划中实际
+member 坐标做精确闭包。全部 member success 时才创建 index；任一 member failure、
+cancelled、skipped 或 Result 缺失时，index 不写 Registry，但仍上传状态为 failure、
+code 为 `member-closure-incomplete` 的 index Publication Result，然后让 Job 失败。它不
+等待其他 family、PyPI、Chart 或 GitHub assets，也不假设 architecture 是固定两项。
 
 其他分支互不串行依赖：
 
@@ -420,7 +547,11 @@ family、PyPI、Chart 或 GitHub assets，也不假设 architecture 是固定两
 
 `finalize-release` 是唯一允许 `needs` 全部发布分支的 barrier。它从 Admitted Plan 的
 `expected_publication_results` 计算精确集合，拒绝缺失、重复、失败、quarantine 或
-未计划 Result。通过后按顺序：
+未计划 Result。GitHub job 必须声明 `if: always()`，不能因任一 `needs` 为 failure、
+cancelled 或 skipped 而被默认跳过；它通过 Actions Artifact API/本 run artifact pattern
+收集 Result，不依赖失败 Job 的 outputs。Draft 创建失败时，asset matrix 也以
+`if: always()` 运行，为每个计划资产生成 `draft-unavailable` failure Result。通过精确
+闭包后才按顺序：
 
 1. 生成 Release Manifest 并上传到现有 Draft；
 2. 校验 Draft 的精确 asset 集合后把 GitHub Release 从 Draft 封板为目标 prerelease
@@ -440,10 +571,13 @@ family、PyPI、Chart 或 GitHub assets，也不假设 architecture 是固定两
 - Repository、Tag、UCM version、stage、source SHA、run ID/attempt；
 - config、Catalog、Candidate Plan、Admitted Plan 的摘要；
 - bootstrap 或 previous Manifest 的来源；
-- 每个 admitted/promoted wheel 的精确坐标、文件名和摘要；
+- 每个 lifecycle 为 active 且 decision 为 admitted/promoted 的 wheel 精确坐标、文件名
+  和摘要；
 - 每个 runtime member/family 的精确坐标、channel、digest 和绑定 wheel；
+- 每个 lineage 的 active、superseded、retired 状态及 successor/retirement reason；
 - Chart 坐标和摘要；
 - quarantine 项及其失败 Result 摘要；
+- 全部成功 Trusted Build Result 和 trusted closure 摘要；
 - 全部成功 Publication Result 的精确集合；
 - 预期公共渠道坐标和 `manifest_sha256`。
 
@@ -453,14 +587,16 @@ Manifest 只在所有 publication Result 成功后生成；它自身与 GitHub R
 
 ## 10. 触发、路由与写边界
 
-所有入口调用同一套 `catalog discover -> plan candidates -> build -> plan admit`，只由
-route 决定选择范围、保留时长和写权限。
+所有入口共享 `catalog discover -> plan candidates -> build`。PR/daily 随后执行
+`plan admit --mode evaluation`；只有 RC/formal 执行正式 `plan admit`，再进入
+`trusted rebuild -> publication input gate -> publication`。route 同时决定选择范围、
+保留时长和写权限，evaluation 不能通过字段或 Workflow output 冒充正式 Admitted Plan。
 
 | route | 触发与 source | 允许写入 | 禁止与完成条件 |
 | --- | --- | --- | --- |
-| PR | `pull_request` 或通过权限检查的 `/ucm-build`，绑定 PR head SHA | Actions Artifact；受信同仓库 `/ucm-build` 可更新共享 Builder pool 和显式 PR 临时 GHCR tag | 不写 PyPI、正式 GHCR、Chart OCI 或 GitHub Release；完成只表示 Hosted candidate evidence |
-| daily | `schedule` 或默认分支 `workflow_dispatch`，必须是 `develop` 的不可变 SHA | Actions Artifact；共享 Builder pool；配置明确启用的 staging/candidate 临时对象 | 不创建正式 Tag/Release，不写 PyPI 或正式产品坐标；完成表示 daily candidate loop |
-| RC/formal | 受保护的 `refs/tags/v*`，Tag/source/默认分支可信控制身份继续沿用现有生产边界 | 准入前只读；`releasable: true` 后由 `release-production` Environment 授予 PyPI、正式 Registry、Chart 和 GitHub Release 写权限 | baseline failure 或首次 bootstrap 非全绿时写入前终止；完成必须有 Manifest 和全部公共 readback |
+| PR | `pull_request` 或通过权限检查的 `/ucm-build`，绑定 PR head SHA | Actions Artifact；受信同仓库 `/ucm-build` 可更新共享 Builder pool 和显式 PR 临时 GHCR tag | 只生成 Admission Evaluation，不写 PyPI、正式 GHCR、Chart OCI 或 GitHub Release；完成只表示 Hosted candidate evidence |
+| daily | `schedule` 或默认分支 `workflow_dispatch`，必须是 `develop` 的不可变 SHA | Actions Artifact；共享 Builder pool；配置明确启用的 staging/candidate 临时对象 | 只生成 Admission Evaluation，不创建正式 Tag/Release，不写 PyPI 或正式产品坐标；完成表示 daily candidate loop |
+| RC/formal | 受保护的 `refs/tags/v*`，Tag/source/默认分支可信控制身份继续沿用现有生产边界 | 准入和 trusted rebuild 只读；`releasable: true` 且 publication input gate ready 后，由 `release-production` Environment 授予 PyPI、正式 Registry、Chart 和 GitHub Release 写权限 | baseline/trusted failure 或首次 bootstrap 非全绿时写入前终止；完成必须有 Manifest 和全部公共 readback |
 
 普通 PR Gate 不依赖 fork secret。GitHub 对 reusable workflow 的静态最大权限要求，不得
 被解释成 PR Job 实际拥有发布权；实现必须用事件、同仓库身份、授权评论者和 job-level
@@ -480,14 +616,18 @@ RC 仍保留现有“候选 Tag 只读、默认分支可信 Controller、受保�
   是全局失败；
 - 可明确归因到单一新 capability 的不支持、Mooncake 不一致或构建失败形成 quarantine；
 - 任何 baseline 任务失败、Result 缺失或依赖闭包破坏都阻断正式发布；
+- trusted rebuild/compare 的 Result 缺失、失败或字节不等在 publication input gate 阻断，
+  不回退到 Candidate bytes 直接发布；
 - publication 单元失败阻断 final barrier，但不把已写远端对象称为 Release，也不自动
   删除历史或部分对象；
 - final 精确集合存在 missing、duplicate、unexpected 或 digest mismatch 时失败；
 - Registry/GitHub Release readback、真实硬件、集群接受是不同证据域，不能相互代替。
 
-任务失败不能通过 `fail-fast` 隐藏同矩阵其他结果；构建和发布矩阵使用
-`fail-fast: false`，让所有独立单元产生 Result。只有本 family index 对本 family
-member 存在必要依赖，finalize 对全部 publication Result 存在必要依赖；其他
+任务失败不能通过 `fail-fast` 隐藏同矩阵其他结果；构建、trusted rebuild 和发布矩阵
+使用 `fail-fast: false`，让所有独立单元产生 Result。所有 Result 上传步骤、trusted
+collector、family index 和 finalize 使用 `if: always()`；其中 collector/index/finalize
+在上传规范失败 Result 或 barrier 报告后再令 Job 失败。只有本 family index 对本
+family member 存在必要依赖，finalize 对全部 publication 分支存在必要依赖；其他
 `needs` 必须能由数据依赖解释。
 
 ## 12. 证据边界
@@ -556,12 +696,14 @@ Manifest 和公共 readback 全部闭合，才能记录 `release-loop-success`�
 
 - active `release.yaml` 仅接受 Schema v3，且不存在 `wheel_profiles` 或固定 Distribution
   列表；
-- Capability Catalog 对 CUDA/CANN、未来非 310P Variant、多 ABI 和 architecture 动态
-  增长，Mooncake 来源与实装一致；
-- Candidate 与 Admitted Plan 使用本文精确坐标和 baseline 状态机；
+- Capability Catalog 分离 Builder capability、Runtime candidate 和 binding，对 CUDA/CANN、
+  未来非 310P Variant、多 runtime、多 ABI 和 architecture 动态增长，Mooncake 来源与实装一致；
+- Candidate 与 Admitted Plan 使用本文精确坐标、baseline carry-forward、显式 lifecycle
+  状态和 baseline 状态机；
+- 正式 publication 只消费通过双 trusted rebuild 和逐字节比较的 trusted closure；
 - wheel/image/production 控制代码没有固定 `cp312`、固定 Profile、固定六项 cache 或资产；
 - 发布 Workflow 使用动态 family/reusable member 两级矩阵，PyPI、Chart、GitHub assets
-  并行，只有 finalize 是全局 barrier；
+  并行；family index 与 finalize 即使上游失败也产生闭包 Result，只有 finalize 是全局 barrier；
 - PR、daily、RC 三条 Hosted loop 分别有不可变 run evidence；
 - 首个 v3 RC 以 `bootstrap: all-passing` 成功并公开回读 Manifest；
 - 后续新增上游能力无需修改 `release.yaml`，可自动晋级或 quarantine；
