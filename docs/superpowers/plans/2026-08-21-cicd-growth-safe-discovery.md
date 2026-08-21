@@ -427,9 +427,19 @@ git commit -m "refactor(release): derive publication closure from catalog"
 - Modify: `.github/release/v2/tests/test_security.py`
 - Modify: `.github/release/v2/tests/test_residual_trust.py`
 - Modify: `.github/release/v2/tests/test_scenarios.py`
+- Delete: `charts/ucm/SOURCE_PROVENANCE.json`
+- Modify: `.github/workflows/_build-chart.yml`
+- Modify: `.github/workflows/_build-image.yml`
+- Modify: `.github/release/schemas/image-result.schema.json`
+- Modify: `.github/workflows/_publish-image-member.yml`
+- Modify: `.github/release/v2/ucm_release_v2/policy.py`
+- Modify: `.github/release/v2/schemas/repository-policy-report.schema.json`
+- Modify: `.github/release/v2/tests/test_policy.py`
+- Modify: `.github/workflows/release-control-dry-run.yml`
 
 **Interfaces:**
 - Removes: legacy exact-workflow fingerprint and reviewed-byte APIs
+- Removes: unused Chart release-tree, hard-coded image-authority, member-audit, and policy-report envelope seals
 - Preserves: semantic workflow checks and functional build/publication hashes
 
 - [ ] **Step 1: Write/adjust tests to express semantic contracts**
@@ -437,6 +447,11 @@ git commit -m "refactor(release): derive publication closure from catalog"
 Delete the production exact-byte audit tests. In v2 tests, retain mutations that violate permissions, trigger restrictions, pinned-action policy, trusted checkout ordering, or shell/Python policy. Remove tests whose only oracle is a root/job/step/body SHA mismatch.
 
 Add a test that changes harmless workflow display text and asserts the semantic auditor remains clean.
+
+Add workflow contract assertions that the Chart result still carries its live
+package SHA, image results still carry dynamically computed implementation hashes,
+and member publication still uploads `member-record.json` after the audit-only
+fields are removed.
 
 - [ ] **Step 2: Verify RED**
 
@@ -459,7 +474,18 @@ Remove the fingerprint fixture, `_workflow_hashes`, `test_legacy_workflow_finger
 
 Delete `_WORKFLOW_ROOT_CONTEXT_SHA256`, `_WORKFLOW_JOB_CONTEXT_SHA256`, `_WORKFLOW_JOB_STEP_SEQUENCE_SHA256`, and `_TRUST_CRITICAL_RUN_BODY_SHA256`. Remove digest-equality findings and exact job/step coverage derived only from those tables. Continue iterating over observed jobs and steps and applying semantic permission, runner, action, shell, embedded-Python, and reusable-workflow policies.
 
-- [ ] **Step 5: Verify GREEN**
+- [ ] **Step 5: Remove remaining unconsumed audit-only hash chains**
+
+Delete `charts/ucm/SOURCE_PROVENANCE.json` and its `release_tree_sha256` workflow
+field, while retaining the computed Chart package SHA. Remove the two hard-coded
+`base_authority_sha256` and `image_toolchain_authority_sha256` fields from both
+image workflow objects and `image-result.schema.json`, while retaining the dynamic
+implementation file hashes and aggregate. Remove `member-audit.json` generation
+and upload, while retaining the remote-readback-backed member record. Remove the
+v2 policy report `snapshot_sha256` and envelope `sha256` fields, while retaining
+`checks`, `compliant`, and `gaps`.
+
+- [ ] **Step 6: Verify GREEN**
 
 Run:
 
@@ -470,10 +496,11 @@ python3 -m pytest -q .github/release/v2/tests
 
 Expected: both suites pass without resealing workflow bytes.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add -A .github/release/production .github/release/v2
+git add -A .github/release/production .github/release/v2 \
+  .github/workflows charts/ucm/SOURCE_PROVENANCE.json
 git commit -m "refactor(release): remove static workflow audit seals"
 ```
 

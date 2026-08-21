@@ -121,6 +121,12 @@ fingerprint fixture, reviewed-workflow digest table, and tests that require exac
 workflow bytes are removed. The v2 auditor drops root-context, job-context,
 step-sequence, and embedded-body SHA tables and their equality checks.
 
+Other closed, audit-only chains are removed with their unused fields: the static
+Chart `SOURCE_PROVENANCE.json` release-tree seal, hard-coded image authority hashes
+that have no source-byte comparison, the unconsumed member-audit artifact, and the
+v2 repository-policy report envelope hash. Their live package, implementation,
+member-record, and policy findings remain.
+
 Semantic checks remain where they express behavior directly: workflow permissions,
 event restrictions, pinned actions, trusted checkout boundaries, forbidden shell
 constructs, and required publication/readback topology. A test must assert the
