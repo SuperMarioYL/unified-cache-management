@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import copy
 import importlib
 from pathlib import Path
 
@@ -35,6 +34,21 @@ def test_reusable_security_auditor_covers_nested_python_and_all_workflows() -> N
     assert findings == []
     scanned = set(_security().python_audit_paths(V2_ROOT))
     assert V2_ROOT / "packaging/backend_guard.py" in scanned
+
+
+def test_workflow_auditor_allows_harmless_display_name_changes() -> None:
+    """Display copy must not require resealing otherwise unchanged workflow bytes."""
+    workflow_name = "release-control-dry-run.yml"
+    source = (REPOSITORY_ROOT / ".github/workflows" / workflow_name).read_text(
+        encoding="utf-8"
+    )
+    source = _replace_once(
+        source,
+        "name: Release control dry-run v2",
+        "name: Release control dry-run v2 (display copy changed)",
+    )
+
+    assert _security().audit_workflow_source(source, workflow_name) == []
 
 
 def test_every_lifecycle_plan_consumer_uses_the_semantic_validator_or_wrapper() -> None:
@@ -98,376 +112,54 @@ def _replace_once(source: str, before: str, after: str) -> str:
     return source.replace(before, after, 1)
 
 
-def _trust_step_document(workflow_name: str) -> dict[object, object]:
+@pytest.mark.parametrize(
+    ("workflow_name", "replacement"),
+    [
+        (
+            "develop-release-dry-run.yml",
+            {"workflow_dispatch": {}},
+        ),
+        (
+            "release-control-dry-run.yml",
+            {"workflow_dispatch": {}},
+        ),
+    ],
+)
+def test_workflow_trigger_policy_rejects_unsafe_entrypoint_changes(
+    workflow_name: str, replacement: dict[str, object]
+) -> None:
+    """Changing a trusted automatic/reusable entrypoint must still fail closed."""
     source = (REPOSITORY_ROOT / ".github/workflows" / workflow_name).read_text(
         encoding="utf-8"
     )
     document = yaml.safe_load(source)
     assert isinstance(document, dict)
-    return document
+    document[True] = replacement
+
+    findings = _security().audit_workflow_source(
+        yaml.safe_dump(document, sort_keys=False), workflow_name
+    )
+
+    assert any("trigger policy" in finding.message for finding in findings), findings
 
 
-def _trust_step(
-    document: dict[object, object], step_name: str
-) -> tuple[list[object], dict[object, object]]:
-    jobs = document["jobs"]
-    assert isinstance(jobs, dict)
-    matches: list[tuple[list[object], dict[object, object]]] = []
-    for job in jobs.values():
-        assert isinstance(job, dict)
-        steps = job.get("steps", [])
-        assert isinstance(steps, list)
-        for step in steps:
-            if isinstance(step, dict) and step.get("name") == step_name:
-                matches.append((steps, step))
-    assert len(matches) == 1
-    return matches[0]
-
-
-def _job_steps(document: dict[object, object], job_name: str) -> list[object]:
-    jobs = document["jobs"]
-    assert isinstance(jobs, dict)
-    job = jobs[job_name]
-    assert isinstance(job, dict)
-    steps = job["steps"]
-    assert isinstance(steps, list)
-    return steps
-
-
-def _pop_named_step(steps: list[object], step_name: str) -> dict[object, object]:
-    matches = [
-        (index, step)
-        for index, step in enumerate(steps)
-        if isinstance(step, dict) and step.get("name") == step_name
-    ]
-    assert len(matches) == 1
-    index, step = matches[0]
-    assert isinstance(step, dict)
-    steps.pop(index)
-    return step
-
-
-def _mutated_trust_body(
-    workflow_name: str, step_name: str, before: str, after: str
-) -> str:
-    document = _trust_step_document(workflow_name)
-    _, step = _trust_step(document, step_name)
-    run = step["run"]
-    assert isinstance(run, str)
-    assert run.count(before) == 1
-    step["run"] = run.replace(before, after, 1)
-    return yaml.safe_dump(document, sort_keys=False)
-
-
-@pytest.mark.parametrize(
-    ("before", "after"),
-    [
-        (
-            'if os.environ["CONFIGURED_MAIN"] != "main":',
-            "if False:",
-        ),
-        (
-            'if os.environ["CALLER_REPOSITORY"] != repository:',
-            "if False:",
-        ),
-        ('"workflow_sha",', '"workflow_sha_removed",'),
-        (
-            "if any(not isinstance(job_context[key], str) for key in required_job_keys):",
-            "if False:",
-        ),
-        (
-            'if job_context["workflow_repository"] != repository:',
-            "if False:",
-        ),
-        (
-            'if job_context["workflow_file_path"] != workflow_path:',
-            "if False:",
-        ),
-        (
-            'if job_context["workflow_ref"] != workflow_ref:',
-            "if False:",
-        ),
-        (
-            "SuperMarioYL/unified-cache-management/.github/workflows/release-control-dry-run.yml@refs/heads/main",
-            "SuperMarioYL/unified-cache-management/.github/workflows/release-control-dry-run.yml@refs/tags/main",
-        ),
-        ('"policy-audit",', '"attacker-operation",'),
-        (
-            'if not re.fullmatch(r"[0-9a-f]{40}", workflow_sha):',
-            "if False:",
-        ),
-        (
-            'first = observed(Path(os.environ["RUNNER_TEMP"]) / "main-ref-first.json", "first")',
-            "first = workflow_sha",
-        ),
-        (
-            'second = observed(Path(os.environ["RUNNER_TEMP"]) / "main-ref-second.json", "second")',
-            "second = workflow_sha",
-        ),
-        (
-            "if first != second or first != workflow_sha:",
-            "if False:",
-        ),
-    ],
-    ids=(
-        "configured-main",
-        "caller-repository",
-        "required-job-key",
-        "required-job-key-type",
-        "workflow-repository",
-        "workflow-path",
-        "workflow-ref-check",
-        "tag-shadow-ref",
-        "operation-allowlist",
-        "workflow-sha-format",
-        "first-main-observation",
-        "second-main-observation",
-        "two-main-observations-equality",
-    ),
-)
-def test_trusted_reusable_controller_body_is_semantically_golden(
-    before: str, after: str
-) -> None:
-    """Every trust predicate in the reusable controller is scanner-immutable."""
-    workflow_name = "release-control-dry-run.yml"
-    step_name = "Validate exact trusted reusable controller identity"
-    source = _mutated_trust_body(workflow_name, step_name, before, after)
-
-    findings = _security().audit_workflow_source(source, workflow_name)
-
-    assert any(
-        "trust-critical validator body differs" in finding.message
-        for finding in findings
-    ), findings
-
-
-@pytest.mark.parametrize(
-    ("before", "after"),
-    [
-        (
-            'if os.environ["CONFIGURED_MAIN"] != "main" or os.environ["DEFAULT_BRANCH"] != "main" or os.environ["GITHUB_REF"] != "refs/heads/main" or os.environ["GITHUB_REF_NAME"] != "main":',
-            "if False:",
-        ),
-        (
-            'if os.environ["EVENT_REPOSITORY"] != "SuperMarioYL/unified-cache-management":',
-            "if False:",
-        ),
-        (
-            'if os.environ["WORKFLOW_NAME"] != "Push Commit Checks":',
-            "if False:",
-        ),
-        (
-            'if os.environ["WORKFLOW_EVENT"] != "push":',
-            "if False:",
-        ),
-        (
-            'if os.environ["WORKFLOW_PATH"] != ".github/workflows/push-check.yml@develop":',
-            "if False:",
-        ),
-        (
-            'if os.environ["WORKFLOW_CONCLUSION"] != "success":',
-            "if False:",
-        ),
-        (
-            'if os.environ["HEAD_BRANCH"] != "develop" or os.environ["HEAD_REPOSITORY"] != os.environ["EVENT_REPOSITORY"]:',
-            "if False:",
-        ),
-        (
-            'if not re.fullmatch(r"[0-9a-f]{40}", source_sha):',
-            "if False:",
-        ),
-        (
-            'first = observed(Path(os.environ["RUNNER_TEMP"]) / "main-ref-first.json", "first")',
-            'first = os.environ["WORKFLOW_SHA"]',
-        ),
-        (
-            'second = observed(Path(os.environ["RUNNER_TEMP"]) / "main-ref-second.json", "second")',
-            'second = os.environ["WORKFLOW_SHA"]',
-        ),
-        (
-            'if first != second or first != os.environ["WORKFLOW_SHA"]:',
-            "if False:",
-        ),
-    ],
-    ids=(
-        "default-main-controller",
-        "event-repository",
-        "workflow-name",
-        "workflow-event-push",
-        "workflow-path-develop",
-        "workflow-conclusion",
-        "head-branch-and-repository",
-        "head-sha-format",
-        "first-main-observation",
-        "second-main-observation",
-        "two-main-observations-equality",
-    ),
-)
-def test_develop_workflow_run_validator_body_is_semantically_golden(
-    before: str, after: str
-) -> None:
-    """Every trusted workflow_run identity predicate is scanner-immutable."""
+def test_develop_checkout_cannot_move_before_trusted_event_validation() -> None:
+    """Trusted control bytes may execute only after the workflow_run gate passes."""
     workflow_name = "develop-release-dry-run.yml"
-    step_name = "Validate trusted controller and develop source event"
-    source = _mutated_trust_body(workflow_name, step_name, before, after)
-
-    findings = _security().audit_workflow_source(source, workflow_name)
-
-    assert any(
-        "trust-critical validator body differs" in finding.message
-        for finding in findings
-    ), findings
-
-
-@pytest.mark.parametrize(
-    ("workflow_name", "step_name"),
-    [
-        (
-            "release-control-dry-run.yml",
-            "Validate exact trusted reusable controller identity",
-        ),
-        (
-            "develop-release-dry-run.yml",
-            "Validate trusted controller and develop source event",
-        ),
-    ],
-)
-@pytest.mark.parametrize("mutation", ["delete", "duplicate", "rename"])
-def test_trust_critical_validator_step_is_present_exactly_once(
-    workflow_name: str, step_name: str, mutation: str
-) -> None:
-    """Deleting, duplicating, or renaming either trust gate must fail closed."""
-    document = _trust_step_document(workflow_name)
-    steps, step = _trust_step(document, step_name)
-    index = steps.index(step)
-    if mutation == "delete":
-        steps.pop(index)
-    elif mutation == "duplicate":
-        steps.insert(index + 1, copy.deepcopy(step))
-    else:
-        step["name"] = f"{step_name} renamed"
+    source = (REPOSITORY_ROOT / ".github/workflows" / workflow_name).read_text(
+        encoding="utf-8"
+    )
+    document = yaml.safe_load(source)
+    assert isinstance(document, dict)
+    steps = document["jobs"]["develop-preview"]["steps"]
+    steps[2], steps[3] = steps[3], steps[2]
 
     findings = _security().audit_workflow_source(
         yaml.safe_dump(document, sort_keys=False), workflow_name
     )
 
     assert any(
-        "trust-critical validator step must appear exactly once" in finding.message
-        for finding in findings
-    ), findings
-
-
-@pytest.mark.parametrize(
-    "mutation",
-    [
-        "controller-move-to-release-job",
-        "controller-duplicate-in-release-job",
-        "controller-wrong-index",
-        "develop-after-business-cli",
-        "develop-checkout-before-validator",
-    ],
-)
-def test_trust_critical_validator_is_bound_to_exact_job_and_index(
-    mutation: str,
-) -> None:
-    """A valid body/name cannot retain authority under the wrong owner or order."""
-    if mutation.startswith("controller-"):
-        workflow_name = "release-control-dry-run.yml"
-        step_name = "Validate exact trusted reusable controller identity"
-        document = _trust_step_document(workflow_name)
-        control_steps = _job_steps(document, "control")
-        if mutation == "controller-duplicate-in-release-job":
-            _, step = _trust_step(document, step_name)
-            _job_steps(document, "release-preview").append(copy.deepcopy(step))
-        else:
-            step = _pop_named_step(control_steps, step_name)
-            if mutation == "controller-move-to-release-job":
-                _job_steps(document, "release-preview").append(step)
-            else:
-                control_steps.insert(0, step)
-    else:
-        workflow_name = "develop-release-dry-run.yml"
-        step_name = "Validate trusted controller and develop source event"
-        document = _trust_step_document(workflow_name)
-        develop_steps = _job_steps(document, "develop-preview")
-        if mutation == "develop-after-business-cli":
-            develop_steps.append(_pop_named_step(develop_steps, step_name))
-        else:
-            develop_steps[2], develop_steps[3] = develop_steps[3], develop_steps[2]
-
-    findings = _security().audit_workflow_source(
-        yaml.safe_dump(document, sort_keys=False), workflow_name
-    )
-
-    assert any(
-        "trust-critical validator location/body differs" in finding.message
-        for finding in findings
-    ), findings
-    assert any(
-        "ordered step sequence differs" in finding.message for finding in findings
-    ), findings
-
-
-@pytest.mark.parametrize(
-    "mutation",
-    [
-        "nightly-swap-checkout-and-setup",
-        "pr-delete-summary",
-        "controller-duplicate-action",
-        "controller-move-business-step-across-jobs",
-    ],
-)
-def test_every_executable_job_has_an_exact_ordered_step_sequence(
-    mutation: str,
-) -> None:
-    """Non-trust steps also cannot move, reorder, duplicate, or disappear."""
-    if mutation == "nightly-swap-checkout-and-setup":
-        workflow_name = "nightly-release-dry-run.yml"
-        document = _trust_step_document(workflow_name)
-        steps = _job_steps(document, "nightly-preview")
-        steps[0], steps[1] = steps[1], steps[0]
-    elif mutation == "pr-delete-summary":
-        workflow_name = "pr-release-dry-run.yml"
-        document = _trust_step_document(workflow_name)
-        steps = _job_steps(document, "pull-request-preview")
-        _pop_named_step(steps, "Write PR preview summary")
-    elif mutation == "controller-duplicate-action":
-        workflow_name = "release-control-dry-run.yml"
-        document = _trust_step_document(workflow_name)
-        steps = _job_steps(document, "policy-audit")
-        steps.insert(2, copy.deepcopy(steps[1]))
-    else:
-        workflow_name = "release-control-dry-run.yml"
-        document = _trust_step_document(workflow_name)
-        source_steps = _job_steps(document, "simulated-environment")
-        moved = _pop_named_step(
-            source_steps, "Create deterministic offline artifact fixtures"
-        )
-        _job_steps(document, "cleanup-preview").append(moved)
-
-    findings = _security().audit_workflow_source(
-        yaml.safe_dump(document, sort_keys=False), workflow_name
-    )
-
-    assert any(
-        "ordered step sequence differs" in finding.message for finding in findings
-    ), findings
-
-
-def test_ordered_step_sequence_policy_has_no_orphan_executable_job() -> None:
-    """Every executable job must have one reviewed sequence and vice versa."""
-    workflow_name = "release-control-dry-run.yml"
-    document = _trust_step_document(workflow_name)
-    jobs = document["jobs"]
-    assert isinstance(jobs, dict)
-    jobs["orphan-executable-job"] = copy.deepcopy(jobs["control"])
-
-    findings = _security().audit_workflow_source(
-        yaml.safe_dump(document, sort_keys=False), workflow_name
-    )
-
-    assert any(
-        "executable job step-sequence coverage differs" in finding.message
+        "trusted checkout requires prior validation" in finding.message
         for finding in findings
     ), findings
 

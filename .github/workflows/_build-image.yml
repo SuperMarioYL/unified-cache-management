@@ -433,7 +433,7 @@ jobs:
             --arg iu "sha256:$(sha256sum .github/release/docker/install_ucm.py | cut -d' ' -f1)" \
             --arg ir "sha256:$(sha256sum .github/release/docker/inspect_runtime.py | cut -d' ' -f1)" \
             --arg vb "sha256:$(sha256sum .github/release/docker/verify_base_image.py | cut -d' ' -f1)" \
-            '{files:{"Dockerfile":$df,"install_ucm.py":$iu,"inspect_runtime.py":$ir,"verify_base_image.py":$vb},base_authority_sha256:"sha256:e591d627a538e4d7546cdf8f458de7de78e4016bed50349c889cc3ffe5e8834d",image_toolchain_authority_sha256:"sha256:688e7a93fcac5b11bf262ef2708e2d49637f7d27e160e4ac3a98f6770142ea92"}')"
+            '{files:{"Dockerfile":$df,"install_ucm.py":$iu,"inspect_runtime.py":$ir,"verify_base_image.py":$vb}}')"
           impl_sha256="sha256:$(printf '%s' "${implementation}" | sha256sum | cut -d' ' -f1)"
           implementation="$(jq -cS --arg agg "${impl_sha256}" '.aggregate_sha256 = $agg' <<<"${implementation}")"
           whl_inspection_sha256="sha256:$(sha256sum input/wheel/wheel-inspection.json | cut -d' ' -f1)"
@@ -560,7 +560,7 @@ jobs:
             --arg iu "sha256:$(sha256sum .github/release/docker/install_ucm.py | cut -d' ' -f1)" \
             --arg ir "sha256:$(sha256sum .github/release/docker/inspect_runtime.py | cut -d' ' -f1)" \
             --arg vb "sha256:$(sha256sum .github/release/docker/verify_base_image.py | cut -d' ' -f1)" \
-            '{files:{"Dockerfile":$df,"install_ucm.py":$iu,"inspect_runtime.py":$ir,"verify_base_image.py":$vb},base_authority_sha256:"sha256:e591d627a538e4d7546cdf8f458de7de78e4016bed50349c889cc3ffe5e8834d",image_toolchain_authority_sha256:"sha256:688e7a93fcac5b11bf262ef2708e2d49637f7d27e160e4ac3a98f6770142ea92"}')"
+            '{files:{"Dockerfile":$df,"install_ucm.py":$iu,"inspect_runtime.py":$ir,"verify_base_image.py":$vb}}')"
           impl_sha256="sha256:$(printf '%s' "${implementation}" | sha256sum | cut -d' ' -f1)"
           implementation="$(jq -cS --arg agg "${impl_sha256}" '.aggregate_sha256 = $agg' <<<"${implementation}")"
           # Validate the OCI platform and manifest digest against the frozen plan.

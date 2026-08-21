@@ -535,6 +535,24 @@ def test_image_workflow_hashes_runtime_source_but_keeps_context_filename() -> No
     assert f"cp {runtime_path} context/Dockerfile" in source
     assert source.count(f"sha256sum {runtime_path}") == 2
     assert 'files:{"Dockerfile":$df' in source
+    for path in (
+        ".github/release/docker/install_ucm.py",
+        ".github/release/docker/inspect_runtime.py",
+        ".github/release/docker/verify_base_image.py",
+    ):
+        assert f"sha256sum {path}" in source
+    assert ".aggregate_sha256 = $agg" in source
+    assert "base_authority_sha256" not in source
+    assert "image_toolchain_authority_sha256" not in source
+    schema = yaml.safe_load(
+        (REPO_ROOT / ".github/release/schemas/image-result.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert set(schema["properties"]["implementation"]["required"]) == {
+        "files",
+        "aggregate_sha256",
+    }
     assert "--target runtime-real" in source
     assert ".github/release/docker/Dockerfile |" not in source
 
@@ -716,6 +734,28 @@ def test_protected_ghcr_publisher_reuses_resolved_same_run_oci_builds() -> None:
     ):
         assert fragment in member_text
     assert "printf '%s' \"${ops}\" | sha256sum" not in member_text
+    member_upload = next(
+        step
+        for step in _steps(member_jobs["publish-member"])
+        if str(step.get("uses", "")).startswith("actions/upload-artifact@")
+    )
+    member_paths = str(member_upload["with"]["path"])
+    assert "out/member-record.json" in member_paths
+    assert "member-audit" not in member_paths
+
+
+def test_chart_result_retains_live_package_sha_without_release_tree_seal() -> None:
+    workflow = _load_workflow(WORKFLOW_DIR / "_build-chart.yml")
+    record = next(
+        step
+        for step in _steps(_jobs(workflow)["package-chart"])
+        if step.get("id") == "record"
+    )
+    source = str(record["run"])
+
+    assert 'chart_sha="sha256:$(sha256sum "$package"' in source
+    assert "sha256:$s" in source
+    assert "release_tree_sha256" not in source
 
 
 def test_protected_ghcr_publisher_executes_plan_derived_image_count(

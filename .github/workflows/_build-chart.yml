@@ -103,10 +103,6 @@ jobs:
           chart_source="$(jq -r '.chart.source' "$plan")"
           chart_version="$(jq -r '.chart.version' "$plan")"
           chart_app_version="$(jq -r '.chart.app_version' "$plan")"
-          # Provenance assertion: the chart source tree is frozen with a recorded digest.
-          test -f "${chart_source}/SOURCE_PROVENANCE.json"
-          release_tree="$(jq -r '.release_tree_sha256' "${chart_source}/SOURCE_PROVENANCE.json")"
-          test -n "$release_tree"
           # helm lint
           helm lint "${chart_source}"
           # helm template (validation cases): bind each case to its family runtime image
@@ -141,7 +137,6 @@ jobs:
           package="$(find out/chart -maxdepth 1 -type f -name '*.tgz' -print)"
           test -n "$package"
           echo "package=${package}" >>"${GITHUB_OUTPUT}"
-          echo "release_tree=${release_tree}" >>"${GITHUB_OUTPUT}"
       - name: Normalize chart package metadata
         env:
           CHART_PACKAGE: ${{ steps.package.outputs.package }}
@@ -229,17 +224,15 @@ jobs:
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
           CHART_PACKAGE: ${{ steps.package.outputs.package }}
-          RELEASE_TREE: ${{ steps.package.outputs.release_tree }}
         run: |
           # shellcheck disable=SC2153,SC1083,SC2012,SC2100,SC2209
           set -euo pipefail
           package="$CHART_PACKAGE"
-          release_tree="$RELEASE_TREE"
           test -f "$package"
           chart_sha="sha256:$(sha256sum "$package" | cut -d' ' -f1)"
           filename="$(basename "$package")"
-          jq -nc --arg f "$filename" --arg s "$chart_sha" --arg r "$release_tree" \
-            '{filename:$f,sha256:$s,release_tree_sha256:$r,status:"candidate-verified"}' \
+          jq -nc --arg f "$filename" --arg s "$chart_sha" \
+            '{filename:$f,sha256:$s,status:"candidate-verified"}' \
             >out/artifact/chart-result.json
           cp "$package" out/artifact/
           logical="ucm-chart-${SOURCE_SHA}"

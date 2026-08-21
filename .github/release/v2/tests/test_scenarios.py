@@ -1006,7 +1006,7 @@ def test_actual_generated_json_documents_validate_with_standalone_cli_schemas(
         "--config",
         str(CONFIG),
     )
-    capture(
+    policy_report = capture(
         "repo-policy",
         "audit",
         "--snapshot",
@@ -1016,6 +1016,8 @@ def test_actual_generated_json_documents_validate_with_standalone_cli_schemas(
         "--config",
         str(CONFIG),
     )
+    assert {"checks", "compliant"} <= set(policy_report)
+    assert {"sha256", "snapshot_sha256"}.isdisjoint(policy_report)
 
     intent = {"source_sha": SHA, "stage": "stable", "version": "0.6.0"}
     intent_path = tmp_path / "release-intent.json"

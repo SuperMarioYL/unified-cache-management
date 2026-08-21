@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 import os
 import shutil
@@ -124,14 +123,16 @@ def test_policy_audit_reports_a_fully_compliant_offline_snapshot(
     assert all(
         item["status"] == "passed" and item["evidence"] for item in checks.values()
     )
-    unsigned = dict(document)
-    digest = unsigned.pop("sha256")
-    assert (
-        digest
-        == hashlib.sha256(
-            json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()
-    )
+    assert set(document) == {
+        "checks",
+        "compliant",
+        "expected_repository",
+        "kind",
+        "mode",
+        "observed_repository",
+        "repository_role",
+        "schema_version",
+    }
 
 
 def test_policy_audit_exposes_the_current_fork_fixture_gaps_without_live_claims(
