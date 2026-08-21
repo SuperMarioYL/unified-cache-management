@@ -1,92 +1,10 @@
-# syntax=docker/dockerfile:1.12.1@sha256:93bfd3b68c109427185cd78b4779fc82b484b0b7618e36d0f104d4d801e66d25
-# check=skip=SecretsUsedInArgOrEnv
-ARG SOURCE_DATE_EPOCH=0
-ARG BASE_IMAGE=registry.invalid/ucm/base@sha256:0000000000000000000000000000000000000000000000000000000000000000
-
-FROM ${BASE_IMAGE} AS runtime-install
-
+# syntax=docker/dockerfile:1.12.1
 ARG BASE_IMAGE
-ARG SOURCE_DATE_EPOCH
-ARG TARGETPLATFORM
+
+FROM ${BASE_IMAGE} AS runtime
+
 ARG UCM_WHEEL
-
-ARG LD_LIBRARY_PATH
-ENV LD_LIBRARY_PATH="/usr/local/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-RUN ldconfig /usr/local/lib && rm -f /var/cache/ldconfig/aux-cache
-
-COPY image-recipe.json /usr/local/share/ucm-release/image-recipe.json
-COPY image-metadata.json /usr/local/share/ucm-release/image-metadata.json
-COPY verify_base_image.py /usr/local/bin/verify_base_image.py
-COPY install_ucm.py /usr/local/bin/install_ucm.py
-COPY inspect_runtime.py /usr/local/bin/inspect_runtime.py
 COPY ${UCM_WHEEL} /tmp/${UCM_WHEEL}
-
-RUN python3 /usr/local/bin/verify_base_image.py \
-      --recipe /usr/local/share/ucm-release/image-recipe.json \
-      --base-image "${BASE_IMAGE}" \
-      --target-platform "${TARGETPLATFORM}" \
-      --output /usr/local/share/ucm-release/base-verification.json
-RUN python3 /usr/local/bin/install_ucm.py \
-      --recipe /usr/local/share/ucm-release/image-recipe.json \
-      --metadata /usr/local/share/ucm-release/image-metadata.json \
-      --wheel "/tmp/${UCM_WHEEL}" \
-      --output /usr/local/share/ucm-release/install-result.json
-RUN python3 /usr/local/bin/inspect_runtime.py \
-      --recipe /usr/local/share/ucm-release/image-recipe.json \
-      --install-result /usr/local/share/ucm-release/install-result.json \
-      --output /usr/local/share/ucm-release/runtime-inspection.json
-
-FROM runtime-install AS runtime
-
-FROM ${BASE_IMAGE} AS runtime-real-install
-
-ARG BASE_IMAGE
-ARG SOURCE_DATE_EPOCH
-ARG TARGETPLATFORM
-ARG UCM_WHEEL
-ARG UCM_SOURCE_SHA
-ARG UCM_SOURCE_REPOSITORY_URL
-ARG UCM_SOURCE_TREE
-ARG UCM_SOURCE_CONTEXT_SHA256
-ARG UCM_TASK_SHA256
-ARG UCM_BUILD_KEY_SHA256
-ARG UCM_WHEEL_SHA256
-ARG UCM_RECIPE_SHA256
-ARG UCM_RUNTIME_PATCH_VARIANTS
-
-ARG LD_LIBRARY_PATH
-ENV LD_LIBRARY_PATH="/usr/local/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-ENV UCM_RUNTIME_PATCH_VARIANTS="${UCM_RUNTIME_PATCH_VARIANTS}"
-RUN ldconfig /usr/local/lib && rm -f /var/cache/ldconfig/aux-cache
-
-LABEL org.opencontainers.image.source="${UCM_SOURCE_REPOSITORY_URL}" \
-      org.opencontainers.image.revision="${UCM_SOURCE_SHA}" \
-      io.ucm.release.source-tree="${UCM_SOURCE_TREE}" \
-      io.ucm.release.source-context-sha256="${UCM_SOURCE_CONTEXT_SHA256}" \
-      io.ucm.release.task-sha256="${UCM_TASK_SHA256}" \
-      io.ucm.release.build-key-sha256="${UCM_BUILD_KEY_SHA256}" \
-      io.ucm.release.wheel-sha256="${UCM_WHEEL_SHA256}" \
-      io.ucm.release.recipe-sha256="${UCM_RECIPE_SHA256}"
-
-COPY image-recipe.json /usr/local/share/ucm-release/image-recipe.json
-COPY verify_base_image.py /usr/local/bin/verify_base_image.py
-COPY install_ucm.py /usr/local/bin/install_ucm.py
-COPY inspect_runtime.py /usr/local/bin/inspect_runtime.py
-
-RUN python3 /usr/local/bin/verify_base_image.py \
-      --recipe /usr/local/share/ucm-release/image-recipe.json \
-      --base-image "${BASE_IMAGE}" \
-      --target-platform "${TARGETPLATFORM}" \
-      --output /usr/local/share/ucm-release/base-verification.json
-RUN --mount=type=bind,target=/wheelhouse,readonly \
-    python3 /usr/local/bin/install_ucm.py \
-      --recipe /usr/local/share/ucm-release/image-recipe.json \
-      --wheelhouse /wheelhouse \
-      --lock /wheelhouse/requirements.lock \
-      --output /usr/local/share/ucm-release/install-result.json
-RUN python3 /usr/local/bin/inspect_runtime.py \
-      --recipe /usr/local/share/ucm-release/image-recipe.json \
-      --install-result /usr/local/share/ucm-release/install-result.json \
-      --output /usr/local/share/ucm-release/runtime-inspection.json
-
-FROM runtime-real-install AS runtime-real
+RUN python3 -m pip install --disable-pip-version-check --no-cache-dir \
+      /tmp/${UCM_WHEEL} && \
+    python3 -c 'import ucm'

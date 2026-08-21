@@ -23,6 +23,7 @@
 #
 
 import atexit
+import json
 import os
 import platform as host_platform
 import re
@@ -217,6 +218,9 @@ RELEASE_SETTINGS = _release_settings()
 
 
 def get_release_version() -> str:
+    compact_version = os.environ.get("UCM_BUILD_VERSION")
+    if compact_version:
+        return compact_version
     if RELEASE_SETTINGS is not None:
         return str(RELEASE_SETTINGS["version"])
     return get_source_version()
@@ -385,6 +389,21 @@ class CMakeBuild(build_ext):
         if ASCEND_ROOT:
             cmake_args += [f"-DASCEND_ROOT={ASCEND_ROOT}"]
 
+        compact_cpu_arch = os.environ.get("UCM_BUILD_CPU_ARCH")
+        if PLATFORM == "ascend-a3" and compact_cpu_arch:
+            ascend_subdirectory = {
+                "amd64": "x86_64-linux",
+                "arm64": "aarch64-linux",
+            }.get(compact_cpu_arch)
+            if ascend_subdirectory is None:
+                raise RuntimeError(
+                    f"unsupported compact build architecture: {compact_cpu_arch}"
+                )
+            cmake_args += [
+                "-DASCEND_ARCH_DIR="
+                f"/usr/local/Ascend/ascend-toolkit/latest/{ascend_subdirectory}"
+            ]
+
         match PLATFORM:
             case "cuda":
                 cmake_args += ["-DRUNTIME_ENVIRONMENT=cuda"]
@@ -472,9 +491,14 @@ setup(
     package_dir={"": "."},
     python_requires=">=3.10",
     install_requires=(
-        list(RELEASE_SETTINGS["runtime_requirements"])
-        if RELEASE_SETTINGS is not None and "runtime_requirements" in RELEASE_SETTINGS
-        else ["wrapt==1.17.2"]
+        json.loads(os.environ["UCM_RUNTIME_REQUIREMENTS"])
+        if os.environ.get("UCM_RUNTIME_REQUIREMENTS")
+        else (
+            list(RELEASE_SETTINGS["runtime_requirements"])
+            if RELEASE_SETTINGS is not None
+            and "runtime_requirements" in RELEASE_SETTINGS
+            else ["wrapt==1.17.2"]
+        )
     ),
     ext_modules=[CMakeExtension(name="ucm", source_dir=ROOT_DIR)],
     cmdclass={"build_ext": CMakeBuild},
