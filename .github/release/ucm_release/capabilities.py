@@ -793,7 +793,38 @@ def _peel_git_tag(project: str, tag: str) -> tuple[str, str]:
     raise ValueError(f"{project} tag {tag} has excessive annotation depth")
 
 
-def _runtime_dockerfiles(project: str, commit: str) -> list[dict[str, str]]:
+def _ascend_hardware_variants(builders: list[Any], project: str) -> dict[str, str]:
+    variants: dict[str, str] = {}
+    for raw in builders:
+        if not isinstance(raw, dict) or raw.get("project") != project:
+            continue
+        if raw.get("accelerator") != "ascend":
+            continue
+        runtime = _string(
+            raw.get("accelerator_runtime"), "Ascend Builder accelerator runtime"
+        ).removeprefix("cann-")
+        source_tag = _string(
+            raw.get("source_image_tag"), "Ascend Builder source image tag"
+        ).lower()
+        match = re.match(rf"^{re.escape(runtime)}-([a-z0-9]+)(?:-|$)", source_tag)
+        if match is None:
+            raise ValueError("Ascend Builder source tag has no hardware token")
+        hardware = match.group(1)
+        variant = normalize_variant(raw.get("variant"))
+        previous = variants.get(hardware)
+        if previous is not None and previous != variant:
+            raise ValueError("Ascend hardware token maps to multiple variants")
+        variants[hardware] = variant
+    if not variants:
+        raise ValueError("Ascend runtime discovery has no Builder hardware mapping")
+    return variants
+
+
+def _runtime_dockerfiles(
+    project: str,
+    commit: str,
+    variant_by_hardware: dict[str, str],
+) -> list[dict[str, str]]:
     tree = _mapping(
         _request_json(
             f"https://api.github.com/repos/{project}/git/trees/{commit}?recursive=1"
@@ -806,24 +837,38 @@ def _runtime_dockerfiles(project: str, commit: str) -> list[dict[str, str]]:
         if isinstance(item, dict)
         and item.get("type") == "blob"
         and isinstance(item.get("path"), str)
-        and re.search(r"(?:^|/)Dockerfile\.runtime\.[^/]+$", item["path"])
+        and re.fullmatch(r"Dockerfile(?:\.[^/]+)*", item["path"])
     )
     values: list[dict[str, str]] = []
     for path in paths:
-        variant = normalize_variant(path.rsplit(".", 1)[1])
         quoted_path = urllib.parse.quote(path, safe="/")
         text = _request_bytes(
             f"https://raw.githubusercontent.com/{project}/{commit}/{quoted_path}"
         ).decode("utf-8")
-        match = re.search(r"(?m)^\s*ARG\s+MOONCAKE_TAG=v?([^\s#]+)", text)
-        if match is None:
+        base = re.search(
+            r"(?mi)^\s*FROM(?:\s+--platform=\S+)?\s+"
+            r"quay\.io/ascend/cann:(\d+(?:\.\d+)+)-([a-z0-9]+)(?:-[^\s]+)?",
+            text,
+        )
+        if base is None:
             continue
+        mooncake = re.search(r"(?m)^\s*ARG\s+MOONCAKE_TAG=v?([^\s#]+)", text)
+        if mooncake is None:
+            raise ValueError(f"{project}/{path}: missing MOONCAKE_TAG")
+        hardware = base.group(2).lower()
+        variant = variant_by_hardware.get(hardware)
+        if variant is None:
+            continue
+        suffix = path.removeprefix("Dockerfile").lstrip(".")
         values.append(
             {
                 "variant": variant,
                 "source_path": path,
                 "source_commit": commit,
-                "mooncake_version": match.group(1),
+                "mooncake_version": mooncake.group(1),
+                "accelerator_runtime": f"cann-{base.group(1)}",
+                "hardware_token": hardware,
+                "tag_suffix": normalize_variant(suffix) if suffix else "",
             }
         )
     return values
@@ -883,22 +928,20 @@ def discover_live_runtime_candidates(
                 f"runtime product {runtime_product} has ambiguous accelerator"
             )
         accelerator = accelerator_values.pop()
-        builder_variants = sorted(
-            {
-                normalize_variant(item["variant"])
-                for item in builders
-                if isinstance(item, dict)
-                and item.get("project") == project
-                and isinstance(item.get("variant"), str)
-            }
+        variant_by_hardware = (
+            _ascend_hardware_variants(builders, project)
+            if accelerator == "ascend"
+            else {}
         )
-        builder_architectures = sorted(
-            {
-                str(item["cpu_architecture"])
-                for item in builders
-                if isinstance(item, dict) and item.get("project") == project
-            }
-        )
+        architectures_by_variant: dict[str, set[str]] = {}
+        for item in builders:
+            if not isinstance(item, dict) or item.get("project") != project:
+                continue
+            variant = normalize_variant(item.get("variant"))
+            architecture = _string(
+                item.get("cpu_architecture"), "Builder source architecture"
+            )
+            architectures_by_variant.setdefault(variant, set()).add(architecture)
         selected: list[tuple[Version, str]] = []
         for tag in _crane("ls", repository).splitlines():
             version_text = tag.removeprefix("v").split("-", 1)[0]
@@ -925,30 +968,43 @@ def discover_live_runtime_candidates(
                 for item in env
                 if isinstance(item, str) and "=" in item
             }
-            runtime_key = "CUDA_VERSION" if accelerator == "cuda" else "CANN_VERSION"
-            runtime_prefix = "cuda-" if accelerator == "cuda" else "cann-"
-            runtime = runtime_prefix + _string(
-                env_map.get(runtime_key), f"{reference} {runtime_key}"
-            )
             git_tag = "v" + str(version)
             original_type, commit = _peel_git_tag(project, git_tag)
-            dockerfiles = (
-                [] if accelerator == "cuda" else _runtime_dockerfiles(project, commit)
-            )
-            suffix = tag.removeprefix(git_tag).lstrip("-")
             if accelerator == "cuda":
+                runtime = "cuda-" + _string(
+                    env_map.get("CUDA_VERSION"), f"{reference} CUDA_VERSION"
+                )
                 variant_candidates = ["default"]
-            elif suffix:
-                variant_candidates = [
-                    variant for variant in builder_variants if variant == suffix
-                ]
+                dockerfiles: list[dict[str, str]] = []
+                source_dockerfiles: list[dict[str, str]] = []
             else:
-                dockerfile_variants = {item["variant"] for item in dockerfiles}
-                variant_candidates = [
-                    variant
-                    for variant in builder_variants
-                    if variant in dockerfile_variants
+                discovered_dockerfiles = _runtime_dockerfiles(
+                    project,
+                    commit,
+                    variant_by_hardware,
+                )
+                source_dockerfiles = discovered_dockerfiles
+                suffix = tag.removeprefix(git_tag).lstrip("-")
+                normalized_suffix = normalize_variant(suffix) if suffix else ""
+                dockerfiles = [
+                    item
+                    for item in discovered_dockerfiles
+                    if item["tag_suffix"] == normalized_suffix
                 ]
+                if len(dockerfiles) != 1:
+                    raise ValueError(
+                        f"{reference}: runtime Dockerfile suffix is not unique"
+                    )
+                runtime = dockerfiles[0]["accelerator_runtime"]
+                variant_candidates = [dockerfiles[0]["variant"]]
+
+            candidate_architectures = sorted(
+                architectures_by_variant.get(variant_candidates[0], set())
+            )
+            if not candidate_architectures:
+                raise ValueError(
+                    f"{reference}: runtime variant has no Builder platform"
+                )
 
             manifest = json.loads(_crane("manifest", f"{repository}@{digest}"))
             manifests = (
@@ -962,7 +1018,7 @@ def discover_live_runtime_candidates(
                 }
             else:
                 image_architectures = {config.get("architecture")}
-            for architecture in builder_architectures:
+            for architecture in candidate_architectures:
                 if architecture not in image_architectures:
                     continue
                 source_candidates.append(
@@ -1004,7 +1060,7 @@ def discover_live_runtime_candidates(
                         "source_commit": commit,
                         "fact": "MOONCAKE_TAG",
                     }
-                    for item in dockerfiles
+                    for item in source_dockerfiles
                 )
     runtime_sources = {
         "source_sha": source_sha,
