@@ -90,11 +90,14 @@ def _shell_variable(variable: str) -> str:
 
 
 def _has_failure_command(body: str) -> bool:
-    return re.search(
-        r"(?m)(?:^|[;&])[ \t]*"
-        r"(?:exit(?:\s+[1-9][0-9]*)?|return(?:\s+[1-9][0-9]*)?|false)\b",
-        body,
-    ) is not None
+    return (
+        re.search(
+            r"(?m)(?:^|[;&])[ \t]*"
+            r"(?:exit(?:\s+[1-9][0-9]*)?|return(?:\s+[1-9][0-9]*)?|false)\b",
+            body,
+        )
+        is not None
+    )
 
 
 def _digest_guard_positions(
@@ -112,17 +115,13 @@ def _digest_guard_positions(
     )
     name = re.escape(variable)
     original = rf'"\$(?:\{{{name}\}}|{name})"'
-    trimmed = (
-        rf'"\$\{{{name}(?:#{{1,2}}\*@sha256:|%{{1,2}}@sha256:\*)\}}"'
-    )
+    trimmed = rf'"\$\{{{name}(?:#{{1,2}}\*@sha256:|%{{1,2}}@sha256:\*)\}}"'
     posix_presence = re.compile(
-        rf"^\s*(?:{trimmed}\s+!=\s+{original}|"
-        rf"{original}\s+!=\s+{trimmed})\s*$",
+        rf"^\s*(?:{trimmed}\s+!=\s+{original}|" rf"{original}\s+!=\s+{trimmed})\s*$",
         re.DOTALL,
     )
     posix_absence = re.compile(
-        rf"^\s*(?:{trimmed}\s+=\s+{original}|"
-        rf"{original}\s+=\s+{trimmed})\s*$",
+        rf"^\s*(?:{trimmed}\s+=\s+{original}|" rf"{original}\s+=\s+{trimmed})\s*$",
         re.DOTALL,
     )
     positions: list[int] = []
@@ -133,8 +132,7 @@ def _digest_guard_positions(
     ):
         suffix = guard.group("suffix").strip()
         suffix_fails = re.fullmatch(
-            r"\|\|\s*"
-            r"(?:exit(?:\s+[1-9][0-9]*)?|return(?:\s+[1-9][0-9]*)?|false)",
+            r"\|\|\s*" r"(?:exit(?:\s+[1-9][0-9]*)?|return(?:\s+[1-9][0-9]*)?|false)",
             suffix,
         )
         errexit_precedes = re.search(
@@ -153,10 +151,7 @@ def _digest_guard_positions(
         source,
     ):
         condition = (
-            guard.group("double")
-            or guard.group("single")
-            or guard.group("test")
-            or ""
+            guard.group("double") or guard.group("single") or guard.group("test") or ""
         )
         body = guard.group("body")
         else_clause = re.search(r"(?m)^\s*else\s*$", body)
@@ -164,8 +159,8 @@ def _digest_guard_positions(
         else_body = None if else_clause is None else body[else_clause.end() :]
         then_start = guard.start("body")
         then_end = then_start + len(then_body)
-        else_start = None if else_clause is None else then_end + len(
-            else_clause.group(0)
+        else_start = (
+            None if else_clause is None else then_end + len(else_clause.group(0))
         )
 
         presence = bash_presence if guard.group("double") else posix_presence
@@ -175,14 +170,9 @@ def _digest_guard_positions(
                 positions.append(guard.start("body"))
             if else_body is not None and _has_failure_command(else_body):
                 positions.append(guard.end())
-        elif absence.fullmatch(condition) and _has_failure_command(
-            then_body
-        ):
+        elif absence.fullmatch(condition) and _has_failure_command(then_body):
             positions.append(guard.end())
-            if (
-                else_start is not None
-                and else_start <= consumer_position < guard.end()
-            ):
+            if else_start is not None and else_start <= consumer_position < guard.end():
                 positions.append(guard.start("body"))
 
     for guard in re.finditer(
@@ -197,14 +187,12 @@ def _digest_guard_positions(
             positions.append(guard.end())
 
     for guard in re.finditer(
-        rf"(?ms)^\s*case\s+{variable_ref}\s+in(?P<body>.*?)"
-        r"^\s*esac(?:\s*;)?\s*$",
+        rf"(?ms)^\s*case\s+{variable_ref}\s+in(?P<body>.*?)" r"^\s*esac(?:\s*;)?\s*$",
         source,
     ):
         arms = list(
             re.finditer(
-                r"(?ms)^\s*(?P<pattern>[^\n)]+)\)"
-                r"(?P<body>.*?)(?:;;|;&|;;&)",
+                r"(?ms)^\s*(?P<pattern>[^\n)]+)\)" r"(?P<body>.*?)(?:;;|;&|;;&)",
                 guard.group("body"),
             )
         )
@@ -233,9 +221,9 @@ def _assert_digest_guard_precedes(
         f"{variable} must have an executable [[...]], [...], test, or case "
         "digest validation"
     )
-    assert any(position < consumer.start() for position in guards), (
-        f"{variable} must be validated before it is consumed"
-    )
+    assert any(
+        position < consumer.start() for position in guards
+    ), f"{variable} must be validated before it is consumed"
 
 
 def _mismatch_result_branch(source: str) -> str | None:
@@ -274,25 +262,27 @@ def _mismatch_result_branch(source: str) -> str | None:
     ):
         arms = list(
             re.finditer(
-                r"(?ms)^\s*(?P<pattern>[^\n)]+)\)"
-                r"(?P<body>.*?)(?:;;|;&|;;&)",
+                r"(?ms)^\s*(?P<pattern>[^\n)]+)\)" r"(?P<body>.*?)(?:;;|;&|;;&)",
                 branch.group("body"),
             )
         )
-        equality_source = branch.group("expression") + "\n" + "\n".join(
-            arm.group("pattern")
-            for arm in arms
-            if arm.group("pattern").strip() != "*"
+        equality_source = (
+            branch.group("expression")
+            + "\n"
+            + "\n".join(
+                arm.group("pattern")
+                for arm in arms
+                if arm.group("pattern").strip() != "*"
+            )
         )
         if not declared.search(equality_source) or not installed.search(
             equality_source
         ):
             continue
         for arm in arms:
-            if (
-                arm.group("pattern").strip() == "*"
-                and "out/mooncake-probe/result.json" in arm.group("body")
-            ):
+            if arm.group(
+                "pattern"
+            ).strip() == "*" and "out/mooncake-probe/result.json" in arm.group("body"):
                 return arm.group("body")
     return None
 
@@ -303,9 +293,7 @@ def _structured_json_producer(branch: str, path: str) -> str | None:
     for command in logical_lines:
         if not re.match(r"^\s*jq\b", command):
             continue
-        has_null_input = re.search(
-            r"(?:^|\s)-[A-Za-z]*n[A-Za-z]*(?:\s|$)", command
-        )
+        has_null_input = re.search(r"(?:^|\s)-[A-Za-z]*n[A-Za-z]*(?:\s|$)", command)
         if has_null_input and re.search(rf">\s*{output}", command):
             return command
 
@@ -339,9 +327,7 @@ def _string_values(value: object) -> list[str]:
     if isinstance(value, str):
         return [value]
     if isinstance(value, dict):
-        return [
-            item for child in value.values() for item in _string_values(child)
-        ]
+        return [item for child in value.values() for item in _string_values(child)]
     if isinstance(value, list):
         return [item for child in value for item in _string_values(child)]
     return []
@@ -351,29 +337,39 @@ def _assert_no_fixed_mooncake_sources(sources: list[str]) -> None:
     normalized = [re.sub(r"\\\s*\n", " ", source) for source in sources]
     active_source = "\n;\n".join(normalized)
 
-    assert re.search(
-        r"mooncake[\s_-]*installer\.sh", active_source, re.IGNORECASE
-    ) is None
-    assert re.search(
-        r"(?im)(?:--build-arg(?:\s+|=)|^[ \t-]*)[\"']?\s*"
-        r"MOONCAKE_TAG\s*=",
-        active_source,
-    ) is None
-    assert re.search(
-        r"(?is)\bgit\s+clone\b(?:(?!&&|;).){0,512}"
-        r"(?:github\.com[/:](?:kvcache-ai/)?mooncake(?:\.git)?|\bmooncake\b)",
-        active_source,
-    ) is None
-    assert re.search(
-        r"(?im)^(?=[^;\n]*\bmooncake(?:_tag|_version)?\b)"
-        r"(?=[^;\n]*\btarget_tag\b)[^;\n]*$",
-        active_source,
-    ) is None
-    assert re.search(
-        r"(?is)\bmooncake(?:_tag|_version)?\b\s*=\s*"
-        r"[^;&]{0,512}\btarget_tag\b",
-        active_source,
-    ) is None
+    assert (
+        re.search(r"mooncake[\s_-]*installer\.sh", active_source, re.IGNORECASE) is None
+    )
+    assert (
+        re.search(
+            r"(?im)(?:--build-arg(?:\s+|=)|^[ \t-]*)[\"']?\s*" r"MOONCAKE_TAG\s*=",
+            active_source,
+        )
+        is None
+    )
+    assert (
+        re.search(
+            r"(?is)\bgit\s+clone\b(?:(?!&&|;).){0,512}"
+            r"(?:github\.com[/:](?:kvcache-ai/)?mooncake(?:\.git)?|\bmooncake\b)",
+            active_source,
+        )
+        is None
+    )
+    assert (
+        re.search(
+            r"(?im)^(?=[^;\n]*\bmooncake(?:_tag|_version)?\b)"
+            r"(?=[^;\n]*\btarget_tag\b)[^;\n]*$",
+            active_source,
+        )
+        is None
+    )
+    assert (
+        re.search(
+            r"(?is)\bmooncake(?:_tag|_version)?\b\s*=\s*" r"[^;&]{0,512}\btarget_tag\b",
+            active_source,
+        )
+        is None
+    )
     assert re.search(r"(?<![0-9])0\.3\.9(?![0-9])", active_source) is None
 
 
@@ -607,14 +603,14 @@ def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version()
         r'(?m)^\s*docker\s+run\b[\s\S]*?"\$\{RUNTIME_IMAGE\}"',
     )
     mismatch_body = _mismatch_result_branch(source)
-    assert mismatch_body is not None, (
-        "missing executable declared/installed mismatch Result branch"
-    )
+    assert (
+        mismatch_body is not None
+    ), "missing executable declared/installed mismatch Result branch"
     result_path = "out/mooncake-probe/result.json"
     producer = _structured_json_producer(mismatch_body, result_path)
-    assert producer is not None, (
-        "mismatch Result must be written by jq -n or a Python JSON writer"
-    )
+    assert (
+        producer is not None
+    ), "mismatch Result must be written by jq -n or a Python JSON writer"
     assert "reason_code" in producer
     assert "mooncake-version-mismatch" in producer
     for field in (
@@ -625,11 +621,14 @@ def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version()
         "cpu_architecture",
     ):
         assert field in producer
-    assert re.search(
-        rf"(?m)^\s*(?:echo|printf)\b[^\n]*>\s*"
-        rf'["\']?{re.escape(result_path)}["\']?',
-        mismatch_body,
-    ) is None
+    assert (
+        re.search(
+            rf"(?m)^\s*(?:echo|printf)\b[^\n]*>\s*"
+            rf'["\']?{re.escape(result_path)}["\']?',
+            mismatch_body,
+        )
+        is None
+    )
     uploads = _artifact_steps(job, "upload")
     assert len(uploads) == 1
     assert uploads[0]["if"] == "${{ always() }}"
@@ -685,16 +684,10 @@ def test_catalog_assembly_waits_for_all_results_and_calls_public_seam() -> None:
             "merge-multiple": True,
         },
     ]
-    required_downloads = {
-        _normalized_with(value) for value in required_download_values
-    }
-    actual_downloads = {
-        _normalized_with(step.get("with", {})) for step in downloads
-    }
+    required_downloads = {_normalized_with(value) for value in required_download_values}
+    actual_downloads = {_normalized_with(step.get("with", {})) for step in downloads}
     assert required_downloads <= actual_downloads
-    catalog_steps = [
-        step for step in assembly["steps"] if step.get("id") == "catalog"
-    ]
+    catalog_steps = [step for step in assembly["steps"] if step.get("id") == "catalog"]
     assert len(catalog_steps) == 1
     run = str(catalog_steps[0]["run"])
     assert "assemble_capability_catalog" in run
@@ -743,9 +736,7 @@ def test_planners_consume_capability_catalog_instead_of_flat_builder_catalog(
     ]
     assert len(plan_steps) == 1
     run = str(plan_steps[0]["run"])
-    assert (
-        "--capability-catalog input/capabilities/capability-catalog.json" in run
-    )
+    assert "--capability-catalog input/capabilities/capability-catalog.json" in run
     assert "--builder-catalog" not in run
 
 
@@ -762,7 +753,7 @@ def test_ascend_builder_copies_mooncake_from_matching_immutable_runtime() -> Non
     _assert_digest_guard_precedes(
         run,
         "RUNTIME_IMAGE",
-        r'(?m)^\s*docker\s+buildx\s+build\b[\s\S]*?'
+        r"(?m)^\s*docker\s+buildx\s+build\b[\s\S]*?"
         r'--build-arg\s+"MOONCAKE_RUNTIME_IMAGE=\$\{RUNTIME_IMAGE\}"',
     )
     instructions = _noncomment_dockerfile(dockerfile)
