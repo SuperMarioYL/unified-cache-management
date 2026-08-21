@@ -90,20 +90,23 @@ def _shell_variable(variable: str) -> str:
 
 def _has_failure_command(body: str) -> bool:
     return re.search(
-        r"(?m)(?:^|[;&]\s*)"
+        r"(?m)(?:^|[;&])[ \t]*"
         r"(?:exit(?:\s+[1-9][0-9]*)?|return(?:\s+[1-9][0-9]*)?|false)\b",
         body,
     ) is not None
 
 
-def _digest_guard_positions(source: str, variable: str) -> list[int]:
+def _digest_guard_positions(
+    source: str, variable: str, consumer_position: int
+) -> list[int]:
     variable_ref = _shell_variable(variable)
+    digest_glob = r"\*\s*[\"']?@sha256:[\"']?\s*\*"
     valid_equality = re.compile(
-        rf"^\s*{variable_ref}\s*(?:==|=)\s*\*@sha256:\*\s*$",
+        rf"^\s*{variable_ref}\s*(?:==|=)\s*{digest_glob}\s*$",
         re.DOTALL,
     )
     invalid_equality = re.compile(
-        rf"^\s*{variable_ref}\s*!=\s*\*@sha256:\*\s*$",
+        rf"^\s*{variable_ref}\s*!=\s*{digest_glob}\s*$",
         re.DOTALL,
     )
     positions: list[int] = []
@@ -128,13 +131,51 @@ def _digest_guard_positions(source: str, variable: str) -> list[int]:
             positions.append(guard.end())
 
     for guard in re.finditer(
-        r"(?ms)^\s*if\s+\[\[(?P<condition>.*?)\]\]\s*;?\s*then"
+        r"(?ms)^\s*if\s+(?:\[\[(?P<double>.*?)\]\]|"
+        r"\[(?P<single>.*?)\]|test\s+(?P<test>.*?))\s*;?\s*then"
         r"(?P<body>.*?)^\s*fi(?:\s*;)?\s*$",
         source,
     ):
-        if invalid_equality.fullmatch(guard.group("condition")) and (
-            _has_failure_command(guard.group("body"))
+        condition = (
+            guard.group("double")
+            or guard.group("single")
+            or guard.group("test")
+            or ""
+        )
+        body = guard.group("body")
+        else_clause = re.search(r"(?m)^\s*else\s*$", body)
+        then_body = body if else_clause is None else body[: else_clause.start()]
+        else_body = None if else_clause is None else body[else_clause.end() :]
+        then_start = guard.start("body")
+        then_end = then_start + len(then_body)
+        else_start = None if else_clause is None else then_end + len(
+            else_clause.group(0)
+        )
+
+        if valid_equality.fullmatch(condition):
+            if then_start <= consumer_position < then_end:
+                positions.append(guard.start("body"))
+            if else_body is not None and _has_failure_command(else_body):
+                positions.append(guard.end())
+        elif invalid_equality.fullmatch(condition) and _has_failure_command(
+            then_body
         ):
+            positions.append(guard.end())
+            if (
+                else_start is not None
+                and else_start <= consumer_position < guard.end()
+            ):
+                positions.append(guard.start("body"))
+
+    for guard in re.finditer(
+        r"(?ms)^\s*(?:\[(?P<single>.*?)\]|test\s+(?P<test>.*?))"
+        r"\s*\|\|\s*"
+        r"(?:exit(?:\s+[1-9][0-9]*)?|return(?:\s+[1-9][0-9]*)?|false)"
+        r"\s*$",
+        source,
+    ):
+        condition = guard.group("single") or guard.group("test") or ""
+        if valid_equality.fullmatch(condition):
             positions.append(guard.end())
 
     for guard in re.finditer(
@@ -169,9 +210,10 @@ def _assert_digest_guard_precedes(
     source = _noncomment_shell(run)
     consumer = re.search(consumer_pattern, source, re.MULTILINE | re.DOTALL)
     assert consumer, f"{variable} must be consumed by the expected command"
-    guards = _digest_guard_positions(source, variable)
+    guards = _digest_guard_positions(source, variable, consumer.start())
     assert guards, (
-        f"{variable} must have an executable [[...]] or case digest validation"
+        f"{variable} must have an executable [[...]], [...], test, or case "
+        "digest validation"
     )
     assert any(position < consumer.start() for position in guards), (
         f"{variable} must be validated before it is consumed"
@@ -183,12 +225,18 @@ def _mismatch_result_branch(source: str) -> str | None:
     installed = re.compile(_shell_variable("installed_version"))
 
     for branch in re.finditer(
-        r"(?ms)^\s*if\s+(?:\[\[(?P<bracket>.*?)\]\]|"
-        r"test\s+(?P<test>.*?))\s*;?\s*then(?P<body>.*?)"
+        r"(?ms)^\s*if\s+(?:\[\[(?P<double>.*?)\]\]|"
+        r"\[(?P<single>.*?)\]|test\s+(?P<test>.*?))"
+        r"\s*;?\s*then(?P<body>.*?)"
         r"^\s*fi(?:\s*;)?\s*$",
         source,
     ):
-        condition = branch.group("bracket") or branch.group("test") or ""
+        condition = (
+            branch.group("double")
+            or branch.group("single")
+            or branch.group("test")
+            or ""
+        )
         if not declared.search(condition) or not installed.search(condition):
             continue
         bodies = re.split(r"(?m)^\s*else\s*$", branch.group("body"), maxsplit=1)
