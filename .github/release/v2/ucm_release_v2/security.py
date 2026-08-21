@@ -1001,8 +1001,35 @@ def _develop_inline_validator_is_semantic(source: str) -> bool:
     if not _observed_function_is_semantic(tree):
         return False
     body = tree.body
+    default_main = _failing_guard_index(
+        body,
+        'os.environ["CONFIGURED_MAIN"] != "main" '
+        'or os.environ["DEFAULT_BRANCH"] != "main" '
+        'or os.environ["GITHUB_REF"] != "refs/heads/main" '
+        'or os.environ["GITHUB_REF_NAME"] != "main"',
+    )
+    event_repository = _failing_guard_index(
+        body,
+        'os.environ["EVENT_REPOSITORY"] ' '!= "SuperMarioYL/unified-cache-management"',
+    )
+    workflow_name = _failing_guard_index(
+        body, 'os.environ["WORKFLOW_NAME"] != "Push Commit Checks"'
+    )
+    workflow_event = _failing_guard_index(
+        body, 'os.environ["WORKFLOW_EVENT"] != "push"'
+    )
+    workflow_path = _failing_guard_index(
+        body,
+        'os.environ["WORKFLOW_PATH"] ' '!= ".github/workflows/push-check.yml@develop"',
+    )
     conclusion = _failing_guard_index(
         body, 'os.environ["WORKFLOW_CONCLUSION"] != "success"'
+    )
+    develop_head = _failing_guard_index(
+        body,
+        'os.environ["HEAD_BRANCH"] != "develop" '
+        'or os.environ["HEAD_REPOSITORY"] '
+        '!= os.environ["EVENT_REPOSITORY"]',
     )
     source_sha = _single_assignment_index(body, "source_sha", 'os.environ["HEAD_SHA"]')
     source_format = _failing_guard_index(
@@ -1024,7 +1051,13 @@ def _develop_inline_validator_is_semantic(source: str) -> bool:
     )
     outputs = _output_block_index(body)
     positions = [
+        default_main,
+        event_repository,
+        workflow_name,
+        workflow_event,
+        workflow_path,
         conclusion,
+        develop_head,
         source_sha,
         source_format,
         first,
@@ -1046,7 +1079,26 @@ def _develop_inline_validator_is_semantic(source: str) -> bool:
         ]
         for name in ("source_sha", "first", "second")
     }
-    return all(len(writes) == 1 for writes in critical_writes.values())
+    output_writer_counts = {"control_sha": 0, "source_sha": 0}
+    for node in ast.walk(tree):
+        if (
+            not isinstance(node, ast.Call)
+            or not isinstance(node.func, ast.Attribute)
+            or node.func.attr != "write"
+        ):
+            continue
+        for key in output_writer_counts:
+            if any(
+                isinstance(value, ast.Constant)
+                and isinstance(value.value, str)
+                and value.value.startswith(f"{key}=")
+                for argument in node.args
+                for value in ast.walk(argument)
+            ):
+                output_writer_counts[key] += 1
+    return all(
+        len(writes) == 1 for writes in critical_writes.values()
+    ) and output_writer_counts == {"control_sha": 1, "source_sha": 1}
 
 
 def audit_python_source(source: str, name: str) -> list[Finding]:

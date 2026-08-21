@@ -168,6 +168,30 @@ def test_develop_checkout_cannot_move_before_trusted_event_validation() -> None:
     ("before", "after"),
     [
         (
+            'if os.environ["CONFIGURED_MAIN"] != "main" or os.environ["DEFAULT_BRANCH"] != "main" or os.environ["GITHUB_REF"] != "refs/heads/main" or os.environ["GITHUB_REF_NAME"] != "main":',
+            "if False:",
+        ),
+        (
+            'if os.environ["EVENT_REPOSITORY"] != "SuperMarioYL/unified-cache-management":',
+            "if False:",
+        ),
+        (
+            'if os.environ["WORKFLOW_NAME"] != "Push Commit Checks":',
+            "if False:",
+        ),
+        (
+            'if os.environ["WORKFLOW_EVENT"] != "push":',
+            "if False:",
+        ),
+        (
+            'if os.environ["WORKFLOW_PATH"] != ".github/workflows/push-check.yml@develop":',
+            "if False:",
+        ),
+        (
+            'if os.environ["HEAD_BRANCH"] != "develop" or os.environ["HEAD_REPOSITORY"] != os.environ["EVENT_REPOSITORY"]:',
+            "if False:",
+        ),
+        (
             'if os.environ["WORKFLOW_CONCLUSION"] != "success":',
             "if False:",
         ),
@@ -193,6 +217,12 @@ def test_develop_checkout_cannot_move_before_trusted_event_validation() -> None:
         ),
     ],
     ids=(
+        "default-main-ref",
+        "event-repository-allowlist",
+        "source-workflow-name",
+        "source-workflow-event",
+        "source-workflow-path",
+        "same-repository-develop-head",
         "successful-source-workflow",
         "two-main-reads-match-workflow-sha",
         "control-output-from-main-ref",
@@ -212,6 +242,36 @@ def test_develop_inline_validator_rejects_identity_dataflow_mutations(
     mutated = _replace_once(source, before, after)
 
     findings = _security().audit_workflow_source(mutated, workflow_name)
+
+    assert any(
+        "develop inline validator contract differs" in finding.message
+        for finding in findings
+    ), findings
+
+
+def test_develop_inline_validator_rejects_duplicate_identity_output_writer() -> None:
+    """A later GITHUB_OUTPUT writer must not override either validated identity."""
+    workflow_name = "develop-release-dry-run.yml"
+    source = (REPOSITORY_ROOT / ".github/workflows" / workflow_name).read_text(
+        encoding="utf-8"
+    )
+    document = yaml.safe_load(source)
+    assert isinstance(document, dict)
+    step = document["jobs"]["develop-preview"]["steps"][2]
+    run = step["run"]
+    assert isinstance(run, str)
+    marker = "\nPY\n"
+    assert run.count(marker) == 1
+    override = (
+        '\nwith Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") '
+        "as output:\n"
+        '    output.write(f"control_sha={source_sha}\\n")\n'
+    )
+    step["run"] = run.replace(marker, override + marker, 1)
+
+    findings = _security().audit_workflow_source(
+        yaml.safe_dump(document, sort_keys=False), workflow_name
+    )
 
     assert any(
         "develop inline validator contract differs" in finding.message
