@@ -15,8 +15,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RELEASE_ROOT = REPO_ROOT / ".github" / "release"
-FIXTURE_PATH = RELEASE_ROOT / "tests" / "fixtures" / (
-    "capability-catalog-discovery.json"
+FIXTURE_PATH = (
+    RELEASE_ROOT / "tests" / "fixtures" / ("capability-catalog-discovery.json")
 )
 sys.path.insert(0, str(RELEASE_ROOT))
 
@@ -196,16 +196,17 @@ def test_assembled_catalog_is_closed_digest_bound_and_valid() -> None:
     assert catalog["kind"] == "ucm-capability-catalog"
     assert catalog["schema_version"] == 3
     assert catalog["source_sha"] == "1" * 40
-    assert catalog["builder_sync"] == _load_fixture()["builder_discovery"][
-        "builder_sync"
-    ]
+    assert (
+        catalog["builder_sync"] == _load_fixture()["builder_discovery"]["builder_sync"]
+    )
     assert catalog["catalog_sha256"] == _catalog_digest(catalog)
     assert validate(copy.deepcopy(catalog)) == catalog
     _assert_no_wall_clock_fields(catalog)
 
 
-def test_catalog_entries_cover_discovered_dimensions_and_filter_python_requires(
-) -> None:
+def test_catalog_entries_cover_discovered_dimensions_and_filter_python_requires() -> (
+    None
+):
     """Single-ABI or fixed-runtime assembly loses supported Builder products."""
     catalog = _assemble()
     capabilities_by_coordinate = {
@@ -255,8 +256,7 @@ def test_catalog_entries_cover_discovered_dimensions_and_filter_python_requires(
     assert rejected_cp39
     assert {item["evidence"]["python_abi"] for item in rejected_cp39} == {"cp39"}
     assert all(
-        item["evidence"]["python_requires"] == ">=3.10"
-        for item in rejected_cp39
+        item["evidence"]["python_requires"] == ">=3.10" for item in rejected_cp39
     )
 
 
@@ -282,9 +282,7 @@ def test_catalog_preserves_discovery_origins_and_filters_only_exact_310p() -> No
         ".github/workflows/dockerfiles/Dockerfile.buildwheel.a4",
     }
     assert any(item["variant"] == "a4" for item in catalog["builder_capabilities"])
-    assert all(
-        item["variant"] != "310p" for item in catalog["builder_capabilities"]
-    )
+    assert all(item["variant"] != "310p" for item in catalog["builder_capabilities"])
     assert all(item["variant"] != "310p" for item in catalog["entries"])
     assert any(
         item["reason_code"] == "variant-filtered-310p"
@@ -342,8 +340,7 @@ def test_mooncake_runtime_copy_is_version_exact_and_mismatch_is_local() -> None:
     mismatched_runtime = next(
         runtime
         for runtime in catalog["runtime_candidates"]
-        if runtime["accelerator_runtime"] == "cann-9.1"
-        and runtime["variant"] == "a4"
+        if runtime["accelerator_runtime"] == "cann-9.1" and runtime["variant"] == "a4"
     )
     mismatch = next(
         item
@@ -361,8 +358,7 @@ def test_mooncake_runtime_copy_is_version_exact_and_mismatch_is_local() -> None:
     )
     assert any(entry["accelerator"] == "cuda" for entry in catalog["entries"])
     assert any(
-        entry["accelerator_runtime"] == "cann-9.0"
-        for entry in catalog["entries"]
+        entry["accelerator_runtime"] == "cann-9.0" for entry in catalog["entries"]
     )
     encoded = json.dumps(catalog, sort_keys=True)
     assert "0.3.9" not in encoded
@@ -432,9 +428,7 @@ def test_capability_revision_and_runtime_digest_identities_are_recomputable() ->
 
     for capability in catalog["builder_capabilities"]:
         assert set(capability) == CAPABILITY_FIELDS
-        identity = {
-            field: capability[field] for field in capability_identity_fields
-        }
+        identity = {field: capability[field] for field in capability_identity_fields}
         assert capability["builder_capability_id"] == _canonical_digest(identity)
         assert capability["builder_revision_ids"] == sorted(
             capability["builder_revision_ids"]
@@ -460,8 +454,7 @@ def test_bindings_entries_and_exclusions_are_closed_and_consistent() -> None:
     """Open records, projection drift, or fallback change the build target."""
     catalog = _assemble()
     capabilities_by_id = {
-        item["builder_capability_id"]: item
-        for item in catalog["builder_capabilities"]
+        item["builder_capability_id"]: item for item in catalog["builder_capabilities"]
     }
     revisions_by_id = {
         item["builder_revision_id"]: item for item in catalog["builder_revisions"]
@@ -519,8 +512,7 @@ def test_bindings_entries_and_exclusions_are_closed_and_consistent() -> None:
             f'{revision["source_image_digest"]}'
         )
         assert binding["target_image"] in {
-            f'{revision["target_repository"]}@'
-            f'{revision["target_builder_digest"]}',
+            f'{revision["target_repository"]}@' f'{revision["target_builder_digest"]}',
             f'{revision["target_repository"]}:{revision["target_tag"]}@'
             f'{revision["target_builder_digest"]}',
         }
@@ -568,8 +560,7 @@ def test_bindings_entries_and_exclusions_are_closed_and_consistent() -> None:
             assert revision_id is not None
             assert runtime_id is not None
             assert (
-                revisions_by_id[revision_id]["builder_capability_id"]
-                == capability_id
+                revisions_by_id[revision_id]["builder_capability_id"] == capability_id
             )
 
 
@@ -629,9 +620,7 @@ def _duplicate_capability_id(catalog: dict[str, Any]) -> None:
 
 
 def _duplicate_revision_id(catalog: dict[str, Any]) -> None:
-    catalog["builder_revisions"].append(
-        copy.deepcopy(catalog["builder_revisions"][0])
-    )
+    catalog["builder_revisions"].append(copy.deepcopy(catalog["builder_revisions"][0]))
 
 
 def _duplicate_runtime_id(catalog: dict[str, Any]) -> None:
@@ -674,9 +663,7 @@ def _duplicate_binding_pair(catalog: dict[str, Any]) -> None:
 
 def _binding_field_drift(catalog: dict[str, Any]) -> None:
     binding = catalog["bindings"][0]
-    binding["accelerator"] = (
-        "ascend" if binding["accelerator"] == "cuda" else "cuda"
-    )
+    binding["accelerator"] = "ascend" if binding["accelerator"] == "cuda" else "cuda"
 
 
 def _duplicate_entry_coordinate(catalog: dict[str, Any]) -> None:
@@ -773,9 +760,7 @@ def _noncanonical_nested_revision_ids(catalog: dict[str, Any]) -> None:
         pytest.param(_noncanonical_runtime_order, id="noncanonical-runtime-order"),
         pytest.param(_noncanonical_binding_order, id="noncanonical-binding-order"),
         pytest.param(_noncanonical_entry_order, id="noncanonical-entry-order"),
-        pytest.param(
-            _noncanonical_exclusion_order, id="noncanonical-exclusion-order"
-        ),
+        pytest.param(_noncanonical_exclusion_order, id="noncanonical-exclusion-order"),
         pytest.param(
             _noncanonical_nested_revision_ids,
             id="noncanonical-nested-revision-ids",
