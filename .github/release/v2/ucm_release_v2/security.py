@@ -351,6 +351,7 @@ _ALLOWED_DEFINITIONS_BY_SUFFIX = {
         "_expression_matches",
         "_extract_canonical_heredocs",
         "_failing_guard_index",
+        "_is_os_environ",
         "_observed_function_is_semantic",
         "_output_block_index",
         "_permissions",
@@ -925,6 +926,15 @@ def _failing_guard_index(statements: list[ast.stmt], test: str) -> int | None:
     return matches[0] if len(matches) == 1 else None
 
 
+def _is_os_environ(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "os"
+        and node.attr == "environ"
+    )
+
+
 def _observed_function_is_semantic(tree: ast.Module) -> bool:
     functions = [
         statement
@@ -1069,6 +1079,71 @@ def _develop_inline_validator_is_semantic(source: str) -> bool:
         positions
     ):
         return False
+    output_block = body[outputs]
+    if not isinstance(output_block, ast.With):
+        return False
+    output_references = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and node.value == "GITHUB_OUTPUT"
+    ]
+    approved_output_names = [
+        output_block.items[0].optional_vars,
+        output_block.body[0].value.func.value,
+        output_block.body[1].value.func.value,
+    ]
+    approved_output_calls = [
+        output_block.items[0].context_expr,
+        output_block.body[0].value,
+        output_block.body[1].value,
+    ]
+    observed_output_names = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name) and node.id == "output"
+    ]
+    if len(output_references) != 1 or (
+        len(observed_output_names) != len(approved_output_names)
+        or any(
+            not any(observed is approved for approved in approved_output_names)
+            for observed in observed_output_names
+        )
+    ):
+        return False
+    output_methods = {"open", "write", "write_bytes", "write_text", "writelines"}
+    if any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in output_methods
+        and not any(node is approved for approved in approved_output_calls)
+        for node in ast.walk(tree)
+    ):
+        return False
+    mutating_environment_methods = {
+        "__delitem__",
+        "__setitem__",
+        "clear",
+        "pop",
+        "popitem",
+        "setdefault",
+        "update",
+    }
+    for node in ast.walk(tree):
+        if (
+            (
+                isinstance(node, ast.Subscript)
+                and _is_os_environ(node.value)
+                and isinstance(node.ctx, (ast.Store, ast.Del))
+            )
+            or (_is_os_environ(node) and isinstance(node.ctx, (ast.Store, ast.Del)))
+            or (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and _is_os_environ(node.func.value)
+                and node.func.attr in mutating_environment_methods
+            )
+        ):
+            return False
     critical_writes = {
         name: [
             node
@@ -1079,26 +1154,7 @@ def _develop_inline_validator_is_semantic(source: str) -> bool:
         ]
         for name in ("source_sha", "first", "second")
     }
-    output_writer_counts = {"control_sha": 0, "source_sha": 0}
-    for node in ast.walk(tree):
-        if (
-            not isinstance(node, ast.Call)
-            or not isinstance(node.func, ast.Attribute)
-            or node.func.attr != "write"
-        ):
-            continue
-        for key in output_writer_counts:
-            if any(
-                isinstance(value, ast.Constant)
-                and isinstance(value.value, str)
-                and value.value.startswith(f"{key}=")
-                for argument in node.args
-                for value in ast.walk(argument)
-            ):
-                output_writer_counts[key] += 1
-    return all(
-        len(writes) == 1 for writes in critical_writes.values()
-    ) and output_writer_counts == {"control_sha": 1, "source_sha": 1}
+    return all(len(writes) == 1 for writes in critical_writes.values())
 
 
 def audit_python_source(source: str, name: str) -> list[Finding]:

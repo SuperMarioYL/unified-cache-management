@@ -279,6 +279,62 @@ def test_develop_inline_validator_rejects_duplicate_identity_output_writer() -> 
     ), findings
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "split-concat-writer",
+        "path-write-text",
+        "environment-store",
+        "environment-update",
+    ],
+)
+def test_develop_inline_validator_closes_output_and_environment_capabilities(
+    mutation: str,
+) -> None:
+    """Only the approved output block may write; workflow inputs are immutable."""
+    workflow_name = "develop-release-dry-run.yml"
+    source = (REPOSITORY_ROOT / ".github/workflows" / workflow_name).read_text(
+        encoding="utf-8"
+    )
+    document = yaml.safe_load(source)
+    assert isinstance(document, dict)
+    step = document["jobs"]["develop-preview"]["steps"][2]
+    run = step["run"]
+    assert isinstance(run, str)
+    if mutation == "split-concat-writer":
+        injection = (
+            'with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") '
+            "as bypass:\n"
+            '    bypass.write("control_" + f"sha={source_sha}\\n")\n'
+        )
+        run = run.replace("\nPY\n", "\n" + injection + "PY\n", 1)
+    elif mutation == "path-write-text":
+        injection = (
+            'Path(os.environ["GITHUB_OUTPUT"]).write_text('
+            'f"control_sha={source_sha}\\n", encoding="utf-8")\n'
+        )
+        run = run.replace("\nPY\n", "\n" + injection + "PY\n", 1)
+    else:
+        injection = (
+            'os.environ["WORKFLOW_CONCLUSION"] = "success"'
+            if mutation == "environment-store"
+            else 'os.environ.update({"WORKFLOW_CONCLUSION": "success"})'
+        )
+        anchor = 'if os.environ["CONFIGURED_MAIN"]'
+        assert run.count(anchor) == 1
+        run = run.replace(anchor, injection + "\n" + anchor, 1)
+    step["run"] = run
+
+    findings = _security().audit_workflow_source(
+        yaml.safe_dump(document, sort_keys=False), workflow_name
+    )
+
+    assert any(
+        "develop inline validator contract differs" in finding.message
+        for finding in findings
+    ), findings
+
+
 def _wheels_source() -> str:
     return (V2_ROOT / "ucm_release_v2/wheels.py").read_text(encoding="utf-8")
 
