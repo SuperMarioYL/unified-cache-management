@@ -6,6 +6,7 @@ import copy
 import hashlib
 import importlib
 import json
+import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -234,6 +235,36 @@ def _canonical_digest(value: object) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
+def _runtime_id(value: dict[str, Any]) -> str:
+    return _canonical_digest(
+        {
+            field: value[field]
+            for field in (
+                "product_id",
+                "runtime_image_repository",
+                "runtime_image_tag",
+                "variant",
+                "cpu_architecture",
+            )
+        }
+    )
+
+
+def _ascend_target_tag(source: dict[str, Any], runtime: dict[str, Any]) -> str:
+    suffix = _canonical_digest(
+        {
+            "source_target_tag": source["target_tag"],
+            "runtime_id": _runtime_id(runtime),
+            "runtime_image_digest": runtime["runtime_image_digest"],
+        }
+    ).split(":", 1)[1]
+    prefix = re.sub(r"[^A-Za-z0-9._-]", "-", source["target_tag"])
+    prefix = prefix[:60].rstrip(".-")
+    if not prefix or re.match(r"^[A-Za-z0-9_]", prefix) is None:
+        prefix = "_" + prefix[1:]
+    return f"{prefix}-rt-{suffix}"
+
+
 def _reseal(catalog: dict[str, Any]) -> None:
     catalog["catalog_sha256"] = _catalog_digest(catalog)
 
@@ -264,18 +295,7 @@ def test_builder_fact_fixture_is_abi_independent_and_target_bound() -> None:
     assert facts == sorted(facts, key=lambda item: item["builder_fact_id"])
 
     runtime_by_id = {
-        _canonical_digest(
-            {
-                field: runtime[field]
-                for field in (
-                    "product_id",
-                    "runtime_image_repository",
-                    "runtime_image_tag",
-                    "variant",
-                    "cpu_architecture",
-                )
-            }
-        ): runtime
+        _runtime_id(runtime): runtime
         for runtime in fixture["runtime_discovery"]["runtime_candidates"]
     }
     mooncake_probe_by_target = {
@@ -283,6 +303,11 @@ def test_builder_fact_fixture_is_abi_independent_and_target_bound() -> None:
         for probe in fixture["mooncake_probes"]["probes"]
     }
     for fact in facts:
+        runtime = (
+            runtime_by_id[fact["mooncake_source_runtime_id"]]
+            if fact["accelerator"] == "ascend"
+            else None
+        )
         source_matches = [
             item
             for item in source_builders
@@ -290,8 +315,8 @@ def test_builder_fact_fixture_is_abi_independent_and_target_bound() -> None:
             and (
                 item["target_tag"] == fact["target_tag"]
                 or (
-                    fact["accelerator"] == "ascend"
-                    and fact["target_tag"].startswith(item["target_tag"] + "-rt-")
+                    runtime is not None
+                    and _ascend_target_tag(item, runtime) == fact["target_tag"]
                 )
             )
         ]
@@ -322,7 +347,7 @@ def test_builder_fact_fixture_is_abi_independent_and_target_bound() -> None:
             assert fact["mooncake_source_runtime_image"] is None
             assert fact["mooncake_version"] is None
         else:
-            runtime = runtime_by_id[fact["mooncake_source_runtime_id"]]
+            assert runtime is not None
             assert fact["mooncake_source_runtime_image"] == (
                 f'{runtime["runtime_image_repository"]}@'
                 f'{runtime["runtime_image_digest"]}'
@@ -380,7 +405,15 @@ def test_python_probe_fixture_links_exact_fact_and_defers_revision_identity() ->
         for item in facts.values()
         if item["accelerator_runtime"] == "cann-9.0" and item["variant"] == "a2"
     }
-    assert len(a2_fact_ids) == 2
+    a2_source_count = sum(
+        item["accelerator_runtime"] == "cann-9.0" and item["variant"] == "a2"
+        for item in fixture["builder_discovery"]["builders"]
+    )
+    a2_runtime_count = sum(
+        item["accelerator_runtime"] == "cann-9.0" and item["variant"] == "a2"
+        for item in fixture["runtime_discovery"]["runtime_candidates"]
+    )
+    assert len(a2_fact_ids) == a2_source_count * a2_runtime_count
     assert {
         probe["builder_fact_id"]
         for probe in probes
@@ -558,7 +591,7 @@ def test_mooncake_runtime_copy_is_version_exact_and_mismatch_is_local() -> None:
     """A fixed clone or global mismatch failure violates Ascend isolation."""
     fixture = _load_fixture()
     catalog = _assemble()
-    a2_facts = [
+    all_a2_facts = [
         item
         for item in fixture["builder_discovery"]["builder_facts"]
         if item["accelerator_runtime"] == "cann-9.0" and item["variant"] == "a2"
@@ -574,6 +607,23 @@ def test_mooncake_runtime_copy_is_version_exact_and_mismatch_is_local() -> None:
         item["runtime_id"]: item for item in catalog["runtime_candidates"]
     }
 
+    base_a2_source = next(
+        item
+        for item in fixture["builder_discovery"]["builders"]
+        if item["target_tag"] == "cann9.0-a2-cp-all-manylinux2_34-amd64-r1"
+    )
+    a2_runtime_values = [
+        item
+        for item in fixture["runtime_discovery"]["runtime_candidates"]
+        if item["accelerator_runtime"] == "cann-9.0" and item["variant"] == "a2"
+    ]
+    base_a2_tags = {
+        _ascend_target_tag(base_a2_source, runtime)
+        for runtime in a2_runtime_values
+    }
+    a2_facts = [
+        item for item in all_a2_facts if item["target_tag"] in base_a2_tags
+    ]
     assert len(a2_facts) == 2
     assert len({item["builder_fact_id"] for item in a2_facts}) == 2
     assert len({item["target_tag"] for item in a2_facts}) == 2
@@ -583,7 +633,7 @@ def test_mooncake_runtime_copy_is_version_exact_and_mismatch_is_local() -> None:
         "0.3.12",
     }
     all_a2_revision_ids = set()
-    for fact in a2_facts:
+    for fact in all_a2_facts:
         revisions = [
             item
             for item in catalog["builder_revisions"]
@@ -609,7 +659,28 @@ def test_mooncake_runtime_copy_is_version_exact_and_mismatch_is_local() -> None:
             item["runtime_image"] == fact["mooncake_source_runtime_image"]
             for item in bindings
         )
-    assert len(all_a2_revision_ids) == 2
+    assert len(all_a2_revision_ids) == len(all_a2_facts)
+
+    long_sources = [
+        item
+        for item in fixture["builder_discovery"]["builders"]
+        if "long-shared-prefix" in item["target_tag"]
+    ]
+    expected_long_pairs = {
+        (_ascend_target_tag(source, runtime), _runtime_id(runtime))
+        for source in long_sources
+        for runtime in a2_runtime_values
+    }
+    long_facts = [
+        item
+        for item in all_a2_facts
+        if (item["target_tag"], item["mooncake_source_runtime_id"])
+        in expected_long_pairs
+    ]
+    assert len(long_facts) == len(expected_long_pairs) == 4
+    assert len({item["target_tag"] for item in long_facts}) == 4
+    assert len({item["builder_fact_id"] for item in long_facts}) == 4
+    assert len({item["target_builder_digest"] for item in long_facts}) == 4
 
     cuda_fact = next(
         item
