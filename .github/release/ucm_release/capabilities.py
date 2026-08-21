@@ -820,6 +820,29 @@ def _ascend_hardware_variants(builders: list[Any], project: str) -> dict[str, st
     return variants
 
 
+def _literal_mooncake_version(text: str, context: str) -> str:
+    values = re.findall(r"(?m)^\s*ARG\s+MOONCAKE_TAG\s*=\s*([^\s#]+)", text)
+    if len(values) != 1:
+        raise ValueError(f"{context}: expected one literal MOONCAKE_TAG")
+    raw = values[0]
+    if raw[0] in {"'", '"'}:
+        quote = raw[0]
+        if len(raw) < 2 or raw[-1] != quote:
+            raise ValueError(f"{context}: MOONCAKE_TAG has mismatched quotes")
+        value = raw[1:-1]
+    elif raw[-1] in {"'", '"'}:
+        raise ValueError(f"{context}: MOONCAKE_TAG has mismatched quotes")
+    else:
+        value = raw
+    if not value or "$" in value or "`" in value:
+        raise ValueError(f"{context}: MOONCAKE_TAG must be a literal version")
+    if value.startswith("v"):
+        value = value[1:]
+    parsed = _parse_version(value, f"{context} Mooncake version")
+    _compact_version(parsed, f"{context} Mooncake version")
+    return str(parsed)
+
+
 def _runtime_dockerfiles(
     project: str,
     commit: str,
@@ -852,9 +875,7 @@ def _runtime_dockerfiles(
         )
         if base is None:
             continue
-        mooncake = re.search(r"(?m)^\s*ARG\s+MOONCAKE_TAG=v?([^\s#]+)", text)
-        if mooncake is None:
-            raise ValueError(f"{project}/{path}: missing MOONCAKE_TAG")
+        mooncake_version = _literal_mooncake_version(text, f"{project}/{path}")
         hardware = base.group(2).lower()
         variant = variant_by_hardware.get(hardware)
         if variant is None:
@@ -865,7 +886,7 @@ def _runtime_dockerfiles(
                 "variant": variant,
                 "source_path": path,
                 "source_commit": commit,
-                "mooncake_version": mooncake.group(1),
+                "mooncake_version": mooncake_version,
                 "accelerator_runtime": f"cann-{base.group(1)}",
                 "hardware_token": hardware,
                 "tag_suffix": normalize_variant(suffix) if suffix else "",
