@@ -170,17 +170,29 @@ jobs:
     - name: Run compact release tests
       id: compact-tests
       continue-on-error: true
-      run: pytest .github/release/tests -q | tee compact-pytest.log
+      shell: bash
+      run: |
+        set -o pipefail
+        set +e
+        pytest .github/release/tests -q --junitxml=compact-junit.xml | tee compact-pytest.log
+        pytest_status="${PIPESTATUS[0]}"
+        exit "${pytest_status}"
 
-    - name: Record compact release test count
+    - name: Record compact release test count from JUnit XML
       id: compact-test-count
       if: always()
       run: |
         set -euo pipefail
-        summary="$(grep -E '={3,}.* in [0-9.]+' compact-pytest.log 2>/dev/null | tail -1 || true)"
-        count="$(printf '%s\n' "${summary}" | grep -oE '[0-9]+ (passed|failed|skipped|xfailed|xpassed|error|errors)' | awk '{ total += $1 } END { print total + 0 }' || true)"
-        count="${count:-0}"
-        echo "value=${count}" >> "${GITHUB_OUTPUT}"
+        if [ ! -f compact-junit.xml ]; then
+          echo "value=0" >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
+        python - <<'PY' >> "${GITHUB_OUTPUT}"
+        from xml.etree import ElementTree
+
+        root = ElementTree.parse("compact-junit.xml").getroot()
+        print(f"value={sum(1 for _ in root.iter('testcase'))}")
+        PY
 
     - name: Fail when compact release tests do not pass
       if: always() && steps.compact-tests.outcome != 'success'
@@ -215,17 +227,29 @@ jobs:
     - name: Run production release tests
       id: production-tests
       continue-on-error: true
-      run: pytest .github/release/production/tests -q | tee production-pytest.log
+      shell: bash
+      run: |
+        set -o pipefail
+        set +e
+        pytest .github/release/production/tests -q --junitxml=production-junit.xml | tee production-pytest.log
+        pytest_status="${PIPESTATUS[0]}"
+        exit "${pytest_status}"
 
-    - name: Record production release test count
+    - name: Record production release test count from JUnit XML
       id: production-test-count
       if: always()
       run: |
         set -euo pipefail
-        summary="$(grep -E '={3,}.* in [0-9.]+' production-pytest.log 2>/dev/null | tail -1 || true)"
-        count="$(printf '%s\n' "${summary}" | grep -oE '[0-9]+ (passed|failed|skipped|xfailed|xpassed|error|errors)' | awk '{ total += $1 } END { print total + 0 }' || true)"
-        count="${count:-0}"
-        echo "value=${count}" >> "${GITHUB_OUTPUT}"
+        if [ ! -f production-junit.xml ]; then
+          echo "value=0" >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
+        python - <<'PY' >> "${GITHUB_OUTPUT}"
+        from xml.etree import ElementTree
+
+        root = ElementTree.parse("production-junit.xml").getroot()
+        print(f"value={sum(1 for _ in root.iter('testcase'))}")
+        PY
 
     - name: Fail when production release tests do not pass
       if: always() && steps.production-tests.outcome != 'success'
