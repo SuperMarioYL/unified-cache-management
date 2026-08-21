@@ -721,7 +721,7 @@ def test_builder_sync_plan_waits_for_runtime_and_mooncake_results() -> None:
                     "attempt-${{ github.run_attempt }}"
                 ),
                 "path": "input/mooncake-probes",
-                "merge-multiple": True,
+                "merge-multiple": False,
             }
         ),
     }
@@ -858,7 +858,7 @@ def test_builder_collector_links_every_result_before_python_probe_matrix() -> No
                     "attempt-${{ github.run_attempt }}"
                 ),
                 "path": "input/builder-results",
-                "merge-multiple": True,
+                "merge-multiple": False,
             }
         ),
     }
@@ -919,7 +919,7 @@ def test_catalog_assembly_waits_for_all_results_and_calls_stable_cli() -> None:
                 "attempt-${{ github.run_attempt }}"
             ),
             "path": "input/python-probes",
-            "merge-multiple": True,
+            "merge-multiple": False,
         },
         {
             "name": "${{ needs.discover-runtimes.outputs.runtime_discovery_artifact }}",
@@ -931,7 +931,7 @@ def test_catalog_assembly_waits_for_all_results_and_calls_stable_cli() -> None:
                 "attempt-${{ github.run_attempt }}"
             ),
             "path": "input/mooncake-probes",
-            "merge-multiple": True,
+            "merge-multiple": False,
         },
     ]
     required_downloads = {_normalized_with(value) for value in required_download_values}
