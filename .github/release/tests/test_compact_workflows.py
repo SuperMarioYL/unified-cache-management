@@ -590,6 +590,27 @@ def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> 
         "BUILDER_IMAGE",
         r'(?m)^\s*docker\s+run\b[\s\S]*?"\$\{BUILDER_IMAGE\}"',
     )
+    risky_source = _noncomment_shell(run)
+    assert "packaging" not in risky_source
+    assert re.search(r"\bjq\b", risky_source) is None
+    assert re.search(
+        r'["\']?\$(?:\{interpreter\}|interpreter)["\']?\s+'
+        r"(?:-c|(?<!\S)-|\S+\.py)(?=\s)",
+        risky_source,
+    )
+    for stdlib in ("import json", "import platform", "import sysconfig"):
+        assert stdlib in risky_source
+    assert "json.dumps" in risky_source or "json.dump" in risky_source
+    for field in (
+        "interpreter_path",
+        "python_version",
+        "python_abi",
+        "wheel_tag",
+        "platform_tag",
+    ):
+        assert field in risky_source
+    assert "/opt/python/cp*-cp*/bin/python" in risky_source
+    assert "sysconfig.get_platform" in risky_source
     probe_source = yaml.safe_dump(probe, sort_keys=False)
     assert "builder_revision_id" not in probe_source
     assert "builder_source_image_digest" not in probe_source
@@ -717,7 +738,8 @@ def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version()
     _assert_digest_guard_precedes(
         run,
         "RUNTIME_IMAGE",
-        r'(?m)^\s*docker\s+run\b[\s\S]*?"\$\{RUNTIME_IMAGE\}"',
+        r'(?m)^\s*docker\s+run\s+--rm\s+--entrypoint\s+sh\s+'
+        r'"\$\{RUNTIME_IMAGE\}"\s+-lc\b',
     )
     seal_steps = [
         step
@@ -1057,6 +1079,92 @@ def test_catalog_assembly_waits_for_all_results_and_calls_stable_cli() -> None:
         "overwrite": False,
         "retention-days": 7,
     }
+
+
+def test_empty_probe_matrices_still_reach_downstream_consumers() -> None:
+    workflow = _load("sync-builders.yml")
+    jobs = workflow["jobs"]
+    discover = jobs["discover-runtimes"]
+    plan = jobs["plan-builder-sync"]
+    collect = jobs["collect-builder-revisions"]
+    mooncake = jobs["probe-mooncake"]
+    build = jobs["build-missing"]
+    python = jobs["probe-python"]
+    assembly = jobs["assemble-capability-catalog"]
+
+    assert discover["outputs"]["has_mooncake_probes"] == (
+        "${{ steps.discover.outputs.has_mooncake_probes }}"
+    )
+    assert plan["outputs"]["has_builder_plans"] == (
+        "${{ steps.plan.outputs.has_builder_plans }}"
+    )
+    assert collect["outputs"]["has_python_probes"] == (
+        "${{ steps.collect.outputs.has_python_probes }}"
+    )
+    for job, producer_id, output in (
+        (discover, "discover", "has_mooncake_probes="),
+        (plan, "plan", "has_builder_plans="),
+        (collect, "collect", "has_python_probes="),
+    ):
+        producers = [step for step in job["steps"] if step.get("id") == producer_id]
+        assert len(producers) == 1
+        producer_source = _noncomment_shell(str(producers[0].get("run", "")))
+        assert re.search(
+            rf"(?m)^\s*(?:echo|printf)\b[^\n]*{re.escape(output)}",
+            producer_source,
+        )
+        assert re.search(_shell_variable("GITHUB_OUTPUT"), producer_source)
+
+    assert "needs.discover-runtimes.outputs.has_mooncake_probes == 'true'" in str(
+        mooncake.get("if", "")
+    )
+    assert "needs.plan-builder-sync.outputs.has_builder_plans == 'true'" in str(
+        build.get("if", "")
+    )
+    assert "needs.collect-builder-revisions.outputs.has_python_probes == 'true'" in str(
+        python.get("if", "")
+    )
+    assert "needs.probe-mooncake.result" not in str(plan.get("if", ""))
+    assert "needs.build-missing.result" not in str(collect.get("if", ""))
+    assert assembly.get("if") == "${{ always() }}"
+
+    conditional_downloads = (
+        (
+            plan,
+            "input/mooncake-probes",
+            "needs.discover-runtimes.outputs.has_mooncake_probes == 'true'",
+        ),
+        (
+            collect,
+            "input/builder-results",
+            "needs.plan-builder-sync.outputs.has_builder_plans == 'true'",
+        ),
+        (
+            assembly,
+            "input/python-probes",
+            "needs.collect-builder-revisions.outputs.has_python_probes == 'true'",
+        ),
+        (
+            assembly,
+            "input/mooncake-probes",
+            "needs.discover-runtimes.outputs.has_mooncake_probes == 'true'",
+        ),
+    )
+    for consumer, path, condition in conditional_downloads:
+        downloads = [
+            step
+            for step in _artifact_steps(consumer, "download")
+            if step.get("with", {}).get("path") == path
+        ]
+        assert len(downloads) == 1
+        assert condition in str(downloads[0].get("if", ""))
+        assert downloads[0]["with"]["merge-multiple"] is False
+        run_source = _noncomment_shell(
+            "\n".join(str(step.get("run", "")) for step in consumer["steps"])
+        )
+        assert re.search(
+            rf"(?m)^\s*mkdir\s+-p\s+[^\n]*{re.escape(path)}", run_source
+        )
 
 
 @pytest.mark.parametrize("filename", ["release-ucm.yml", "ucm-build-bot.yml"])

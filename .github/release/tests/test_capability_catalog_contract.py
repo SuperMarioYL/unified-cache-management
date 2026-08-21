@@ -967,6 +967,37 @@ def test_probe_failures_become_local_exclusions_without_erasing_healthy_facts() 
     )
 
 
+def test_all_builder_facts_probe_failed_rejects_empty_capability_catalog() -> None:
+    baseline = _assemble()
+    assert baseline["builder_capabilities"]
+    fixture = _load_fixture()
+    template = fixture["python_probes"]["failures"][0]
+    failures = []
+    for fact in fixture["builder_discovery"]["builder_facts"]:
+        failure = copy.deepcopy(template)
+        failure["builder_fact_id"] = fact["builder_fact_id"]
+        failure["builder_image"] = (
+            f'{fact["target_repository"]}@{fact["target_builder_digest"]}'
+        )
+        failure["target_builder_digest"] = fact["target_builder_digest"]
+        failure["cpu_architecture"] = fact["cpu_architecture"]
+        failure["runner"] = (
+            "ubuntu-24.04-arm"
+            if fact["cpu_architecture"] == "arm64"
+            else "ubuntu-24.04"
+        )
+        failure["interpreter_path"] = "/opt/python/cp*-cp*/bin/python"
+        failure["source_id"] = (
+            f'{fact["builder_fact_id"]}:{failure["interpreter_path"]}'
+        )
+        failures.append(failure)
+    fixture["python_probes"]["probes"] = []
+    fixture["python_probes"]["failures"] = failures
+
+    with pytest.raises(ValueError):
+        _assemble_fixture(fixture)
+
+
 def test_capability_revision_and_runtime_digest_identities_are_recomputable() -> None:
     """Opaque or mutable identity inputs cannot support independent validation."""
     catalog = _assemble()
