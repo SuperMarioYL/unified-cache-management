@@ -656,6 +656,86 @@ def _catalog_for_plan() -> dict:
     )
 
 
+def _vllm_candidate(product: dict, version: str = "0.21.9") -> dict[str, str]:
+    tag = f"v{version}"
+    return {
+        "product_id": product["id"],
+        "repository": product["repository"],
+        "tag": tag,
+        "version": version,
+        "channel": "stable",
+        "variant": "default",
+    }
+
+
+def test_candidate_exclusion_reports_runtime_patch_unsupported() -> None:
+    catalog = _catalog_for_plan()
+    product = next(p for p in catalog["upstream_products"] if p["id"] == "vllm")
+    manifest = core.runtime_patch_manifest(catalog, repository_root=ROOT)
+    manifest["rules"] = [
+        rule for rule in manifest["rules"] if rule["id"] != "vllm-021x"
+    ]
+
+    assert (
+        core.candidate_exclusion_reason(
+            catalog, product, _vllm_candidate(product), manifest
+        )
+        == "runtime-patch-unsupported"
+    )
+
+
+def test_candidate_exclusion_reports_compatibility_unsupported_for_all_arches() -> None:
+    catalog = _catalog_for_plan()
+    product = next(p for p in catalog["upstream_products"] if p["id"] == "vllm")
+    compatibility = next(
+        rule
+        for rule in catalog["compatibility"]["rules"]
+        if rule["id"] == "cuda-supported"
+    )
+    compatibility["version_specifier"] = ">=0.21,<0.21.5"
+    manifest = core.runtime_patch_manifest(catalog, repository_root=ROOT)
+
+    assert (
+        core.candidate_exclusion_reason(
+            catalog, product, _vllm_candidate(product), manifest
+        )
+        == "compatibility-unsupported"
+    )
+
+
+def test_candidate_exclusion_returns_none_for_supported_candidate() -> None:
+    catalog = _catalog_for_plan()
+    product = next(p for p in catalog["upstream_products"] if p["id"] == "vllm")
+    manifest = core.runtime_patch_manifest(catalog, repository_root=ROOT)
+
+    assert (
+        core.candidate_exclusion_reason(
+            catalog, product, _vllm_candidate(product), manifest
+        )
+        is None
+    )
+
+
+def test_candidate_exclusion_does_not_swallow_compatibility_overlap() -> None:
+    catalog = _catalog_for_plan()
+    product = next(p for p in catalog["upstream_products"] if p["id"] == "vllm")
+    duplicate = copy.deepcopy(
+        next(
+            rule
+            for rule in catalog["compatibility"]["rules"]
+            if rule["id"] == "cuda-supported"
+        )
+    )
+    duplicate["id"] = "cuda-overlap"
+    catalog["compatibility"]["rules"].append(duplicate)
+    manifest = core.runtime_patch_manifest(catalog, repository_root=ROOT)
+
+    with pytest.raises(ValueError, match="overlapping wheel profiles"):
+        core.candidate_exclusion_reason(
+            catalog, product, _vllm_candidate(product), manifest
+        )
+
+
 def _ascend_a3_snapshot(catalog: dict, version: str, tag: str) -> dict:
     ascend = next(p for p in catalog["upstream_products"] if p["id"] == "vllm-ascend")
     fake = "sha256:" + "0" * 64
