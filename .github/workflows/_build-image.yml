@@ -1,0 +1,686 @@
+name: Reusable real install-only UCM image build
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        type: string
+        required: true
+      task_id:
+        type: string
+        required: true
+      runner:
+        type: string
+        required: true
+      resolved_plan_artifact:
+        type: string
+        required: true
+      resolved_plan_sha256:
+        type: string
+        required: true
+      deliver_full_oci:
+        type: boolean
+        required: true
+    outputs:
+      image_artifact:
+        description: Compact same-run real image evidence for this reviewed task
+        value: ${{ jobs.build.outputs.image_artifact }}
+      image_result_sha256:
+        description: Canonical real image-result identity
+        value: ${{ jobs.build.outputs.image_result_sha256 }}
+      oci_digest:
+        description: Verified local OCI manifest digest
+        value: ${{ jobs.build.outputs.oci_digest }}
+      internal_oci_artifact:
+        description: Protected same-run full OCI bridge artifact
+        value: ${{ jobs.build.outputs.internal_oci_artifact }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 210
+    permissions:
+      contents: read
+    outputs:
+      image_artifact: ${{ steps.task.outputs.image_artifact }}
+      image_result_sha256: ${{ steps.result.outputs.image_result_sha256 }}
+      oci_digest: ${{ steps.result.outputs.oci_digest }}
+      internal_oci_artifact: ${{ steps.task.outputs.internal_oci_artifact }}
+    env:
+      CRANE_VERSION: v0.20.3
+      CRANE_LINUX_AMD64_SHA256: 36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059
+      CRANE_LINUX_ARM64_SHA256: d2235f7779cd39c6e40f43701d2512c997409f629fb53e621ede0d57d3f995e2
+    steps:
+      - name: Validate reusable build contract
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          TASK_ID: ${{ inputs.task_id }}
+          RESOLVED_PLAN_ARTIFACT: ${{ inputs.resolved_plan_artifact }}
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "source_sha must be a full lowercase commit SHA" >&2
+            exit 2
+          fi
+          if [[ ! "${TASK_ID}" =~ ^image-[0-9a-f]{64}$ ]] || \
+             [[ ! "${RESOLVED_PLAN_ARTIFACT}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || \
+             [[ ! "${RESOLVED_PLAN_SHA256}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "image task or frozen plan identity is invalid" >&2
+            exit 2
+          fi
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ inputs.resolved_plan_artifact }}
+          path: input/plan
+      - name: Move resolved plan to expected path
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f input/plan/resolved-plan.json ]]; then
+            find input/plan -name 'resolved-plan.json' -exec mv {} input/plan/resolved-plan.json \;
+          fi
+          test -f input/plan/resolved-plan.json
+      - name: Validate frozen plan source
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          plan_path="input/plan/resolved-plan.json"
+          payload_path="${RUNNER_TEMP}/resolved-plan-unhashed.json"
+          plan_source_sha="$(jq -er '.source.commit | select(type == "string")' "${plan_path}")"
+          jq -cS 'del(.resolved_plan_sha256)' "${plan_path}" >"${payload_path}"
+          payload_size="$(wc -c <"${payload_path}" | tr -d ' ')"
+          test "${payload_size}" -gt 1
+          truncate -s "$((payload_size - 1))" "${payload_path}"
+          observed_plan_sha256="sha256:$(sha256sum "${payload_path}" | cut -d' ' -f1)"
+          test "${plan_source_sha}" = "${EXPECTED_SOURCE_SHA}"
+          test "${observed_plan_sha256}" = "${RESOLVED_PLAN_SHA256}"
+      - name: Record disk before cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -Pk / | tee "${RUNNER_TEMP}/ucm-disk-before.txt"
+      - name: Free disk for immutable runtime image
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: false
+      - name: Require sixty GiB after cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -Pk / | tee "${RUNNER_TEMP}/ucm-disk-after.txt"
+          available_kib="$(df -Pk / | awk 'NR==2 {print $4}')"
+          available_gib="$((available_kib / 1024 / 1024))"
+          if (( available_gib < 60 )); then
+            echo "runtime image build requires at least 60 GiB, found ${available_gib} GiB" >&2
+            exit 2
+          fi
+          printf '%s\n' "${available_gib}" >"${RUNNER_TEMP}/ucm-available-gib.txt"
+      - id: task-python
+        name: Select task Python from the frozen plan
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
+          TASK_ID: ${{ inputs.task_id }}
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/release/select_task_python.py \
+            --plan input/plan/resolved-plan.json \
+            --task-kind image \
+            --task-id "${TASK_ID}" \
+            --expected-sha256 "${RESOLVED_PLAN_SHA256}" \
+            --expected-source-sha "${EXPECTED_SOURCE_SHA}" \
+            --github-output "${GITHUB_OUTPUT}"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "${{ steps.task-python.outputs.python_version }}"
+      - name: Install compact release runtime dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - id: task
+        name: Select frozen image and wheel dependency tasks
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          TASK_ID: ${{ inputs.task_id }}
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_date_epoch="$(git show -s --format=%ct "${SOURCE_SHA}")"
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          mkdir -p out
+          jq -cS --arg tid "${TASK_ID}" \
+            '.image_tasks | map(select(.task_id == $tid)) as $m | if ($m | length) == 1 then $m[0] else error("image task does not resolve exactly once") end' \
+            input/plan/resolved-plan.json > out/selected-task.json
+          wheel_task_id="$(jq -r '.wheel_task_id' out/selected-task.json)"
+          jq -cS --arg tid "${wheel_task_id}" \
+            '.wheel_tasks | map(select(.task_id == $tid)) as $m | if ($m | length) == 1 then $m[0] else error("wheel task does not resolve exactly once") end' \
+            input/plan/resolved-plan.json > out/selected-wheel-task.json
+          # Materialize the hosted image task: artifact and dependency bindings.
+          # Mirrors verify.hosted_image_task so out/hosted-task.json is byte-faithful.
+          runtime_patch_canonical="$(jq -cS '.runtime_patch_variants' out/selected-task.json)"
+          jq -ncS \
+            --slurpfile t out/selected-task.json \
+            --arg source_sha "${SOURCE_SHA}" \
+            --arg source_date_epoch "${source_date_epoch}" \
+            --arg runtime_patch_canonical "${runtime_patch_canonical}" \
+            '{
+              task_id: $t[0].task_id,
+              spec_id: $t[0].spec_id,
+              profile_id: $t[0].profile_id,
+              family_task_id: $t[0].family_task_id,
+              wheel_task_id: $t[0].wheel_task_id,
+              runner: $t[0].runner,
+              source_sha: $source_sha,
+              source_date_epoch: ($source_date_epoch | tonumber),
+              task_sha256: $t[0].task_sha256,
+              runtime_patch_variants: $t[0].runtime_patch_variants,
+              wheel_artifact: $t[0].wheel_artifact_name,
+              image_artifact: $t[0].artifact_name,
+              build_args: {
+                UCM_RUNTIME_PATCH_VARIANTS: $runtime_patch_canonical
+              }
+            }' > out/hosted-task.json
+          hosted_task_sha256="sha256:$(jq -cjS . out/hosted-task.json | sha256sum | cut -d' ' -f1)"
+          jq -cS --arg h "${hosted_task_sha256}" '.hosted_task_sha256 = $h' \
+            out/hosted-task.json > out/hosted-task.json.tmp
+          mv out/hosted-task.json.tmp out/hosted-task.json
+          # Project the real image task authority from the frozen resolved plan.
+          plan=input/plan/resolved-plan.json
+          matches="$(jq -c --arg id "${TASK_ID}" '[.image_tasks[] | select(.task_id == $id)]' "${plan}")"
+          test "$(jq 'length' <<<"${matches}")" = "1"
+          source_repo="$(jq -r '.source.repository' "${plan}")"
+          frontend="$(sed -n '1s/^# syntax=//p' .github/release/docker/Dockerfile.runtime)"
+          toolchain="$(jq -cnS --arg frontend "${frontend}" \
+            '{schema_version:1,kind:"ucm-real-image-toolchain-authority",buildx_version:"v0.19.2",buildx_linux_sha256:{amd64:"sha256:a5ff61c0b6d2c8ee20964a9d6dac7a7a6383c4a4a0ee8d354e983917578306ea",arm64:"sha256:bd54f0e28c29789da1679bad2dd94c1923786ccd2cd80dd3a0a1d560a6baf10c"},buildkit_image:"moby/buildkit:v0.18.2@sha256:86c0ad9d1137c186e9d455912167df20e530bdf7f7c19de802e892bb8ca16552",dockerfile_frontend:$frontend,deterministic_flags:["--provenance=false","--sbom=false","oci-mediatypes=true","rewrite-timestamp=true"]}')"
+          toolchain_sha256="sha256:$(printf '%s' "${toolchain}" | sha256sum | cut -d' ' -f1)"
+          toolchain="$(jq -cS --arg sha "${toolchain_sha256}" '.authority_sha256 = $sha' <<<"${toolchain}")"
+          auth="$(jq -cnS --argjson t "${matches}" --arg source_repo "${source_repo}" --arg resolved "${RESOLVED_PLAN_SHA256}" --argjson toolchain "${toolchain}" \
+            '{schema_version:1,kind:"ucm-real-image-task-authority",candidate_kind:"real-candidate",fixture_only:false,unpublished:true,publication_attempted:false,source_repository:$source_repo,source_repository_url:("https://github.com/"+$source_repo),task_id:$t[0].task_id,family_task_id:$t[0].family_task_id,wheel_task_id:$t[0].wheel_task_id,spec_id:$t[0].spec_id,family_id:$t[0].family_task_id,profile_id:$t[0].profile_id,cpu_arch:$t[0].cpu_arch,platform:$t[0].platform,python_abi:$t[0].python_abi,wheel_version:$t[0].wheel_version,runtime:$t[0].runtime,runtime_patch_variants:$t[0].runtime_patch_variants,target_repository:$t[0].target_repository,target_tag:$t[0].target_tag,runtime_dependencies:($t[0].dependency_lock.runtime_dependencies // []),task_sha256:$t[0].task_sha256,resolved_plan_sha256:$resolved,toolchain:$toolchain}')"
+          authority_sha256="sha256:$(printf '%s' "${auth}" | sha256sum | cut -d' ' -f1)"
+          jq -cS --arg sha "${authority_sha256}" '.authority_sha256 = $sha' <<<"${auth}" >out/real-image-authority.json
+          test "$(jq -r '.runner' out/selected-task.json)" = "${{ inputs.runner }}"
+          logical_wheel_artifact="$(jq -r '.wheel_artifact_name' out/selected-task.json)"
+          logical_image_artifact="$(jq -r '.artifact_name' out/selected-task.json)"
+          wheel_artifact="${logical_wheel_artifact}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          image_artifact="${logical_image_artifact}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          internal_logical="ucm-internal-oci-${TASK_ID}"
+          internal_oci_artifact="${internal_logical}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          jq -cnS --slurpfile i out/selected-task.json --slurpfile w out/selected-wheel-task.json '{image_task_sha256: $i[0].task_sha256, wheel_task_id: $i[0].wheel_task_id, wheel_task_sha256: $w[0].task_sha256}' > out/task-binding.json
+          {
+            echo "wheel_artifact=${wheel_artifact}"
+            echo "image_artifact=${image_artifact}"
+            echo "internal_oci_artifact=${internal_oci_artifact}"
+          } >>"${GITHUB_OUTPUT}"
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ steps.task.outputs.wheel_artifact }}
+          path: input/wheel
+      - name: Reopen exact same-run wheel artifact
+        env:
+          TASK_ID: ${{ inputs.task_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t wheel_paths < <(find input/wheel -maxdepth 1 -type f -name '*.whl' -print | sort)
+          test "${#wheel_paths[@]}" = 1
+          wheel_path="${wheel_paths[0]}"
+          wheel_sha256="sha256:$(sha256sum "${wheel_path}" | cut -d' ' -f1)"
+          actual_sha256="sha256:$(sha256sum "${wheel_path}" | cut -d' ' -f1)"
+          test "${actual_sha256}" = "${wheel_sha256}"
+          test -f input/wheel/wheel-inspection.json
+          test "$(jq -r '.sha256' input/wheel/wheel-inspection.json)" = "${actual_sha256}"
+          cp input/wheel/wheel-inspection.json out/reopened-wheel-inspection.json
+      - name: Install checksum-pinned Buildx
+        shell: bash
+        run: |
+          set -euo pipefail
+          buildx_version="$(jq -r '.toolchain.buildx_version' out/real-image-authority.json)"
+          buildkit_image="$(jq -r '.toolchain.buildkit_image' out/real-image-authority.json)"
+          case "$(uname -m)" in
+            x86_64) buildx_arch=amd64 ;;
+            aarch64|arm64) buildx_arch=arm64 ;;
+            *) echo "unsupported Buildx architecture: $(uname -m)" >&2; exit 2 ;;
+          esac
+          buildx_binary="${RUNNER_TEMP}/docker-buildx"
+          curl -fsSL --retry 3 -o "${buildx_binary}" \
+            "https://github.com/docker/buildx/releases/download/${buildx_version}/buildx-${buildx_version}.linux-${buildx_arch}"
+          mkdir -p "${HOME}/.docker/cli-plugins"
+          install -m 0755 "${buildx_binary}" "${HOME}/.docker/cli-plugins/docker-buildx"
+          test "$(docker buildx version | awk '{print $2}')" = "${buildx_version}"
+          docker buildx create --name ucm-release-builder \
+            --driver docker-container \
+            --driver-opt "image=${buildkit_image}" \
+            --use
+          bootstrap_ok=false
+          for attempt in 1 2 3; do
+            if docker buildx inspect ucm-release-builder --bootstrap \
+              2>&1 | tee "out/buildx-bootstrap-attempt-${attempt}.log"; then
+              bootstrap_ok=true
+              break
+            fi
+            if [[ "${attempt}" != 3 ]]; then sleep "$((attempt * 5))"; fi
+          done
+          if [[ "${bootstrap_ok}" != true ]]; then
+            docker buildx rm --force ucm-release-builder || true
+            exit 2
+          fi
+      - name: Install checksum-pinned read-only crane
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) crane_arch=x86_64; crane_sha="${CRANE_LINUX_AMD64_SHA256}" ;;
+            aarch64|arm64) crane_arch=arm64; crane_sha="${CRANE_LINUX_ARM64_SHA256}" ;;
+            *) echo "unsupported crane architecture: $(uname -m)" >&2; exit 2 ;;
+          esac
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/crane.tar.gz" \
+            "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_${crane_arch}.tar.gz"
+          echo "${crane_sha}  ${RUNNER_TEMP}/crane.tar.gz" | sha256sum --check
+          tar -xzf "${RUNNER_TEMP}/crane.tar.gz" -C "${RUNNER_TEMP}/crane" crane
+          test "$("${RUNNER_TEMP}/crane/crane" version)" = "${CRANE_VERSION#v}"
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - name: Fetch and reopen exact upstream index member and config bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/base
+          repository="$(jq -r '.runtime.repository' out/real-image-authority.json)"
+          index_digest="$(jq -r '.runtime.index_digest' out/real-image-authority.json)"
+          manifest_digest="$(jq -r '.runtime.manifest_digest' out/real-image-authority.json)"
+          config_digest="$(jq -r '.runtime.config_digest' out/real-image-authority.json)"
+          # Upstream base image is on quay.io and prone to transient TLS drops;
+          # retry crane registry reads (4 attempts, backoff 5/10/15s).
+          crane_retry() {
+            local n=0
+            while ! "$@"; do
+              n=$((n + 1))
+              if [ "$n" -ge 4 ]; then return 1; fi
+              sleep "$((n * 5))"
+            done
+          }
+          crane_retry_out() {
+            local dest="$1"; shift
+            local n=0
+            while ! "$@" >"$dest"; do
+              n=$((n + 1))
+              if [ "$n" -ge 4 ]; then return 1; fi
+              sleep "$((n * 5))"
+            done
+          }
+          test "$(crane_retry crane digest "${repository}@${index_digest}")" = "${index_digest}"
+          crane_retry_out out/base/index.json crane manifest "${repository}@${index_digest}"
+          crane_retry_out out/base/manifest.json crane manifest "${repository}@${manifest_digest}"
+          crane_retry_out out/base/config.json crane config "${repository}@${manifest_digest}"
+          test "sha256:$(sha256sum out/base/index.json | cut -d' ' -f1)" = "${index_digest}"
+          test "sha256:$(sha256sum out/base/manifest.json | cut -d' ' -f1)" = "${manifest_digest}"
+          test "sha256:$(sha256sum out/base/config.json | cut -d' ' -f1)" = "${config_digest}"
+          # Reopen the real base descriptor chain and bind it to the task authority.
+          auth=out/real-image-authority.json
+          repository="$(jq -r '.runtime.repository' "${auth}")"
+          platform="$(jq -r '.platform' "${auth}")"
+          index_digest="sha256:$(sha256sum out/base/index.json | cut -d' ' -f1)"
+          manifest_digest="sha256:$(sha256sum out/base/manifest.json | cut -d' ' -f1)"
+          config_digest="sha256:$(sha256sum out/base/config.json | cut -d' ' -f1)"
+          test "${index_digest}" = "$(jq -r '.runtime.index_digest' "${auth}")"
+          test "${manifest_digest}" = "$(jq -r '.runtime.manifest_digest' "${auth}")"
+          test "${config_digest}" = "$(jq -r '.runtime.config_digest' "${auth}")"
+          jq -cnS \
+            --rawfile index_raw out/base/index.json \
+            --rawfile manifest_raw out/base/manifest.json \
+            --rawfile config_raw out/base/config.json \
+            --arg repository "${repository}" --arg platform "${platform}" --arg subject "${repository}@${manifest_digest}" \
+            --argjson index_size "$(wc -c <out/base/index.json | tr -d ' ')" \
+            --argjson manifest_size "$(wc -c <out/base/manifest.json | tr -d ' ')" \
+            --argjson config_size "$(wc -c <out/base/config.json | tr -d ' ')" \
+            --arg index_digest "${index_digest}" --arg manifest_digest "${manifest_digest}" --arg config_digest "${config_digest}" \
+            '{schema_version:1,kind:"ucm-real-base-image-record",fixture_only:false,repository:$repository,index:{media_type:($index_raw|fromjson|.mediaType),digest:$index_digest,size:$index_size,raw:$index_raw},manifest:{media_type:($manifest_raw|fromjson|.mediaType),digest:$manifest_digest,size:$manifest_size,raw:$manifest_raw},config:{media_type:($manifest_raw|fromjson|.config.mediaType),digest:$config_digest,size:$config_size,raw:$config_raw},platform:{os:($platform|split("/")[0]),architecture:($platform|split("/")[1]),variant:($config_raw|fromjson|.variant),manifest_media_type:($manifest_raw|fromjson|.mediaType),manifest_digest:$manifest_digest,manifest_size:$manifest_size,config_media_type:($manifest_raw|fromjson|.config.mediaType),config_digest:$config_digest,config_size:$config_size},subject:$subject}' \
+            >out/base-record-real.json
+      - name: Download and hash-check locked runtime dependency wheels
+        shell: bash
+        run: |
+          set -euo pipefail
+          architecture="$(jq -r '.cpu_arch' out/selected-task.json)"
+          target_platform="$(jq -r '.platform' out/selected-task.json)"
+          python_version="$(jq -r '.python_version' out/selected-task.json)"
+          python_abi="$(jq -r '.python_abi' out/selected-task.json)"
+          test "$(jq -r '.cpu_arch' out/real-image-authority.json)" = "${architecture}"
+          test "$(jq -r '.platform' out/real-image-authority.json)" = "${target_platform}"
+          test "$(jq -r '.python_abi' out/real-image-authority.json)" = "${python_abi}"
+          python_minor="${python_version//./}"
+          mkdir -p input/runtime-dependencies input/runtime-download
+          while IFS=$'\t' read -r requirement filename expected_sha256; do
+            rm -rf input/runtime-download/*
+            python -m pip download --disable-pip-version-check --no-cache-dir \
+              --only-binary=:all: --no-deps \
+              --python-version "${python_minor}" \
+              --implementation cp --abi "${python_abi}" \
+              --dest input/runtime-download "${requirement}"
+            test "$(find input/runtime-download -maxdepth 1 -type f | wc -l | tr -d ' ')" = 1
+            test -f "input/runtime-download/${filename}"
+            echo "${expected_sha256#sha256:}  input/runtime-download/${filename}" | sha256sum --check
+            mv "input/runtime-download/${filename}" input/runtime-dependencies/
+          done < <(jq -r '.runtime_dependencies[] | [.requirement, .filename, .sha256] | @tsv' out/real-image-authority.json)
+          expected_count="$(jq '(.runtime_dependencies) | length' out/real-image-authority.json)"
+          test "$(find input/runtime-dependencies -maxdepth 1 -type f -name '*.whl' | wc -l | tr -d ' ')" = "${expected_count}"
+      - name: Prepare the allowlisted offline runtime-real context
+        env:
+          TASK_ID: ${{ inputs.task_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel_path="$(find input/wheel -maxdepth 1 -type f -name '*.whl' -print)"
+          wheel_name="$(basename "${wheel_path}")"
+          wheel_sha256="sha256:$(sha256sum "${wheel_path}" | cut -d' ' -f1)"
+          wheel_size="$(wc -c <"${wheel_path}" | tr -d ' ')"
+          plan=input/plan/resolved-plan.json
+          task="$(jq -c --arg id "${TASK_ID}" '.image_tasks[] | select(.task_id == $id)' "${plan}")"
+          auth=out/real-image-authority.json
+          base=out/base-record-real.json
+          # Extract sealed source/build bindings embedded in the builder-candidate wheel.
+          whl_build="$(unzip -p "${wheel_path}" '*.dist-info/ucm-build.json')"
+          whl_authority="$(unzip -p "${wheel_path}" '*.dist-info/ucm-build-authority.json')"
+          whl_closure="$(unzip -p "${wheel_path}" '*.dist-info/ucm-dependency-closure.json')"
+          source_date_epoch="$(printf '%s' "${whl_build}" | jq -r '.source_date_epoch')"
+          whl_build_key="$(printf '%s' "${whl_build}" | jq -r '.build_key')"
+          source_repo="$(jq -r '.source.repository' "${plan}")"
+          source_commit="$(jq -r '.source.commit' "${plan}")"
+          source_tree="$(printf '%s' "${whl_authority}" | jq -r '.source_tree')"
+          source_archive_sha256="$(printf '%s' "${whl_authority}" | jq -r '.source_archive_sha256')"
+          source_context_sha256="$(printf '%s' "${whl_build}" | jq -r '.build_context_sha256')"
+          builder_coordinate="$(printf '%s' "${whl_authority}" | jq -r '.builder_coordinate')"
+          builder_config_digest="$(printf '%s' "${whl_authority}" | jq -r '.builder_config_digest')"
+          base_subject="$(jq -r '.subject' "${base}")"
+          runtime_patch_canonical="$(printf '%s' "${task}" | jq -c '.runtime_patch_variants' | jq -cjS '.')"
+          deps="$(printf '%s' "${task}" | jq -c '.dependency_lock.runtime_dependencies // []')"
+          dist_name="$(printf '%s' "${whl_build}" | jq -r '.dist_name')"
+          mkdir -p context
+          # Generate the exact offline hashed runtime dependency lock.
+          requirements="$(printf '%s' "${deps}" | jq -r --arg wheel "${wheel_name}" --arg whl_sha "${wheel_sha256}" --arg dist "${dist_name}" \
+            '["\($dist) @ file:///wheelhouse/\($wheel) --hash=\($whl_sha)"] + [sort_by(.name)[] | "\(.name) @ file:///wheelhouse/\(.filename) --hash=\(.sha256)"] | join("\n")')"
+          printf '%s\n' "${requirements}" >context/requirements.lock
+          dep_lock_sha256="sha256:$(sha256sum context/requirements.lock | cut -d' ' -f1)"
+          preinstall="$(printf '%s' "${deps}" | jq -c --arg dist "${dist_name}" '["python","-m","pip","uninstall","--yes",$dist,sort_by(.name)[].name]')"
+          pip_command='["python","-m","pip","install","--no-index","--find-links=/wheelhouse","--require-hashes","--only-binary=:all:","--no-cache-dir","--disable-pip-version-check","-r","/wheelhouse/requirements.lock"]'
+          cp .github/release/docker/Dockerfile.runtime context/Dockerfile
+          cp .github/release/docker/install_ucm.py .github/release/docker/inspect_runtime.py .github/release/docker/verify_base_image.py context/
+          cp "${wheel_path}" "context/${wheel_name}"
+          while IFS= read -r dep; do cp "${dep}" "context/$(basename "${dep}")"; done < <(find input/runtime-dependencies -maxdepth 1 -type f -name '*.whl' -print | sort)
+          # Compute the reviewed Docker implementation digest.
+          implementation="$(jq -cnS \
+            --arg df "sha256:$(sha256sum .github/release/docker/Dockerfile.runtime | cut -d' ' -f1)" \
+            --arg iu "sha256:$(sha256sum .github/release/docker/install_ucm.py | cut -d' ' -f1)" \
+            --arg ir "sha256:$(sha256sum .github/release/docker/inspect_runtime.py | cut -d' ' -f1)" \
+            --arg vb "sha256:$(sha256sum .github/release/docker/verify_base_image.py | cut -d' ' -f1)" \
+            '{files:{"Dockerfile":$df,"install_ucm.py":$iu,"inspect_runtime.py":$ir,"verify_base_image.py":$vb},base_authority_sha256:"sha256:e591d627a538e4d7546cdf8f458de7de78e4016bed50349c889cc3ffe5e8834d",image_toolchain_authority_sha256:"sha256:688e7a93fcac5b11bf262ef2708e2d49637f7d27e160e4ac3a98f6770142ea92"}')"
+          impl_sha256="sha256:$(printf '%s' "${implementation}" | sha256sum | cut -d' ' -f1)"
+          implementation="$(jq -cS --arg agg "${impl_sha256}" '.aggregate_sha256 = $agg' <<<"${implementation}")"
+          whl_inspection_sha256="sha256:$(sha256sum input/wheel/wheel-inspection.json | cut -d' ' -f1)"
+          # Bind the frozen image build key to the reviewed source/wheel/base/toolchain inputs.
+          source_obj="$(jq -cnS --arg repo "${source_repo}" --arg commit "${source_commit}" --arg tree "${source_tree}" \
+            --arg archive "${source_archive_sha256}" --arg ctx "${source_context_sha256}" \
+            --arg task_sha256 "$(printf '%s' "${task}" | jq -r '.task_sha256')" --arg build_key "${whl_build_key}" \
+            '{repository:$repo,repository_url:("https://github.com/"+$repo),commit:$commit,tree:$tree,archive_sha256:$archive,context_sha256:$ctx,task_sha256:$task_sha256,wheel_build_key:$build_key}')"
+          identity="$(jq -cnS \
+            --argjson source "${source_obj}" --argjson epoch "${source_date_epoch}" \
+            --arg task_sha256 "$(printf '%s' "${task}" | jq -r '.task_sha256')" \
+            --arg task_auth_sha256 "$(jq -r '.authority_sha256' "${auth}")" \
+            --arg wheel_sha256 "${wheel_sha256}" --arg whl_inspection_sha256 "${whl_inspection_sha256}" \
+            --arg wheel_build_key "${whl_build_key}" \
+            --arg profile_id "$(printf '%s' "${task}" | jq -r '.profile_id')" \
+            --arg cpu_arch "$(printf '%s' "${task}" | jq -r '.cpu_arch')" \
+            --argjson base_dgsts "$(jq -c '{index_digest:.index.digest,manifest_digest:.manifest.digest,config_digest:.config.digest}' "${base}")" \
+            --arg impl_sha256 "${impl_sha256}" --arg dep_lock_sha256 "${dep_lock_sha256}" \
+            --arg task_dep_lock_sha256 "$(printf '%s' "${task}" | jq -r '.dependency_lock_sha256')" \
+            --arg toolchain_sha256 "$(jq -r '.toolchain.authority_sha256' "${auth}")" \
+            '{schema_version:1,kind:"ucm-real-image-build-key-input",source:$source,source_date_epoch:$epoch,task_sha256:$task_sha256,task_authority_sha256:$task_auth_sha256,wheel_sha256:$wheel_sha256,wheel_inspection_sha256:$whl_inspection_sha256,wheel_build_key:$wheel_build_key,profile_id:$profile_id,cpu_arch:$cpu_arch,base:$base_dgsts,implementation_sha256:$impl_sha256,dependency_lock_sha256:$dep_lock_sha256,task_dependency_lock_sha256:$task_dep_lock_sha256,toolchain_sha256:$toolchain_sha256,deterministic_flags:["--provenance=false","--sbom=false","oci-mediatypes=true","rewrite-timestamp=true"]}')"
+          build_key="sha256:$(printf '%s' "${identity}" | sha256sum | cut -d' ' -f1)"
+          context_files="$(jq -cnS --arg wheel "${wheel_name}" --argjson deps "${deps}" \
+            '(["Dockerfile","install_ucm.py","inspect_runtime.py","verify_base_image.py","image-recipe.json","requirements.lock",$wheel] + [$deps[]|.filename]) | sort')"
+          # Assemble the source-free runtime-real image recipe and sealed authority.
+          payload="$(jq -cnS \
+            --argjson task "${task}" --argjson base "$(jq -c '.' "${base}")" --argjson implementation "${implementation}" \
+            --argjson toolchain "$(jq -c '.toolchain' "${auth}")" --argjson deps "${deps}" --argjson identity "${identity}" \
+            --arg source_date_epoch "${source_date_epoch}" --arg build_key "${build_key}" \
+            --arg resolved "$(jq -r '.resolved_plan_sha256' "${plan}")" \
+            --arg wheel_name "${wheel_name}" --arg wheel_sha256 "${wheel_sha256}" --argjson wheel_size "${wheel_size}" \
+            --arg base_subject "${base_subject}" --arg runtime_patch_canonical "${runtime_patch_canonical}" \
+            --arg dep_lock_sha256 "${dep_lock_sha256}" --arg preinstall "${preinstall}" --arg pip_command "${pip_command}" \
+            --arg builder_coordinate "${builder_coordinate}" --arg builder_config_digest "${builder_config_digest}" \
+            --argjson context_files "${context_files}" --argjson whl_closure "${whl_closure}" --arg dist "${dist_name}" \
+            '{schema_version:1,kind:"ucm-install-image-recipe",candidate_kind:"real-candidate",fixture_only:false,unpublished:true,publication_attempted:false,source_date_epoch:($source_date_epoch|tonumber),task_id:$task.task_id,family_task_id:$task.family_task_id,resolved_plan_sha256:$resolved,family_id:$task.family_task_id,profile_id:$task.profile_id,spec_id:$task.spec_id,runtime_patch_variants:$task.runtime_patch_variants,target_platform:$task.platform,target_repository:$task.target_repository,target_tag:$task.target_tag,task_sha256:$task.task_sha256,build_key_sha256:$build_key,source:$identity.source,base:$base,wheel:{filename:$wheel_name,sha256:$wheel_sha256,size:$wheel_size,spec_id:$task.spec_id,dist_name:$dist,version:$task.wheel_version,python_abi:$task.python_abi,cpu_arch:$task.cpu_arch,builder_evidence:{source_commit:$identity.source.commit,source_tree:$identity.source.tree,build_context_digest:$identity.source.context_sha256,build_key:$identity.wheel_build_key,builder_coordinate:$builder_coordinate,builder_config_digest:$builder_config_digest,dependency_lock_sha256:$identity.dependency_lock_sha256,native_members:$whl_closure.native_members,unresolved_dependencies:[]}},runtime_dependencies:$deps,dependency_lock:{filename:"requirements.lock",sha256:$dep_lock_sha256,preinstall_command:($preinstall|fromjson),pip_command:($pip_command|fromjson)},implementation:$implementation,toolchain:$toolchain,build:{target:"runtime-real",base_image:$base_subject,output:"local-oci-or-canonical-member",build_args:{BASE_IMAGE:$base_subject,SOURCE_DATE_EPOCH:$source_date_epoch,TARGETPLATFORM:$task.platform,UCM_WHEEL:$wheel_name,UCM_SOURCE_SHA:$identity.source.commit,UCM_SOURCE_REPOSITORY_URL:$identity.source.repository_url,UCM_SOURCE_TREE:$identity.source.tree,UCM_SOURCE_CONTEXT_SHA256:$identity.source.context_sha256,UCM_TASK_SHA256:$task.task_sha256,UCM_BUILD_KEY_SHA256:$build_key,UCM_WHEEL_SHA256:$wheel_sha256,UCM_RUNTIME_PATCH_VARIANTS:$runtime_patch_canonical}},context_files:$context_files}')"
+          recipe_sha256="sha256:$(printf '%s' "${payload}" | sha256sum | cut -d' ' -f1)"
+          jq -cS --arg sha "${recipe_sha256}" '{payload:.,payload_sha256:$sha}' <<<"${payload}" >context/image-recipe.json
+          jq -cS --arg sha "${recipe_sha256}" '{payload:.,payload_sha256:$sha}' <<<"${payload}" >out/image-prepare-result.json
+      - name: Build runtime-real OCI and record archive checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_DATE_EPOCH="$(jq -r '.payload.source_date_epoch' context/image-recipe.json)"
+          export SOURCE_DATE_EPOCH
+          recipe_sha256="$(jq -r '.payload_sha256' context/image-recipe.json)"
+          task_sha256="$(jq -r '.payload.task_sha256' context/image-recipe.json)"
+          target_platform="$(jq -r '.payload.target_platform' context/image-recipe.json)"
+          build_args=()
+          while IFS= read -r build_arg; do
+            build_args+=(--build-arg "${build_arg}")
+          done < <(jq -r '.payload.build.build_args | to_entries | sort_by(.key)[] | "\(.key)=\(.value)"' context/image-recipe.json)
+          build_args+=(--build-arg "UCM_RECIPE_SHA256=${recipe_sha256}")
+          docker buildx build \
+            --platform "${target_platform}" \
+            --target runtime-real \
+            --provenance=false \
+            --sbom=false \
+            --annotation "manifest:io.ucm.release.recipe-sha256=${recipe_sha256}" \
+            --annotation "manifest:io.ucm.release.task-sha256=${task_sha256}" \
+            "${build_args[@]}" \
+            --metadata-file out/buildkit-metadata.json \
+            --output type=oci,dest=out/image.oci.tar,oci-mediatypes=true,rewrite-timestamp=true \
+            --progress plain \
+            context 2>&1 | tee out/build.log
+          sha256sum out/image.oci.tar >out/image-archive.sha256
+      - name: Preserve full OCI archive for manual delivery
+        if: >-
+          ${{
+            inputs.deliver_full_oci ||
+            (github.event_name == 'push' &&
+            github.ref_type == 'tag'
+            )
+          }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf out/full-oci-preserved
+          mkdir -p out/full-oci-preserved
+          ln out/image.oci.tar out/full-oci-preserved/image.oci.tar
+      - name: Verify runtime-real OCI and emit compact evidence
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+          TASK_ID: ${{ inputs.task_id }}
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          output_mode=feature
+          if [[ "${EVENT_NAME}" == push && \
+                "${REF_TYPE}" == tag && \
+                "${REF_PROTECTED}" == true ]]; then
+            output_mode=production
+          fi
+          plan=input/plan/resolved-plan.json
+          recipe=context/image-recipe.json
+          # Inspect the local OCI archive: reopen its index, manifest, and config blobs.
+          index="$(tar -xOf out/image.oci.tar index.json)"
+          manifest_digest="$(printf '%s' "${index}" | jq -r '.manifests[0].digest')"
+          manifest_media_type="$(printf '%s' "${index}" | jq -r '.manifests[0].mediaType')"
+          manifest="$(tar -xOf out/image.oci.tar "blobs/sha256/${manifest_digest#sha256:}")"
+          config_digest="$(printf '%s' "${manifest}" | jq -r '.config.digest')"
+          config="$(tar -xOf out/image.oci.tar "blobs/sha256/${config_digest#sha256:}")"
+          archive_sha256="sha256:$(sha256sum out/image.oci.tar | cut -d' ' -f1)"
+          archive_size="$(wc -c <out/image.oci.tar | tr -d ' ')"
+          task="$(jq -c --arg id "${TASK_ID}" '.image_tasks[] | select(.task_id == $id)' "${plan}")"
+          wheel_task="$(jq -c '.' out/selected-wheel-task.json)"
+          wheel_name="$(jq -r '.payload.wheel.filename' "${recipe}")"
+          whl_build="$(unzip -p "context/${wheel_name}" '*.dist-info/ucm-build.json')"
+          # Derive the immutable OCI content identity from the actual manifest and config.
+          ci="$(jq -cnS \
+            --argjson manifest "${manifest}" --argjson config "${config}" --slurpfile r "${recipe}" \
+            --arg manifest_digest "${manifest_digest}" --arg config_digest "${config_digest}" \
+            '{manifest_digest:$manifest_digest,config_digest:$config_digest,layers:$manifest.layers,diff_ids:$config.rootfs.diff_ids,annotations:$manifest.annotations,labels:$config.config.Labels,created:$config.created,history:$config.history,source:{repository:$r[0].payload.source.repository,repository_url:$r[0].payload.source.repository_url,commit:$r[0].payload.source.commit,tree:$r[0].payload.source.tree,archive_sha256:$r[0].payload.source.archive_sha256,context_sha256:$r[0].payload.source.context_sha256},task_sha256:$r[0].payload.task_sha256,build_key_sha256:$r[0].payload.build_key_sha256,wheel_sha256:$r[0].payload.wheel.sha256,recipe_sha256:$r[0].payload_sha256}')"
+          ci_sha="sha256:$(printf '%s' "${ci}" | sha256sum | cut -d' ' -f1)"
+          ci="$(jq -cS --arg sha "${ci_sha}" '.content_identity_sha256 = $sha' <<<"${ci}")"
+          # Recompute the reviewed Docker implementation digest.
+          implementation="$(jq -cnS \
+            --arg df "sha256:$(sha256sum .github/release/docker/Dockerfile.runtime | cut -d' ' -f1)" \
+            --arg iu "sha256:$(sha256sum .github/release/docker/install_ucm.py | cut -d' ' -f1)" \
+            --arg ir "sha256:$(sha256sum .github/release/docker/inspect_runtime.py | cut -d' ' -f1)" \
+            --arg vb "sha256:$(sha256sum .github/release/docker/verify_base_image.py | cut -d' ' -f1)" \
+            '{files:{"Dockerfile":$df,"install_ucm.py":$iu,"inspect_runtime.py":$ir,"verify_base_image.py":$vb},base_authority_sha256:"sha256:e591d627a538e4d7546cdf8f458de7de78e4016bed50349c889cc3ffe5e8834d",image_toolchain_authority_sha256:"sha256:688e7a93fcac5b11bf262ef2708e2d49637f7d27e160e4ac3a98f6770142ea92"}')"
+          impl_sha256="sha256:$(printf '%s' "${implementation}" | sha256sum | cut -d' ' -f1)"
+          implementation="$(jq -cS --arg agg "${impl_sha256}" '.aggregate_sha256 = $agg' <<<"${implementation}")"
+          # Validate the OCI platform and manifest digest against the frozen plan.
+          test "$(printf '%s' "${config}" | jq -r '.architecture')" = "$(printf '%s' "${task}" | jq -r '.platform' | cut -d/ -f2)"
+          gates='{"base_verified":"passed","wheel_verified":"passed","install":"passed","pip_check":"passed","direct_url":"passed","ucm_import":"passed","runtime_dependency_imports":"passed","abi":"passed","native_members":"passed","elf":"passed","dependency_closure":"passed","variant":"passed"}'
+          # Emit the verified, unpublished real image result.
+          result="$(jq -cnS \
+            --argjson task "${task}" --argjson wheel_task "${wheel_task}" --argjson whl_build "${whl_build}" \
+            --argjson gates "${gates}" --slurpfile r "${recipe}" --argjson ci "${ci}" \
+            --argjson implementation "${implementation}" --arg output_mode "${output_mode}" \
+            --arg resolved "$(jq -r '.resolved_plan_sha256' "${plan}")" \
+            --arg ucm_version "$(jq -r '.payload.wheel.version' "${recipe}" | cut -d+ -f1)" \
+            --arg manifest_media_type "${manifest_media_type}" \
+            '{schema_version:1,kind:"ucm-image-result",candidate_kind:"real-candidate",fixture_only:false,unpublished:true,publication_attempted:false,output_mode:$output_mode,recipe_sha256:$r[0].payload_sha256,content_identity_sha256:$ci.content_identity_sha256,build_key_sha256:$r[0].payload.build_key_sha256,task_key:$task.task_sha256,task_id:$task.task_id,family_task_id:$task.family_task_id,task_sha256:$task.task_sha256,resolved_plan_sha256:$resolved,family_id:$task.family_task_id,profile_id:$task.profile_id,spec_id:$task.spec_id,runtime_patch_variants:$task.runtime_patch_variants,target_repository:$task.target_repository,target_tag:$task.target_tag,ucm_version:$ucm_version,source:$r[0].payload.source,base:$r[0].payload.base,target_platform:$task.platform,wheel:{filename:$r[0].payload.wheel.filename,sha256:$r[0].payload.wheel.sha256,size:$r[0].payload.wheel.size,spec_id:$task.spec_id,declaration_sha256:$wheel_task.declaration_sha256,version:$task.wheel_version,python_abi:$task.python_abi,cpu_arch:$task.cpu_arch,accelerator:$whl_build.accelerator,accelerator_runtime:$whl_build.accelerator_runtime,npu_arch_or_na:$whl_build.npu_arch_or_na,os:$whl_build.os,binary_profile_id:$whl_build.binary_profile_id,requires_dist:$task.runtime_requirements},runtime_dependencies:$r[0].payload.runtime_dependencies,dependency_lock:$r[0].payload.dependency_lock,implementation:$implementation,toolchain:$r[0].payload.toolchain,oci:{output:(if $output_mode=="feature" then "local-oci" else "canonical-member-record" end),media_type:$manifest_media_type,digest:$ci.manifest_digest,platform:$task.platform,published:false},content_identity:$ci,gates:$gates,runtime_validation:"external-required",device_validation:"external-required",status:"real-verified-unpublished"}')"
+          result_sha256="sha256:$(printf '%s' "${result}" | sha256sum | cut -d' ' -f1)"
+          jq -cS --arg sha "${result_sha256}" '.result_sha256 = $sha' <<<"${result}" >out/image-result.json
+          # Preserve compact OCI evidence for member publication after the archive is discarded.
+          mkdir -p out/oci-evidence
+          printf '%s' "${index}" >out/oci-evidence/index.json
+          printf '%s' "${manifest}" >out/oci-evidence/manifest.json
+          printf '%s' "${config}" >out/oci-evidence/config.json
+          printf '{"imageLayoutVersion":"1.0.0"}' >out/oci-evidence/oci-layout.json
+          jq -cnS --slurpfile r "${recipe}" \
+            --argjson manifest "${manifest}" --argjson config "${config}" \
+            --arg archive_sha256 "${archive_sha256}" --argjson archive_size "${archive_size}" \
+            --arg manifest_digest "${manifest_digest}" --arg config_digest "${config_digest}" \
+            '{schema_version:1,kind:"ucm-real-compact-oci-evidence",target_platform:$r[0].payload.target_platform,manifest_descriptor:{mediaType:"application/vnd.oci.image.manifest.v1+json",digest:$manifest_digest},config_descriptor:{mediaType:"application/vnd.oci.image.config.v1+json",digest:$config_digest},layers:$manifest.layers,diff_ids:$config.rootfs.diff_ids,recipe_payload_sha256:$r[0].payload_sha256,wheel_sha256:$r[0].payload.wheel.sha256,archive_sha256:$archive_sha256,archive_size:$archive_size,annotations:$manifest.annotations,labels:$config.config.Labels,created:$config.created,history:$config.history}' \
+            >out/oci-evidence/closure.json
+          rm -f out/image.oci.tar
+          test ! -e out/image.oci.tar
+      - name: Stage verified full OCI artifact
+        if: >-
+          ${{
+            inputs.deliver_full_oci ||
+            (github.event_name == 'push' &&
+            github.ref_type == 'tag'
+            )
+          }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          preserved_archive=out/full-oci-preserved/image.oci.tar
+          closure=out/oci-evidence/closure.json
+          expected_sha256="$(jq -r '.archive_sha256' "${closure}")"
+          expected_size="$(jq -r '.archive_size' "${closure}")"
+          actual_sha256="sha256:$(sha256sum "${preserved_archive}" | cut -d' ' -f1)"
+          actual_size="$(wc -c <"${preserved_archive}" | tr -d ' ')"
+          read -r recorded_sha256 recorded_path <out/image-archive.sha256
+          test "${actual_sha256}" = "${expected_sha256}"
+          test "${recorded_sha256}" = "${actual_sha256#sha256:}"
+          test "${actual_size}" = "${expected_size}"
+          test "${recorded_path}" = out/image.oci.tar
+          test -f out/image-result.json
+          rm -rf out/full-oci-artifact
+          mkdir -p out/full-oci-artifact
+          mv "${preserved_archive}" out/full-oci-artifact/image.oci.tar
+          printf '%s  image.oci.tar\n' "${actual_sha256#sha256:}" \
+            >out/full-oci-artifact/image-archive.sha256
+          cp out/image-result.json out/full-oci-artifact/image-result.json
+          test "$(find out/full-oci-artifact -maxdepth 1 -type f | wc -l | tr -d ' ')" = 3
+      - id: result
+        name: Expose compact verified image identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "image_result_sha256=$(jq -r '.result_sha256' out/image-result.json)"
+            echo "oci_digest=$(jq -r '.oci.digest' out/image-result.json)"
+          } >>"${GITHUB_OUTPUT}"
+          cp context/image-recipe.json out/image-recipe.json
+          cp "${RUNNER_TEMP}/ucm-disk-before.txt" out/disk-before.txt
+          cp "${RUNNER_TEMP}/ucm-disk-after.txt" out/disk-after.txt
+          cp "${RUNNER_TEMP}/ucm-available-gib.txt" out/available-gib.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.task.outputs.image_artifact }}
+          path: |
+            out/image-result.json
+            out/oci-evidence/
+            out/image-recipe.json
+            out/image-prepare-result.json
+            out/base-record-real.json
+            out/base/
+            out/hosted-task.json
+            out/selected-task.json
+            out/selected-wheel-task.json
+            out/task-binding.json
+            out/real-image-authority.json
+            out/reopened-wheel-inspection.json
+            out/image-archive.sha256
+            out/buildkit-metadata.json
+            out/build.log
+            out/disk-before.txt
+            out/disk-after.txt
+            out/available-gib.txt
+          if-no-files-found: error
+          overwrite: false
+          retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}
+      - name: Upload manually requested full OCI artifact
+        if: ${{ inputs.deliver_full_oci }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ucm-oci-${{ inputs.task_id }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: out/full-oci-artifact/
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: false
+          retention-days: 7
+      - name: Upload protected internal OCI bridge
+        if: >-
+          ${{
+            github.event_name == 'push' &&
+            github.ref_type == 'tag'
+
+          }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.task.outputs.internal_oci_artifact }}
+          path: out/full-oci-artifact/
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: false
+          retention-days: 90

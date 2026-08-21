@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/ucm/release/v2/environment-test-request.schema.json",
+  "title": "UCM simulated environment test request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_manifest_sha256", "artifacts", "environment", "evidence_level", "kind", "lifecycle_plan_sha256", "mode", "nonce", "operations", "required_checks", "schema_version", "sha256", "source_sha", "stage", "version"],
+  "properties": {
+    "artifact_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "artifacts": {"type": "array", "minItems": 7, "maxItems": 7, "items": {"$ref": "#/$defs/artifact"}, "allOf": [
+      {"contains": {"properties": {"kind": {"const": "wheel"}}, "required": ["kind"]}, "minContains": 3, "maxContains": 3},
+      {"contains": {"properties": {"kind": {"const": "image"}}, "required": ["kind"]}, "minContains": 3, "maxContains": 3},
+      {"contains": {"properties": {"kind": {"const": "chart"}}, "required": ["kind"]}, "minContains": 1, "maxContains": 1}
+    ]},
+    "environment": {"enum": ["blue", "yellow"]},
+    "evidence_level": {"const": "simulated"},
+    "kind": {"const": "environment-test-request"},
+    "lifecycle_plan_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "mode": {"const": "dry-run"},
+    "nonce": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "operations": {"const": [
+      {"action": "execute-environment-checks", "executed": false},
+      {"action": "collect-production-evidence", "executed": false}
+    ]},
+    "required_checks": {"type": "array", "minItems": 9, "maxItems": 9, "uniqueItems": true, "items": {"$ref": "#/$defs/required_check"}, "allOf": [
+      {"contains": {"properties": {"name": {"const": "abi"}}, "required": ["name"]}, "minContains": 1, "maxContains": 1},
+      {"contains": {"properties": {"name": {"const": "accelerator"}}, "required": ["name"]}, "minContains": 1, "maxContains": 1},
+      {"contains": {"properties": {"name": {"const": "chart-render"}}, "required": ["name"]}, "minContains": 1, "maxContains": 1},
+      {"contains": {"properties": {"name": {"const": "cluster"}}, "required": ["name"]}, "minContains": 1, "maxContains": 1},
+      {"contains": {"properties": {"name": {"const": "image-pull"}}, "required": ["name"]}, "minContains": 1, "maxContains": 1},
+      {"contains": {"properties": {"name": {"const": "import"}}, "required": ["name"]}, "minContains": 1, "maxContains": 1},
+      {"contains": {"properties": {"name": {"const": "install"}}, "required": ["name"]}, "minContains": 1, "maxContains": 1},
+      {"contains": {"properties": {"name": {"const": "runtime"}}, "required": ["name"]}, "minContains": 1, "maxContains": 1},
+      {"contains": {"properties": {"name": {"const": "smoke"}}, "required": ["name"]}, "minContains": 1, "maxContains": 1}
+    ]},
+    "schema_version": {"const": 2},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "stage": {"const": "draft"},
+    "version": {"type": "string", "minLength": 1}
+  },
+  "$defs": {
+    "required_check": {"type": "object", "additionalProperties": false, "required": ["evidence_level", "name", "verified"], "properties": {
+      "evidence_level": {"const": "simulated"}, "name": {"enum": ["abi", "accelerator", "chart-render", "cluster", "image-pull", "import", "install", "runtime", "smoke"]}, "verified": {"const": false}
+    }},
+    "artifact": {"oneOf": [{"$ref": "#/$defs/file_artifact"}, {"$ref": "#/$defs/oci_artifact"}]},
+    "file_artifact": {"type": "object", "additionalProperties": false, "required": ["coordinate", "kind", "name", "path", "sha256", "size", "version"], "properties": {
+      "coordinate": {"type": "string", "minLength": 1}, "kind": {"enum": ["wheel", "chart"]}, "name": {"type": "string", "minLength": 1},
+      "path": {"type": "string", "minLength": 1, "allOf": [{"pattern": "^(?!/)(?!.*\\\\)(?!.*[\\u0000-\\u001F\\u007F])[^/]+(?:/[^/]+)*$"}, {"not": {"pattern": "(?:^|/)\\.{1,2}(?:/|$)"}}]},
+      "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "size": {"type": "integer", "minimum": 0}, "version": {"type": "string", "minLength": 1}
+    }},
+    "oci_artifact": {"type": "object", "additionalProperties": false, "required": ["coordinate", "digest", "kind", "name", "platforms", "version"], "properties": {
+      "coordinate": {"type": "string", "minLength": 1}, "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "kind": {"const": "image"}, "name": {"type": "string", "minLength": 1},
+      "platforms": {"type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": {"$ref": "#/$defs/oci_platform"}, "allOf": [
+        {"contains": {"properties": {"platform": {"const": "linux/amd64"}}, "required": ["platform"]}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"platform": {"const": "linux/arm64"}}, "required": ["platform"]}, "minContains": 1, "maxContains": 1}
+      ]}, "version": {"type": "string", "minLength": 1}
+    }},
+    "oci_platform": {"type": "object", "additionalProperties": false, "required": ["digest", "platform"], "properties": {"digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "platform": {"enum": ["linux/amd64", "linux/arm64"]}}}
+  }
+}

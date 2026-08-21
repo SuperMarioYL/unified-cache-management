@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/ucm/release/v2/wheel-plan.schema.json",
+  "title": "UCM three-backend Wheel plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["distributions", "kind", "lifecycle_plan", "mode", "schema_version", "sha256"],
+  "properties": {
+    "distributions": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/distribution"},
+      "allOf": [
+        {"contains": {"properties": {"backend": {"const": "cuda"}, "distribution": {"const": "uc-manager-cuda"}}, "required": ["backend", "distribution"]}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"backend": {"const": "cann-a2"}, "distribution": {"const": "uc-manager-cann-a2"}}, "required": ["backend", "distribution"]}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"backend": {"const": "cann-a3"}, "distribution": {"const": "uc-manager-cann-a3"}}, "required": ["backend", "distribution"]}, "minContains": 1, "maxContains": 1}
+      ]
+    },
+    "kind": {"const": "wheel-plan"},
+    "lifecycle_plan": {"$ref": "#/$defs/lifecycle"},
+    "mode": {"const": "dry-run"},
+    "schema_version": {"const": 2},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "$defs": {
+    "distribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["backend", "conflicts", "distribution", "import_name", "version"],
+      "properties": {
+        "backend": {"enum": ["cuda", "cann-a2", "cann-a3"]},
+        "conflicts": {"type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true, "items": {"enum": ["uc-manager", "uc-manager-cuda", "uc-manager-cann-a2", "uc-manager-cann-a3"]}},
+        "distribution": {"enum": ["uc-manager-cuda", "uc-manager-cann-a2", "uc-manager-cann-a3"]},
+        "import_name": {"const": "ucm"},
+        "version": {"type": "string", "minLength": 1}
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "source_sha", "version"],
+      "properties": {
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "source_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "version": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

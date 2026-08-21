@@ -1,0 +1,356 @@
+{
+  "digest_algorithm": "sha256 of canonical JSON sorted [{path,sha256}]",
+  "imported_tree_sha256": "sha256:1aba7cf37221b953f8addce4f738705b0e0012423b814bc9b559d14a9a7a6df5",
+  "release_additions": [
+    {
+      "imported_sha256": "sha256:fb58c6c55e11f2a66450ad9be6711c02d2e3a623407c53e10f99e9b800889d65",
+      "path": "values.schema.json"
+    }
+  ],
+  "release_tree_sha256": "sha256:6e0ea559cc946593ef162d8ea40497c05091466a543c8b997a2ecb0da22edb6f",
+  "schema_version": 1,
+  "source": {
+    "commit": "33ac2a37f146a4515e232e4d7a8abaa14d8ef1d7",
+    "remote": "https://github.com/modelengine-group/uc-stack.git",
+    "tree_sha256": "sha256:5a0aa3113c14931e30c88c7f8508b3c742f985e5ede4a8ec48cac77c195c5a2e"
+  },
+  "source_files": [
+    {
+      "imported_sha256": "sha256:8a359de493dec9b1a7ef4ff66b44f326ff7a23f4bbd8312d1e3c295e16478ca1",
+      "modified_for_release": false,
+      "path": ".gitattributes",
+      "source_sha256": "sha256:8a359de493dec9b1a7ef4ff66b44f326ff7a23f4bbd8312d1e3c295e16478ca1"
+    },
+    {
+      "imported_sha256": "sha256:db32066b975f5fd328cd30d79dce159e6e303a96169fa61cdecef8b97d655f78",
+      "modified_for_release": false,
+      "path": ".helmignore",
+      "source_sha256": "sha256:db32066b975f5fd328cd30d79dce159e6e303a96169fa61cdecef8b97d655f78"
+    },
+    {
+      "imported_sha256": "sha256:d1ce359339e3175bcbe3a1a9c98933e83e445bd06c5d6dbb34b7e3ce98ede8e1",
+      "modified_for_release": true,
+      "path": "Chart.yaml",
+      "source_sha256": "sha256:47c6e194962cb01816f4128eb1502d59aa65c1f519620e218428966206877b3f"
+    },
+    {
+      "imported_sha256": "sha256:ec44077173278866f6f02fdc81cabf3e6fc4ee322235dd8450af55080c0adaf1",
+      "modified_for_release": false,
+      "path": "README.md",
+      "source_sha256": "sha256:ec44077173278866f6f02fdc81cabf3e6fc4ee322235dd8450af55080c0adaf1"
+    },
+    {
+      "imported_sha256": "sha256:64451ff56d3c2cb36dbda715e9e6fd143ce028bae343e3dfb278a7f77e78775f",
+      "modified_for_release": false,
+      "path": "doc/DEVELOPER_GUIDE.md",
+      "source_sha256": "sha256:64451ff56d3c2cb36dbda715e9e6fd143ce028bae343e3dfb278a7f77e78775f"
+    },
+    {
+      "imported_sha256": "sha256:2e1f8665cdc6ce2b8922106b11a05581f701f25f2b49410a40fdc2ed1241d6c6",
+      "modified_for_release": false,
+      "path": "doc/GET_START.md",
+      "source_sha256": "sha256:2e1f8665cdc6ce2b8922106b11a05581f701f25f2b49410a40fdc2ed1241d6c6"
+    },
+    {
+      "imported_sha256": "sha256:7eb53767bc254b69c9b0e1056f759876d47111158522fda112bd14e605132e53",
+      "modified_for_release": false,
+      "path": "doc/SUMMARY.md",
+      "source_sha256": "sha256:7eb53767bc254b69c9b0e1056f759876d47111158522fda112bd14e605132e53"
+    },
+    {
+      "imported_sha256": "sha256:c37a85dab5694846aa38d3420f4bf45385ce9ee385b9e524355dd441dc599c0f",
+      "modified_for_release": false,
+      "path": "doc/kthena-native-pd-multinode.md",
+      "source_sha256": "sha256:c37a85dab5694846aa38d3420f4bf45385ce9ee385b9e524355dd441dc599c0f"
+    },
+    {
+      "imported_sha256": "sha256:aceb85e5a2e89c5cc3003c6149fc52d9ff0f25a466fa42748977c476f3e8908d",
+      "modified_for_release": false,
+      "path": "doc/uc-stack-kthena-values.md",
+      "source_sha256": "sha256:aceb85e5a2e89c5cc3003c6149fc52d9ff0f25a466fa42748977c476f3e8908d"
+    },
+    {
+      "imported_sha256": "sha256:dfcc0ed53fa19c8c6095f526143d96f4862fffae59a66178dce1b6fb53cb8e60",
+      "modified_for_release": false,
+      "path": "files/node-topology-setup.sh",
+      "source_sha256": "sha256:dfcc0ed53fa19c8c6095f526143d96f4862fffae59a66178dce1b6fb53cb8e60"
+    },
+    {
+      "imported_sha256": "sha256:a7a07684ab2a734077c60656d9668143c4aa89f4b192c1d075e94a9ddad7c483",
+      "modified_for_release": false,
+      "path": "files/patch_ucm_kvcs_store.py",
+      "source_sha256": "sha256:a7a07684ab2a734077c60656d9668143c4aa89f4b192c1d075e94a9ddad7c483"
+    },
+    {
+      "imported_sha256": "sha256:47ac763f3fb5383948dcca8a3c9d1e51a58fc34cd71ba52f7df8c586207ef42f",
+      "modified_for_release": false,
+      "path": "files/resolve-kv-transfer-config.py",
+      "source_sha256": "sha256:47ac763f3fb5383948dcca8a3c9d1e51a58fc34cd71ba52f7df8c586207ef42f"
+    },
+    {
+      "imported_sha256": "sha256:07aa8ea93a2a5e763dc2310c19d2b02d23e16383d1b1d246c22626cebb1a45ca",
+      "modified_for_release": false,
+      "path": "models/ascend/values-deepseek-v3p1-multi.yaml",
+      "source_sha256": "sha256:07aa8ea93a2a5e763dc2310c19d2b02d23e16383d1b1d246c22626cebb1a45ca"
+    },
+    {
+      "imported_sha256": "sha256:347ceb35d2fcc22dc13a927a712a53ec0b21371c2b3c368118240fbc9cec6fd2",
+      "modified_for_release": false,
+      "path": "models/ascend/values-qwen3-0p6b-1e1.yaml",
+      "source_sha256": "sha256:347ceb35d2fcc22dc13a927a712a53ec0b21371c2b3c368118240fbc9cec6fd2"
+    },
+    {
+      "imported_sha256": "sha256:6805f055e8e0af1b777513ce02390190d4df6c86a102fbdf460197ad8b5b27d6",
+      "modified_for_release": false,
+      "path": "models/ascend/values-qwen3-0p6b-1e2.yaml",
+      "source_sha256": "sha256:6805f055e8e0af1b777513ce02390190d4df6c86a102fbdf460197ad8b5b27d6"
+    },
+    {
+      "imported_sha256": "sha256:3f5af0b37d9623a62ef76b2569947b91e2b201ce2c5522c77dc29826b2ce8d92",
+      "modified_for_release": false,
+      "path": "models/ascend/values-qwen3-0p6b-1p1-1d1.yaml",
+      "source_sha256": "sha256:3f5af0b37d9623a62ef76b2569947b91e2b201ce2c5522c77dc29826b2ce8d92"
+    },
+    {
+      "imported_sha256": "sha256:d70aaba2a7a9830b67791d04ff6bf82448aa7af4a52209d1d78c9028dd6c70c5",
+      "modified_for_release": false,
+      "path": "models/ascend/values-qwen3-0p6b-2p1-2d1.yaml",
+      "source_sha256": "sha256:d70aaba2a7a9830b67791d04ff6bf82448aa7af4a52209d1d78c9028dd6c70c5"
+    },
+    {
+      "imported_sha256": "sha256:d6f86d9ea65df07663f50aec15eb824826d3e21a17ff180ef992e79d1c25e724",
+      "modified_for_release": false,
+      "path": "models/ascend/values-qwen3-0p6b-2p2-2d2.yaml",
+      "source_sha256": "sha256:d6f86d9ea65df07663f50aec15eb824826d3e21a17ff180ef992e79d1c25e724"
+    },
+    {
+      "imported_sha256": "sha256:0af32eacc559e5ebd2207285c6cc56876411492b8b2becc45359e0d267f69d1c",
+      "modified_for_release": false,
+      "path": "models/ascend/values-qwen3-235b-multi.yaml",
+      "source_sha256": "sha256:0af32eacc559e5ebd2207285c6cc56876411492b8b2becc45359e0d267f69d1c"
+    },
+    {
+      "imported_sha256": "sha256:ccef7e8837fba09f42baec27858a4100a0c86c0f5ed85bb6f0c8a1363b9d7d9d",
+      "modified_for_release": false,
+      "path": "models/cuda/values-deepseek-r1-awq-multi.yaml",
+      "source_sha256": "sha256:ccef7e8837fba09f42baec27858a4100a0c86c0f5ed85bb6f0c8a1363b9d7d9d"
+    },
+    {
+      "imported_sha256": "sha256:00192b719514d7515c1f1e25e3b4a3dd64d7fcfb612a80101ca66b9295dce0d1",
+      "modified_for_release": false,
+      "path": "models/cuda/values-deepseek-r1-awq-single.yaml",
+      "source_sha256": "sha256:00192b719514d7515c1f1e25e3b4a3dd64d7fcfb612a80101ca66b9295dce0d1"
+    },
+    {
+      "imported_sha256": "sha256:8043aed58ac5dc0a17fc94befc9585db82e57d9409c8bcc82c0505b7b268eb2f",
+      "modified_for_release": false,
+      "path": "models/cuda/values-qwen3-0p6b-1e1.yaml",
+      "source_sha256": "sha256:8043aed58ac5dc0a17fc94befc9585db82e57d9409c8bcc82c0505b7b268eb2f"
+    },
+    {
+      "imported_sha256": "sha256:f73e98886c89a30f51c6d8e36a4d05e593cc263cdb3cf422c8eac2dcf70dc6e7",
+      "modified_for_release": false,
+      "path": "models/cuda/values-qwen3-0p6b-1e2.yaml",
+      "source_sha256": "sha256:f73e98886c89a30f51c6d8e36a4d05e593cc263cdb3cf422c8eac2dcf70dc6e7"
+    },
+    {
+      "imported_sha256": "sha256:19777b1cc268632f99e59c5ffcfc69120e5ef3d28b002b96eb7ae744cc53dcfd",
+      "modified_for_release": false,
+      "path": "models/cuda/values-qwen3-0p6b-1p1-1d1.yaml",
+      "source_sha256": "sha256:19777b1cc268632f99e59c5ffcfc69120e5ef3d28b002b96eb7ae744cc53dcfd"
+    },
+    {
+      "imported_sha256": "sha256:6be1c7e1c5b7edac8a10a7400ca788a383843017bceb9a79e95f9fc1a711cc6c",
+      "modified_for_release": false,
+      "path": "models/cuda/values-qwen3-0p6b-2p1-2d1.yaml",
+      "source_sha256": "sha256:6be1c7e1c5b7edac8a10a7400ca788a383843017bceb9a79e95f9fc1a711cc6c"
+    },
+    {
+      "imported_sha256": "sha256:52ebf3f57f7331c4093b44c30083b699bd39fc18b3b422e6e1a9d595495214e1",
+      "modified_for_release": false,
+      "path": "models/cuda/values-qwen3-0p6b-2p2-2d2.yaml",
+      "source_sha256": "sha256:52ebf3f57f7331c4093b44c30083b699bd39fc18b3b422e6e1a9d595495214e1"
+    },
+    {
+      "imported_sha256": "sha256:9e57d8f973d865d5ffb821a7555d336f32065b822c78ba4d910812967cc87f8a",
+      "modified_for_release": false,
+      "path": "templates/000-validate.yaml",
+      "source_sha256": "sha256:9e57d8f973d865d5ffb821a7555d336f32065b822c78ba4d910812967cc87f8a"
+    },
+    {
+      "imported_sha256": "sha256:975cdc9f36529772a07e29f21e435bbd876aa189569a5f447519ca8de44cabdf",
+      "modified_for_release": true,
+      "path": "templates/_helpers.tpl",
+      "source_sha256": "sha256:b3e7bc30b4e12b6b7e9ccef4c32b334d51e29bcc911d59ac3dbf578537bcb16f"
+    },
+    {
+      "imported_sha256": "sha256:5e328de4fb2e2c23637704739faad969da1aa781c1d00a91304d3c31020ad78f",
+      "modified_for_release": false,
+      "path": "templates/clusterrole-engine.yaml",
+      "source_sha256": "sha256:5e328de4fb2e2c23637704739faad969da1aa781c1d00a91304d3c31020ad78f"
+    },
+    {
+      "imported_sha256": "sha256:c66235ba7f9ee368abc627f07ef637a0fa79fef5f4f2bfa6e525682f3d8ec894",
+      "modified_for_release": false,
+      "path": "templates/clusterrolebinding-engine.yaml",
+      "source_sha256": "sha256:c66235ba7f9ee368abc627f07ef637a0fa79fef5f4f2bfa6e525682f3d8ec894"
+    },
+    {
+      "imported_sha256": "sha256:e9973386dcdd6006b5f6797b5d80bbeda42bb1e3783eab43aaca246f3d2f5955",
+      "modified_for_release": false,
+      "path": "templates/configmap-entrypoint-common.yaml",
+      "source_sha256": "sha256:e9973386dcdd6006b5f6797b5d80bbeda42bb1e3783eab43aaca246f3d2f5955"
+    },
+    {
+      "imported_sha256": "sha256:b4d4b1097ed7c2caeb445667bfb93e166e739a3566fa161a611a16427eb037cb",
+      "modified_for_release": false,
+      "path": "templates/configmap-hooks.yaml",
+      "source_sha256": "sha256:b4d4b1097ed7c2caeb445667bfb93e166e739a3566fa161a611a16427eb037cb"
+    },
+    {
+      "imported_sha256": "sha256:fce0280cc1a8e75c853ef2712d674804a444b62257c359a94065e5ca708654b9",
+      "modified_for_release": false,
+      "path": "templates/configmap-mooncake-client.yaml",
+      "source_sha256": "sha256:fce0280cc1a8e75c853ef2712d674804a444b62257c359a94065e5ca708654b9"
+    },
+    {
+      "imported_sha256": "sha256:e548caab8703776ff4efe090740180d75b0656674fcd6236ce8f7fbc4d91d47e",
+      "modified_for_release": false,
+      "path": "templates/configmap-node-topology.yaml",
+      "source_sha256": "sha256:e548caab8703776ff4efe090740180d75b0656674fcd6236ce8f7fbc4d91d47e"
+    },
+    {
+      "imported_sha256": "sha256:de077f91cfd3d49234e6411af36685781566999d1ffea58425b09a31f2266380",
+      "modified_for_release": false,
+      "path": "templates/configmap-ucm.yaml",
+      "source_sha256": "sha256:de077f91cfd3d49234e6411af36685781566999d1ffea58425b09a31f2266380"
+    },
+    {
+      "imported_sha256": "sha256:9e6257c91618e78a5f804690875bb511b5ce00472b46287e62228a6a5abaa343",
+      "modified_for_release": false,
+      "path": "templates/configmap-vllm-args.yaml",
+      "source_sha256": "sha256:9e6257c91618e78a5f804690875bb511b5ce00472b46287e62228a6a5abaa343"
+    },
+    {
+      "imported_sha256": "sha256:a1ad54d7fe7b32f1a2b1e78797bbf85544a425620fa83dfcf338b5c8ae419860",
+      "modified_for_release": false,
+      "path": "templates/configmap.yaml",
+      "source_sha256": "sha256:a1ad54d7fe7b32f1a2b1e78797bbf85544a425620fa83dfcf338b5c8ae419860"
+    },
+    {
+      "imported_sha256": "sha256:438925a42a8a89beb78aff6a46b91c063c39402996613ca55c2e4a751f610076",
+      "modified_for_release": false,
+      "path": "templates/kthena/modelroute.yaml",
+      "source_sha256": "sha256:438925a42a8a89beb78aff6a46b91c063c39402996613ca55c2e4a751f610076"
+    },
+    {
+      "imported_sha256": "sha256:dbcabce6e0be633c931eabd1616b843a02bace3a10fe288345e9a91505852751",
+      "modified_for_release": false,
+      "path": "templates/kthena/modelserver.yaml",
+      "source_sha256": "sha256:dbcabce6e0be633c931eabd1616b843a02bace3a10fe288345e9a91505852751"
+    },
+    {
+      "imported_sha256": "sha256:5cbb0d6a39068b22dfd46dc295cbc0a2cbe17e362e9666af0900825dad02ec39",
+      "modified_for_release": true,
+      "path": "templates/kthena/modelserving.yaml",
+      "source_sha256": "sha256:3c87712cd2439816d33a6483eff353ec0bfbf45ee9c2799d9d586a832f540373"
+    },
+    {
+      "imported_sha256": "sha256:1225e318f5ff742dba8185d7ac33ac59d15dfc207f81e67e6b677e4444f82720",
+      "modified_for_release": false,
+      "path": "templates/kthena/service-engine.yaml",
+      "source_sha256": "sha256:1225e318f5ff742dba8185d7ac33ac59d15dfc207f81e67e6b677e4444f82720"
+    },
+    {
+      "imported_sha256": "sha256:37b5686d5157762fc397f56bcb36e5b90cb909cdbaba3f9a3ea9ee6be46941d9",
+      "modified_for_release": true,
+      "path": "templates/mooncake-master.yaml",
+      "source_sha256": "sha256:b1fe9ed5b3011ffe1cb67ebbc3a25735d13c69e05e73a845f7149d0088fa89b5"
+    },
+    {
+      "imported_sha256": "sha256:c392d7cd1a7e83d84c28072a648a4d329eb2fa91d02f6df5223f7f2598976968",
+      "modified_for_release": false,
+      "path": "templates/pv.yaml",
+      "source_sha256": "sha256:c392d7cd1a7e83d84c28072a648a4d329eb2fa91d02f6df5223f7f2598976968"
+    },
+    {
+      "imported_sha256": "sha256:efa8d859830af16e66439a82cfba5c2e0b033f4b3051167f089984d30e9758e8",
+      "modified_for_release": false,
+      "path": "templates/pvc.yaml",
+      "source_sha256": "sha256:efa8d859830af16e66439a82cfba5c2e0b033f4b3051167f089984d30e9758e8"
+    },
+    {
+      "imported_sha256": "sha256:9641c2151ce47a2d902628ae116f0a67b561fbe2b3a45c1b110d8e86ef0d450d",
+      "modified_for_release": false,
+      "path": "templates/role-engine.yaml",
+      "source_sha256": "sha256:9641c2151ce47a2d902628ae116f0a67b561fbe2b3a45c1b110d8e86ef0d450d"
+    },
+    {
+      "imported_sha256": "sha256:b107944f72ffc78112d5f7c008127bd1cef527167bac65b66c97dee95a01519a",
+      "modified_for_release": false,
+      "path": "templates/rolebinding-engine.yaml",
+      "source_sha256": "sha256:b107944f72ffc78112d5f7c008127bd1cef527167bac65b66c97dee95a01519a"
+    },
+    {
+      "imported_sha256": "sha256:56b849ecd009a2ebf5bfc5277b55095e48de02cad6c60dd881672e28599d7356",
+      "modified_for_release": false,
+      "path": "templates/secrets.yaml",
+      "source_sha256": "sha256:56b849ecd009a2ebf5bfc5277b55095e48de02cad6c60dd881672e28599d7356"
+    },
+    {
+      "imported_sha256": "sha256:57cfe1a6e1b6ead1504490f275f4b587907d16c14d58c221bb0f870f22d36eb2",
+      "modified_for_release": false,
+      "path": "templates/service-cache-server.yaml",
+      "source_sha256": "sha256:57cfe1a6e1b6ead1504490f275f4b587907d16c14d58c221bb0f870f22d36eb2"
+    },
+    {
+      "imported_sha256": "sha256:6e739b80fa75022e84bfaf27748def430c43190a9d409902d8e55f20060e1097",
+      "modified_for_release": false,
+      "path": "templates/serviceaccount-engine.yaml",
+      "source_sha256": "sha256:6e739b80fa75022e84bfaf27748def430c43190a9d409902d8e55f20060e1097"
+    },
+    {
+      "imported_sha256": "sha256:82bb21e8b6d4ec68ac3756ccd3f98b286428b59e4b819da03f4988933471d0a8",
+      "modified_for_release": false,
+      "path": "templates/servicemonitor-vllm.yaml",
+      "source_sha256": "sha256:82bb21e8b6d4ec68ac3756ccd3f98b286428b59e4b819da03f4988933471d0a8"
+    },
+    {
+      "imported_sha256": "sha256:3e6865ecee0b98d83753fe42700de3e6127238bc6b9395bdf07682931d87cbf7",
+      "modified_for_release": false,
+      "path": "tests/fixtures/values-pd-hybrid.yaml",
+      "source_sha256": "sha256:3e6865ecee0b98d83753fe42700de3e6127238bc6b9395bdf07682931d87cbf7"
+    },
+    {
+      "imported_sha256": "sha256:db13640faf5ffc806474d3b9411d51a42960064e78cb5bfcc37ec20c5a1cfce7",
+      "modified_for_release": false,
+      "path": "tests/hooks-test.sh",
+      "source_sha256": "sha256:db13640faf5ffc806474d3b9411d51a42960064e78cb5bfcc37ec20c5a1cfce7"
+    },
+    {
+      "imported_sha256": "sha256:81bce288f0ef889d47099069f986a7ad66f2a984b68383191bd3e6f3dbc86217",
+      "modified_for_release": false,
+      "path": "tests/kv-transfer-test.sh",
+      "source_sha256": "sha256:81bce288f0ef889d47099069f986a7ad66f2a984b68383191bd3e6f3dbc86217"
+    },
+    {
+      "imported_sha256": "sha256:712bd5411ebecc828225a0cc042734f7f9ea9370d5126d0dc3ff891b49b83c77",
+      "modified_for_release": false,
+      "path": "tests/test_resolve_kv_transfer_config.py",
+      "source_sha256": "sha256:712bd5411ebecc828225a0cc042734f7f9ea9370d5126d0dc3ff891b49b83c77"
+    },
+    {
+      "imported_sha256": "sha256:d84063108d5b5c5f2740a275b1e3652bfb8969828466cc2d6cb0f7fae716c87c",
+      "modified_for_release": false,
+      "path": "values-genet.yaml",
+      "source_sha256": "sha256:d84063108d5b5c5f2740a275b1e3652bfb8969828466cc2d6cb0f7fae716c87c"
+    },
+    {
+      "imported_sha256": "sha256:fdb876c50487f860ac1e7498e3cf920256301c3d53f61d342a48fb4edfe3e2cc",
+      "modified_for_release": true,
+      "path": "values.yaml",
+      "source_sha256": "sha256:916275cddcce91e923ebc05d81bf75447e945666c10c1e1ffd7877c495da4a84"
+    }
+  ],
+  "source_tree_sha256": "sha256:5a0aa3113c14931e30c88c7f8508b3c742f985e5ede4a8ec48cac77c195c5a2e"
+}

@@ -1,0 +1,436 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://modelengine-group.example/ucm/release-manifest.schema.json",
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "registryMemberOperation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "capability", "reference"],
+          "properties": {
+            "type": {"const": "registry-member-push-by-digest"},
+            "capability": {"const": "write"},
+            "reference": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@sha256:[0-9a-f]{64}$"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "capability", "reference"],
+          "properties": {
+            "type": {"const": "registry-staging-tag-create"},
+            "capability": {"const": "write"},
+            "reference": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*:staging-[0-9a-f]{64}$"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "capability", "reference"],
+          "properties": {
+            "type": {"const": "registry-authenticated-digest-read"},
+            "capability": {"const": "read"},
+            "reference": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@sha256:[0-9a-f]{64}$"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "capability", "reference"],
+          "properties": {
+            "type": {"const": "registry-authenticated-manifest-read"},
+            "capability": {"const": "read"},
+            "reference": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@sha256:[0-9a-f]{64}$"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "capability", "reference"],
+          "properties": {
+            "type": {"const": "registry-authenticated-config-blob-read"},
+            "capability": {"const": "read"},
+            "reference": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@sha256:[0-9a-f]{64}$"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "capability", "reference"],
+          "properties": {
+            "type": {"const": "registry-authenticated-layer-blob-read"},
+            "capability": {"const": "read"},
+            "reference": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@sha256:[0-9a-f]{64}$"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "capability", "reference"],
+          "properties": {
+            "type": {"const": "registry-authenticated-staging-prewrite-read"},
+            "capability": {"const": "read"},
+            "reference": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*:staging-[0-9a-f]{64}$"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "capability", "reference"],
+          "properties": {
+            "type": {"const": "registry-anonymous-prewrite-visibility-read"},
+            "capability": {"const": "read"},
+            "reference": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*:staging-[0-9a-f]{64}$"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "capability", "reference"],
+          "properties": {
+            "type": {"const": "registry-anonymous-visibility-read"},
+            "capability": {"const": "read"},
+            "reference": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*:staging-[0-9a-f]{64}$"}
+          }
+        }
+      ]
+    },
+    "registryIndexOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "capability", "reference"],
+      "properties": {
+        "type": {"const": "registry-index-create"},
+        "capability": {"const": "write"},
+        "reference": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"}
+      }
+    },
+    "registryCollisionModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "in_system_serialization", "fresh_prewrite_read", "exact_postwrite_readback", "external_admin_atomicity"],
+      "properties": {
+        "model": {"const": "observed-state-fail-closed"},
+        "in_system_serialization": {"const": "repository-concurrency"},
+        "fresh_prewrite_read": {"type": "boolean", "const": true},
+        "exact_postwrite_readback": {"type": "boolean", "const": true},
+        "external_admin_atomicity": {"const": "unavailable"}
+      }
+    },
+    "buildkitLayerAnnotations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["buildkit/rewritten-timestamp"],
+      "properties": {
+        "buildkit/rewritten-timestamp": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)$"}
+      }
+    },
+    "registryLayer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["media_type", "digest", "size", "blob_sha256"],
+      "properties": {
+        "media_type": {"enum": ["application/vnd.oci.image.layer.v1.tar", "application/vnd.oci.image.layer.v1.tar+gzip", "application/vnd.docker.image.rootfs.diff.tar.gzip"]},
+        "digest": {"$ref": "#/$defs/digest"},
+        "size": {"type": "integer", "minimum": 1},
+        "blob_sha256": {"$ref": "#/$defs/digest"},
+        "annotations": {"$ref": "#/$defs/buildkitLayerAnnotations"}
+      }
+    },
+    "registryMemberAnnotations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["io.ucm.release.build-key-sha256", "io.ucm.release.candidate-task-sha256", "io.ucm.release.family-id", "io.ucm.release.platform", "io.ucm.release.spec-id", "io.ucm.release.wheel-sha256"],
+      "properties": {
+        "io.ucm.release.build-key-sha256": {"$ref": "#/$defs/digest"},
+        "io.ucm.release.candidate-task-sha256": {"$ref": "#/$defs/digest"},
+        "io.ucm.release.family-id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
+        "io.ucm.release.platform": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$"},
+        "io.ucm.release.spec-id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
+        "io.ucm.release.wheel-sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "registryManifestAnnotations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["io.ucm.release.recipe-sha256", "io.ucm.release.task-sha256"],
+      "properties": {
+        "io.ucm.release.recipe-sha256": {"$ref": "#/$defs/digest"},
+        "io.ucm.release.task-sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "registryConfigLabels": {
+      "type": "object",
+      "additionalProperties": {"type": "string"},
+      "required": ["org.opencontainers.image.source", "org.opencontainers.image.revision", "io.ucm.release.source-tree", "io.ucm.release.source-context-sha256", "io.ucm.release.build-key-sha256", "io.ucm.release.task-sha256", "io.ucm.release.wheel-sha256", "io.ucm.release.recipe-sha256"],
+      "properties": {
+        "org.opencontainers.image.source": {"type": "string", "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+        "org.opencontainers.image.revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "io.ucm.release.source-tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "io.ucm.release.source-context-sha256": {"$ref": "#/$defs/digest"},
+        "io.ucm.release.build-key-sha256": {"$ref": "#/$defs/digest"},
+        "io.ucm.release.task-sha256": {"$ref": "#/$defs/digest"},
+        "io.ucm.release.wheel-sha256": {"$ref": "#/$defs/digest"},
+        "io.ucm.release.recipe-sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "registryContentIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest_digest", "config_digest", "layers", "diff_ids", "annotations", "labels", "created", "history", "source", "task_sha256", "build_key_sha256", "wheel_sha256", "recipe_sha256", "content_identity_sha256"],
+      "properties": {
+        "manifest_digest": {"$ref": "#/$defs/digest"},
+        "config_digest": {"$ref": "#/$defs/digest"},
+        "layers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["mediaType", "digest", "size"],
+            "properties": {
+              "mediaType": {"type": "string", "pattern": "^application/vnd\\."},
+              "digest": {"$ref": "#/$defs/digest"},
+              "size": {"type": "integer", "minimum": 1},
+              "annotations": {"$ref": "#/$defs/buildkitLayerAnnotations"}
+            }
+          }
+        },
+        "diff_ids": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/digest"}},
+        "annotations": {"$ref": "#/$defs/registryManifestAnnotations"},
+        "labels": {"$ref": "#/$defs/registryConfigLabels"},
+        "created": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+        "history": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "repository_url", "commit", "tree", "archive_sha256", "context_sha256"],
+          "properties": {
+            "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+            "repository_url": {"type": "string", "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+            "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+            "tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+            "archive_sha256": {"$ref": "#/$defs/digest"},
+            "context_sha256": {"$ref": "#/$defs/digest"}
+          }
+        },
+        "task_sha256": {"$ref": "#/$defs/digest"},
+        "build_key_sha256": {"$ref": "#/$defs/digest"},
+        "wheel_sha256": {"$ref": "#/$defs/digest"},
+        "recipe_sha256": {"$ref": "#/$defs/digest"},
+        "content_identity_sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "registryManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["media_type", "digest", "size", "annotations"],
+      "properties": {
+        "media_type": {"enum": ["application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"]},
+        "digest": {"$ref": "#/$defs/digest"},
+        "size": {"type": "integer", "minimum": 1},
+        "annotations": {"$ref": "#/$defs/registryManifestAnnotations"}
+      }
+    },
+    "registryConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["media_type", "digest", "size", "blob_sha256", "labels"],
+      "properties": {
+        "media_type": {"const": "application/vnd.oci.image.config.v1+json"},
+        "digest": {"$ref": "#/$defs/digest"},
+        "size": {"type": "integer", "minimum": 1},
+        "blob_sha256": {"$ref": "#/$defs/digest"},
+        "labels": {"$ref": "#/$defs/registryConfigLabels"}
+      }
+    },
+    "registryMemberRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "status", "resolved_plan_sha256", "spec_id", "profile_id", "family_id", "platform", "target_repository", "target_tag", "staging_repository", "staging_visibility", "staging_tag", "candidate_task_sha256", "publication_task_sha256", "build_key_sha256", "wheel_sha256", "member_digest", "member_size", "config_digest", "annotations", "source_sha", "image_result_sha256", "recipe_sha256", "content_identity_sha256", "content_identity", "manifest", "config", "layers", "readback_sha256", "operations", "record_sha256"],
+      "properties": {
+        "schema_version": {"type": "integer", "const": 1},
+        "kind": {"const": "ucm-registry-member-publication"},
+        "status": {"const": "passed"},
+        "resolved_plan_sha256": {"$ref": "#/$defs/digest"},
+        "spec_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
+        "profile_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
+        "family_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
+        "platform": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$"},
+        "target_repository": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$"},
+        "target_tag": {"type": "string", "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"},
+        "staging_repository": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$"},
+        "staging_visibility": {"const": "private"},
+        "staging_tag": {"type": "string", "pattern": "^staging-[0-9a-f]{64}$"},
+        "candidate_task_sha256": {"$ref": "#/$defs/digest"},
+        "publication_task_sha256": {"$ref": "#/$defs/digest"},
+        "build_key_sha256": {"$ref": "#/$defs/digest"},
+        "wheel_sha256": {"$ref": "#/$defs/digest"},
+        "member_digest": {"$ref": "#/$defs/digest"},
+        "member_size": {"type": "integer", "minimum": 1},
+        "config_digest": {"$ref": "#/$defs/digest"},
+        "annotations": {"$ref": "#/$defs/registryMemberAnnotations"},
+        "source_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "image_result_sha256": {"$ref": "#/$defs/digest"},
+        "recipe_sha256": {"$ref": "#/$defs/digest"},
+        "content_identity_sha256": {"$ref": "#/$defs/digest"},
+        "content_identity": {"$ref": "#/$defs/registryContentIdentity"},
+        "manifest": {"$ref": "#/$defs/registryManifest"},
+        "config": {"$ref": "#/$defs/registryConfig"},
+        "layers": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/registryLayer"}},
+        "readback_sha256": {"$ref": "#/$defs/digest"},
+        "operations": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/registryMemberOperation"}},
+        "record_sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "registryIndexRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "status", "source_sha", "family_id", "target_repository", "target_tag", "index_build_key_sha256", "index_digest", "manifest_sha256", "member_digests", "authenticated_readback_sha256", "authenticated_closure_sha256", "anonymous_readback_sha256", "anonymous_closure_sha256", "collision_model", "operations", "record_sha256"],
+      "properties": {
+        "schema_version": {"type": "integer", "const": 1},
+        "kind": {"const": "ucm-registry-index-publication"},
+        "status": {"const": "passed"},
+        "source_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "family_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
+        "target_repository": {"type": "string", "pattern": "^[a-z0-9.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$"},
+        "target_tag": {"type": "string", "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"},
+        "index_build_key_sha256": {"$ref": "#/$defs/digest"},
+        "index_digest": {"$ref": "#/$defs/digest"},
+        "manifest_sha256": {"$ref": "#/$defs/digest"},
+        "member_digests": {"type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/digest"}},
+        "authenticated_readback_sha256": {"$ref": "#/$defs/digest"},
+        "authenticated_closure_sha256": {"$ref": "#/$defs/digest"},
+        "anonymous_readback_sha256": {"$ref": "#/$defs/digest"},
+        "anonymous_closure_sha256": {"$ref": "#/$defs/digest"},
+        "collision_model": {"$ref": "#/$defs/registryCollisionModel"},
+        "operations": {"type": "array", "maxItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/registryIndexOperation"}},
+        "record_sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "registryPublication": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "candidate_task_sha256", "publication_task_sha256", "member_records", "index_records"],
+          "properties": {
+            "status": {"enum": ["candidate", "blocked"]},
+            "candidate_task_sha256": {"$ref": "#/$defs/digest"},
+            "publication_task_sha256": {"$ref": "#/$defs/digest"},
+            "member_records": {"type": "array", "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/registryMemberRecord"}},
+            "index_records": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/registryIndexRecord"}}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "candidate_task_sha256", "publication_task_sha256", "member_records", "index_records"],
+          "properties": {
+            "status": {"const": "published"},
+            "candidate_task_sha256": {"$ref": "#/$defs/digest"},
+            "publication_task_sha256": {"$ref": "#/$defs/digest"},
+            "member_records": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 128,
+              "uniqueItems": true,
+              "items": {"$ref": "#/$defs/registryMemberRecord"}
+            },
+            "index_records": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 64,
+              "uniqueItems": true,
+              "items": {"$ref": "#/$defs/registryIndexRecord"}
+            }
+          }
+        }
+      ]
+    },
+    "externalRequiredDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dependency", "provider", "expected_mount_root", "relation", "required_at"],
+      "properties": {
+        "dependency": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+$"},
+        "provider": {"type": "string", "minLength": 1},
+        "expected_mount_root": {"type": "string", "pattern": "^/[^ ]+$"},
+        "relation": {"const": "transitive"},
+        "required_at": {"const": "device-runtime"}
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "ucm_version", "config_sha256", "declared_wheel_count", "eligible_wheel_count", "wheel_specs", "blockers", "publication", "status"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "kind": {"const": "ucm-core-release-manifest"},
+    "ucm_version": {"type": "string"},
+    "config_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "declared_wheel_count": {"type": "integer", "minimum": 1},
+    "eligible_wheel_count": {"type": "integer", "minimum": 0},
+    "wheel_specs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["spec_id", "accelerator", "accelerator_runtime", "npu_arch_or_na", "os", "cpu_arch", "python_version", "python_abi", "wheel_version", "wheel_platform", "binary_profile_id", "validation_targets", "required_native", "forbidden_native", "allowed_dt_needed", "external_required_dependencies", "locks", "runner", "build_eligible", "blocked_reasons", "declaration_sha256"],
+        "properties": {
+          "spec_id": {"type": "string"},
+          "accelerator": {"type": "string", "minLength": 1},
+          "accelerator_runtime": {"type": "string"},
+          "npu_arch_or_na": {"type": "string", "minLength": 1},
+          "os": {"type": "string", "minLength": 1},
+          "cpu_arch": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+          "python_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$"},
+          "python_abi": {"type": "string", "pattern": "^cp[0-9]{2,}$"},
+          "wheel_version": {"type": "string"},
+          "wheel_platform": {"type": "string", "minLength": 1},
+          "binary_profile_id": {"type": "string"},
+          "validation_targets": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+          "required_native": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+          "forbidden_native": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+          "allowed_dt_needed": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+          "external_required_dependencies": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/externalRequiredDependency"}},
+          "locks": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"type": "object"}},
+          "runner": {"type": "object"},
+          "build_eligible": {"type": "boolean"},
+          "blocked_reasons": {"type": "array", "items": {"type": "string"}},
+          "declaration_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "blockers": {"type": "array", "items": {"type": "string"}},
+    "publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "assets"],
+      "properties": {
+        "target": {"const": "github-release"},
+        "registry": {"$ref": "#/$defs/registryPublication"},
+        "assets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "type", "required", "status"],
+            "properties": {
+              "id": {"type": "string"},
+              "type": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+              "required": {"type": "boolean"},
+              "status": {"enum": ["blocked", "candidate"]}
+            }
+          }
+        }
+      }
+    },
+    "status": {"enum": ["blocked", "candidate"]}
+  }
+}

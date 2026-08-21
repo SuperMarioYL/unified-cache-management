@@ -1,0 +1,349 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://modelengine-group.example/ucm/image-result.schema.json",
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "passed": {"type": "string", "const": "passed"},
+    "runtime_dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "requirement", "import_name", "filename", "sha256"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "version": {"type": "string", "minLength": 1},
+        "requirement": {"type": "string", "minLength": 1},
+        "import_name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_.]*$"},
+        "filename": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+\\.whl$"},
+        "sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "base_blob": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["media_type", "digest", "size", "raw"],
+      "properties": {
+        "media_type": {
+          "enum": [
+            "application/vnd.oci.image.index.v1+json",
+            "application/vnd.docker.distribution.manifest.list.v2+json",
+            "application/vnd.oci.image.manifest.v1+json",
+            "application/vnd.docker.distribution.manifest.v2+json",
+            "application/vnd.oci.image.config.v1+json",
+            "application/vnd.docker.container.image.v1+json"
+          ]
+        },
+        "digest": {"$ref": "#/$defs/digest"},
+        "size": {"type": "integer", "minimum": 1},
+        "raw": {"type": "string", "minLength": 1}
+      }
+    },
+    "buildkit_layer_annotations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["buildkit/rewritten-timestamp"],
+      "properties": {
+        "buildkit/rewritten-timestamp": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)$"}
+      }
+    },
+    "content_identity_layer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mediaType", "digest", "size"],
+      "properties": {
+        "mediaType": {"type": "string", "pattern": "^application/vnd\\."},
+        "digest": {"$ref": "#/$defs/digest"},
+        "size": {"type": "integer", "minimum": 1},
+        "annotations": {"$ref": "#/$defs/buildkit_layer_annotations"}
+      }
+    },
+    "content_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest_digest", "config_digest", "layers", "diff_ids", "annotations", "labels", "created", "history", "source", "task_sha256", "build_key_sha256", "wheel_sha256", "recipe_sha256", "content_identity_sha256"],
+      "properties": {
+        "manifest_digest": {"$ref": "#/$defs/digest"},
+        "config_digest": {"$ref": "#/$defs/digest"},
+        "layers": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/content_identity_layer"}},
+        "diff_ids": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/digest"}},
+        "annotations": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["io.ucm.release.recipe-sha256", "io.ucm.release.task-sha256"],
+          "properties": {
+            "io.ucm.release.recipe-sha256": {"$ref": "#/$defs/digest"},
+            "io.ucm.release.task-sha256": {"$ref": "#/$defs/digest"}
+          }
+        },
+        "labels": {"type": "object"},
+        "created": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+        "history": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "repository_url", "commit", "tree", "archive_sha256", "context_sha256"],
+          "properties": {
+            "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+            "repository_url": {"type": "string", "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+            "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+            "tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+            "archive_sha256": {"$ref": "#/$defs/digest"},
+            "context_sha256": {"$ref": "#/$defs/digest"}
+          }
+        },
+        "task_sha256": {"$ref": "#/$defs/digest"},
+        "build_key_sha256": {"$ref": "#/$defs/digest"},
+        "wheel_sha256": {"$ref": "#/$defs/digest"},
+        "recipe_sha256": {"$ref": "#/$defs/digest"},
+        "content_identity_sha256": {"$ref": "#/$defs/digest"}
+      }
+    }
+  },
+  "type": "object",
+  "oneOf": [
+    {
+      "required": ["fixture_only", "status"],
+      "properties": {
+        "fixture_only": {"const": true},
+        "status": {"const": "fixture-verified-unpublished"}
+      }
+    },
+    {
+      "required": [
+        "candidate_kind", "fixture_only", "output_mode",
+        "content_identity_sha256", "task_id", "family_task_id", "task_sha256",
+        "resolved_plan_sha256", "family_id", "profile_id", "spec_id", "runtime_patch_variants",
+        "target_repository", "target_tag", "runtime_dependencies", "dependency_lock",
+        "toolchain", "content_identity", "status"
+      ],
+      "properties": {
+        "candidate_kind": {"const": "real-candidate"},
+        "fixture_only": {"const": false},
+        "gates": {
+          "type": "object",
+          "required": ["variant"]
+        },
+        "status": {"const": "real-verified-unpublished"}
+      }
+    }
+  ],
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "kind", "fixture_only", "unpublished",
+    "publication_attempted", "recipe_sha256", "result_sha256",
+    "build_key_sha256", "task_key", "ucm_version", "source", "base",
+    "target_platform", "wheel", "implementation", "oci", "gates",
+    "runtime_validation", "device_validation", "status"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "kind": {"const": "ucm-image-result"},
+    "candidate_kind": {"enum": ["fixture-candidate", "real-candidate"]},
+    "fixture_only": {"type": "boolean"},
+    "unpublished": {"const": true},
+    "publication_attempted": {"const": false},
+    "recipe_sha256": {"$ref": "#/$defs/digest"},
+    "result_sha256": {"$ref": "#/$defs/digest"},
+    "build_key_sha256": {"$ref": "#/$defs/digest"},
+    "task_key": {"$ref": "#/$defs/digest"},
+    "ucm_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:rc[0-9]+)?(?:[a-z]+[0-9]*)?(?:\\.dev[0-9]+)?(?:\\+[a-z0-9.]+)?$"},
+    "output_mode": {"enum": ["feature", "production"]},
+    "content_identity_sha256": {"$ref": "#/$defs/digest"},
+    "task_id": {"type": "string", "pattern": "^image-[0-9a-f]{64}$"},
+    "family_task_id": {"type": "string", "pattern": "^family-[0-9a-f]{64}$"},
+    "task_sha256": {"$ref": "#/$defs/digest"},
+    "resolved_plan_sha256": {"$ref": "#/$defs/digest"},
+    "family_id": {"type": "string", "minLength": 1},
+    "profile_id": {"type": "string", "minLength": 1},
+    "spec_id": {"type": "string", "minLength": 1},
+    "runtime_patch_variants": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "vllm": {"type": "string", "minLength": 1},
+        "vllm-ascend": {"type": "string", "minLength": 1}
+      }
+    },
+    "target_repository": {"type": "string", "minLength": 1},
+    "target_tag": {"type": "string", "minLength": 1},
+    "source": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "release_manifest_sha256", "config_sha256",
+            "upstream_repository", "upstream_index_digest",
+            "upstream_platform_manifest_digest", "upstream_platform_config_digest"
+          ],
+          "properties": {
+            "release_manifest_sha256": {"$ref": "#/$defs/digest"},
+            "config_sha256": {"$ref": "#/$defs/digest"},
+            "upstream_repository": {"type": "string", "minLength": 1},
+            "upstream_index_digest": {"$ref": "#/$defs/digest"},
+            "upstream_platform_manifest_digest": {"$ref": "#/$defs/digest"},
+            "upstream_platform_config_digest": {"$ref": "#/$defs/digest"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "repository_url", "commit", "tree", "archive_sha256", "context_sha256", "task_sha256", "wheel_build_key"],
+          "properties": {
+            "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+            "repository_url": {"type": "string", "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+            "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+            "tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+            "archive_sha256": {"$ref": "#/$defs/digest"},
+            "context_sha256": {"$ref": "#/$defs/digest"},
+            "task_sha256": {"$ref": "#/$defs/digest"},
+            "wheel_build_key": {"$ref": "#/$defs/digest"}
+          }
+        }
+      ]
+    },
+    "base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "kind", "fixture_only", "repository",
+        "index", "manifest", "config", "platform", "subject"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "kind": {"enum": ["fixture-base-image-record", "ucm-real-base-image-record"]},
+        "fixture_only": {"type": "boolean"},
+        "repository": {"type": "string", "minLength": 1},
+        "index": {"$ref": "#/$defs/base_blob"},
+        "manifest": {"$ref": "#/$defs/base_blob"},
+        "config": {"$ref": "#/$defs/base_blob"},
+        "subject": {"type": "string", "pattern": "@sha256:[0-9a-f]{64}$"},
+        "platform": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "os", "architecture", "variant", "manifest_media_type",
+            "manifest_digest", "manifest_size", "config_media_type",
+            "config_digest", "config_size"
+          ],
+          "properties": {
+            "os": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+            "architecture": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+            "variant": {"oneOf": [{"type": "string"}, {"type": "null"}]},
+            "manifest_media_type": {
+              "enum": [
+                "application/vnd.oci.image.manifest.v1+json",
+                "application/vnd.docker.distribution.manifest.v2+json"
+              ]
+            },
+            "manifest_digest": {"$ref": "#/$defs/digest"},
+            "manifest_size": {"type": "integer", "minimum": 1},
+            "config_media_type": {
+              "enum": [
+                "application/vnd.oci.image.config.v1+json",
+                "application/vnd.docker.container.image.v1+json"
+              ]
+            },
+            "config_digest": {"$ref": "#/$defs/digest"},
+            "config_size": {"type": "integer", "minimum": 1}
+          }
+        }
+      }
+    },
+    "target_platform": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$"},
+    "wheel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "filename", "sha256", "size", "spec_id", "declaration_sha256",
+        "version", "python_abi", "cpu_arch", "accelerator",
+        "accelerator_runtime", "npu_arch_or_na", "os", "binary_profile_id",
+        "requires_dist"
+      ],
+      "properties": {
+        "filename": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+\\.whl$"},
+        "sha256": {"$ref": "#/$defs/digest"},
+        "size": {"type": "integer", "minimum": 1},
+        "spec_id": {"type": "string", "minLength": 1},
+        "declaration_sha256": {"$ref": "#/$defs/digest"},
+        "version": {"type": "string", "minLength": 1},
+        "python_abi": {"type": "string", "pattern": "^cp[0-9]{2,}$"},
+        "cpu_arch": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+        "accelerator": {"type": "string", "minLength": 1},
+        "accelerator_runtime": {"type": "string", "minLength": 1},
+        "npu_arch_or_na": {"type": "string", "minLength": 1},
+        "os": {"type": "string", "minLength": 1},
+        "binary_profile_id": {"type": "string", "minLength": 1},
+        "requires_dist": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files", "base_authority_sha256", "image_toolchain_authority_sha256", "aggregate_sha256"],
+      "properties": {
+        "files": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["Dockerfile", "install_ucm.py", "inspect_runtime.py", "verify_base_image.py"],
+          "properties": {
+            "Dockerfile": {"$ref": "#/$defs/digest"},
+            "install_ucm.py": {"$ref": "#/$defs/digest"},
+            "inspect_runtime.py": {"$ref": "#/$defs/digest"},
+            "verify_base_image.py": {"$ref": "#/$defs/digest"}
+          }
+        },
+        "base_authority_sha256": {"$ref": "#/$defs/digest"},
+        "image_toolchain_authority_sha256": {"$ref": "#/$defs/digest"},
+        "aggregate_sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "runtime_dependencies": {
+      "type": "array", "minItems": 1, "maxItems": 64,
+      "items": {"$ref": "#/$defs/runtime_dependency"}
+    },
+    "dependency_lock": {"type": "object"},
+    "toolchain": {"type": "object"},
+    "content_identity": {"$ref": "#/$defs/content_identity"},
+    "oci": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["output", "media_type", "digest", "platform", "published"],
+      "properties": {
+        "output": {"enum": ["local-oci", "canonical-member-record"]},
+        "media_type": {"enum": ["application/vnd.oci.image.manifest.v1+json", "application/vnd.oci.image.index.v1+json"]},
+        "digest": {"$ref": "#/$defs/digest"},
+        "platform": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$"},
+        "published": {"const": false}
+      }
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base_verified", "wheel_verified", "install", "pip_check", "direct_url", "ucm_import", "runtime_dependency_imports", "abi"],
+      "properties": {
+        "base_verified": {"$ref": "#/$defs/passed"},
+        "wheel_verified": {"$ref": "#/$defs/passed"},
+        "install": {"$ref": "#/$defs/passed"},
+        "pip_check": {"$ref": "#/$defs/passed"},
+        "direct_url": {"$ref": "#/$defs/passed"},
+        "ucm_import": {"$ref": "#/$defs/passed"},
+        "runtime_dependency_imports": {"$ref": "#/$defs/passed"},
+        "abi": {"$ref": "#/$defs/passed"},
+        "variant": {"$ref": "#/$defs/passed"},
+        "native_members": {"$ref": "#/$defs/passed"},
+        "elf": {"$ref": "#/$defs/passed"},
+        "dependency_closure": {"$ref": "#/$defs/passed"}
+      }
+    },
+    "runtime_validation": {"const": "external-required"},
+    "device_validation": {"const": "external-required"},
+    "status": {"enum": ["fixture-verified-unpublished", "real-verified-unpublished"]}
+  }
+}

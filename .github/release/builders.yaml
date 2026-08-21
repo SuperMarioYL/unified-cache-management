@@ -1,0 +1,63 @@
+kind: builder-discovery-config
+schema_version: 1
+projects:
+- project: vllm-project/vllm
+  discovery: vllm-buildkite
+  pipeline_path: .buildkite/release-pipeline.yaml
+  versions_path: docker/versions.json
+  target_repository: ghcr.io/{owner}/ucm-builder-vllm
+  build_mode: mirror
+- project: vllm-project/vllm-ascend
+  discovery: vllm-ascend-dockerfiles
+  dockerfile_directory: .github/workflows/dockerfiles
+  dockerfile_prefix: Dockerfile.buildwheel.
+  exclude_variants: [310p]
+  cpu_architectures: [amd64, arm64]
+  target_repository: ghcr.io/{owner}/ucm-builder-vllm-ascend
+  build_mode: extend
+  mooncake_version: 0.3.9
+retained_builders:
+- project: vllm-project/vllm-ascend
+  accelerator: ascend
+  accelerator_runtime: cann-9.0.0
+  variant: a2
+  python_abi: cp312
+  manylinux: manylinux_2_34
+  cpu_arch: amd64
+  source_image: ghcr.io/{owner}/ucm-builder-cann900-a2:cann9.0.0-mooncake0.3.9-amd64
+  target_repository: ghcr.io/{owner}/ucm-builder-vllm-ascend
+  build_mode: copy
+  mooncake_version: 0.3.9
+- project: vllm-project/vllm-ascend
+  accelerator: ascend
+  accelerator_runtime: cann-9.0.0
+  variant: a2
+  python_abi: cp312
+  manylinux: manylinux_2_34
+  cpu_arch: arm64
+  source_image: ghcr.io/{owner}/ucm-builder-cann900-a2:cann9.0.0-mooncake0.3.9-arm64
+  target_repository: ghcr.io/{owner}/ucm-builder-vllm-ascend
+  build_mode: copy
+  mooncake_version: 0.3.9
+- project: vllm-project/vllm-ascend
+  accelerator: ascend
+  accelerator_runtime: cann-9.0.0
+  variant: a3
+  python_abi: cp312
+  manylinux: manylinux_2_34
+  cpu_arch: amd64
+  source_image: ghcr.io/{owner}/ucm-builder-cann900-a3:cann9.0.0-mooncake0.3.9-amd64
+  target_repository: ghcr.io/{owner}/ucm-builder-vllm-ascend
+  build_mode: copy
+  mooncake_version: 0.3.9
+- project: vllm-project/vllm-ascend
+  accelerator: ascend
+  accelerator_runtime: cann-9.0.0
+  variant: a3
+  python_abi: cp312
+  manylinux: manylinux_2_34
+  cpu_arch: arm64
+  source_image: ghcr.io/{owner}/ucm-builder-cann900-a3:cann9.0.0-mooncake0.3.9-arm64
+  target_repository: ghcr.io/{owner}/ucm-builder-vllm-ascend
+  build_mode: copy
+  mooncake_version: 0.3.9

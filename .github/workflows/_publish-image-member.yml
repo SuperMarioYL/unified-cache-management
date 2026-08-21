@@ -1,0 +1,322 @@
+name: Publish one protected UCM image member
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        type: string
+        required: true
+      task_id:
+        type: string
+        required: true
+      runner:
+        type: string
+        required: true
+      resolved_plan_artifact:
+        type: string
+        required: true
+      resolved_plan_sha256:
+        type: string
+        required: true
+    outputs:
+      member_artifact:
+        description: Protected same-run member publication evidence
+        value: ${{ jobs.publish-member.outputs.member_artifact }}
+      member_record_sha256:
+        description: Protected canonical member publication record identity
+        value: ${{ jobs.publish-member.outputs.member_record_sha256 }}
+
+permissions:
+  contents: read
+
+jobs:
+  publish-member:
+    if: >-
+      ${{
+        !cancelled() &&
+        github.event_name == 'push' &&
+        github.ref_type == 'tag' &&
+        github.ref_protected == true
+      }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+    environment: release-production
+    env:
+      CRANE_VERSION: v0.20.3
+      CRANE_LINUX_AMD64_SHA256: 36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059
+      CRANE_LINUX_ARM64_SHA256: d2235f7779cd39c6e40f43701d2512c997409f629fb53e621ede0d57d3f995e2
+    outputs:
+      member_artifact: ${{ steps.record.outputs.member_artifact }}
+      member_record_sha256: ${{ steps.record.outputs.member_record_sha256 }}
+    steps:
+      - name: Validate protected publisher contract
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          TASK_ID: ${{ inputs.task_id }}
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TASK_ID}" =~ ^[a-z0-9][a-z0-9._-]*$ ]]
+          [[ "${RESOLVED_PLAN_SHA256}" =~ ^sha256:[0-9a-f]{64}$ ]]
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - name: Install compact release runtime dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ inputs.resolved_plan_artifact }}
+          path: input/plan
+      - name: Reopen exact frozen member task and verify current upstream state
+        env:
+          TASK_ID: ${{ inputs.task_id }}
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          jq -cS --arg tid "${TASK_ID}" \
+            '.image_tasks | map(select(.task_id == $tid)) as $m | if ($m | length) == 1 then $m[0] else error("image task does not resolve exactly once") end' \
+            input/plan/resolved-plan.json > out/selected-task.json
+          test "$(jq -r '.runner' out/selected-task.json)" = "${{ inputs.runner }}"
+          test "$(jq -r '.fixture_only' input/plan/resolved-plan.json)" = "false"
+      - name: Recheck exact protected authority in the writer job
+        env:
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          mkdir -p out
+      - name: Free publisher disk without exposing the write token to an action
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker system prune --all --force || true
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          available_kib="$(df -Pk / | awk 'NR==2 {print $4}')"
+          available_gib="$((available_kib / 1024 / 1024))"
+          if (( available_gib < 60 )); then
+            echo "member publisher requires at least 60 GiB, found ${available_gib} GiB" >&2
+            exit 2
+          fi
+      - name: Install checksum-pinned crane publisher
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) crane_arch=x86_64; crane_sha="${CRANE_LINUX_AMD64_SHA256}" ;;
+            aarch64|arm64) crane_arch=arm64; crane_sha="${CRANE_LINUX_ARM64_SHA256}" ;;
+            *) exit 2 ;;
+          esac
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/crane.tar.gz" \
+            "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_${crane_arch}.tar.gz"
+          echo "${crane_sha}  ${RUNNER_TEMP}/crane.tar.gz" | sha256sum --check
+          tar -xzf "${RUNNER_TEMP}/crane.tar.gz" -C "${RUNNER_TEMP}/crane" crane
+          test "$("${RUNNER_TEMP}/crane/crane" version)" = "${CRANE_VERSION#v}"
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - name: Verify current upstream tag drift
+        env:
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          plan=input/plan/resolved-plan.json
+          drifts=0
+          for upstream in $(jq -r '.resolved_upstreams[] | "\(.repository):\(.tag)"' "${plan}"); do
+            repo="${upstream%:*}"
+            tag="${upstream#*:}"
+            actual_digest="$(crane digest "${repo}:${tag}" 2>/dev/null || true)"
+            expected_digest="$(jq -r --arg repo "${repo}" --arg tag "${tag}" \
+              '.resolved_upstreams[] | select(.repository == $repo and .tag == $tag) | .index_digest' "${plan}")"
+            test "${actual_digest}" = "${expected_digest}" || {
+              echo "upstream drift: ${upstream} expected ${expected_digest} observed ${actual_digest}" >&2
+              drifts=$((drifts + 1))
+            }
+          done
+          if [ "${drifts}" -ne 0 ]; then exit 2; fi
+          jq -cnS --arg sha "${RESOLVED_PLAN_SHA256}" \
+            --argjson n "$(jq '.resolved_upstreams | length' "${plan}")" \
+            '{kind:"ucm-upstream-drift-verification",schema_version:1,resolved_plan_sha256:$sha,verified_tags:$n,drifts:[]}' \
+            > out/upstream-drift.json
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ucm-internal-oci-${{ inputs.task_id }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: input/oci
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ucm-image-${{ inputs.task_id }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: input/image
+      - name: Flatten image artifact layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          # download-artifact@v4 preserves the artifact's internal directory
+          # structure (out/hosted-task.json lands at input/image/out/); flatten
+          # so downstream reads input/image/<file> directly.
+          if [ -d input/image/out ]; then
+            find input/image/out -mindepth 1 -maxdepth 1 -exec mv -t input/image/ {} +
+            rmdir input/image/out
+          fi
+      - name: Validate exact current-attempt bridge names
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          TASK_ID: ${{ inputs.task_id }}
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
+        run: |
+          set -euo pipefail
+          plan=input/plan/resolved-plan.json
+          # Plan binding: the frozen plan hash matches the expected authority.
+          # The image result's task_id matches the plan's task_id and the sha256 matches.
+          image_result=input/oci/image-result.json
+          plan_task_sha256="$(jq -r --arg tid "${TASK_ID}" \
+            '.image_tasks[] | select(.task_id == $tid) | .task_sha256' "$plan")"
+          test -n "$plan_task_sha256"
+          jq -e --arg tid "${TASK_ID}" --arg sha "$plan_task_sha256" \
+            '.task_id == $tid and .task_sha256 == $sha' "$image_result" >/dev/null
+          # Hosted task on disk is bound to the same source and task.
+          hosted_task=input/image/hosted-task.json
+          jq -e --arg sha "${SOURCE_SHA}" --arg tid "${TASK_ID}" \
+            '.source_sha == $sha and .task_id == $tid' "$hosted_task" >/dev/null
+          # Run-bound artifact names: reject stale or cross-attempt artifacts.
+          expected_oci="ucm-internal-oci-${TASK_ID}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          test -f input/oci/image.oci.tar
+          logical_image="$(jq -r '.image_artifact' "$hosted_task")"
+          expected_image="${logical_image}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          test "${expected_oci}" = "ucm-internal-oci-${TASK_ID}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          test "${expected_image}" = "ucm-image-${TASK_ID}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+      - name: Authenticate the pinned publisher to GHCR
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/ucm-member-docker-config
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${DOCKER_CONFIG}"
+          printf '%s' "${GITHUB_TOKEN}" | crane auth login ghcr.io \
+            --username "${GITHUB_ACTOR}" --password-stdin
+      - id: record
+        name: Publish and reopen one canonical private member
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/ucm-member-docker-config
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          TASK_ID: ${{ inputs.task_id }}
+          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp input/oci/image-result.json input/image/image-result.json
+          plan=input/plan/resolved-plan.json
+          ir=input/image/image-result.json
+          plan_task_sha256="$(jq -r --arg tid "${TASK_ID}" '.image_tasks[] | select(.task_id == $tid) | .task_sha256' "${plan}")"
+          jq -e --arg tid "${TASK_ID}" --arg sha "$plan_task_sha256" --arg resolved "${RESOLVED_PLAN_SHA256}" --arg source "${SOURCE_SHA}" \
+            '.task_id == $tid and .task_sha256 == $sha and .resolved_plan_sha256 == $resolved and .source.commit == $source' "${ir}" >/dev/null
+          layout="$(mktemp -d)"
+          tar -xf input/oci/image.oci.tar -C "${layout}"
+          manifest_digest="$(jq -r '.manifests[0].digest' "${layout}/index.json")"
+          manifest_media_type="$(jq -r '.mediaType' "${layout}/blobs/sha256/${manifest_digest#sha256:}")"
+          manifest_size="$(wc -c <"${layout}/blobs/sha256/${manifest_digest#sha256:}" | tr -d ' ')"
+          config_digest="$(jq -r '.config.digest' "${layout}/blobs/sha256/${manifest_digest#sha256:}")"
+          config_size="$(wc -c <"${layout}/blobs/sha256/${config_digest#sha256:}" | tr -d ' ')"
+          test "${manifest_digest}" = "$(jq -r '.oci.digest' "${ir}")"
+          staging_repo="$(jq -r '.source.staging_repository' "${plan}")"
+          build_key="$(jq -r '.build_key_sha256' "${ir}")"
+          staging_tag="staging-${build_key#sha256:}"
+          staging_ref="${staging_repo}:${staging_tag}"
+          existing_digest="$(crane digest "${staging_ref}" 2>/dev/null || true)"
+          if [ -n "${existing_digest}" ] && [ "${existing_digest}" != "${manifest_digest}" ]; then
+            echo "staging tag collision: ${staging_ref} expected ${manifest_digest} observed ${existing_digest}" >&2
+            exit 2
+          fi
+          crane push "${layout}" "${staging_ref}"
+          observed_digest="$(crane digest "${staging_ref}")"
+          test "${observed_digest}" = "${manifest_digest}"
+          local_manifest="${layout}/blobs/sha256/${manifest_digest#sha256:}"
+          local_config="${layout}/blobs/sha256/${config_digest#sha256:}"
+          crane manifest "${staging_repo}@${manifest_digest}" >out/remote-manifest.json
+          crane blob "${staging_repo}@${config_digest}" >out/remote-config.json
+          test "sha256:$(sha256sum out/remote-manifest.json | cut -d' ' -f1)" = "${manifest_digest}"
+          test "sha256:$(sha256sum out/remote-config.json | cut -d' ' -f1)" = "${config_digest}"
+          cmp "${local_manifest}" out/remote-manifest.json
+          cmp "${local_config}" out/remote-config.json
+          test "$(wc -c <out/remote-manifest.json | tr -d ' ')" = "${manifest_size}"
+          test "$(wc -c <out/remote-config.json | tr -d ' ')" = "${config_size}"
+          jq -e --arg config_digest "${config_digest}" \
+            '.config.digest == $config_digest and (.layers | type == "array") and (.layers | length > 0)' \
+            out/remote-manifest.json >/dev/null
+          ops="$(jq -cnS --arg staging "${staging_repo}" --arg digest "${manifest_digest}" --arg config_digest "${config_digest}" --arg tag "${staging_tag}" \
+            '[{type:"registry-member-push-by-digest",capability:"write",reference:($staging+"@"+$digest)},{type:"registry-staging-tag-create",capability:"write",reference:($staging+":"+$tag)},{type:"registry-authenticated-digest-read",capability:"read",reference:($staging+"@"+$digest)},{type:"registry-authenticated-manifest-read",capability:"read",reference:($staging+"@"+$digest)},{type:"registry-authenticated-config-blob-read",capability:"read",reference:($staging+"@"+$config_digest)}]')"
+          jq -cnS --arg manifest_media_type "${manifest_media_type}" --arg manifest_digest "${manifest_digest}" \
+            --argjson manifest_size "${manifest_size}" --arg config_digest "${config_digest}" \
+            --argjson config_size "${config_size}" --slurpfile ir "${ir}" \
+            '{manifest:{media_type:$manifest_media_type,digest:$manifest_digest,size:$manifest_size,annotations:$ir[0].content_identity.annotations},config:{media_type:"application/vnd.oci.image.config.v1+json",digest:$config_digest,size:$config_size,blob_sha256:$config_digest,labels:$ir[0].content_identity.labels}}' \
+            >out/remote-readback.json
+          readback_sha256="sha256:$(jq -cjS . out/remote-readback.json | sha256sum | cut -d' ' -f1)"
+          jq -cnS --slurpfile ir "${ir}" --arg staging_repo "${staging_repo}" --arg staging_tag "${staging_tag}" \
+            --arg resolved_plan_sha256 "${RESOLVED_PLAN_SHA256}" \
+            --arg manifest_media_type "${manifest_media_type}" --arg manifest_size "${manifest_size}" \
+            --arg config_digest "${config_digest}" --arg config_size "${config_size}" --argjson ops "${ops}" \
+            --arg readback_sha256 "${readback_sha256}" \
+            '{schema_version:1,kind:"ucm-registry-member-publication",status:"passed",resolved_plan_sha256:$resolved_plan_sha256,spec_id:$ir[0].spec_id,profile_id:$ir[0].profile_id,family_id:$ir[0].family_id,platform:$ir[0].target_platform,target_repository:$ir[0].target_repository,target_tag:$ir[0].target_tag,staging_repository:$staging_repo,staging_visibility:"private",staging_tag:$staging_tag,candidate_task_sha256:$ir[0].task_key,publication_task_sha256:$ir[0].task_key,build_key_sha256:$ir[0].build_key_sha256,wheel_sha256:$ir[0].wheel.sha256,member_digest:$ir[0].oci.digest,member_size:($manifest_size|tonumber),config_digest:$config_digest,annotations:{"io.ucm.release.build-key-sha256":$ir[0].build_key_sha256,"io.ucm.release.candidate-task-sha256":$ir[0].task_key,"io.ucm.release.family-id":$ir[0].family_id,"io.ucm.release.platform":$ir[0].target_platform,"io.ucm.release.spec-id":$ir[0].spec_id,"io.ucm.release.wheel-sha256":$ir[0].wheel.sha256},source_sha:$ir[0].source.commit,image_result_sha256:$ir[0].result_sha256,recipe_sha256:$ir[0].recipe_sha256,content_identity_sha256:$ir[0].content_identity_sha256,content_identity:$ir[0].content_identity,manifest:{media_type:$manifest_media_type,digest:$ir[0].oci.digest,size:($manifest_size|tonumber),annotations:$ir[0].content_identity.annotations},config:{media_type:"application/vnd.oci.image.config.v1+json",digest:$config_digest,size:($config_size|tonumber),blob_sha256:$config_digest,labels:$ir[0].content_identity.labels},layers:[$ir[0].content_identity.layers[]|({media_type:.mediaType,digest:.digest,size:.size,blob_sha256:.digest} + (if has("annotations") then {annotations:.annotations} else {} end))],readback_sha256:$readback_sha256,operations:$ops}' \
+            >out/member-record.base.json
+          record_sha256="sha256:$(jq -cjS . out/member-record.base.json | sha256sum | cut -d' ' -f1)"
+          jq -cS --arg sha "${record_sha256}" '.record_sha256 = $sha' out/member-record.base.json >out/member-record.json
+          rm -f out/member-record.base.json
+          rm -rf "${layout}"
+          PYTHONPATH=.github/release python -m ucm_release registry validate-member-schema \
+            --input out/member-record.json >/dev/null
+          jq -cnS --arg sha "${RESOLVED_PLAN_SHA256}" \
+            '{lane: "protected-tag", operations: $record[0].operations, resolved_plan: "input/plan/resolved-plan.json", resolved_plan_sha256: $sha}' \
+            --slurpfile record out/member-record.json > out/member-audit-request.json
+          req=out/member-audit-request.json
+          plan="$(jq -r '.resolved_plan' "$req")"
+          staging="$(jq -r '.source.staging_repository' "$plan")"
+          jq -cS --arg staging "$staging" '
+            def ref_ok:
+              (startswith($staging + "@sha256:") and (ltrimstr($staging + "@sha256:") | test("^[0-9a-f]{64}$"))) or
+              (startswith($staging + ":staging-") and (ltrimstr($staging + ":staging-") | test("^[0-9a-f]{64}$")));
+            def contracts: {"fixture-read":["read","fixture-upstream-tag"],"crane-digest":["read","upstream-tag"],"crane-manifest":["read","upstream-digest"],"registry-inventory-read":["read","digest"],"build-plan":["plan","fixture-target-tag"],"registry-member-push-by-digest":["write","staging-digest"],"registry-staging-tag-create":["write","staging-tag"],"registry-index-create":["write","public-target"],"registry-authenticated-digest-read":["read","registry-read-tag-or-digest"],"registry-authenticated-manifest-read":["read","registry-read-digest"],"registry-authenticated-config-blob-read":["read","registry-read-digest"],"registry-authenticated-layer-blob-read":["read","registry-read-digest"],"registry-anonymous-digest-read":["read","registry-read-tag"],"registry-anonymous-manifest-read":["read","registry-read-digest"],"registry-anonymous-config-blob-read":["read","registry-read-digest"],"registry-anonymous-layer-blob-read":["read","registry-read-digest"],"registry-anonymous-prewrite-visibility-read":["read","staging-tag"],"registry-authenticated-staging-prewrite-read":["read","staging-tag"],"registry-anonymous-visibility-read":["read","staging-tag"],"registry-authenticated-recursive-validate":["read","registry-read-digest"],"registry-anonymous-recursive-validate":["read","registry-read-digest"]};
+            .operations as $ops | reduce $ops[] as $o ({ids:{}, types:{}, writes:[], n:0}; ($o | keys | sort) as $k | if $k != ["capability","reference","type"] then error("malformed ledger entry: expected exactly type/capability/reference") else . end | $o.type as $t | (contracts[$t]) as $c | if $c == null then error("unknown operation type: \($t)") else . end | if $o.capability != $c[0] then error("operation capability mismatch for \($t)") else . end | if (($o.reference | ref_ok) | not) then error("operation reference is outside the exact allowlist: \($o.reference)") else . end | (if $c[0] == "write" then .writes += [$o] else . end) | ($t + "\u0000" + $o.reference) as $id | if (.ids | has($id)) then error("duplicate operation identity: \($t) \($o.reference)") else . end | .ids[$id] = 1 | .types[$t] = 1 | .n += 1) | {schema_version:1, kind:"ucm-registry-operation-audit", lane:"protected-tag", operation_count:.n, operation_types:(.types|keys|sort), write_capable_operations:.writes, write_count:(.writes|length)}
+          ' "$req" > out/member-audit.base.json
+          audit_sha256="sha256:$(jq -cjS . out/member-audit.base.json | sha256sum | cut -d' ' -f1)"
+          jq -cS --arg sha "$audit_sha256" '. + {audit_sha256:$sha}' out/member-audit.base.json > out/member-audit.json
+          rm -f out/member-audit.base.json
+          member_artifact="ucm-member-${TASK_ID}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          {
+            echo "member_artifact=${member_artifact}"
+            echo "member_record_sha256=$(jq -r '.record_sha256' out/member-record.json)"
+          } >>"${GITHUB_OUTPUT}"
+      - name: Remove Registry credentials before evidence upload
+        if: ${{ always() }}
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/ucm-member-docker-config
+        run: |
+          set -euo pipefail
+          crane auth logout ghcr.io || true
+          rm -rf "${DOCKER_CONFIG}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.record.outputs.member_artifact }}
+          path: |
+            out/member-record.json
+            out/remote-readback.json
+            out/member-audit.json
+            out/selected-task.json
+            out/upstream-drift.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90

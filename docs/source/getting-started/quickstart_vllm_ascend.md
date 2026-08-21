@@ -85,15 +85,9 @@ pip install uc-manager
 ### Option 3: Setup from docker
 
 #### Build image from source
-Check the `docker/` directory for available Dockerfile versions (e.g. `v0.20.2`, `v0.18.0`, `v0.17.0`, `v0.11.0`), then build with the desired version:
+Choose an explicitly registered vLLM-Ascend source-build recipe from the [catalog-generated repository recipe table](docker-recipes.generated.md). The table is generated from `.github/release/release.yaml`; status and lanes distinguish PR, hardware, manual, nightly, and specialized coverage.
 ```bash
-# Replace <vllm_ascend_version> with the version you need (e.g. v0.20.2)
-docker build -t ucm-vllm:latest -f ./docker/Dockerfile.ucm-vllm-ascend.a2-<vllm_ascend_version> ./
-```
-
-For vLLM-Ascend(v0.11.0) with sparse attention support:
-```bash
-docker build -t ucm-vllm-sparse:latest -f ./docker/Dockerfile.ucm-vllm-ascend.a2-v0.11.0 ./
+docker build -t ucm-vllm:latest -f <repository_recipe_path> ./
 ```
 
 The Dockerfile automatically invokes the build script (`scripts/build_ascend.sh`) to compile the wheel and installs from the built package.
@@ -103,9 +97,8 @@ The Dockerfile automatically invokes the build script (`scripts/build_ascend.sh`
 If you have a pre-built tar package (e.g. from CI), extract it and build the image in `package` mode:
 ```bash
 mkdir -p /tmp/ucm-pkg && tar xzf AI-Storage-Kit_*.tar.gz -C /tmp/ucm-pkg
-# Replace <vllm_ascend_version> with the version you need (e.g. v0.20.2)
 docker build --build-arg INSTALL_MODE=package \
-  -t ucm-vllm:latest -f /tmp/ucm-pkg/docker/Dockerfile.ucm-vllm-ascend.a2-<vllm_ascend_version> /tmp/ucm-pkg
+  -t ucm-vllm:latest -f /tmp/ucm-pkg/<repository_recipe_path> /tmp/ucm-pkg
 ```
 
 vllm-ascend provides two variants: **Ubuntu** and **openEuler**.

@@ -1,0 +1,112 @@
+{
+  "kind": "ucm-production-release-config",
+  "schema_version": 1,
+  "release_line": "0.6",
+  "base_version": "0.6.0",
+  "release_branch": "0.6.0-release",
+  "environment": "release-production",
+  "products": {
+    "wheels": [
+      {"profile_id": "cuda130", "distribution": "uc-manager-cuda", "import_name": "ucm"},
+      {"profile_id": "cann900-a2", "distribution": "uc-manager-cann-a2", "import_name": "ucm"},
+      {"profile_id": "cann900-a3", "distribution": "uc-manager-cann-a3", "import_name": "ucm"}
+    ],
+    "images": [
+      {"profile_id": "cuda130", "basename": "ucm-cuda", "draft_basename": "ucm-cuda-private"},
+      {"profile_id": "cann900-a2", "basename": "ucm-cann-a2", "draft_basename": "ucm-cann-a2-private"},
+      {"profile_id": "cann900-a3", "basename": "ucm-cann-a3", "draft_basename": "ucm-cann-a3-private"}
+    ],
+    "chart": {
+      "name": "unified-cache-pd",
+      "source": "charts/ucm",
+      "repository_basename": "charts/unified-cache-pd"
+    }
+  },
+  "build_profiles": [
+    {
+      "id": "cuda130",
+      "distribution": "uc-manager-cuda",
+      "build_platform": "cuda",
+      "cpu_arch": ["amd64", "arm64"],
+      "python_version": "3.12",
+      "python_abi": "cp312",
+      "wheel_platform": "manylinux_2_28",
+      "builders": {
+        "amd64": {"repository": "docker.io/pytorch/manylinux2_28-builder", "tag": "cuda13.0", "index_digest": "sha256:83d73c3fd2782b23de8a1873820236273d8a6db911aea15c017766c9a40e723c", "manifest_digest": "sha256:746796491b3a375ee352c60ad1265c599bb1aa1762a0de46927e0f4139832918", "config_digest": "sha256:0c34d69ef0b04dbf678564146d299bdad59f7d2b8e166b4f59df5e2fce3a34f2"},
+        "arm64": {"repository": "docker.io/pytorch/manylinuxaarch64-builder", "tag": "cuda13.0", "index_digest": "sha256:ab80e6e1e9d3170faae3590bfcdc7097d209306998073e8b696a1c1456853dfa", "manifest_digest": "sha256:48eb3eb1b3ab79fb30e49d3692a60dc15f05a3d1c4ba328400af5f06b2e6949c", "config_digest": "sha256:be379de193a3c28da06ad14d2681842350986c46fbcbebf8d0d47ef3c9bd7f7e"}
+      },
+      "runtime": {
+        "amd64": {"repository": "docker.io/vllm/vllm-openai", "tag": "v0.21.0", "index_digest": "sha256:a230095847e93bd4df9888b33dab956fa9504537b828a23657d2b26fed57b5c9", "manifest_digest": "sha256:4ac9b7c6dabc3ec762c0edef4e9245abe98373844da91cc53ee42e5c58280c5b", "config_digest": "sha256:2497255b1272ba3ae9581acd51349f840038f228d0709cd9f6a142d39008d290"},
+        "arm64": {"repository": "docker.io/vllm/vllm-openai", "tag": "v0.21.0", "index_digest": "sha256:a230095847e93bd4df9888b33dab956fa9504537b828a23657d2b26fed57b5c9", "manifest_digest": "sha256:4f63b83537c4cbd82822403965f395877054dc3b69612e7044ecd649a9badb02", "config_digest": "sha256:f023269abe06db3a1a7cd9e170a0f5bd2b333a19ef9cb99ed8df97a70345bc25"}
+      }
+    },
+    {
+      "id": "cann900-a2",
+      "distribution": "uc-manager-cann-a2",
+      "build_platform": "ascend",
+      "cpu_arch": ["amd64", "arm64"],
+      "python_version": "3.12",
+      "python_abi": "cp312",
+      "wheel_platform": "linux",
+      "builders": {
+        "amd64": {"repository": "quay.io/ascend/vllm-ascend", "tag": "v0.22.1rc1", "index_digest": "sha256:9008b47081282612abfe4d28069ce34436752c980fd06f7599343213205ce64d", "manifest_digest": "sha256:a4176a62da7ff54e8eaf2e68e09578917d5c93dab6d2c9c7ebce551781e117b3", "config_digest": "sha256:0539c8ff2dbe3f02d6e5de0d8a463e1d6142482d41e5139dc4b957a191951c8b"},
+        "arm64": {"repository": "quay.io/ascend/vllm-ascend", "tag": "v0.22.1rc1", "index_digest": "sha256:9008b47081282612abfe4d28069ce34436752c980fd06f7599343213205ce64d", "manifest_digest": "sha256:638fc04eaa3654fcf14688096ed4e9d88ea0d905fa8685eed4b36d5fffe8fd8d", "config_digest": "sha256:1b8f114d14c4d0bea66ca32ebb5afe34bd1e10bfd0802b930ed678a116aaf078"}
+      },
+      "runtime": {
+        "amd64": {"repository": "quay.io/ascend/vllm-ascend", "tag": "v0.22.1rc1", "index_digest": "sha256:9008b47081282612abfe4d28069ce34436752c980fd06f7599343213205ce64d", "manifest_digest": "sha256:a4176a62da7ff54e8eaf2e68e09578917d5c93dab6d2c9c7ebce551781e117b3", "config_digest": "sha256:0539c8ff2dbe3f02d6e5de0d8a463e1d6142482d41e5139dc4b957a191951c8b"},
+        "arm64": {"repository": "quay.io/ascend/vllm-ascend", "tag": "v0.22.1rc1", "index_digest": "sha256:9008b47081282612abfe4d28069ce34436752c980fd06f7599343213205ce64d", "manifest_digest": "sha256:638fc04eaa3654fcf14688096ed4e9d88ea0d905fa8685eed4b36d5fffe8fd8d", "config_digest": "sha256:1b8f114d14c4d0bea66ca32ebb5afe34bd1e10bfd0802b930ed678a116aaf078"}
+      }
+    },
+    {
+      "id": "cann900-a3",
+      "distribution": "uc-manager-cann-a3",
+      "build_platform": "ascend-a3",
+      "cpu_arch": ["amd64", "arm64"],
+      "python_version": "3.12",
+      "python_abi": "cp312",
+      "wheel_platform": "linux",
+      "builders": {
+        "amd64": {"repository": "quay.io/ascend/vllm-ascend", "tag": "v0.22.1rc1-a3", "index_digest": "sha256:e3d89f09a1c1d85f0ec6a1cc26e3c807b7bc8a7ec0f97a830dbef63ab50d8f81", "manifest_digest": "sha256:ac166d960b3cb1b584f6ec413e5f4ef353b78049aa2b85e22b0e04eb8770eae4", "config_digest": "sha256:9c5cc2811d8dd9f26e871389723bc432fc321ba7bf46279ec423cbdd4daf9853"},
+        "arm64": {"repository": "quay.io/ascend/vllm-ascend", "tag": "v0.22.1rc1-a3", "index_digest": "sha256:e3d89f09a1c1d85f0ec6a1cc26e3c807b7bc8a7ec0f97a830dbef63ab50d8f81", "manifest_digest": "sha256:28f44b9c94c7667a7cbcd6b7b91432f03e4dffe476784dfd9fd82f036bdb1e4d", "config_digest": "sha256:c4d766b5f04fe6238a74731d67a215bb6331072ba242c7c5f24a25f99ce36c3b"}
+      },
+      "runtime": {
+        "amd64": {"repository": "quay.io/ascend/vllm-ascend", "tag": "v0.22.1rc1-a3", "index_digest": "sha256:e3d89f09a1c1d85f0ec6a1cc26e3c807b7bc8a7ec0f97a830dbef63ab50d8f81", "manifest_digest": "sha256:ac166d960b3cb1b584f6ec413e5f4ef353b78049aa2b85e22b0e04eb8770eae4", "config_digest": "sha256:9c5cc2811d8dd9f26e871389723bc432fc321ba7bf46279ec423cbdd4daf9853"},
+        "arm64": {"repository": "quay.io/ascend/vllm-ascend", "tag": "v0.22.1rc1-a3", "index_digest": "sha256:e3d89f09a1c1d85f0ec6a1cc26e3c807b7bc8a7ec0f97a830dbef63ab50d8f81", "manifest_digest": "sha256:28f44b9c94c7667a7cbcd6b7b91432f03e4dffe476784dfd9fd82f036bdb1e4d", "config_digest": "sha256:c4d766b5f04fe6238a74731d67a215bb6331072ba242c7c5f24a25f99ce36c3b"}
+      }
+    }
+  ],
+  "channels": {
+    "draft": {"github_release": "draft", "image_visibility": "private", "publish_chart": false, "environment_test": ["passed", "waived-for-preview"]},
+    "rc": {"github_release": "prerelease", "image_visibility": "public", "publish_chart": true, "environment_test": ["passed", "waived-for-preview"]},
+    "stable": {"github_release": "release", "image_visibility": "public", "publish_chart": true, "environment_test": ["passed"]},
+    "hotfix": {"github_release": "release", "image_visibility": "public", "publish_chart": true, "environment_test": ["passed"]}
+  },
+  "retention_days": {"candidate": 7, "evidence": 90},
+  "external_channels": {"docker_hub": false, "pypi": false},
+  "toolchain": {
+    "legacy_release_config_sha256": "d1e8b19a5074c88129cec6a35bfb1271be8f2fad633b0a4266677c6a79c8d3d5",
+    "runtime_requirements": ["packaging==24.2", "wrapt==1.17.2"],
+    "python_build": {
+      "build": {"version": "1.3.0", "filename": "build-1.3.0-py3-none-any.whl", "sha256": "7145f0b5061ba90a1500d60bd1b13ca0a8a4cebdd0cc16ed8adf1c0e739f43b4"},
+      "pyproject-hooks": {"version": "1.2.0", "filename": "pyproject_hooks-1.2.0-py3-none-any.whl", "sha256": "9e5c6bfa8dcc30091c74b0cf803c81fdd29d94f01992a7707bc97babb1141913"},
+      "packaging": {"version": "24.2", "filename": "packaging-24.2-py3-none-any.whl", "sha256": "09abb1bccd265c01f4a3aa3f7a7db064b36514d2cba19a2f694fe6150451a759"},
+      "setuptools": {"version": "75.8.2", "filename": "setuptools-75.8.2-py3-none-any.whl", "sha256": "558e47c15f1811c1fa7adbd0096669bf76c1d3f433f58324df69f3f5ecac4e8f"},
+      "wheel": {"version": "0.45.1", "filename": "wheel-0.45.1-py3-none-any.whl", "sha256": "708e7481cc80179af0e556bbf0cc00b8444c7321e2700b8d8580231d13017248"}
+    },
+    "pyyaml": {
+      "version": "6.0.2",
+      "amd64": {"filename": "PyYAML-6.0.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", "sha256": "80bab7bfc629882493af4aa31a4cfa43a4c57c83813253626916b8c7ada83476"},
+      "arm64": {"filename": "PyYAML-6.0.2-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", "sha256": "1f71ea527786de97d1a0cc0eacd1defc0985dcf6b3f17bb77dcfc8c34bec4dc5"}
+    },
+    "cmake": {
+      "version": "3.31.6",
+      "amd64": {"filename": "cmake-3.31.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", "sha256": "1c8b05df0602365da91ee6a3336fe57525b137706c4ab5675498f662ae1dbcec"},
+      "arm64": {"filename": "cmake-3.31.6-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", "sha256": "42d9883b8958da285d53d5f69d40d9650c2d1bcf922d82b3ebdceb2b3a7d4521"}
+    },
+    "wrapt": {
+      "version": "1.17.2",
+      "amd64": {"filename": "wrapt-1.17.2-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", "sha256": "bc570b5f14a79734437cb7b0500376b6b791153314986074486e0b0fa8d71d98"},
+      "arm64": {"filename": "wrapt-1.17.2-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", "sha256": "5bb1d0dbf99411f3d871deb6faa9aabb9d4e744d67dcaaa05399af89d847a91d"}
+    }
+  }
+}

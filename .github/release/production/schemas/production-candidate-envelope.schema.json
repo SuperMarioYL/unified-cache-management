@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/unified-cache-management/schemas/production-candidate-envelope.schema.json",
+  "title": "UCM production candidate envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "repository", "repository_id", "stage", "tag_name", "tag_object_sha", "source_sha", "control_sha", "run_id", "run_attempt", "artifact_name", "intent", "source_identity", "run", "files", "wheels", "chart", "image_members", "image_indexes", "sha256"],
+  "properties": {
+    "kind": {"const": "ucm-production-candidate-envelope"},
+    "schema_version": {"const": 1},
+    "repository": {"type": "string", "pattern": "^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$"},
+    "repository_id": {"type": "integer", "minimum": 1},
+    "stage": {"enum": ["draft", "rc", "stable", "hotfix"]},
+    "tag_name": {"type": "string", "minLength": 1},
+    "tag_object_sha": {"$ref": "#/$defs/commit"},
+    "source_sha": {"$ref": "#/$defs/commit"},
+    "control_sha": {"$ref": "#/$defs/commit"},
+    "run_id": {"type": "integer", "minimum": 1},
+    "run_attempt": {"type": "integer", "minimum": 1},
+    "artifact_name": {"type": "string", "minLength": 1},
+    "intent": {"type": "object"},
+    "source_identity": {"type": "object"},
+    "run": {"type": "object"},
+    "files": {"type": "array", "minItems": 23, "maxItems": 23, "items": {"$ref": "#/$defs/file"}},
+    "wheels": {"type": "array", "minItems": 6, "maxItems": 6, "items": {"type": "object"}},
+    "chart": {"type": "object"},
+    "image_members": {"type": "array", "minItems": 6, "maxItems": 6, "items": {"type": "object"}},
+    "image_indexes": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "object"}},
+    "sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "size", "sha256"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^[^/\\x00-\\x1f\\x7f][^\\x00-\\x1f\\x7f]*$"},
+        "size": {"type": "integer", "minimum": 0},
+        "sha256": {"$ref": "#/$defs/digest"}
+      }
+    }
+  }
+}

@@ -1,0 +1,241 @@
+name: 'Trusted Hardware E2E'
+
+'on':
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repository-recipe-plan:
+    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      hardware_matrix: ${{ steps.recipes.outputs.hardware_matrix }}
+      hardware_catalog_sha256: ${{ steps.recipes.outputs.hardware_catalog_sha256 }}
+      hardware_matrix_sha256: ${{ steps.recipes.outputs.hardware_matrix_sha256 }}
+      protected_environment: ${{ steps.recipes.outputs.protected_environment }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - id: recipes
+        name: Project trusted hardware recipes from the catalog
+        run: |
+          # shellcheck disable=SC2153
+          set -euo pipefail
+          PYTHONPATH=.github/release python -m ucm_release catalog recipe-matrix \
+            --lane hardware-e2e --output hardware-e2e-recipes.json >/dev/null
+          jq -e 'keys | sort == ["catalog_sha256","count","include","kind","lane","matrix_sha256","protected_environment","schema_version"]' hardware-e2e-recipes.json
+          {
+            echo "hardware_matrix=$(jq -cS '{include: .include}' hardware-e2e-recipes.json)"
+            echo "hardware_catalog_sha256=$(jq -r '.catalog_sha256' hardware-e2e-recipes.json)"
+            echo "hardware_matrix_sha256=$(jq -r '.matrix_sha256' hardware-e2e-recipes.json)"
+            echo "protected_environment=$(jq -r '.protected_environment' hardware-e2e-recipes.json)"
+          } >> "$GITHUB_OUTPUT"
+
+  hardware-e2e:
+    needs: [repository-recipe-plan]
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.repository-recipe-plan.outputs.hardware_matrix) }}
+    runs-on: ${{ matrix.runner }}
+    environment: ${{ needs.repository-recipe-plan.outputs.protected_environment }}
+    permissions:
+      contents: read
+    steps:
+      - name: Clean repo
+        env:
+          WORKSPACE: ${{ github.workspace }}
+        run: |
+          if [ -d "${WORKSPACE}" ]; then
+            cd "${WORKSPACE}"
+            rm -rf ./*
+            rm -rf .[!.]*
+          fi
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          show-progress: false
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+
+      - id: hardware-recipe
+        name: Reopen exact trusted hardware recipe task
+        env:
+          TASK_ID: ${{ matrix.task_id }}
+          EXPECTED_CATALOG_SHA256: ${{ needs.repository-recipe-plan.outputs.hardware_catalog_sha256 }}
+          EXPECTED_MATRIX_SHA256: ${{ needs.repository-recipe-plan.outputs.hardware_matrix_sha256 }}
+          EXPECTED_TASK_SHA256: ${{ matrix.task_sha256 }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=.github/release python -m ucm_release catalog select-recipe \
+            --lane hardware-e2e \
+            --task-id "${TASK_ID}" \
+            --expected-catalog-sha256 "${EXPECTED_CATALOG_SHA256}" \
+            --expected-matrix-sha256 "${EXPECTED_MATRIX_SHA256}" \
+            --expected-task-sha256 "${EXPECTED_TASK_SHA256}" \
+            --output selected-hardware-recipe.json >/dev/null
+          {
+            echo "task_id=$(jq -r '.task_id' selected-hardware-recipe.json)"
+            echo "path=$(jq -r '.path' selected-hardware-recipe.json)"
+            echo "image_source=$(jq -r '.base_image.source' selected-hardware-recipe.json)"
+            echo "image_name_version=$(jq -r '.base_image.name_version' selected-hardware-recipe.json)"
+            echo "build_args<<UCM_BUILD_ARGS"
+            jq -r '.build_args | join("\n")' selected-hardware-recipe.json
+            echo "UCM_BUILD_ARGS"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install Docker CLI
+        run: |
+          SUDO=""
+          if [ "$(id -u)" -ne 0 ]; then
+            if command -v sudo &> /dev/null; then
+              SUDO="sudo"
+            else
+              echo "Docker CLI installation requires root or sudo"
+              exit 1
+            fi
+          fi
+          if ! command -v docker &> /dev/null; then
+            echo "Docker CLI not found, installing..."
+            ${SUDO} apt-get update
+            ${SUDO} apt-get install -y docker.io
+          fi
+          if ! ${SUDO} docker info >/dev/null 2>&1; then
+            echo "Docker daemon is not reachable from the runner."
+            exit 1
+          fi
+
+      - name: Generate Docker image version
+        id: version
+        env:
+          TASK_ID: ${{ steps.hardware-recipe.outputs.task_id }}
+          SOURCE_SHA: ${{ github.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          # shellcheck disable=SC2153
+          set -euo pipefail
+          if [[ ! "${TASK_ID}" =~ ^[a-z0-9][a-z0-9._-]{0,127}$ ]]; then
+            echo "Catalog task ID is not safe for an OCI tag" >&2
+            exit 1
+          fi
+          if [[ ! "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Source SHA is not a full lowercase Git object ID" >&2
+            exit 1
+          fi
+          if [[ ! "${RUN_NUMBER}" =~ ^[0-9]{1,20}$ ]]; then
+            echo "Run number must contain 1-20 decimal digits" >&2
+            exit 1
+          fi
+          TASK_PREFIX="${TASK_ID:0:96}"
+          SHORT_SHA="${SOURCE_SHA:0:7}"
+          VERSION="${TASK_PREFIX}-${RUN_NUMBER}-${SHORT_SHA}"
+          if [[ ${#VERSION} -gt 128 || ! "${VERSION}" =~ ^[a-z0-9][a-z0-9._-]{0,127}$ ]]; then
+            echo "Generated image version is not a bounded OCI tag" >&2
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build catalog-selected hardware image
+        env:
+          RECIPE_PATH: ${{ steps.hardware-recipe.outputs.path }}
+          RECIPE_BUILD_ARGS: ${{ steps.hardware-recipe.outputs.build_args }}
+          IMAGE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          SUDO=""
+          if [ "$(id -u)" -ne 0 ] && command -v sudo &> /dev/null; then
+            SUDO="sudo"
+          fi
+          mapfile -t recipe_build_args <<< "${RECIPE_BUILD_ARGS}"
+          docker_build_args=()
+          for build_arg in "${recipe_build_args[@]}"; do
+            docker_build_args+=(--build-arg "${build_arg}")
+          done
+          ${SUDO} docker build \
+            --build-arg http_proxy="${http_proxy:-}" \
+            --build-arg https_proxy="${https_proxy:-}" \
+            --build-arg no_proxy="repo.huaweicloud.com,${no_proxy:-}" \
+            "${docker_build_args[@]}" \
+            -t "ucm-hardware-e2e:${IMAGE_VERSION}" \
+            -f "${RECIPE_PATH}" ./
+
+      - name: Test E2E online inference in Docker
+        env:
+          WORKSPACE: ${{ github.workspace }}
+          IMAGE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          RESULT_DIR="${WORKSPACE}/test_results"
+          RESULT_FILE="${IMAGE_VERSION}-online-inference.xml"
+          CONTAINER_NAME="ucm-hardware-e2e-${IMAGE_VERSION}"
+          SUDO=""
+          if [ "$(id -u)" -ne 0 ] && command -v sudo &> /dev/null; then
+            SUDO="sudo"
+          fi
+          A2_E2E_HOST_DEVICE="${A2_E2E_HOST_DEVICE:-/dev/vdavinci212}"
+          mkdir -p "${RESULT_DIR}"
+          rm -f "${RESULT_DIR}/${RESULT_FILE}"
+          ${SUDO} docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+          set +e
+          ${SUDO} docker run --name "${CONTAINER_NAME}" \
+            --ipc=host \
+            --device "${A2_E2E_HOST_DEVICE}:/dev/davinci0" \
+            --device /dev/davinci_manager \
+            --device /dev/devmm_svm \
+            --device /dev/hisi_hdc \
+            -v /usr/local/dcmi:/usr/local/dcmi \
+            -v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi \
+            -v /usr/local/Ascend/driver/lib64/:/usr/local/Ascend/driver/lib64/ \
+            -v /usr/local/Ascend/driver/version.info:/usr/local/Ascend/driver/version.info \
+            -v /etc/ascend_install.info:/etc/ascend_install.info \
+            -v /home/huangmy/models:/home/models:ro \
+            -e http_proxy="${http_proxy:-}" \
+            -e https_proxy="${https_proxy:-}" \
+            -e no_proxy="${no_proxy:-}" \
+            --entrypoint /bin/bash \
+            "ucm-hardware-e2e:${IMAGE_VERSION}" \
+            -lc "mkdir -p /workspace/test_results && cd /workspace/unified-cache-management/test && pip install -r requirements.txt && python3 -m pytest -x --stage=1 --feature=online_inference --platform=npu -k 'test_online_accuracy_hbm_ssd_mixed_a2_pc' --junitxml=/workspace/test_results/${RESULT_FILE}"
+          TEST_RC=$?
+          ${SUDO} docker cp "${CONTAINER_NAME}:/workspace/test_results/${RESULT_FILE}" "${RESULT_DIR}/${RESULT_FILE}" >/dev/null 2>&1 || true
+          ${SUDO} docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+          exit "${TEST_RC}"
+
+      - name: Cleanup Docker image
+        if: ${{ always() && steps.version.outputs.version != '' }}
+        env:
+          IMAGE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          SUDO=""
+          if [ "$(id -u)" -ne 0 ] && command -v sudo &> /dev/null; then
+            SUDO="sudo"
+          fi
+          ${SUDO} docker rm -f "ucm-hardware-e2e-${IMAGE_VERSION}" >/dev/null 2>&1 || true
+          ${SUDO} docker rmi "ucm-hardware-e2e:${IMAGE_VERSION}" || true
+
+      - name: Cleanup test results
+        if: ${{ always() && steps.version.outputs.version != '' }}
+        env:
+          WORKSPACE: ${{ github.workspace }}
+          IMAGE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          rm -f "${WORKSPACE}/test_results/${IMAGE_VERSION}-online-inference.xml" || true

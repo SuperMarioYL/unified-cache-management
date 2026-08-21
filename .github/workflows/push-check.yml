@@ -4,6 +4,11 @@ on:
   push:
     branches: [ "**" ] # ** matches all branches, while * matches only top-level branches without '/'
 
+permissions:
+  contents: read
+
 jobs:
   lint-and-unit-tests:
+    permissions:
+      contents: read
     uses: ./.github/workflows/lint-and-test.yml
