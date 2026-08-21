@@ -705,9 +705,7 @@ def _discover_ascend(
                         ),
                         "build_mode": str(project["build_mode"]),
                     },
-                    str(project["mooncake_version"])
-                    if include_mooncake_tag
-                    else None,
+                    str(project["mooncake_version"]) if include_mooncake_tag else None,
                 )
             )
     return items
@@ -754,9 +752,7 @@ def discover_builders(
     source_only: bool = False,
 ) -> dict[str, object]:
     """Discover current upstream builders and append explicit retained builders."""
-    config = load_config(
-        config_path, require_legacy_mooncake=not source_only
-    )
+    config = load_config(config_path, require_legacy_mooncake=not source_only)
     resolved_owner = _owner(owner)
     discovered: list[dict[str, str]] = []
     for raw in config["projects"]:  # type: ignore[union-attr]
@@ -901,9 +897,7 @@ def _builder_plan(
         "mooncake_source_runtime_image": runtime_image,
         "mooncake_version": mooncake_version,
     }
-    plan["builder_plan_id"] = _fact_digest(
-        plan, BUILDER_PLAN_IDENTITY_FIELDS
-    )
+    plan["builder_plan_id"] = _fact_digest(plan, BUILDER_PLAN_IDENTITY_FIELDS)
     return plan
 
 
@@ -930,7 +924,7 @@ def plan_builder_facts(
     runtimes: list[tuple[dict[str, object], dict[str, Any]]] = []
     for index, raw in enumerate(runtime_values):
         runtime = _require_mapping(raw, f"runtime candidates[{index}]")
-        record = capabilities._runtime_record(runtime)
+        record = capabilities.normalize_runtime_candidate(runtime)
         runtimes.append((runtime, record))
 
     probes: dict[tuple[str, str], dict[str, object]] = {}
@@ -963,9 +957,7 @@ def plan_builder_facts(
                 runtime_id=None,
                 runtime_image=None,
                 mooncake_version=None,
-                target_tag=_require_string(
-                    source, "target_tag", "Builder source"
-                ),
+                target_tag=_require_string(source, "target_tag", "Builder source"),
             )
             plans_by_id[planned["builder_plan_id"]] = planned
             continue
@@ -1058,9 +1050,7 @@ def plan_builder_facts(
     }
 
 
-def collect_builder_facts(
-    plan: object, builder_results: object
-) -> dict[str, object]:
+def collect_builder_facts(plan: object, builder_results: object) -> dict[str, object]:
     """Reconcile one exact Result per planned Builder and freeze target facts."""
     planned = _require_mapping(plan, "Builder fact plan")
     _closed_fields(planned, BUILDER_FACT_PLAN_FIELDS, "Builder fact plan")
@@ -1117,8 +1107,7 @@ def collect_builder_facts(
                 **{
                     field: copy.deepcopy(planned_item[field])
                     for field in capabilities.BUILDER_FACT_FIELDS
-                    if field
-                    not in {"builder_fact_id", "target_builder_digest"}
+                    if field not in {"builder_fact_id", "target_builder_digest"}
                 },
                 "target_builder_digest": target_digest,
             }
@@ -1130,9 +1119,7 @@ def collect_builder_facts(
                 {
                     "id": fact["builder_fact_id"],
                     "builder_fact_id": fact["builder_fact_id"],
-                    "builder_image": (
-                        f"{fact['target_repository']}@{target_digest}"
-                    ),
+                    "builder_image": (f"{fact['target_repository']}@{target_digest}"),
                     "target_builder_digest": target_digest,
                     "runner": planned_item["runner"],
                     "cpu_architecture": planned_item["cpu_architecture"],

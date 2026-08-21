@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.12.1@sha256:93bfd3b68c109427185cd78b4779fc82b484b0b7618e36d0f104d4d801e66d25
 ARG CANN_BASE=registry.invalid/ucm/required-cann-base:invalid
-ARG MOONCAKE_RUNTIME_IMAGE=registry.invalid/ucm/required-runtime:invalid
+ARG MOONCAKE_RUNTIME_IMAGE
 
 FROM ${MOONCAKE_RUNTIME_IMAGE} AS mooncake-runtime
 

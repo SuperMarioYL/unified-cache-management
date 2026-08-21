@@ -137,9 +137,7 @@ EXCLUSION_FIELDS = frozenset(
         "evidence",
     }
 )
-BUILDER_SYNC_FIELDS = frozenset(
-    {"mode", "target_digests_verified", "deletions"}
-)
+BUILDER_SYNC_FIELDS = frozenset({"mode", "target_digests_verified", "deletions"})
 BUILDER_FACT_FIELDS = frozenset(
     {
         "builder_fact_id",
@@ -442,7 +440,9 @@ def _exclusion(
     }
 
 
-def _runtime_record(raw: dict[str, Any]) -> dict[str, Any]:
+def normalize_runtime_candidate(raw: object) -> dict[str, Any]:
+    """Normalize one raw runtime discovery fact into its closed public record."""
+    raw = _mapping(raw, "runtime discovery fact")
     repository = _string(raw.get("runtime_image_repository"), "runtime repository")
     tag = _string(raw.get("runtime_image_tag"), "runtime tag")
     image_digest = _digest(raw.get("runtime_image_digest"), "runtime image digest")
@@ -530,9 +530,7 @@ def _validate_builder_fact(value: object, label: str) -> dict[str, Any]:
     _digest(fact["recipe_sha256"], f"{label} recipe digest")
     _digest(fact["toolchain_sha256"], f"{label} toolchain digest")
     _digest(fact["target_builder_digest"], f"{label} target digest")
-    if fact_id != _canonical_digest(
-        _identity(fact, BUILDER_FACT_IDENTITY_FIELDS)
-    ):
+    if fact_id != _canonical_digest(_identity(fact, BUILDER_FACT_IDENTITY_FIELDS)):
         raise ValueError(f"{label} ID is not canonical")
     if fact["accelerator"] == "cuda":
         if any(
@@ -545,9 +543,7 @@ def _validate_builder_fact(value: object, label: str) -> dict[str, Any]:
         ):
             raise ValueError(f"{label} CUDA Mooncake provenance must be null")
     else:
-        _digest(
-            fact["mooncake_source_runtime_id"], f"{label} Mooncake runtime ID"
-        )
+        _digest(fact["mooncake_source_runtime_id"], f"{label} Mooncake runtime ID")
         _string(
             fact["mooncake_source_runtime_image"],
             f"{label} Mooncake runtime image",
@@ -589,7 +585,7 @@ def assemble_capability_catalog(
         raw = _mapping(raw_value, f"runtime candidates[{index}]")
         if normalize_variant(raw.get("variant")) == "310p":
             continue
-        record = _runtime_record(raw)
+        record = normalize_runtime_candidate(raw)
         previous = runtime_by_id.get(record["runtime_id"])
         if previous is not None and previous != record:
             raise ValueError(f"conflicting runtime identity {record['runtime_id']}")
@@ -706,9 +702,7 @@ def assemble_capability_catalog(
                 source_kind=_string(
                     failure["source_kind"], "Builder failure source_kind"
                 ),
-                source_id=_string(
-                    failure["source_id"], "Builder failure source_id"
-                ),
+                source_id=_string(failure["source_id"], "Builder failure source_id"),
                 evidence={
                     "builder_plan_id": _digest(
                         failure["builder_plan_id"], "Builder failure plan ID"
@@ -880,9 +874,10 @@ def assemble_capability_catalog(
             for revision_id in capability["builder_revision_ids"]:
                 revision = revision_by_id[revision_id]
                 fact = fact_by_revision_id[revision_id]
-                if capability["accelerator"] == "ascend" and runtime[
-                    "runtime_id"
-                ] != fact["mooncake_source_runtime_id"]:
+                if (
+                    capability["accelerator"] == "ascend"
+                    and runtime["runtime_id"] != fact["mooncake_source_runtime_id"]
+                ):
                     if mooncake_probe is not None and (
                         mooncake_probe.get("installed_version")
                         != mooncake_probe.get("declared_version")

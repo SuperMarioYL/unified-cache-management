@@ -171,7 +171,7 @@ jobs:
           import yaml
           from packaging.specifiers import SpecifierSet
           from packaging.version import InvalidVersion, Version
-          from ucm_release.capabilities import _runtime_record
+          from ucm_release.capabilities import normalize_runtime_candidate
 
           release = yaml.safe_load(Path(".github/release/release.yaml").read_text())
           scan_limit = release["discovery"]["scan_limits"]["max_selected_upstreams"]
@@ -267,7 +267,7 @@ jobs:
                       }
                       records.append(record)
                       if accelerator == "ascend":
-                          normalized = _runtime_record(record)
+                          normalized = normalize_runtime_candidate(record)
                           matrix.append({
                               "id": f"{product_id}-{tag}-{architecture}",
                               "runtime_id": normalized["runtime_id"],
@@ -394,7 +394,7 @@ jobs:
         with:
           pattern: ucm-mooncake-probe-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/mooncake-probes
-          merge-multiple: true
+          merge-multiple: false
       - id: plan
         run: |
           set -euo pipefail
@@ -528,7 +528,7 @@ jobs:
         with:
           pattern: ucm-builder-result-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/builder-results
-          merge-multiple: true
+          merge-multiple: false
       - id: collect
         run: |
           set -euo pipefail
@@ -622,7 +622,7 @@ jobs:
         with:
           pattern: ucm-python-probe-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/python-probes
-          merge-multiple: true
+          merge-multiple: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: ${{ needs.discover-runtimes.outputs.runtime_discovery_artifact }}
@@ -631,7 +631,7 @@ jobs:
         with:
           pattern: ucm-mooncake-probe-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/mooncake-probes
-          merge-multiple: true
+          merge-multiple: false
       - id: catalog
         run: |
           set -euo pipefail
