@@ -29,7 +29,6 @@ CATALOG_FIELDS = {
     "schema_version",
     "source_sha",
     "upstream_reads",
-    "builder_sources",
     "builder_sync",
     "builder_capabilities",
     "builder_revisions",
@@ -466,10 +465,6 @@ def test_assembled_catalog_is_closed_digest_bound_and_valid() -> None:
     assert catalog["schema_version"] == 3
     assert catalog["source_sha"] == "1" * 40
     assert catalog["upstream_reads"]
-    assert catalog["builder_sources"] == _load_fixture()["builder_discovery"][
-        "builders"
-    ]
-    assert any(item["variant"] == "310p" for item in catalog["builder_sources"])
     expected_sync = _load_fixture()["builder_discovery"]["builder_sync"]
     assert set(catalog["builder_sync"]) == BUILDER_SYNC_FIELDS
     assert catalog["builder_sync"] == expected_sync
@@ -593,11 +588,22 @@ def test_catalog_preserves_discovery_origins_and_filters_only_exact_310p() -> No
     assert any(item["variant"] == "a4" for item in catalog["builder_capabilities"])
     assert all(item["variant"] != "310p" for item in catalog["builder_capabilities"])
     assert all(item["variant"] != "310p" for item in catalog["entries"])
-    assert any(
-        item["reason_code"] == "variant-filtered-310p"
-        and item["evidence"]["variant"] == "310p"
+    filtered = next(
+        item
         for item in catalog["exclusions"]
+        if item["reason_code"] == "variant-filtered-310p"
     )
+    assert filtered == {
+        "reason_code": "variant-filtered-310p",
+        "source_kind": "buildwheel-dockerfile",
+        "source_id": (
+            ".github/workflows/dockerfiles/Dockerfile.buildwheel.310p"
+        ),
+        "builder_capability_id": None,
+        "builder_revision_id": None,
+        "runtime_id": None,
+        "evidence": {"variant": "310p"},
+    }
 
 
 def test_runtime_candidate_normalization_is_public_identity_authority() -> None:
