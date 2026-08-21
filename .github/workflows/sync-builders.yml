@@ -6,6 +6,9 @@ on:
   workflow_dispatch:
   workflow_call:
     outputs:
+      builder_catalog_artifact:
+        description: Legacy Builder Catalog for Task 3 callers
+        value: ${{ jobs.prepare.outputs.builder_catalog_artifact }}
       capability_catalog_artifact:
         description: Canonical Capability Catalog for this run
         value: ${{ jobs.assemble-capability-catalog.outputs.capability_catalog_artifact }}
@@ -25,6 +28,7 @@ jobs:
     timeout-minutes: 30
     outputs:
       builder_catalog_artifact: ${{ steps.source.outputs.builder_catalog_artifact }}
+      builder_source_artifact: ${{ steps.source.outputs.builder_source_artifact }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -42,84 +46,25 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
-          PYTHONPATH=.github/release python -m ucm_release builders discover \
-            --source-only \
-            --output out/legacy-builder-catalog.json >/dev/null
-          python - <<'PY'
-          import hashlib
-          import json
-          import os
-          import re
-          import subprocess
-          from pathlib import Path
-
-          legacy = json.loads(Path("out/legacy-builder-catalog.json").read_text())
-          rows = []
-          for item in legacy["builders"]:
-              if item["build_mode"] == "copy":
-                  continue
-              source_repository, source_tag = item["source_image"].rsplit(":", 1)
-              source_digest = subprocess.run(
-                  ["docker", "buildx", "imagetools", "inspect", "--format",
-                   "{{json .Manifest.Digest}}", item["source_image"]],
-                  check=True, text=True, stdout=subprocess.PIPE,
-              ).stdout.strip().strip('"')
-              accelerator = item["accelerator"]
-              recipe_path = (
-                  ".github/release/docker/Dockerfile.builder"
-                  if accelerator == "ascend"
-                  else ".github/release/builders.yaml"
-              )
-              source_path = (
-                  f".github/workflows/dockerfiles/Dockerfile.buildwheel.{item['variant']}"
-                  if accelerator == "ascend"
-                  else ".buildkite/release-pipeline.yaml"
-              )
-              recipe_bytes = Path(recipe_path).read_bytes()
-              target_tag = re.sub(
-                  r"-mooncake[^-]+", "", item["target_tag"], flags=re.IGNORECASE
-              )
-              target_tag = re.sub(r"-cp[0-9]+-", "-cp-all-", target_tag)
-              rows.append({
-                  "project": item["project"],
-                  "accelerator": accelerator,
-                  "accelerator_runtime": item["accelerator_runtime"],
-                  "variant": item["variant"],
-                  "cpu_architecture": item["cpu_arch"],
-                  "manylinux": item["manylinux"],
-                  "source_kind": (
-                      "buildkite-build-base-image" if accelerator == "cuda"
-                      else "buildwheel-dockerfile"
-                  ),
-                  "source_path": source_path,
-                  "source_image_repository": source_repository,
-                  "source_image_tag": source_tag,
-                  "source_image_digest": source_digest,
-                  "recipe_path": recipe_path,
-                  "recipe_source_commit": os.environ["GITHUB_SHA"],
-                  "recipe_sha256": "sha256:" + hashlib.sha256(recipe_bytes).hexdigest(),
-                  "toolchain_sha256": "sha256:" + hashlib.sha256(
-                      Path(".github/release/toolchain.lock.yaml").read_bytes()
-                  ).hexdigest(),
-                  "target_repository": item["target_repository"],
-                  "target_tag": target_tag,
-              })
-          value = {
-              "kind": "ucm-builder-discovery",
-              "schema_version": 3,
-              "source_sha": os.environ["GITHUB_SHA"],
-              "upstream_reads": [],
-              "builders": sorted(rows, key=lambda row: json.dumps(row, sort_keys=True)),
-          }
-          Path("out/builder-catalog.json").write_text(
-              json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
-          )
-          PY
-          artifact="ucm-builder-source-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
-          echo "builder_catalog_artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+          PYTHONPATH=.github/release python -m ucm_release builders discover-sources \
+            --legacy-output out/legacy-builder-catalog.json \
+            --output out/builder-catalog.json >/dev/null
+          legacy_artifact="ucm-builder-catalog-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          source_artifact="ucm-builder-source-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          {
+            echo "builder_catalog_artifact=${legacy_artifact}"
+            echo "builder_source_artifact=${source_artifact}"
+          } >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ steps.source.outputs.builder_catalog_artifact }}
+          path: out/legacy-builder-catalog.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.source.outputs.builder_source_artifact }}
           path: out/builder-catalog.json
           if-no-files-found: error
           overwrite: false
@@ -142,7 +87,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: ${{ needs.prepare.outputs.builder_catalog_artifact }}
+          name: ${{ needs.prepare.outputs.builder_source_artifact }}
           path: input/builder-source
       - name: Install discovery tools
         run: |
@@ -161,141 +106,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
-          PYTHONPATH=.github/release python - <<'PY'
-          import json
-          import os
-          import re
-          import subprocess
-          import urllib.request
-          from pathlib import Path
-          import yaml
-          from packaging.specifiers import SpecifierSet
-          from packaging.version import InvalidVersion, Version
-          from ucm_release.capabilities import normalize_runtime_candidate
-
-          release = yaml.safe_load(Path(".github/release/release.yaml").read_text())
-          scan_limit = release["discovery"]["scan_limits"]["max_selected_upstreams"]
-          builder_source = json.loads(
-              Path("input/builder-source/builder-catalog.json").read_text()
-          )
-          ascend_variants = sorted({
-              item["variant"] for item in builder_source["builders"]
-              if item["accelerator"] == "ascend" and item["variant"] != "310p"
-          })
-          architectures_by_accelerator = {
-              accelerator: sorted({
-                  item["cpu_architecture"] for item in builder_source["builders"]
-                  if item["accelerator"] == accelerator
-              })
-              for accelerator in ("cuda", "ascend")
-          }
-          projects = {"vllm": "vllm-project/vllm", "vllm-ascend": "vllm-project/vllm-ascend"}
-          records = []
-          matrix = []
-          for product in release["upstream_products"]:
-              product_id = product["id"]
-              repository = product["repository"]
-              specifier = SpecifierSet(product["version_specifier"])
-              tags = subprocess.run(
-                  ["crane", "ls", repository], check=True, text=True,
-                  stdout=subprocess.PIPE,
-              ).stdout.splitlines()
-              selected = []
-              for tag in tags:
-                  version_text = tag.removeprefix("v").split("-", 1)[0]
-                  try:
-                      version = Version(version_text)
-                  except InvalidVersion:
-                      continue
-                  if specifier.contains(version, prereleases=True):
-                      selected.append((version, tag))
-              for version, tag in sorted(selected, reverse=True)[:scan_limit]:
-                  reference = f"{repository}:{tag}"
-                  digest = subprocess.run(
-                      ["crane", "digest", reference], check=True, text=True,
-                      stdout=subprocess.PIPE,
-                  ).stdout.strip()
-                  config = json.loads(subprocess.run(
-                      ["crane", "config", f"{repository}@{digest}"],
-                      check=True, text=True, stdout=subprocess.PIPE,
-                  ).stdout)
-                  env = config.get("config", {}).get("Env", [])
-                  env_map = dict(item.split("=", 1) for item in env if "=" in item)
-                  variant = "default"
-                  if product_id == "vllm-ascend":
-                      suffix = tag.removeprefix(f"v{version}").lstrip("-")
-                      variant = suffix or env_map.get("VLLM_ASCEND_VARIANT")
-                      variant = variant or env_map.get("ASCEND_VARIANT")
-                      variant = variant or ascend_variants[0]
-                  accelerator = "cuda" if product_id == "vllm" else "ascend"
-                  version_key = "CUDA_VERSION" if accelerator == "cuda" else "CANN_VERSION"
-                  runtime = ("cuda-" if accelerator == "cuda" else "cann-") + str(env_map[version_key])
-                  project = projects[product_id]
-                  git_tag = "v" + str(version)
-                  request = urllib.request.Request(
-                      f"https://api.github.com/repos/{project}/git/ref/tags/{git_tag}",
-                      headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}"},
-                  )
-                  with urllib.request.urlopen(request) as response:
-                      git_commit = json.load(response)["object"]["sha"]
-                  for architecture in architectures_by_accelerator[accelerator]:
-                      runtime_dockerfile = (
-                          f"https://raw.githubusercontent.com/{project}/{git_commit}/docker/Dockerfile"
-                      )
-                      mooncake_version = None
-                      if accelerator == "ascend":
-                          with urllib.request.urlopen(runtime_dockerfile) as response:
-                              dockerfile = response.read().decode()
-                          match = re.search(r"(?m)^ARG MOONCAKE_TAG=v?([^\s]+)", dockerfile)
-                          if match is None:
-                              continue
-                          mooncake_version = match.group(1)
-                      record = {
-                          "product_id": product_id,
-                          "runtime_version": str(version),
-                          "channel": "rc" if version.is_prerelease else "stable",
-                          "variant": variant,
-                          "cpu_architecture": architecture,
-                          "accelerator": accelerator,
-                          "accelerator_runtime": runtime,
-                          "mooncake_version": mooncake_version,
-                          "runtime_image_repository": repository,
-                          "runtime_image_tag": tag,
-                          "runtime_image_digest": digest,
-                          "git_tag": git_tag,
-                          "git_commit": git_commit,
-                      }
-                      records.append(record)
-                      if accelerator == "ascend":
-                          normalized = normalize_runtime_candidate(record)
-                          matrix.append({
-                              "id": f"{product_id}-{tag}-{architecture}",
-                              "runtime_id": normalized["runtime_id"],
-                              "runtime_image": normalized["runtime_image"],
-                              "runtime_image_digest": digest,
-                              "runtime_dockerfile": runtime_dockerfile,
-                              "cpu_architecture": architecture,
-                              "runner": (
-                                  "ubuntu-24.04-arm" if architecture == "arm64"
-                                  else "ubuntu-24.04"
-                              ),
-                          })
-          value = {
-              "kind": "ucm-runtime-discovery", "schema_version": 3,
-              "source_sha": os.environ["GITHUB_SHA"],
-              "runtime_candidates": records,
-          }
-          Path("out/runtime-discovery.json").write_text(
-              json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
-          )
-          Path("out/runtime-matrix.json").write_text(
-              json.dumps({"include": matrix}, sort_keys=True, separators=(",", ":"))
-          )
-          PY
+          PYTHONPATH=.github/release python -m ucm_release catalog discover-runtimes \
+            --builder-catalog input/builder-source/builder-catalog.json \
+            --output out/runtime-discovery.json >/dev/null
           artifact="ucm-runtime-discovery-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           {
             echo "runtime_discovery_artifact=${artifact}"
-            echo "runtime_probe_matrix=$(cat out/runtime-matrix.json)"
+            echo "runtime_probe_matrix=$(jq -c '.runtime_probe_matrix' out/runtime-discovery.json)"
           } >>"${GITHUB_OUTPUT}"
       - if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -316,7 +133,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
-      - name: Probe declared and installed Mooncake
+      - id: probe
+        name: Probe declared and installed Mooncake
         env:
           RUNTIME_ID: ${{ matrix.runtime_id }}
           RUNTIME_IMAGE: ${{ matrix.runtime_image }}
@@ -330,33 +148,63 @@ jobs:
             *@sha256:*) ;;
             *) exit 2 ;;
           esac
-          dockerfile="$(curl -fsSL "${RUNTIME_DOCKERFILE}")"
+          curl -fsSL "${RUNTIME_DOCKERFILE}" >out/mooncake-probe/runtime.Dockerfile
+          dockerfile="$(cat out/mooncake-probe/runtime.Dockerfile)"
           declared_version="$(sed -nE 's/^ARG MOONCAKE_TAG=v?([^[:space:]]+).*$/\1/p' <<<"${dockerfile}" | head -1)"
+          test -n "${declared_version}"
+          printf '%s' "${declared_version}" >out/mooncake-probe/declared-version.txt
           docker run --rm "${RUNTIME_IMAGE}" sh -lc \
             'test -d /usr/local/include/mooncake &&
              find /usr/local/lib -maxdepth 1 -type f -name "*mooncake*" -print -quit | grep -q . &&
              (pkg-config --modversion mooncake 2>/dev/null || cat /usr/local/lib/mooncake.version)' \
             >out/mooncake-probe/installed-version.txt
-          installed_version="$(cat out/mooncake-probe/installed-version.txt)"
-          if [ "${declared_version}" != "${installed_version}" ]; then
-            jq -n --arg runtime_id "${RUNTIME_ID}" --arg runtime_image "${RUNTIME_IMAGE}" \
-              --arg runtime_image_digest "${RUNTIME_IMAGE_DIGEST}" \
-              --arg runtime_dockerfile "${RUNTIME_DOCKERFILE}" \
-              --arg cpu_architecture "${CPU_ARCHITECTURE}" \
-              --arg runner "${RUNNER_NAME}" \
-              --arg declared_version "${declared_version}" \
-              --arg installed_version "${installed_version}" \
-              '{runtime_id:$runtime_id,runtime_image:$runtime_image,runtime_image_digest:$runtime_image_digest,runtime_dockerfile:$runtime_dockerfile,cpu_architecture:$cpu_architecture,runner:$runner,declared_version:$declared_version,installed_version:$installed_version,headers_path:"/usr/local/include/mooncake",libraries_path:"/usr/local/lib",reason_code:"mooncake-version-mismatch"}' \
-              >out/mooncake-probe/result.json
-          else
-            jq -n --arg runtime_id "${RUNTIME_ID}" --arg runtime_image "${RUNTIME_IMAGE}" \
-              --arg runtime_image_digest "${RUNTIME_IMAGE_DIGEST}" \
+      - name: Seal Mooncake probe Result
+        if: ${{ always() }}
+        env:
+          PROBE_OUTCOME: ${{ steps.probe.outcome }}
+          RUNTIME_ID: ${{ matrix.runtime_id }}
+          RUNTIME_IMAGE: ${{ matrix.runtime_image }}
+          RUNTIME_IMAGE_DIGEST: ${{ matrix.runtime_image_digest }}
+          RUNTIME_DOCKERFILE: ${{ matrix.runtime_dockerfile }}
+          CPU_ARCHITECTURE: ${{ matrix.cpu_architecture }}
+        run: |
+          set -euo pipefail
+          mkdir -p out/mooncake-probe
+          declared_version="$(cat out/mooncake-probe/declared-version.txt 2>/dev/null || true)"
+          installed_version="$(cat out/mooncake-probe/installed-version.txt 2>/dev/null || true)"
+          probes='[]'; failures='[]'
+          if [ "${PROBE_OUTCOME}" = success ]; then
+            if [ "${declared_version}" != "${installed_version}" ]; then
+              status=failed
+              reason_code=mooncake-version-mismatch
+            else
+              status=success
+              reason_code=success
+            fi
+            probes="$(jq -n --arg runtime_image_digest "${RUNTIME_IMAGE_DIGEST}" \
               --arg cpu_architecture "${CPU_ARCHITECTURE}" --arg runner "${RUNNER_NAME}" \
               --arg declared_version "${declared_version}" \
               --arg installed_version "${installed_version}" \
-              '{runtime_id:$runtime_id,runtime_image:$runtime_image,runtime_image_digest:$runtime_image_digest,runtime_dockerfile:env.RUNTIME_DOCKERFILE,cpu_architecture:$cpu_architecture,runner:$runner,declared_version:$declared_version,installed_version:$installed_version,headers_path:"/usr/local/include/mooncake",libraries_path:"/usr/local/lib"}' \
-              >out/mooncake-probe/result.json
+              '[{runtime_image_digest:$runtime_image_digest,cpu_architecture:$cpu_architecture,runner:$runner,declared_version:$declared_version,installed_version:$installed_version,headers_path:"/usr/local/include/mooncake",libraries_path:"/usr/local/lib"}]')"
+          else
+            status=failed
+            reason_code=mooncake-probe-failed
+            failures="$(jq -n --arg runtime_id "${RUNTIME_ID}" --arg runtime_image "${RUNTIME_IMAGE}" \
+              --arg runtime_image_digest "${RUNTIME_IMAGE_DIGEST}" \
+              --arg runtime_dockerfile "${RUNTIME_DOCKERFILE}" \
+              --arg cpu_architecture "${CPU_ARCHITECTURE}" --arg runner "${RUNNER_NAME}" \
+              --arg outcome "${PROBE_OUTCOME}" \
+              '[{status:"failed",reason_code:"mooncake-probe-failed",source_kind:"mooncake-probe",source_id:$runtime_id,runtime_id:$runtime_id,runtime_image:$runtime_image,runtime_image_digest:$runtime_image_digest,cpu_architecture:$cpu_architecture,runner:$runner,builder_capability_id:null,builder_revision_id:null,evidence:{outcome:$outcome,runtime_dockerfile:$runtime_dockerfile}}]')"
           fi
+          jq -n --arg status "${status}" --arg reason_code "${reason_code}" \
+            --arg outcome "${PROBE_OUTCOME}" --arg runtime_id "${RUNTIME_ID}" \
+            --arg runtime_image "${RUNTIME_IMAGE}" \
+            --arg runtime_image_digest "${RUNTIME_IMAGE_DIGEST}" \
+            --arg runtime_dockerfile "${RUNTIME_DOCKERFILE}" \
+            --arg cpu_architecture "${CPU_ARCHITECTURE}" --arg runner "${RUNNER_NAME}" \
+            --argjson probes "${probes}" --argjson failures "${failures}" \
+            '{status:$status,reason_code:$reason_code,probes:$probes,failures:$failures,evidence:{outcome:$outcome,runtime_id:$runtime_id,runtime_image:$runtime_image,runtime_image_digest:$runtime_image_digest,runtime_dockerfile:$runtime_dockerfile,cpu_architecture:$cpu_architecture,runner:$runner,success:($status=="success"),failed:($status=="failed"),reason_codes:["mooncake-version-mismatch","mooncake-probe-failed"]}}' \
+            >out/mooncake-probe/result.json
       - if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -384,7 +232,7 @@ jobs:
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: ${{ needs.prepare.outputs.builder_catalog_artifact }}
+          name: ${{ needs.prepare.outputs.builder_source_artifact }}
           path: input/builder-source
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
@@ -560,7 +408,8 @@ jobs:
       matrix: ${{ fromJSON(needs.collect-builder-revisions.outputs.python_probe_matrix) }}
     runs-on: ${{ matrix.runner }}
     steps:
-      - name: Enumerate all Builder interpreters
+      - id: probe
+        name: Enumerate all Builder interpreters
         env:
           BUILDER_IMAGE: ${{ matrix.builder_image }}
           BUILDER_FACT_ID: ${{ matrix.builder_fact_id }}
@@ -573,6 +422,7 @@ jobs:
             *) exit 2 ;;
           esac
           mkdir -p out/python-probe
+          : >out/python-probe/probes.jsonl
           docker run --rm -v "${PWD}/out/python-probe:/out" "${BUILDER_IMAGE}" \
             bash -ceu '
               for interpreter in /opt/python/cp*-cp*/bin/python; do
@@ -584,11 +434,45 @@ jobs:
                   --arg python_abi "${abi}" --arg wheel_tag "${wheel_tag}" \
                   "{interpreter_path:\$interpreter_path,python_version:\$python_version,python_abi:\$python_abi,wheel_tag:\$wheel_tag}" >>/out/probes.jsonl
               done'
-          jq -s --arg builder_fact_id "${BUILDER_FACT_ID}" --arg builder_image "${BUILDER_IMAGE}" \
+          test -s out/python-probe/probes.jsonl
+      - name: Seal Python probe Result
+        if: ${{ always() }}
+        env:
+          PROBE_OUTCOME: ${{ steps.probe.outcome }}
+          BUILDER_IMAGE: ${{ matrix.builder_image }}
+          BUILDER_FACT_ID: ${{ matrix.builder_fact_id }}
+          TARGET_BUILDER_DIGEST: ${{ matrix.target_builder_digest }}
+          CPU_ARCHITECTURE: ${{ matrix.cpu_architecture }}
+        run: |
+          set -euo pipefail
+          mkdir -p out/python-probe
+          if [ "${PROBE_OUTCOME}" = success ]; then
+            status=success
+            probes="$(jq -s --arg builder_fact_id "${BUILDER_FACT_ID}" --arg builder_image "${BUILDER_IMAGE}" \
+              --arg target_builder_digest "${TARGET_BUILDER_DIGEST}" \
+              --arg cpu_architecture "${CPU_ARCHITECTURE}" --arg runner "${RUNNER_NAME}" \
+              '[.[] + {builder_fact_id:$builder_fact_id,builder_image:$builder_image,target_builder_digest:$target_builder_digest,cpu_architecture:$cpu_architecture,runner:$runner}]' \
+              out/python-probe/probes.jsonl)"
+            failures='[]'
+          else
+            status=failed
+            probes='[]'
+            interpreter_path="/opt/python/cp*-cp*/bin/python"
+            source_id="${BUILDER_FACT_ID}:${interpreter_path}"
+            failures="$(jq -n --arg builder_fact_id "${BUILDER_FACT_ID}" --arg builder_image "${BUILDER_IMAGE}" \
+              --arg target_builder_digest "${TARGET_BUILDER_DIGEST}" \
+              --arg cpu_architecture "${CPU_ARCHITECTURE}" --arg runner "${RUNNER_NAME}" \
+              --arg interpreter_path "${interpreter_path}" --arg source_id "${source_id}" \
+              --arg outcome "${PROBE_OUTCOME}" \
+              '[{status:"failed",reason_code:"python-probe-failed",source_kind:"python-probe",source_id:$source_id,builder_fact_id:$builder_fact_id,builder_image:$builder_image,target_builder_digest:$target_builder_digest,cpu_architecture:$cpu_architecture,runner:$runner,interpreter_path:$interpreter_path,builder_capability_id:null,builder_revision_id:null,runtime_id:null,evidence:{outcome:$outcome}}]')"
+          fi
+          jq -n --arg status "${status}" --arg outcome "${PROBE_OUTCOME}" \
+            --arg builder_fact_id "${BUILDER_FACT_ID}" --arg builder_image "${BUILDER_IMAGE}" \
             --arg target_builder_digest "${TARGET_BUILDER_DIGEST}" \
             --arg cpu_architecture "${CPU_ARCHITECTURE}" --arg runner "${RUNNER_NAME}" \
-            '{probes:[.[] + {builder_fact_id:$builder_fact_id,builder_image:$builder_image,target_builder_digest:$target_builder_digest,cpu_architecture:$cpu_architecture,runner:$runner}]}' \
-            out/python-probe/probes.jsonl >out/python-probe/result.json
+            --argjson probes "${probes}" --argjson failures "${failures}" \
+            '{status:$status,probes:$probes,failures:$failures,evidence:{outcome:$outcome,builder_fact_id:$builder_fact_id,builder_image:$builder_image,target_builder_digest:$target_builder_digest,cpu_architecture:$cpu_architecture,runner:$runner,success:($status=="success"),failed:($status=="failed"),reason_code:"python-probe-failed"}}' \
+            >out/python-probe/result.json
       - if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

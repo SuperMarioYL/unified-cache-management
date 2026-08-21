@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import re
 import shlex
+import subprocess
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from . import capabilities, core
 
@@ -45,7 +47,16 @@ _IDENTITY_FIELDS = (
 )
 
 BUILDER_FACT_PLAN_FIELDS = frozenset(
-    {"kind", "schema_version", "source_sha", "builder_plans", "failures", "matrix"}
+    {
+        "kind",
+        "schema_version",
+        "source_sha",
+        "upstream_reads",
+        "builders",
+        "builder_plans",
+        "failures",
+        "matrix",
+    }
 )
 BUILDER_PLAN_FIELDS = frozenset(
     {
@@ -118,6 +129,8 @@ COLLECTED_BUILDER_FACT_FIELDS = frozenset(
         "kind",
         "schema_version",
         "source_sha",
+        "upstream_reads",
+        "builders",
         "builder_sync",
         "builder_facts",
         "failures",
@@ -135,6 +148,9 @@ COLLECTED_FAILURE_FIELDS = frozenset(
         "target_tag",
         "target_builder_digest",
         "digest_readback",
+        "builder_capability_id",
+        "builder_revision_id",
+        "runtime_id",
         "evidence",
     }
 )
@@ -168,6 +184,12 @@ _SOURCE_BUILDER_FIELDS = frozenset(
         "target_repository",
         "target_tag",
     }
+)
+BUILDER_SOURCE_DISCOVERY_FIELDS = frozenset(
+    {"kind", "schema_version", "source_sha", "upstream_reads", "builders"}
+)
+UPSTREAM_READ_FIELDS = frozenset(
+    {"project", "source_kind", "source_path", "source_commit", "fact"}
 )
 _MOONCAKE_PROBE_FIELDS = frozenset(
     {
@@ -295,6 +317,7 @@ def load_config(
 class _SnapshotSource:
     def __init__(self, root: Path, project: str):
         self.root = root / project
+        self.commit = os.environ.get("GITHUB_SHA", "0" * 40)
 
     def read(self, path: str) -> str:
         source = self.root / path
@@ -319,6 +342,13 @@ class _GitHubSource:
         if not isinstance(branch, str) or not branch:
             raise ValueError(f"{project}: GitHub response has no default_branch")
         self.branch = branch
+        commit = self._json(
+            f"https://api.github.com/repos/{project}/commits/"
+            f"{urllib.parse.quote(branch, safe='')}"
+        ).get("sha")
+        if not isinstance(commit, str) or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+            raise ValueError(f"{project}: GitHub response has no branch commit")
+        self.commit = commit
 
     @staticmethod
     def _request(url: str) -> bytes:
@@ -344,9 +374,12 @@ class _GitHubSource:
         return _require_mapping(value, url)
 
     def read(self, path: str) -> str:
-        quoted_branch = urllib.parse.quote(self.branch, safe="")
+        quoted_commit = urllib.parse.quote(self.commit, safe="")
         quoted_path = urllib.parse.quote(path, safe="/")
-        url = f"https://raw.githubusercontent.com/{self.project}/{quoted_branch}/{quoted_path}"
+        url = (
+            f"https://raw.githubusercontent.com/{self.project}/"
+            f"{quoted_commit}/{quoted_path}"
+        )
         try:
             return self._request(url).decode("utf-8")
         except (OSError, UnicodeDecodeError) as error:
@@ -358,7 +391,7 @@ class _GitHubSource:
         quoted = urllib.parse.quote(directory, safe="/")
         url = (
             f"https://api.github.com/repos/{self.project}/contents/{quoted}"
-            f"?ref={urllib.parse.quote(self.branch, safe='')}"
+            f"?ref={urllib.parse.quote(self.commit, safe='')}"
         )
         try:
             value = json.loads(self._request(url))
@@ -784,6 +817,161 @@ def discover_builders(
     }
 
 
+def _resolve_image_digest(image: str) -> str:
+    try:
+        output = subprocess.run(
+            [
+                "docker",
+                "buildx",
+                "imagetools",
+                "inspect",
+                "--format",
+                "{{json .Manifest.Digest}}",
+                image,
+            ],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ValueError(
+            f"cannot resolve immutable digest for {image}: {error}"
+        ) from error
+    try:
+        digest = json.loads(output)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"invalid digest readback for {image}") from error
+    return capabilities._digest(digest, f"source image {image}")
+
+
+def discover_builder_sources(
+    config_path: Path = DEFAULT_CONFIG,
+    *,
+    snapshot_dir: Path | None = None,
+    owner: str | None = None,
+    source_sha: str | None = None,
+) -> dict[str, Any]:
+    """Discover typed Builder source facts with immutable provenance."""
+    config = load_config(config_path, require_legacy_mooncake=False)
+    resolved_owner = _owner(owner)
+    discovered: list[dict[str, str]] = []
+    upstream_reads: list[dict[str, str]] = []
+    for raw in config["projects"]:  # type: ignore[union-attr]
+        project = _require_mapping(raw, str(config_path))
+        project_name = str(project["project"])
+        source = (
+            _SnapshotSource(snapshot_dir, project_name)
+            if snapshot_dir is not None
+            else _GitHubSource(project_name)
+        )
+        if project["discovery"] == "vllm-buildkite":
+            rows = _discover_vllm(project, source, resolved_owner)
+            source_kind = "buildkite-build-base-image"
+            source_paths = [str(project["pipeline_path"])]
+            fact = "BUILD_BASE_IMAGE"
+        else:
+            rows = _discover_ascend(
+                project,
+                source,
+                resolved_owner,
+                include_mooncake_tag=False,
+                apply_variant_exclusions=False,
+            )
+            source_kind = "buildwheel-dockerfile"
+            directory = str(project["dockerfile_directory"])
+            source_paths = sorted(
+                {
+                    f"{directory}/{str(project['dockerfile_prefix'])}{row['variant']}"
+                    for row in rows
+                }
+            )
+            fact = "FROM"
+        discovered.extend(rows)
+        upstream_reads.extend(
+            {
+                "project": project_name,
+                "source_kind": source_kind,
+                "source_path": source_path,
+                "source_commit": source.commit,
+                "fact": fact,
+            }
+            for source_path in source_paths
+        )
+
+    release_commit = source_sha or os.environ.get("GITHUB_SHA")
+    capabilities._commit(release_commit, "Builder source discovery source_sha")
+    toolchain = RELEASE_ROOT / "toolchain.lock.yaml"
+    toolchain_sha = "sha256:" + hashlib.sha256(toolchain.read_bytes()).hexdigest()
+    typed_rows: list[dict[str, Any]] = []
+    source_digests: dict[str, str] = {}
+    for item in _deduplicate(discovered):
+        source_image = item["source_image"]
+        if source_image not in source_digests:
+            source_digests[source_image] = _resolve_image_digest(source_image)
+        source_repository, source_tag = item["source_image"].rsplit(":", 1)
+        accelerator = item["accelerator"]
+        recipe_path = (
+            ".github/release/docker/Dockerfile.builder"
+            if accelerator == "ascend"
+            else ".github/release/builders.yaml"
+        )
+        recipe = core.REPO_ROOT / recipe_path
+        source_path = (
+            f".github/workflows/dockerfiles/Dockerfile.buildwheel.{item['variant']}"
+            if accelerator == "ascend"
+            else str(
+                next(
+                    project["pipeline_path"]
+                    for project in config["projects"]  # type: ignore[union-attr]
+                    if project["project"] == item["project"]
+                )
+            )
+        )
+        target_tag = re.sub(
+            r"-cp[0-9]+-", "-cp-all-", item["target_tag"], flags=re.IGNORECASE
+        )
+        typed_rows.append(
+            {
+                "project": item["project"],
+                "accelerator": accelerator,
+                "accelerator_runtime": item["accelerator_runtime"],
+                "variant": item["variant"],
+                "cpu_architecture": item["cpu_arch"],
+                "manylinux": item["manylinux"],
+                "source_kind": (
+                    "buildkite-build-base-image"
+                    if accelerator == "cuda"
+                    else "buildwheel-dockerfile"
+                ),
+                "source_path": source_path,
+                "source_image_repository": source_repository,
+                "source_image_tag": source_tag,
+                "source_image_digest": source_digests[source_image],
+                "recipe_path": recipe_path,
+                "recipe_source_commit": release_commit,
+                "recipe_sha256": "sha256:"
+                + hashlib.sha256(recipe.read_bytes()).hexdigest(),
+                "toolchain_sha256": toolchain_sha,
+                "target_repository": item["target_repository"],
+                "target_tag": target_tag,
+            }
+        )
+    value = {
+        "kind": "ucm-builder-discovery",
+        "schema_version": 3,
+        "source_sha": release_commit,
+        "upstream_reads": sorted(
+            upstream_reads,
+            key=lambda row: (row["project"], row["source_path"]),
+        ),
+        "builders": sorted(
+            typed_rows,
+            key=lambda row: core.canonical_bytes(row),
+        ),
+    }
+    return validate_builder_source_discovery(value)
+
+
 def validate_catalog(catalog: object) -> dict[str, object]:
     mapping = _require_mapping(catalog, "builder catalog")
     if mapping.get("kind") != "ucm-builder-catalog":
@@ -854,6 +1042,70 @@ def _closed_fields(
         )
 
 
+def validate_builder_source_discovery(value: object) -> dict[str, Any]:
+    """Validate and return one closed, provenance-complete source discovery."""
+    discovery = _require_mapping(value, "Builder source discovery")
+    _closed_fields(
+        discovery,
+        BUILDER_SOURCE_DISCOVERY_FIELDS,
+        "Builder source discovery",
+    )
+    if discovery.get("kind") != "ucm-builder-discovery":
+        raise ValueError("Builder source discovery kind is invalid")
+    if discovery.get("schema_version") != 3:
+        raise ValueError("Builder source discovery schema_version must be 3")
+    capabilities._commit(
+        discovery.get("source_sha"), "Builder source discovery source_sha"
+    )
+    reads = discovery.get("upstream_reads")
+    if not isinstance(reads, list) or not reads:
+        raise ValueError("Builder source discovery upstream_reads must be non-empty")
+    for index, raw in enumerate(reads):
+        item = _require_mapping(raw, f"Builder upstream reads[{index}]")
+        _closed_fields(item, UPSTREAM_READ_FIELDS, f"Builder upstream reads[{index}]")
+        for field in ("project", "source_kind", "source_path", "fact"):
+            _require_string(item, field, f"Builder upstream reads[{index}]")
+        capabilities._commit(
+            item.get("source_commit"),
+            f"Builder upstream reads[{index}] source_commit",
+        )
+    sources = discovery.get("builders")
+    if not isinstance(sources, list) or not sources:
+        raise ValueError("Builder source discovery builders must be non-empty")
+    for index, raw in enumerate(sources):
+        item = _require_mapping(raw, f"Builder sources[{index}]")
+        _closed_fields(item, _SOURCE_BUILDER_FIELDS, f"Builder sources[{index}]")
+        for field in _SOURCE_BUILDER_FIELDS - {
+            "source_image_digest",
+            "recipe_source_commit",
+            "recipe_sha256",
+            "toolchain_sha256",
+        }:
+            _require_string(item, field, f"Builder sources[{index}]")
+        capabilities.compact_accelerator_runtime(item["accelerator_runtime"])
+        if capabilities.normalize_variant(item["variant"]) != item["variant"]:
+            raise ValueError(f"Builder sources[{index}] variant is not canonical")
+        if item["accelerator"] not in {"cuda", "ascend"}:
+            raise ValueError(f"Builder sources[{index}] accelerator is unsupported")
+        if item["cpu_architecture"] not in {"amd64", "arm64"}:
+            raise ValueError(f"Builder sources[{index}] architecture is unsupported")
+        capabilities._digest(
+            item["source_image_digest"],
+            f"Builder sources[{index}] source image digest",
+        )
+        capabilities._commit(
+            item["recipe_source_commit"],
+            f"Builder sources[{index}] recipe source commit",
+        )
+        capabilities._digest(
+            item["recipe_sha256"], f"Builder sources[{index}] recipe digest"
+        )
+        capabilities._digest(
+            item["toolchain_sha256"], f"Builder sources[{index}] toolchain digest"
+        )
+    return copy.deepcopy(discovery)
+
+
 def _fact_digest(value: dict[str, object], fields: tuple[str, ...]) -> str:
     return core.sha256_value({field: value[field] for field in fields})
 
@@ -907,7 +1159,7 @@ def plan_builder_facts(
     mooncake_probes: object,
 ) -> dict[str, object]:
     """Plan ABI-independent physical Builder targets from verified runtime facts."""
-    discovery = _require_mapping(builder_discovery, "Builder discovery")
+    discovery = validate_builder_source_discovery(builder_discovery)
     runtimes_input = _require_mapping(runtime_discovery, "runtime discovery")
     probes_input = _require_mapping(mooncake_probes, "Mooncake probes")
     source_sha = _require_string(discovery, "source_sha", "Builder discovery")
@@ -920,6 +1172,9 @@ def plan_builder_facts(
     probe_values = probes_input.get("probes")
     if not isinstance(probe_values, list):
         raise ValueError("Mooncake probes must be an array")
+    probe_failures = probes_input.get("failures", [])
+    if not isinstance(probe_failures, list):
+        raise ValueError("Mooncake probe failures must be an array")
 
     runtimes: list[tuple[dict[str, object], dict[str, Any]]] = []
     for index, raw in enumerate(runtime_values):
@@ -941,6 +1196,25 @@ def plan_builder_facts(
         if previous is not None and previous != probe:
             raise ValueError("conflicting Mooncake probe for one runtime")
         probes[key] = probe
+
+    failed_runtime_ids: set[str] = set()
+    for index, raw in enumerate(probe_failures):
+        failure = _require_mapping(raw, f"Mooncake probe failures[{index}]")
+        _closed_fields(
+            failure,
+            capabilities.MOONCAKE_PROBE_FAILURE_FIELDS,
+            f"Mooncake probe failures[{index}]",
+        )
+        if failure.get("status") != "failed" or failure.get("reason_code") != (
+            "mooncake-probe-failed"
+        ):
+            raise ValueError("Mooncake probe failure status/reason is invalid")
+        failed_runtime_ids.add(
+            capabilities._digest(
+                failure.get("runtime_id"),
+                f"Mooncake probe failures[{index}] runtime ID",
+            )
+        )
 
     plans_by_id: dict[str, dict[str, object]] = {}
     failures: list[dict[str, object]] = []
@@ -979,6 +1253,8 @@ def plan_builder_facts(
             probe = probes.get(
                 (runtime["runtime_image_digest"], runtime["cpu_architecture"])
             )
+            if probe is None and runtime_id in failed_runtime_ids:
+                continue
             if probe is None or not (
                 probe["declared_version"]
                 == probe["installed_version"]
@@ -1032,6 +1308,8 @@ def plan_builder_facts(
         "kind": "ucm-builder-fact-plan",
         "schema_version": 3,
         "source_sha": source_sha,
+        "upstream_reads": copy.deepcopy(discovery["upstream_reads"]),
+        "builders": copy.deepcopy(discovery["builders"]),
         "builder_plans": plans,
         "failures": failures,
         "matrix": {
@@ -1086,6 +1364,53 @@ def collect_builder_facts(plan: object, builder_results: object) -> dict[str, ob
 
     facts: list[dict[str, object]] = []
     failures: list[dict[str, object]] = []
+    plan_failures = planned.get("failures")
+    if not isinstance(plan_failures, list):
+        raise ValueError("Builder plan failures must be an array")
+    for index, raw in enumerate(plan_failures):
+        failure = _require_mapping(raw, f"Builder plan failures[{index}]")
+        _closed_fields(
+            failure,
+            BUILDER_PLAN_FAILURE_FIELDS,
+            f"Builder plan failures[{index}]",
+        )
+        reason_code = _require_string(
+            failure, "reason_code", f"Builder plan failures[{index}]"
+        )
+        if reason_code != "mooncake-version-mismatch":
+            raise ValueError(f"unsupported Builder plan failure {reason_code!r}")
+        runtime_id = capabilities._digest(
+            failure.get("runtime_id"),
+            f"Builder plan failures[{index}] runtime ID",
+        )
+        if failure.get("builder_plan_id") is not None:
+            raise ValueError("Mooncake plan failure cannot claim a Builder plan")
+        evidence = copy.deepcopy(
+            _require_mapping(
+                failure.get("evidence"), f"Builder plan failures[{index}] evidence"
+            )
+        )
+        failures.append(
+            {
+                "builder_plan_id": None,
+                "status": "failed",
+                "reason_code": reason_code,
+                "source_kind": _require_string(
+                    failure, "source_kind", f"Builder plan failures[{index}]"
+                ),
+                "source_id": _require_string(
+                    failure, "source_id", f"Builder plan failures[{index}]"
+                ),
+                "target_repository": None,
+                "target_tag": None,
+                "target_builder_digest": None,
+                "digest_readback": False,
+                "builder_capability_id": None,
+                "builder_revision_id": None,
+                "runtime_id": runtime_id,
+                "evidence": evidence,
+            }
+        )
     rows: list[dict[str, object]] = []
     for plan_id in sorted(plans_by_id):
         planned_item = plans_by_id[plan_id]
@@ -1149,18 +1474,29 @@ def collect_builder_facts(plan: object, builder_results: object) -> dict[str, ob
                     "target_tag": planned_item["target_tag"],
                     "target_builder_digest": result.get("target_builder_digest"),
                     "digest_readback": False,
+                    "builder_capability_id": None,
+                    "builder_revision_id": None,
+                    "runtime_id": None,
                     "evidence": evidence,
                 }
             )
         else:
             raise ValueError(f"unsupported Builder Result status {status!r}")
     facts.sort(key=lambda item: item["builder_fact_id"])
-    failures.sort(key=lambda item: item["builder_plan_id"])
+    failures.sort(
+        key=lambda item: (
+            str(item["reason_code"]),
+            str(item["source_id"]),
+            str(item["runtime_id"] or ""),
+        )
+    )
     rows.sort(key=lambda item: item["builder_fact_id"])
     return {
         "kind": "ucm-collected-builder-facts",
         "schema_version": 3,
         "source_sha": planned["source_sha"],
+        "upstream_reads": copy.deepcopy(planned["upstream_reads"]),
+        "builders": copy.deepcopy(planned["builders"]),
         "builder_sync": {
             "mode": "append-only",
             "target_digests_verified": True,

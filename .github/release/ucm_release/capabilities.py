@@ -5,7 +5,11 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import re
+import subprocess
+import urllib.parse
+import urllib.request
 from typing import Any
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
@@ -207,6 +211,43 @@ BUILDER_FAILURE_FIELDS = frozenset(
         "target_tag",
         "target_builder_digest",
         "digest_readback",
+        "builder_capability_id",
+        "builder_revision_id",
+        "runtime_id",
+        "evidence",
+    }
+)
+PYTHON_PROBE_FAILURE_FIELDS = frozenset(
+    {
+        "status",
+        "reason_code",
+        "source_kind",
+        "source_id",
+        "builder_fact_id",
+        "builder_image",
+        "target_builder_digest",
+        "cpu_architecture",
+        "runner",
+        "interpreter_path",
+        "builder_capability_id",
+        "builder_revision_id",
+        "runtime_id",
+        "evidence",
+    }
+)
+MOONCAKE_PROBE_FAILURE_FIELDS = frozenset(
+    {
+        "status",
+        "reason_code",
+        "source_kind",
+        "source_id",
+        "runtime_id",
+        "runtime_image",
+        "runtime_image_digest",
+        "cpu_architecture",
+        "runner",
+        "builder_capability_id",
+        "builder_revision_id",
         "evidence",
     }
 )
@@ -220,6 +261,19 @@ MOONCAKE_PROBE_FIELDS = frozenset(
         "headers_path",
         "libraries_path",
     }
+)
+RUNTIME_DISCOVERY_FIELDS = frozenset(
+    {
+        "kind",
+        "schema_version",
+        "source_sha",
+        "upstream_reads",
+        "runtime_candidates",
+        "runtime_probe_matrix",
+    }
+)
+UPSTREAM_READ_FIELDS = frozenset(
+    {"project", "source_kind", "source_path", "source_commit", "fact"}
 )
 
 _CAPABILITY_IDENTITY_FIELDS = (
@@ -484,6 +538,490 @@ def normalize_runtime_candidate(raw: object) -> dict[str, Any]:
     return record
 
 
+def _validate_upstream_reads(value: object, label: str) -> list[dict[str, Any]]:
+    reads = _array(value, label)
+    if not reads:
+        raise ValueError(f"{label} must be non-empty")
+    for index, raw in enumerate(reads):
+        read = _mapping(raw, f"{label}[{index}]")
+        _exact_fields(read, UPSTREAM_READ_FIELDS, f"{label}[{index}]")
+        for field in ("project", "source_kind", "source_path", "fact"):
+            _string(read[field], f"{label}[{index}] {field}")
+        _commit(read["source_commit"], f"{label}[{index}] source_commit")
+    return reads
+
+
+def discover_runtime_candidates(
+    builder_discovery: object, runtime_sources: object
+) -> dict[str, Any]:
+    """Bind immutable runtime images to one unambiguous variant Dockerfile."""
+    builders_input = _mapping(builder_discovery, "Builder source discovery")
+    sources_input = _mapping(runtime_sources, "runtime sources")
+    source_sha = _commit(
+        builders_input.get("source_sha"), "Builder source discovery source_sha"
+    )
+    runtime_source_sha = _commit(
+        sources_input.get("source_sha"), "runtime sources source_sha"
+    )
+    if runtime_source_sha != source_sha:
+        raise ValueError("Builder and runtime discovery source_sha differ")
+    builders = _array(builders_input.get("builders"), "Builder sources")
+    reads = _validate_upstream_reads(
+        sources_input.get("upstream_reads"), "runtime upstream reads"
+    )
+
+    records: list[dict[str, Any]] = []
+    matrix: list[dict[str, Any]] = []
+    for index, raw_value in enumerate(
+        _array(sources_input.get("candidates"), "runtime source candidates")
+    ):
+        raw = _mapping(raw_value, f"runtime source candidates[{index}]")
+        candidates = _array(
+            raw.get("variant_candidates"),
+            f"runtime source candidates[{index}] variant_candidates",
+        )
+        normalized_variants = sorted(
+            {normalize_variant(value) for value in candidates}
+        )
+        if len(normalized_variants) != 1:
+            raise ValueError("runtime candidate variant must be unique")
+        variant = normalized_variants[0]
+        accelerator = _string(
+            raw.get("accelerator"), f"runtime source candidates[{index}] accelerator"
+        )
+        architecture = _string(
+            raw.get("cpu_architecture"),
+            f"runtime source candidates[{index}] cpu_architecture",
+        )
+        if not any(
+            isinstance(builder, dict)
+            and builder.get("accelerator") == accelerator
+            and builder.get("variant") == variant
+            and builder.get("cpu_architecture") == architecture
+            for builder in builders
+        ):
+            raise ValueError("runtime candidate has no matching Builder platform")
+
+        git_ref = _mapping(
+            raw.get("git_ref"), f"runtime source candidates[{index}] git_ref"
+        )
+        git_tag = _string(
+            git_ref.get("tag"), f"runtime source candidates[{index}] git tag"
+        )
+        object_type = _string(
+            git_ref.get("object_type"),
+            f"runtime source candidates[{index}] git object type",
+        )
+        if object_type not in {"tag", "commit"}:
+            raise ValueError("runtime Git ref must resolve to a tag or commit")
+        git_commit = _commit(
+            git_ref.get("target_commit"),
+            f"runtime source candidates[{index}] target commit",
+        )
+
+        runtime_dockerfiles = _array(
+            raw.get("runtime_dockerfiles"),
+            f"runtime source candidates[{index}] runtime_dockerfiles",
+        )
+        matching = [
+            _mapping(item, "runtime Dockerfile")
+            for item in runtime_dockerfiles
+            if isinstance(item, dict)
+            and normalize_variant(item.get("variant")) == variant
+        ]
+        if accelerator == "ascend" and len(matching) != 1:
+            raise ValueError("runtime candidate must bind one matching Dockerfile")
+        dockerfile = matching[0] if matching else None
+        mooncake_version = None
+        mooncake_source_path = None
+        if dockerfile is not None:
+            mooncake_source_path = _string(
+                dockerfile.get("source_path"), "runtime Dockerfile source_path"
+            )
+            if _commit(
+                dockerfile.get("source_commit"), "runtime Dockerfile source_commit"
+            ) != git_commit:
+                raise ValueError("runtime Dockerfile commit differs from peeled tag")
+            mooncake_version = _string(
+                dockerfile.get("mooncake_version"),
+                "runtime Dockerfile Mooncake version",
+            )
+
+        record = {
+            "product_id": _string(raw.get("product_id"), "runtime product_id"),
+            "runtime_version": _string(
+                raw.get("runtime_version"), "runtime version"
+            ),
+            "channel": _string(raw.get("channel"), "runtime channel"),
+            "variant": variant,
+            "cpu_architecture": architecture,
+            "accelerator": accelerator,
+            "accelerator_runtime": _string(
+                raw.get("accelerator_runtime"), "accelerator runtime"
+            ),
+            "mooncake_version": mooncake_version,
+            "runtime_image_repository": _string(
+                raw.get("runtime_image_repository"), "runtime image repository"
+            ),
+            "runtime_image_tag": _string(
+                raw.get("runtime_image_tag"), "runtime image tag"
+            ),
+            "runtime_image_digest": _digest(
+                raw.get("runtime_image_digest"), "runtime image digest"
+            ),
+            "git_tag": git_tag,
+            "git_commit": git_commit,
+        }
+        if mooncake_source_path is not None:
+            record["mooncake_source_path"] = mooncake_source_path
+        normalized = normalize_runtime_candidate(record)
+        records.append(record)
+        if accelerator == "ascend":
+            read = next(
+                (
+                    item
+                    for item in reads
+                    if item["source_path"] == mooncake_source_path
+                    and item["source_commit"] == git_commit
+                ),
+                None,
+            )
+            if read is None:
+                raise ValueError("runtime Dockerfile has no matching upstream read")
+            raw_url = (
+                "https://raw.githubusercontent.com/"
+                f"{read['project']}/{git_commit}/{mooncake_source_path}"
+            )
+            matrix.append(
+                {
+                    "id": normalized["runtime_id"],
+                    "runtime_id": normalized["runtime_id"],
+                    "runtime_image": normalized["runtime_image"],
+                    "runtime_image_digest": record["runtime_image_digest"],
+                    "runtime_dockerfile": raw_url,
+                    "cpu_architecture": architecture,
+                    "runner": (
+                        "ubuntu-24.04-arm"
+                        if architecture == "arm64"
+                        else "ubuntu-24.04"
+                    ),
+                }
+            )
+
+    records.sort(key=lambda item: normalize_runtime_candidate(item)["runtime_id"])
+    matrix.sort(key=lambda item: item["id"])
+    result = {
+        "kind": "ucm-runtime-discovery",
+        "schema_version": 3,
+        "source_sha": source_sha,
+        "upstream_reads": copy.deepcopy(reads),
+        "runtime_candidates": records,
+        "runtime_probe_matrix": {"include": matrix},
+    }
+    _exact_fields(result, RUNTIME_DISCOVERY_FIELDS, "runtime discovery")
+    return result
+
+
+def _request_bytes(url: str) -> bytes:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "ucm-runtime-discovery",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    try:
+        with urllib.request.urlopen(
+            urllib.request.Request(url, headers=headers)
+        ) as response:
+            return response.read()
+    except OSError as error:
+        raise ValueError(
+            f"runtime discovery request failed for {url}: {error}"
+        ) from error
+
+
+def _request_json(url: str) -> Any:
+    try:
+        return json.loads(_request_bytes(url))
+    except json.JSONDecodeError as error:
+        raise ValueError(f"runtime discovery response is invalid for {url}") from error
+
+
+def _crane(*arguments: str) -> str:
+    try:
+        return subprocess.run(
+            ["crane", *arguments],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ValueError(f"crane {' '.join(arguments)} failed: {error}") from error
+
+
+def _peel_git_tag(project: str, tag: str) -> tuple[str, str]:
+    quoted_tag = urllib.parse.quote(tag, safe="")
+    ref = _mapping(
+        _request_json(
+            f"https://api.github.com/repos/{project}/git/ref/tags/{quoted_tag}"
+        ),
+        f"{project} tag {tag}",
+    )
+    target = _mapping(ref.get("object"), f"{project} tag {tag} object")
+    original_type = _string(target.get("type"), f"{project} tag {tag} object type")
+    object_type = original_type
+    sha = _string(target.get("sha"), f"{project} tag {tag} object sha")
+    for _ in range(8):
+        if object_type == "commit":
+            return original_type, _commit(sha, f"{project} tag {tag} commit")
+        if object_type != "tag":
+            raise ValueError(f"{project} tag {tag} resolves to {object_type!r}")
+        annotated = _mapping(
+            _request_json(f"https://api.github.com/repos/{project}/git/tags/{sha}"),
+            f"{project} annotated tag {tag}",
+        )
+        target = _mapping(
+            annotated.get("object"), f"{project} annotated tag {tag} object"
+        )
+        object_type = _string(
+            target.get("type"), f"{project} annotated tag {tag} object type"
+        )
+        sha = _string(
+            target.get("sha"), f"{project} annotated tag {tag} object sha"
+        )
+    raise ValueError(f"{project} tag {tag} has excessive annotation depth")
+
+
+def _runtime_dockerfiles(project: str, commit: str) -> list[dict[str, str]]:
+    tree = _mapping(
+        _request_json(
+            f"https://api.github.com/repos/{project}/git/trees/{commit}?recursive=1"
+        ),
+        f"{project} tree {commit}",
+    )
+    paths = sorted(
+        item["path"]
+        for item in _array(tree.get("tree"), f"{project} tree entries")
+        if isinstance(item, dict)
+        and item.get("type") == "blob"
+        and isinstance(item.get("path"), str)
+        and re.search(r"(?:^|/)Dockerfile\.runtime\.[^/]+$", item["path"])
+    )
+    values: list[dict[str, str]] = []
+    for path in paths:
+        variant = normalize_variant(path.rsplit(".", 1)[1])
+        quoted_path = urllib.parse.quote(path, safe="/")
+        text = _request_bytes(
+            f"https://raw.githubusercontent.com/{project}/{commit}/{quoted_path}"
+        ).decode("utf-8")
+        match = re.search(
+            r"(?m)^\s*ARG\s+MOONCAKE_TAG=v?([^\s#]+)", text
+        )
+        if match is None:
+            continue
+        values.append(
+            {
+                "variant": variant,
+                "source_path": path,
+                "source_commit": commit,
+                "mooncake_version": match.group(1),
+            }
+        )
+    return values
+
+
+def discover_live_runtime_candidates(
+    builder_discovery: object, release: object
+) -> dict[str, Any]:
+    """Discover current compatible runtime tags, digests, commits, and Dockerfiles."""
+    builders_input = _mapping(builder_discovery, "Builder source discovery")
+    release_input = _mapping(release, "release config")
+    products = _array(release_input.get("upstream_products"), "upstream products")
+    discovery = _mapping(release_input.get("discovery"), "release discovery")
+    limits = _mapping(discovery.get("scan_limits"), "release scan limits")
+    selected_limit = limits.get("max_selected_upstreams")
+    if not isinstance(selected_limit, int) or selected_limit < 1:
+        raise ValueError("max_selected_upstreams must be positive")
+    builders = _array(builders_input.get("builders"), "Builder sources")
+    source_sha = _commit(
+        builders_input.get("source_sha"), "Builder source discovery source_sha"
+    )
+    source_candidates: list[dict[str, Any]] = []
+    upstream_reads: list[dict[str, Any]] = []
+
+    for product_value in products:
+        product = _mapping(product_value, "upstream product")
+        product_id = _string(product.get("id"), "upstream product ID")
+        runtime_product = _string(
+            product.get("runtime_product"), "upstream runtime product"
+        )
+        repository = _string(product.get("repository"), "upstream repository")
+        try:
+            specifier = SpecifierSet(
+                _string(product.get("version_specifier"), "version specifier")
+            )
+        except InvalidSpecifier as error:
+            raise ValueError("upstream version specifier is invalid") from error
+        projects = sorted(
+            {
+                str(item["project"])
+                for item in builders
+                if isinstance(item, dict)
+                and isinstance(item.get("project"), str)
+                and str(item["project"]).rsplit("/", 1)[-1] == runtime_product
+            }
+        )
+        if len(projects) != 1:
+            raise ValueError(f"runtime product {runtime_product} has ambiguous project")
+        project = projects[0]
+        accelerator_values = {
+            str(item["accelerator"])
+            for item in builders
+            if isinstance(item, dict) and item.get("project") == project
+        }
+        if len(accelerator_values) != 1:
+            raise ValueError(
+                f"runtime product {runtime_product} has ambiguous accelerator"
+            )
+        accelerator = accelerator_values.pop()
+        builder_variants = sorted(
+            {
+                normalize_variant(item["variant"])
+                for item in builders
+                if isinstance(item, dict)
+                and item.get("project") == project
+                and isinstance(item.get("variant"), str)
+            }
+        )
+        builder_architectures = sorted(
+            {
+                str(item["cpu_architecture"])
+                for item in builders
+                if isinstance(item, dict) and item.get("project") == project
+            }
+        )
+        selected: list[tuple[Version, str]] = []
+        for tag in _crane("ls", repository).splitlines():
+            version_text = tag.removeprefix("v").split("-", 1)[0]
+            try:
+                version = Version(version_text)
+            except InvalidVersion:
+                continue
+            channel = "rc" if version.is_prerelease else "stable"
+            if channel not in product.get("channels", []):
+                continue
+            if specifier.contains(version, prereleases=True):
+                selected.append((version, tag))
+        for version, tag in sorted(selected, reverse=True)[:selected_limit]:
+            reference = f"{repository}:{tag}"
+            digest = _digest(_crane("digest", reference).strip(), reference)
+            config = _mapping(
+                json.loads(_crane("config", f"{repository}@{digest}")),
+                f"{reference} config",
+            )
+            config_value = _mapping(config.get("config", {}), f"{reference} config")
+            env = config_value.get("Env", [])
+            env_map = {
+                item.split("=", 1)[0]: item.split("=", 1)[1]
+                for item in env
+                if isinstance(item, str) and "=" in item
+            }
+            runtime_key = "CUDA_VERSION" if accelerator == "cuda" else "CANN_VERSION"
+            runtime_prefix = "cuda-" if accelerator == "cuda" else "cann-"
+            runtime = runtime_prefix + _string(
+                env_map.get(runtime_key), f"{reference} {runtime_key}"
+            )
+            git_tag = "v" + str(version)
+            original_type, commit = _peel_git_tag(project, git_tag)
+            dockerfiles = (
+                [] if accelerator == "cuda" else _runtime_dockerfiles(project, commit)
+            )
+            suffix = tag.removeprefix(git_tag).lstrip("-")
+            if accelerator == "cuda":
+                variant_candidates = ["default"]
+            elif suffix:
+                variant_candidates = [
+                    variant for variant in builder_variants if variant == suffix
+                ]
+            else:
+                dockerfile_variants = {
+                    item["variant"] for item in dockerfiles
+                }
+                variant_candidates = [
+                    variant
+                    for variant in builder_variants
+                    if variant in dockerfile_variants
+                ]
+
+            manifest = json.loads(_crane("manifest", f"{repository}@{digest}"))
+            manifests = (
+                manifest.get("manifests") if isinstance(manifest, dict) else None
+            )
+            if isinstance(manifests, list):
+                image_architectures = {
+                    item.get("platform", {}).get("architecture")
+                    for item in manifests
+                    if isinstance(item, dict)
+                    and isinstance(item.get("platform"), dict)
+                }
+            else:
+                image_architectures = {config.get("architecture")}
+            for architecture in builder_architectures:
+                if architecture not in image_architectures:
+                    continue
+                source_candidates.append(
+                    {
+                        "product_id": product_id,
+                        "runtime_version": str(version),
+                        "channel": (
+                            "rc" if version.is_prerelease else "stable"
+                        ),
+                        "accelerator": accelerator,
+                        "accelerator_runtime": runtime,
+                        "cpu_architecture": architecture,
+                        "variant_candidates": variant_candidates,
+                        "runtime_image_repository": repository,
+                        "runtime_image_tag": tag,
+                        "runtime_image_digest": digest,
+                        "git_ref": {
+                            "tag": git_tag,
+                            "object_type": original_type,
+                            "target_commit": commit,
+                        },
+                        "runtime_dockerfiles": copy.deepcopy(dockerfiles),
+                    }
+                )
+            if accelerator == "cuda":
+                upstream_reads.append(
+                    {
+                        "project": project,
+                        "source_kind": "runtime-image-and-git-tag",
+                        "source_path": repository,
+                        "source_commit": commit,
+                        "fact": "runtime-image",
+                    }
+                )
+            else:
+                upstream_reads.extend(
+                    {
+                        "project": project,
+                        "source_kind": "runtime-dockerfile-and-annotated-tag",
+                        "source_path": item["source_path"],
+                        "source_commit": commit,
+                        "fact": "MOONCAKE_TAG",
+                    }
+                    for item in dockerfiles
+                )
+    runtime_sources = {
+        "source_sha": source_sha,
+        "upstream_reads": _unique_records(upstream_reads),
+        "candidates": source_candidates,
+    }
+    return discover_runtime_candidates(builders_input, runtime_sources)
+
+
 def _validate_builder_sync(value: object) -> dict[str, Any]:
     sync = _mapping(value, "builder_sync")
     _exact_fields(sync, BUILDER_SYNC_FIELDS, "builder_sync")
@@ -583,8 +1121,6 @@ def assemble_capability_catalog(
         _array(runtimes_input.get("runtime_candidates"), "runtime candidates")
     ):
         raw = _mapping(raw_value, f"runtime candidates[{index}]")
-        if normalize_variant(raw.get("variant")) == "310p":
-            continue
         record = normalize_runtime_candidate(raw)
         previous = runtime_by_id.get(record["runtime_id"])
         if previous is not None and previous != record:
@@ -650,6 +1186,79 @@ def assemble_capability_catalog(
         probes_by_coordinate[coordinate] = probe
         probes_by_fact.setdefault(fact_id, []).append(probe)
 
+    failed_python_facts: set[str] = set()
+    for index, raw_value in enumerate(
+        _array(python_input.get("failures", []), "Python probe failures")
+    ):
+        failure = _mapping(raw_value, f"Python probe failures[{index}]")
+        _exact_fields(
+            failure,
+            PYTHON_PROBE_FAILURE_FIELDS,
+            f"Python probe failures[{index}]",
+        )
+        if failure["status"] != "failed" or failure["reason_code"] != (
+            "python-probe-failed"
+        ):
+            raise ValueError("Python probe failure status/reason is invalid")
+        if any(
+            failure[field] is not None
+            for field in (
+                "builder_capability_id",
+                "builder_revision_id",
+                "runtime_id",
+            )
+        ):
+            raise ValueError("Python probe failure cannot claim Catalog references")
+        fact_id = _digest(
+            failure["builder_fact_id"], "Python probe failure Builder fact ID"
+        )
+        fact = facts_by_id.get(fact_id)
+        if fact is None:
+            raise ValueError("Python probe failure references an unknown Builder fact")
+        digest = _digest(
+            failure["target_builder_digest"],
+            "Python probe failure target digest",
+        )
+        if digest != fact["target_builder_digest"]:
+            raise ValueError("Python probe failure target digest differs")
+        failed_python_facts.add(fact_id)
+        exclusions.append(
+            _exclusion(
+                reason_code="python-probe-failed",
+                source_kind=_string(
+                    failure["source_kind"], "Python probe failure source_kind"
+                ),
+                source_id=_string(
+                    failure["source_id"], "Python probe failure source_id"
+                ),
+                evidence={
+                    "builder_fact_id": fact_id,
+                    "builder_image": _string(
+                        failure["builder_image"],
+                        "Python probe failure builder image",
+                    ),
+                    "target_builder_digest": digest,
+                    "cpu_architecture": _string(
+                        failure["cpu_architecture"],
+                        "Python probe failure architecture",
+                    ),
+                    "runner": _string(
+                        failure["runner"], "Python probe failure runner"
+                    ),
+                    "interpreter_path": _string(
+                        failure["interpreter_path"],
+                        "Python probe failure interpreter",
+                    ),
+                    "failure": copy.deepcopy(
+                        _mapping(
+                            failure["evidence"],
+                            "Python probe failure evidence",
+                        )
+                    ),
+                },
+            )
+        )
+
     mooncake_by_runtime: dict[tuple[str, str], dict[str, Any]] = {}
     for index, raw_value in enumerate(
         _array(mooncake_input.get("probes"), "Mooncake probes")
@@ -663,6 +1272,68 @@ def assemble_capability_catalog(
         if key in mooncake_by_runtime and mooncake_by_runtime[key] != probe:
             raise ValueError("conflicting Mooncake probe for one runtime image")
         mooncake_by_runtime[key] = probe
+
+    for index, raw_value in enumerate(
+        _array(mooncake_input.get("failures", []), "Mooncake probe failures")
+    ):
+        failure = _mapping(raw_value, f"Mooncake probe failures[{index}]")
+        _exact_fields(
+            failure,
+            MOONCAKE_PROBE_FAILURE_FIELDS,
+            f"Mooncake probe failures[{index}]",
+        )
+        if failure["status"] != "failed" or failure["reason_code"] != (
+            "mooncake-probe-failed"
+        ):
+            raise ValueError("Mooncake probe failure status/reason is invalid")
+        if any(
+            failure[field] is not None
+            for field in ("builder_capability_id", "builder_revision_id")
+        ):
+            raise ValueError("Mooncake probe failure cannot claim Builders")
+        runtime_id = _digest(
+            failure["runtime_id"], "Mooncake probe failure runtime ID"
+        )
+        runtime = runtime_by_id.get(runtime_id)
+        if runtime is None:
+            raise ValueError("Mooncake probe failure references an unknown runtime")
+        digest = _digest(
+            failure["runtime_image_digest"],
+            "Mooncake probe failure runtime digest",
+        )
+        if failure["runtime_image"] != runtime["runtime_image"] or not runtime[
+            "runtime_image"
+        ].endswith("@" + digest):
+            raise ValueError("Mooncake probe failure runtime image differs")
+        exclusions.append(
+            _exclusion(
+                reason_code="mooncake-probe-failed",
+                source_kind=_string(
+                    failure["source_kind"], "Mooncake probe failure source_kind"
+                ),
+                source_id=_string(
+                    failure["source_id"], "Mooncake probe failure source_id"
+                ),
+                runtime_id=runtime_id,
+                evidence={
+                    "runtime_image": runtime["runtime_image"],
+                    "runtime_image_digest": digest,
+                    "cpu_architecture": _string(
+                        failure["cpu_architecture"],
+                        "Mooncake probe failure architecture",
+                    ),
+                    "runner": _string(
+                        failure["runner"], "Mooncake probe failure runner"
+                    ),
+                    "failure": copy.deepcopy(
+                        _mapping(
+                            failure["evidence"],
+                            "Mooncake probe failure evidence",
+                        )
+                    ),
+                },
+            )
+        )
 
     capability_by_id: dict[str, dict[str, Any]] = {}
     revision_by_id: dict[str, dict[str, Any]] = {}
@@ -688,39 +1359,72 @@ def assemble_capability_catalog(
     for raw_failure in _array(builders_input.get("failures", []), "Builder failures"):
         failure = _mapping(raw_failure, "Builder failure")
         _exact_fields(failure, BUILDER_FAILURE_FIELDS, "Builder failure")
-        if failure["status"] != "failed" or failure["reason_code"] != (
-            "builder-sync-failed"
-        ):
-            raise ValueError("Builder failure status/reason is invalid")
+        if failure["status"] != "failed":
+            raise ValueError("Builder failure status is invalid")
         if failure["target_builder_digest"] is not None:
             raise ValueError("Failed Builder must not claim a target digest")
         if failure["digest_readback"] is not False:
             raise ValueError("Failed Builder must record failed digest readback")
+        reason_code = _string(failure["reason_code"], "Builder failure reason")
+        if reason_code == "builder-sync-failed":
+            if any(
+                failure[field] is not None
+                for field in (
+                    "builder_capability_id",
+                    "builder_revision_id",
+                    "runtime_id",
+                )
+            ):
+                raise ValueError("Builder sync failure cannot claim Catalog references")
+            evidence = {
+                "builder_plan_id": _digest(
+                    failure["builder_plan_id"], "Builder failure plan ID"
+                ),
+                "status": "failed",
+                "target_repository": _string(
+                    failure["target_repository"],
+                    "Builder failure target repository",
+                ),
+                "target_tag": _string(
+                    failure["target_tag"], "Builder failure target tag"
+                ),
+                "target_builder_digest": None,
+                "digest_readback": False,
+                "failure": copy.deepcopy(
+                    _mapping(failure["evidence"], "Builder failure evidence")
+                ),
+            }
+            runtime_id = None
+        elif reason_code == "mooncake-version-mismatch":
+            if failure["builder_plan_id"] is not None or any(
+                failure[field] is not None
+                for field in ("builder_capability_id", "builder_revision_id")
+            ):
+                raise ValueError("Mooncake mismatch cannot claim Builder references")
+            runtime_id = _digest(
+                failure["runtime_id"], "Mooncake mismatch runtime ID"
+            )
+            if runtime_id not in runtime_by_id:
+                raise ValueError("Mooncake mismatch references an unknown runtime")
+            if any(
+                failure[field] is not None
+                for field in ("target_repository", "target_tag")
+            ):
+                raise ValueError("Mooncake mismatch cannot claim a Builder target")
+            evidence = copy.deepcopy(
+                _mapping(failure["evidence"], "Mooncake mismatch evidence")
+            )
+        else:
+            raise ValueError(f"unsupported Builder failure {reason_code!r}")
         exclusions.append(
             _exclusion(
-                reason_code="builder-sync-failed",
+                reason_code=reason_code,
                 source_kind=_string(
                     failure["source_kind"], "Builder failure source_kind"
                 ),
                 source_id=_string(failure["source_id"], "Builder failure source_id"),
-                evidence={
-                    "builder_plan_id": _digest(
-                        failure["builder_plan_id"], "Builder failure plan ID"
-                    ),
-                    "status": "failed",
-                    "target_repository": _string(
-                        failure["target_repository"],
-                        "Builder failure target repository",
-                    ),
-                    "target_tag": _string(
-                        failure["target_tag"], "Builder failure target tag"
-                    ),
-                    "target_builder_digest": None,
-                    "digest_readback": False,
-                    "failure": copy.deepcopy(
-                        _mapping(failure["evidence"], "Builder failure evidence")
-                    ),
-                },
+                runtime_id=runtime_id,
+                evidence=evidence,
             )
         )
 
@@ -731,6 +1435,8 @@ def assemble_capability_catalog(
         source_digest = fact["source_image_digest"]
         probes = probes_by_fact.get(fact_id)
         if not probes:
+            if fact_id in failed_python_facts:
+                continue
             raise ValueError("Builder has no matching native Python probe")
         accelerator = fact["accelerator"]
         accelerator_runtime = fact["accelerator_runtime"]
@@ -878,30 +1584,6 @@ def assemble_capability_catalog(
                     capability["accelerator"] == "ascend"
                     and runtime["runtime_id"] != fact["mooncake_source_runtime_id"]
                 ):
-                    if mooncake_probe is not None and (
-                        mooncake_probe.get("installed_version")
-                        != mooncake_probe.get("declared_version")
-                    ):
-                        exclusions.append(
-                            _exclusion(
-                                reason_code="mooncake-version-mismatch",
-                                source_kind="mooncake-probe",
-                                source_id=runtime["runtime_image"],
-                                builder_capability_id=capability[
-                                    "builder_capability_id"
-                                ],
-                                builder_revision_id=revision_id,
-                                runtime_id=runtime["runtime_id"],
-                                evidence={
-                                    "declared_version": mooncake_probe[
-                                        "declared_version"
-                                    ],
-                                    "installed_version": mooncake_probe[
-                                        "installed_version"
-                                    ],
-                                },
-                            )
-                        )
                     continue
                 if mooncake_probe is not None and (
                     mooncake_probe.get("installed_version")
@@ -1242,16 +1924,17 @@ def validate_capability_catalog(value: object) -> dict[str, Any]:
             "python-requires-mismatch",
             "variant-filtered-310p",
             "builder-sync-failed",
+            "python-probe-failed",
         }:
             if any(
                 item is not None for item in (capability_id, revision_id, runtime_id)
             ):
                 raise ValueError("Source exclusion must not invent Catalog references")
-        elif reason == "mooncake-version-mismatch":
-            if any(item is None for item in (capability_id, revision_id, runtime_id)):
-                raise ValueError("Mooncake mismatch must identify its exact target")
-            if revisions_by_id[revision_id]["builder_capability_id"] != capability_id:
-                raise ValueError("Mooncake mismatch revision/capability differ")
+        elif reason in {"mooncake-version-mismatch", "mooncake-probe-failed"}:
+            if capability_id is not None or revision_id is not None:
+                raise ValueError("Runtime probe exclusion must not invent Builders")
+            if runtime_id is None:
+                raise ValueError("Runtime probe exclusion must identify its runtime")
         else:
             raise ValueError(f"unsupported exclusion reason {reason!r}")
         key = _exclusion_key(exclusion)

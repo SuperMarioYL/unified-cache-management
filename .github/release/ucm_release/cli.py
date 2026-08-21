@@ -31,14 +31,28 @@ def _write(path: Path, value: object) -> None:
 def _load_result_records(path: Path, key: str, kind: str) -> dict[str, object]:
     paths = [path] if path.is_file() else sorted(path.rglob("result.json"))
     records: list[object] = []
+    failures: list[object] = []
+    statuses: list[str] = []
     for item_path in paths:
         value = core.load_json(item_path)
+        status = value.get("status")
+        if isinstance(status, str):
+            statuses.append(status)
         nested = value.get(key)
         if isinstance(nested, list):
             records.extend(nested)
         else:
             records.append(value)
-    return {"kind": kind, "schema_version": 3, key: records}
+        nested_failures = value.get("failures")
+        if isinstance(nested_failures, list):
+            failures.extend(nested_failures)
+    return {
+        "kind": kind,
+        "schema_version": 3,
+        "status": "failed" if "failed" in statuses or failures else "success",
+        key: records,
+        "failures": failures,
+    }
 
 
 def _load_mooncake_probes(path: Path) -> dict[str, object]:
@@ -60,51 +74,6 @@ def _load_mooncake_probes(path: Path) -> dict[str, object]:
         )
     collected["probes"] = probes
     return collected
-
-
-def _builder_catalog_projection(value: object) -> dict[str, object]:
-    catalog = capabilities.validate_capability_catalog(value)
-    revisions = {
-        item["builder_revision_id"]: item for item in catalog["builder_revisions"]
-    }
-    builders_by_coordinate: dict[tuple[str, ...], dict[str, str]] = {}
-    for capability in catalog["builder_capabilities"]:
-        revision = revisions[capability["builder_revision_ids"][-1]]
-        accelerator = capability["accelerator"]
-        builder = {
-            "project": (
-                "vllm-project/vllm"
-                if accelerator == "cuda"
-                else "vllm-project/vllm-ascend"
-            ),
-            "accelerator": accelerator,
-            "accelerator_runtime": capability["accelerator_runtime"],
-            "variant": capability["variant"],
-            "python_abi": capability["python_abi"],
-            "manylinux": capability["manylinux"],
-            "cpu_arch": capability["cpu_architecture"],
-            "source_image": f"{revision['source_image_repository']}:catalog-source",
-            "target_repository": revision["target_repository"],
-            "target_tag": revision["target_tag"],
-            "build_mode": "mirror" if accelerator == "cuda" else "extend",
-        }
-        coordinate = tuple(
-            builder[field]
-            for field in (
-                "accelerator",
-                "accelerator_runtime",
-                "variant",
-                "python_abi",
-                "manylinux",
-                "cpu_arch",
-            )
-        )
-        builders_by_coordinate[coordinate] = builder
-    return {
-        "kind": "ucm-builder-catalog",
-        "schema_version": 1,
-        "builders": [builders_by_coordinate[key] for key in sorted(builders_by_coordinate)],
-    }
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -133,6 +102,36 @@ def build_parser() -> argparse.ArgumentParser:
         return result
 
     builders_discover.set_defaults(func=_cmd_builders_discover)
+
+    builders_discover_sources = builders_actions.add_parser("discover-sources")
+    builders_discover_sources.add_argument(
+        "--config", type=Path, default=builders.DEFAULT_CONFIG
+    )
+    builders_discover_sources.add_argument(
+        "--snapshot", "--snapshot-dir", dest="snapshot", type=Path
+    )
+    builders_discover_sources.add_argument("--owner")
+    builders_discover_sources.add_argument("--legacy-output", type=Path, required=True)
+    builders_discover_sources.add_argument("--output", type=Path, required=True)
+
+    def _cmd_builders_discover_sources(a):
+        legacy = builders.discover_builders(
+            a.config,
+            snapshot_dir=a.snapshot,
+            owner=a.owner,
+        )
+        discovered = builders.discover_builder_sources(
+            a.config,
+            snapshot_dir=a.snapshot,
+            owner=a.owner,
+        )
+        a.legacy_output.parent.mkdir(parents=True, exist_ok=True)
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.legacy_output, legacy)
+        _write(a.output, discovered)
+        return discovered
+
+    builders_discover_sources.set_defaults(func=_cmd_builders_discover_sources)
 
     builders_sync_plan = builders_actions.add_parser("sync-plan")
     builders_sync_plan.add_argument("--catalog", type=Path, required=True)
@@ -206,22 +205,15 @@ def build_parser() -> argparse.ArgumentParser:
     compact_plan = compact_actions.add_parser("plan")
     compact_plan.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
     compact_plan.add_argument("--schema-dir", type=Path, default=core.DEFAULT_SCHEMA_DIR)
-    compact_catalog = compact_plan.add_mutually_exclusive_group(required=True)
-    compact_catalog.add_argument("--builder-catalog", type=Path)
-    compact_catalog.add_argument("--capability-catalog", type=Path)
+    compact_plan.add_argument("--builder-catalog", type=Path, required=True)
     compact_plan.add_argument("--route", choices=tuple(sorted(compact.ROUTES)), required=True)
     compact_plan.add_argument("--pin-upstream", action="append", default=None)
     compact_plan.add_argument("--output", type=Path, required=True)
 
     def _cmd_compact_plan(a):
-        builder_catalog = (
-            _builder_catalog_projection(core.load_json(a.capability_catalog))
-            if a.capability_catalog is not None
-            else core.load_json(a.builder_catalog)
-        )
         result = compact.resolve_plan(
             core.load_catalog(a.catalog, a.schema_dir),
-            builder_catalog=builder_catalog,
+            builder_catalog=core.load_json(a.builder_catalog),
             route=a.route,
             pinned_upstreams=a.pin_upstream,
         )
@@ -260,6 +252,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     catalog_parser = groups.add_parser("catalog")
     catalog_actions = catalog_parser.add_subparsers(dest="action", required=True)
+    discover_runtimes = catalog_actions.add_parser("discover-runtimes")
+    discover_runtimes.add_argument("--builder-catalog", type=Path, required=True)
+    discover_runtimes.add_argument("--output", type=Path, required=True)
+
+    def _cmd_discover_runtimes(a):
+        result = capabilities.discover_live_runtime_candidates(
+            core.load_json(a.builder_catalog), core.load_catalog()
+        )
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.output, result)
+        return result
+
+    discover_runtimes.set_defaults(func=_cmd_discover_runtimes)
+
     assemble_capabilities = catalog_actions.add_parser("assemble-capabilities")
     assemble_capabilities.add_argument("--builder-facts", type=Path, required=True)
     assemble_capabilities.add_argument("--python-probes", type=Path, required=True)

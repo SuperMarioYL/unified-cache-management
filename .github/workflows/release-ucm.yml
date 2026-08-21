@@ -53,8 +53,8 @@ jobs:
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: ${{ needs.sync-builders.outputs.capability_catalog_artifact }}
-          path: input/capabilities
+          name: ${{ needs.sync-builders.outputs.builder_catalog_artifact }}
+          path: input/builders
       - name: Install crane for tag discovery
         run: |
           set -euo pipefail
@@ -74,8 +74,10 @@ jobs:
             *) echo "unsupported release invocation" >&2; exit 2 ;;
           esac
           mkdir -p out/plan
+          mv input/builders/legacy-builder-catalog.json \
+            input/builders/builder-catalog.json
           PYTHONPATH=.github/release python -m ucm_release compact plan \
-            --capability-catalog input/capabilities/capability-catalog.json \
+            --builder-catalog input/builders/builder-catalog.json \
             --route "${route}" --output out/plan/release-plan.json >/dev/null
           artifact="ucm-release-plan-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           {
