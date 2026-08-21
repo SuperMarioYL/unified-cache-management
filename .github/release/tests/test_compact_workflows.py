@@ -92,7 +92,7 @@ def _shell_variable(variable: str) -> str:
 def _has_failure_command(body: str) -> bool:
     return (
         re.search(
-            r"(?m)(?:^|[;&])[ \t]*"
+            r"(?m)(?:^|[;&)])[ \t]*"
             r"(?:exit(?:\s+[1-9][0-9]*)?|return(?:\s+[1-9][0-9]*)?|false)\b",
             body,
         )
@@ -321,6 +321,31 @@ def _structured_json_producer(branch: str, path: str) -> str | None:
         ):
             return producer
     return None
+
+
+def _has_executable_failure_marker(source: str, marker: str) -> bool:
+    source = _noncomment_shell(source)
+    branches = [
+        match.group(0)
+        for pattern in (
+            r"(?ms)^\s*if\b.*?^\s*fi(?:\s*;)?\s*$",
+            r"(?ms)^\s*case\b.*?^\s*esac(?:\s*;)?\s*$",
+        )
+        for match in re.finditer(pattern, source)
+    ]
+    shell_failure = any(
+        marker in branch and _has_failure_command(branch) for branch in branches
+    )
+    python_failure = re.search(
+        rf"(?ms)^\s*if[^\n]*{re.escape(marker)}[^\n]*:\s*\n"
+        r"(?:(?:[ \t]+).*\n?)*?(?:raise\b|sys\.exit\s*\()",
+        source,
+    )
+    return shell_failure or python_failure is not None
+
+
+def _assert_executable_failure_marker(source: str, marker: str) -> None:
+    assert _has_executable_failure_marker(source, marker)
 
 
 def _string_values(value: object) -> list[str]:
@@ -652,12 +677,19 @@ def test_builder_sync_plan_waits_for_runtime_and_mooncake_results() -> None:
     job = workflow["jobs"].get("plan-builder-sync")
 
     assert isinstance(job, dict), "missing stable plan-builder-sync job"
-    assert _needs(job) == {"prepare", "discover-runtimes", "probe-mooncake"}
+    assert {"prepare", "discover-runtimes", "probe-mooncake"} <= _needs(job)
     condition = str(job.get("if", ""))
     assert "always()" in condition
-    for dependency in ("prepare", "discover-runtimes", "probe-mooncake"):
-        assert f"needs.{dependency}.result" in condition
-    assert "success" in condition
+    for dependency in ("prepare", "discover-runtimes"):
+        assert re.search(
+            rf"needs\.{re.escape(dependency)}\.result\s*==\s*['\"]success['\"]",
+            condition,
+        )
+    assert set(re.findall(r"needs\.([a-z0-9-]+)\.result", condition)) == {
+        "prepare",
+        "discover-runtimes",
+    }
+    assert "needs.probe-mooncake.result" not in condition
     assert {"builder_plan_artifact", "matrix"} <= set(job.get("outputs", {}))
 
     required_downloads = {
@@ -698,8 +730,13 @@ def test_builder_sync_plan_waits_for_runtime_and_mooncake_results() -> None:
         if "out/builder-sync-plan.json" in str(step.get("run", ""))
     ]
     assert len(plan_steps) == 1
-    run = str(plan_steps[0]["run"])
+    plan = plan_steps[0]
+    assert plan.get("id") == "plan"
+    run = _noncomment_shell(str(plan["run"]))
+    producer = _structured_json_producer(run, "out/builder-sync-plan.json")
+    assert producer is not None
     for field in (
+        "builder_plan_id",
         "accelerator",
         "target_repository",
         "target_tag",
@@ -709,8 +746,9 @@ def test_builder_sync_plan_waits_for_runtime_and_mooncake_results() -> None:
         "mooncake_source_runtime_image",
         "mooncake_version",
     ):
-        assert field in run
+        assert field in producer
     assert "matrix=" in run
+    assert "builder_plan_artifact=" in run
     assert "${GITHUB_OUTPUT}" in run
     for premature in (
         "builder_fact_id",
@@ -719,6 +757,20 @@ def test_builder_sync_plan_waits_for_runtime_and_mooncake_results() -> None:
         "python_probe_matrix",
     ):
         assert premature not in run
+    assert job["outputs"]["builder_plan_artifact"] == (
+        "${{ steps.plan.outputs.builder_plan_artifact }}"
+    )
+    assert job["outputs"]["matrix"] == "${{ steps.plan.outputs.matrix }}"
+    uploads = _artifact_steps(job, "upload")
+    assert len(uploads) == 1
+    assert uploads[0].get("if") == "${{ always() }}"
+    assert uploads[0]["with"] == {
+        "name": "${{ steps.plan.outputs.builder_plan_artifact }}",
+        "path": "out/builder-sync-plan.json",
+        "if-no-files-found": "error",
+        "overwrite": False,
+        "retention-days": 7,
+    }
 
 
 def test_builder_fanout_always_emits_existing_built_or_failed_result() -> None:
@@ -741,7 +793,7 @@ def test_builder_fanout_always_emits_existing_built_or_failed_result() -> None:
     assert "matrix.target_builder_digest" not in job_source
 
     build = _step_named(job, "Build missing Builder")
-    build_run = str(build.get("run", ""))
+    build_run = _noncomment_shell(str(build.get("run", "")))
     assert "docker buildx imagetools inspect" in build_run
     assert "docker buildx build" in build_run or "imagetools create" in build_run
     result_steps = [
@@ -752,13 +804,16 @@ def test_builder_fanout_always_emits_existing_built_or_failed_result() -> None:
     assert len(result_steps) == 1
     result = result_steps[0]
     assert "always()" in str(result.get("if", ""))
-    result_run = str(result["run"])
+    result_run = _noncomment_shell(str(result["run"]))
     assert "docker buildx imagetools inspect" in result_run
-    assert _structured_json_producer(
-        _noncomment_shell(result_run), "out/builder-result/result.json"
+    producer = _structured_json_producer(
+        result_run, "out/builder-result/result.json"
     )
+    assert producer is not None
     for field in (
+        "builder_plan_id",
         "status",
+        "readback",
         "evidence",
         "target_repository",
         "target_tag",
@@ -768,7 +823,7 @@ def test_builder_fanout_always_emits_existing_built_or_failed_result() -> None:
         "mooncake_source_runtime_image",
         "mooncake_version",
     ):
-        assert field in result_run
+        assert field in producer
     for status in ("existing", "built", "failed"):
         assert status in job_source
     uploads = _artifact_steps(job, "upload")
@@ -791,7 +846,7 @@ def test_builder_collector_links_every_result_before_python_probe_matrix() -> No
     job = workflow["jobs"].get("collect-builder-revisions")
 
     assert isinstance(job, dict), "missing stable collect-builder-revisions job"
-    assert _needs(job) == {"plan-builder-sync", "build-missing"}
+    assert {"plan-builder-sync", "build-missing"} <= _needs(job)
     condition = str(job.get("if", ""))
     assert "always()" in condition
     assert "needs.plan-builder-sync.result" in condition and "success" in condition
@@ -829,9 +884,33 @@ def test_builder_collector_links_every_result_before_python_probe_matrix() -> No
     assert required_downloads <= downloads
     collect_steps = [step for step in job["steps"] if step.get("id") == "collect"]
     assert len(collect_steps) == 1
-    run = str(collect_steps[0]["run"])
+    run = _noncomment_shell(str(collect_steps[0]["run"]))
     assert "out/builder-facts.json" in run
+    assert re.search(
+        r"(?:planned[\s\S]*?builder_plan_id|builder_plan_id[\s\S]*?planned)",
+        run,
+        re.IGNORECASE,
+    )
+    assert re.search(
+        r"(?:result[\s\S]*?builder_plan_id|builder_plan_id[\s\S]*?result)",
+        run,
+        re.IGNORECASE,
+    )
+    for relation in (
+        r"(?:missing[\s\S]*?planned[\s\S]*?result|"
+        r"planned[\s\S]*?result[\s\S]*?missing)",
+        r"(?:unexpected[\s\S]*?result[\s\S]*?planned|"
+        r"result[\s\S]*?planned[\s\S]*?unexpected)",
+        r"(?:duplicate[\s\S]*?builder_plan_id|"
+        r"builder_plan_id[\s\S]*?duplicate)",
+    ):
+        assert re.search(relation, run, re.IGNORECASE)
+    for marker in ("missing", "unexpected", "duplicate"):
+        _assert_executable_failure_marker(run, marker)
+    producer = _structured_json_producer(run, "out/builder-facts.json")
+    assert producer is not None
     for field in (
+        "builder_plan_id",
         "builder_fact_id",
         "builder_image",
         "target_builder_digest",
@@ -839,14 +918,17 @@ def test_builder_collector_links_every_result_before_python_probe_matrix() -> No
         "cpu_architecture",
         "status",
         "evidence",
+        "builder_facts",
+        "failures",
         "python_probe_matrix",
     ):
-        assert field in run
+        assert field in producer
     assert "builder_revision_id" not in run
     assert "builder_source_image_digest" not in run
     for status in ("existing", "built", "failed"):
-        assert status in run
-    assert "length" in run or "count" in run
+        assert status in producer
+    assert "resolved" in producer
+    assert "length" in run or "count" in run or "Counter" in run
     assert "${GITHUB_OUTPUT}" in run
     uploads = _artifact_steps(job, "upload")
     assert len(uploads) == 1
@@ -860,17 +942,56 @@ def test_builder_collector_links_every_result_before_python_probe_matrix() -> No
     }
 
 
+@pytest.mark.parametrize(
+    ("status", "collection"),
+    [
+        pytest.param("existing", "builder_facts", id="zero-new-existing-readback"),
+        pytest.param("built", "builder_facts", id="same-run-built-target"),
+        pytest.param("failed", "failures", id="failed-new-target-is-local"),
+    ],
+)
+def test_builder_collector_routes_static_result_cases_without_global_failure(
+    status: str,
+    collection: str,
+) -> None:
+    workflow = _load("sync-builders.yml")
+    job = workflow["jobs"].get("collect-builder-revisions")
+
+    assert isinstance(job, dict), "missing stable collect-builder-revisions job"
+    collect = [step for step in job["steps"] if step.get("id") == "collect"]
+    assert len(collect) == 1
+    run = _noncomment_shell(str(collect[0]["run"]))
+    producer = _structured_json_producer(run, "out/builder-facts.json")
+    assert producer is not None
+    assert re.search(
+        rf"(?:{re.escape(status)}[\s\S]*?{re.escape(collection)}|"
+        rf"{re.escape(collection)}[\s\S]*?{re.escape(status)})",
+        producer,
+        re.IGNORECASE,
+    )
+    if status in {"existing", "built"}:
+        assert "resolved" in producer
+        assert "python_probe_matrix" in producer
+    else:
+        assert "evidence" in producer
+        assert not _has_executable_failure_marker(run, "failed")
+        assert "existing" in producer
+        assert "built" in producer
+        assert "builder_facts" in producer
+        assert "python_probe_matrix" in producer
+
+
 def test_catalog_assembly_waits_for_all_results_and_calls_public_seam() -> None:
     workflow = _load("sync-builders.yml")
     assembly = workflow["jobs"].get("assemble-capability-catalog")
 
     assert isinstance(assembly, dict), "missing Capability Catalog assembly job"
-    assert _needs(assembly) == {
+    assert {
         "collect-builder-revisions",
         "probe-python",
         "discover-runtimes",
         "probe-mooncake",
-    }
+    } <= _needs(assembly)
     assert assembly.get("if") == "${{ always() }}"
     downloads = _artifact_steps(assembly, "download")
     required_download_values = [
@@ -907,10 +1028,24 @@ def test_catalog_assembly_waits_for_all_results_and_calls_public_seam() -> None:
     assert required_downloads <= actual_downloads
     catalog_steps = [step for step in assembly["steps"] if step.get("id") == "catalog"]
     assert len(catalog_steps) == 1
-    run = str(catalog_steps[0]["run"])
+    run = _noncomment_shell(str(catalog_steps[0]["run"]))
     assert "assemble_capability_catalog" in run
     assert "validate_capability_catalog" in run
     assert "out/capability-catalog.json" in run
+    assert "input/builders/builder-facts.json" in run
+    assert "failures" in run
+    assert "exclusion" in run
+    direct_failures = re.search(
+        r"assemble_capability_catalog\s*\([\s\S]*?"
+        r"(?:builder_failures|failures)\s*=",
+        run,
+    )
+    collected_failures = re.search(
+        r"[\"']failures[\"'][\s\S]*?"
+        r"assemble_capability_catalog\s*\([\s\S]*?builder_discovery",
+        run,
+    )
+    assert direct_failures or collected_failures
     assert (
         "ucm-capability-catalog-run-${GITHUB_RUN_ID}-attempt-"
         "${GITHUB_RUN_ATTEMPT}" in run
