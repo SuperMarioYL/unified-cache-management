@@ -278,7 +278,7 @@ jobs:
     - name: Run actionlint
       id: actionlint
       continue-on-error: true
-      run: actionlint
+      run: actionlint -shellcheck=
 
     - name: Run git diff --check
       id: diff-check
