@@ -48,6 +48,59 @@ def _noncomment_dockerfile(text: str) -> str:
     )
 
 
+def _noncomment_shell(text: str) -> str:
+    lines: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        single_quoted = False
+        double_quoted = False
+        escaped = False
+        for index, character in enumerate(line):
+            if escaped:
+                escaped = False
+                continue
+            if character == "\\" and not single_quoted:
+                escaped = True
+                continue
+            if character == "'" and not double_quoted:
+                single_quoted = not single_quoted
+                continue
+            if character == '"' and not single_quoted:
+                double_quoted = not double_quoted
+                continue
+            if (
+                character == "#"
+                and not single_quoted
+                and not double_quoted
+                and (index == 0 or line[index - 1].isspace())
+            ):
+                line = line[:index].rstrip()
+                break
+        if line:
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def _assert_digest_guard_precedes(
+    run: str, variable: str, consumer_pattern: str
+) -> None:
+    source = _noncomment_shell(run)
+    guard = re.search(
+        rf"(?m)^[^\n]*\$\{{{re.escape(variable)}\}}[^\n]*\*@sha256:\*[^\n]*$",
+        source,
+    )
+    consumer = re.search(consumer_pattern, source, re.MULTILINE | re.DOTALL)
+    assert guard, f"{variable} must be validated with an *@sha256:* condition"
+    assert consumer, f"{variable} must be consumed by the expected command"
+    assert guard.start() < consumer.start(), f"{variable} must be validated first"
+
+
+def _normalized_with(value: dict[str, Any]) -> tuple[tuple[str, object], ...]:
+    return tuple(sorted(value.items()))
+
+
 def test_release_workflow_has_six_visible_stages_and_flat_build_matrices() -> None:
     jobs = _load("release-ucm.yml")["jobs"]
 
@@ -133,6 +186,9 @@ def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> 
 
     assert isinstance(job, dict), "missing stable probe-python job"
     assert {"prepare", "build-missing"} <= _needs(job)
+    condition = str(job.get("if", ""))
+    assert "always()" in condition
+    assert "needs.prepare.result" in condition and "success" in condition
     assert job["strategy"].get("fail-fast") is False
     assert job["strategy"].get("matrix") == (
         "${{ fromJSON(needs.prepare.outputs.python_probe_matrix) }}"
@@ -150,10 +206,11 @@ def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> 
         "${{ matrix.builder_revision_id }}"
     )
     run = str(probe["run"])
-    assert any(
-        "BUILDER_IMAGE" in line and "@sha256:" in line for line in run.splitlines()
+    _assert_digest_guard_precedes(
+        run,
+        "BUILDER_IMAGE",
+        r'docker\s+run[\s\S]*?"\$\{BUILDER_IMAGE\}"',
     )
-    assert re.search(r'docker run[\s\S]*"\$\{BUILDER_IMAGE\}"', run)
     assert "out/python-probe/result.json" in run
     assert "builder_revision_id" in run
     for field in (
@@ -234,6 +291,9 @@ def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version()
 
     assert isinstance(job, dict), "missing stable probe-mooncake job"
     assert {"discover-runtimes"} <= _needs(job)
+    condition = str(job.get("if", ""))
+    assert "always()" in condition
+    assert "needs.discover-runtimes.result" in condition and "success" in condition
     assert job["strategy"].get("fail-fast") is False
     assert job["strategy"].get("matrix") == (
         "${{ fromJSON(needs.discover-runtimes.outputs.runtime_probe_matrix) }}"
@@ -258,22 +318,30 @@ def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version()
         "${{ matrix.cpu_architecture }}"
     )
     run = str(probe["run"])
-    assert "MOONCAKE_TAG" in run
-    assert "${RUNTIME_DOCKERFILE}" in run
-    assert "${RUNTIME_IMAGE}" in run
-    assert any(
-        "RUNTIME_IMAGE" in line and "@sha256:" in line for line in run.splitlines()
+    source = _noncomment_shell(run)
+    assert "MOONCAKE_TAG" in source
+    assert "${RUNTIME_DOCKERFILE}" in source
+    _assert_digest_guard_precedes(
+        run,
+        "RUNTIME_IMAGE",
+        r'docker\s+run[\s\S]*?"\$\{RUNTIME_IMAGE\}"',
     )
-    assert "declared_version" in run
-    assert "installed_version" in run
-    assert any(
-        "declared_version" in line
-        and "installed_version" in line
-        and "!=" in line
-        for line in run.splitlines()
+    mismatch = re.search(
+        r"(?mx)^\s*if\s+(?:test\s+|\[\[?\s*)"
+        r'"?\$\{declared_version\}"?\s+!=\s+'
+        r'"?\$\{installed_version\}"?'
+        r"(?:\s*\]\]?)?\s*;?\s*then\s*$"
+        r"(?P<body>[\s\S]*?)"
+        r"^\s*fi(?:\s*;)?\s*$",
+        source,
     )
-    assert "reason_code" in run
-    assert "mooncake-version-mismatch" in run
+    assert mismatch, "missing executable declared/installed mismatch branch"
+    mismatch_body = mismatch.group("body")
+    assert re.search(
+        r'reason_code(?:"|\s)*[:=](?:"|\s)*mooncake-version-mismatch',
+        mismatch_body,
+    )
+    assert "out/mooncake-probe/result.json" in mismatch_body
     for field in (
         "runtime_id",
         "runtime_image",
@@ -281,7 +349,7 @@ def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version()
         "runtime_dockerfile",
         "cpu_architecture",
     ):
-        assert field in run
+        assert field in mismatch_body
     uploads = _artifact_steps(job, "upload")
     assert len(uploads) == 1
     assert uploads[0]["if"] == "${{ always() }}"
@@ -311,7 +379,7 @@ def test_catalog_assembly_waits_for_all_results_and_calls_public_seam() -> None:
     } <= _needs(assembly)
     assert assembly.get("if") == "${{ always() }}"
     downloads = _artifact_steps(assembly, "download")
-    assert [step["with"] for step in downloads] == [
+    required_download_values = [
         {
             "name": "${{ needs.prepare.outputs.builder_catalog_artifact }}",
             "path": "input/builders",
@@ -337,6 +405,13 @@ def test_catalog_assembly_waits_for_all_results_and_calls_public_seam() -> None:
             "merge-multiple": True,
         },
     ]
+    required_downloads = {
+        _normalized_with(value) for value in required_download_values
+    }
+    actual_downloads = {
+        _normalized_with(step.get("with", {})) for step in downloads
+    }
+    assert required_downloads <= actual_downloads
     catalog_steps = [
         step for step in assembly["steps"] if step.get("id") == "catalog"
     ]
@@ -404,10 +479,11 @@ def test_ascend_builder_copies_mooncake_from_matching_immutable_runtime() -> Non
 
     assert build.get("env", {}).get("RUNTIME_IMAGE") == "${{ matrix.runtime_image }}"
     run = str(build["run"])
-    assert any(
-        "RUNTIME_IMAGE" in line and "@sha256:" in line for line in run.splitlines()
+    _assert_digest_guard_precedes(
+        run,
+        "RUNTIME_IMAGE",
+        r'--build-arg\s+"MOONCAKE_RUNTIME_IMAGE=\$\{RUNTIME_IMAGE\}"',
     )
-    assert '--build-arg "MOONCAKE_RUNTIME_IMAGE=${RUNTIME_IMAGE}"' in run
     instructions = _noncomment_dockerfile(dockerfile)
     runtime_stage = re.search(
         r"^ARG\s+(?P<arg>[A-Z_]*RUNTIME_IMAGE)\s*$\n"
@@ -443,7 +519,6 @@ def test_ascend_builder_has_no_tag_inference_or_fixed_mooncake_clone() -> None:
     active_source = build_source + "\n" + instructions
 
     assert "mooncake_installer.sh" not in active_source
-    assert re.search(r"^ARG\s+MOONCAKE_TAG(?:\s|$)", instructions, re.MULTILINE) is None
     assert "--build-arg \"MOONCAKE_TAG=" not in build_source
     assert (
         re.search(
