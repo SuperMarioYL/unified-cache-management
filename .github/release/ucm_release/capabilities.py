@@ -843,6 +843,56 @@ def _literal_mooncake_version(text: str, context: str) -> str:
     return str(parsed)
 
 
+def _declared_runtime_variant(
+    tag_suffix: str,
+    known_variants: frozenset[str],
+    context: str,
+) -> str | None:
+    if not tag_suffix:
+        return None
+    leading = re.match(r"^(a[0-9]+|[0-9]+p)(?:-|$)", tag_suffix)
+    if leading is not None:
+        return normalize_variant(leading.group(1))
+    matches = sorted(
+        variant
+        for variant in known_variants
+        if re.search(rf"(?:^|-){re.escape(variant)}(?:-|$)", tag_suffix)
+    )
+    if len(matches) > 1:
+        raise ValueError(f"{context}: filename declares multiple runtime variants")
+    return matches[0] if matches else None
+
+
+def _cann_base_fact(
+    text: str,
+    known_hardware: frozenset[str],
+    context: str,
+) -> tuple[str, str] | None:
+    tags = re.findall(
+        r"(?mi)^\s*FROM(?:\s+--platform=\S+)?\s+"
+        r"quay\.io/ascend/cann:([^\s@]+)",
+        text,
+    )
+    if not tags:
+        return None
+    facts: set[tuple[str, str]] = set()
+    for tag in tags:
+        parts = tag.lower().split("-")
+        boundaries = [
+            index for index, part in enumerate(parts) if part in known_hardware
+        ]
+        if len(boundaries) != 1 or boundaries[0] == 0:
+            raise ValueError(f"{context}: CANN base hardware boundary is ambiguous")
+        boundary = boundaries[0]
+        runtime = "-".join(parts[:boundary])
+        parsed = _parse_version(runtime, f"{context} CANN version")
+        _compact_version(parsed, f"{context} CANN version")
+        facts.add((runtime, parts[boundary]))
+    if len(facts) != 1:
+        raise ValueError(f"{context}: CANN base facts are ambiguous")
+    return facts.pop()
+
+
 def _runtime_dockerfiles(
     project: str,
     commit: str,
@@ -864,38 +914,55 @@ def _runtime_dockerfiles(
         and re.fullmatch(r"Dockerfile(?:\.[^/]+)*", item["path"])
     )
     values: list[dict[str, Any]] = []
+    known_hardware = frozenset(variant_by_hardware)
+    known_variants = frozenset(variant_by_hardware.values())
     for path in paths:
         quoted_path = urllib.parse.quote(path, safe="/")
         text = _request_bytes(
             f"https://raw.githubusercontent.com/{project}/{commit}/{quoted_path}"
         ).decode("utf-8")
-        base = re.search(
-            r"(?mi)^\s*FROM(?:\s+--platform=\S+)?\s+"
-            r"quay\.io/ascend/cann:(\d+(?:\.\d+)+)-([a-z0-9]+)(?:-[^\s]+)?",
-            text,
+        suffix = path.removeprefix("Dockerfile").lstrip(".")
+        tag_suffix = normalize_variant(suffix) if suffix else ""
+        declared_variant = _declared_runtime_variant(
+            tag_suffix,
+            known_variants,
+            f"{project}/{path}",
         )
+        if declared_variant in excluded_variants:
+            values.append(
+                {
+                    "variant": declared_variant,
+                    "source_path": path,
+                    "source_commit": commit,
+                    "mooncake_version": None,
+                    "accelerator_runtime": None,
+                    "hardware_token": None,
+                    "tag_suffix": tag_suffix,
+                    "filtered": True,
+                }
+            )
+            continue
+        base = _cann_base_fact(text, known_hardware, f"{project}/{path}")
         if base is None:
             continue
-        hardware = base.group(2).lower()
-        variant = variant_by_hardware.get(hardware)
-        if variant is None:
-            continue
+        runtime, hardware = base
+        mapped_variant = variant_by_hardware[hardware]
+        variant = declared_variant or mapped_variant
         filtered = variant in excluded_variants
         mooncake_version = (
             None
             if filtered
             else _literal_mooncake_version(text, f"{project}/{path}")
         )
-        suffix = path.removeprefix("Dockerfile").lstrip(".")
         values.append(
             {
                 "variant": variant,
                 "source_path": path,
                 "source_commit": commit,
                 "mooncake_version": mooncake_version,
-                "accelerator_runtime": f"cann-{base.group(1)}",
+                "accelerator_runtime": f"cann-{runtime}",
                 "hardware_token": hardware,
-                "tag_suffix": normalize_variant(suffix) if suffix else "",
+                "tag_suffix": tag_suffix,
                 "filtered": filtered,
             }
         )
