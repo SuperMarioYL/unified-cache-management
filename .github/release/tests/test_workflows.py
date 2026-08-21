@@ -1753,6 +1753,22 @@ def test_release_tests_checkout_fetches_tags_for_git_describe() -> None:
     assert checkout["with"]["fetch-depth"] == 0
     assert checkout["with"]["fetch-tags"] is True
 
+    steps = _steps(_jobs(workflow)["release-tests"])
+    seed = next(
+        step
+        for step in steps
+        if step.get("name")
+        == "Seed an ephemeral test version when no release tag is reachable"
+    )
+    command = str(seed["run"])
+    assert "git describe --tags --match 'v[0-9]*' HEAD" in command
+    assert 'git tag "v0.0.${GITHUB_RUN_ID}" HEAD' in command
+    assert steps.index(seed) < next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Run compact release tests"
+    )
+
 
 def test_repository_recipe_jobs_fetch_reachable_tags() -> None:
     """Recipe matrix and selection both load the git-describe catalog."""
