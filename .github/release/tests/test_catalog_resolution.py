@@ -668,6 +668,21 @@ def _vllm_candidate(product: dict, version: str = "0.21.9") -> dict[str, str]:
     }
 
 
+def _add_cuda_compatibility_overlap(
+    catalog: dict, *, architectures: list[str] | None = None
+) -> None:
+    original = next(
+        rule
+        for rule in catalog["compatibility"]["rules"]
+        if rule["id"] == "cuda-supported"
+    )
+    if architectures is not None:
+        original["cpu_architectures"] = architectures
+    duplicate = copy.deepcopy(original)
+    duplicate["id"] = "cuda-overlap"
+    catalog["compatibility"]["rules"].append(duplicate)
+
+
 def test_candidate_exclusion_reports_runtime_patch_unsupported() -> None:
     catalog = _catalog_for_plan()
     product = next(p for p in catalog["upstream_products"] if p["id"] == "vllm")
@@ -719,16 +734,35 @@ def test_candidate_exclusion_returns_none_for_supported_candidate() -> None:
 def test_candidate_exclusion_does_not_swallow_compatibility_overlap() -> None:
     catalog = _catalog_for_plan()
     product = next(p for p in catalog["upstream_products"] if p["id"] == "vllm")
-    duplicate = copy.deepcopy(
-        next(
-            rule
-            for rule in catalog["compatibility"]["rules"]
-            if rule["id"] == "cuda-supported"
-        )
-    )
-    duplicate["id"] = "cuda-overlap"
-    catalog["compatibility"]["rules"].append(duplicate)
+    _add_cuda_compatibility_overlap(catalog)
     manifest = core.runtime_patch_manifest(catalog, repository_root=ROOT)
+
+    with pytest.raises(ValueError, match="overlapping wheel profiles"):
+        core.candidate_exclusion_reason(
+            catalog, product, _vllm_candidate(product), manifest
+        )
+
+
+def test_candidate_exclusion_probes_later_architectures_after_zero_match() -> None:
+    catalog = _catalog_for_plan()
+    product = next(p for p in catalog["upstream_products"] if p["id"] == "vllm")
+    _add_cuda_compatibility_overlap(catalog, architectures=["arm64"])
+    manifest = core.runtime_patch_manifest(catalog, repository_root=ROOT)
+
+    with pytest.raises(ValueError, match="overlapping wheel profiles"):
+        core.candidate_exclusion_reason(
+            catalog, product, _vllm_candidate(product), manifest
+        )
+
+
+def test_candidate_exclusion_probes_profiles_after_runtime_zero_match() -> None:
+    catalog = _catalog_for_plan()
+    product = next(p for p in catalog["upstream_products"] if p["id"] == "vllm")
+    _add_cuda_compatibility_overlap(catalog)
+    manifest = core.runtime_patch_manifest(catalog, repository_root=ROOT)
+    manifest["rules"] = [
+        rule for rule in manifest["rules"] if rule["id"] != "vllm-021x"
+    ]
 
     with pytest.raises(ValueError, match="overlapping wheel profiles"):
         core.candidate_exclusion_reason(

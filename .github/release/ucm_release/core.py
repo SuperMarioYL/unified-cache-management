@@ -1355,21 +1355,20 @@ def candidate_exclusion_reason(
     runtime_product = product["runtime_product"]
     patch_variant = product_variant["runtime_patch_variants"][runtime_product]
     patch_snapshot = {**candidate, "runtime_product": runtime_product}
-    if (
+    runtime_patch_supported = (
         find_runtime_patch_rule(
             patch_manifest, patch_snapshot, patch_variant, relaxed=relaxed
         )
-        is None
-    ):
+        is not None
+    )
+    profile_matches = [
+        _find_profile(catalog, product, candidate, architecture, relaxed=relaxed)
+        for architecture in product["required_cpu_architectures"]
+    ]
+    if not runtime_patch_supported:
         return "runtime-patch-unsupported"
-    for architecture in product["required_cpu_architectures"]:
-        if (
-            _find_profile(
-                catalog, product, candidate, architecture, relaxed=relaxed
-            )
-            is None
-        ):
-            return "compatibility-unsupported"
+    if any(match is None for match in profile_matches):
+        return "compatibility-unsupported"
     return None
 
 
