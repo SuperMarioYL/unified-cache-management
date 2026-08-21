@@ -146,6 +146,16 @@ def test_release_config_owns_templates_without_build_profile_escape_hatches() ->
         discovered_dimensions.isdisjoint(rule)
         for rule in release["compatibility"]["rules"]
     )
+    assert all(
+        {"variants", "required_cpu_architectures"}.isdisjoint(product)
+        for product in release["upstream_products"]
+    )
+    assert release["discovery"]["exclude_variants"] == ["310p"]
+    assert release["compatibility"]["excluded_upstream_patterns"] == [
+        "nightly",
+        "dev",
+        "custom",
+    ]
 
 
 def test_toolchain_lock_owns_builder_requirements_but_no_builder_coordinates() -> None:
@@ -162,6 +172,15 @@ def test_toolchain_lock_owns_builder_requirements_but_no_builder_coordinates() -
         for item in requirements
     )
     for capability in requirements:
+        assert capability["upstream_product_id"] in {"vllm", "vllm-ascend"}
+        assert all(
+            set(variant)
+            in (
+                {"id", "tag_suffix", "npu_arch"},
+                {"id", "tag_suffix", "npu_arch", "soc_versions"},
+            )
+            for variant in capability["variants"]
+        )
         assert set(capability["architectures"]) == {"amd64", "arm64"}
         for requirement in capability["architectures"].values():
             assert set(requirement) == {"sources", "copy_paths", "checks"}

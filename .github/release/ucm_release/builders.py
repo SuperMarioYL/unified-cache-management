@@ -742,19 +742,9 @@ def select_builders(catalog: object, release: object) -> dict[str, object]:
             )
         if len(set(arches)) != len(arches):
             raise ValueError(f"{context}: cpu_arch contains duplicates")
-        if accelerator == "cuda":
-            variant = "default"
-        elif accelerator == "ascend":
-            npu_arch = profile.get("npu_arch")
-            if (
-                not isinstance(npu_arch, list)
-                or len(npu_arch) != 1
-                or not isinstance(npu_arch[0], str)
-            ):
-                raise ValueError(f"{context}: Ascend selection requires one npu_arch")
-            variant = npu_arch[0]
-        else:
+        if accelerator not in {"cuda", "ascend"}:
             raise ValueError(f"{context}: unsupported accelerator {accelerator!r}")
+        variant = _require_string(profile, "variant", context)
         for cpu_arch in arches:
             partial = {
                 "accelerator_runtime": runtime,
@@ -860,16 +850,10 @@ def bind_selection(catalog: object, selection: object) -> dict[str, object]:
                 f"duplicate builder selection for release profile {profile_id!r} architecture {architecture!r}"
             )
         seen.add(coordinate)
-        npu_arch = profile.get("npu_arch")
-        expected_variant = (
-            "default"
-            if profile.get("accelerator") == "cuda"
-            else npu_arch[0] if isinstance(npu_arch, list) and npu_arch else None
-        )
         expected_capability = {
             "accelerator": profile.get("accelerator"),
             "accelerator_runtime": profile.get("accelerator_runtime"),
-            "variant": expected_variant,
+            "variant": profile.get("variant"),
             "python_abi": profile.get("python_abi"),
             "manylinux": profile.get("builder_manylinux"),
             "cpu_arch": architecture,

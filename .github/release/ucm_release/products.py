@@ -154,7 +154,7 @@ def expand_distribution_names(
     return tuple(distribution for distribution, _ in ordered)
 
 
-def _normalize_variants(value: object, *, location: str) -> tuple[str, ...]:
+def _normalize_variant_tokens(value: object, *, location: str) -> tuple[str, ...]:
     if (
         not isinstance(value, Sequence)
         or isinstance(value, (str, bytes))
@@ -167,21 +167,186 @@ def _normalize_variants(value: object, *, location: str) -> tuple[str, ...]:
     return variants
 
 
-def _operating_systems_for_accelerator(
-    rules: Sequence[Mapping[str, Any]], accelerator: str
-) -> list[str]:
-    matches = [rule for rule in rules if rule.get("accelerator") == accelerator]
+def _normalize_builder_variants(
+    value: object, *, location: str
+) -> tuple[dict[str, Any], ...]:
+    if (
+        not isinstance(value, Sequence)
+        or isinstance(value, (str, bytes))
+        or not value
+    ):
+        raise ValueError(f"{location} must be a non-empty sequence")
+    variants: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, raw_variant in enumerate(value):
+        variant_location = f"{location}[{index}]"
+        if not isinstance(raw_variant, Mapping) or set(raw_variant) not in (
+            {"id", "tag_suffix", "npu_arch"},
+            {"id", "tag_suffix", "npu_arch", "soc_versions"},
+        ):
+            raise ValueError(f"{variant_location} fields must be exact")
+        variant_id = normalize_variant(raw_variant["id"])
+        if variant_id in seen:
+            raise ValueError(f"{location} contains duplicate normalized variants")
+        seen.add(variant_id)
+        tag_suffix = raw_variant["tag_suffix"]
+        if not isinstance(tag_suffix, str) or re.fullmatch(
+            r"(?:|-[a-z0-9][a-z0-9.-]*)", tag_suffix
+        ) is None:
+            raise ValueError(f"{variant_location}.tag_suffix is invalid")
+        variant = {
+            "id": variant_id,
+            "tag_suffix": tag_suffix,
+            "npu_arch": normalize_variant(raw_variant["npu_arch"]),
+        }
+        if "soc_versions" in raw_variant:
+            soc_versions = raw_variant["soc_versions"]
+            if (
+                not isinstance(soc_versions, Sequence)
+                or isinstance(soc_versions, (str, bytes))
+                or not soc_versions
+                or not all(isinstance(item, str) and item for item in soc_versions)
+                or len(soc_versions) != len(set(soc_versions))
+            ):
+                raise ValueError(f"{variant_location}.soc_versions is invalid")
+            variant["soc_versions"] = sorted(soc_versions)
+        variants.append(variant)
+    return tuple(variants)
+
+
+def _compatibility_policy_for_product(
+    rules: Sequence[Mapping[str, Any]], product_id: str
+) -> tuple[str, list[str]]:
+    matches = [
+        rule for rule in rules if product_id in rule.get("upstream_products", [])
+    ]
     if not matches:
         raise ValueError(
-            f"capability has no compatibility policy for accelerator {accelerator}"
+            f"upstream product {product_id!r} has no compatibility policy"
         )
-    return sorted(
+    accelerators = {str(rule.get("accelerator")) for rule in matches}
+    if len(accelerators) != 1:
+        raise ValueError(
+            f"upstream product {product_id!r} has conflicting accelerator policy"
+        )
+    operating_systems = sorted(
         {
             operating_system
             for rule in matches
             for operating_system in rule["operating_systems"]
         }
     )
+    return accelerators.pop(), operating_systems
+
+
+def _excluded_variants(config: Mapping[str, Any]) -> frozenset[str]:
+    return frozenset(
+        normalize_variant(value)
+        for value in config["discovery"]["exclude_variants"]
+    )
+
+
+def _runtime_patch_variants(
+    product: Mapping[str, Any], variant: Mapping[str, Any]
+) -> dict[str, str]:
+    runtime_product = product.get("runtime_product")
+    if runtime_product == "vllm":
+        return {"vllm": "default"}
+    if runtime_product == "vllm-ascend":
+        return {
+            "vllm": "default",
+            "vllm-ascend": str(variant["npu_arch"]),
+        }
+    raise ValueError(
+        f"upstream product {product.get('id')!r} has unsupported runtime product"
+    )
+
+
+def derive_upstream_products(config: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Project registry-facing Variant and architecture facts at load time."""
+    raw_products = config["upstream_products"]
+    builder_facts = config["builder_requirements"]
+    rules = config["compatibility"]["rules"]
+    excluded = _excluded_variants(config)
+    products_by_id: dict[str, Mapping[str, Any]] = {}
+    for index, product in enumerate(raw_products):
+        if not isinstance(product, Mapping):
+            raise ValueError(f"upstream_products[{index}] must be an object")
+        product_id = str(product.get("id"))
+        if product_id in products_by_id:
+            raise ValueError(f"duplicate upstream product id: {product_id!r}")
+        products_by_id[product_id] = product
+
+    facts_by_product: dict[str, list[tuple[int, Mapping[str, Any]]]] = {
+        product_id: [] for product_id in products_by_id
+    }
+    for index, builder in enumerate(builder_facts):
+        if not isinstance(builder, Mapping):
+            raise ValueError(f"builder_requirements[{index}] must be an object")
+        product_id = builder.get("upstream_product_id")
+        if product_id not in products_by_id:
+            raise ValueError(
+                f"builder_requirements[{index}] references unknown upstream product "
+                f"{product_id!r}"
+            )
+        facts_by_product[str(product_id)].append((index, builder))
+
+    projected: list[dict[str, Any]] = []
+    for product_id, product in products_by_id.items():
+        accelerator, _ = _compatibility_policy_for_product(rules, product_id)
+        variant_facts: dict[str, dict[str, Any]] = {}
+        architectures: set[str] = set()
+        for index, builder in facts_by_product[product_id]:
+            if builder.get("accelerator") != accelerator:
+                raise ValueError(
+                    f"builder_requirements[{index}] accelerator differs from "
+                    f"upstream product {product_id!r} policy"
+                )
+            variants = _normalize_builder_variants(
+                builder.get("variants"),
+                location=f"builder_requirements[{index}].variants",
+            )
+            included = [
+                variant for variant in variants if variant["id"] not in excluded
+            ]
+            if not included:
+                continue
+            builder_architectures = builder.get("architectures")
+            if (
+                not isinstance(builder_architectures, Mapping)
+                or not builder_architectures
+            ):
+                raise ValueError(
+                    f"builder_requirements[{index}].architectures must be an object"
+                )
+            architectures.update(str(value) for value in builder_architectures)
+            for variant in included:
+                previous = variant_facts.get(variant["id"])
+                if previous is not None and previous != variant:
+                    raise ValueError(
+                        f"conflicting Builder metadata for upstream variant "
+                        f"{product_id}/{variant['id']}"
+                    )
+                variant_facts[variant["id"]] = variant
+        if not variant_facts or not architectures:
+            raise ValueError(
+                f"upstream product {product_id!r} has no non-excluded Builder facts"
+            )
+        variants = []
+        for variant_id in sorted(variant_facts):
+            variant = copy.deepcopy(variant_facts[variant_id])
+            variant["runtime_patch_variants"] = _runtime_patch_variants(
+                product, variant
+            )
+            variants.append(variant)
+        projected.append(
+            {
+                **copy.deepcopy(dict(product)),
+                "variants": variants,
+                "required_cpu_architectures": sorted(architectures),
+            }
+        )
+    return projected
 
 
 def _matching_native_contract(
@@ -198,7 +363,7 @@ def _matching_native_contract(
         if contract.get("accelerator_runtime") not in {None, runtime}:
             continue
         variants = contract.get("variants")
-        if variants is not None and variant not in _normalize_variants(
+        if variants is not None and variant not in _normalize_variant_tokens(
             variants, location="native contract variants"
         ):
             continue
@@ -219,12 +384,31 @@ def derive_build_profiles(config: Mapping[str, Any]) -> list[dict[str, Any]]:
     native_facts = config["native_contracts"]
     version = config["ucm_version"]
     compiled = _compile_product_rules(product_rules)
+    projected_products = {
+        str(product["id"]): product for product in config["upstream_products"]
+    }
+    excluded = _excluded_variants(config)
     distribution_coordinates: set[tuple[str, str]] = set()
     profiles: list[dict[str, Any]] = []
     for index, builder in enumerate(builder_facts):
         if not isinstance(builder, Mapping):
             raise ValueError(f"builder_requirements[{index}] must be an object")
         accelerator = str(builder.get("accelerator"))
+        product_id = str(builder.get("upstream_product_id"))
+        product = projected_products.get(product_id)
+        if product is None:
+            raise ValueError(
+                f"builder_requirements[{index}] references unknown upstream product "
+                f"{product_id!r}"
+            )
+        policy_accelerator, operating_systems = _compatibility_policy_for_product(
+            rules, product_id
+        )
+        if accelerator != policy_accelerator:
+            raise ValueError(
+                f"builder_requirements[{index}] accelerator differs from "
+                f"upstream product {product_id!r} policy"
+            )
         runtime = str(builder.get("accelerator_runtime"))
         python_abi = str(builder.get("python_abi"))
         python_version = python_version_from_abi(python_abi)
@@ -232,27 +416,47 @@ def derive_build_profiles(config: Mapping[str, Any]) -> list[dict[str, Any]]:
             raise ValueError(
                 f"builder_requirements[{index}] Python version differs from ABI"
             )
-        operating_systems = _operating_systems_for_accelerator(rules, accelerator)
         architectures = builder["architectures"]
         if not isinstance(architectures, Mapping) or not architectures:
             raise ValueError(
                 f"builder_requirements[{index}].architectures must be an object"
             )
-        variants = _normalize_variants(
+        variants = _normalize_builder_variants(
             builder.get("variants"),
             location=f"builder_requirements[{index}].variants",
         )
         for variant in variants:
+            variant_id = variant["id"]
+            if variant_id in excluded:
+                continue
+            projected_variant = next(
+                (
+                    value
+                    for value in product["variants"]
+                    if value["id"] == variant_id
+                ),
+                None,
+            )
+            if projected_variant is None or any(
+                projected_variant.get(field) != variant.get(field)
+                for field in ("id", "tag_suffix", "npu_arch", "soc_versions")
+                if field in projected_variant or field in variant
+            ):
+                raise ValueError(
+                    f"builder_requirements[{index}] Variant metadata differs from "
+                    f"upstream product projection"
+                )
+            npu_arch = variant["npu_arch"]
             native = _matching_native_contract(
                 native_facts,
                 accelerator=accelerator,
                 runtime=runtime,
-                variant=variant,
+                variant=npu_arch,
             )
             context = {
                 "accelerator": accelerator,
                 "accelerator_runtime": runtime,
-                "variant": variant,
+                "variant": variant_id,
                 "mooncake_version": builder.get("mooncake_version"),
             }
             distribution = _render_distribution_name(
@@ -268,7 +472,7 @@ def derive_build_profiles(config: Mapping[str, Any]) -> list[dict[str, Any]]:
                 )
             distribution_coordinates.add(coordinate)
             runtime_token = compact_accelerator_runtime(runtime)
-            profile_id = f"{accelerator}{runtime_token}-{variant}-{python_abi}"
+            profile_id = f"{accelerator}{runtime_token}-{variant_id}-{python_abi}"
             profiles.append(
                 {
                     "id": profile_id,
@@ -278,7 +482,9 @@ def derive_build_profiles(config: Mapping[str, Any]) -> list[dict[str, Any]]:
                     },
                     "accelerator": accelerator,
                     "accelerator_runtime": runtime,
-                    "npu_arch": ["na" if variant == "default" else variant],
+                    "upstream_product_id": product_id,
+                    "variant": variant_id,
+                    "npu_arch": [npu_arch],
                     "os": copy.deepcopy(operating_systems),
                     "cpu_arch": sorted(architectures),
                     "python_version": python_version,
@@ -292,7 +498,7 @@ def derive_build_profiles(config: Mapping[str, Any]) -> list[dict[str, Any]]:
                         native.get("external_required_dependencies", [])
                     ),
                     "validation_targets": [
-                        runtime if accelerator == "cuda" else variant
+                        runtime if accelerator == "cuda" else npu_arch
                     ],
                     "required_native": copy.deepcopy(native["required_native"]),
                     "forbidden_native": copy.deepcopy(native["forbidden_native"]),

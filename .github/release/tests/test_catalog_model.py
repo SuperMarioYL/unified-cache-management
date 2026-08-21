@@ -56,6 +56,8 @@ def _profile(
 ) -> dict[str, object]:
     return {
         "id": profile_id,
+        "upstream_product_id": "vllm",
+        "variant": "default",
         "accelerator": accelerator,
         "accelerator_runtime": "cuda-13.0" if accelerator == "cuda" else "cann-9.0.0",
         "npu_arch": [npu_arch],

@@ -59,9 +59,11 @@ python_build_lock:
         filename: cmake-3.31.6-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
         sha256: sha256:42d9883b8958da285d53d5f69d40d9650c2d1bcf922d82b3ebdceb2b3a7d4521
 builder_requirements:
-- accelerator: cuda
+- upstream_product_id: vllm
+  accelerator: cuda
   accelerator_runtime: cuda-13.0
-  variants: [default]
+  variants:
+  - {id: default, tag_suffix: '', npu_arch: na}
   python_version: '3.12'
   python_abi: cp312
   manylinux: manylinux_2_28
@@ -143,9 +145,11 @@ builder_requirements:
         path: /usr/local/cuda/include/cuda.h
       - kind: file
         path: /usr/local/cuda/lib64/libcudart.so.13
-- accelerator: ascend
+- upstream_product_id: vllm-ascend
+  accelerator: ascend
   accelerator_runtime: cann-9.0.0
-  variants: [a2]
+  variants:
+  - {id: a2, tag_suffix: '', npu_arch: a2, soc_versions: [ascend910b1]}
   python_version: '3.12'
   python_abi: cp312
   manylinux: manylinux_2_34
@@ -229,9 +233,11 @@ builder_requirements:
         path: /usr/local/include/transfer_engine.h
       - kind: shared-library-dependencies
         path: /usr/local/lib/libmooncake_store.so
-- accelerator: ascend
+- upstream_product_id: vllm-ascend
+  accelerator: ascend
   accelerator_runtime: cann-9.0.0
-  variants: [a3]
+  variants:
+  - {id: a3, tag_suffix: -a3, npu_arch: a3, soc_versions: [ascend910_9391]}
   python_version: '3.12'
   python_abi: cp312
   manylinux: manylinux_2_34

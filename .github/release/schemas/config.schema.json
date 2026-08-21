@@ -238,13 +238,14 @@
     "builderRequirement": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["accelerator", "accelerator_runtime", "variants", "python_version", "python_abi", "manylinux", "build_platform", "wheel_platform", "mooncake_version", "architectures"],
+      "required": ["upstream_product_id", "accelerator", "accelerator_runtime", "variants", "python_version", "python_abi", "manylinux", "build_platform", "wheel_platform", "mooncake_version", "architectures"],
       "properties": {
+        "upstream_product_id": {"type": "string", "minLength": 1},
         "accelerator": {"enum": ["cuda", "ascend"]},
         "accelerator_runtime": {"type": "string", "minLength": 1},
         "variants": {
           "type": "array", "minItems": 1, "uniqueItems": true,
-          "items": {"type": "string", "minLength": 1}
+          "items": {"$ref": "#/$defs/builderVariant"}
         },
         "python_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$"},
         "python_abi": {"type": "string", "pattern": "^cp[0-9]+$"},
@@ -559,10 +560,10 @@
         "publish": {"$ref": "#/$defs/publish"}
       }
     },
-    "upstreamVariant": {
+    "builderVariant": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "tag_suffix", "npu_arch", "runtime_patch_variants"],
+      "required": ["id", "tag_suffix", "npu_arch"],
       "properties": {
         "id": {"type": "string", "minLength": 1},
         "tag_suffix": {"type": "string", "pattern": "^(|-[a-z0-9][a-z0-9.-]*)$"},
@@ -572,15 +573,6 @@
           "minItems": 1,
           "uniqueItems": true,
           "items": {"type": "string", "minLength": 1}
-        },
-        "runtime_patch_variants": {
-          "type": "object",
-          "minProperties": 1,
-          "additionalProperties": false,
-          "properties": {
-            "vllm": {"type": "string", "minLength": 1},
-            "vllm-ascend": {"type": "string", "minLength": 1}
-          }
         }
       }
     },
@@ -608,17 +600,14 @@
     "upstreamProduct": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "runtime_product", "repository", "target_repository", "version_specifier", "channels", "variants", "required_cpu_architectures"],
+      "required": ["id", "runtime_product", "repository", "target_repository", "version_specifier", "channels"],
       "properties": {
         "id": {"type": "string", "minLength": 1},
         "runtime_product": {"enum": ["vllm", "vllm-ascend"]},
         "repository": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$"},
         "target_repository": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$"},
-        "target_tag_suffix": {"type": "string", "pattern": "^-[A-Za-z0-9_.-]+$"},
         "version_specifier": {"type": "string", "minLength": 1},
-        "channels": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["stable", "rc"]}},
-        "variants": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/upstreamVariant"}},
-        "required_cpu_architectures": {"type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"}}
+        "channels": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["stable", "rc"]}}
       }
     },
     "catalogCompatibilityRule": {

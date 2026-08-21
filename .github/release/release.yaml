@@ -31,30 +31,12 @@ upstream_products:
   target_repository: ghcr.io/{owner}/vllm-openai
   version_specifier: '>=0.21,<0.22'
   channels: [stable]
-  variants:
-  - id: default
-    tag_suffix: ''
-    npu_arch: na
-    runtime_patch_variants: {vllm: default}
-  required_cpu_architectures: [amd64, arm64]
 - id: vllm-ascend
   runtime_product: vllm-ascend
   repository: quay.io/ascend/vllm-ascend
   target_repository: ghcr.io/{owner}/vllm-ascend
   version_specifier: '>=0.22.1rc1,<0.23'
   channels: [rc]
-  variants:
-  - id: a2
-    tag_suffix: ''
-    npu_arch: a2
-    soc_versions: [ascend910b1]
-    runtime_patch_variants: {vllm: default, vllm-ascend: a2}
-  - id: a3
-    tag_suffix: -a3
-    npu_arch: a3
-    soc_versions: [ascend910_9391]
-    runtime_patch_variants: {vllm: default, vllm-ascend: a3}
-  required_cpu_architectures: [amd64, arm64]
 compatibility:
   rules:
   - id: cuda-supported
@@ -69,7 +51,7 @@ compatibility:
     accelerator: ascend
     operating_systems: [ubuntu-22.04]
     upstream_channels: [rc]
-  excluded_upstream_patterns: [nightly, dev, custom, 310p]
+  excluded_upstream_patterns: [nightly, dev, custom]
 chart:
   source: charts/ucm
   name: unified-cache-pd

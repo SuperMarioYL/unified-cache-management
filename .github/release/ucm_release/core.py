@@ -1289,6 +1289,8 @@ def _find_profile(
         for profile in catalog["build_profiles"]:
             if (
                 architecture in profile["cpu_arch"]
+                and profile.get("upstream_product_id") == product["id"]
+                and profile.get("variant") == normalized_variant
                 and profile["accelerator"] == rule["accelerator"]
                 and normalize_variant(profile["npu_arch"][0])
                 == normalize_variant(variant["npu_arch"])
@@ -1327,8 +1329,13 @@ def candidate_exclusion_reason(
     *,
     relaxed: bool = False,
 ) -> str | None:
+    normalized_variant = normalize_variant(candidate["variant"])
     product_variant = next(
-        (item for item in product["variants"] if item["id"] == candidate["variant"]),
+        (
+            item
+            for item in product["variants"]
+            if normalize_variant(item["id"]) == normalized_variant
+        ),
         None,
     )
     if product_variant is None:
@@ -1663,6 +1670,7 @@ def load_catalog(
     image_suffix = f"-ucm-{_oci_tag_version(version)}-r{release.get('image_revision', 1)}"  # fmt: skip  # noqa: E501
     for product in release.get("upstream_products", []):
         product["target_tag_suffix"] = image_suffix
+    release["upstream_products"] = products.derive_upstream_products(release)
     release["build_profiles"] = products.derive_build_profiles(release)
     chart = load_yaml(repository_root / release["chart"]["source"] / "Chart.yaml")
     if chart.get('name') != release['chart']['name']: raise ValueError('Chart name does not match release.yaml')  # noqa: E701,E501
@@ -1786,6 +1794,8 @@ def _substitute_owner(text: str, *, owner: str, repo: str) -> str:
         return text
     placeholders = _OWNER_PLACEHOLDER.findall(text)
     if not placeholders:
+        return text
+    if not set(placeholders) & _KNOWN_OWNER_PLACEHOLDERS:
         return text
     unknown = sorted({name for name in placeholders if name not in _KNOWN_OWNER_PLACEHOLDERS})  # fmt: skip  # noqa: E501
     if unknown:

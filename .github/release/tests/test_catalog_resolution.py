@@ -248,6 +248,109 @@ def test_latest_admissible_candidate_is_selected_per_product_variant() -> None:
     ]
 
 
+def test_loader_facts_add_future_variant_to_registry_and_core_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A frozen Builder fact grows the active plan without release.yaml edits."""
+    raw_release = yaml.safe_load(
+        (RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8")
+    )
+    raw_ascend = next(
+        product
+        for product in raw_release["upstream_products"]
+        if product["id"] == "vllm-ascend"
+    )
+    assert "variants" not in raw_ascend
+    assert "required_cpu_architectures" not in raw_ascend
+
+    supplementary = copy.deepcopy(core._load_supplementary_configs(ROOT))
+    future_fact = copy.deepcopy(supplementary["builder_requirements"][-1])
+    future_fact["variants"] = [
+        {
+            "id": "a4",
+            "tag_suffix": "-a4",
+            "npu_arch": "a3",
+            "soc_versions": ["ascend-future-a4"],
+        }
+    ]
+    supplementary["builder_requirements"].append(future_fact)
+    monkeypatch.setattr(
+        core,
+        "_load_supplementary_configs",
+        lambda _repository_root: copy.deepcopy(supplementary),
+    )
+
+    catalog = core.load_catalog(
+        repository="release-org/unified-cache-management",
+        version_override="0.6.0",
+    )
+    ascend = next(
+        product
+        for product in catalog["upstream_products"]
+        if product["id"] == "vllm-ascend"
+    )
+    assert next(
+        variant for variant in ascend["variants"] if variant["id"] == "a4"
+    ) == {
+        "id": "a4",
+        "tag_suffix": "-a4",
+        "npu_arch": "a3",
+        "soc_versions": ["ascend-future-a4"],
+        "runtime_patch_variants": {"vllm": "default", "vllm-ascend": "a3"},
+    }
+
+    builder_catalog = _builder_catalog()
+    future_builders = [
+        copy.deepcopy(item)
+        for item in builder_catalog["builders"]
+        if item["accelerator"] == "ascend" and item["variant"] == "a3"
+    ]
+    for item in future_builders:
+        item["variant"] = "a4"
+        item["source_image"] = item["source_image"].replace("a3", "a4")
+        item["target_tag"] = item["target_tag"].replace("-a3-", "-a4-")
+    builder_catalog["builders"].extend(future_builders)
+
+    fixture = _registry_fixture()
+    repository = "quay.io/ascend/vllm-ascend"
+    fixture_repository = fixture["repositories"][repository]
+    fixture_repository["pages"][0]["tags"].append("v0.22.1rc3-a4")
+    future_snapshot = copy.deepcopy(
+        fixture_repository["snapshots"]["v0.22.1rc3-a3"]
+    )
+    future_snapshot.update(
+        upstream_tag="v0.22.1rc3-a4",
+        index_digest="sha256:" + "4" * 64,
+    )
+    fixture_repository["snapshots"]["v0.22.1rc3-a4"] = future_snapshot
+
+    with mock.patch.object(
+        registry, "resolve_builder_root", side_effect=_resolved_builder_root
+    ):
+        plan = registry.resolve_catalog(
+            catalog,
+            builder_catalog=builder_catalog,
+            source_sha="4" * 40,
+            lane="feature-candidate",
+            fixture=fixture,
+        )
+
+    assert any(
+        snapshot["variant"] == "a4" for snapshot in plan["resolved_upstreams"]
+    )
+    assert any(
+        task["runtime"]["variant"] == "a4" for task in plan["image_tasks"]
+    )
+    assert any(
+        task["runtime"]["variant"] == "a4" for task in plan["family_tasks"]
+    )
+    assert not any(
+        item["tag"] == "v0.22.1rc3-a4"
+        and item["reason"] == "unsupported-variant"
+        for item in plan["exclusions"]
+    )
+
+
 def test_superseded_compatible_candidates_are_each_excluded_once() -> None:
     plan = _resolve_fixture(core.load_catalog(), source_sha="8" * 40)
 

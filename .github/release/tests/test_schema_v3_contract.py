@@ -181,6 +181,36 @@ def test_load_catalog_rejects_supplementary_facts_in_release_yaml(
 
 
 @pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        pytest.param(
+            "variants",
+            [{"id": "default", "tag_suffix": "", "npu_arch": "na"}],
+            id="variants",
+        ),
+        pytest.param(
+            "required_cpu_architectures",
+            ["amd64", "arm64"],
+            id="architectures",
+        ),
+    ],
+)
+def test_load_catalog_rejects_raw_upstream_discovered_dimensions(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    """Raw product policy cannot enumerate Builder-owned facts."""
+    core = _require_public_module("ucm_release.core")
+    release = _load_release_yaml()
+    release["upstream_products"][0][field] = value
+    path = _write_release_yaml(tmp_path, release)
+
+    with pytest.raises(ValueError, match=field):
+        core.load_catalog(path)
+
+
+@pytest.mark.parametrize(
     ("family", "template"),
     [
         pytest.param(
@@ -343,7 +373,14 @@ def test_derive_build_profiles_grows_from_new_normalized_builder_fact() -> None:
     new_fact = copy.deepcopy(catalog["builder_requirements"][1])
     new_fact.update(
         accelerator_runtime="cann-9.2.0",
-        variants=["A_4"],
+        variants=[
+            {
+                "id": "A_4",
+                "tag_suffix": "-a-4",
+                "npu_arch": "A_4",
+                "soc_versions": ["ascend-future-a4"],
+            }
+        ],
         python_version="3.13",
         python_abi="cp313",
         architectures={
@@ -354,6 +391,7 @@ def test_derive_build_profiles_grows_from_new_normalized_builder_fact() -> None:
         if check["kind"] == "python":
             check.update(version="3.13", abi="cp313")
     catalog["builder_requirements"].append(new_fact)
+    catalog["upstream_products"] = products.derive_upstream_products(catalog)
 
     profiles = derive_profiles(catalog)
     added = next(item for item in profiles if item["python_abi"] == "cp313")
@@ -361,12 +399,14 @@ def test_derive_build_profiles_grows_from_new_normalized_builder_fact() -> None:
     assert catalog["compatibility"] == compatibility_before
     assert (
         added["id"],
+        added["variant"],
         added["accelerator_runtime"],
         added["npu_arch"],
         added["cpu_arch"],
         added["dist_name"],
     ) == (
         "ascend920-a-4-cp313",
+        "a-4",
         "cann-9.2.0",
         ["a-4"],
         ["arm64"],
