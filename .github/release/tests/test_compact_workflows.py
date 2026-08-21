@@ -85,7 +85,8 @@ def _noncomment_shell(text: str) -> str:
 
 def _shell_variable(variable: str) -> str:
     name = re.escape(variable)
-    return rf'["\']?\$(?:\{{{name}\}}|{name})["\']?'
+    reference = rf"\$(?:\{{{name}\}}|{name})"
+    return rf'(?:{reference}|"{reference}")'
 
 
 def _has_failure_command(body: str) -> bool:
@@ -101,12 +102,27 @@ def _digest_guard_positions(
 ) -> list[int]:
     variable_ref = _shell_variable(variable)
     digest_glob = r"\*\s*[\"']?@sha256:[\"']?\s*\*"
-    valid_equality = re.compile(
+    bash_presence = re.compile(
         rf"^\s*{variable_ref}\s*(?:==|=)\s*{digest_glob}\s*$",
         re.DOTALL,
     )
-    invalid_equality = re.compile(
+    bash_absence = re.compile(
         rf"^\s*{variable_ref}\s*!=\s*{digest_glob}\s*$",
+        re.DOTALL,
+    )
+    name = re.escape(variable)
+    original = rf'"\$(?:\{{{name}\}}|{name})"'
+    trimmed = (
+        rf'"\$\{{{name}(?:#{{1,2}}\*@sha256:|%{{1,2}}@sha256:\*)\}}"'
+    )
+    posix_presence = re.compile(
+        rf"^\s*(?:{trimmed}\s+!=\s+{original}|"
+        rf"{original}\s+!=\s+{trimmed})\s*$",
+        re.DOTALL,
+    )
+    posix_absence = re.compile(
+        rf"^\s*(?:{trimmed}\s+=\s+{original}|"
+        rf"{original}\s+=\s+{trimmed})\s*$",
         re.DOTALL,
     )
     positions: list[int] = []
@@ -125,7 +141,7 @@ def _digest_guard_positions(
             r"(?m)^\s*set\s+(?:-[A-Za-z]*e[A-Za-z]*|-o\s+errexit)\b",
             source[: guard.start()],
         )
-        if valid_equality.fullmatch(guard.group("condition")) and (
+        if bash_presence.fullmatch(guard.group("condition")) and (
             suffix_fails or (not suffix and errexit_precedes)
         ):
             positions.append(guard.end())
@@ -152,12 +168,14 @@ def _digest_guard_positions(
             else_clause.group(0)
         )
 
-        if valid_equality.fullmatch(condition):
+        presence = bash_presence if guard.group("double") else posix_presence
+        absence = bash_absence if guard.group("double") else posix_absence
+        if presence.fullmatch(condition):
             if then_start <= consumer_position < then_end:
                 positions.append(guard.start("body"))
             if else_body is not None and _has_failure_command(else_body):
                 positions.append(guard.end())
-        elif invalid_equality.fullmatch(condition) and _has_failure_command(
+        elif absence.fullmatch(condition) and _has_failure_command(
             then_body
         ):
             positions.append(guard.end())
@@ -175,7 +193,7 @@ def _digest_guard_positions(
         source,
     ):
         condition = guard.group("single") or guard.group("test") or ""
-        if valid_equality.fullmatch(condition):
+        if posix_presence.fullmatch(condition):
             positions.append(guard.end())
 
     for guard in re.finditer(
