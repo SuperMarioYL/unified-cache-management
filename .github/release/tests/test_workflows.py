@@ -45,6 +45,16 @@ SAFE_FORK_ACTIONS = {
     "docker/setup-qemu-action",
     "sigstore/cosign-installer",
 }
+MAPFILE_COMPAT = r"""
+mapfile() {
+  local option="$1" name="$2" line
+  test "${option}" = -t
+  eval "${name}=()"
+  while IFS= read -r line; do
+    eval "${name}+=(\"\${line}\")"
+  done
+}
+"""
 
 
 def _strings(value: object) -> list[str]:
@@ -633,7 +643,7 @@ def test_release_routes_use_full_matrices_and_develop_only_daily_dispatch() -> N
     }
 
 
-def test_protected_ghcr_publisher_reuses_six_same_run_oci_builds() -> None:
+def test_protected_ghcr_publisher_reuses_resolved_same_run_oci_builds() -> None:
     protected = _load_workflow(WORKFLOW_DIR / "release-vllm-images-protected.yml")
     jobs = _jobs(protected)
     assert list(jobs) == ["publish-members", "publish-ghcr"]
@@ -648,7 +658,6 @@ def test_protected_ghcr_publisher_reuses_six_same_run_oci_builds() -> None:
     publish_text = "\n".join(_strings(jobs["publish-ghcr"]))
     for fragment in (
         "ucm-member-${task_id}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}",
-        "test \"$(find out/members -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')\" = 6",
         "publish ghcr",
         "--stage publish",
         "--members-dir out/members",
@@ -707,6 +716,64 @@ def test_protected_ghcr_publisher_reuses_six_same_run_oci_builds() -> None:
     ):
         assert fragment in member_text
     assert "printf '%s' \"${ops}\" | sha256sum" not in member_text
+
+
+def test_protected_ghcr_publisher_executes_plan_derived_image_count(
+    tmp_path: Path,
+) -> None:
+    workflow = _load_workflow(WORKFLOW_DIR / "release-vllm-images-protected.yml")
+    job = _jobs(workflow)["publish-ghcr"]
+    step = next(item for item in _steps(job) if item.get("id") == "publish")
+    command = step["run"]
+    assert isinstance(command, str)
+
+    plan_sha256 = "sha256:" + "a" * 64
+    task_ids = ["image-a", "image-b"]
+    plan_dir = tmp_path / "input" / "plan"
+    members_dir = tmp_path / "input" / "members"
+    fake_bin = tmp_path / "bin"
+    for directory in (plan_dir, members_dir, fake_bin):
+        directory.mkdir(parents=True, exist_ok=True)
+    (plan_dir / "resolved-plan.json").write_text(
+        (
+            '{"resolved_plan_sha256":"'
+            + plan_sha256
+            + '","image_tasks":[{"task_id":"image-a"},{"task_id":"image-b"}]}'
+        ),
+        encoding="utf-8",
+    )
+    for task_id in task_ids:
+        physical = f"ucm-member-{task_id}-run-41-attempt-1"
+        source = members_dir / physical / "member-record.json"
+        source.parent.mkdir(parents=True)
+        source.write_text(task_id, encoding="utf-8")
+    fake_python = fake_bin / "python"
+    fake_python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_python.chmod(0o755)
+
+    completed = subprocess.run(
+        ["bash", "-x", "-c", command],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "SOURCE_SHA": "b" * 40,
+            "RESOLVED_PLAN_SHA256": plan_sha256,
+            "ALREADY_PUBLIC": "false",
+            "GITHUB_RUN_ID": "41",
+            "GITHUB_RUN_ATTEMPT": "1",
+            "GITHUB_OUTPUT": str(tmp_path / "github-output.txt"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert sorted(path.name for path in (tmp_path / "out" / "members").iterdir()) == [
+        "image-a.json",
+        "image-b.json",
+    ]
 
 
 def test_release_channels_are_draft_bound_and_fail_closed_at_readback_barrier() -> None:
@@ -876,18 +943,8 @@ def test_release_asset_workflow_executes_plan_derived_artifact_counts(
     fake_python.chmod(0o755)
     github_output = tmp_path / "github-output.txt"
 
-    mapfile_compat = r"""
-mapfile() {
-  local option="$1" name="$2" line
-  test "${option}" = -t
-  eval "${name}=()"
-  while IFS= read -r line; do
-    eval "${name}+=(\"\${line}\")"
-  done
-}
-"""
     completed = subprocess.run(
-        ["bash", "-x", "-c", mapfile_compat + command],
+        ["bash", "-x", "-c", MAPFILE_COMPAT + command],
         cwd=tmp_path,
         env={
             **os.environ,
@@ -907,6 +964,57 @@ mapfile() {
     assert sorted(
         path.name for path in (tmp_path / "out" / "assets").iterdir()
     ) == sorted([*wheels, chart])
+
+
+@pytest.mark.parametrize(
+    ("job_name", "step_id"),
+    [("publish-pypi", "publish"), ("pypi-readback", "readback")],
+)
+def test_pypi_workflow_executes_plan_derived_wheel_count(
+    tmp_path: Path, job_name: str, step_id: str
+) -> None:
+    workflow = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
+    job = _jobs(workflow)[job_name]
+    step = next(item for item in _steps(job) if item.get("id") == step_id)
+    command = step["run"]
+    assert isinstance(command, str)
+
+    wheels = ["wheel-a.whl", "wheel-b.whl"]
+    wheel_dir = tmp_path / "input" / "wheels"
+    plan_dir = tmp_path / "input" / "plan"
+    fake_bin = tmp_path / "bin"
+    for directory in (wheel_dir, plan_dir, fake_bin):
+        directory.mkdir(parents=True, exist_ok=True)
+    for wheel in wheels:
+        (wheel_dir / wheel).write_text(wheel, encoding="utf-8")
+    (plan_dir / "resolved-plan.json").write_text(
+        '{"wheel_tasks":[{"task_id":"wheel-a"},{"task_id":"wheel-b"}]}',
+        encoding="utf-8",
+    )
+    fake_python = fake_bin / "python"
+    fake_python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_python.chmod(0o755)
+
+    completed = subprocess.run(
+        ["bash", "-x", "-c", MAPFILE_COMPAT + command],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "SOURCE_SHA": "b" * 40,
+            "GITHUB_RUN_ID": "41",
+            "GITHUB_RUN_ATTEMPT": "1",
+            "GITHUB_OUTPUT": str(tmp_path / "github-output.txt"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert (
+        sorted(path.name for path in (tmp_path / "out" / "wheels").iterdir()) == wheels
+    )
 
 
 def test_active_main_release_workflows_have_no_superseded_policy_or_fake_readback() -> (

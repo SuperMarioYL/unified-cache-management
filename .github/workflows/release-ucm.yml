@@ -412,13 +412,14 @@ jobs:
           set -euo pipefail
           mkdir -p out/wheels out/result
           mapfile -t wheels < <(find input/wheels -type f -name '*.whl' -print | sort)
-          test "${#wheels[@]}" = 6
+          expected_wheels="$(jq '.wheel_tasks | length' input/plan/resolved-plan.json)"
+          test "${#wheels[@]}" = "${expected_wheels}"
           for wheel in "${wheels[@]}"; do
             target="out/wheels/$(basename "${wheel}")"
             test ! -e "${target}"
             cp "${wheel}" "${target}"
           done
-          test "$(find out/wheels -maxdepth 1 -type f -name '*.whl' | wc -l | tr -d ' ')" = 6
+          test "$(find out/wheels -maxdepth 1 -type f -name '*.whl' | wc -l | tr -d ' ')" = "${expected_wheels}"
           PYTHONPATH=.github/release python -m ucm_release publish pypi \
             --plan input/plan/resolved-plan.json \
             --stage publish \
@@ -475,7 +476,8 @@ jobs:
           set -euo pipefail
           mkdir -p out/wheels out/result
           mapfile -t wheels < <(find input/wheels -type f -name '*.whl' -print | sort)
-          test "${#wheels[@]}" = 6
+          expected_wheels="$(jq '.wheel_tasks | length' input/plan/resolved-plan.json)"
+          test "${#wheels[@]}" = "${expected_wheels}"
           for wheel in "${wheels[@]}"; do
             target="out/wheels/$(basename "${wheel}")"
             test ! -e "${target}"
