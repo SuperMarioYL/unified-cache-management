@@ -83,18 +83,232 @@ def _noncomment_shell(text: str) -> str:
     return "\n".join(lines)
 
 
+def _shell_variable(variable: str) -> str:
+    name = re.escape(variable)
+    return rf'["\']?\$(?:\{{{name}\}}|{name})["\']?'
+
+
+def _has_failure_command(body: str) -> bool:
+    return re.search(
+        r"(?m)(?:^|[;&]\s*)"
+        r"(?:exit(?:\s+[1-9][0-9]*)?|return(?:\s+[1-9][0-9]*)?|false)\b",
+        body,
+    ) is not None
+
+
+def _digest_guard_positions(source: str, variable: str) -> list[int]:
+    variable_ref = _shell_variable(variable)
+    valid_equality = re.compile(
+        rf"^\s*{variable_ref}\s*(?:==|=)\s*\*@sha256:\*\s*$",
+        re.DOTALL,
+    )
+    invalid_equality = re.compile(
+        rf"^\s*{variable_ref}\s*!=\s*\*@sha256:\*\s*$",
+        re.DOTALL,
+    )
+    positions: list[int] = []
+
+    for guard in re.finditer(
+        r"(?ms)^\s*\[\[(?P<condition>.*?)\]\](?P<suffix>[^\n]*)$",
+        source,
+    ):
+        suffix = guard.group("suffix").strip()
+        suffix_fails = re.fullmatch(
+            r"\|\|\s*"
+            r"(?:exit(?:\s+[1-9][0-9]*)?|return(?:\s+[1-9][0-9]*)?|false)",
+            suffix,
+        )
+        errexit_precedes = re.search(
+            r"(?m)^\s*set\s+(?:-[A-Za-z]*e[A-Za-z]*|-o\s+errexit)\b",
+            source[: guard.start()],
+        )
+        if valid_equality.fullmatch(guard.group("condition")) and (
+            suffix_fails or (not suffix and errexit_precedes)
+        ):
+            positions.append(guard.end())
+
+    for guard in re.finditer(
+        r"(?ms)^\s*if\s+\[\[(?P<condition>.*?)\]\]\s*;?\s*then"
+        r"(?P<body>.*?)^\s*fi(?:\s*;)?\s*$",
+        source,
+    ):
+        if invalid_equality.fullmatch(guard.group("condition")) and (
+            _has_failure_command(guard.group("body"))
+        ):
+            positions.append(guard.end())
+
+    for guard in re.finditer(
+        rf"(?ms)^\s*case\s+{variable_ref}\s+in(?P<body>.*?)"
+        r"^\s*esac(?:\s*;)?\s*$",
+        source,
+    ):
+        arms = list(
+            re.finditer(
+                r"(?ms)^\s*(?P<pattern>[^\n)]+)\)"
+                r"(?P<body>.*?)(?:;;|;&|;;&)",
+                guard.group("body"),
+            )
+        )
+        accepts_digest = any(
+            arm.group("pattern").strip() == "*@sha256:*" for arm in arms
+        )
+        rejects_other = any(
+            arm.group("pattern").strip() == "*"
+            and _has_failure_command(arm.group("body"))
+            for arm in arms
+        )
+        if accepts_digest and rejects_other:
+            positions.append(guard.end())
+
+    return positions
+
+
 def _assert_digest_guard_precedes(
     run: str, variable: str, consumer_pattern: str
 ) -> None:
     source = _noncomment_shell(run)
-    guard = re.search(
-        rf"(?m)^[^\n]*\$\{{{re.escape(variable)}\}}[^\n]*\*@sha256:\*[^\n]*$",
-        source,
-    )
     consumer = re.search(consumer_pattern, source, re.MULTILINE | re.DOTALL)
-    assert guard, f"{variable} must be validated with an *@sha256:* condition"
     assert consumer, f"{variable} must be consumed by the expected command"
-    assert guard.start() < consumer.start(), f"{variable} must be validated first"
+    guards = _digest_guard_positions(source, variable)
+    assert guards, (
+        f"{variable} must have an executable [[...]] or case digest validation"
+    )
+    assert any(position < consumer.start() for position in guards), (
+        f"{variable} must be validated before it is consumed"
+    )
+
+
+def _mismatch_result_branch(source: str) -> str | None:
+    declared = re.compile(_shell_variable("declared_version"))
+    installed = re.compile(_shell_variable("installed_version"))
+
+    for branch in re.finditer(
+        r"(?ms)^\s*if\s+(?:\[\[(?P<bracket>.*?)\]\]|"
+        r"test\s+(?P<test>.*?))\s*;?\s*then(?P<body>.*?)"
+        r"^\s*fi(?:\s*;)?\s*$",
+        source,
+    ):
+        condition = branch.group("bracket") or branch.group("test") or ""
+        if not declared.search(condition) or not installed.search(condition):
+            continue
+        bodies = re.split(r"(?m)^\s*else\s*$", branch.group("body"), maxsplit=1)
+        if "!=" in condition:
+            mismatch_body = bodies[0]
+        elif re.search(r"(?:==|(?<![!<>=])=(?!=))", condition) and len(bodies) == 2:
+            mismatch_body = bodies[1]
+        else:
+            continue
+        if "out/mooncake-probe/result.json" in mismatch_body:
+            return mismatch_body
+
+    for branch in re.finditer(
+        r"(?ms)^\s*case\s+(?P<expression>.*?)\s+in(?P<body>.*?)"
+        r"^\s*esac(?:\s*;)?\s*$",
+        source,
+    ):
+        arms = list(
+            re.finditer(
+                r"(?ms)^\s*(?P<pattern>[^\n)]+)\)"
+                r"(?P<body>.*?)(?:;;|;&|;;&)",
+                branch.group("body"),
+            )
+        )
+        equality_source = branch.group("expression") + "\n" + "\n".join(
+            arm.group("pattern")
+            for arm in arms
+            if arm.group("pattern").strip() != "*"
+        )
+        if not declared.search(equality_source) or not installed.search(
+            equality_source
+        ):
+            continue
+        for arm in arms:
+            if (
+                arm.group("pattern").strip() == "*"
+                and "out/mooncake-probe/result.json" in arm.group("body")
+            ):
+                return arm.group("body")
+    return None
+
+
+def _structured_json_producer(branch: str, path: str) -> str | None:
+    output = rf'["\']?{re.escape(path)}["\']?'
+    logical_lines = re.sub(r"\\\s*\n", " ", branch).splitlines()
+    for command in logical_lines:
+        if not re.match(r"^\s*jq\b", command):
+            continue
+        has_null_input = re.search(
+            r"(?:^|\s)-[A-Za-z]*n[A-Za-z]*(?:\s|$)", command
+        )
+        if has_null_input and re.search(rf">\s*{output}", command):
+            return command
+
+    python_commands = [
+        line for line in logical_lines if re.match(r"^\s*python(?:3)?\b", line)
+    ]
+    for command in python_commands:
+        if re.search(r"\bjson\.dumps?\s*\(", command) and (
+            re.search(rf">\s*{output}", command)
+            or re.search(rf"(?:open|Path)\s*\(\s*{output}", command)
+        ):
+            return command
+
+    for command in re.finditer(
+        r"(?ms)^\s*python(?:3)?\b(?P<header>[^\n]*?)"
+        r"<<-?\s*[\"']?(?P<delimiter>[A-Za-z_][A-Za-z0-9_]*)[\"']?"
+        r"(?P<tail>[^\n]*)\n(?P<body>.*?)"
+        r"^\s*(?P=delimiter)\s*$",
+        branch,
+    ):
+        producer = command.group(0)
+        if re.search(r"\bjson\.dumps?\s*\(", producer) and (
+            re.search(rf">\s*{output}", command.group("tail"))
+            or re.search(rf"(?:open|Path)\s*\(\s*{output}", producer)
+        ):
+            return producer
+    return None
+
+
+def _string_values(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [
+            item for child in value.values() for item in _string_values(child)
+        ]
+    if isinstance(value, list):
+        return [item for child in value for item in _string_values(child)]
+    return []
+
+
+def _assert_no_fixed_mooncake_sources(sources: list[str]) -> None:
+    normalized = [re.sub(r"\\\s*\n", " ", source) for source in sources]
+    active_source = "\n;\n".join(normalized)
+
+    assert re.search(
+        r"mooncake[\s_-]*installer\.sh", active_source, re.IGNORECASE
+    ) is None
+    assert re.search(
+        r"(?im)(?:--build-arg(?:\s+|=)|^[ \t-]*)[\"']?\s*"
+        r"MOONCAKE_TAG\s*=",
+        active_source,
+    ) is None
+    assert re.search(
+        r"(?is)\bgit\s+clone\b(?:(?!&&|;).){0,512}"
+        r"(?:github\.com[/:](?:kvcache-ai/)?mooncake(?:\.git)?|\bmooncake\b)",
+        active_source,
+    ) is None
+    assert re.search(
+        r"(?im)^(?=[^;\n]*\bmooncake(?:_tag|_version)?\b)"
+        r"(?=[^;\n]*\btarget_tag\b)[^;\n]*$",
+        active_source,
+    ) is None
+    assert re.search(
+        r"(?is)\bmooncake(?:_tag|_version)?\b\s*=\s*"
+        r"[^;&]{0,512}\btarget_tag\b",
+        active_source,
+    ) is None
+    assert re.search(r"(?<![0-9])0\.3\.9(?![0-9])", active_source) is None
 
 
 def _normalized_with(value: dict[str, Any]) -> tuple[tuple[str, object], ...]:
@@ -209,7 +423,7 @@ def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> 
     _assert_digest_guard_precedes(
         run,
         "BUILDER_IMAGE",
-        r'docker\s+run[\s\S]*?"\$\{BUILDER_IMAGE\}"',
+        r'(?m)^\s*docker\s+run\b[\s\S]*?"\$\{BUILDER_IMAGE\}"',
     )
     assert "out/python-probe/result.json" in run
     assert "builder_revision_id" in run
@@ -324,24 +538,19 @@ def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version()
     _assert_digest_guard_precedes(
         run,
         "RUNTIME_IMAGE",
-        r'docker\s+run[\s\S]*?"\$\{RUNTIME_IMAGE\}"',
+        r'(?m)^\s*docker\s+run\b[\s\S]*?"\$\{RUNTIME_IMAGE\}"',
     )
-    mismatch = re.search(
-        r"(?mx)^\s*if\s+(?:test\s+|\[\[?\s*)"
-        r'"?\$\{declared_version\}"?\s+!=\s+'
-        r'"?\$\{installed_version\}"?'
-        r"(?:\s*\]\]?)?\s*;?\s*then\s*$"
-        r"(?P<body>[\s\S]*?)"
-        r"^\s*fi(?:\s*;)?\s*$",
-        source,
+    mismatch_body = _mismatch_result_branch(source)
+    assert mismatch_body is not None, (
+        "missing executable declared/installed mismatch Result branch"
     )
-    assert mismatch, "missing executable declared/installed mismatch branch"
-    mismatch_body = mismatch.group("body")
-    assert re.search(
-        r'reason_code(?:"|\s)*[:=](?:"|\s)*mooncake-version-mismatch',
-        mismatch_body,
+    result_path = "out/mooncake-probe/result.json"
+    producer = _structured_json_producer(mismatch_body, result_path)
+    assert producer is not None, (
+        "mismatch Result must be written by jq -n or a Python JSON writer"
     )
-    assert "out/mooncake-probe/result.json" in mismatch_body
+    assert "reason_code" in producer
+    assert "mooncake-version-mismatch" in producer
     for field in (
         "runtime_id",
         "runtime_image",
@@ -349,7 +558,12 @@ def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version()
         "runtime_dockerfile",
         "cpu_architecture",
     ):
-        assert field in mismatch_body
+        assert field in producer
+    assert re.search(
+        rf"(?m)^\s*(?:echo|printf)\b[^\n]*>\s*"
+        rf'["\']?{re.escape(result_path)}["\']?',
+        mismatch_body,
+    ) is None
     uploads = _artifact_steps(job, "upload")
     assert len(uploads) == 1
     assert uploads[0]["if"] == "${{ always() }}"
@@ -482,6 +696,7 @@ def test_ascend_builder_copies_mooncake_from_matching_immutable_runtime() -> Non
     _assert_digest_guard_precedes(
         run,
         "RUNTIME_IMAGE",
+        r'(?m)^\s*docker\s+buildx\s+build\b[\s\S]*?'
         r'--build-arg\s+"MOONCAKE_RUNTIME_IMAGE=\$\{RUNTIME_IMAGE\}"',
     )
     instructions = _noncomment_dockerfile(dockerfile)
@@ -512,27 +727,12 @@ def test_ascend_builder_has_no_tag_inference_or_fixed_mooncake_clone() -> None:
     dockerfile = (
         ROOT / ".github" / "release" / "docker" / "Dockerfile.builder"
     ).read_text(encoding="utf-8")
-    build_source = str(build.get("run", "")) + "\n" + yaml.safe_dump(
-        build.get("with", {}), sort_keys=False
-    )
     instructions = _noncomment_dockerfile(dockerfile)
-    active_source = build_source + "\n" + instructions
-
-    assert "mooncake_installer.sh" not in active_source
-    assert "--build-arg \"MOONCAKE_TAG=" not in build_source
-    assert (
-        re.search(
-            r"git\s+clone(?:(?!&&).)*(?:kvcache-ai/)?Mooncake",
-            instructions,
-            re.IGNORECASE | re.DOTALL,
-        )
-        is None
-    )
-    assert not any(
-        "mooncake" in line.lower() and "TARGET_TAG" in line
-        for line in build_source.splitlines()
-    )
-    assert "0.3.9" not in active_source
+    parsed_build_sources = [
+        _noncomment_shell(str(build.get("run", ""))),
+        *_string_values(build.get("with", {})),
+    ]
+    _assert_no_fixed_mooncake_sources([*parsed_build_sources, instructions])
 
 
 def test_probe_matrices_isolate_failures_and_always_upload_results() -> None:
