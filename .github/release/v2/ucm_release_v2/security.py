@@ -347,8 +347,14 @@ _ALLOWED_DEFINITIONS_BY_SUFFIX = {
         "_audit_triggers",
         "_backend_guard_loader_is_exact",
         "_curl_argv",
+        "_develop_inline_validator_is_semantic",
+        "_expression_matches",
         "_extract_canonical_heredocs",
+        "_failing_guard_index",
+        "_observed_function_is_semantic",
+        "_output_block_index",
         "_permissions",
+        "_single_assignment_index",
         "_wheels_path_provenance_is_exact",
         "audit_python_source",
         "audit_repository",
@@ -873,6 +879,174 @@ def _backend_guard_loader_is_exact(tree: ast.AST, node: ast.Call, name: str) -> 
     if not any(candidate is node for candidate in ast.walk(function)):
         return False
     return ast.dump(function, include_attributes=False) == _BACKEND_GUARD_FUNCTION_AST
+
+
+def _expression_matches(node: ast.AST, source: str) -> bool:
+    expected = ast.parse(source, mode="eval").body
+    return ast.dump(node, include_attributes=False) == ast.dump(
+        expected, include_attributes=False
+    )
+
+
+def _single_assignment_index(
+    statements: list[ast.stmt], target: str, expression: str
+) -> int | None:
+    matches: list[int] = []
+    for index, statement in enumerate(statements):
+        if (
+            isinstance(statement, ast.Assign)
+            and len(statement.targets) == 1
+            and isinstance(statement.targets[0], ast.Name)
+            and statement.targets[0].id == target
+            and _expression_matches(statement.value, expression)
+        ):
+            matches.append(index)
+    return matches[0] if len(matches) == 1 else None
+
+
+def _failing_guard_index(statements: list[ast.stmt], test: str) -> int | None:
+    matches: list[int] = []
+    for index, statement in enumerate(statements):
+        if (
+            not isinstance(statement, ast.If)
+            or statement.orelse
+            or not _expression_matches(statement.test, test)
+            or len(statement.body) != 1
+            or not isinstance(statement.body[0], ast.Raise)
+        ):
+            continue
+        exception = statement.body[0].exc
+        if (
+            isinstance(exception, ast.Call)
+            and isinstance(exception.func, ast.Name)
+            and exception.func.id == "SystemExit"
+        ):
+            matches.append(index)
+    return matches[0] if len(matches) == 1 else None
+
+
+def _observed_function_is_semantic(tree: ast.Module) -> bool:
+    functions = [
+        statement
+        for statement in tree.body
+        if isinstance(statement, ast.FunctionDef) and statement.name == "observed"
+    ]
+    if len(functions) != 1:
+        return False
+    body = functions[0].body
+    if len(body) != 7:
+        return False
+    value = _single_assignment_index(
+        body,
+        "value",
+        'json.loads(path.read_text(encoding="utf-8"), '
+        "object_pairs_hook=reject_duplicates)",
+    )
+    main_ref = _failing_guard_index(
+        body,
+        'not isinstance(value, dict) or value.get("ref") != "refs/heads/main"',
+    )
+    target = _single_assignment_index(body, "target", 'value.get("object")')
+    commit = _failing_guard_index(
+        body,
+        'not isinstance(target, dict) or target.get("type") != "commit"',
+    )
+    sha = _single_assignment_index(body, "sha", 'target.get("sha")')
+    sha_format = _failing_guard_index(
+        body,
+        'not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha)',
+    )
+    returned = body[6]
+    return (
+        [value, main_ref, target, commit, sha, sha_format] == [0, 1, 2, 3, 4, 5]
+        and isinstance(returned, ast.Return)
+        and isinstance(returned.value, ast.Name)
+        and returned.value.id == "sha"
+    )
+
+
+def _output_block_index(statements: list[ast.stmt]) -> int | None:
+    expected_context = 'Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8")'
+    expected_body = ast.parse(
+        'output.write(f"control_sha={first}\\n")\n'
+        'output.write(f"source_sha={source_sha}\\n")\n'
+    ).body
+    matches: list[int] = []
+    for index, statement in enumerate(statements):
+        if (
+            not isinstance(statement, ast.With)
+            or len(statement.items) != 1
+            or not _expression_matches(
+                statement.items[0].context_expr, expected_context
+            )
+            or not isinstance(statement.items[0].optional_vars, ast.Name)
+            or statement.items[0].optional_vars.id != "output"
+            or len(statement.body) != len(expected_body)
+            or any(
+                ast.dump(observed, include_attributes=False)
+                != ast.dump(expected, include_attributes=False)
+                for observed, expected in zip(statement.body, expected_body)
+            )
+        ):
+            continue
+        matches.append(index)
+    return matches[0] if len(matches) == 1 else None
+
+
+def _develop_inline_validator_is_semantic(source: str) -> bool:
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+    if not _observed_function_is_semantic(tree):
+        return False
+    body = tree.body
+    conclusion = _failing_guard_index(
+        body, 'os.environ["WORKFLOW_CONCLUSION"] != "success"'
+    )
+    source_sha = _single_assignment_index(body, "source_sha", 'os.environ["HEAD_SHA"]')
+    source_format = _failing_guard_index(
+        body, 'not re.fullmatch(r"[0-9a-f]{40}", source_sha)'
+    )
+    first = _single_assignment_index(
+        body,
+        "first",
+        'observed(Path(os.environ["RUNNER_TEMP"]) / "main-ref-first.json", "first")',
+    )
+    second = _single_assignment_index(
+        body,
+        "second",
+        'observed(Path(os.environ["RUNNER_TEMP"]) / "main-ref-second.json", "second")',
+    )
+    stable_control = _failing_guard_index(
+        body,
+        'first != second or first != os.environ["WORKFLOW_SHA"]',
+    )
+    outputs = _output_block_index(body)
+    positions = [
+        conclusion,
+        source_sha,
+        source_format,
+        first,
+        second,
+        stable_control,
+        outputs,
+    ]
+    if any(position is None for position in positions) or positions != sorted(
+        positions
+    ):
+        return False
+    critical_writes = {
+        name: [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Name)
+            and node.id == name
+            and isinstance(node.ctx, (ast.Store, ast.Del))
+        ]
+        for name in ("source_sha", "first", "second")
+    }
+    return all(len(writes) == 1 for writes in critical_writes.values())
 
 
 def audit_python_source(source: str, name: str) -> list[Finding]:
@@ -1468,6 +1642,17 @@ def audit_workflow_source(source: str, name: str) -> list[Finding]:
                 run, name
             )
             findings.extend(heredoc_findings)
+            if (
+                name == "develop-release-dry-run.yml"
+                and step_name == "Validate trusted controller and develop source event"
+                and (
+                    len(embedded_python) != 1
+                    or not _develop_inline_validator_is_semantic(embedded_python[0])
+                )
+            ):
+                findings.append(
+                    Finding(name, "develop inline validator contract differs")
+                )
             if "${{" in shell_run:
                 findings.append(
                     Finding(name, "GitHub expression bypasses env boundary")

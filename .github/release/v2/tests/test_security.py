@@ -164,6 +164,61 @@ def test_develop_checkout_cannot_move_before_trusted_event_validation() -> None:
     ), findings
 
 
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        (
+            'if os.environ["WORKFLOW_CONCLUSION"] != "success":',
+            "if False:",
+        ),
+        (
+            'if first != second or first != os.environ["WORKFLOW_SHA"]:',
+            "if False:",
+        ),
+        (
+            'output.write(f"control_sha={first}\\n")',
+            'output.write(f"control_sha={source_sha}\\n")',
+        ),
+        (
+            'source_sha = os.environ["HEAD_SHA"]',
+            'source_sha = os.environ["WORKFLOW_SHA"]',
+        ),
+        (
+            'output.write(f"source_sha={source_sha}\\n")',
+            'output.write(f"source_sha={first}\\n")',
+        ),
+        (
+            'value.get("ref") != "refs/heads/main"',
+            'value.get("ref") != "refs/heads/develop"',
+        ),
+    ],
+    ids=(
+        "successful-source-workflow",
+        "two-main-reads-match-workflow-sha",
+        "control-output-from-main-ref",
+        "source-from-head-sha",
+        "source-output-from-validated-head",
+        "observed-main-ref",
+    ),
+)
+def test_develop_inline_validator_rejects_identity_dataflow_mutations(
+    before: str, after: str
+) -> None:
+    """The pre-checkout validator must bind trusted control and source identities."""
+    workflow_name = "develop-release-dry-run.yml"
+    source = (REPOSITORY_ROOT / ".github/workflows" / workflow_name).read_text(
+        encoding="utf-8"
+    )
+    mutated = _replace_once(source, before, after)
+
+    findings = _security().audit_workflow_source(mutated, workflow_name)
+
+    assert any(
+        "develop inline validator contract differs" in finding.message
+        for finding in findings
+    ), findings
+
+
 def _wheels_source() -> str:
     return (V2_ROOT / "ucm_release_v2/wheels.py").read_text(encoding="utf-8")
 
