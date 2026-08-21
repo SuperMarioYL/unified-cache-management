@@ -143,7 +143,11 @@ def test_sync_plan_schedules_only_missing_target_tags() -> None:
     plan = builders.compute_sync_plan(catalog, existing)
 
     assert first not in plan["builders"]
-    assert plan["matrix"] == {"include": plan["builders"]}
+    assert [item["target_tag"] for item in plan["matrix"]["include"]] == [
+        item["target_tag"] for item in plan["builders"]
+    ]
+    assert all(item["id"] == item["target_tag"] for item in plan["matrix"]["include"])
+    assert all(" · " in item["label"] for item in plan["matrix"]["include"])
     assert len(plan["builders"]) == len(catalog["builders"]) - 1
     assert "deletions" not in plan
 

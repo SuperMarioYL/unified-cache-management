@@ -1613,8 +1613,6 @@ def load_catalog(
     version_override: str | None = None,
 ) -> dict[str, Any]:
     config_schema = load_json(schema_dir / "config.schema.json")
-    load_json(schema_dir / "release-manifest.schema.json")
-    load_json(schema_dir / "image-result.schema.json")
     release = load_yaml(release_path)
     supplementary = _load_supplementary_configs(release_path, repository_root)
     profile_ids = {p["id"] for p in release.get("wheel_profiles", [])}

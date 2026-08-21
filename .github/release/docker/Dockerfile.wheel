@@ -1,144 +1,42 @@
-# syntax=docker/dockerfile:1.12.1@sha256:93bfd3b68c109427185cd78b4779fc82b484b0b7618e36d0f104d4d801e66d25
-# check=skip=SecretsUsedInArgOrEnv
-ARG UCM_BUILDER_IMAGE=registry.invalid/ucm/builder@sha256:0000000000000000000000000000000000000000000000000000000000000000
-ARG UCM_BUILD_CONFIG=wheel-build.json
-
-FROM ${UCM_BUILDER_IMAGE} AS wheel-builder
-
+# syntax=docker/dockerfile:1.12.1
 ARG UCM_BUILDER_IMAGE
-ARG UCM_BUILD_CONFIG
+
+FROM ${UCM_BUILDER_IMAGE} AS build
+
+ARG UCM_BUILD_VERSION
+ARG UCM_DIST_NAME
+ARG UCM_PLATFORM
+ARG UCM_PYTHON_VERSION
+ARG UCM_PYTHON_ABI
+
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
-ENV TZ=UTC PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_DEFAULT_TIMEOUT=30 PIP_RETRIES=2 \
+ENV PLATFORM="${UCM_PLATFORM}" \
+    UCM_BUILD_VERSION="${UCM_BUILD_VERSION}" \
+    UCM_DIST_NAME="${UCM_DIST_NAME}" \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONDONTWRITEBYTECODE=1
-# Project-pool builders use /usr/local/lib for Mooncake. Preserve any base
-# image library search path while making that reviewed location authoritative.
-ARG LD_LIBRARY_PATH
-ENV LD_LIBRARY_PATH="/usr/local/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
-FROM wheel-builder AS wheel-python
+COPY . /workspace/ucm
+WORKDIR /workspace/ucm
 
-COPY ${UCM_BUILD_CONFIG} /tmp/wheel-build.json
-COPY build-wheels /wheelhouse
-COPY build-requirements.lock /tmp/build-requirements.lock
-RUN bootstrap_python=""; \
-    if command -v python3 >/dev/null; then \
-      bootstrap_python="$(command -v python3)"; \
-    elif command -v python >/dev/null; then \
-      bootstrap_python="$(command -v python)"; \
-    else \
-      bootstrap_python="$(find -L /opt/python -path '*/bin/python' -type f -perm -111 2>/dev/null | sort | head -n 1 || true)"; \
-    fi; \
-    test -n "${bootstrap_python}"; \
-    python_version="$(${bootstrap_python} -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["python"]["version"])')"; \
-    python_abi="$(${bootstrap_python} -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["python"]["abi"])')"; \
-    python_candidate="/opt/python/${python_abi}-${python_abi}/bin/python"; \
+RUN python_candidate="/opt/python/${UCM_PYTHON_ABI}-${UCM_PYTHON_ABI}/bin/python"; \
     if [[ -x "${python_candidate}" ]]; then \
       selected_python="${python_candidate}"; \
-    elif command -v "python${python_version}" >/dev/null; then \
-      selected_python="$(command -v "python${python_version}")"; \
-    elif [[ "$(${bootstrap_python} -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" == "${python_version}" ]]; then \
-      selected_python="${bootstrap_python}"; \
+    elif command -v "python${UCM_PYTHON_VERSION}" >/dev/null; then \
+      selected_python="$(command -v "python${UCM_PYTHON_VERSION}")"; \
+    elif command -v python3 >/dev/null; then \
+      selected_python="$(command -v python3)"; \
     else \
-      echo "immutable builder lacks ${python_abi}" >&2; exit 1; \
+      echo "Builder has no usable Python" >&2; exit 1; \
     fi; \
-    ln -s "${selected_python}" /usr/local/bin/ucm-python; \
-    test "${UCM_BUILDER_IMAGE}" != "${UCM_BUILDER_IMAGE%@sha256:*}"; \
-    ucm-python -m pip install --no-index --find-links=/wheelhouse \
-      --require-hashes --only-binary=:all: -r /tmp/build-requirements.lock
+    ln -sf "${selected_python}" /usr/local/bin/ucm-python; \
+    test "$(ucm-python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" \
+      = "${UCM_PYTHON_VERSION}"
 
-FROM wheel-python AS wheel-source
-
-WORKDIR /workspace/ucm
-COPY wheel-task.json /tmp/wheel-task.json
-COPY ucm-source.tar /tmp/ucm-source.tar
-COPY source-commit.payload /tmp/source-commit.payload
-COPY source-context.json /tmp/source-context.json
-RUN ucm-python - <<'PY'
-import tarfile
-
-with tarfile.open('/tmp/ucm-source.tar', mode='r:') as archive:
-    archive.extractall('/workspace/ucm', filter='data')
-PY
-RUN expected_source_sha="$(ucm-python -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["authority"]["source_sha"])')"; \
-    PYTHONPATH=/workspace/ucm/.github/release \
-    ucm-python -m ucm_release wheel verify-context \
-      --archive /tmp/ucm-source.tar \
-      --commit-payload /tmp/source-commit.payload \
-      --expected-source-sha "${expected_source_sha}" \
-      --manifest /tmp/source-context.json \
-      --source-root /workspace/ucm
-
-FROM wheel-source AS wheel-config
-
-RUN expected_arch="$(ucm-python -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["authority"]["cpu_arch"])')"; \
-    case "${expected_arch}:$(uname -m)" in \
-      amd64:x86_64|arm64:aarch64) ;; \
-      *) echo "configured architecture does not match native immutable root" >&2; exit 1 ;; \
-    esac; \
-    scripts_dir="$(ucm-python -c 'import sysconfig; print(sysconfig.get_path("scripts"))')"; \
-    test -x "${scripts_dir}/cmake"; \
-    export PATH="${scripts_dir}:${PATH}"; \
-    test "$(command -v cmake)" = "${scripts_dir}/cmake"; \
-    PYTHONPATH=/workspace/ucm/.github/release \
-    ucm-python -m ucm_release wheel check-environment \
-      --task /tmp/wheel-task.json \
-      --python-executable /usr/local/bin/ucm-python \
-      >/tmp/builder-environment-check.json; \
-    build_platform="$(ucm-python -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["platform"])')"; \
-    if [[ "${build_platform}" == ascend* ]]; then \
-      test -f /usr/local/lib/libmooncake_store.so; \
-      test -f /usr/local/include/transfer_engine.h; \
-      test -d /vllm-workspace/Mooncake/mooncake-store/include; \
-    fi
-RUN PYTHONPATH=/workspace/ucm/.github/release \
-    ucm-python -m ucm_release wheel prepare-source \
-      --build-config /tmp/wheel-build.json \
-      --source-root /workspace/ucm
-RUN PYTHONPATH=/workspace/ucm/.github/release ucm-python - <<'PY'
-import json
-from pathlib import Path
-
-from ucm_release.wheel import load_wheel_build_config
-
-config = load_wheel_build_config(Path('/tmp/wheel-build.json'))
-Path('/tmp/build-authority.json').write_bytes(
-    json.dumps(
-        config['authority'],
-        ensure_ascii=False,
-        separators=(',', ':'),
-        sort_keys=True,
-    ).encode('utf-8') + b'\n'
-)
-PY
-
-FROM wheel-config AS wheel-build
-
-RUN source_date_epoch="$(ucm-python -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["authority"]["source_date_epoch"])')"; \
-    PATH="$(ucm-python -c 'import sysconfig; print(sysconfig.get_path("scripts"))'):${PATH}" \
-    SOURCE_DATE_EPOCH="${source_date_epoch}" \
-    UCM_BUILD_CONFIG=/tmp/wheel-build.json \
-    ucm-python -m build --no-isolation --wheel --outdir /tmp/raw-wheel
-RUN spec_id="$(ucm-python -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["authority"]["spec_id"])')"; \
-    PYTHONPATH=/workspace/ucm/.github/release \
-    ucm-python -m ucm_release wheel closure /tmp/raw-wheel/*.whl \
-      --spec-id "${spec_id}" \
-      --authority-file /tmp/build-authority.json \
-      --task-file /tmp/wheel-task.json \
-      --output /tmp/dependency-closure.json
-RUN spec_id="$(ucm-python -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["authority"]["spec_id"])')"; \
-    source_sha="$(ucm-python -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["authority"]["source_sha"])')"; \
-    build_key="$(ucm-python -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["authority"]["task_sha256"])')"; \
-    source_date_epoch="$(ucm-python -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["authority"]["source_date_epoch"])')"; \
-    PYTHONPATH=/workspace/ucm/.github/release \
-    ucm-python -m ucm_release wheel seal /tmp/raw-wheel/*.whl \
-      --spec-id "${spec_id}" \
-      --source-sha "${source_sha}" \
-      --build-key "${build_key}" \
-      --source-date-epoch "${source_date_epoch}" \
-      --authority-file /tmp/build-authority.json \
-      --dependency-closure /tmp/dependency-closure.json \
-      --task-file /tmp/wheel-task.json \
-      --output-dir /out
+RUN ucm-python -m pip install --no-cache-dir --only-binary=:all: \
+      -r .ucm-compact/build-requirements.txt
+RUN UCM_RUNTIME_REQUIREMENTS="$(cat .ucm-compact/runtime-requirements.json)" \
+    ucm-python -m build --no-isolation --wheel --outdir /out
 
 FROM scratch AS wheel
-COPY --from=wheel-build /out /
+COPY --from=build /out/ /

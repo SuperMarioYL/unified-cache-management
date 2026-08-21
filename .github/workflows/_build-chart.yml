@@ -1,251 +1,77 @@
-name: Reusable UCM chart package
+name: Package UCM Helm Chart
 
 on:
   workflow_call:
     inputs:
-      source_sha:
+      plan_artifact:
         type: string
         required: true
-      resolved_plan_artifact:
+      source_ref:
         type: string
-        required: true
-      resolved_plan_sha256:
-        type: string
-        required: true
+        required: false
+        default: ""
     outputs:
       chart_artifact:
-        description: Same-run chart package artifact name
-        value: ${{ jobs.package-chart.outputs.chart_artifact }}
+        description: Chart artifact produced by this run
+        value: ${{ jobs.package.outputs.chart_artifact }}
 
 permissions:
   contents: read
 
 jobs:
-  package-chart:
+  package:
+    name: Package
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    permissions:
-      contents: read
     outputs:
-      chart_artifact: ${{ steps.record.outputs.chart_artifact }}
+      chart_artifact: ${{ steps.package.outputs.chart_artifact }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ inputs.source_sha }}
+          ref: ${{ inputs.source_ref || github.sha }}
           fetch-depth: 1
           persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4
         with:
-          python-version: "3.12"
-      - run: >-
-          python -m pip install --disable-pip-version-check --no-cache-dir
-          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
-      - name: Install checksum-pinned Helm
-        env:
-          HELM_VERSION: v3.15.3
-          HELM_SHA256: ad871aecb0c9fd96aa6702f6b79e87556c8998c2e714a4959bf71ee31282ac9c
-        run: |
-          # shellcheck disable=SC2153,SC1083,SC2012,SC2100,SC2209
-          set -euo pipefail
-          test "$(uname -m)" = x86_64
-          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/helm.tgz" "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
-          echo "${HELM_SHA256}  ${RUNNER_TEMP}/helm.tgz" | sha256sum --check
-          tar -xzf "${RUNNER_TEMP}/helm.tgz" -C "${RUNNER_TEMP}"
-          install -m 0755 "${RUNNER_TEMP}/linux-amd64/helm" "${RUNNER_TEMP}/helm"
-          test "$("${RUNNER_TEMP}/helm" version --short)" = "v3.15.3+g3bb50bb"
-          echo "${RUNNER_TEMP}" >>"${GITHUB_PATH}"
+          version: v3.15.3
       - uses: ./.github/actions/download-artifact-retry
         with:
-          name: ${{ inputs.resolved_plan_artifact }}
+          name: ${{ inputs.plan_artifact }}
           path: input/plan
-      - name: Normalize chart source timestamps
-        id: source_time
-        env:
-          SOURCE_SHA: ${{ inputs.source_sha }}
+      - id: package
+        name: Validate and package Chart
         run: |
-          # shellcheck disable=SC2153,SC1083,SC2012,SC2100,SC2209
           set -euo pipefail
-          plan=input/plan/resolved-plan.json
-          chart_source="$(jq -r '.chart.source' "$plan")"
-          test -d "$chart_source"
-          source_commit="$(git rev-parse --verify "${SOURCE_SHA}^{commit}")"
-          test "$source_commit" = "$(git rev-parse --verify 'HEAD^{commit}')"
-          source_date_epoch="$(git show -s --format=%ct "$source_commit")"
-          case "$source_date_epoch" in
-            ''|*[!0-9]*)
-              echo "source commit has an invalid epoch: ${source_date_epoch}" >&2
-              exit 2
-              ;;
-          esac
-          test "$source_date_epoch" -ge 1
-          test "$source_date_epoch" -le 4294967295
-          SOURCE_DATE_EPOCH="$source_date_epoch" python - "$chart_source" <<'PY'
-          import os
-          import sys
-          from pathlib import Path
-
-          epoch = int(os.environ["SOURCE_DATE_EPOCH"])
-          root = Path(sys.argv[1])
-          paths = [root, *root.rglob("*")]
-          for path in sorted(paths, key=lambda item: len(item.parts), reverse=True):
-              os.utime(path, (epoch, epoch), follow_symlinks=False)
-          PY
-          echo "source_date_epoch=${source_date_epoch}" >>"${GITHUB_OUTPUT}"
-      - name: Validate and package chart
-        id: package
-        env:
-          RESOLVED_PLAN_SHA256: ${{ inputs.resolved_plan_sha256 }}
-        run: |
-          # shellcheck disable=SC2153,SC1083,SC2012,SC2100,SC2209
-          set -euo pipefail
-          mkdir -p out/chart out/artifact
-          plan=input/plan/resolved-plan.json
-          chart_source="$(jq -r '.chart.source' "$plan")"
-          chart_version="$(jq -r '.chart.version' "$plan")"
-          chart_app_version="$(jq -r '.chart.app_version' "$plan")"
-          # helm lint
-          helm lint "${chart_source}"
-          # helm template: require one validation case for each selected family.
-          family_count="$(jq '.family_tasks | length' "$plan")"
-          i=0
-          while [ "$i" -lt "$family_count" ]; do
-            product_id="$(jq -r ".family_tasks[${i}].product_id" "$plan")"
-            variant="$(jq -r ".family_tasks[${i}].runtime.variant" "$plan")"
-            case_count="$(jq --arg pid "$product_id" --arg v "$variant" \
-              '[.chart.validation_cases[] | select(.product_id == $pid and .variant == $v)] | length' "$plan")"
-            test "$case_count" = 1
-            case_name="$(jq -r --arg pid "$product_id" --arg v "$variant" \
-              '.chart.validation_cases[] | select(.product_id == $pid and .variant == $v) | .name' "$plan")"
-            values="$(jq -r --arg pid "$product_id" --arg v "$variant" \
-              '.chart.validation_cases[] | select(.product_id == $pid and .variant == $v) | .values' "$plan")"
-            expected_resource="$(jq -r --arg pid "$product_id" --arg v "$variant" \
-              '.chart.validation_cases[] | select(.product_id == $pid and .variant == $v) | .expected_resource' "$plan")"
-            repo="$(jq -r ".family_tasks[${i}].runtime.repository" "$plan")"
-            digest="$(jq -r ".family_tasks[${i}].runtime.index_digest" "$plan")"
-            test -n "$repo"
-            test -n "$digest"
-            image="${repo}@${digest}"
-            helm template "ucm-${case_name}" "${chart_source}" \
-              --values "${values}" \
-              --set-string "images.engine.repository=${repo}" \
-              --set-string "images.engine.digest=${digest}" \
-              >"out/chart/${case_name}.yaml"
-            grep -q 'kind: ModelServing' "out/chart/${case_name}.yaml"
-            grep -Fq "$image" "out/chart/${case_name}.yaml"
-            grep -Fq "$expected_resource" "out/chart/${case_name}.yaml"
-            i=$((i + 1))
-          done
-          # helm package
-          helm package "${chart_source}" --version "${chart_version}" \
-            --app-version "${chart_app_version}" --destination out/chart
-          package="$(find out/chart -maxdepth 1 -type f -name '*.tgz' -print)"
-          test -n "$package"
-          echo "package=${package}" >>"${GITHUB_OUTPUT}"
-      - name: Normalize chart package metadata
-        env:
-          CHART_PACKAGE: ${{ steps.package.outputs.package }}
-          SOURCE_DATE_EPOCH: ${{ steps.source_time.outputs.source_date_epoch }}
-        run: |
-          # shellcheck disable=SC2153,SC1083,SC2012,SC2100,SC2209
-          set -euo pipefail
-          python - <<'PY'
-          import copy
-          import gzip
-          import io
-          import os
-          import tarfile
-          import tempfile
-          from pathlib import Path
-
-          archive_path = Path(os.environ["CHART_PACKAGE"])
-          epoch_text = os.environ["SOURCE_DATE_EPOCH"]
-          if not epoch_text.isascii() or not epoch_text.isdecimal():
-              raise SystemExit(f"invalid SOURCE_DATE_EPOCH: {epoch_text!r}")
-          epoch = int(epoch_text)
-          if not 0 < epoch <= 0xFFFFFFFF:
-              raise SystemExit(f"SOURCE_DATE_EPOCH is outside gzip range: {epoch}")
-          if not archive_path.is_file():
-              raise SystemExit(f"chart package does not exist: {archive_path}")
-
-          source_members = []
-          with tarfile.open(archive_path, "r:gz") as source:
-              for source_member in source.getmembers():
-                  if not source_member.isfile():
-                      raise SystemExit(
-                          f"unexpected non-file chart member: {source_member.name}"
-                      )
-                  extracted = source.extractfile(source_member)
-                  if extracted is None:
-                      raise SystemExit(f"cannot read chart member: {source_member.name}")
-                  member = copy.copy(source_member)
-                  member.pax_headers = dict(member.pax_headers)
-                  source_members.append((member, extracted.read()))
-          if not source_members:
-              raise SystemExit("chart package is empty")
-
-          descriptor, temporary_name = tempfile.mkstemp(
-              prefix=f".{archive_path.name}.", suffix=".tmp", dir=archive_path.parent
-          )
-          os.close(descriptor)
-          temporary_path = Path(temporary_name)
-          try:
-              with temporary_path.open("wb") as raw:
-                  with gzip.GzipFile(
-                      filename="",
-                      mode="wb",
-                      fileobj=raw,
-                      compresslevel=9,
-                      mtime=epoch,
-                  ) as compressed:
-                      with tarfile.open(
-                          fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT
-                      ) as target:
-                          for member, data in source_members:
-                              member.mtime = epoch
-                              member.pax_headers.pop("mtime", None)
-                              target.addfile(member, io.BytesIO(data))
-              os.replace(temporary_path, archive_path)
-          finally:
-              temporary_path.unlink(missing_ok=True)
-
-          rewritten_members = []
-          with tarfile.open(archive_path, "r:gz") as rewritten:
-              for member in rewritten.getmembers():
-                  extracted = rewritten.extractfile(member)
-                  if extracted is None:
-                      raise SystemExit(f"cannot verify chart member: {member.name}")
-                  if int(member.mtime) != epoch:
-                      raise SystemExit(f"chart member timestamp drifted: {member.name}")
-                  rewritten_members.append((member.name, extracted.read()))
-          expected_members = [(member.name, data) for member, data in source_members]
-          if rewritten_members != expected_members:
-              raise SystemExit("chart member bytes changed during timestamp normalization")
-          gzip_epoch = int.from_bytes(archive_path.read_bytes()[4:8], "little")
-          if gzip_epoch != epoch:
-              raise SystemExit(f"gzip timestamp drifted: {gzip_epoch} != {epoch}")
-          PY
-      - id: record
-        env:
-          SOURCE_SHA: ${{ inputs.source_sha }}
-          CHART_PACKAGE: ${{ steps.package.outputs.package }}
-        run: |
-          # shellcheck disable=SC2153,SC1083,SC2012,SC2100,SC2209
-          set -euo pipefail
-          package="$CHART_PACKAGE"
-          test -f "$package"
-          chart_sha="sha256:$(sha256sum "$package" | cut -d' ' -f1)"
-          filename="$(basename "$package")"
-          jq -nc --arg f "$filename" --arg s "$chart_sha" \
-            '{filename:$f,sha256:$s,status:"candidate-verified"}' \
-            >out/artifact/chart-result.json
-          cp "$package" out/artifact/
-          logical="ucm-chart-${SOURCE_SHA}"
-          physical="${logical}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
-          echo "chart_artifact=${physical}" >>"${GITHUB_OUTPUT}"
+          plan=input/plan/release-plan.json
+          source="$(jq -r '.chart.source' "${plan}")"
+          mkdir -p out/rendered out/chart
+          helm lint "${source}"
+          while IFS=$'\t' read -r product variant repository tag; do
+            values="$(jq -r --arg product "${product}" --arg variant "${variant}" \
+              '.chart.validation_cases[] | select(.product_id == $product and .variant == $variant) | .values' \
+              "${plan}")"
+            expected="$(jq -r --arg product "${product}" --arg variant "${variant}" \
+              '.chart.validation_cases[] | select(.product_id == $product and .variant == $variant) | .expected_resource' \
+              "${plan}")"
+            test -n "${values}"
+            helm template "ucm-${variant}" "${source}" --values "${values}" \
+              --set-string "images.engine.repository=${repository}" \
+              --set-string "images.engine.tag=${tag}" \
+              >"out/rendered/${product}-${variant}.yaml"
+            grep -Fq "${repository}:${tag}" "out/rendered/${product}-${variant}.yaml"
+            grep -Fq "${expected}" "out/rendered/${product}-${variant}.yaml"
+          done < <(jq -r '.families[] | [.product_id,.variant,.target_repository,.target_tag] | @tsv' "${plan}")
+          helm package "${source}" \
+            --version "$(jq -r '.chart.version' "${plan}")" \
+            --app-version "$(jq -r '.chart.app_version' "${plan}")" \
+            --destination out/chart
+          test "$(find out/chart -maxdepth 1 -type f -name '*.tgz' | wc -l | tr -d ' ')" = 1
+          echo "chart_artifact=ucm-chart-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}" \
+            >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ steps.record.outputs.chart_artifact }}
-          path: out/artifact/
+          name: ${{ steps.package.outputs.chart_artifact }}
+          path: out/chart/*.tgz
           if-no-files-found: error
           overwrite: false
           retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}

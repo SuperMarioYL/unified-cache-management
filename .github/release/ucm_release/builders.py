@@ -662,11 +662,23 @@ def compute_sync_plan(catalog: object, existing_tags: object) -> dict[str, objec
         ),
         key=lambda item: tuple(item[field] for field in CATALOG_FIELDS),
     )
+    matrix = []
+    for item in missing:
+        runtime_name, _, runtime_version = item["accelerator_runtime"].partition("-")
+        runtime_label = f"{runtime_name.upper()} {runtime_version}"
+        variant = "" if item["variant"] == "default" else f" {item['variant'].upper()}"
+        matrix.append(
+            {
+                **item,
+                "id": item["target_tag"],
+                "label": f"{runtime_label}{variant} · {item['cpu_arch']}",
+            }
+        )
     return {
         "kind": "ucm-builder-sync-plan",
         "schema_version": 1,
         "builders": missing,
-        "matrix": {"include": missing},
+        "matrix": {"include": matrix},
     }
 
 
