@@ -29,6 +29,7 @@ CATALOG_FIELDS = {
     "schema_version",
     "source_sha",
     "upstream_reads",
+    "builder_sources",
     "builder_sync",
     "builder_capabilities",
     "builder_revisions",
@@ -186,6 +187,36 @@ PYTHON_PROBE_FIELDS = {
     "python_version",
     "python_abi",
     "wheel_tag",
+}
+PYTHON_PROBE_FAILURE_FIELDS = {
+    "status",
+    "reason_code",
+    "source_kind",
+    "source_id",
+    "builder_fact_id",
+    "builder_image",
+    "target_builder_digest",
+    "cpu_architecture",
+    "runner",
+    "interpreter_path",
+    "builder_capability_id",
+    "builder_revision_id",
+    "runtime_id",
+    "evidence",
+}
+MOONCAKE_PROBE_FAILURE_FIELDS = {
+    "status",
+    "reason_code",
+    "source_kind",
+    "source_id",
+    "runtime_id",
+    "runtime_image",
+    "runtime_image_digest",
+    "cpu_architecture",
+    "runner",
+    "builder_capability_id",
+    "builder_revision_id",
+    "evidence",
 }
 
 
@@ -372,8 +403,12 @@ def test_python_probe_fixture_links_exact_fact_and_defers_revision_identity() ->
         for fact in fixture["builder_discovery"]["builder_facts"]
     }
     probes = fixture["python_probes"]["probes"]
+    failures = fixture["python_probes"]["failures"]
 
     assert all(set(probe) == PYTHON_PROBE_FIELDS for probe in probes)
+    assert failures
+    assert all(set(item) == PYTHON_PROBE_FAILURE_FIELDS for item in failures)
+    assert all(item["status"] == "failed" for item in failures)
     for probe in probes:
         fact = facts[probe["builder_fact_id"]]
         assert probe["builder_image"] == (
@@ -413,6 +448,12 @@ def test_python_probe_fixture_links_exact_fact_and_defers_revision_identity() ->
         for probe in probes
         if probe["builder_fact_id"] in a2_fact_ids
     } == a2_fact_ids
+    mooncake_failures = fixture["mooncake_probes"]["failures"]
+    assert mooncake_failures
+    assert all(
+        set(item) == MOONCAKE_PROBE_FAILURE_FIELDS
+        for item in mooncake_failures
+    )
 
 
 def test_assembled_catalog_is_closed_digest_bound_and_valid() -> None:
@@ -424,6 +465,11 @@ def test_assembled_catalog_is_closed_digest_bound_and_valid() -> None:
     assert catalog["kind"] == "ucm-capability-catalog"
     assert catalog["schema_version"] == 3
     assert catalog["source_sha"] == "1" * 40
+    assert catalog["upstream_reads"]
+    assert catalog["builder_sources"] == _load_fixture()["builder_discovery"][
+        "builders"
+    ]
+    assert any(item["variant"] == "310p" for item in catalog["builder_sources"])
     expected_sync = _load_fixture()["builder_discovery"]["builder_sync"]
     assert set(catalog["builder_sync"]) == BUILDER_SYNC_FIELDS
     assert catalog["builder_sync"] == expected_sync
@@ -634,6 +680,7 @@ def test_runtime_candidates_remain_multi_version_and_git_source_bound() -> None:
     assert all("@sha256:" in runtime["runtime_image"] for runtime in runtimes)
     assert all(runtime["git_tag"].startswith("v") for runtime in runtimes)
     assert all(len(runtime["git_commit"]) == 40 for runtime in runtimes)
+    assert any(runtime["variant"] == "310p" for runtime in runtimes)
 
 
 def test_mooncake_runtime_copy_is_version_exact_and_mismatch_is_local() -> None:
@@ -773,16 +820,18 @@ def test_mooncake_runtime_copy_is_version_exact_and_mismatch_is_local() -> None:
         "declared_version": "0.3.12",
         "installed_version": "0.3.11.post1",
     }
-    mismatch_revision = revisions_by_id[mismatch["builder_revision_id"]]
-    assert (
-        mismatch_revision["target_builder_digest"] == a4_fact["target_builder_digest"]
-    )
-    assert (
-        mismatch["builder_capability_id"] == mismatch_revision["builder_capability_id"]
+    assert mismatch["builder_capability_id"] is None
+    assert mismatch["builder_revision_id"] is None
+    assert mismatch["runtime_id"] == mismatched_runtime["runtime_id"]
+    healthy_a4_revision = next(
+        item
+        for item in catalog["builder_revisions"]
+        if item["target_builder_digest"] == a4_fact["target_builder_digest"]
     )
     assert any(
         item["runtime_id"] == a4_fact["mooncake_source_runtime_id"]
-        and item["builder_revision_id"] == mismatch["builder_revision_id"]
+        and item["builder_revision_id"]
+        == healthy_a4_revision["builder_revision_id"]
         for item in catalog["bindings"]
     )
     assert all(
@@ -868,6 +917,57 @@ def test_failed_new_builder_becomes_source_only_exclusion() -> None:
         for item in catalog["builder_revisions"]
     )
     assert catalog["bindings"]
+
+
+def test_probe_failures_become_local_exclusions_without_erasing_healthy_facts() -> (
+    None
+):
+    fixture = _load_fixture()
+    python_failure = fixture["python_probes"]["failures"][0]
+    mooncake_failure = fixture["mooncake_probes"]["failures"][0]
+    catalog = _assemble()
+
+    python_exclusion = next(
+        item
+        for item in catalog["exclusions"]
+        if item["reason_code"] == "python-probe-failed"
+    )
+    assert python_exclusion["source_id"] == python_failure["source_id"]
+    assert python_exclusion["builder_capability_id"] is None
+    assert python_exclusion["builder_revision_id"] is None
+    assert python_exclusion["runtime_id"] is None
+    assert python_exclusion["evidence"]["builder_fact_id"] == python_failure[
+        "builder_fact_id"
+    ]
+
+    mooncake_exclusion = next(
+        item
+        for item in catalog["exclusions"]
+        if item["reason_code"] == "mooncake-probe-failed"
+    )
+    assert mooncake_exclusion["source_id"] == mooncake_failure["source_id"]
+    assert mooncake_exclusion["builder_capability_id"] is None
+    assert mooncake_exclusion["builder_revision_id"] is None
+    assert mooncake_exclusion["runtime_id"] == mooncake_failure["runtime_id"]
+    assert any(
+        item["runtime_id"] == mooncake_failure["runtime_id"]
+        and item["variant"] == "310p"
+        for item in catalog["runtime_candidates"]
+    )
+
+    healthy_fact = next(
+        item
+        for item in fixture["builder_discovery"]["builder_facts"]
+        if item["builder_fact_id"] == python_failure["builder_fact_id"]
+    )
+    assert any(
+        item["target_builder_digest"] == healthy_fact["target_builder_digest"]
+        for item in catalog["builder_revisions"]
+    )
+    assert any(
+        item["runtime_id"] != mooncake_failure["runtime_id"]
+        for item in catalog["bindings"]
+    )
 
 
 def test_capability_revision_and_runtime_digest_identities_are_recomputable() -> None:
@@ -1024,18 +1124,19 @@ def test_bindings_entries_and_exclusions_are_closed_and_consistent() -> None:
         assert runtime_id is None or runtime_id in runtimes_by_id
         if exclusion["reason_code"] in {
             "builder-sync-failed",
+            "python-probe-failed",
             "python-requires-mismatch",
             "variant-filtered-310p",
         }:
             assert capability_id is revision_id is runtime_id is None
         else:
-            assert exclusion["reason_code"] == "mooncake-version-mismatch"
-            assert capability_id is not None
-            assert revision_id is not None
+            assert exclusion["reason_code"] in {
+                "mooncake-probe-failed",
+                "mooncake-version-mismatch",
+            }
+            assert capability_id is None
+            assert revision_id is None
             assert runtime_id is not None
-            assert (
-                revisions_by_id[revision_id]["builder_capability_id"] == capability_id
-            )
 
 
 def test_catalog_set_like_arrays_use_approved_canonical_order() -> None:

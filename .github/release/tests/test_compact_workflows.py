@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 import shlex
 from pathlib import Path
@@ -452,9 +453,14 @@ def test_builder_sync_exports_run_scoped_capability_catalog_from_assembly() -> N
     } <= set(jobs)
     assert jobs["build-missing"]["name"] == "Builder · ${{ matrix.label }}"
     assert "capability_catalog_artifact" in outputs
+    assert "builder_catalog_artifact" in outputs
+    assert outputs["builder_catalog_artifact"]["value"] == (
+        "${{ jobs.prepare.outputs.builder_catalog_artifact }}"
+    )
     prepare = jobs["prepare"]
     prepare_outputs = set(prepare.get("outputs", {}))
     assert "builder_catalog_artifact" in prepare_outputs
+    assert "builder_source_artifact" in prepare_outputs
     assert {
         "matrix",
         "has_missing",
@@ -470,6 +476,30 @@ def test_builder_sync_exports_run_scoped_capability_catalog_from_assembly() -> N
         "target_builder_digest",
     ):
         assert predicted not in prepare_source
+    source_uploads = _artifact_steps(prepare, "upload")
+    required_source_uploads = {
+        _normalized_with(
+            {
+                "name": "${{ steps.source.outputs.builder_catalog_artifact }}",
+                "path": "out/legacy-builder-catalog.json",
+                "if-no-files-found": "error",
+                "overwrite": False,
+                "retention-days": 7,
+            }
+        ),
+        _normalized_with(
+            {
+                "name": "${{ steps.source.outputs.builder_source_artifact }}",
+                "path": "out/builder-catalog.json",
+                "if-no-files-found": "error",
+                "overwrite": False,
+                "retention-days": 7,
+            }
+        ),
+    }
+    assert required_source_uploads <= {
+        _normalized_with(step.get("with", {})) for step in source_uploads
+    }
     assert (
         outputs["capability_catalog_artifact"]["value"]
         == "${{ jobs.assemble-capability-catalog.outputs.capability_catalog_artifact }}"
@@ -479,6 +509,51 @@ def test_builder_sync_exports_run_scoped_capability_catalog_from_assembly() -> N
     assert assembly_outputs["capability_catalog_artifact"] == (
         "${{ steps.catalog.outputs.capability_catalog_artifact }}"
     )
+
+
+def test_live_discovery_jobs_use_typed_cli_without_inline_reconstruction() -> None:
+    workflow = _load("sync-builders.yml")
+    prepare = workflow["jobs"]["prepare"]
+    source_steps = [step for step in prepare["steps"] if step.get("id") == "source"]
+    assert len(source_steps) == 1
+    source_run = _noncomment_shell(str(source_steps[0]["run"]))
+    source_command = _cli_command(source_run, "builders", "discover-sources")
+    _assert_cli_options(
+        source_command,
+        {
+            "--legacy-output": "out/legacy-builder-catalog.json",
+            "--output": "out/builder-catalog.json",
+        },
+    )
+
+    runtime_job = workflow["jobs"]["discover-runtimes"]
+    discover_steps = [
+        step for step in runtime_job["steps"] if step.get("id") == "discover"
+    ]
+    assert len(discover_steps) == 1
+    runtime_run = _noncomment_shell(str(discover_steps[0]["run"]))
+    runtime_command = _cli_command(
+        runtime_run, "catalog", "discover-runtimes"
+    )
+    _assert_cli_options(
+        runtime_command,
+        {
+            "--builder-catalog": "input/builder-source/builder-catalog.json",
+            "--output": "out/runtime-discovery.json",
+        },
+    )
+    assert "runtime_probe_matrix=" in runtime_run
+    for forbidden in (
+        "python - <<",
+        "python3 - <<",
+        "ascend_variants[0]",
+        "vllm-project/vllm",
+        "vllm-project/vllm-ascend",
+        "Dockerfile.runtime.a2",
+        "Dockerfile.runtime.a4",
+    ):
+        assert forbidden not in source_run
+        assert forbidden not in runtime_run
 
 
 def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> None:
@@ -503,6 +578,7 @@ def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> 
     ]
     assert len(probe_steps) == 1
     probe = probe_steps[0]
+    assert isinstance(probe.get("id"), str) and probe["id"]
     assert probe.get("env", {}).get("BUILDER_IMAGE") == "${{ matrix.builder_image }}"
     assert probe.get("env", {}).get("BUILDER_FACT_ID") == (
         "${{ matrix.builder_fact_id }}"
@@ -516,22 +592,42 @@ def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> 
         "BUILDER_IMAGE",
         r'(?m)^\s*docker\s+run\b[\s\S]*?"\$\{BUILDER_IMAGE\}"',
     )
-    assert "out/python-probe/result.json" in run
-    assert "builder_fact_id" in run
-    assert "builder_image" in run
-    for field in (
-        "target_builder_digest",
-        "interpreter_path",
-        "python_version",
-        "python_abi",
-        "wheel_tag",
-        "cpu_architecture",
-    ):
-        assert field in run
     probe_source = yaml.safe_dump(probe, sort_keys=False)
     assert "builder_revision_id" not in probe_source
     assert "builder_source_image_digest" not in probe_source
     assert "cp312" not in run
+    seal_steps = [
+        step
+        for step in job["steps"]
+        if "out/python-probe/result.json" in str(step.get("run", ""))
+    ]
+    assert len(seal_steps) == 1
+    seal = seal_steps[0]
+    assert seal is not probe
+    assert "always()" in str(seal.get("if", ""))
+    assert seal.get("env", {}).get("PROBE_OUTCOME") == (
+        f"${{{{ steps.{probe['id']}.outcome }}}}"
+    )
+    seal_run = _noncomment_shell(str(seal["run"]))
+    producer = _structured_json_producer(
+        seal_run, "out/python-probe/result.json"
+    )
+    assert producer is not None
+    for field in (
+        "status",
+        "probes",
+        "failures",
+        "python-probe-failed",
+        "builder_fact_id",
+        "builder_image",
+        "target_builder_digest",
+        "cpu_architecture",
+        "runner",
+        "evidence",
+        "success",
+        "failed",
+    ):
+        assert field in producer
     uploads = _artifact_steps(job, "upload")
     assert len(uploads) == 1
     assert uploads[0]["if"] == "${{ always() }}"
@@ -564,19 +660,8 @@ def test_runtime_discovery_records_immutable_image_and_git_source_facts() -> Non
     ]
     assert len(discover_steps) == 1
     run = str(discover_steps[0]["run"])
-    for project in ("vllm", "vllm-ascend"):
-        assert project in run
-    for field in (
-        "runtime_image",
-        "runtime_image_digest",
-        "runtime_dockerfile",
-        "git_tag",
-        "git_commit",
-        "variant",
-        "cpu_architecture",
-        "runner",
-    ):
-        assert field in run
+    assert "out/runtime-discovery.json" in run
+    assert "runtime_probe_matrix=" in run
     assert (
         "ucm-runtime-discovery-run-${GITHUB_RUN_ID}-attempt-"
         "${GITHUB_RUN_ATTEMPT}" in run
@@ -612,10 +697,12 @@ def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version()
     probe_steps = [
         step
         for step in job["steps"]
-        if "out/mooncake-probe/result.json" in str(step.get("run", ""))
+        if "docker run" in str(step.get("run", ""))
+        and "MOONCAKE_TAG" in str(step.get("run", ""))
     ]
     assert len(probe_steps) == 1
     probe = probe_steps[0]
+    assert isinstance(probe.get("id"), str) and probe["id"]
     assert probe.get("env", {}).get("RUNTIME_ID") == "${{ matrix.runtime_id }}"
     assert probe.get("env", {}).get("RUNTIME_IMAGE") == "${{ matrix.runtime_image }}"
     assert probe.get("env", {}).get("RUNTIME_IMAGE_DIGEST") == (
@@ -636,33 +723,40 @@ def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version()
         "RUNTIME_IMAGE",
         r'(?m)^\s*docker\s+run\b[\s\S]*?"\$\{RUNTIME_IMAGE\}"',
     )
-    mismatch_body = _mismatch_result_branch(source)
-    assert (
-        mismatch_body is not None
-    ), "missing executable declared/installed mismatch Result branch"
-    result_path = "out/mooncake-probe/result.json"
-    producer = _structured_json_producer(mismatch_body, result_path)
-    assert (
-        producer is not None
-    ), "mismatch Result must be written by jq -n or a Python JSON writer"
-    assert "reason_code" in producer
-    assert "mooncake-version-mismatch" in producer
+    seal_steps = [
+        step
+        for step in job["steps"]
+        if "out/mooncake-probe/result.json" in str(step.get("run", ""))
+    ]
+    assert len(seal_steps) == 1
+    seal = seal_steps[0]
+    assert seal is not probe
+    assert "always()" in str(seal.get("if", ""))
+    assert seal.get("env", {}).get("PROBE_OUTCOME") == (
+        f"${{{{ steps.{probe['id']}.outcome }}}}"
+    )
+    seal_run = _noncomment_shell(str(seal["run"]))
+    producer = _structured_json_producer(
+        seal_run, "out/mooncake-probe/result.json"
+    )
+    assert producer is not None
     for field in (
+        "status",
+        "probes",
+        "failures",
+        "mooncake-probe-failed",
+        "mooncake-version-mismatch",
         "runtime_id",
         "runtime_image",
         "runtime_image_digest",
         "runtime_dockerfile",
         "cpu_architecture",
+        "runner",
+        "evidence",
+        "success",
+        "failed",
     ):
         assert field in producer
-    assert (
-        re.search(
-            rf"(?m)^\s*(?:echo|printf)\b[^\n]*>\s*"
-            rf'["\']?{re.escape(result_path)}["\']?',
-            mismatch_body,
-        )
-        is None
-    )
     uploads = _artifact_steps(job, "upload")
     assert len(uploads) == 1
     assert uploads[0]["if"] == "${{ always() }}"
@@ -701,7 +795,7 @@ def test_builder_sync_plan_waits_for_runtime_and_mooncake_results() -> None:
     required_downloads = {
         _normalized_with(
             {
-                "name": "${{ needs.prepare.outputs.builder_catalog_artifact }}",
+                "name": "${{ needs.prepare.outputs.builder_source_artifact }}",
                 "path": "input/builder-source",
             }
         ),
@@ -972,7 +1066,7 @@ def test_catalog_assembly_waits_for_all_results_and_calls_stable_cli() -> None:
 
 
 @pytest.mark.parametrize("filename", ["release-ucm.yml", "ucm-build-bot.yml"])
-def test_planners_consume_capability_catalog_instead_of_flat_builder_catalog(
+def test_task3_planners_keep_legacy_builder_catalog_until_task4(
     filename: str,
 ) -> None:
     workflow = _load(filename)
@@ -980,12 +1074,12 @@ def test_planners_consume_capability_catalog_instead_of_flat_builder_catalog(
     downloads = [
         step
         for step in _artifact_steps(plan, "download")
-        if step.get("with", {}).get("path") == "input/capabilities"
+        if step.get("with", {}).get("path") == "input/builders"
     ]
     assert len(downloads) == 1
     assert downloads[0]["with"] == {
-        "name": "${{ needs.sync-builders.outputs.capability_catalog_artifact }}",
-        "path": "input/capabilities",
+        "name": "${{ needs.sync-builders.outputs.builder_catalog_artifact }}",
+        "path": "input/builders",
     }
     plan_steps = [
         step
@@ -994,8 +1088,33 @@ def test_planners_consume_capability_catalog_instead_of_flat_builder_catalog(
     ]
     assert len(plan_steps) == 1
     run = str(plan_steps[0]["run"])
-    assert "--capability-catalog input/capabilities/capability-catalog.json" in run
-    assert "--builder-catalog" not in run
+    assert "--builder-catalog input/builders/builder-catalog.json" in run
+    assert "--capability-catalog" not in run
+
+
+def test_task3_has_no_lossy_capability_to_legacy_projection() -> None:
+    cli_path = ROOT / ".github" / "release" / "ucm_release" / "cli.py"
+    tree = ast.parse(cli_path.read_text(encoding="utf-8"))
+    assert all(
+        not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        or node.name != "_builder_catalog_projection"
+        for node in tree.body
+    )
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Subscript):
+            continue
+        if not (
+            isinstance(node.value, ast.Subscript)
+            and isinstance(node.value.slice, ast.Constant)
+            and node.value.slice.value == "builder_revision_ids"
+        ):
+            continue
+        assert not (
+            isinstance(node.slice, ast.UnaryOp)
+            and isinstance(node.slice.op, ast.USub)
+            and isinstance(node.slice.operand, ast.Constant)
+            and node.slice.operand.value == 1
+        )
 
 
 def test_ascend_builder_copies_mooncake_from_matching_immutable_runtime() -> None:
@@ -1038,10 +1157,25 @@ def test_ascend_builder_copies_mooncake_from_matching_immutable_runtime() -> Non
         re.MULTILINE,
     )
     assert re.search(
-        rf"^COPY\s+--from={re.escape(stage)}\s+.*lib",
+        rf"^COPY\s+--from={re.escape(stage)}\s+/usr/local/lib/?\s+"
+        r"/usr/local/lib/?$",
         instructions,
         re.MULTILINE,
+    ) is None
+    explicit_libraries = re.search(
+        rf"^COPY\s+--from={re.escape(stage)}\s+[^\n]*"
+        r"(?:lib[^/\s]*mooncake|mooncake[^/\s]*\.so)[^\n]*\s+"
+        r"/usr/local/lib/?$",
+        instructions,
+        re.MULTILINE | re.IGNORECASE,
     )
+    packed_libraries = re.search(
+        rf"^COPY\s+--from={re.escape(stage)}\s+[^\n]*mooncake-libs/?\s+"
+        r"/usr/local/lib/?$",
+        instructions,
+        re.MULTILINE | re.IGNORECASE,
+    )
+    assert explicit_libraries or packed_libraries
 
 
 def test_ascend_builder_has_no_tag_inference_or_fixed_mooncake_clone() -> None:

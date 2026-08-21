@@ -32,6 +32,8 @@ PLAN_FIELDS = {
     "kind",
     "schema_version",
     "source_sha",
+    "upstream_reads",
+    "builders",
     "builder_plans",
     "failures",
     "matrix",
@@ -130,6 +132,9 @@ COLLECTED_FAILURE_FIELDS = {
     "target_tag",
     "target_builder_digest",
     "digest_readback",
+    "builder_capability_id",
+    "builder_revision_id",
+    "runtime_id",
     "evidence",
 }
 PROBE_MATRIX_ROW_FIELDS = {
@@ -144,6 +149,8 @@ COLLECTED_FIELDS = {
     "kind",
     "schema_version",
     "source_sha",
+    "upstream_reads",
+    "builders",
     "builder_sync",
     "builder_facts",
     "failures",
@@ -285,6 +292,9 @@ def test_plan_builder_facts_is_closed_canonical_and_abi_independent() -> None:
     assert plan["kind"] == "ucm-builder-fact-plan"
     assert plan["schema_version"] == 3
     assert plan["source_sha"] == fixture["builder_discovery"]["source_sha"]
+    assert plan["upstream_reads"] == fixture["builder_discovery"]["upstream_reads"]
+    assert plan["builders"] == fixture["builder_discovery"]["builders"]
+    assert any(item["variant"] == "310p" for item in plan["builders"])
     plans = plan["builder_plans"]
     assert plans == sorted(plans, key=lambda item: item["builder_plan_id"])
     source_builders = [
@@ -525,6 +535,9 @@ def test_collect_builder_facts_is_closed_and_matches_catalog_fixture() -> None:
     assert collected["kind"] == "ucm-collected-builder-facts"
     assert collected["schema_version"] == 3
     assert collected["source_sha"] == plan["source_sha"]
+    assert collected["upstream_reads"] == plan["upstream_reads"]
+    assert collected["builders"] == plan["builders"]
+    assert any(item["variant"] == "310p" for item in collected["builders"])
     assert collected["builder_sync"] == {
         "mode": "append-only",
         "target_digests_verified": True,
@@ -534,6 +547,21 @@ def test_collect_builder_facts_is_closed_and_matches_catalog_fixture() -> None:
     assert collected["failures"] == fixture["builder_discovery"]["failures"]
     assert all(set(item) == BUILDER_FACT_FIELDS for item in collected["builder_facts"])
     assert all(set(item) == COLLECTED_FAILURE_FIELDS for item in collected["failures"])
+    failures_by_reason = {
+        item["reason_code"]: item for item in collected["failures"]
+    }
+    assert set(failures_by_reason) == {
+        "builder-sync-failed",
+        "mooncake-version-mismatch",
+    }
+    builder_failure = failures_by_reason["builder-sync-failed"]
+    assert builder_failure["builder_capability_id"] is None
+    assert builder_failure["builder_revision_id"] is None
+    assert builder_failure["runtime_id"] is None
+    mismatch_failure = failures_by_reason["mooncake-version-mismatch"]
+    assert mismatch_failure["builder_capability_id"] is None
+    assert mismatch_failure["builder_revision_id"] is None
+    assert mismatch_failure["runtime_id"] is not None
 
     matrix = collected["python_probe_matrix"]
     assert set(matrix) == {"include"}

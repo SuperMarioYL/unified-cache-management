@@ -507,6 +507,9 @@
         "target_tag": "cuda13.0-cp-all-manylinux2_28-arm64-r2",
         "target_builder_digest": null,
         "digest_readback": false,
+        "builder_capability_id": null,
+        "builder_revision_id": null,
+        "runtime_id": null,
         "evidence": {
           "phase": "build",
           "message": "synthetic same-run Builder failure",
@@ -529,6 +532,24 @@
             "mooncake_version": null
           }
         }
+      },
+      {
+        "builder_plan_id": null,
+        "status": "failed",
+        "reason_code": "mooncake-version-mismatch",
+        "source_kind": "mooncake-probe",
+        "source_id": "sha256:d0f7ff80df3c841feb6f15b43d669be83ee06aca227775710087189a9688320b",
+        "target_repository": null,
+        "target_tag": null,
+        "target_builder_digest": null,
+        "digest_readback": false,
+        "builder_capability_id": null,
+        "builder_revision_id": null,
+        "runtime_id": "sha256:d0f7ff80df3c841feb6f15b43d669be83ee06aca227775710087189a9688320b",
+        "evidence": {
+          "declared_version": "0.3.12",
+          "installed_version": "0.3.11.post1"
+        }
       }
     ]
   },
@@ -536,6 +557,22 @@
     "kind": "ucm-runtime-discovery",
     "schema_version": 3,
     "source_sha": "1111111111111111111111111111111111111111",
+    "upstream_reads": [
+      {
+        "project": "vllm-project/vllm",
+        "source_kind": "runtime-image-and-git-tag",
+        "source_path": "docker.io/vllm/vllm-openai",
+        "source_commit": "b111111111111111111111111111111111111111",
+        "fact": "runtime-image"
+      },
+      {
+        "project": "vllm-project/vllm-ascend",
+        "source_kind": "runtime-dockerfile-and-annotated-tag",
+        "source_path": "docker/Dockerfile.runtime.a2",
+        "source_commit": "c111111111111111111111111111111111111111",
+        "fact": "MOONCAKE_TAG"
+      }
+    ],
     "runtime_candidates": [
       {
         "product_id": "vllm",
@@ -837,6 +874,27 @@
         "python_abi": "cp310",
         "wheel_tag": "cp310-cp310-manylinux_2_34_x86_64"
       }
+    ],
+    "failures": [
+      {
+        "status": "failed",
+        "reason_code": "python-probe-failed",
+        "source_kind": "python-probe",
+        "source_id": "sha256:0868a8a48a9c5e99bc2c5b83a8b92dfacb3e320aaf06c55a4004ee803887657d:/opt/python/cp313-cp313/bin/python",
+        "builder_fact_id": "sha256:0868a8a48a9c5e99bc2c5b83a8b92dfacb3e320aaf06c55a4004ee803887657d",
+        "builder_image": "ghcr.io/release-org/ucm-builder-vllm@sha256:3111111111111111111111111111111111111111111111111111111111111111",
+        "target_builder_digest": "sha256:3111111111111111111111111111111111111111111111111111111111111111",
+        "cpu_architecture": "amd64",
+        "runner": "ubuntu-24.04",
+        "interpreter_path": "/opt/python/cp313-cp313/bin/python",
+        "builder_capability_id": null,
+        "builder_revision_id": null,
+        "runtime_id": null,
+        "evidence": {
+          "outcome": "failure",
+          "message": "synthetic interpreter probe failure"
+        }
+      }
     ]
   },
   "mooncake_probes": {
@@ -887,6 +945,25 @@
         "installed_version": "0.3.12",
         "headers_path": "/usr/local/include/mooncake",
         "libraries_path": "/usr/local/lib"
+      }
+    ],
+    "failures": [
+      {
+        "status": "failed",
+        "reason_code": "mooncake-probe-failed",
+        "source_kind": "mooncake-probe",
+        "source_id": "sha256:65a200a9276be2d5f3f90319b737efe121ffe5f4f673d0dd4c95ebde18bf5555",
+        "runtime_id": "sha256:65a200a9276be2d5f3f90319b737efe121ffe5f4f673d0dd4c95ebde18bf5555",
+        "runtime_image": "quay.io/ascend/vllm-ascend@sha256:1e11111111111111111111111111111111111111111111111111111111111111",
+        "runtime_image_digest": "sha256:1e11111111111111111111111111111111111111111111111111111111111111",
+        "cpu_architecture": "amd64",
+        "runner": "ubuntu-24.04",
+        "builder_capability_id": null,
+        "builder_revision_id": null,
+        "evidence": {
+          "outcome": "failure",
+          "message": "synthetic runtime probe failure"
+        }
       }
     ]
   },
