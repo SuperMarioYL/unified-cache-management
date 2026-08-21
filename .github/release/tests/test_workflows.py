@@ -1757,16 +1757,15 @@ def test_release_tests_checkout_fetches_tags_for_git_describe() -> None:
     seed = next(
         step
         for step in steps
-        if step.get("name")
-        == "Fetch fork-source tags when no release tag is reachable"
+        if step.get("name") == "Fetch fork-source tags when no release tag is reachable"
     )
-    assert seed["env"] == {
-        "SOURCE_REPOSITORY_URL": "${{ github.event.repository.source.clone_url }}"
-    }
+    assert seed["env"] == {"GH_TOKEN": "${{ github.token }}"}
     command = str(seed["run"])
     assert "git describe --tags --match 'v[0-9]*' HEAD" in command
+    assert 'gh api "repos/${GITHUB_REPOSITORY}"' in command
+    assert ".source.clone_url // .parent.clone_url // empty" in command
     assert "git fetch --force" in command
-    assert '"${SOURCE_REPOSITORY_URL}"' in command
+    assert '"${source_repository_url}"' in command
     assert "+refs/tags/*:refs/tags/*" in command
     assert "git tag" not in command
     assert steps.index(seed) < next(

@@ -129,11 +129,13 @@ jobs:
 
     - name: Fetch fork-source tags when no release tag is reachable
       env:
-        SOURCE_REPOSITORY_URL: ${{ github.event.repository.source.clone_url }}
+        GH_TOKEN: ${{ github.token }}
       run: |
         if ! git describe --tags --match 'v[0-9]*' HEAD >/dev/null 2>&1; then
-          test -n "${SOURCE_REPOSITORY_URL}"
-          git fetch --force "${SOURCE_REPOSITORY_URL}" '+refs/tags/*:refs/tags/*'
+          source_repository_url="$(gh api "repos/${GITHUB_REPOSITORY}" \
+            --jq '.source.clone_url // .parent.clone_url // empty')"
+          test -n "${source_repository_url}"
+          git fetch --force "${source_repository_url}" '+refs/tags/*:refs/tags/*'
           git describe --tags --match 'v[0-9]*' HEAD >/dev/null
         fi
 
