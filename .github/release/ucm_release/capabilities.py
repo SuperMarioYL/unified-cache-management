@@ -453,9 +453,7 @@ def assemble_capability_catalog(
             probe.get("cpu_architecture"), "Python probe cpu_architecture"
         )
         abi = _string(probe.get("python_abi"), "Python probe python_abi")
-        version = _string(
-            probe.get("python_version"), "Python probe python_version"
-        )
+        version = _string(probe.get("python_version"), "Python probe python_version")
         if python_version_from_abi(abi) != version:
             raise ValueError("Python probe version and ABI differ")
         interpreter = _string(
@@ -475,9 +473,7 @@ def assemble_capability_catalog(
         probe = _mapping(raw_value, f"Mooncake probes[{index}]")
         key = (
             _digest(probe.get("runtime_image_digest"), "Mooncake runtime digest"),
-            _string(
-                probe.get("cpu_architecture"), "Mooncake probe cpu_architecture"
-            ),
+            _string(probe.get("cpu_architecture"), "Mooncake probe cpu_architecture"),
         )
         if key in mooncake_by_runtime and mooncake_by_runtime[key] != probe:
             raise ValueError("conflicting Mooncake probe for one runtime image")
@@ -557,9 +553,7 @@ def assemble_capability_catalog(
                     "accelerator_runtime": accelerator_runtime,
                     "variant": variant,
                     "cpu_architecture": architecture,
-                    "manylinux": _string(
-                        builder.get("manylinux"), "Builder manylinux"
-                    ),
+                    "manylinux": _string(builder.get("manylinux"), "Builder manylinux"),
                     "python_version": python_version,
                     "python_abi": python_abi,
                     "mooncake_version": mooncake_version,
@@ -607,9 +601,7 @@ def assemble_capability_catalog(
                 revision_projection = copy.deepcopy(revision)
                 revision_projection.pop("revision_sha256")
                 revision["revision_sha256"] = _canonical_digest(revision_projection)
-                previous_revision = revision_by_id.get(
-                    revision["builder_revision_id"]
-                )
+                previous_revision = revision_by_id.get(revision["builder_revision_id"])
                 if previous_revision is not None and previous_revision != revision:
                     raise ValueError(
                         "conflicting Builder revision "
@@ -667,15 +659,11 @@ def assemble_capability_catalog(
                             reason_code="mooncake-version-mismatch",
                             source_kind="mooncake-probe",
                             source_id=runtime["runtime_image"],
-                            builder_capability_id=capability[
-                                "builder_capability_id"
-                            ],
+                            builder_capability_id=capability["builder_capability_id"],
                             builder_revision_id=revision_id,
                             runtime_id=runtime["runtime_id"],
                             evidence={
-                                "declared_version": mooncake_probe[
-                                    "declared_version"
-                                ],
+                                "declared_version": mooncake_probe["declared_version"],
                                 "installed_version": mooncake_probe[
                                     "installed_version"
                                 ],
@@ -699,10 +687,7 @@ def assemble_capability_catalog(
                         f"{revision['target_repository']}@"
                         f"{revision['target_builder_digest']}"
                     ),
-                    **{
-                        field: revision[field]
-                        for field in _REVISION_PROJECTION_FIELDS
-                    },
+                    **{field: revision[field] for field in _REVISION_PROJECTION_FIELDS},
                     "mooncake_copy_mode": (
                         "none"
                         if capability["accelerator"] == "cuda"
@@ -713,9 +698,7 @@ def assemble_capability_catalog(
                 bindings.append(binding)
                 entries.append({field: binding[field] for field in ENTRY_FIELDS})
 
-    bindings.sort(
-        key=lambda item: (item["builder_revision_id"], item["runtime_id"])
-    )
+    bindings.sort(key=lambda item: (item["builder_revision_id"], item["runtime_id"]))
     entries.sort(key=_entry_key)
     exclusions = _unique_records(exclusions)
     exclusions.sort(key=_exclusion_key)
@@ -755,9 +738,10 @@ def _validate_capability_semantics(value: dict[str, Any], label: str) -> None:
         raise ValueError(f"{label}: variant is not canonical")
     if value["cpu_architecture"] not in {"amd64", "arm64"}:
         raise ValueError(f"{label}: unsupported cpu_architecture")
-    if not isinstance(value["manylinux"], str) or _MANYLINUX.fullmatch(
-        value["manylinux"]
-    ) is None:
+    if (
+        not isinstance(value["manylinux"], str)
+        or _MANYLINUX.fullmatch(value["manylinux"]) is None
+    ):
         raise ValueError(f"{label}: malformed manylinux")
     if python_version_from_abi(value["python_abi"]) != value["python_version"]:
         raise ValueError(f"{label}: Python version and ABI differ")
@@ -780,21 +764,15 @@ def validate_capability_catalog(value: object) -> dict[str, Any]:
     _array(catalog["upstream_reads"], "Capability Catalog upstream_reads")
     _mapping(catalog["builder_sync"], "Capability Catalog builder_sync")
     catalog_digest = _digest(catalog["catalog_sha256"], "Catalog digest")
-    projection = {
-        key: item for key, item in catalog.items() if key != "catalog_sha256"
-    }
+    projection = {key: item for key, item in catalog.items() if key != "catalog_sha256"}
     if catalog_digest != _canonical_digest(projection):
         raise ValueError("Capability Catalog digest does not match its contents")
 
     capability_values = _array(
         catalog["builder_capabilities"], "Catalog builder_capabilities"
     )
-    revision_values = _array(
-        catalog["builder_revisions"], "Catalog builder_revisions"
-    )
-    runtime_values = _array(
-        catalog["runtime_candidates"], "Catalog runtime_candidates"
-    )
+    revision_values = _array(catalog["builder_revisions"], "Catalog builder_revisions")
+    runtime_values = _array(catalog["runtime_candidates"], "Catalog runtime_candidates")
     binding_values = _array(catalog["bindings"], "Catalog bindings")
     entry_values = _array(catalog["entries"], "Catalog entries")
     exclusion_values = _array(catalog["exclusions"], "Catalog exclusions")
@@ -803,16 +781,12 @@ def validate_capability_catalog(value: object) -> dict[str, Any]:
     capabilities_by_id: dict[str, dict[str, Any]] = {}
     for index, raw in enumerate(capability_values):
         capability = _mapping(raw, f"builder_capabilities[{index}]")
-        _exact_fields(
-            capability, CAPABILITY_FIELDS, f"builder_capabilities[{index}]"
-        )
+        _exact_fields(capability, CAPABILITY_FIELDS, f"builder_capabilities[{index}]")
         capability_id = _digest(
             capability["builder_capability_id"],
             f"builder_capabilities[{index}] ID",
         )
-        _validate_capability_semantics(
-            capability, f"builder_capabilities[{index}]"
-        )
+        _validate_capability_semantics(capability, f"builder_capabilities[{index}]")
         if capability_id != _canonical_digest(
             _identity(capability, _CAPABILITY_IDENTITY_FIELDS)
         ):
@@ -851,9 +825,7 @@ def validate_capability_catalog(value: object) -> dict[str, Any]:
         )
         if capability_id not in capabilities_by_id:
             raise ValueError("Builder revision references an unknown capability")
-        _string(
-            revision["source_image_repository"], "Builder source image repository"
-        )
+        _string(revision["source_image_repository"], "Builder source image repository")
         _digest(revision["source_image_digest"], "Builder source image digest")
         _string(revision["recipe_path"], "Builder recipe path")
         _commit(revision["recipe_source_commit"], "Builder recipe source commit")
@@ -877,9 +849,7 @@ def validate_capability_catalog(value: object) -> dict[str, Any]:
         revisions_by_id[revision_id] = revision
         revisions_by_capability.setdefault(capability_id, []).append(revision_id)
         revisions.append(revision)
-    if revisions != sorted(
-        revisions, key=lambda item: item["builder_revision_id"]
-    ):
+    if revisions != sorted(revisions, key=lambda item: item["builder_revision_id"]):
         raise ValueError("Builder revisions are not canonically ordered")
     for capability_id, capability in capabilities_by_id.items():
         if capability["builder_revision_ids"] != sorted(

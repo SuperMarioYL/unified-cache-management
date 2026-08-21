@@ -16,9 +16,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RELEASE_ROOT = REPO_ROOT / ".github" / "release"
-FIXTURE_PATH = (
-    RELEASE_ROOT / "tests" / "fixtures" / "capability-catalog-discovery.json"
-)
+FIXTURE_PATH = RELEASE_ROOT / "tests" / "fixtures" / "capability-catalog-discovery.json"
 sys.path.insert(0, str(RELEASE_ROOT))
 
 builders = importlib.import_module("ucm_release.builders")
@@ -194,9 +192,7 @@ def _plan_fixture(fixture: dict[str, Any]) -> dict[str, Any]:
     return plan
 
 
-def _result_fixture(
-    fixture: dict[str, Any], plan: dict[str, Any]
-) -> dict[str, Any]:
+def _result_fixture(fixture: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
     facts_by_target = {
         (item["target_repository"], item["target_tag"]): item
         for item in fixture["builder_discovery"]["builder_facts"]
@@ -372,17 +368,13 @@ def test_plan_builder_facts_is_closed_canonical_and_abi_independent() -> None:
                 if source["target_repository"] == item["target_repository"]
                 and _ascend_target_tag(source, runtime) == item["target_tag"]
             )
-            probe = probes[
-                (runtime["runtime_image_digest"], item["cpu_architecture"])
-            ]
+            probe = probes[(runtime["runtime_image_digest"], item["cpu_architecture"])]
             expected_tag = _ascend_target_tag(source, runtime)
             assert item["target_tag"] == expected_tag
             assert _ascend_target_tag(source, runtime) == expected_tag
             assert OCI_TAG.fullmatch(item["target_tag"])
             assert len(item["target_tag"]) <= 128
-            prefix, suffix = item["target_tag"].rsplit(
-                ASCEND_TARGET_SEPARATOR, 1
-            )
+            prefix, suffix = item["target_tag"].rsplit(ASCEND_TARGET_SEPARATOR, 1)
             assert len(prefix) <= ASCEND_TARGET_PREFIX_BUDGET
             assert len(suffix) == ASCEND_TARGET_SUFFIX_LENGTH
             assert re.fullmatch(r"[0-9a-f]{64}", suffix)
@@ -403,32 +395,25 @@ def test_plan_builder_facts_is_closed_canonical_and_abi_independent() -> None:
         for runtime in runtime_values
         if runtime["accelerator_runtime"] == "cann-9.0"
         and runtime["variant"] == "a2"
-        and probes[
-            (runtime["runtime_image_digest"], runtime["cpu_architecture"])
-        ]["declared_version"]
-        == probes[
-            (runtime["runtime_image_digest"], runtime["cpu_architecture"])
-        ]["installed_version"]
+        and probes[(runtime["runtime_image_digest"], runtime["cpu_architecture"])][
+            "declared_version"
+        ]
+        == probes[(runtime["runtime_image_digest"], runtime["cpu_architecture"])][
+            "installed_version"
+        ]
         == runtime["mooncake_version"]
     ]
     base_a2_tags = {
-        _ascend_target_tag(base_a2_source, runtime)
-        for runtime in healthy_a2_runtimes
+        _ascend_target_tag(base_a2_source, runtime) for runtime in healthy_a2_runtimes
     }
-    a2_plans = [
-        item
-        for item in plans
-        if item["target_tag"] in base_a2_tags
-    ]
+    a2_plans = [item for item in plans if item["target_tag"] in base_a2_tags]
     assert len(a2_plans) == 2
     assert len({item["builder_plan_id"] for item in a2_plans}) == 2
     assert len({item["target_tag"] for item in a2_plans}) == 2
     assert len({item["mooncake_source_runtime_id"] for item in a2_plans}) == 2
 
     long_sources = [
-        item
-        for item in source_builders
-        if "long-shared-prefix" in item["target_tag"]
+        item for item in source_builders if "long-shared-prefix" in item["target_tag"]
     ]
     assert len(long_sources) == 2
     assert long_sources[0]["target_tag"] != long_sources[1]["target_tag"]
@@ -449,12 +434,10 @@ def test_plan_builder_facts_is_closed_canonical_and_abi_independent() -> None:
 
     matrix = plan["matrix"]
     assert set(matrix) == {"include"}
-    assert {
-        item["builder_plan_id"] for item in matrix["include"]
-    } == {item["builder_plan_id"] for item in plans}
-    assert all(
-        item["id"] == item["builder_plan_id"] for item in matrix["include"]
-    )
+    assert {item["builder_plan_id"] for item in matrix["include"]} == {
+        item["builder_plan_id"] for item in plans
+    }
+    assert all(item["id"] == item["builder_plan_id"] for item in matrix["include"])
 
 
 def test_plan_builder_facts_keeps_mooncake_failure_local() -> None:
@@ -494,8 +477,7 @@ def test_plan_builder_facts_keeps_mooncake_failure_local() -> None:
     )
     assert any(
         item["target_tag"] == _ascend_target_tag(source, healthy_runtime)
-        and item["mooncake_source_runtime_id"]
-        != mismatch["runtime_id"]
+        and item["mooncake_source_runtime_id"] != mismatch["runtime_id"]
         for item in plan["builder_plans"]
     )
     assert any(item["accelerator"] == "cuda" for item in plan["builder_plans"])
@@ -551,16 +533,10 @@ def test_collect_builder_facts_is_closed_and_matches_catalog_fixture() -> None:
         "target_digests_verified": True,
         "deletions": [],
     }
-    assert collected["builder_facts"] == fixture["builder_discovery"][
-        "builder_facts"
-    ]
+    assert collected["builder_facts"] == fixture["builder_discovery"]["builder_facts"]
     assert collected["failures"] == fixture["builder_discovery"]["failures"]
-    assert all(
-        set(item) == BUILDER_FACT_FIELDS for item in collected["builder_facts"]
-    )
-    assert all(
-        set(item) == COLLECTED_FAILURE_FIELDS for item in collected["failures"]
-    )
+    assert all(set(item) == BUILDER_FACT_FIELDS for item in collected["builder_facts"])
+    assert all(set(item) == COLLECTED_FAILURE_FIELDS for item in collected["failures"])
 
     matrix = collected["python_probe_matrix"]
     assert set(matrix) == {"include"}
@@ -569,9 +545,7 @@ def test_collect_builder_facts_is_closed_and_matches_catalog_fixture() -> None:
     assert {item["builder_fact_id"] for item in rows} == {
         item["builder_fact_id"] for item in collected["builder_facts"]
     }
-    facts = {
-        item["builder_fact_id"]: item for item in collected["builder_facts"]
-    }
+    facts = {item["builder_fact_id"]: item for item in collected["builder_facts"]}
     for row in rows:
         fact = facts[row["builder_fact_id"]]
         assert row["id"] == row["builder_fact_id"]
@@ -592,9 +566,9 @@ def test_collect_builder_facts_is_closed_and_matches_catalog_fixture() -> None:
         if item["accelerator_runtime"] == "cann-9.0" and item["variant"] == "a2"
     ]
     assert len(a2_facts) == len(expected_a2_facts)
-    assert {
-        item["builder_fact_id"] for item in a2_facts
-    } <= {item["builder_fact_id"] for item in rows}
+    assert {item["builder_fact_id"] for item in a2_facts} <= {
+        item["builder_fact_id"] for item in rows
+    }
 
 
 @pytest.mark.parametrize(

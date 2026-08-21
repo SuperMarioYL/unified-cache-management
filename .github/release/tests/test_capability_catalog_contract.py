@@ -336,9 +336,7 @@ def test_builder_fact_fixture_is_abi_independent_and_target_bound() -> None:
             "toolchain_sha256",
         ):
             assert fact[field] == source[field]
-        identity = {
-            field: fact[field] for field in BUILDER_FACT_IDENTITY_FIELDS
-        }
+        identity = {field: fact[field] for field in BUILDER_FACT_IDENTITY_FIELDS}
         assert fact["builder_fact_id"] == _canonical_digest(identity)
         assert "python_version" not in fact
         assert "python_abi" not in fact
@@ -360,9 +358,7 @@ def test_builder_fact_fixture_is_abi_independent_and_target_bound() -> None:
             assert probe["installed_version"] == fact["mooncake_version"]
 
     shared_source = [
-        fact
-        for fact in facts
-        if fact["source_image_digest"] == "sha256:" + "b" * 64
+        fact for fact in facts if fact["source_image_digest"] == "sha256:" + "b" * 64
     ]
     assert len(shared_source) == 2
     assert len({fact["builder_fact_id"] for fact in shared_source}) == 2
@@ -514,8 +510,7 @@ def test_one_physical_builder_fact_expands_only_after_multi_abi_probing() -> Non
         if revision["target_builder_digest"] == fact["target_builder_digest"]
     ]
     capabilities_by_id = {
-        item["builder_capability_id"]: item
-        for item in catalog["builder_capabilities"]
+        item["builder_capability_id"]: item for item in catalog["builder_capabilities"]
     }
 
     assert len(revisions) == 3
@@ -597,8 +592,7 @@ def test_mooncake_runtime_copy_is_version_exact_and_mismatch_is_local() -> None:
         if item["accelerator_runtime"] == "cann-9.0" and item["variant"] == "a2"
     ]
     capabilities_by_id = {
-        item["builder_capability_id"]: item
-        for item in catalog["builder_capabilities"]
+        item["builder_capability_id"]: item for item in catalog["builder_capabilities"]
     }
     revisions_by_id = {
         item["builder_revision_id"]: item for item in catalog["builder_revisions"]
@@ -618,12 +612,9 @@ def test_mooncake_runtime_copy_is_version_exact_and_mismatch_is_local() -> None:
         if item["accelerator_runtime"] == "cann-9.0" and item["variant"] == "a2"
     ]
     base_a2_tags = {
-        _ascend_target_tag(base_a2_source, runtime)
-        for runtime in a2_runtime_values
+        _ascend_target_tag(base_a2_source, runtime) for runtime in a2_runtime_values
     }
-    a2_facts = [
-        item for item in all_a2_facts if item["target_tag"] in base_a2_tags
-    ]
+    a2_facts = [item for item in all_a2_facts if item["target_tag"] in base_a2_tags]
     assert len(a2_facts) == 2
     assert len({item["builder_fact_id"] for item in a2_facts}) == 2
     assert len({item["target_tag"] for item in a2_facts}) == 2
@@ -729,12 +720,12 @@ def test_mooncake_runtime_copy_is_version_exact_and_mismatch_is_local() -> None:
         "installed_version": "0.3.11.post1",
     }
     mismatch_revision = revisions_by_id[mismatch["builder_revision_id"]]
-    assert mismatch_revision["target_builder_digest"] == a4_fact[
-        "target_builder_digest"
-    ]
-    assert mismatch["builder_capability_id"] == mismatch_revision[
-        "builder_capability_id"
-    ]
+    assert (
+        mismatch_revision["target_builder_digest"] == a4_fact["target_builder_digest"]
+    )
+    assert (
+        mismatch["builder_capability_id"] == mismatch_revision["builder_capability_id"]
+    )
     assert any(
         item["runtime_id"] == a4_fact["mooncake_source_runtime_id"]
         and item["builder_revision_id"] == mismatch["builder_revision_id"]
@@ -814,9 +805,9 @@ def test_failed_new_builder_becomes_source_only_exclusion() -> None:
             "failure": failure["evidence"],
         },
     }
-    assert exclusion["evidence"]["failure"]["plan"]["target_tag"] == failure[
-        "target_tag"
-    ]
+    assert (
+        exclusion["evidence"]["failure"]["plan"]["target_tag"] == failure["target_tag"]
+    )
     assert all(
         (item["target_repository"], item["target_tag"])
         != (failure["target_repository"], failure["target_tag"])
@@ -1043,9 +1034,7 @@ def test_catalog_set_like_arrays_use_approved_canonical_order() -> None:
 
 
 def _dangling_probe_fact(fixture: dict[str, Any]) -> None:
-    fixture["python_probes"]["probes"][0]["builder_fact_id"] = (
-        "sha256:" + "f" * 64
-    )
+    fixture["python_probes"]["probes"][0]["builder_fact_id"] = "sha256:" + "f" * 64
 
 
 def _wrong_probe_target_digest(fixture: dict[str, Any]) -> None:
@@ -1250,9 +1239,7 @@ def _noncanonical_nested_revision_ids(catalog: dict[str, Any]) -> None:
         pytest.param(_duplicate_binding_pair, id="duplicate-binding-pair"),
         pytest.param(_binding_field_drift, id="binding-field-drift"),
         pytest.param(_duplicate_entry_coordinate, id="duplicate-entry-coordinate"),
-        pytest.param(
-            _unknown_builder_sync_field, id="unknown-builder-sync-field"
-        ),
+        pytest.param(_unknown_builder_sync_field, id="unknown-builder-sync-field"),
         pytest.param(_non_append_builder_sync, id="non-append-builder-sync"),
         pytest.param(
             _unverified_builder_sync_digests,

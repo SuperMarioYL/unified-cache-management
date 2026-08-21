@@ -744,9 +744,7 @@ def test_builder_sync_plan_waits_for_runtime_and_mooncake_results() -> None:
         command,
         {
             "--builder-catalog": "input/builder-source/builder-catalog.json",
-            "--runtime-discovery": (
-                "input/runtime-discovery/runtime-discovery.json"
-            ),
+            "--runtime-discovery": ("input/runtime-discovery/runtime-discovery.json"),
             "--mooncake-probes": "input/mooncake-probes",
             "--output": "out/builder-sync-plan.json",
         },
@@ -804,15 +802,11 @@ def test_builder_fanout_always_emits_existing_built_or_failed_result() -> None:
     assert "always()" in str(result.get("if", ""))
     result_run = _noncomment_shell(str(result["run"]))
     assert "out/builder-result/result.json" in result_run
-    assert re.search(
-        r"(?m)^\s*docker\s+buildx\s+imagetools\s+inspect\b", result_run
-    )
+    assert re.search(r"(?m)^\s*docker\s+buildx\s+imagetools\s+inspect\b", result_run)
     assert result.get("env", {}).get("BUILDER_PLAN_ID") == (
         "${{ matrix.builder_plan_id }}"
     )
-    assert result.get("env", {}).get("BUILD_OUTCOME") == (
-        "${{ steps.build.outcome }}"
-    )
+    assert result.get("env", {}).get("BUILD_OUTCOME") == ("${{ steps.build.outcome }}")
     assert result.get("env", {}).get("TARGET_REPOSITORY") == (
         "${{ matrix.target_repository }}"
     )
@@ -952,9 +946,7 @@ def test_catalog_assembly_waits_for_all_results_and_calls_stable_cli() -> None:
         {
             "--builder-facts": "input/builders/builder-facts.json",
             "--python-probes": "input/python-probes",
-            "--runtime-discovery": (
-                "input/runtime-discovery/runtime-discovery.json"
-            ),
+            "--runtime-discovery": ("input/runtime-discovery/runtime-discovery.json"),
             "--mooncake-probes": "input/mooncake-probes",
             "--output": "out/capability-catalog.json",
         },
