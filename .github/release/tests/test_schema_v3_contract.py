@@ -40,8 +40,7 @@ def _canonical_product_rules() -> dict[str, dict[str, str]]:
         "cann": {
             "accelerator": "ascend",
             "distribution": (
-                "uc-manager-cann{runtime.compact}-{variant}"
-                "-mc{mooncake.compact}"
+                "uc-manager-cann{runtime.compact}-{variant}" "-mc{mooncake.compact}"
             ),
         },
     }
@@ -113,9 +112,9 @@ def test_load_catalog_rejects_residual_wheel_profiles_in_schema_v3(
     """core.load_catalog must identify wheel_profiles as an illegal v2 residue."""
     core = _require_public_module("ucm_release.core")
     authority = _load_release_yaml()
-    assert authority.get("schema_version") == 3, (
-        "repository authority must migrate to Schema v3 before residue mutation"
-    )
+    assert (
+        authority.get("schema_version") == 3
+    ), "repository authority must migrate to Schema v3 before residue mutation"
     release = copy.deepcopy(authority)
     release["wheel_profiles"] = [{"id": "legacy-fixed-profile"}]
     path = _write_release_yaml(tmp_path, release)
@@ -128,9 +127,9 @@ def test_load_catalog_rejects_pypi_dists_in_schema_v3(tmp_path: Path) -> None:
     """core.load_catalog must reject the explicit PyPI Distribution residue."""
     core = _require_public_module("ucm_release.core")
     authority = _load_release_yaml()
-    assert authority.get("schema_version") == 3, (
-        "repository authority must migrate to Schema v3 before residue mutation"
-    )
+    assert (
+        authority.get("schema_version") == 3
+    ), "repository authority must migrate to Schema v3 before residue mutation"
     release = copy.deepcopy(authority)
     pypi = release["publish"]["pypi"]
     pypi["dists"] = ["uc-manager-cuda"]
