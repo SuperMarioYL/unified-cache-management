@@ -58,10 +58,7 @@ def _require(module: object, name: str) -> Callable[..., dict[str, Any]]:
 
 def _builder_source_fixture() -> dict[str, Any]:
     fixture = _fixture()["builder_discovery"]
-    return {
-        field: copy.deepcopy(fixture[field])
-        for field in BUILDER_DISCOVERY_FIELDS
-    }
+    return {field: copy.deepcopy(fixture[field]) for field in BUILDER_DISCOVERY_FIELDS}
 
 
 def _runtime_source_fixture() -> dict[str, Any]:
@@ -120,8 +117,7 @@ def test_builder_source_discovery_is_closed_and_provenance_complete() -> None:
         set(item) == UPSTREAM_READ_FIELDS for item in discovered["upstream_reads"]
     )
     assert all(
-        len(item["source_commit"]) == 40
-        for item in discovered["upstream_reads"]
+        len(item["source_commit"]) == 40 for item in discovered["upstream_reads"]
     )
     assert any(item["variant"] == "310p" for item in discovered["builders"])
 

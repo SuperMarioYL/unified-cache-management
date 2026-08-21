@@ -547,9 +547,7 @@ def test_collect_builder_facts_is_closed_and_matches_catalog_fixture() -> None:
     assert collected["failures"] == fixture["builder_discovery"]["failures"]
     assert all(set(item) == BUILDER_FACT_FIELDS for item in collected["builder_facts"])
     assert all(set(item) == COLLECTED_FAILURE_FIELDS for item in collected["failures"])
-    failures_by_reason = {
-        item["reason_code"]: item for item in collected["failures"]
-    }
+    failures_by_reason = {item["reason_code"]: item for item in collected["failures"]}
     assert set(failures_by_reason) == {
         "builder-sync-failed",
         "mooncake-version-mismatch",

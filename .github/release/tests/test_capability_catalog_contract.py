@@ -449,10 +449,7 @@ def test_python_probe_fixture_links_exact_fact_and_defers_revision_identity() ->
     } == a2_fact_ids
     mooncake_failures = fixture["mooncake_probes"]["failures"]
     assert mooncake_failures
-    assert all(
-        set(item) == MOONCAKE_PROBE_FAILURE_FIELDS
-        for item in mooncake_failures
-    )
+    assert all(set(item) == MOONCAKE_PROBE_FAILURE_FIELDS for item in mooncake_failures)
 
 
 def test_assembled_catalog_is_closed_digest_bound_and_valid() -> None:
@@ -596,9 +593,7 @@ def test_catalog_preserves_discovery_origins_and_filters_only_exact_310p() -> No
     assert filtered == {
         "reason_code": "variant-filtered-310p",
         "source_kind": "buildwheel-dockerfile",
-        "source_id": (
-            ".github/workflows/dockerfiles/Dockerfile.buildwheel.310p"
-        ),
+        "source_id": (".github/workflows/dockerfiles/Dockerfile.buildwheel.310p"),
         "builder_capability_id": None,
         "builder_revision_id": None,
         "runtime_id": None,
@@ -635,9 +630,7 @@ def test_runtime_candidate_normalization_is_public_identity_authority() -> None:
 
     assert fixture == original
     builders_tree = ast.parse(
-        (RELEASE_ROOT / "ucm_release" / "builders.py").read_text(
-            encoding="utf-8"
-        )
+        (RELEASE_ROOT / "ucm_release" / "builders.py").read_text(encoding="utf-8")
     )
     plan_function = next(
         node
@@ -836,8 +829,7 @@ def test_mooncake_runtime_copy_is_version_exact_and_mismatch_is_local() -> None:
     )
     assert any(
         item["runtime_id"] == a4_fact["mooncake_source_runtime_id"]
-        and item["builder_revision_id"]
-        == healthy_a4_revision["builder_revision_id"]
+        and item["builder_revision_id"] == healthy_a4_revision["builder_revision_id"]
         for item in catalog["bindings"]
     )
     assert all(
@@ -925,9 +917,7 @@ def test_failed_new_builder_becomes_source_only_exclusion() -> None:
     assert catalog["bindings"]
 
 
-def test_probe_failures_become_local_exclusions_without_erasing_healthy_facts() -> (
-    None
-):
+def test_probe_failures_become_local_exclusions_without_erasing_healthy_facts() -> None:
     fixture = _load_fixture()
     python_failure = fixture["python_probes"]["failures"][0]
     mooncake_failure = fixture["mooncake_probes"]["failures"][0]
@@ -942,9 +932,10 @@ def test_probe_failures_become_local_exclusions_without_erasing_healthy_facts() 
     assert python_exclusion["builder_capability_id"] is None
     assert python_exclusion["builder_revision_id"] is None
     assert python_exclusion["runtime_id"] is None
-    assert python_exclusion["evidence"]["builder_fact_id"] == python_failure[
-        "builder_fact_id"
-    ]
+    assert (
+        python_exclusion["evidence"]["builder_fact_id"]
+        == python_failure["builder_fact_id"]
+    )
 
     mooncake_exclusion = next(
         item

@@ -532,9 +532,7 @@ def test_live_discovery_jobs_use_typed_cli_without_inline_reconstruction() -> No
     ]
     assert len(discover_steps) == 1
     runtime_run = _noncomment_shell(str(discover_steps[0]["run"]))
-    runtime_command = _cli_command(
-        runtime_run, "catalog", "discover-runtimes"
-    )
+    runtime_command = _cli_command(runtime_run, "catalog", "discover-runtimes")
     _assert_cli_options(
         runtime_command,
         {
@@ -609,9 +607,7 @@ def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> 
         f"${{{{ steps.{probe['id']}.outcome }}}}"
     )
     seal_run = _noncomment_shell(str(seal["run"]))
-    producer = _structured_json_producer(
-        seal_run, "out/python-probe/result.json"
-    )
+    producer = _structured_json_producer(seal_run, "out/python-probe/result.json")
     assert producer is not None
     for field in (
         "status",
@@ -736,9 +732,7 @@ def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version()
         f"${{{{ steps.{probe['id']}.outcome }}}}"
     )
     seal_run = _noncomment_shell(str(seal["run"]))
-    producer = _structured_json_producer(
-        seal_run, "out/mooncake-probe/result.json"
-    )
+    producer = _structured_json_producer(seal_run, "out/mooncake-probe/result.json")
     assert producer is not None
     for field in (
         "status",
@@ -1156,12 +1150,15 @@ def test_ascend_builder_copies_mooncake_from_matching_immutable_runtime() -> Non
         instructions,
         re.MULTILINE,
     )
-    assert re.search(
-        rf"^COPY\s+--from={re.escape(stage)}\s+/usr/local/lib/?\s+"
-        r"/usr/local/lib/?$",
-        instructions,
-        re.MULTILINE,
-    ) is None
+    assert (
+        re.search(
+            rf"^COPY\s+--from={re.escape(stage)}\s+/usr/local/lib/?\s+"
+            r"/usr/local/lib/?$",
+            instructions,
+            re.MULTILINE,
+        )
+        is None
+    )
     explicit_libraries = re.search(
         rf"^COPY\s+--from={re.escape(stage)}\s+[^\n]*"
         r"(?:lib[^/\s]*mooncake|mooncake[^/\s]*\.so)[^\n]*\s+"
