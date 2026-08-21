@@ -9,9 +9,7 @@ from packaging.version import InvalidVersion, Version
 
 _ACCELERATOR_RUNTIME = re.compile(r"^(cuda|cann)-(.+)$", re.ASCII)
 _COMPACT = re.compile(r"^[a-z0-9]+$", re.ASCII)
-_VARIANT = re.compile(
-    r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$", re.ASCII
-)
+_VARIANT = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$", re.ASCII)
 
 
 def _parse_version(value: object, label: str) -> Version:

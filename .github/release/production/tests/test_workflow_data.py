@@ -101,12 +101,12 @@ def test_release_request_materializes_only_seven_delivery_assets(
     asset_names = [Path(path).name for path in result["assets"]]
     assert len(asset_names) == 7
     assert asset_names == [
-        "uc_manager_cuda-0.6.0rc1-cp312-cp312-manylinux_2_28_x86_64.whl",
-        "uc_manager_cuda-0.6.0rc1-cp312-cp312-manylinux_2_28_aarch64.whl",
-        "uc_manager_cann_a2-0.6.0rc1-cp312-cp312-linux_x86_64.whl",
-        "uc_manager_cann_a2-0.6.0rc1-cp312-cp312-linux_aarch64.whl",
-        "uc_manager_cann_a3-0.6.0rc1-cp312-cp312-linux_x86_64.whl",
-        "uc_manager_cann_a3-0.6.0rc1-cp312-cp312-linux_aarch64.whl",
+        "uc_manager_cuda130-0.6.0rc1-cp312-cp312-manylinux_2_28_x86_64.whl",
+        "uc_manager_cuda130-0.6.0rc1-cp312-cp312-manylinux_2_28_aarch64.whl",
+        "uc_manager_cann900_a2_mc039-0.6.0rc1-cp312-cp312-linux_x86_64.whl",
+        "uc_manager_cann900_a2_mc039-0.6.0rc1-cp312-cp312-linux_aarch64.whl",
+        "uc_manager_cann900_a3_mc039-0.6.0rc1-cp312-cp312-linux_x86_64.whl",
+        "uc_manager_cann900_a3_mc039-0.6.0rc1-cp312-cp312-linux_aarch64.whl",
         "unified-cache-pd-0.6.0-rc.1.tgz",
     ]
     assert sorted(path.name for path in (tmp_path / "assets").iterdir()) == sorted(

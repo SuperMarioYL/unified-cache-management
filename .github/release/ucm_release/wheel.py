@@ -135,11 +135,15 @@ PRODUCTION_V2_AUTHORITY_FIELDS = {
     "spec_id",
     "profile_id",
     "distribution",
+    "build_platform",
     "base_version",
     "stage",
     "cpu_arch",
     "platform",
+    "python_version",
+    "python_abi",
     "wheel_version",
+    "wheel_platform",
     "source_sha",
     "source_tree",
     "source_archive_sha256",
@@ -151,6 +155,7 @@ PRODUCTION_V2_AUTHORITY_FIELDS = {
     "tool_wheels",
     "required_native",
     "forbidden_native",
+    "runtime_requirements",
     "build_context_sha256",
 }
 PRODUCTION_WHEEL_TASK_FIELDS = {
@@ -745,7 +750,15 @@ def _validate_wheel_build_authority(authority: object) -> dict[str, Any]:
             or not profile
             or canonicalize_name(str(authority.get("distribution")))
             != authority.get("distribution")
+            or not isinstance(authority.get("build_platform"), str)
+            or not authority["build_platform"]
             or authority.get("spec_id") != f"{profile}-{cpu_arch}"
+            or re.fullmatch(
+                r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)",
+                str(authority.get("python_version")),
+            )
+            is None
+            or re.fullmatch(r"cp[0-9]+", str(authority.get("python_abi"))) is None
             or re.fullmatch(
                 r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)",
                 base_version,
@@ -754,6 +767,18 @@ def _validate_wheel_build_authority(authority: object) -> dict[str, Any]:
             or stage not in stage_patterns
             or re.fullmatch(stage_patterns[stage], str(authority["wheel_version"]))
             is None
+            or not isinstance(authority.get("wheel_platform"), str)
+            or not authority["wheel_platform"]
+            or not isinstance(authority.get("runtime_requirements"), list)
+            or not authority["runtime_requirements"]
+            or any(
+                not isinstance(requirement, str) or not requirement
+                for requirement in authority["runtime_requirements"]
+            )
+            or authority["runtime_requirements"]
+            != sorted(authority["runtime_requirements"])
+            or len(authority["runtime_requirements"])
+            != len(set(authority["runtime_requirements"]))
         ):
             raise ValueError("production schema-v2 build authority is invalid")
     return authority
@@ -797,6 +822,13 @@ def _validate_wheel_build_config_value(config: object) -> dict[str, Any]:
             raise ValueError("wheel build config differs from schema-v1 authority")
     else:
         distribution = authority["distribution"]
+        platform_arg = authority["build_platform"]
+        if (
+            authority["python_version"] != config["python"]["version"]
+            or authority["python_abi"] != config["python"]["abi"]
+            or authority["runtime_requirements"] != config["runtime_requirements"]
+        ):
+            raise ValueError("wheel build config differs from schema-v2 authority")
     if (
         config.get("distribution") != distribution
         or config.get("platform") != platform_arg
@@ -913,8 +945,7 @@ def _validate_production_wheel_task(value: object) -> dict[str, Any]:
     if (
         not isinstance(profile, str)
         or not profile
-        or canonicalize_name(str(task.get("distribution")))
-        != task.get("distribution")
+        or canonicalize_name(str(task.get("distribution"))) != task.get("distribution")
         or not isinstance(task.get("build_platform"), str)
         or not task["build_platform"]
         or not isinstance(task.get("python_version"), str)
@@ -992,11 +1023,15 @@ def _validate_production_task_authority(
         "spec_id": task["spec_id"],
         "profile_id": task["profile_id"],
         "distribution": task["distribution"],
+        "build_platform": task["build_platform"],
         "base_version": task["base_version"],
         "stage": task["stage"],
         "cpu_arch": task["cpu_arch"],
         "platform": task["platform"],
+        "python_version": task["python_version"],
+        "python_abi": task["python_abi"],
         "wheel_version": task["wheel_version"],
+        "wheel_platform": task["wheel_platform"],
         "source_sha": task["source_sha"],
         "task_sha256": "sha256:" + task["sha256"],
         "builder_coordinate": (f"{builder['repository']}@{builder['manifest_digest']}"),
@@ -1004,6 +1039,7 @@ def _validate_production_task_authority(
         "dependency_lock_sha256": task["dependency_lock_sha256"],
         "required_native": task["required_native"],
         "forbidden_native": task["forbidden_native"],
+        "runtime_requirements": task["runtime_requirements"],
     }
     mismatches = [
         field for field, value in expected.items() if authority.get(field) != value

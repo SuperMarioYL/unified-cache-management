@@ -383,9 +383,7 @@ def test_derive_build_profiles_grows_from_new_normalized_builder_fact() -> None:
         ],
         python_version="3.13",
         python_abi="cp313",
-        architectures={
-            "arm64": copy.deepcopy(new_fact["architectures"]["arm64"])
-        },
+        architectures={"arm64": copy.deepcopy(new_fact["architectures"]["arm64"])},
     )
     for check in new_fact["architectures"]["arm64"]["checks"]:
         if check["kind"] == "python":

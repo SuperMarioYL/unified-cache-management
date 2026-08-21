@@ -225,8 +225,7 @@ def test_fixture_resolution_excludes_compatibility_without_matching_profile() ->
     assert all(task["runtime"]["product_id"] != "vllm" for task in plan["image_tasks"])
     assert all(task["product_id"] != "vllm" for task in plan["family_tasks"])
     assert all(
-        task["profile_id"] != "cuda130-default-cp312"
-        for task in plan["wheel_tasks"]
+        task["profile_id"] != "cuda130-default-cp312" for task in plan["wheel_tasks"]
     )
 
 

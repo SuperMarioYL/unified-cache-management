@@ -155,11 +155,7 @@ def expand_distribution_names(
 
 
 def _normalize_variant_tokens(value: object, *, location: str) -> tuple[str, ...]:
-    if (
-        not isinstance(value, Sequence)
-        or isinstance(value, (str, bytes))
-        or not value
-    ):
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or not value:
         raise ValueError(f"{location} must be a non-empty sequence")
     variants = tuple(normalize_variant(item) for item in value)
     if len(variants) != len(set(variants)):
@@ -170,11 +166,7 @@ def _normalize_variant_tokens(value: object, *, location: str) -> tuple[str, ...
 def _normalize_builder_variants(
     value: object, *, location: str
 ) -> tuple[dict[str, Any], ...]:
-    if (
-        not isinstance(value, Sequence)
-        or isinstance(value, (str, bytes))
-        or not value
-    ):
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or not value:
         raise ValueError(f"{location} must be a non-empty sequence")
     variants: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -190,9 +182,10 @@ def _normalize_builder_variants(
             raise ValueError(f"{location} contains duplicate normalized variants")
         seen.add(variant_id)
         tag_suffix = raw_variant["tag_suffix"]
-        if not isinstance(tag_suffix, str) or re.fullmatch(
-            r"(?:|-[a-z0-9][a-z0-9.-]*)", tag_suffix
-        ) is None:
+        if (
+            not isinstance(tag_suffix, str)
+            or re.fullmatch(r"(?:|-[a-z0-9][a-z0-9.-]*)", tag_suffix) is None
+        ):
             raise ValueError(f"{variant_location}.tag_suffix is invalid")
         variant = {
             "id": variant_id,
@@ -221,9 +214,7 @@ def _compatibility_policy_for_product(
         rule for rule in rules if product_id in rule.get("upstream_products", [])
     ]
     if not matches:
-        raise ValueError(
-            f"upstream product {product_id!r} has no compatibility policy"
-        )
+        raise ValueError(f"upstream product {product_id!r} has no compatibility policy")
     accelerators = {str(rule.get("accelerator")) for rule in matches}
     if len(accelerators) != 1:
         raise ValueError(
@@ -241,8 +232,7 @@ def _compatibility_policy_for_product(
 
 def _excluded_variants(config: Mapping[str, Any]) -> frozenset[str]:
     return frozenset(
-        normalize_variant(value)
-        for value in config["discovery"]["exclude_variants"]
+        normalize_variant(value) for value in config["discovery"]["exclude_variants"]
     )
 
 
@@ -430,11 +420,7 @@ def derive_build_profiles(config: Mapping[str, Any]) -> list[dict[str, Any]]:
             if variant_id in excluded:
                 continue
             projected_variant = next(
-                (
-                    value
-                    for value in product["variants"]
-                    if value["id"] == variant_id
-                ),
+                (value for value in product["variants"] if value["id"] == variant_id),
                 None,
             )
             if projected_variant is None or any(
@@ -502,9 +488,7 @@ def derive_build_profiles(config: Mapping[str, Any]) -> list[dict[str, Any]]:
                     ],
                     "required_native": copy.deepcopy(native["required_native"]),
                     "forbidden_native": copy.deepcopy(native["forbidden_native"]),
-                    "allowed_dt_needed": copy.deepcopy(
-                        native["allowed_dt_needed"]
-                    ),
+                    "allowed_dt_needed": copy.deepcopy(native["allowed_dt_needed"]),
                     "builders": copy.deepcopy(architectures),
                 }
             )

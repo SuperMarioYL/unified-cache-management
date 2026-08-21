@@ -238,14 +238,12 @@ def test_bind_selection_rejects_profile_capability_mismatch() -> None:
     cuda_amd64 = next(
         item
         for item in selected
-        if item["profile_id"] == "cuda130-default-cp312"
-        and item["cpu_arch"] == "amd64"
+        if item["profile_id"] == "cuda130-default-cp312" and item["cpu_arch"] == "amd64"
     )
     cann_a2_amd64 = next(
         item
         for item in selected
-        if item["profile_id"] == "ascend900-a2-cp312"
-        and item["cpu_arch"] == "amd64"
+        if item["profile_id"] == "ascend900-a2-cp312" and item["cpu_arch"] == "amd64"
     )
     selected.remove(cann_a2_amd64)
     cuda_amd64["profile_id"] = "ascend900-a2-cp312"

@@ -46,6 +46,11 @@ def _authority(
     wheel_version: str | None = None,
 ) -> dict[str, Any]:
     architecture = _architecture()
+    build_platform = (
+        "ascend-a3"
+        if profile.endswith("-a3")
+        else "ascend" if profile.endswith("-a2") else "cuda"
+    )
     if wheel_version is None:
         wheel_version = "0.6.0rc1"
     result: dict[str, Any] = {
@@ -53,9 +58,13 @@ def _authority(
         "kind": "ucm-native-build-authority",
         "spec_id": f"{profile}-{architecture}",
         "profile_id": profile,
+        "build_platform": build_platform,
         "cpu_arch": architecture,
         "platform": f"linux/{architecture}",
+        "python_version": "3.12",
+        "python_abi": "cp312",
         "wheel_version": wheel_version,
+        "wheel_platform": "manylinux_2_28" if profile == "cuda130" else "linux",
         "source_sha": SOURCE_SHA,
         "source_tree": SOURCE_TREE,
         "source_archive_sha256": DIGEST,
@@ -67,6 +76,7 @@ def _authority(
         "tool_wheels": {f"tool-{index}.whl": DIGEST for index in range(7)},
         "required_native": ["ucmtrans"],
         "forbidden_native": ["mooncakestore"],
+        "runtime_requirements": ["packaging==24.2", "wrapt==1.17.2"],
         "build_context_sha256": DIGEST,
     }
     result.update(
@@ -249,9 +259,7 @@ def test_schema_v2_build_config_preserves_stage_version_rules(
     [
         (lambda value: value.update(distribution="uc-manager-evil"), "invalid"),
         (
-            lambda value: value.update(
-                distribution="uc-manager-cann900-a2-mc039"
-            ),
+            lambda value: value.update(distribution="uc-manager-cann900-a2-mc039"),
             "invalid",
         ),
         (lambda value: value.pop("stage"), "schema-v2"),

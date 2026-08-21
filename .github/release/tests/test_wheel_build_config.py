@@ -230,11 +230,15 @@ def _production_authority(task: dict[str, Any]) -> dict[str, Any]:
         "spec_id": task["spec_id"],
         "profile_id": task["profile_id"],
         "distribution": task["distribution"],
+        "build_platform": task["build_platform"],
         "base_version": task["base_version"],
         "stage": task["stage"],
         "cpu_arch": task["cpu_arch"],
         "platform": task["platform"],
+        "python_version": task["python_version"],
+        "python_abi": task["python_abi"],
         "wheel_version": task["wheel_version"],
+        "wheel_platform": task["wheel_platform"],
         "source_sha": task["source_sha"],
         "source_tree": "5" * 40,
         "source_archive_sha256": DIGEST,
@@ -246,6 +250,7 @@ def _production_authority(task: dict[str, Any]) -> dict[str, Any]:
         "tool_wheels": {f"tool-{index}.whl": DIGEST for index in range(7)},
         "required_native": task["required_native"],
         "forbidden_native": task["forbidden_native"],
+        "runtime_requirements": task["runtime_requirements"],
         "build_context_sha256": DIGEST,
     }
 
@@ -325,6 +330,7 @@ def test_production_projection_names_profile_field_drift(
     tmp_path: Path, field: str, value: object
 ) -> None:
     task = _production_task()
+    authority = _production_authority(task)
     task[field] = value
     payload = {key: item for key, item in task.items() if key != "sha256"}
     task["sha256"] = hashlib.sha256(
@@ -332,7 +338,6 @@ def test_production_projection_names_profile_field_drift(
             payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
         ).encode("utf-8")
     ).hexdigest()
-    authority = _production_authority(task)
     task_path = tmp_path / "task.json"
     authority_path = tmp_path / "authority.json"
     _write(task_path, task)

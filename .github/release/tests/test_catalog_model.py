@@ -370,10 +370,10 @@ def test_rc_channel_accepts_only_actual_rc_versions(version: str) -> None:
             "unknown upstream product 'missing-product'",
         ),
         (
-            lambda catalog: catalog["compatibility"]["rules"][0].update(
+            lambda catalog: catalog["runtime_patch_rules"][0].update(
                 variants=["missing-variant"]
             ),
-            "unknown variant 'missing-variant'",
+            "runtime_patch_rules[0].variants are invalid for the product",
         ),
     ],
 )

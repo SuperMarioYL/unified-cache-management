@@ -95,10 +95,19 @@ def _load_build_config() -> tuple[dict[str, object], dict[str, object]] | None:
     if release_root not in sys.path:
         sys.path.insert(0, release_root)
     try:
-        from ucm_release.wheel import load_wheel_build_config, wheel_build_profile
+        from ucm_release.wheel import load_wheel_build_config
 
         config = load_wheel_build_config(BUILD_CONFIG_PATH)
-        return config, wheel_build_profile(config["authority"]["profile_id"])
+        authority = config["authority"]
+        return config, {
+            "id": authority["profile_id"],
+            "distribution": config["distribution"],
+            "build_platform": config["platform"],
+            "wheel_platform": authority["wheel_platform"],
+            "python_version": config["python"]["version"],
+            "python_abi": config["python"]["abi"],
+            "runtime_requirements": config["runtime_requirements"],
+        }
     except (OSError, ValueError) as error:
         raise RuntimeError(f"UCM_BUILD_CONFIG is invalid: {error}") from error
 

@@ -289,9 +289,7 @@ def test_loader_facts_add_future_variant_to_registry_and_core_plan(
         for product in catalog["upstream_products"]
         if product["id"] == "vllm-ascend"
     )
-    assert next(
-        variant for variant in ascend["variants"] if variant["id"] == "a4"
-    ) == {
+    assert next(variant for variant in ascend["variants"] if variant["id"] == "a4") == {
         "id": "a4",
         "tag_suffix": "-a4",
         "npu_arch": "a3",
@@ -315,9 +313,7 @@ def test_loader_facts_add_future_variant_to_registry_and_core_plan(
     repository = "quay.io/ascend/vllm-ascend"
     fixture_repository = fixture["repositories"][repository]
     fixture_repository["pages"][0]["tags"].append("v0.22.1rc3-a4")
-    future_snapshot = copy.deepcopy(
-        fixture_repository["snapshots"]["v0.22.1rc3-a3"]
-    )
+    future_snapshot = copy.deepcopy(fixture_repository["snapshots"]["v0.22.1rc3-a3"])
     future_snapshot.update(
         upstream_tag="v0.22.1rc3-a4",
         index_digest="sha256:" + "4" * 64,
@@ -335,18 +331,11 @@ def test_loader_facts_add_future_variant_to_registry_and_core_plan(
             fixture=fixture,
         )
 
-    assert any(
-        snapshot["variant"] == "a4" for snapshot in plan["resolved_upstreams"]
-    )
-    assert any(
-        task["runtime"]["variant"] == "a4" for task in plan["image_tasks"]
-    )
-    assert any(
-        task["runtime"]["variant"] == "a4" for task in plan["family_tasks"]
-    )
+    assert any(snapshot["variant"] == "a4" for snapshot in plan["resolved_upstreams"])
+    assert any(task["runtime"]["variant"] == "a4" for task in plan["image_tasks"])
+    assert any(task["runtime"]["variant"] == "a4" for task in plan["family_tasks"])
     assert not any(
-        item["tag"] == "v0.22.1rc3-a4"
-        and item["reason"] == "unsupported-variant"
+        item["tag"] == "v0.22.1rc3-a4" and item["reason"] == "unsupported-variant"
         for item in plan["exclusions"]
     )
 
@@ -1139,9 +1128,7 @@ def _add_cuda_compatibility_overlap(
     )
     if profile_architectures is not None:
         profile = next(
-            item
-            for item in catalog["build_profiles"]
-            if item["accelerator"] == "cuda"
+            item for item in catalog["build_profiles"] if item["accelerator"] == "cuda"
         )
         profile["cpu_arch"] = profile_architectures
         profile["builders"] = {

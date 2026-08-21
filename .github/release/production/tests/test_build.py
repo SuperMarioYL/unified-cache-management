@@ -165,6 +165,14 @@ def test_projected_task_is_the_only_schema_v2_setup_authority_source() -> None:
     assert authority["schema_version"] == 2
     assert authority["profile_id"] == "cann900-a2"
     assert authority["distribution"] == "uc-manager-cann900-a2-mc039"
+    assert authority["build_platform"] == "ascend"
+    assert authority["python_version"] == "3.12"
+    assert authority["python_abi"] == "cp312"
+    assert authority["wheel_platform"] == "linux"
+    assert authority["runtime_requirements"] == [
+        "packaging==24.2",
+        "wrapt==1.17.2",
+    ]
     assert authority["base_version"] == "0.6.0"
     assert authority["stage"] == "rc"
     assert authority["wheel_version"] == "0.6.0rc1"
@@ -363,11 +371,15 @@ def test_wheel_build_wrapper_preserves_every_production_stage(
         lambda value: value.update(spec_id="cann900-a2-amd64"),
         lambda value: value.update(profile_id="cann900-a2"),
         lambda value: value.update(distribution="uc-manager-cann900-a2-mc039"),
+        lambda value: value.update(build_platform="ascend"),
         lambda value: value.update(base_version="0.6.1"),
         lambda value: value.update(stage="stable"),
         lambda value: value.update(cpu_arch="arm64", platform="linux/arm64"),
         lambda value: value.update(platform="linux/arm64"),
+        lambda value: value.update(python_version="3.11"),
+        lambda value: value.update(python_abi="cp311"),
         lambda value: value.update(wheel_version="0.6.0"),
+        lambda value: value.update(wheel_platform="linux"),
         lambda value: value.update(source_sha="9" * 40),
         lambda value: value.update(task_sha256="sha256:" + "9" * 64),
         lambda value: value.update(
@@ -377,6 +389,7 @@ def test_wheel_build_wrapper_preserves_every_production_stage(
         lambda value: value.update(dependency_lock_sha256="sha256:" + "9" * 64),
         lambda value: value.update(required_native=["ucmtrans"]),
         lambda value: value.update(forbidden_native=["hash_retrieval_backend"]),
+        lambda value: value.update(runtime_requirements=["wrapt==1.17.2"]),
     ],
 )
 def test_wheel_build_wrapper_rejects_every_production_authority_overlap(
