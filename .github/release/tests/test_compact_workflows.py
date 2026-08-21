@@ -85,6 +85,15 @@ def test_compact_wheel_passes_cpu_architecture_to_the_native_build() -> None:
     assert 'UCM_BUILD_CPU_ARCH="${UCM_CPU_ARCH}"' in dockerfile
 
 
+def test_runtime_image_checks_ucm_without_auditing_the_base_environment() -> None:
+    dockerfile = (
+        ROOT / ".github" / "release" / "docker" / "Dockerfile.runtime"
+    ).read_text(encoding="utf-8")
+
+    assert "python3 -c 'import ucm'" in dockerfile
+    assert "pip check" not in dockerfile
+
+
 def test_removed_wrapper_workflows_are_absent() -> None:
     for name in (
         "release-vllm-images.yml",
