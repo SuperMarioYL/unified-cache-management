@@ -127,10 +127,14 @@ jobs:
         --only-binary=:all: pytest==8.3.5 PyYAML==6.0.2 packaging==24.2
         setuptools==83.0.0
 
-    - name: Seed an ephemeral test version when no release tag is reachable
+    - name: Fetch fork-source tags when no release tag is reachable
+      env:
+        SOURCE_REPOSITORY_URL: ${{ github.event.repository.source.clone_url }}
       run: |
         if ! git describe --tags --match 'v[0-9]*' HEAD >/dev/null 2>&1; then
-          git tag "v0.0.${GITHUB_RUN_ID}" HEAD
+          test -n "${SOURCE_REPOSITORY_URL}"
+          git fetch --force "${SOURCE_REPOSITORY_URL}" '+refs/tags/*:refs/tags/*'
+          git describe --tags --match 'v[0-9]*' HEAD >/dev/null
         fi
 
     - name: Run compact release tests

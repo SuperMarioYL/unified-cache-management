@@ -1758,11 +1758,17 @@ def test_release_tests_checkout_fetches_tags_for_git_describe() -> None:
         step
         for step in steps
         if step.get("name")
-        == "Seed an ephemeral test version when no release tag is reachable"
+        == "Fetch fork-source tags when no release tag is reachable"
     )
+    assert seed["env"] == {
+        "SOURCE_REPOSITORY_URL": "${{ github.event.repository.source.clone_url }}"
+    }
     command = str(seed["run"])
     assert "git describe --tags --match 'v[0-9]*' HEAD" in command
-    assert 'git tag "v0.0.${GITHUB_RUN_ID}" HEAD' in command
+    assert "git fetch --force" in command
+    assert '"${SOURCE_REPOSITORY_URL}"' in command
+    assert "+refs/tags/*:refs/tags/*" in command
+    assert "git tag" not in command
     assert steps.index(seed) < next(
         index
         for index, step in enumerate(steps)
