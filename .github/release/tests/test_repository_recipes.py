@@ -1,11 +1,12 @@
 """Repository recipe structure and output-injection safety contract.
 
 Only the recipe-structure basics and output-injection safety invariants are
-retained: the catalog registers every Dockerfile, base images are
-catalog-owned, every FROM resolves through catalog arguments, and recipe
-IDs/build-args/cache-scopes/base-images reject GitHub Actions expression
-injection.  The Dockerfile parser edge-case and lane-matrix change-detector
-suites were removed per the slimming plan.
+retained: declared recipes are contract-validated, unregistered repository
+Dockerfiles do not constrain the catalog, base images are catalog-owned, every
+FROM resolves through catalog arguments, and recipe IDs/build-args/cache-
+scopes/base-images reject GitHub Actions expression injection. The Dockerfile
+parser edge-case and lane-matrix change-detector suites were removed per the
+slimming plan.
 """
 
 from __future__ import annotations
