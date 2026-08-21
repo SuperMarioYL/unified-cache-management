@@ -335,6 +335,54 @@ def test_develop_inline_validator_closes_output_and_environment_capabilities(
     ), findings
 
 
+@pytest.mark.parametrize(
+    ("mutation", "injection"),
+    [
+        (
+            "alias-update",
+            "environment = os.environ\n"
+            'environment.update({"WORKFLOW_CONCLUSION": "success"})',
+        ),
+        (
+            "alias-store",
+            "environment = os.environ\n"
+            'environment["WORKFLOW_CONCLUSION"] = "success"',
+        ),
+        (
+            "alias-delete",
+            "environment = os.environ\ndel environment['WORKFLOW_CONCLUSION']",
+        ),
+        ("annotated-alias", "environment: object = os.environ"),
+        ("named-expression-alias", "(environment := os.environ)"),
+    ],
+)
+def test_develop_inline_validator_rejects_direct_environment_aliases(
+    mutation: str, injection: str
+) -> None:
+    """Direct environment aliases must not bypass workflow-input immutability."""
+    workflow_name = "develop-release-dry-run.yml"
+    source = (REPOSITORY_ROOT / ".github/workflows" / workflow_name).read_text(
+        encoding="utf-8"
+    )
+    document = yaml.safe_load(source)
+    assert isinstance(document, dict)
+    step = document["jobs"]["develop-preview"]["steps"][2]
+    run = step["run"]
+    assert isinstance(run, str)
+    anchor = 'if os.environ["CONFIGURED_MAIN"]'
+    assert run.count(anchor) == 1
+    step["run"] = run.replace(anchor, injection + "\n" + anchor, 1)
+
+    findings = _security().audit_workflow_source(
+        yaml.safe_dump(document, sort_keys=False), workflow_name
+    )
+
+    assert any(
+        "develop inline validator contract differs" in finding.message
+        for finding in findings
+    ), (mutation, findings)
+
+
 def _wheels_source() -> str:
     return (V2_ROOT / "ucm_release_v2/wheels.py").read_text(encoding="utf-8")
 

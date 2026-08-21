@@ -1131,6 +1131,10 @@ def _develop_inline_validator_is_semantic(source: str) -> bool:
     for node in ast.walk(tree):
         if (
             (
+                isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr))
+                and _is_os_environ(node.value)
+            )
+            or (
                 isinstance(node, ast.Subscript)
                 and _is_os_environ(node.value)
                 and isinstance(node.ctx, (ast.Store, ast.Del))
