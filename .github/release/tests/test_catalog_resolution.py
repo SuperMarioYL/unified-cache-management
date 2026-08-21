@@ -116,8 +116,10 @@ def _wheel_builder_roots(plan: dict[str, object]) -> dict[tuple[str, str], objec
     }
 
 
-def _install_live_registry_fakes(monkeypatch: pytest.MonkeyPatch) -> None:
-    discovery = _registry_fixture()["repositories"]
+def _install_live_registry_fakes(
+    monkeypatch: pytest.MonkeyPatch, *, fixture: dict[str, object] | None = None
+) -> None:
+    discovery = (fixture or _registry_fixture())["repositories"]
     enumerate_fixture = registry.enumerate_repository_tags
     resolve_fixture = registry.resolve_repository_tag
     monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: "crane")
@@ -367,34 +369,50 @@ def test_unsupported_selector_exclusion_permits_partial_feature_plan() -> None:
     )
 
 
-def test_inspected_variant_is_rechecked_before_live_selection(
+def test_inspected_variant_mismatch_falls_back_within_canonical_group(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog = core.load_catalog()
-    ascend_rule = next(
-        rule
-        for rule in catalog["compatibility"]["rules"]
-        if rule["id"] == "ascend-supported"
+    fixture = _registry_fixture()
+    repository = "quay.io/ascend/vllm-ascend"
+    snapshots = fixture["repositories"][repository]["snapshots"]
+    older_a2 = copy.deepcopy(snapshots["v0.22.1rc3"])
+    older_a2.update(
+        {
+            "upstream_tag": "v0.22.1rc2",
+            "index_digest": "sha256:" + "3" * 64,
+        }
     )
-    ascend_rule["variants"] = ["a2"]
-    _install_live_registry_fakes(monkeypatch)
-    enumerate_tags = registry.enumerate_repository_tags
+    older_a2["platforms"][0].update(
+        {
+            "manifest_digest": "sha256:" + "4" * 64,
+            "config_digest": "sha256:" + "5" * 64,
+        }
+    )
+    older_a2["platforms"][1].update(
+        {
+            "manifest_digest": "sha256:" + "6" * 64,
+            "config_digest": "sha256:" + "7" * 64,
+        }
+    )
+    snapshots["v0.22.1rc2"] = older_a2
+    _install_live_registry_fakes(monkeypatch, fixture=fixture)
 
-    def enumerate_latest_tags(repository: str, *, fixture=None, max_tags: int):
-        result = enumerate_tags(repository, fixture=fixture, max_tags=max_tags)
-        if repository == "quay.io/ascend/vllm-ascend":
-            result["tags"] = ["v0.22.1rc3", "v0.22.1rc3-a3"]
-        return result
+    def inspect_variant(crane, inspected_repository, digest, product):
+        if product["id"] == "vllm":
+            return "default", None
+        tag = next(
+            tag
+            for tag, snapshot in snapshots.items()
+            if snapshot["index_digest"] == digest
+        )
+        return ("a3", None) if tag == "v0.22.1rc3" else (
+            "a3" if tag.endswith("-a3") else "a2",
+            None,
+        )
 
-    monkeypatch.setattr(registry, "enumerate_repository_tags", enumerate_latest_tags)
     monkeypatch.setattr(registry, "resolve_builder_root", _resolved_builder_root)
-    monkeypatch.setattr(
-        registry,
-        "_inspect_upstream_variant",
-        lambda crane, repository, digest, product: (
-            ("default", None) if product["id"] == "vllm" else ("a3", None)
-        ),
-    )
+    monkeypatch.setattr(registry, "_inspect_upstream_variant", inspect_variant)
 
     plan = registry.resolve_catalog(
         catalog,
@@ -404,14 +422,16 @@ def test_inspected_variant_is_rechecked_before_live_selection(
     )
 
     assert [
-        (item["product_id"], item["variant"])
+        (item["variant"], item["tag"])
         for item in plan["resolved_upstreams"]
-    ] == [("vllm", "default")]
-    assert any(
-        item["tag"] == "v0.22.1rc3"
-        and item["reason"] == "compatibility-unsupported"
-        for item in plan["exclusions"]
-    )
+        if item["product_id"] == "vllm-ascend"
+    ] == [("a2", "v0.22.1rc2"), ("a3", "v0.22.1rc3-a3")]
+    assert {
+        "product_id": "vllm-ascend",
+        "repository": repository,
+        "tag": "v0.22.1rc3",
+        "reason": "inspected-variant-mismatch",
+    } in plan["exclusions"]
 
 
 def test_registry_resolves_exactly_the_six_selected_builder_refs(monkeypatch) -> None:

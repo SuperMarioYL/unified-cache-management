@@ -797,6 +797,9 @@ def resolve_catalog(
                     operations.append({'type': 'crane-config', 'capability': 'read', 'reference': inspect_ref})  # fmt: skip  # noqa: E501
                     inspected, _inspect_err = _inspect_upstream_variant(crane_binary, item['repository'], scan['snapshot']['index_digest'], product)  # fmt: skip  # noqa: E501
                     if inspected is not None:
+                        if inspected != item["variant"]:
+                            exclusions.append({'product_id': item['product_id'], 'repository': item['repository'], 'tag': item['tag'], 'reason': 'inspected-variant-mismatch'})  # fmt: skip  # noqa: E501
+                            continue
                         variant = inspected
                     inspected_candidate = {**item, "variant": variant}
                     inspected_reason = core.candidate_exclusion_reason(
