@@ -197,25 +197,54 @@ Catalog 中用于来源追踪。
 
 ### 4.2 Catalog 条目契约
 
-Catalog 不把 Builder 和 runtime 塞进一个会覆盖多版本的唯一键。它包含三个规范数组：
+Catalog 不把稳定 Builder capability、具体 Builder 构建实例和 runtime 塞进一个会覆盖
+历史 revision 的唯一键。它包含四个规范数组：
 
-- `builder_capabilities[]`：某个 Builder 可以构建什么；
+- `builder_capabilities[]`：稳定语义能力，即“可以构建什么”；
+- `builder_revisions[]`：该能力的某一次不可变 Builder 构建实例；
 - `runtime_candidates[]`：每一个发现到的 runtime Tag/digest 是什么；
-- `bindings[]`：一个 Builder capability 与一个 runtime candidate 是否组成可构建产品。
+- `bindings[]`：一个精确 Builder revision 与一个 runtime candidate 是否组成可构建产品。
 
-Builder capability 至少包含 `builder_id`、`accelerator`、`accelerator_runtime`、
+Builder capability 至少包含 `builder_capability_id`、`accelerator`、`accelerator_runtime`、
 `variant`、`cpu_architecture`、`manylinux`、`python_version`、`python_abi`、
-`source_image`、`target_image` 和 `mooncake_version`。Ascend 的 Mooncake 是已从匹配
-runtime 复制并验证的版本；CUDA 为显式 `null`。Builder identity 为：
+`mooncake_version` 和排序后的 `builder_revision_ids[]`。Ascend 的 Mooncake 是构建能力
+要求的版本；CUDA 为显式 `null`。稳定 capability key 为：
 
 ```text
-accelerator + accelerator_runtime + variant + python_abi
+accelerator + accelerator_runtime + variant + python_version + python_abi
 + cpu_architecture + manylinux + mooncake_version
 ```
 
-同一 Builder identity 的 Python version、source image 或 target image 不一致时是来源
-冲突。`source_image` 使用 digest，`target_image` 使用本次 Builder 同步得到的不可变
-坐标；不能因某个 runtime 更新而覆盖另一个 Builder capability。
+`builder_capability_id` 是该 key 的 canonical digest。它不包含 source/target image 或
+recipe revision，因此同一能力可以 append-only 保留多个 Builder revision。相同
+capability key 的重复声明只合并 revision IDs；所有能力语义已包含在 key 中，source/
+target/recipe/toolchain 字段不允许出现在 capability 记录中，也不会形成 capability 冲突。
+
+每个 `builder_revisions[]` 条目至少包含：
+
+```text
+builder_revision_id, builder_capability_id
+source_image_repository, source_image_digest
+recipe_path, recipe_source_commit, recipe_sha256
+toolchain_sha256
+target_repository, target_tag, target_builder_digest
+revision_sha256
+```
+
+`source_image_digest` 和 `target_builder_digest` 必须是不可变 OCI digest；recipe 绑定路径、
+源码 commit 和文件摘要；`toolchain_sha256` 绑定 Builder 配置、锁文件和构建参数的规范
+投影。唯一 builder revision identity 为：
+
+```text
+builder_capability_id + source_image_digest + recipe_source_commit
++ recipe_sha256 + toolchain_sha256 + target_builder_digest
+```
+
+`builder_revision_id` 是该 identity 的 canonical digest。相同 capability 下不同 source
+digest、recipe/toolchain revision 或 target digest 是允许共存的不同 revision。只有两个
+条目声称相同 `builder_revision_id`，但任一 identity/坐标字段不同，才是硬冲突。target
+tag 只是可读 locator；读取后必须等于冻结的 `target_builder_digest`，不能用可变 Tag
+代替 revision identity。
 
 Runtime candidate 至少包含 `runtime_id`、`product_id`、`runtime_version`、`channel`、
 `variant`、`cpu_architecture`、`accelerator`、`accelerator_runtime`、
@@ -227,23 +256,32 @@ product_id + runtime repository + runtime tag + variant + cpu_architecture
 
 相同 identity 必须解析到唯一 image digest、Git commit、accelerator runtime 和
 Mooncake；不一致是硬失败。不同 Tag/version 各自保留为独立 runtime candidate，不能
-由“最新版本”覆盖或被 Builder identity 去重。因此 growth-safe 选择器可以从完整多版本
-集合中依次评估最新候选、回退候选和 baseline 保留候选。
+由“最新版本”覆盖或被 Builder capability/revision identity 去重。因此 growth-safe
+选择器可以从完整多版本集合中依次评估最新候选、回退候选和 baseline 保留候选。
 
-每个 `bindings[]` 条目以 `builder_id + runtime_id` 为唯一键，并投影出计划所需的完整
+每个 `bindings[]` 条目以 `builder_revision_id + runtime_id` 为唯一键，同时记录
+`builder_capability_id`，并投影出计划所需的完整
 字段：`accelerator`、`accelerator_runtime`、`variant`、`cpu_architecture`、
 `manylinux`、`python_version`、`python_abi`、`source_image`、`target_image`、
-`mooncake_version`。绑定只在 architecture、accelerator runtime、Variant 和 Mooncake
-兼容时产生；同一 runtime 可以绑定多个 Python ABI Builder，同一 Builder 也可以绑定
-多个兼容 runtime candidate。
+`mooncake_version`、recipe/toolchain revision 和 target Builder digest。绑定只在
+architecture、accelerator runtime、Variant 和 Mooncake 兼容时产生；同一 runtime
+可以绑定多个 Python ABI/revision，同一 Builder revision 也可以绑定多个兼容 runtime
+candidate。Binding 不得把 revision 降格成 capability-level lookup。
 
-`exclusions[]` 指向 `builder_id`、`runtime_id` 或来源坐标，并包含规范 reason code 和
-证据，不伪造 binding。`310p` 使用 `variant-filtered-310p`；声明/实装 Mooncake 不同
-使用 `mooncake-version-mismatch`。
+去重分两层进行：capability 只按稳定 capability key 去重并合并排序后的 revision IDs；
+revision 只按完整 builder revision identity 去重。不得按 capability key 选择“最新”后
+丢弃旧 revision，也不得因为 source/target digest 变化覆盖旧条目。
+
+`exclusions[]` 指向 `builder_capability_id`、`builder_revision_id`、`runtime_id` 或来源坐标，
+并包含规范 reason code 和证据，不伪造 binding。`310p` 使用
+`variant-filtered-310p`；声明/实装 Mooncake 不同使用 `mooncake-version-mismatch`。
 
 Catalog 还记录 `source_sha`、上游读取集合、Builder sync 结果和 `catalog_sha256`，不把
 运行墙钟时间写进内容对象；时间只属于外层 run evidence。重跑相同来源应得到相同能力、
-候选、绑定和摘要。
+revision、候选、绑定和摘要。Builder inventory 保留本次发现 revision 与所有 active
+baseline Manifest 引用的 revision；同步只新增 content-addressed/revision-suffixed target，
+不覆盖或删除旧 revision。Manifest 引用的 target digest 无法回读时保留该 revision 记录
+并让 baseline build 产生失败 Result，不能静默换成相同 capability 的其他 revision。
 
 ## 5. Candidate Plan 与精确任务坐标
 
@@ -260,11 +298,18 @@ exclusion，并继续检查同组下一版本；规则重叠、模板冲突或�
 2. 本次 discovery 选中的每个新候选；
 3. 配置中尚未生效但显式请求评估的 retirement/supersession 目标。
 
-baseline carry-forward 优先在 Catalog bindings 中按 Manifest 的 immutable runtime/builder
-来源重建；若当前 registry 扫描已不列出旧 Tag，可使用 Manifest 冻结的 digest/commit
-坐标和 append-only Builder capability 重建。无法精确重建时保留一个失败任务并产生
-`baseline-source-unavailable` Result，不能直接从计划中消失。这样旧 baseline 和新候选
-在同一 run 共存并分别产生 Build Result。
+baseline carry-forward 必须在 Catalog bindings 中按 Manifest 的 `runtime_id +
+builder_revision_id` 精确重建；若当前 registry 扫描已不列出旧 Tag，Catalog 仍保留
+Manifest 冻结的 runtime digest/commit 和 append-only Builder revision。旧 revision 无法
+回读时保留一个绑定该 revision 的失败任务并产生 `baseline-source-unavailable` Result，
+不能改选相同 capability 的新 revision，也不能直接从计划中消失。这样旧 baseline 和新
+候选在同一 run 共存并分别产生 Build Result。
+
+新 discovered selection 从与当前 recipe/toolchain authority 完全匹配的 revision 中选择，
+并在 Candidate Plan 冻结其 `builder_revision_id`。同一 capability 下零个匹配 revision
+形成该新候选 exclusion，多个匹配 revision 是歧义并硬失败。选择器不使用可变 target
+Tag 的创建时间或字典顺序决定 revision。新 revision 若替换旧 revision，必须作为独立
+successor task 走现有 promoted/quarantined/superseded 状态机。
 
 每个任务除 `admission_key` 外还有 `lineage_key`。Lineage 保留 accelerator runtime、
 Variant、ABI 和 architecture，但不包含 UCM version、上游 runtime version 或 Mooncake
@@ -282,12 +327,15 @@ runtime/Mooncake 候选可以由产品规则产生显式 `supersedes` 关系。�
 Wheel publication coordinate
       = distribution + ucm_version + python_abi + cpu_architecture
 
+Wheel build instance
+      = Wheel publication coordinate + builder_revision_id
+
 Runtime Image binding key
       = accelerator + accelerator_runtime + variant
       + mooncake_version + python_abi + cpu_architecture
 
 Image build instance
-      = Runtime Image binding key + ucm_version + runtime_id
+      = Runtime Image binding key + ucm_version + runtime_id + wheel_task_id
 
 Image Family = accelerator + accelerator_runtime + variant
              + mooncake_version + runtime_version
@@ -295,7 +343,8 @@ Image Family = accelerator + accelerator_runtime + variant
 
 CUDA Runtime Image 的 `mooncake_version` 使用显式 `null`，不能省略。计划要求的 Runtime
 Image 绑定键保持上述六字段精确闭包；`runtime_id` 只用于区分同一绑定键下的 baseline
-runtime revision 与新 upstream revision。`task_id` 是 build instance 规范 JSON 的
+runtime revision 与新 upstream revision；`builder_revision_id/wheel_task_id` 则区分同一
+产品坐标下的新旧 Builder revision。`task_id` 是 build instance 规范 JSON 的
 `wheel-<sha256>`、`image-<sha256>` 或 `family-<sha256>`；Actions UI 另用动态 label 显示
 Distribution、runtime、Variant、ABI 和 architecture。Artifact 名称使用
 `task_id + run_id + run_attempt`，不会因产品数量增长冲突。
@@ -313,8 +362,11 @@ Variant、ABI 或 architecture 会被识别成新能力。`admission_key` 只用
 相同，则去重为一个 `candidate_role: baseline-current` 实例。没有 role/edge 的重复
 admission key 是计划歧义并失败。
 
-Wheel 坐标要求完全唯一。一个 wheel 可以供多个 runtime image 使用，但 image 必须
-通过其 `wheel_task_id` 精确绑定，不能按 `*.whl` 搜索。Runtime Image 键包含
+Candidate Plan 允许 baseline/successor Wheel build instances 共享一个 publication
+coordinate，但 `builder_revision_id/task_id` 必须不同；Admitted Plan 对每个 publication
+coordinate 必须恰好选择一个 lifecycle active revision，否则 publication closure 失败。
+一个已选择 wheel 可以供多个 runtime image 使用，但 image 必须通过其 `wheel_task_id`
+精确绑定 Builder revision，不能按 `*.whl` 或 capability key 搜索。Runtime Image 键包含
 Mooncake、ABI 和 architecture，防止 CANN runtime 与错误 Mooncake 或 Python wheel
 拼接。Family 明确列出其 member task IDs 和 publication channels，不假设只有
 `amd64/arm64`。
@@ -325,11 +377,13 @@ Mooncake、ABI 和 architecture，防止 CANN runtime 与错误 Mooncake 或 Pyt
 
 - `route`、`source_sha`、`ucm_version`、`release_tag`、`config_sha256`、
   `catalog_sha256`、可选 `baseline_manifest_sha256`；
-- `capabilities[]`：实际被产品展开消费的 capability IDs；
+- `capabilities[]`、`builder_revisions[]` 和 `bindings[]`：实际被产品展开消费的精确 IDs；
 - `wheel_tasks[]`：精确坐标、动态 Distribution、Builder digest、manylinux、Python、
+  `builder_capability_id`、`builder_revision_id`、source/recipe/toolchain/target digests、
   native/ELF 规则、冻结依赖、预期 wheel 文件名和 Artifact 名；
 - `image_tasks[]`：精确坐标、`wheel_task_id`、runtime digest、Mooncake、目标 repository
-  与 member tag、`runtime_id`、`candidate_role`、预期 OCI 输出和 Artifact 名；
+  与 member tag、`runtime_id`、`builder_revision_id`、`candidate_role`、预期 OCI 输出和
+  Artifact 名；
 - `family_tasks[]`：动态 family 坐标、member task IDs、每个启用 channel 的目标 index；
 - `baseline_carry_forward[]`、`discovered_selections[]`、显式 `supersessions[]` 和
   `retirements[]`；
@@ -354,15 +408,18 @@ Mooncake、ABI 和 architecture，防止 CANN runtime 与错误 Mooncake 或 Pyt
 kind, schema_version, result_type, status
 route, source_sha, run_id, run_attempt
 candidate_plan_sha256, task_id, task_coordinate
+builder_capability_id, builder_revision_id, binding_id
 started_at, completed_at, outputs, failure, result_sha256
 ```
 
 `status` 只有 `success` 或 `failure`。成功时 `failure` 为 `null`，`outputs` 必须闭合；
 失败时 `outputs` 只保留已经验证的诊断输出，`failure` 包含稳定 `code`、阶段和简短摘要，
-不得把 token 或完整环境写入 Result。
+不得把 token 或完整环境写入 Result。Builder/binding 字段对 wheel/image 必须非空并与任务
+一致，对 Chart 为显式 `null`。
 
 - wheel 输出：唯一文件名、Distribution、UCM version、Python ABI、architecture、
-  wheel tag、SHA256、METADATA/RECORD/ELF/依赖闭包结论；
+  wheel tag、SHA256、精确 source/recipe/toolchain/target Builder revision、
+  METADATA/RECORD/ELF/依赖闭包结论；
 - image 输出：OCI archive/manifest/config/layer 摘要、runtime digest、绑定 wheel 摘要、
   accelerator runtime、Variant、Mooncake、ABI 和 architecture；
 - Chart 输出：唯一 tgz 文件名、Chart/app version、SHA256 和全部动态 family 渲染结论。
@@ -474,15 +531,18 @@ Admitted Plan + trusted closure -> publication matrices
 ```
 
 `trusted-rebuild` 按 Admitted Plan 中 lifecycle 为 `active` 且 decision 为
-`admitted/promoted` 的 wheel task 动态展开。每个任务用默认
-分支可信配方独立构建 A、B 两份 wheel，逐字节校验 `A == B == candidate wheel`，并重新
-核对 Distribution、version、ABI、architecture、METADATA、RECORD、ELF 与依赖闭包。
-它只读且不取得发布 Environment。
+`admitted/promoted` 的 wheel task 动态展开。每个任务由默认分支可信控制器重开 Admitted
+Plan 冻结的精确 `builder_revision_id`，核对其 source image digest、recipe commit/hash、
+toolchain hash 和 target Builder digest，不能替换成相同 capability 的当前 revision。
+随后独立构建 A、B 两份 wheel，逐字节校验 `A == B == candidate wheel`，并重新核对
+Distribution、version、ABI、architecture、METADATA、RECORD、ELF 与依赖闭包。它只读
+且不取得发布 Environment。
 
 每个任务无论比较成功或失败都上传 `ucm-trusted-build-result`，复用 Result envelope 并
 增加 `admitted_plan_sha256`、`candidate_build_result_sha256`、`candidate_wheel_sha256`、
-`rebuild_a_sha256`、`rebuild_b_sha256`、三个 byte-equality 判定和验证结论。失败、取消或
-Result 缺失均不能成为 publication 输入。
+`builder_revision_id`、`builder_revision_sha256`、`rebuild_a_sha256`、
+`rebuild_b_sha256`、三个 byte-equality 判定和验证结论。失败、取消或 Result 缺失均不能
+成为 publication 输入。
 
 `collect-trusted-build-results` 以 `if: always()` 运行，按 Admitted Plan 的
 `expected_trusted_build_results[]` 拒绝 missing/duplicate/unexpected/failure，生成
@@ -572,7 +632,8 @@ cancelled 或 skipped 而被默认跳过；它通过 Actions Artifact API/本 ru
 - config、Catalog、Candidate Plan、Admitted Plan 的摘要；
 - bootstrap 或 previous Manifest 的来源；
 - 每个 lifecycle 为 active 且 decision 为 admitted/promoted 的 wheel 精确坐标、文件名
-  和摘要；
+  和摘要，以及 `builder_capability_id`、`builder_revision_id`、source/recipe/toolchain/
+  target Builder revision identity；
 - 每个 runtime member/family 的精确坐标、channel、digest 和绑定 wheel；
 - 每个 lineage 的 active、superseded、retired 状态及 successor/retirement reason；
 - Chart 坐标和摘要；
@@ -616,6 +677,8 @@ RC 仍保留现有“候选 Tag 只读、默认分支可信 Controller、受保�
   是全局失败；
 - 可明确归因到单一新 capability 的不支持、Mooncake 不一致或构建失败形成 quarantine；
 - 任何 baseline 任务失败、Result 缺失或依赖闭包破坏都阻断正式发布；
+- baseline 引用的 Builder revision 不可回读时阻断，不能用同 capability 的其他 revision
+  自动替换；
 - trusted rebuild/compare 的 Result 缺失、失败或字节不等在 publication input gate 阻断，
   不回退到 Candidate bytes 直接发布；
 - publication 单元失败阻断 final barrier，但不把已写远端对象称为 Release，也不自动
@@ -696,8 +759,9 @@ Manifest 和公共 readback 全部闭合，才能记录 `release-loop-success`�
 
 - active `release.yaml` 仅接受 Schema v3，且不存在 `wheel_profiles` 或固定 Distribution
   列表；
-- Capability Catalog 分离 Builder capability、Runtime candidate 和 binding，对 CUDA/CANN、
-  未来非 310P Variant、多 runtime、多 ABI 和 architecture 动态增长，Mooncake 来源与实装一致；
+- Capability Catalog 分离稳定 Builder capability、append-only Builder revision、Runtime
+  candidate 和 revision-level binding，对 CUDA/CANN、未来非 310P Variant、多 runtime、
+  多 ABI 和 architecture 动态增长，Mooncake 来源与实装一致；
 - Candidate 与 Admitted Plan 使用本文精确坐标、baseline carry-forward、显式 lifecycle
   状态和 baseline 状态机；
 - 正式 publication 只消费通过双 trusted rebuild 和逐字节比较的 trusted closure；
