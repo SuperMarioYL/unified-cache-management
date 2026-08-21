@@ -135,6 +135,17 @@ def test_release_config_owns_templates_without_build_profile_escape_hatches() ->
         },
     }
     assert set(release["runner_map"]) == {"amd64", "arm64"}
+    discovered_dimensions = {
+        "variants",
+        "accelerator_runtimes",
+        "npu_architectures",
+        "cpu_architectures",
+        "python_abis",
+    }
+    assert all(
+        discovered_dimensions.isdisjoint(rule)
+        for rule in release["compatibility"]["rules"]
+    )
 
 
 def test_toolchain_lock_owns_builder_requirements_but_no_builder_coordinates() -> None:

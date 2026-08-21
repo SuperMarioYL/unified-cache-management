@@ -26,9 +26,9 @@ SOURCE_TREE = "2" * 40
 DIGEST = "sha256:" + "3" * 64
 SOURCE_DATE_EPOCH = "1700000000"
 PROFILE_DISTRIBUTIONS = {
-    "cuda130": "uc-manager-cuda",
-    "cann900-a2": "uc-manager-cann-a2",
-    "cann900-a3": "uc-manager-cann-a3",
+    "cuda130": "uc-manager-cuda130",
+    "cann900-a2": "uc-manager-cann900-a2-mc039",
+    "cann900-a3": "uc-manager-cann900-a3-mc039",
 }
 PRODUCTION_CONFIG = PRODUCTION_ROOT / "production-release.json"
 
@@ -248,7 +248,12 @@ def test_schema_v2_build_config_preserves_stage_version_rules(
     ("mutation", "message"),
     [
         (lambda value: value.update(distribution="uc-manager-evil"), "invalid"),
-        (lambda value: value.update(distribution="uc-manager-cann-a2"), "invalid"),
+        (
+            lambda value: value.update(
+                distribution="uc-manager-cann900-a2-mc039"
+            ),
+            "invalid",
+        ),
         (lambda value: value.pop("stage"), "schema-v2"),
         (lambda value: value.update(unexpected=True), "schema-v2"),
         (
@@ -280,7 +285,7 @@ def test_schema_v2_build_config_ignores_legacy_release_environment(
         tmp_path,
         _authority(),
         env_mutation={
-            "UCM_RELEASE_DISTRIBUTION": "uc-manager-cann-a3",
+            "UCM_RELEASE_DISTRIBUTION": "uc-manager-cann900-a3-mc039",
             "UCM_RELEASE_VERSION": "9.9.9",
             "PLATFORM": "maca",
             "SOURCE_DATE_EPOCH": "1",
@@ -289,7 +294,7 @@ def test_schema_v2_build_config_ignores_legacy_release_environment(
     )
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.splitlines()[-2:] == ["uc-manager-cuda", "0.6.0rc1"]
+    assert result.stdout.splitlines()[-2:] == ["uc-manager-cuda130", "0.6.0rc1"]
 
 
 def test_setup_rejects_compact_schema_v1_authority(tmp_path: Path) -> None:

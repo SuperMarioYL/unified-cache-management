@@ -20,6 +20,7 @@ from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
 from . import products
+from .capabilities import normalize_variant
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RELEASE_ROOT = Path(__file__).resolve().parents[1]
@@ -352,24 +353,12 @@ def _version_specifiers_may_overlap(left: object, right: object) -> bool:
 def _compatibility_rules_semantically_overlap(
     left: dict[str, Any],
     right: dict[str, Any],
-    products_by_id: dict[str, dict[str, Any]],
 ) -> bool:
     common_products = set(left["upstream_products"]) & set(right["upstream_products"])
     if not common_products or left["accelerator"] != right["accelerator"]:
         return False
-    common_variants = set(left["variants"]) & set(right["variants"])
-    if not any(
-        common_variants
-        & {variant["id"] for variant in products_by_id[product_id]["variants"]}
-        for product_id in common_products
-    ):
-        return False
     for field in (
-        "accelerator_runtimes",
-        "npu_architectures",
         "operating_systems",
-        "cpu_architectures",
-        "python_abis",
         "upstream_channels",
     ):
         if not (set(left[field]) & set(right[field])):
@@ -831,14 +820,6 @@ def _validate_catalog_cpu_toolchains(catalog: dict[str, Any]) -> None:
         architectures = product.get("required_cpu_architectures")
         if isinstance(architectures, list):
             declarations.extend(((f'upstream_products[{index}].required_cpu_architectures', architecture) for architecture in architectures))  # fmt: skip  # noqa: E501
-    compatibility = catalog.get("compatibility")
-    rules = compatibility.get("rules", []) if isinstance(compatibility, dict) else []
-    for index, rule in enumerate(rules):
-        if not isinstance(rule, dict):
-            continue
-        architectures = rule.get("cpu_architectures")
-        if isinstance(architectures, list):
-            declarations.extend(((f'compatibility.rules[{index}].cpu_architectures', architecture) for architecture in architectures))  # fmt: skip  # noqa: E501
     smoke = catalog.get("pr_smoke")
     selectors = smoke.get("image_selectors", []) if isinstance(smoke, dict) else []
     for index, selector in enumerate(selectors):
@@ -918,17 +899,11 @@ def validate_catalog(
             raise ValueError('PR smoke selector architecture is not required by product')  # fmt: skip  # noqa: E501
     for index, rule in enumerate(rules):
         _pep440_specifier(rule.get('version_specifier'), f'compatibility.rules[{index}].version_specifier')  # fmt: skip  # noqa: E501
-        referenced_products: list[dict[str, Any]] = []
         for product_id in rule["upstream_products"]:
-            product = products_by_id.get(product_id)
-            if product is None: raise ValueError(f'unknown upstream product {product_id!r}')  # noqa: E701,E501
-            referenced_products.append(product)
-        declared_variants = {variant['id'] for product in referenced_products for variant in product['variants']}  # fmt: skip  # noqa: E501
-        for variant_id in rule["variants"]:
-            if variant_id not in declared_variants: raise ValueError(f'unknown variant {variant_id!r}')  # noqa: E701,E501
+            if product_id not in products_by_id: raise ValueError(f'unknown upstream product {product_id!r}')  # noqa: E701,E501
     for left_index, left in enumerate(rules):
         for right in rules[left_index + 1 :]:
-            if _compatibility_rules_semantically_overlap(left, right, products_by_id):
+            if _compatibility_rules_semantically_overlap(left, right):
                 raise ValueError(f"compatibility rules have semantic selector overlap: {left['id']!r} and {right['id']!r}")  # fmt: skip  # noqa: E501
     runtime_patch_manifest(catalog, repository_root=repository_root)
 
@@ -1287,13 +1262,21 @@ def _find_profile(
     *,
     relaxed: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]] | None:
-    variant = next((v for v in product['variants'] if v['id'] == snapshot['variant']), None)  # fmt: skip  # noqa: E501
+    normalized_variant = normalize_variant(snapshot["variant"])
+    variant = next(
+        (
+            value
+            for value in product["variants"]
+            if normalize_variant(value["id"]) == normalized_variant
+        ),
+        None,
+    )
     if variant is None:
         raise ValueError(f"snapshot variant {snapshot['variant']!r} is not declared by upstream product {product['id']!r}")  # fmt: skip  # noqa: E501
     version = None if relaxed else _pep440_version(snapshot["version"], "resolved upstream version")  # fmt: skip  # noqa: E501
     matches: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for rule in catalog["compatibility"]["rules"]:
-        if product["id"] not in rule["upstream_products"] or snapshot["variant"] not in rule["variants"] or architecture not in rule["cpu_architectures"]:  # fmt: skip  # noqa: E501
+        if product["id"] not in rule["upstream_products"]:
             continue
         # PR/pinned path (relaxed) skips the catalog's version_specifier +
         # upstream-channel gates so an out-of-specifier / out-of-channel tag
@@ -1307,11 +1290,9 @@ def _find_profile(
             if (
                 architecture in profile["cpu_arch"]
                 and profile["accelerator"] == rule["accelerator"]
-                and profile["accelerator_runtime"] in rule["accelerator_runtimes"]
-                and variant["npu_arch"] in profile["npu_arch"]
-                and variant["npu_arch"] in rule["npu_architectures"]
+                and normalize_variant(profile["npu_arch"][0])
+                == normalize_variant(variant["npu_arch"])
                 and any(item in rule["operating_systems"] for item in profile["os"])
-                and profile["python_abi"] in rule["python_abis"]
             ):
                 matches.append((profile, rule))
     if not matches:
@@ -1545,6 +1526,26 @@ def expand_release_plan(
 RELEASE_KEYS = frozenset('kind schema_version image_revision source lanes runner_map discovery products dependencies upstream_products compatibility chart publish native_contracts'.split())  # fmt: skip  # noqa: E501
 OPTIONAL_CATALOG_KEYS = frozenset('ucm_version pr_smoke docker_recipes runtime_patch_rules python_runtime_dependencies python_build_lock builder_requirements build_profiles'.split())  # fmt: skip  # noqa: E501
 SUPPLEMENTARY_TOP_LEVEL_KEYS = frozenset({'pr_smoke', 'docker_recipes', 'runtime_patch_rules', 'python_runtime_dependencies', 'python_build_lock', 'builder_requirements'})  # fmt: skip  # noqa: E501
+SUPPLEMENTARY_SOURCES = (
+    (
+        Path(".github/docker-recipes.yaml"),
+        frozenset({"pr_smoke", "docker_recipes"}),
+    ),
+    (
+        Path(".github/release/toolchain.lock.yaml"),
+        frozenset(
+            {
+                "python_runtime_dependencies",
+                "python_build_lock",
+                "builder_requirements",
+            }
+        ),
+    ),
+    (
+        Path("ucm/integration/runtime-patches.yaml"),
+        frozenset({"runtime_patch_rules"}),
+    ),
+)
 LANES = ("feature-candidate", "protected-tag")
 
 
@@ -1607,13 +1608,19 @@ def _validate_cross_config(
         chart_selectors.add(selector)
 
 
-def _load_supplementary_configs(
-    release_path: Path, repository_root: Path
-) -> dict[str, Any]:
+def _load_supplementary_configs(repository_root: Path) -> dict[str, Any]:
     merged: dict[str, Any] = {}
-    candidates = (DEFAULT_RELEASE.parents[1] / 'docker-recipes.yaml', DEFAULT_RELEASE.parent / 'toolchain.lock.yaml', DEFAULT_RELEASE.parents[2] / 'ucm' / 'integration' / 'runtime-patches.yaml')  # fmt: skip  # noqa: E501
-    for path in candidates:
-        if path.is_file(): merged.update(load_yaml(path))  # noqa: E701
+    for relative_path, owned_keys in SUPPLEMENTARY_SOURCES:
+        path = repository_root / relative_path
+        values = load_yaml(path)
+        _exact_keys(values, set(owned_keys), str(path))
+        duplicates = sorted(set(merged) & set(values))
+        if duplicates:
+            raise ValueError(
+                f"supplementary configuration ownership overlaps: {duplicates}"
+            )
+        merged.update(values)
+    _exact_keys(merged, set(SUPPLEMENTARY_TOP_LEVEL_KEYS), "supplementary catalog")
     return merged
 
 
@@ -1627,12 +1634,23 @@ def load_catalog(
 ) -> dict[str, Any]:
     config_schema = load_json(schema_dir / "config.schema.json")
     release = load_yaml(release_path)
-    supplementary = _load_supplementary_configs(release_path, repository_root)
-    for key, value in supplementary.items():
-        if key not in release and key in SUPPLEMENTARY_TOP_LEVEL_KEYS: release[key] = value  # noqa: E701,E501
     resolved_repository = resolve_repository(repository, repository_root=repository_root)  # fmt: skip  # noqa: E501
     release = resolve_owner_templates(release, repository=resolved_repository)
     validate_schema(release, config_schema)
+    _exact_keys(release, set(RELEASE_KEYS), "release.yaml")
+    supplementary = _load_supplementary_configs(repository_root)
+    overlaps = sorted(set(release) & set(supplementary))
+    if overlaps:
+        raise ValueError(
+            f"release.yaml cannot override supplementary ownership: {overlaps}"
+        )
+    release.update(supplementary)
+    validate_schema(
+        {key: release[key] for key in SUPPLEMENTARY_TOP_LEVEL_KEYS},
+        config_schema["$defs"]["supplementaryCatalog"],
+        root=config_schema,
+        path="$supplementary",
+    )
     missing = sorted(RELEASE_KEYS - set(release))
     extras = sorted(set(release) - RELEASE_KEYS - OPTIONAL_CATALOG_KEYS)
     if missing or extras: raise ValueError(f'release.yaml requires exact key set; missing={missing}, extra={extras}')  # noqa: E701,E501

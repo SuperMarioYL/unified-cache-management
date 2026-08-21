@@ -43,9 +43,9 @@ def test_config_has_exact_product_and_profile_closure() -> None:
     assert config["release_line"] == "0.6"
     assert config["base_version"] == "0.6.0"
     assert [item["distribution"] for item in config["products"]["wheels"]] == [
-        "uc-manager-cuda",
-        "uc-manager-cann-a2",
-        "uc-manager-cann-a3",
+        "uc-manager-cuda130",
+        "uc-manager-cann900-a2-mc039",
+        "uc-manager-cann900-a3-mc039",
     ]
     assert [item["id"] for item in config["build_profiles"]] == [
         "cuda130",
@@ -72,7 +72,7 @@ def test_config_has_exact_product_and_profile_closure() -> None:
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("distribution", "uc-manager-cann-a2"),
+        ("distribution", "uc-manager-cann900-a2-mc039"),
         ("build_platform", "ascend"),
         ("wheel_platform", "linux"),
         ("python_version", "3.11"),

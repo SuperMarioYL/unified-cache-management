@@ -140,6 +140,47 @@ def test_load_catalog_rejects_pypi_dists_in_schema_v3(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("field", "source_path"),
+    [
+        pytest.param(
+            "builder_requirements",
+            RELEASE_ROOT / "toolchain.lock.yaml",
+            id="builder-requirements",
+        ),
+        pytest.param(
+            "python_build_lock",
+            RELEASE_ROOT / "toolchain.lock.yaml",
+            id="dependency-artifact-lock",
+        ),
+        pytest.param(
+            "docker_recipes",
+            REPO_ROOT / ".github" / "docker-recipes.yaml",
+            id="docker-recipes",
+        ),
+        pytest.param(
+            "runtime_patch_rules",
+            REPO_ROOT / "ucm" / "integration" / "runtime-patches.yaml",
+            id="runtime-patch-facts",
+        ),
+    ],
+)
+def test_load_catalog_rejects_supplementary_facts_in_release_yaml(
+    tmp_path: Path,
+    field: str,
+    source_path: Path,
+) -> None:
+    """The closed human authority cannot override generated/locked facts."""
+    core = _require_public_module("ucm_release.core")
+    release = _load_release_yaml()
+    supplementary = yaml.safe_load(source_path.read_text(encoding="utf-8"))
+    release[field] = supplementary[field]
+    path = _write_release_yaml(tmp_path, release)
+
+    with pytest.raises(ValueError, match=field):
+        core.load_catalog(path)
+
+
+@pytest.mark.parametrize(
     ("family", "template"),
     [
         pytest.param(
@@ -265,6 +306,116 @@ def test_expand_distribution_names_rejects_duplicate_names() -> None:
             product_rules=product_rules,
             capability_contexts=capability_contexts,
         )
+
+
+def test_expand_distribution_names_allows_one_name_for_distinct_python_abis() -> None:
+    """Distribution and Python ABI together form the product coordinate."""
+    products = _require_public_module("ucm_release.products")
+    expand_names = _require_public_callable(products, "expand_distribution_names")
+    product_rules = {"cuda": _canonical_product_rules()["cuda"]}
+    capability_contexts = [
+        {
+            "accelerator": "cuda",
+            "accelerator_runtime": "cuda-13.0",
+            "python_abi": "cp312",
+        },
+        {
+            "accelerator": "cuda",
+            "accelerator_runtime": "cuda-13.0",
+            "python_abi": "cp313",
+        },
+    ]
+
+    assert expand_names(
+        product_rules=product_rules,
+        capability_contexts=capability_contexts,
+    ) == ("uc-manager-cuda130", "uc-manager-cuda130")
+
+
+def test_derive_build_profiles_grows_from_new_normalized_builder_fact() -> None:
+    """A new compatible fact enters projection without release policy edits."""
+    core = _require_public_module("ucm_release.core")
+    products = _require_public_module("ucm_release.products")
+    derive_profiles = _require_public_callable(products, "derive_build_profiles")
+    catalog = core.load_catalog()
+    catalog.pop("build_profiles")
+    compatibility_before = copy.deepcopy(catalog["compatibility"])
+    new_fact = copy.deepcopy(catalog["builder_requirements"][1])
+    new_fact.update(
+        accelerator_runtime="cann-9.2.0",
+        variants=["A_4"],
+        python_version="3.13",
+        python_abi="cp313",
+        architectures={
+            "arm64": copy.deepcopy(new_fact["architectures"]["arm64"])
+        },
+    )
+    for check in new_fact["architectures"]["arm64"]["checks"]:
+        if check["kind"] == "python":
+            check.update(version="3.13", abi="cp313")
+    catalog["builder_requirements"].append(new_fact)
+
+    profiles = derive_profiles(catalog)
+    added = next(item for item in profiles if item["python_abi"] == "cp313")
+
+    assert catalog["compatibility"] == compatibility_before
+    assert (
+        added["id"],
+        added["accelerator_runtime"],
+        added["npu_arch"],
+        added["cpu_arch"],
+        added["dist_name"],
+    ) == (
+        "ascend920-a-4-cp313",
+        "cann-9.2.0",
+        ["a-4"],
+        ["arm64"],
+        "uc-manager-cann920-a-4-mc039",
+    )
+
+
+def test_derive_build_profiles_allows_distribution_across_python_abis() -> None:
+    """The ABI profile, not Distribution alone, is the unique coordinate."""
+    core = _require_public_module("ucm_release.core")
+    products = _require_public_module("ucm_release.products")
+    derive_profiles = _require_public_callable(products, "derive_build_profiles")
+    catalog = core.load_catalog()
+    catalog.pop("build_profiles")
+    second_abi = copy.deepcopy(catalog["builder_requirements"][0])
+    second_abi.update(python_version="3.13", python_abi="cp313")
+    for architecture in second_abi["architectures"].values():
+        for check in architecture["checks"]:
+            if check["kind"] == "python":
+                check.update(version="3.13", abi="cp313")
+    catalog["builder_requirements"].append(second_abi)
+
+    cuda_profiles = [
+        item
+        for item in derive_profiles(catalog)
+        if item["accelerator_runtime"] == "cuda-13.0"
+    ]
+
+    assert [(item["dist_name"], item["python_abi"]) for item in cuda_profiles] == [
+        ("uc-manager-cuda130", "cp312"),
+        ("uc-manager-cuda130", "cp313"),
+    ]
+
+
+def test_derive_build_profiles_rejects_duplicate_distribution_abi_coordinate() -> None:
+    """Two facts cannot own the same Distribution and ABI profile."""
+    core = _require_public_module("ucm_release.core")
+    products = _require_public_module("ucm_release.products")
+    derive_profiles = _require_public_callable(products, "derive_build_profiles")
+    catalog = core.load_catalog()
+    catalog.pop("build_profiles")
+    duplicate = copy.deepcopy(catalog["builder_requirements"][0])
+    duplicate["architectures"] = {
+        "arm64": copy.deepcopy(duplicate["architectures"]["arm64"])
+    }
+    catalog["builder_requirements"].append(duplicate)
+
+    with pytest.raises(ValueError, match=r"Distribution.*Python ABI"):
+        derive_profiles(catalog)
 
 
 @pytest.mark.parametrize(

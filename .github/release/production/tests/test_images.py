@@ -240,7 +240,7 @@ def test_image_recipe_is_complete_and_context_reopens_pinned_wheels(
         wrapt_path.read_bytes()
     )
     assert (tmp_path / "context" / "requirements.lock").read_text() == (
-        f"uc-manager-cuda @ file:///wheelhouse/{wheel.name} "
+        f"uc-manager-cuda130 @ file:///wheelhouse/{wheel.name} "
         f"--hash={wheel_record['file_sha256']}\n"
         f"packaging @ file:///wheelhouse/{packaging_path.name} "
         f"--hash=sha256:{mutable['toolchain']['python_build']['packaging']['sha256']}\n"

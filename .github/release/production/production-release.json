@@ -7,9 +7,9 @@
   "environment": "release-production",
   "products": {
     "wheels": [
-      {"profile_id": "cuda130", "distribution": "uc-manager-cuda", "import_name": "ucm"},
-      {"profile_id": "cann900-a2", "distribution": "uc-manager-cann-a2", "import_name": "ucm"},
-      {"profile_id": "cann900-a3", "distribution": "uc-manager-cann-a3", "import_name": "ucm"}
+      {"profile_id": "cuda130", "distribution": "uc-manager-cuda130", "import_name": "ucm"},
+      {"profile_id": "cann900-a2", "distribution": "uc-manager-cann900-a2-mc039", "import_name": "ucm"},
+      {"profile_id": "cann900-a3", "distribution": "uc-manager-cann900-a3-mc039", "import_name": "ucm"}
     ],
     "images": [
       {"profile_id": "cuda130", "basename": "ucm-cuda", "draft_basename": "ucm-cuda-private"},
@@ -25,7 +25,7 @@
   "build_profiles": [
     {
       "id": "cuda130",
-      "distribution": "uc-manager-cuda",
+      "distribution": "uc-manager-cuda130",
       "build_platform": "cuda",
       "cpu_arch": ["amd64", "arm64"],
       "python_version": "3.12",
@@ -42,7 +42,7 @@
     },
     {
       "id": "cann900-a2",
-      "distribution": "uc-manager-cann-a2",
+      "distribution": "uc-manager-cann900-a2-mc039",
       "build_platform": "ascend",
       "cpu_arch": ["amd64", "arm64"],
       "python_version": "3.12",
@@ -59,7 +59,7 @@
     },
     {
       "id": "cann900-a3",
-      "distribution": "uc-manager-cann-a3",
+      "distribution": "uc-manager-cann900-a3-mc039",
       "build_platform": "ascend-a3",
       "cpu_arch": ["amd64", "arm64"],
       "python_version": "3.12",

@@ -732,7 +732,13 @@ def test_arm64_only_family_binds_control_runner_and_tool_arch_in_plan() -> None:
         for rule in catalog["compatibility"]["rules"]
         if rule["accelerator"] == "cuda"
     ]
-    catalog["compatibility"]["rules"][0]["cpu_architectures"] = ["arm64"]
+    cuda_profile = next(
+        profile
+        for profile in catalog["build_profiles"]
+        if profile["accelerator"] == "cuda"
+    )
+    cuda_profile["cpu_arch"] = ["arm64"]
+    cuda_profile["builders"] = {"arm64": cuda_profile["builders"]["arm64"]}
     catalog["runtime_patch_rules"] = [
         rule for rule in catalog["runtime_patch_rules"] if rule["product"] == "vllm"
     ]
@@ -803,13 +809,14 @@ def test_v3_catalog_rejects_overlapping_compatibility_rules(
     tmp_path: Path,
 ) -> None:
     """The v3 authority must reject ambiguous compatibility selectors."""
-    catalog = core.load_catalog()
-    duplicate = copy.deepcopy(catalog["compatibility"]["rules"][0])
+    release = yaml.safe_load(
+        (RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8")
+    )
+    duplicate = copy.deepcopy(release["compatibility"]["rules"][0])
     duplicate["id"] = "overlapping-copy"
-    catalog["compatibility"]["rules"].append(duplicate)
-    catalog.pop("build_profiles")
+    release["compatibility"]["rules"].append(duplicate)
     catalog_path = tmp_path / "release.yaml"
-    catalog_path.write_text(yaml.safe_dump(catalog, sort_keys=False), encoding="utf-8")
+    catalog_path.write_text(yaml.safe_dump(release, sort_keys=False), encoding="utf-8")
 
     with pytest.raises(ValueError, match="overlap"):
         core.load_catalog(catalog_path)
@@ -833,7 +840,6 @@ def test_v3_catalog_rejects_semantic_range_overlap_without_a_current_target() ->
         {
             "id": "cuda-021-subset",
             "version_specifier": "==0.21.*",
-            "cpu_architectures": ["amd64"],
             "upstream_channels": ["stable", "rc"],
         }
     )
@@ -864,7 +870,7 @@ def _catalog_with_cuda_version_rules(
     return catalog
 
 
-def test_v2_catalog_rejects_public_exact_and_local_exact_overlap() -> None:
+def test_v3_catalog_rejects_public_exact_and_local_exact_overlap() -> None:
     """A public equality includes local builds of the same public version."""
     witness = Version("1.0+foo")
     assert SpecifierSet("==1.0").contains(witness, prereleases=True)
@@ -874,7 +880,7 @@ def test_v2_catalog_rejects_public_exact_and_local_exact_overlap() -> None:
         core.validate_catalog(_catalog_with_cuda_version_rules("==1.0", "==1.0+foo"))
 
 
-def test_v2_catalog_rejects_local_exact_at_inclusive_public_upper_bound() -> None:
+def test_v3_catalog_rejects_local_exact_at_inclusive_public_upper_bound() -> None:
     """Inclusive public bounds include a local build at that boundary."""
     witness = Version("1.0+foo")
     assert SpecifierSet("==1.0+foo").contains(witness, prereleases=True)
@@ -891,7 +897,7 @@ def test_v2_catalog_rejects_local_exact_at_inclusive_public_upper_bound() -> Non
         ("==1.0", "==2.0"),
     ],
 )
-def test_v2_catalog_allows_disjoint_exact_local_versions(
+def test_v3_catalog_allows_disjoint_exact_local_versions(
     left_specifier: str,
     right_specifier: str,
 ) -> None:
@@ -903,39 +909,31 @@ def test_v2_catalog_allows_disjoint_exact_local_versions(
 
 @pytest.mark.parametrize(
     "dimension",
-    ["version", "channel", "variant", "cpu-architecture"],
+    ["version", "channel", "operating-system", "upstream-product"],
 )
-def test_v2_catalog_allows_compatibility_rules_with_a_disjoint_dimension(
+def test_v3_catalog_allows_compatibility_rules_with_a_disjoint_policy_dimension(
     dimension: str,
 ) -> None:
     """Two rules remain unambiguous when at least one selector cannot intersect."""
     catalog = core.load_catalog()
-    if dimension == "variant":
-        rule = next(
-            item
-            for item in catalog["compatibility"]["rules"]
-            if item["id"] == "ascend-supported"
-        )
-        rule["variants"] = ["a2"]
-        other = copy.deepcopy(rule)
-        other.update({"id": "ascend-a3-only", "variants": ["a3"]})
+    rule = next(
+        item
+        for item in catalog["compatibility"]["rules"]
+        if item["id"] == "cuda-supported"
+    )
+    other = copy.deepcopy(rule)
+    other["id"] = f"cuda-disjoint-{dimension}"
+    if dimension == "version":
+        rule["version_specifier"] = ">=0.18,<0.21"
+        other["version_specifier"] = ">=0.21,<0.23"
+    elif dimension == "channel":
+        rule["upstream_channels"] = ["stable"]
+        other["upstream_channels"] = ["rc"]
+    elif dimension == "operating-system":
+        rule["operating_systems"] = ["ubuntu-22.04"]
+        other["operating_systems"] = ["ubuntu-24.04"]
     else:
-        rule = next(
-            item
-            for item in catalog["compatibility"]["rules"]
-            if item["id"] == "cuda-supported"
-        )
-        other = copy.deepcopy(rule)
-        other["id"] = f"cuda-disjoint-{dimension}"
-        if dimension == "version":
-            rule["version_specifier"] = ">=0.18,<0.21"
-            other["version_specifier"] = ">=0.21,<0.23"
-        elif dimension == "channel":
-            rule["upstream_channels"] = ["stable"]
-            other["upstream_channels"] = ["rc"]
-        else:
-            rule["cpu_architectures"] = ["amd64"]
-            other["cpu_architectures"] = ["arm64"]
+        other["upstream_products"] = ["vllm-ascend"]
     catalog["compatibility"]["rules"].append(other)
 
     core.validate_catalog(catalog)
@@ -1029,15 +1027,24 @@ def _vllm_candidate(product: dict, version: str = "0.21.9") -> dict[str, str]:
 
 
 def _add_cuda_compatibility_overlap(
-    catalog: dict, *, architectures: list[str] | None = None
+    catalog: dict, *, profile_architectures: list[str] | None = None
 ) -> None:
     original = next(
         rule
         for rule in catalog["compatibility"]["rules"]
         if rule["id"] == "cuda-supported"
     )
-    if architectures is not None:
-        original["cpu_architectures"] = architectures
+    if profile_architectures is not None:
+        profile = next(
+            item
+            for item in catalog["build_profiles"]
+            if item["accelerator"] == "cuda"
+        )
+        profile["cpu_arch"] = profile_architectures
+        profile["builders"] = {
+            architecture: profile["builders"][architecture]
+            for architecture in profile_architectures
+        }
     duplicate = copy.deepcopy(original)
     duplicate["id"] = "cuda-overlap"
     catalog["compatibility"]["rules"].append(duplicate)
@@ -1106,7 +1113,7 @@ def test_candidate_exclusion_does_not_swallow_compatibility_overlap() -> None:
 def test_candidate_exclusion_probes_later_architectures_after_zero_match() -> None:
     catalog = _catalog_for_plan()
     product = next(p for p in catalog["upstream_products"] if p["id"] == "vllm")
-    _add_cuda_compatibility_overlap(catalog, architectures=["arm64"])
+    _add_cuda_compatibility_overlap(catalog, profile_architectures=["arm64"])
     manifest = core.runtime_patch_manifest(catalog, repository_root=ROOT)
 
     with pytest.raises(ValueError, match="overlapping wheel profiles"):

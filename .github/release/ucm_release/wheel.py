@@ -106,6 +106,7 @@ EXTENDED_V1_AUTHORITY_FIELDS = {
     "task_id",
     "spec_id",
     "profile_id",
+    "distribution",
     "cpu_arch",
     "platform",
     "build",
@@ -710,6 +711,8 @@ def _validate_wheel_build_authority(authority: object) -> dict[str, Any]:
             re.fullmatch(r"wheel-[0-9a-f]{64}", str(authority.get("task_id"))) is None
             or not isinstance(authority.get("profile_id"), str)
             or not authority["profile_id"]
+            or canonicalize_name(str(authority.get("distribution")))
+            != authority.get("distribution")
             or authority.get("spec_id") != f"{authority.get('profile_id')}-{cpu_arch}"
             or not isinstance(build, dict)
             or set(build) != {"docker_target", "platform_arg"}
@@ -784,6 +787,7 @@ def _validate_wheel_build_config_value(config: object) -> dict[str, Any]:
     ):
         raise ValueError("wheel build config projection is invalid")
     if authority["schema_version"] == 1:
+        distribution = authority["distribution"]
         platform_arg = authority["build"]["platform_arg"]
         if (
             authority["python_version"] != config["python"]["version"]
@@ -1353,6 +1357,7 @@ def _validate_build_authority(
         "task_id": task["task_id"],
         "spec_id": spec_id,
         "profile_id": task["profile_id"],
+        "distribution": task["dist_name"],
         "cpu_arch": task["cpu_arch"],
         "platform": task["platform"],
         "build": task["build"],
@@ -1835,6 +1840,7 @@ def build_authority_record(
         "task_id": task["task_id"],
         "spec_id": spec_id,
         "profile_id": task["profile_id"],
+        "distribution": task["dist_name"],
         "cpu_arch": task["cpu_arch"],
         "platform": task["platform"],
         "build": task["build"],

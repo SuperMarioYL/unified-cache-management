@@ -60,24 +60,14 @@ compatibility:
   - id: cuda-supported
     upstream_products: [vllm]
     version_specifier: '>=0.21,<0.22'
-    variants: [default]
     accelerator: cuda
-    accelerator_runtimes: [cuda-13.0]
-    npu_architectures: [na]
     operating_systems: [ubuntu-22.04]
-    cpu_architectures: [amd64, arm64]
-    python_abis: [cp312]
     upstream_channels: [stable]
   - id: ascend-supported
     upstream_products: [vllm-ascend]
     version_specifier: '>=0.22.1rc1,<0.23'
-    variants: [a2, a3]
     accelerator: ascend
-    accelerator_runtimes: [cann-9.0.0]
-    npu_architectures: [a2, a3]
     operating_systems: [ubuntu-22.04]
-    cpu_architectures: [amd64, arm64]
-    python_abis: [cp312]
     upstream_channels: [rc]
   excluded_upstream_patterns: [nightly, dev, custom, 310p]
 chart:
@@ -89,13 +79,11 @@ chart:
   - {name: a3, values: charts/ucm/models/ascend/values-qwen3-0p6b-1e1.yaml, product_id: vllm-ascend, variant: a3, expected_resource: huawei.com/Ascend910}
 native_contracts:
 - accelerator: cuda
-  accelerator_runtime: cuda-13.0
   required_native: [ucmtrans, metrics, ucmmetrics, ucmlogger, ucmnfsstore, ucmpcstore, posixstore, compressor, cachestore, emptystore, fakestore, ucmpipelinestore]
   forbidden_native: [mooncakestore, ds3fsstore, uc_hash_ext, ucm_custom_ops, hash_retrieval_backend, hamming, gsa_prefetch, kvstar_retrieve, retrieval_backend, gsa_offload_ops]
   allowed_dt_needed: [ld-linux-aarch64.so.1, ld-linux-x86-64.so.2, libc.so.6, libcuda.so.1, libcudart.so.13, libdl.so.2, libgcc_s.so.1, libm.so.6, libmetrics.so, libpthread.so.0, librt.so.1, libstdc++.so.6]
   external_required_dependencies: []
 - accelerator: ascend
-  accelerator_runtime: cann-9.0.0
   required_native: [ucmtrans, metrics, ucmmetrics, ucmlogger, ucmnfsstore, ucmpcstore, posixstore, compressor, cachestore, emptystore, fakestore, ucmpipelinestore, mooncakestore]
   forbidden_native: [ds3fsstore, uc_hash_ext, ucm_custom_ops, hash_retrieval_backend, hamming, gsa_prefetch, kvstar_retrieve, retrieval_backend, gsa_offload_ops]
   allowed_dt_needed: [ascend_transport.so, ld-linux-aarch64.so.1, ld-linux-x86-64.so.2, libc.so.6, libascendcl.so, libasio.so, libcurl.so.4, libdl.so.2, libgcc_s.so.1, libglog.so.1, libibverbs.so.1, libjsoncpp.so.25, libm.so.6, libmetrics.so, libmooncake_store.so, libnuma.so.1, libpthread.so.0, librt.so.1, libruntime.so, libstdc++.so.6, libtransfer_engine.so, libunwind.so.8]

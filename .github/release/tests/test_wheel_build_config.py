@@ -141,6 +141,7 @@ def _extended_authority(task: dict[str, Any]) -> dict[str, Any]:
         "task_id": task["task_id"],
         "spec_id": task["spec_id"],
         "profile_id": task["profile_id"],
+        "distribution": task["dist_name"],
         "cpu_arch": task["cpu_arch"],
         "platform": task["platform"],
         "build": task["build"],
@@ -343,19 +344,26 @@ def test_production_projection_names_profile_field_drift(
         )
 
 
-def test_v3_derived_profiles_project_canonical_wheel_domain() -> None:
-    catalog = core.load_catalog()
-    for profile in catalog["build_profiles"]:
-        canonical = wheel.wheel_build_profile(profile["id"])
+def test_checked_in_production_profiles_match_v3_derived_wheel_domain() -> None:
+    production = json.loads(
+        (RELEASE_ROOT / "production" / "production-release.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    derived_ids = {
+        "cuda130": "cuda130-default-cp312",
+        "cann900-a2": "ascend900-a2-cp312",
+        "cann900-a3": "ascend900-a3-cp312",
+    }
+    for profile in production["build_profiles"]:
+        canonical = wheel.wheel_build_profile(derived_ids[profile["id"]])
         assert (
-            profile["id"],
-            profile["dist_name"],
-            profile["build"]["platform_arg"],
+            profile["distribution"],
+            profile["build_platform"],
             profile["wheel_platform"],
             profile["python_version"],
             profile["python_abi"],
         ) == (
-            canonical["id"],
             canonical["distribution"],
             canonical["build_platform"],
             canonical["wheel_platform"],
@@ -455,6 +463,7 @@ def test_load_accepts_only_the_exact_canonical_wrapper(tmp_path: Path) -> None:
         lambda value: value.update(task_id="wheel-" + "9" * 64),
         lambda value: value.update(spec_id="ascend900-a2-cp312-arm64"),
         lambda value: value.update(profile_id="ascend900-a3-cp312"),
+        lambda value: value.update(distribution="uc-manager-cann900-a3-mc039"),
         lambda value: value.update(cpu_arch="arm64", platform="linux/arm64"),
         lambda value: value.update(platform="linux/arm64"),
         lambda value: value.update(
@@ -517,6 +526,7 @@ def _valid_config() -> dict[str, Any]:
         lambda value: value.update(extra=True),
         lambda value: value.update(kind="ucm-wheel-build"),
         lambda value: value.update(schema_version=2),
+        lambda value: value.update(distribution="uc-manager-cann900-a3-mc039"),
         lambda value: value.update(platform="ascend-a3"),
         lambda value: value.update(python={"abi": "cp311", "version": "3.11"}),
         lambda value: value.update(runtime_requirements=["wrapt==1.17.2"]),
@@ -543,7 +553,8 @@ def test_loader_rejects_missing_extra_and_drifted_fields(
         lambda value: json.dumps(value, sort_keys=True).encode("utf-8"),
         lambda value: json.dumps(value, sort_keys=True).encode("utf-8") + b"\n\n",
         lambda value: (
-            b'{"authority":{},"authority":{},"distribution":"uc-manager-cann900-a2-mc039",'
+            b'{"authority":{},"authority":{},'
+            b'"distribution":"uc-manager-cann900-a2-mc039",'
             b'"kind":"ucm-wheel-build-config","platform":"ascend",'
             b'"python":{"abi":"cp312","version":"3.12"},'
             b'"runtime_requirements":["packaging==24.2","wrapt==1.17.2"],'

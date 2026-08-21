@@ -158,9 +158,9 @@ def test_pypi_create_reuse_conflict_and_oidc_only(tmp_path: Path) -> None:
     transport = FakePyPI()
     request = PyPIPublishRequest.from_path(
         stage="stable",
-        distribution="uc-manager-cuda",
+        distribution="uc-manager-cuda130",
         version="0.6.0",
-        path=_wheel(tmp_path, "uc-manager-cuda"),
+        path=_wheel(tmp_path, "uc-manager-cuda130"),
         repository="https://upload.pypi.org/legacy/",
     )
 
@@ -236,9 +236,9 @@ def test_external_channel_records_validate_against_closed_schema(
     pypi = publish_pypi(
         PyPIPublishRequest.from_path(
             stage="stable",
-            distribution="uc-manager-cuda",
+            distribution="uc-manager-cuda130",
             version="0.6.0",
-            path=_wheel(tmp_path, "uc-manager-cuda"),
+            path=_wheel(tmp_path, "uc-manager-cuda130"),
             repository="https://upload.pypi.org/legacy/",
         ),
         FakePyPI(),

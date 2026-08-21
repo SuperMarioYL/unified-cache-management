@@ -21,7 +21,6 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
-import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 RELEASE_ROOT = ROOT / ".github" / "release"
@@ -31,6 +30,7 @@ sys.path.insert(0, PYTHONPATH)
 release_core = importlib.import_module("ucm_release.core")
 release_registry = importlib.import_module("ucm_release.registry")
 release_builders = importlib.import_module("ucm_release.builders")
+release_products = importlib.import_module("ucm_release.products")
 derive_chart_version = release_core.derive_chart_version
 
 ASCEND_EXTERNAL_REQUIRED = {
@@ -98,28 +98,6 @@ def _clone(value: object) -> object:
     return json.loads(json.dumps(value))
 
 
-def _write_catalog(directory: Path, release: dict) -> Path:
-    directory.mkdir(parents=True, exist_ok=True)
-    release = copy.deepcopy(release)
-    release.pop("build_profiles", None)
-    release_path = directory / "release.yaml"
-    release_path.write_text(yaml.safe_dump(release, sort_keys=False), encoding="utf-8")
-    return release_path
-
-
-def _reject_fixture_resolution(
-    tmp_path: Path,
-    release: dict,
-) -> str:
-    release_path = _write_catalog(tmp_path, release)
-    try:
-        catalog = release_core.load_catalog(release_path)
-        _fixture_resolved_plan(catalog)
-    except ValueError as error:
-        return str(error)
-    raise AssertionError("fixture resolution unexpectedly succeeded")
-
-
 def test_fixture_plan_projects_platform_loaders_and_driver_boundary() -> None:
     """The local fixture keeps loaders explicit and only Ascend may defer HAL."""
     plan = _fixture_resolved_plan()
@@ -137,30 +115,42 @@ def test_fixture_plan_projects_platform_loaders_and_driver_boundary() -> None:
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
-        ("extra-builder-requirement", "exactly one builder/native fact"),
+        ("extra-builder-requirement", "Distribution and Python ABI"),
         ("unresolved-lock", "missing required properties"),
         ("missing-builder-manylinux", "missing required properties"),
         ("caller-raw-runner", "Additional properties are not allowed"),
     ],
 )
-def test_release_authority_mutations_fail_closed(
-    tmp_path: Path, mutation: str, message: str
+def test_supplementary_authority_mutations_fail_closed(
+    mutation: str, message: str
 ) -> None:
-    release = copy.deepcopy(release_core.load_catalog())
+    catalog = copy.deepcopy(release_core.load_catalog())
     if mutation == "extra-builder-requirement":
-        extra = _clone(release["builder_requirements"][-1])
+        extra = _clone(catalog["builder_requirements"][-1])
         assert isinstance(extra, dict)
-        release["builder_requirements"].append(extra)
+        catalog["builder_requirements"].append(extra)
+        with pytest.raises(ValueError, match=message):
+            release_products.derive_build_profiles(catalog)
+        return
     elif mutation == "unresolved-lock":
-        del release["python_build_lock"]["packages"]["wheel"]["sha256"]
+        del catalog["python_build_lock"]["packages"]["wheel"]["sha256"]
     elif mutation == "missing-builder-manylinux":
-        del release["builder_requirements"][0]["manylinux"]
+        del catalog["builder_requirements"][0]["manylinux"]
     elif mutation == "caller-raw-runner":
-        release["builder_requirements"][0]["architectures"]["amd64"][
+        catalog["builder_requirements"][0]["architectures"]["amd64"][
             "runner"
         ] = "self-hosted"
-    rejected = _reject_fixture_resolution(tmp_path / mutation, release)
-    assert message in rejected
+    supplementary = {
+        key: catalog[key] for key in release_core.SUPPLEMENTARY_TOP_LEVEL_KEYS
+    }
+    schema = release_core.load_json(RELEASE_ROOT / "schemas" / "config.schema.json")
+
+    with pytest.raises(ValueError, match=message):
+        release_core.validate_schema(
+            supplementary,
+            schema["$defs"]["supplementaryCatalog"],
+            root=schema,
+        )
 
 
 def test_missing_profile_excludes_unsupported_target_from_feature_plan() -> None:
@@ -212,7 +202,7 @@ def test_feature_preflight_planner_mode_has_no_write_authority() -> None:
 def test_fixture_resolution_excludes_compatibility_without_matching_profile() -> None:
     """An unsupported target is explained and omitted from a feature plan."""
     release = release_core.load_catalog()
-    release["compatibility"]["rules"][0]["accelerator_runtimes"] = ["cuda-12.9"]
+    release["compatibility"]["rules"][0]["operating_systems"] = ["ubuntu-24.04"]
     fixture = _fixture_registry()
     del fixture["repositories"]["docker.io/vllm/vllm-openai"]["snapshots"]["v0.21.2"]
 

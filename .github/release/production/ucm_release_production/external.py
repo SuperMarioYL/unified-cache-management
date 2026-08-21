@@ -18,7 +18,11 @@ from .common import (
 from .config import validate_config
 from .tags import TagIntent
 
-_DISTRIBUTIONS = ("uc-manager-cuda", "uc-manager-cann-a2", "uc-manager-cann-a3")
+_DISTRIBUTIONS = (
+    "uc-manager-cuda130",
+    "uc-manager-cann900-a2-mc039",
+    "uc-manager-cann900-a3-mc039",
+)
 _PROFILES = ("cuda130", "cann900-a2", "cann900-a3")
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}", re.ASCII)
 _VERSION = re.compile(

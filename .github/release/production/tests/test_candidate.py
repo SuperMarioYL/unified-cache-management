@@ -36,9 +36,9 @@ ATTEMPT = 1
 PROFILES = ("cuda130", "cann900-a2", "cann900-a3")
 ARCHES = ("amd64", "arm64")
 DISTRIBUTIONS = {
-    "cuda130": "uc-manager-cuda",
-    "cann900-a2": "uc-manager-cann-a2",
-    "cann900-a3": "uc-manager-cann-a3",
+    "cuda130": "uc-manager-cuda130",
+    "cann900-a2": "uc-manager-cann900-a2-mc039",
+    "cann900-a3": "uc-manager-cann900-a3-mc039",
 }
 
 
@@ -60,7 +60,9 @@ def _wheel(path: Path, distribution: str, version: str, architecture: str) -> No
     normalized = distribution.replace("-", "_")
     dist_info = f"{normalized}-{version}.dist-info"
     tag_arch = "x86_64" if architecture == "amd64" else "aarch64"
-    wheel_platform = "manylinux_2_28" if distribution == "uc-manager-cuda" else "linux"
+    wheel_platform = (
+        "manylinux_2_28" if distribution == "uc-manager-cuda130" else "linux"
+    )
     entries = {
         "ucm/__init__.py": b"",
         "ucm/native.so": _elf(architecture),

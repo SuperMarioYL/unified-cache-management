@@ -33,21 +33,21 @@ _CONFIG_KEYS = {
 }
 _PRODUCTION_WHEEL_PROFILES = {
     "cuda130": {
-        "distribution": "uc-manager-cuda",
+        "distribution": "uc-manager-cuda130",
         "build_platform": "cuda",
         "wheel_platform": "manylinux_2_28",
         "python_version": "3.12",
         "python_abi": "cp312",
     },
     "cann900-a2": {
-        "distribution": "uc-manager-cann-a2",
+        "distribution": "uc-manager-cann900-a2-mc039",
         "build_platform": "ascend",
         "wheel_platform": "linux",
         "python_version": "3.12",
         "python_abi": "cp312",
     },
     "cann900-a3": {
-        "distribution": "uc-manager-cann-a3",
+        "distribution": "uc-manager-cann900-a3-mc039",
         "build_platform": "ascend-a3",
         "wheel_platform": "linux",
         "python_version": "3.12",

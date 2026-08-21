@@ -213,7 +213,6 @@
       "required": ["accelerator", "required_native", "forbidden_native", "allowed_dt_needed", "external_required_dependencies"],
       "properties": {
         "accelerator": {"enum": ["cuda", "ascend"]},
-        "accelerator_runtime": {"type": "string", "minLength": 1},
         "variants": {
           "type": "array", "minItems": 1, "uniqueItems": true,
           "items": {"type": "string", "minLength": 1}
@@ -417,6 +416,97 @@
         "exclusion_reason": {"type": "string", "minLength": 1}
       }
     },
+    "pythonRuntimeDependencies": {
+      "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object", "additionalProperties": false,
+            "required": ["requirement", "import_name", "wheel_artifacts"],
+            "properties": {
+              "requirement": {"type": "string", "minLength": 1},
+              "import_name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_.]*$"},
+              "wheel_artifacts": {"$ref": "#/$defs/pythonAbiArtifacts"}
+            }
+          },
+          {
+            "type": "object", "additionalProperties": false,
+            "required": ["python_build_lock", "import_name"],
+            "properties": {
+              "python_build_lock": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+$"},
+              "import_name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_.]*$"}
+            }
+          }
+        ]
+      }
+    },
+    "pythonBuildLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["install_flags", "packages", "pyyaml", "cmake"],
+      "properties": {
+        "install_flags": {
+          "type": "array", "minItems": 4, "maxItems": 4, "uniqueItems": true,
+          "items": {"enum": ["--no-index", "--find-links", "--require-hashes", "--only-binary=:all:"]}
+        },
+        "packages": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 64,
+          "propertyNames": {"pattern": "^[A-Za-z0-9_.+-]+$"},
+          "additionalProperties": {"$ref": "#/$defs/lockedPackage"}
+        },
+        "pyyaml": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "artifacts"],
+          "properties": {
+            "version": {"type": "string", "minLength": 1},
+            "artifacts": {"$ref": "#/$defs/pythonAbiArtifacts"}
+          }
+        },
+        "cmake": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "artifacts"],
+          "properties": {
+            "version": {"type": "string", "minLength": 1},
+            "artifacts": {
+              "type": "object",
+              "minProperties": 1,
+              "maxProperties": 64,
+              "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+              "additionalProperties": {"$ref": "#/$defs/lockedWheel"}
+            }
+          }
+        }
+      }
+    },
+    "supplementaryCatalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pr_smoke", "docker_recipes", "runtime_patch_rules",
+        "python_runtime_dependencies", "python_build_lock", "builder_requirements"
+      ],
+      "properties": {
+        "pr_smoke": {"$ref": "#/$defs/prSmoke"},
+        "docker_recipes": {
+          "type": "array", "minItems": 1,
+          "items": {"$ref": "#/$defs/dockerRecipe"}
+        },
+        "runtime_patch_rules": {
+          "type": "array", "minItems": 1,
+          "items": {"$ref": "#/$defs/runtimePatchRule"}
+        },
+        "python_runtime_dependencies": {"$ref": "#/$defs/pythonRuntimeDependencies"},
+        "python_build_lock": {"$ref": "#/$defs/pythonBuildLock"},
+        "builder_requirements": {
+          "type": "array", "minItems": 1,
+          "items": {"$ref": "#/$defs/builderRequirement"}
+        }
+      }
+    },
     "release": {
       "type": "object",
       "additionalProperties": false,
@@ -460,90 +550,11 @@
           "type": "array", "minItems": 1,
           "items": {"$ref": "#/$defs/nativeContract"}
         },
-        "pr_smoke": {"$ref": "#/$defs/prSmoke"},
-        "docker_recipes": {
-          "type": "array", "minItems": 1,
-          "items": {"$ref": "#/$defs/dockerRecipe"}
-        },
         "upstream_products": {
           "type": "array", "minItems": 1,
           "items": {"$ref": "#/$defs/upstreamProduct"}
         },
         "compatibility": {"$ref": "#/$defs/catalogCompatibility"},
-        "runtime_patch_rules": {
-          "type": "array", "minItems": 1,
-          "items": {"$ref": "#/$defs/runtimePatchRule"}
-        },
-        "builder_requirements": {
-          "type": "array", "minItems": 1,
-          "items": {"$ref": "#/$defs/builderRequirement"}
-        },
-        "python_runtime_dependencies": {
-          "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true,
-          "items": {
-            "oneOf": [
-            {
-              "type": "object", "additionalProperties": false,
-              "required": ["requirement", "import_name", "wheel_artifacts"],
-              "properties": {
-                "requirement": {"type": "string", "minLength": 1},
-                "import_name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_.]*$"},
-                "wheel_artifacts": {"$ref": "#/$defs/pythonAbiArtifacts"}
-              }
-            },
-            {
-              "type": "object", "additionalProperties": false,
-              "required": ["python_build_lock", "import_name"],
-              "properties": {
-                "python_build_lock": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+$"},
-                "import_name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_.]*$"}
-              }
-            }
-            ]
-          }
-        },
-        "python_build_lock": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["install_flags", "packages", "pyyaml", "cmake"],
-          "properties": {
-            "install_flags": {
-              "type": "array", "minItems": 4, "maxItems": 4, "uniqueItems": true,
-              "items": {"enum": ["--no-index", "--find-links", "--require-hashes", "--only-binary=:all:"]}
-            },
-            "packages": {
-              "type": "object",
-              "minProperties": 1,
-              "maxProperties": 64,
-              "propertyNames": {"pattern": "^[A-Za-z0-9_.+-]+$"},
-              "additionalProperties": {"$ref": "#/$defs/lockedPackage"}
-            },
-            "pyyaml": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["version", "artifacts"],
-              "properties": {
-                "version": {"type": "string", "minLength": 1},
-                "artifacts": {"$ref": "#/$defs/pythonAbiArtifacts"}
-              }
-            },
-            "cmake": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["version", "artifacts"],
-              "properties": {
-                "version": {"type": "string", "minLength": 1},
-                "artifacts": {
-                  "type": "object",
-                  "minProperties": 1,
-                  "maxProperties": 64,
-                  "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
-                  "additionalProperties": {"$ref": "#/$defs/lockedWheel"}
-                }
-              }
-            }
-          }
-        },
         "chart": {"$ref": "#/$defs/chart"},
         "publish": {"$ref": "#/$defs/publish"}
       }
@@ -613,18 +624,13 @@
     "catalogCompatibilityRule": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "upstream_products", "version_specifier", "variants", "accelerator", "accelerator_runtimes", "npu_architectures", "operating_systems", "cpu_architectures", "python_abis", "upstream_channels"],
+      "required": ["id", "upstream_products", "version_specifier", "accelerator", "operating_systems", "upstream_channels"],
       "properties": {
         "id": {"type": "string", "minLength": 1},
         "upstream_products": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "version_specifier": {"type": "string", "minLength": 1},
-        "variants": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "accelerator": {"type": "string", "minLength": 1},
-        "accelerator_runtimes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-        "npu_architectures": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "operating_systems": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-        "cpu_architectures": {"type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"}},
-        "python_abis": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "upstream_channels": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["stable", "rc"]}}
       }
     },

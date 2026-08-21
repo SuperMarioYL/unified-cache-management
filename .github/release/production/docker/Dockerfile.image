@@ -28,7 +28,9 @@ COPY ${WRAPT_WHEEL} /wheelhouse/${WRAPT_WHEEL}
 COPY requirements.lock /wheelhouse/requirements.lock
 
 RUN python3 -m pip uninstall --yes \
-      uc-manager uc-manager-cuda uc-manager-cann-a2 uc-manager-cann-a3 wrapt || true; \
+      uc-manager uc-manager-cuda uc-manager-cann-a2 uc-manager-cann-a3 \
+      uc-manager-cuda130 uc-manager-cann900-a2-mc039 \
+      uc-manager-cann900-a3-mc039 wrapt || true; \
     python3 -m pip install \
       --no-index --find-links=/wheelhouse --require-hashes --only-binary=:all: \
       --no-cache-dir --disable-pip-version-check \
@@ -45,7 +47,15 @@ distribution = os.environ['UCM_EXPECTED_DISTRIBUTION']
 installed = importlib.metadata.distribution(distribution)
 if installed.metadata['Name'] != distribution:
     raise SystemExit('installed production distribution differs')
-for forbidden in {'uc-manager', 'uc-manager-cuda', 'uc-manager-cann-a2', 'uc-manager-cann-a3'} - {distribution}:
+for forbidden in {
+    'uc-manager',
+    'uc-manager-cuda',
+    'uc-manager-cann-a2',
+    'uc-manager-cann-a3',
+    'uc-manager-cuda130',
+    'uc-manager-cann900-a2-mc039',
+    'uc-manager-cann900-a3-mc039',
+} - {distribution}:
     try:
         importlib.metadata.distribution(forbidden)
     except importlib.metadata.PackageNotFoundError:

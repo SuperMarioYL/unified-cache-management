@@ -12,9 +12,9 @@ from ucm_release_production.workflow_data import candidate_outputs, release_requ
 def _candidate(root: Path) -> dict[str, object]:
     wheels = []
     for profile, distribution, platform in (
-        ("cuda130", "uc-manager-cuda", "manylinux_2_28"),
-        ("cann900-a2", "uc-manager-cann-a2", "linux"),
-        ("cann900-a3", "uc-manager-cann-a3", "linux"),
+        ("cuda130", "uc-manager-cuda130", "manylinux_2_28"),
+        ("cann900-a2", "uc-manager-cann900-a2-mc039", "linux"),
+        ("cann900-a3", "uc-manager-cann900-a3-mc039", "linux"),
     ):
         for arch, wheel_arch in (("amd64", "x86_64"), ("arm64", "aarch64")):
             spec = f"{profile}-{arch}"

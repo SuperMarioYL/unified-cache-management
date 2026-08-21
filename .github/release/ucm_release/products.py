@@ -134,172 +134,173 @@ def expand_distribution_names(
     product_rules: Mapping[str, object],
     capability_contexts: Sequence[Mapping[str, object]],
 ) -> tuple[str, ...]:
-    """Project capability contexts to unique, deterministically sorted names."""
+    """Project contexts in deterministic Distribution/Python-ABI order."""
     compiled = _compile_product_rules(product_rules)
 
-    names = [
-        _render_distribution_name(
+    coordinates: list[tuple[str, str | None]] = []
+    for context in capability_contexts:
+        distribution = _render_distribution_name(
             product_rules=product_rules,
             compiled=compiled,
             context=context,
         )
-        for context in capability_contexts
-    ]
-    ordered = tuple(sorted(names))
+        python_abi = context.get("python_abi")
+        if python_abi is not None:
+            python_version_from_abi(python_abi)
+        coordinates.append((distribution, python_abi))
+    ordered = sorted(coordinates, key=lambda item: (item[0], item[1] or ""))
     if len(ordered) != len(set(ordered)):
         raise ValueError("duplicate expanded Distribution coordinate")
-    return ordered
+    return tuple(distribution for distribution, _ in ordered)
 
 
-def _matching_fact(
-    facts: Sequence[Mapping[str, Any]],
+def _normalize_variants(value: object, *, location: str) -> tuple[str, ...]:
+    if (
+        not isinstance(value, Sequence)
+        or isinstance(value, (str, bytes))
+        or not value
+    ):
+        raise ValueError(f"{location} must be a non-empty sequence")
+    variants = tuple(normalize_variant(item) for item in value)
+    if len(variants) != len(set(variants)):
+        raise ValueError(f"{location} contains duplicate normalized variants")
+    return variants
+
+
+def _operating_systems_for_accelerator(
+    rules: Sequence[Mapping[str, Any]], accelerator: str
+) -> list[str]:
+    matches = [rule for rule in rules if rule.get("accelerator") == accelerator]
+    if not matches:
+        raise ValueError(
+            f"capability has no compatibility policy for accelerator {accelerator}"
+        )
+    return sorted(
+        {
+            operating_system
+            for rule in matches
+            for operating_system in rule["operating_systems"]
+        }
+    )
+
+
+def _matching_native_contract(
+    contracts: Sequence[Mapping[str, Any]],
     *,
     accelerator: str,
     runtime: str,
     variant: str,
-    python_abi: str | None = None,
 ) -> Mapping[str, Any]:
     matches = []
-    for fact in facts:
-        if fact.get("accelerator") != accelerator:
+    for contract in contracts:
+        if contract.get("accelerator") != accelerator:
             continue
-        if fact.get("accelerator_runtime") not in {None, runtime}:
+        if contract.get("accelerator_runtime") not in {None, runtime}:
             continue
-        variants = fact.get("variants")
-        if variants is not None and variant not in variants:
+        variants = contract.get("variants")
+        if variants is not None and variant not in _normalize_variants(
+            variants, location="native contract variants"
+        ):
             continue
-        if python_abi is not None and fact.get("python_abi") != python_abi:
-            continue
-        matches.append(fact)
+        matches.append(contract)
     if len(matches) != 1:
         raise ValueError(
             "capability must match exactly one builder/native fact: "
-            f"{accelerator}/{runtime}/{variant}/{python_abi or '-'}"
+            f"{accelerator}/{runtime}/{variant}"
         )
     return matches[0]
 
 
 def derive_build_profiles(config: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Derive the current compact build projection from v3 capability facts."""
+    """Derive the compact build projection from frozen Builder facts."""
     rules = config["compatibility"]["rules"]
     product_rules = config["products"]
     builder_facts = config["builder_requirements"]
     native_facts = config["native_contracts"]
     version = config["ucm_version"]
-    pending: list[
-        tuple[
-            Mapping[str, Any],
-            Mapping[str, Any],
-            Mapping[str, Any],
-            dict[str, object],
-            str,
-            str,
-            str,
-            str,
-            str,
-        ]
-    ] = []
     compiled = _compile_product_rules(product_rules)
-    distributions: set[str] = set()
-    for rule in rules:
-        accelerator = rule["accelerator"]
-        for runtime in rule["accelerator_runtimes"]:
-            for variant in rule["variants"]:
-                for python_abi in rule["python_abis"]:
-                    builder = _matching_fact(
-                        builder_facts,
-                        accelerator=accelerator,
-                        runtime=runtime,
-                        variant=variant,
-                        python_abi=python_abi,
-                    )
-                    native = _matching_fact(
-                        native_facts,
-                        accelerator=accelerator,
-                        runtime=runtime,
-                        variant=variant,
-                    )
-                    context = {
-                        "accelerator": accelerator,
-                        "accelerator_runtime": runtime,
-                        "variant": variant,
-                        "mooncake_version": builder.get("mooncake_version"),
-                    }
-                    runtime_token = compact_accelerator_runtime(runtime)
-                    profile_id = (
-                        f"{accelerator}{runtime_token}-{variant}-{python_abi}"
-                    )
-                    distribution = _render_distribution_name(
-                        product_rules=product_rules,
-                        compiled=compiled,
-                        context=context,
-                    )
-                    if distribution in distributions:
-                        raise ValueError("duplicate expanded Distribution coordinate")
-                    distributions.add(distribution)
-                    pending.append(
-                        (
-                            rule,
-                            builder,
-                            native,
-                            context,
-                            profile_id,
-                            accelerator,
-                            runtime,
-                            python_abi,
-                            distribution,
-                        )
-                    )
+    distribution_coordinates: set[tuple[str, str]] = set()
     profiles: list[dict[str, Any]] = []
-    for values in pending:
-        (
-            rule,
-            builder,
-            native,
-            context,
-            profile_id,
-            accelerator,
-            runtime,
-            python_abi,
-            distribution,
-        ) = values
-        variant = str(context["variant"])
+    for index, builder in enumerate(builder_facts):
+        if not isinstance(builder, Mapping):
+            raise ValueError(f"builder_requirements[{index}] must be an object")
+        accelerator = str(builder.get("accelerator"))
+        runtime = str(builder.get("accelerator_runtime"))
+        python_abi = str(builder.get("python_abi"))
+        python_version = python_version_from_abi(python_abi)
+        if builder.get("python_version") != python_version:
+            raise ValueError(
+                f"builder_requirements[{index}] Python version differs from ABI"
+            )
+        operating_systems = _operating_systems_for_accelerator(rules, accelerator)
         architectures = builder["architectures"]
-        cpu_arch = sorted(set(rule["cpu_architectures"]) & set(architectures))
-        if not cpu_arch:
-            raise ValueError(f"build profile {profile_id} has no architecture")
-        profiles.append(
-            {
-                "id": profile_id,
-                "build": {
-                    "docker_target": "wheel",
-                    "platform_arg": builder["build_platform"],
-                },
+        if not isinstance(architectures, Mapping) or not architectures:
+            raise ValueError(
+                f"builder_requirements[{index}].architectures must be an object"
+            )
+        variants = _normalize_variants(
+            builder.get("variants"),
+            location=f"builder_requirements[{index}].variants",
+        )
+        for variant in variants:
+            native = _matching_native_contract(
+                native_facts,
+                accelerator=accelerator,
+                runtime=runtime,
+                variant=variant,
+            )
+            context = {
                 "accelerator": accelerator,
                 "accelerator_runtime": runtime,
-                "npu_arch": ["na" if variant == "default" else variant],
-                "os": copy.deepcopy(rule["operating_systems"]),
-                "cpu_arch": cpu_arch,
-                "python_version": builder.get(
-                    "python_version", python_version_from_abi(python_abi)
-                ),
-                "python_abi": python_abi,
-                "wheel_version": version,
-                "dist_name": distribution,
-                "wheel_platform": builder["wheel_platform"],
-                "builder_manylinux": builder["manylinux"],
-                "binary_profile_id": f"release-{profile_id}",
-                "external_required_dependencies": copy.deepcopy(
-                    native.get("external_required_dependencies", [])
-                ),
-                "validation_targets": [
-                    runtime if accelerator == "cuda" else variant
-                ],
-                "required_native": copy.deepcopy(native["required_native"]),
-                "forbidden_native": copy.deepcopy(native["forbidden_native"]),
-                "allowed_dt_needed": copy.deepcopy(native["allowed_dt_needed"]),
-                "builders": copy.deepcopy(architectures),
+                "variant": variant,
+                "mooncake_version": builder.get("mooncake_version"),
             }
-        )
+            distribution = _render_distribution_name(
+                product_rules=product_rules,
+                compiled=compiled,
+                context=context,
+            )
+            coordinate = (distribution, python_abi)
+            if coordinate in distribution_coordinates:
+                raise ValueError(
+                    "duplicate Distribution and Python ABI coordinate: "
+                    f"{distribution}/{python_abi}"
+                )
+            distribution_coordinates.add(coordinate)
+            runtime_token = compact_accelerator_runtime(runtime)
+            profile_id = f"{accelerator}{runtime_token}-{variant}-{python_abi}"
+            profiles.append(
+                {
+                    "id": profile_id,
+                    "build": {
+                        "docker_target": "wheel",
+                        "platform_arg": builder["build_platform"],
+                    },
+                    "accelerator": accelerator,
+                    "accelerator_runtime": runtime,
+                    "npu_arch": ["na" if variant == "default" else variant],
+                    "os": copy.deepcopy(operating_systems),
+                    "cpu_arch": sorted(architectures),
+                    "python_version": python_version,
+                    "python_abi": python_abi,
+                    "wheel_version": version,
+                    "dist_name": distribution,
+                    "wheel_platform": builder["wheel_platform"],
+                    "builder_manylinux": builder["manylinux"],
+                    "binary_profile_id": f"release-{profile_id}",
+                    "external_required_dependencies": copy.deepcopy(
+                        native.get("external_required_dependencies", [])
+                    ),
+                    "validation_targets": [
+                        runtime if accelerator == "cuda" else variant
+                    ],
+                    "required_native": copy.deepcopy(native["required_native"]),
+                    "forbidden_native": copy.deepcopy(native["forbidden_native"]),
+                    "allowed_dt_needed": copy.deepcopy(
+                        native["allowed_dt_needed"]
+                    ),
+                    "builders": copy.deepcopy(architectures),
+                }
+            )
     profiles.sort(key=lambda item: item["id"])
     return profiles

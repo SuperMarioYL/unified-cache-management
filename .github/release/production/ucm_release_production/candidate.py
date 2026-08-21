@@ -36,9 +36,9 @@ EXPECTED_IMAGE_SPECS = (
 _PROFILES = ("cuda130", "cann900-a2", "cann900-a3")
 _ARCH_BY_SPEC = {spec_id: spec_id.rsplit("-", 1)[1] for spec_id in EXPECTED_IMAGE_SPECS}
 _DISTRIBUTIONS = {
-    "cuda130": "uc-manager-cuda",
-    "cann900-a2": "uc-manager-cann-a2",
-    "cann900-a3": "uc-manager-cann-a3",
+    "cuda130": "uc-manager-cuda130",
+    "cann900-a2": "uc-manager-cann900-a2-mc039",
+    "cann900-a3": "uc-manager-cann900-a3-mc039",
 }
 _INTENT_KEYS = {
     "kind",

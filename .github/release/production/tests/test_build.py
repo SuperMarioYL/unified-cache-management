@@ -103,9 +103,9 @@ def test_project_build_tasks_are_exactly_three_profiles_by_two_arches() -> None:
         "cann900-a3-arm64",
     ]
     assert [task["distribution"] for task in tasks[::2]] == [
-        "uc-manager-cuda",
-        "uc-manager-cann-a2",
-        "uc-manager-cann-a3",
+        "uc-manager-cuda130",
+        "uc-manager-cann900-a2-mc039",
+        "uc-manager-cann900-a3-mc039",
     ]
     assert all(task["wheel_version"] == "0.6.0rc1" for task in tasks)
     assert all(task["source_sha"] == SOURCE_SHA for task in tasks)
@@ -164,7 +164,7 @@ def test_projected_task_is_the_only_schema_v2_setup_authority_source() -> None:
 
     assert authority["schema_version"] == 2
     assert authority["profile_id"] == "cann900-a2"
-    assert authority["distribution"] == "uc-manager-cann-a2"
+    assert authority["distribution"] == "uc-manager-cann900-a2-mc039"
     assert authority["base_version"] == "0.6.0"
     assert authority["stage"] == "rc"
     assert authority["wheel_version"] == "0.6.0rc1"
@@ -199,7 +199,7 @@ def test_production_task_projects_the_exact_wheel_build_wrapper() -> None:
         json.dumps(
             {
                 "authority": authority,
-                "distribution": "uc-manager-cann-a2",
+                "distribution": "uc-manager-cann900-a2-mc039",
                 "kind": "ucm-wheel-build-config",
                 "platform": "ascend",
                 "python": {"abi": "cp312", "version": "3.12"},
@@ -353,7 +353,7 @@ def test_wheel_build_wrapper_preserves_every_production_stage(
     assert authority["stage"] == stage
     assert authority["base_version"] == base_version
     assert authority["wheel_version"] == wheel_version
-    assert wrapper["distribution"] == "uc-manager-cuda"
+    assert wrapper["distribution"] == "uc-manager-cuda130"
     assert wrapper["platform"] == "cuda"
 
 
@@ -362,7 +362,7 @@ def test_wheel_build_wrapper_preserves_every_production_stage(
     [
         lambda value: value.update(spec_id="cann900-a2-amd64"),
         lambda value: value.update(profile_id="cann900-a2"),
-        lambda value: value.update(distribution="uc-manager-cann-a2"),
+        lambda value: value.update(distribution="uc-manager-cann900-a2-mc039"),
         lambda value: value.update(base_version="0.6.1"),
         lambda value: value.update(stage="stable"),
         lambda value: value.update(cpu_arch="arm64", platform="linux/arm64"),
@@ -692,7 +692,7 @@ def test_seal_rejects_ambiguous_or_inverse_task_profile_discriminator_first(
     else:
         task["id"] = "cann900-a2"
         task.update(
-            distribution="uc-manager-cann-a2",
+            distribution="uc-manager-cann900-a2-mc039",
             build_platform="ascend",
             wheel_platform="linux",
         )
@@ -746,13 +746,13 @@ def test_compare_wheel_candidates_requires_byte_and_metadata_equality(
     )
     candidate = tmp_path / "candidate.whl"
     trusted = tmp_path / "trusted.whl"
-    _wheel(candidate, "uc-manager-cuda", "0.6.0rc1")
+    _wheel(candidate, "uc-manager-cuda130", "0.6.0rc1")
     trusted.write_bytes(candidate.read_bytes())
 
     result = compare_wheel_candidates(candidate, trusted, task)
 
     assert result["identical"] is True
-    assert result["distribution"] == "uc-manager-cuda"
+    assert result["distribution"] == "uc-manager-cuda130"
     assert result["version"] == "0.6.0rc1"
     assert result["sha256"].startswith("sha256:")
 
@@ -768,8 +768,8 @@ def test_compare_wheel_candidates_rejects_byte_drift(tmp_path: Path) -> None:
     )
     candidate = tmp_path / "candidate.whl"
     trusted = tmp_path / "trusted.whl"
-    _wheel(candidate, "uc-manager-cuda", "0.6.0rc1")
-    _wheel(trusted, "uc-manager-cuda", "0.6.0rc1", _elf64() + b"drift")
+    _wheel(candidate, "uc-manager-cuda130", "0.6.0rc1")
+    _wheel(trusted, "uc-manager-cuda130", "0.6.0rc1", _elf64() + b"drift")
 
     with pytest.raises(ProductionError, match="byte-for-byte"):
         compare_wheel_candidates(candidate, trusted, task)
@@ -790,7 +790,7 @@ def test_inspect_rejects_recomputed_record_with_wrong_wheel_tag(
     trusted = tmp_path / "trusted.whl"
     _wheel(
         candidate,
-        "uc-manager-cuda",
+        "uc-manager-cuda130",
         "0.6.0rc1",
         wheel_tag="cp312-cp312-linux_x86_64",
     )
@@ -804,7 +804,7 @@ def test_inspect_rejects_recomputed_record_with_wrong_wheel_tag(
     ("distribution", "version", "message"),
     [
         ("uc-manager", "0.6.0rc1", "distribution"),
-        ("uc-manager-cuda", "0.6.0", "version"),
+        ("uc-manager-cuda130", "0.6.0", "version"),
     ],
 )
 def test_compare_wheel_candidates_rejects_metadata_drift(

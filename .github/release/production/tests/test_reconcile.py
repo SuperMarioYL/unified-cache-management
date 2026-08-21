@@ -20,9 +20,9 @@ def _candidate(tag: str = "v0.6.0rc1") -> dict[str, object]:
     members = []
     indexes = []
     distributions = {
-        "cuda130": "uc-manager-cuda",
-        "cann900-a2": "uc-manager-cann-a2",
-        "cann900-a3": "uc-manager-cann-a3",
+        "cuda130": "uc-manager-cuda130",
+        "cann900-a2": "uc-manager-cann900-a2-mc039",
+        "cann900-a3": "uc-manager-cann900-a3-mc039",
     }
     for profile in distributions:
         index_members = []
