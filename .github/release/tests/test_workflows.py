@@ -747,7 +747,6 @@ def test_release_channels_are_draft_bound_and_fail_closed_at_readback_barrier() 
 
     assets_text = "\n".join(_strings(jobs["publish-release-assets"]))
     for fragment in (
-        'test "${#wheels[@]}" = 6',
         'test "${#charts[@]}" = 1',
         'test ! -e "${target}"',
         "--stage assets",
@@ -843,6 +842,71 @@ def test_release_channels_are_draft_bound_and_fail_closed_at_readback_barrier() 
             ).returncode
             != 0
         )
+
+
+def test_release_asset_workflow_executes_plan_derived_artifact_counts(
+    tmp_path: Path,
+) -> None:
+    workflow = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
+    job = _jobs(workflow)["publish-release-assets"]
+    step = next(item for item in _steps(job) if item.get("id") == "publish")
+    command = step["run"]
+    assert isinstance(command, str)
+
+    wheels = [
+        "uc_manager_cuda-0.7.59rc1-cp312-cp312-manylinux_2_28_x86_64.whl",
+        "uc_manager_cuda-0.7.59rc1-cp312-cp312-manylinux_2_28_aarch64.whl",
+    ]
+    wheel_dir = tmp_path / "input" / "wheels"
+    chart_dir = tmp_path / "input" / "chart"
+    plan_dir = tmp_path / "input" / "plan"
+    fake_bin = tmp_path / "bin"
+    for directory in (wheel_dir, chart_dir, plan_dir, fake_bin):
+        directory.mkdir(parents=True, exist_ok=True)
+    for wheel in wheels:
+        (wheel_dir / wheel).write_text(wheel, encoding="utf-8")
+    chart = "unified-cache-pd-0.7.59-rc.1.tgz"
+    (chart_dir / chart).write_text(chart, encoding="utf-8")
+    (plan_dir / "resolved-plan.json").write_text(
+        '{"wheel_tasks":[{"task_id":"wheel-a"},{"task_id":"wheel-b"}]}',
+        encoding="utf-8",
+    )
+    fake_python = fake_bin / "python"
+    fake_python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_python.chmod(0o755)
+    github_output = tmp_path / "github-output.txt"
+
+    mapfile_compat = r"""
+mapfile() {
+  local option="$1" name="$2" line
+  test "${option}" = -t
+  eval "${name}=()"
+  while IFS= read -r line; do
+    eval "${name}+=(\"\${line}\")"
+  done
+}
+"""
+    completed = subprocess.run(
+        ["bash", "-x", "-c", mapfile_compat + command],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "GH_TOKEN": "test-token",
+            "SOURCE_SHA": "a" * 40,
+            "GITHUB_RUN_ID": "41",
+            "GITHUB_RUN_ATTEMPT": "1",
+            "GITHUB_OUTPUT": str(github_output),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert sorted(
+        path.name for path in (tmp_path / "out" / "assets").iterdir()
+    ) == sorted([*wheels, chart])
 
 
 def test_active_main_release_workflows_have_no_superseded_policy_or_fake_readback() -> (

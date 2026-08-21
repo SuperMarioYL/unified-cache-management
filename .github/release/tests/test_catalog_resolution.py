@@ -191,7 +191,12 @@ def _resolved_catalog(catalog: dict[str, object]) -> dict[str, object]:
     return bound
 
 
-def _resolve_fixture(catalog: dict[str, object], *, source_sha: str):
+def _resolve_fixture(
+    catalog: dict[str, object],
+    *,
+    source_sha: str,
+    fixture: dict[str, object] | None = None,
+):
     with mock.patch.object(
         registry, "resolve_builder_root", side_effect=_resolved_builder_root
     ):
@@ -200,8 +205,30 @@ def _resolve_fixture(catalog: dict[str, object], *, source_sha: str):
             builder_catalog=_builder_catalog(),
             source_sha=source_sha,
             lane="feature-candidate",
-            fixture=_registry_fixture(),
+            fixture=fixture or _registry_fixture(),
         )
+
+
+def _single_family_catalog_and_fixture() -> tuple[dict[str, object], dict[str, object]]:
+    catalog = core.load_catalog()
+    catalog["upstream_products"] = [copy.deepcopy(catalog["upstream_products"][0])]
+    catalog["wheel_profiles"] = [copy.deepcopy(catalog["wheel_profiles"][0])]
+    catalog["compatibility"]["rules"] = [
+        copy.deepcopy(catalog["compatibility"]["rules"][0])
+    ]
+    catalog["chart"]["validation_cases"] = [
+        copy.deepcopy(catalog["chart"]["validation_cases"][0])
+    ]
+    catalog["pr_smoke"]["image_selectors"] = [
+        copy.deepcopy(catalog["pr_smoke"]["image_selectors"][0])
+    ]
+    catalog["runtime_patch_rules"] = [
+        rule for rule in catalog["runtime_patch_rules"] if rule["product"] == "vllm"
+    ]
+    fixture = _registry_fixture()
+    repository = catalog["upstream_products"][0]["repository"]
+    fixture["repositories"] = {repository: fixture["repositories"][repository]}
+    return catalog, fixture
 
 
 def test_latest_admissible_candidate_is_selected_per_product_variant() -> None:
@@ -297,11 +324,14 @@ def test_latest_candidate_missing_required_architecture_falls_back() -> None:
             fixture=fixture,
         )
 
-    assert next(
-        item["tag"]
-        for item in plan["resolved_upstreams"]
-        if item["product_id"] == "vllm"
-    ) == "v0.21.1"
+    assert (
+        next(
+            item["tag"]
+            for item in plan["resolved_upstreams"]
+            if item["product_id"] == "vllm"
+        )
+        == "v0.21.1"
+    )
     assert {
         "product_id": "vllm",
         "repository": repository,
@@ -339,9 +369,7 @@ def test_unsupported_selector_exclusion_permits_partial_feature_plan() -> None:
     )
     patch_rule["variants"] = ["a3"]
     fixture = _registry_fixture()
-    del fixture["repositories"]["quay.io/ascend/vllm-ascend"]["snapshots"][
-        "v0.22.1rc3"
-    ]
+    del fixture["repositories"]["quay.io/ascend/vllm-ascend"]["snapshots"]["v0.22.1rc3"]
 
     with mock.patch.object(
         registry, "resolve_builder_root", side_effect=_resolved_builder_root
@@ -355,13 +383,14 @@ def test_unsupported_selector_exclusion_permits_partial_feature_plan() -> None:
         )
 
     assert {
-        (item["product_id"], item["variant"])
-        for item in plan["resolved_upstreams"]
+        (item["product_id"], item["variant"]) for item in plan["resolved_upstreams"]
     } == {("vllm", "default"), ("vllm-ascend", "a3")}
     smoke_images = plan["pr_smoke"]["github_image_matrix"]["include"]
     assert len(smoke_images) == 1
     selected = next(
-        task for task in plan["image_tasks"] if task["task_id"] == smoke_images[0]["task_id"]
+        task
+        for task in plan["image_tasks"]
+        if task["task_id"] == smoke_images[0]["task_id"]
     )
     assert (selected["runtime"]["product_id"], selected["cpu_arch"]) == (
         "vllm",
@@ -406,9 +435,13 @@ def test_inspected_variant_mismatch_falls_back_within_canonical_group(
             for tag, snapshot in snapshots.items()
             if snapshot["index_digest"] == digest
         )
-        return ("a3", None) if tag == "v0.22.1rc3" else (
-            "a3" if tag.endswith("-a3") else "a2",
-            None,
+        return (
+            ("a3", None)
+            if tag == "v0.22.1rc3"
+            else (
+                "a3" if tag.endswith("-a3") else "a2",
+                None,
+            )
         )
 
     monkeypatch.setattr(registry, "resolve_builder_root", _resolved_builder_root)
@@ -501,26 +534,59 @@ def test_resolved_plan_freezes_publish_and_removes_secondary_authorities() -> No
     registry.validate_resolved_plan(plan)
 
 
-def test_main_full_loop_validator_requires_exact_current_six_six_three() -> None:
+def test_release_topology_expands_with_catalog_profile_architecture() -> None:
     catalog = core.load_catalog()
-    plan = _resolve_fixture(catalog, source_sha="a" * 40)
+    extra_profile = copy.deepcopy(catalog["wheel_profiles"][0])
+    extra_profile["id"] = "cuda131"
+    extra_profile["cpu_arch"] = ["arm64"]
+    catalog["wheel_profiles"].append(extra_profile)
+
+    assert core.release_topology(catalog) == {
+        "wheels": [
+            {"profile_id": "cann900-a2", "cpu_arch": "amd64"},
+            {"profile_id": "cann900-a2", "cpu_arch": "arm64"},
+            {"profile_id": "cann900-a3", "cpu_arch": "amd64"},
+            {"profile_id": "cann900-a3", "cpu_arch": "arm64"},
+            {"profile_id": "cuda130", "cpu_arch": "amd64"},
+            {"profile_id": "cuda130", "cpu_arch": "arm64"},
+            {"profile_id": "cuda131", "cpu_arch": "arm64"},
+        ],
+        "families": [
+            {"product_id": "vllm", "variant": "default"},
+            {"product_id": "vllm-ascend", "variant": "a2"},
+            {"product_id": "vllm-ascend", "variant": "a3"},
+        ],
+        "images": [
+            {"product_id": "vllm", "variant": "default", "cpu_arch": "amd64"},
+            {"product_id": "vllm", "variant": "default", "cpu_arch": "arm64"},
+            {"product_id": "vllm-ascend", "variant": "a2", "cpu_arch": "amd64"},
+            {"product_id": "vllm-ascend", "variant": "a2", "cpu_arch": "arm64"},
+            {"product_id": "vllm-ascend", "variant": "a3", "cpu_arch": "amd64"},
+            {"product_id": "vllm-ascend", "variant": "a3", "cpu_arch": "arm64"},
+        ],
+    }
+
+
+def test_main_full_loop_matrix_follows_catalog_coordinates() -> None:
+    catalog, fixture = _single_family_catalog_and_fixture()
+    plan = _resolve_fixture(catalog, source_sha="a" * 40, fixture=fixture)
 
     assert registry.validate_main_full_loop_plan(plan, catalog) == {
-        "wheel_tasks": 6,
-        "image_tasks": 6,
-        "family_tasks": 3,
-        "profile_architectures": 6,
+        "wheel_tasks": 2,
+        "image_tasks": 2,
+        "family_tasks": 1,
+        "profile_architectures": 2,
     }
 
     missing = copy.deepcopy(plan)
     missing["wheel_tasks"].pop()
-    with pytest.raises(ValueError, match="exactly 6 wheel, 6 image, and 3 family"):
+    with pytest.raises(ValueError, match="catalog topology"):
         registry.validate_main_full_loop_plan(missing, catalog)
 
-    duplicate = copy.deepcopy(plan)
-    duplicate["wheel_tasks"][0]["profile_id"] = "wrong-profile"
-    with pytest.raises(ValueError, match="current profile/architecture closure"):
-        registry.validate_main_full_loop_plan(duplicate, catalog)
+    wrong_family_architectures = copy.deepcopy(plan)
+    wrong_family_architectures["family_tasks"][0]["cpu_arch"] = ["amd64"]
+    with pytest.raises(ValueError, match="declared architectures"):
+        registry.validate_main_full_loop_plan(wrong_family_architectures, catalog)
 
 
 def test_resolved_plan_rejects_publish_drift() -> None:

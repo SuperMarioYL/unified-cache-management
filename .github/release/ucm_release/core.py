@@ -1378,6 +1378,45 @@ _FAMILY_IDENTITY_KEYS = tuple('product_id repository tag variant index_digest ta
 _RUNTIME_KEYS = tuple("repository tag version channel variant index_digest".split())
 
 
+def release_topology(catalog: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
+    wheels = [
+        {"profile_id": profile["id"], "cpu_arch": architecture}
+        for profile in catalog["wheel_profiles"]
+        for architecture in profile["cpu_arch"]
+    ]
+    families = [
+        {"product_id": product["id"], "variant": variant["id"]}
+        for product in catalog["upstream_products"]
+        for variant in product["variants"]
+    ]
+    images = [
+        {
+            "product_id": product["id"],
+            "variant": variant["id"],
+            "cpu_arch": architecture,
+        }
+        for product in catalog["upstream_products"]
+        for variant in product["variants"]
+        for architecture in product["required_cpu_architectures"]
+    ]
+    return {
+        "wheels": sorted(
+            wheels, key=lambda item: (item["profile_id"], item["cpu_arch"])
+        ),
+        "families": sorted(
+            families, key=lambda item: (item["product_id"], item["variant"])
+        ),
+        "images": sorted(
+            images,
+            key=lambda item: (
+                item["product_id"],
+                item["variant"],
+                item["cpu_arch"],
+            ),
+        ),
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class ReleasePlan:
 

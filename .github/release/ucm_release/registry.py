@@ -1094,51 +1094,82 @@ def validate_main_full_loop_plan(
         not isinstance(wheel_tasks, list)
         or not isinstance(image_tasks, list)
         or not isinstance(family_tasks, list)
-        or len(wheel_tasks) != 6
-        or len(image_tasks) != 6
-        or len(family_tasks) != 3
-    ):
-        raise ValueError(
-            "main full loop requires exactly 6 wheel, 6 image, and 3 family tasks"
+        or not all(
+            isinstance(task, dict)
+            for tasks in (wheel_tasks, image_tasks, family_tasks)
+            for task in tasks
         )
-    expected_profile_architectures = {
-        (profile["id"], architecture)
-        for profile in catalog["wheel_profiles"]
-        for architecture in profile["cpu_arch"]
-    }
-    wheel_profile_architectures = {
-        (task.get("profile_id"), task.get("cpu_arch")) for task in wheel_tasks
-    }
-    image_profile_architectures = {
-        (task.get("profile_id"), task.get("cpu_arch")) for task in image_tasks
-    }
-    if (
-        len(expected_profile_architectures) != 6
-        or wheel_profile_architectures != expected_profile_architectures
-        or image_profile_architectures != expected_profile_architectures
     ):
-        raise ValueError(
-            "main full loop differs from current profile/architecture closure"
+        raise ValueError("main full loop task lists are malformed")
+    topology = core.release_topology(catalog)
+    wheel_coordinates = [
+        {"profile_id": task.get("profile_id"), "cpu_arch": task.get("cpu_arch")}
+        for task in wheel_tasks
+    ]
+    family_coordinates = [
+        {
+            "product_id": task.get("product_id"),
+            "variant": task.get("runtime", {}).get("variant")
+            if isinstance(task.get("runtime"), dict)
+            else None,
+        }
+        for task in family_tasks
+    ]
+    image_coordinates = [
+        {
+            "product_id": task.get("runtime", {}).get("product_id")
+            if isinstance(task.get("runtime"), dict)
+            else None,
+            "variant": task.get("runtime", {}).get("variant")
+            if isinstance(task.get("runtime"), dict)
+            else None,
+            "cpu_arch": task.get("cpu_arch"),
+        }
+        for task in image_tasks
+    ]
+    if any(
+        sorted(core.canonical_bytes(item) for item in actual)
+        != sorted(core.canonical_bytes(item) for item in topology[kind])
+        for kind, actual in (
+            ("wheels", wheel_coordinates),
+            ("families", family_coordinates),
+            ("images", image_coordinates),
         )
+    ):
+        raise ValueError("main full loop task coordinates differ from catalog topology")
+    expected_architectures = {
+        (product["id"], variant["id"]): sorted(
+            product["required_cpu_architectures"]
+        )
+        for product in catalog["upstream_products"]
+        for variant in product["variants"]
+    }
     for family in family_tasks:
         members = [
             task
             for task in image_tasks
             if task.get("family_task_id") == family.get("task_id")
         ]
-        if len(members) != 2 or {task.get("platform") for task in members} != {
-            "linux/amd64",
-            "linux/arm64",
-        }:
+        runtime = family.get("runtime")
+        coordinate = (
+            family.get("product_id"),
+            runtime.get("variant") if isinstance(runtime, dict) else None,
+        )
+        declared = family.get("cpu_arch")
+        if (
+            not isinstance(declared, list)
+            or sorted(declared) != expected_architectures[coordinate]
+            or sorted(task.get("cpu_arch") for task in members) != sorted(declared)
+        ):
             raise ValueError(
-                "main full loop requires exact amd64 and arm64 members per family"
+                "main full loop family/image linkage differs from catalog-declared architectures"
             )
     validate_resolved_plan(plan)
     return {
-        "wheel_tasks": 6,
-        "image_tasks": 6,
-        "family_tasks": 3,
-        "profile_architectures": 6,
+        "wheel_tasks": len(wheel_tasks),
+        "image_tasks": len(image_tasks),
+        "family_tasks": len(family_tasks),
+        "profile_architectures": len(topology["wheels"]),
     }
 
 

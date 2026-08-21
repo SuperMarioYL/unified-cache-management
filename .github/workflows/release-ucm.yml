@@ -870,14 +870,16 @@ jobs:
           mkdir -p out/assets out/result
           mapfile -t wheels < <(find input/wheels -type f -name '*.whl' -print | sort)
           mapfile -t charts < <(find input/chart -maxdepth 1 -type f -name '*.tgz' -print)
-          test "${#wheels[@]}" = 6
+          expected_wheels="$(jq '.wheel_tasks | length' input/plan/resolved-plan.json)"
+          expected_assets="$((expected_wheels + 1))"
+          test "${#wheels[@]}" = "${expected_wheels}"
           test "${#charts[@]}" = 1
           for source in "${wheels[@]}" "${charts[@]}"; do
             target="out/assets/$(basename "${source}")"
             test ! -e "${target}"
             cp "${source}" "${target}"
           done
-          test "$(find out/assets -maxdepth 1 -type f | wc -l | tr -d ' ')" = 7
+          test "$(find out/assets -maxdepth 1 -type f | wc -l | tr -d ' ')" = "${expected_assets}"
           PYTHONPATH=.github/release python -m ucm_release publish github-release \
             --plan input/plan/resolved-plan.json \
             --stage assets \

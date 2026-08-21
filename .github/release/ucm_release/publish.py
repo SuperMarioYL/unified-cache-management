@@ -199,8 +199,10 @@ def _wheel_filename(task: dict[str, Any]) -> str:
 
 def _expected_wheels(plan: dict[str, Any]) -> list[str]:
     names = [_wheel_filename(task) for task in plan["wheel_tasks"]]
-    if len(names) != 6 or len(set(names)) != 6:
-        raise ValueError("publication requires exactly six unique wheel artifacts")
+    if len(names) != len(set(names)):
+        raise ValueError(
+            "publication requires one unique wheel artifact per resolved wheel task"
+        )
     return sorted(names)
 
 
@@ -277,16 +279,44 @@ def publish_pypi(
 
 
 def _require_release_image_matrix(plan: dict[str, Any]) -> None:
-    if len(plan["family_tasks"]) != 3 or len(plan["image_tasks"]) != 6:
+    families = plan.get("family_tasks")
+    images = plan.get("image_tasks")
+    if (
+        not isinstance(families, list)
+        or not isinstance(images, list)
+        or not all(isinstance(task, dict) for task in [*families, *images])
+    ):
+        raise ValueError("publication matrix family/image linkage is malformed")
+    families_by_id = {family.get("task_id"): family for family in families}
+    image_ids = {image.get("task_id") for image in images}
+    if len(families_by_id) != len(families) or len(image_ids) != len(images):
+        raise ValueError("publication matrix family/image linkage is not unique")
+    for family in families:
+        linked = [
+            image
+            for image in images
+            if image.get("family_task_id") == family.get("task_id")
+        ]
+        declared_architectures = family.get("cpu_arch")
+        declared_platforms = family.get("platform")
+        declared_image_ids = family.get("image_task_ids")
+        if (
+            not isinstance(declared_architectures, list)
+            or not isinstance(declared_platforms, list)
+            or not isinstance(declared_image_ids, list)
+            or len(declared_architectures) != len(declared_platforms)
+            or len(linked) != len(declared_architectures)
+            or sorted(zip(declared_architectures, declared_platforms, strict=True))
+            != sorted((image.get("cpu_arch"), image.get("platform")) for image in linked)
+            or set(declared_image_ids) != {image.get("task_id") for image in linked}
+        ):
+            raise ValueError(
+                "publication matrix differs from exact resolved family/image linkage"
+            )
+    if any(image.get("family_task_id") not in families_by_id for image in images):
         raise ValueError(
-            "publication matrix requires exactly 3 family tasks and 6 image tasks; "
-            f"got family_tasks={len(plan['family_tasks'])}, "
-            f"image_tasks={len(plan['image_tasks'])}"
+            "publication matrix differs from exact resolved family/image linkage"
         )
-    for family in plan["family_tasks"]:
-        linked = [image for image in plan["image_tasks"] if image["family_task_id"] == family["task_id"]]
-        if len(linked) != 2 or {image["platform"] for image in linked} != {"linux/amd64", "linux/arm64"}:
-            raise ValueError("each publication family requires exact linux/amd64 and linux/arm64 image tasks")
 
 
 def _family_references(plan: dict[str, Any], namespace: str, *, configured_targets: bool) -> list[tuple[dict[str, Any], str]]:
@@ -382,11 +412,14 @@ def _load_member_results(
 ) -> dict[str, list[dict[str, Any]]]:
     members_dir = Path(members_dir)
     entries = sorted(members_dir.iterdir()) if members_dir.is_dir() else []
-    if len(entries) != 6 or any(not path.is_file() or path.suffix != ".json" for path in entries):
-        raise ValueError("GHCR publish requires exactly six member-result JSON files")
+    expected_member_count = len(plan["image_tasks"])
+    if len(entries) != expected_member_count or any(not path.is_file() or path.suffix != ".json" for path in entries):
+        raise ValueError(
+            "GHCR publish requires one member-result JSON file per resolved image task"
+        )
     tasks_by_sha = {task["task_sha256"]: task for task in plan["image_tasks"]}
-    if len(tasks_by_sha) != 6:
-        raise ValueError("GHCR publish requires six unique resolved image tasks")
+    if len(tasks_by_sha) != expected_member_count:
+        raise ValueError("GHCR publish requires unique resolved image task hashes")
     by_family: dict[str, list[dict[str, Any]]] = {}
     seen_tasks: set[str] = set()
     schema = core.load_json(core.DEFAULT_SCHEMA_DIR / "release-manifest.schema.json")
@@ -600,13 +633,16 @@ def _load_member_results(
         by_family.setdefault(task["family_task_id"], []).append(record)
     if seen_tasks != set(tasks_by_sha):
         raise ValueError("member result set differs from resolved image tasks")
+    families_by_id = {family["task_id"]: family for family in plan["family_tasks"]}
     for family_id, records in by_family.items():
         records.sort(key=lambda item: item["platform"])
-        if [record["platform"] for record in records] != [
-            "linux/amd64",
-            "linux/arm64",
-        ]:
-            raise ValueError(f"member family {family_id} lacks the exact two platforms")
+        family = families_by_id.get(family_id)
+        if family is None or [record["platform"] for record in records] != sorted(
+            family["platform"]
+        ):
+            raise ValueError(
+                f"member family {family_id} differs from resolved family platforms"
+            )
     return by_family
 
 
@@ -856,7 +892,7 @@ def _validate_public_release(plan: dict[str, Any], release: dict[str, Any]) -> l
         raise ValueError("GitHub Release is not the expected public prerelease")
     names = _release_asset_names(release)
     if names != sorted([*_expected_wheels(plan), _expected_chart(plan)]):
-        raise ValueError("public GitHub Release must contain exact seven assets")
+        raise ValueError("public GitHub Release must contain the exact resolved assets")
     return names
 
 
@@ -865,7 +901,7 @@ def _validate_local_release_assets(plan: dict[str, Any], artifacts: Sequence[Pat
     try:
         return _validate_named_files(artifacts, [*_expected_wheels(plan), _expected_chart(plan)], "GitHub Release assets")
     except ValueError as error:
-        raise ValueError("GitHub Release assets require exact seven release assets") from error
+        raise ValueError("GitHub Release assets require the exact resolved asset set") from error
 
 
 def _asset_manifest(paths: Sequence[Path]) -> list[dict[str, Any]]:
@@ -886,8 +922,10 @@ def _validate_asset_manifest(
     plan: dict[str, Any], manifest: object
 ) -> list[dict[str, Any]]:
     expected_names = sorted([*_expected_wheels(plan), _expected_chart(plan)])
-    if not isinstance(manifest, list) or len(manifest) != 7:
-        raise ValueError("GitHub Release asset manifest requires exact seven entries")
+    if not isinstance(manifest, list) or len(manifest) != len(expected_names):
+        raise ValueError(
+            "GitHub Release asset manifest requires one entry per resolved asset"
+        )
     normalized: list[dict[str, Any]] = []
     for item in manifest:
         if (
@@ -904,7 +942,7 @@ def _validate_asset_manifest(
         normalized.append(dict(item))
     normalized.sort(key=lambda item: item["name"])
     if [item["name"] for item in normalized] != expected_names:
-        raise ValueError("GitHub Release asset manifest differs from exact seven assets")
+        raise ValueError("GitHub Release asset manifest differs from resolved assets")
     return normalized
 
 
@@ -1170,7 +1208,9 @@ def publish_github_release(
                 raise ValueError(f"GitHub Release upload did not return asset {path.name}")
         reread = _github_release_by_id(plan, api, release["id"])
         if not isinstance(reread, dict) or _release_asset_names(reread) != expected_names:
-            raise ValueError("GitHub Release Draft does not contain exact seven assets after upload")
+            raise ValueError(
+                "GitHub Release Draft does not contain the exact resolved assets after upload"
+            )
         _verify_release_asset_bytes(
             reread,
             manifest,
@@ -1181,7 +1221,9 @@ def publish_github_release(
 
     names = _release_asset_names(release)
     if names != expected_names:
-        raise ValueError("GitHub Release Draft must contain exact seven assets before finalize")
+        raise ValueError(
+            "GitHub Release Draft must contain the exact resolved assets before finalize"
+        )
     _verify_release_asset_bytes(
         release,
         bound_assets["asset_manifest"],
