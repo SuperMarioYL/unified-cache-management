@@ -15,7 +15,6 @@ from packaging.version import Version
 
 from . import builders, core, registry
 
-
 ROUTES = frozenset({"pr", "daily", "release"})
 
 
