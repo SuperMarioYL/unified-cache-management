@@ -373,7 +373,7 @@ def test_rc_channel_accepts_only_actual_rc_versions(version: str) -> None:
             lambda catalog: catalog["runtime_patch_rules"][0].update(
                 variants=["missing-variant"]
             ),
-            "runtime_patch_rules[0].variants are invalid for the product",
+            "upstream runtime patch variant is not declared by a matched product rule",
         ),
     ],
 )
