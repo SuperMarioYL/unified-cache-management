@@ -866,6 +866,7 @@ def _declared_runtime_variant(
 def _cann_base_fact(
     text: str,
     known_hardware: frozenset[str],
+    declared_variant: str | None,
     context: str,
 ) -> tuple[str, str] | None:
     tags = re.findall(
@@ -881,9 +882,32 @@ def _cann_base_fact(
         boundaries = [
             index for index, part in enumerate(parts) if part in known_hardware
         ]
-        if len(boundaries) != 1 or boundaries[0] == 0:
+        if len(boundaries) > 1 or any(boundary == 0 for boundary in boundaries):
             raise ValueError(f"{context}: CANN base hardware boundary is ambiguous")
-        boundary = boundaries[0]
+        if boundaries:
+            boundary = boundaries[0]
+        elif declared_variant is None:
+            raise ValueError(f"{context}: CANN base hardware boundary is unknown")
+        else:
+            candidates: list[int] = []
+            for index in range(1, len(parts)):
+                if (
+                    re.fullmatch(
+                        r"(?:a[0-9]+|[0-9]{3,}[a-z]?|[0-9]+p)", parts[index]
+                    )
+                    is None
+                ):
+                    continue
+                runtime_prefix = "-".join(parts[:index])
+                try:
+                    parsed = _parse_version(runtime_prefix, f"{context} CANN version")
+                    _compact_version(parsed, f"{context} CANN version")
+                except ValueError:
+                    continue
+                candidates.append(index)
+            if not candidates:
+                raise ValueError(f"{context}: CANN base hardware boundary is unknown")
+            boundary = max(candidates)
         runtime = "-".join(parts[:boundary])
         parsed = _parse_version(runtime, f"{context} CANN version")
         _compact_version(parsed, f"{context} CANN version")
@@ -942,12 +966,20 @@ def _runtime_dockerfiles(
                 }
             )
             continue
-        base = _cann_base_fact(text, known_hardware, f"{project}/{path}")
+        base = _cann_base_fact(
+            text,
+            known_hardware,
+            declared_variant,
+            f"{project}/{path}",
+        )
         if base is None:
             continue
         runtime, hardware = base
-        mapped_variant = variant_by_hardware[hardware]
+        mapped_variant = variant_by_hardware.get(hardware)
+        if declared_variant is None and mapped_variant is None:
+            raise ValueError(f"{project}/{path}: CANN hardware has no Builder variant")
         variant = declared_variant or mapped_variant
+        assert variant is not None
         filtered = variant in excluded_variants
         mooncake_version = (
             None
