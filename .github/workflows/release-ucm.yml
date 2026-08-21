@@ -129,7 +129,7 @@ jobs:
       image_id: ${{ matrix.id }}
       runner: ${{ matrix.runner }}
       plan_artifact: ${{ needs.plan.outputs.plan_artifact }}
-      upload_oci: ${{ needs.plan.outputs.route == 'release' || inputs.deliver_full_oci }}
+      upload_oci: ${{ needs.plan.outputs.route == 'release' || inputs.deliver_full_oci == true }}
 
   publish-release:
     name: Publish release
