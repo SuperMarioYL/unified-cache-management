@@ -238,14 +238,11 @@ def _canonical_digest(value: object) -> str:
 def _runtime_id(value: dict[str, Any]) -> str:
     return _canonical_digest(
         {
-            field: value[field]
-            for field in (
-                "product_id",
-                "runtime_image_repository",
-                "runtime_image_tag",
-                "variant",
-                "cpu_architecture",
-            )
+            "product_id": value["product_id"],
+            "runtime_repository": value["runtime_image_repository"],
+            "runtime_tag": value["runtime_image_tag"],
+            "variant": value["variant"],
+            "cpu_architecture": value["cpu_architecture"],
         }
     )
 
@@ -554,6 +551,40 @@ def test_catalog_preserves_discovery_origins_and_filters_only_exact_310p() -> No
         and item["evidence"]["variant"] == "310p"
         for item in catalog["exclusions"]
     )
+
+
+def test_runtime_candidate_normalization_is_public_identity_authority() -> None:
+    """Raw discovery keys must not define a second runtime identity hash."""
+    normalize = _require_public_callable("normalize_runtime_candidate")
+    fixture = _load_fixture()
+    original = copy.deepcopy(fixture)
+
+    for raw in fixture["runtime_discovery"]["runtime_candidates"]:
+        runtime = normalize(copy.deepcopy(raw))
+        assert set(runtime) == RUNTIME_FIELDS
+        assert runtime["runtime_repository"] == raw["runtime_image_repository"]
+        assert runtime["runtime_tag"] == raw["runtime_image_tag"]
+        assert runtime["runtime_image"] == (
+            f'{raw["runtime_image_repository"]}@{raw["runtime_image_digest"]}'
+        )
+        identity = {
+            field: runtime[field]
+            for field in (
+                "product_id",
+                "runtime_repository",
+                "runtime_tag",
+                "variant",
+                "cpu_architecture",
+            )
+        }
+        assert runtime["runtime_id"] == _canonical_digest(identity)
+        assert runtime["runtime_id"] == _runtime_id(raw)
+
+    assert fixture == original
+    builders_source = (
+        RELEASE_ROOT / "ucm_release" / "builders.py"
+    ).read_text(encoding="utf-8")
+    assert "capabilities._runtime_record" not in builders_source
 
 
 def test_runtime_candidates_remain_multi_version_and_git_source_bound() -> None:

@@ -248,14 +248,11 @@ def _collect_fixture(
 def _runtime_id(value: dict[str, Any]) -> str:
     return _canonical_digest(
         {
-            field: value[field]
-            for field in (
-                "product_id",
-                "runtime_image_repository",
-                "runtime_image_tag",
-                "variant",
-                "cpu_architecture",
-            )
+            "product_id": value["product_id"],
+            "runtime_repository": value["runtime_image_repository"],
+            "runtime_tag": value["runtime_image_tag"],
+            "variant": value["variant"],
+            "cpu_architecture": value["cpu_architecture"],
         }
     )
 

@@ -344,12 +344,12 @@
         "recipe_sha256": "sha256:d111111111111111111111111111111111111111111111111111111111111111",
         "toolchain_sha256": "sha256:e111111111111111111111111111111111111111111111111111111111111111",
         "target_repository": "ghcr.io/release-org/ucm-builder-vllm-ascend",
-        "target_tag": "cann9.0-a2-cp-all-manylinux2_34-amd64-r1-rt-61601dfcf54431f65034cec0793dd4050937ba6025223948d3f7cc8b9c1d33b4",
-        "target_builder_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000034",
-        "mooncake_source_runtime_id": "sha256:26df9e311185c4ed4a9175a71d3fd0437ccf1b12b306ea1221bbd50243a2bb1f",
+        "target_tag": "cann9.0-a2-cp-all-manylinux2_34-amd64-r1-rt-802b5a0f9bf9da04ff4edc25cd62a4f5aad2343789e0cb34272d6aae51dbe858",
+        "target_builder_digest": "sha256:000000000000000000000000000000000000000000000000000000000000003b",
+        "mooncake_source_runtime_id": "sha256:8b8be8a9aa9336119d99eb39c89de758402fc0dae6679ba9a228734eacb819ef",
         "mooncake_source_runtime_image": "quay.io/ascend/vllm-ascend@sha256:1c11111111111111111111111111111111111111111111111111111111111111",
         "mooncake_version": "0.3.11.post1",
-        "builder_fact_id": "sha256:c0250da30e17f349f08c6ce450112574852e6f1ac1fb0cab2df83904baa753e9"
+        "builder_fact_id": "sha256:c0ae09cd4ef55d7de2bdd5aeb92afbb29e772564cc7a52a95ac898742c77611a"
       },
       {
         "project": "vllm-project/vllm-ascend",
@@ -368,12 +368,12 @@
         "recipe_sha256": "sha256:d111111111111111111111111111111111111111111111111111111111111111",
         "toolchain_sha256": "sha256:e111111111111111111111111111111111111111111111111111111111111111",
         "target_repository": "ghcr.io/release-org/ucm-builder-vllm-ascend",
-        "target_tag": "cann9.0-a2-cp-all-manylinux2_34-amd64-r1-rt-fbd6272fdb1a4029cfd432a1db3cc5ff03f167bb5911a19464f188d5ab4bc19c",
-        "target_builder_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000496",
-        "mooncake_source_runtime_id": "sha256:91b213d23203d626016967c38ced6f7918ab5e765708cc9ea94c45f3d1d81a37",
+        "target_tag": "cann9.0-a2-cp-all-manylinux2_34-amd64-r1-rt-2e226766c8eb950e44d0e5a0083eff0b3f0c03b48ce5ecf38ed38b488660935e",
+        "target_builder_digest": "sha256:00000000000000000000000000000000000000000000000000000000000004a2",
+        "mooncake_source_runtime_id": "sha256:1acea6c26eb3dd997cdc225c58203aa52645a1b9526a1952332a406f1536a21b",
         "mooncake_source_runtime_image": "quay.io/ascend/vllm-ascend@sha256:1f11111111111111111111111111111111111111111111111111111111111111",
         "mooncake_version": "0.3.12",
-        "builder_fact_id": "sha256:d0a59b8910bbc69a4b2456e0f0182640b7d54392fd4aeac85f74f8275afc2fff"
+        "builder_fact_id": "sha256:d03bd36fd0c9cdccc94d344fa5a81c00af303ff51549a2333f6fbcc54dc77d62"
       },
       {
         "project": "vllm-project/vllm-ascend",
@@ -392,12 +392,12 @@
         "recipe_sha256": "sha256:1211111111111111111111111111111111111111111111111111111111111111",
         "toolchain_sha256": "sha256:1311111111111111111111111111111111111111111111111111111111111111",
         "target_repository": "ghcr.io/release-org/ucm-builder-vllm-ascend",
-        "target_tag": "cann9.1-a4-cp-all-manylinux2_34-arm64-r1-rt-9e263096fb5cb0d8b2f5b222bd3723f216887c0704669350163146279c7a75b7",
-        "target_builder_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000873",
-        "mooncake_source_runtime_id": "sha256:e149c6e2da5d4b98abe2f8a626e59239f7fd5d150a85c816eea279ffeba2ecd7",
+        "target_tag": "cann9.1-a4-cp-all-manylinux2_34-arm64-r1-rt-e9f66e7ca650f66c3beb180d3ea4428abe8e682b6959aa8ff58c25a0ae2e30df",
+        "target_builder_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000afe",
+        "mooncake_source_runtime_id": "sha256:4a4a8b961a746704d79d592f190aea9aa41935d6ecc4d93396ef21b05e80aaec",
         "mooncake_source_runtime_image": "quay.io/ascend/vllm-ascend@sha256:2011111111111111111111111111111111111111111111111111111111111111",
         "mooncake_version": "0.3.12",
-        "builder_fact_id": "sha256:e09bcd8904d74409110b8a1eeb1f7a3b4be6873cc0a62318a51dcb2519788b28"
+        "builder_fact_id": "sha256:e0d1dd563224c77f521ac64dc8ce51db12a988a8cf75e66802cab32578874898"
       },
       {
         "project": "vllm-project/vllm-ascend",
@@ -416,12 +416,12 @@
         "recipe_sha256": "sha256:d111111111111111111111111111111111111111111111111111111111111111",
         "toolchain_sha256": "sha256:e111111111111111111111111111111111111111111111111111111111111111",
         "target_repository": "ghcr.io/release-org/ucm-builder-vllm-ascend",
-        "target_tag": "cann9.0-a2-long-shared-prefix-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-rt-aa9f05227e2a9d063c6e7227687e21b2ff2c83aa48a1a16164ccca6ccfd2504b",
-        "target_builder_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000cb2",
-        "mooncake_source_runtime_id": "sha256:26df9e311185c4ed4a9175a71d3fd0437ccf1b12b306ea1221bbd50243a2bb1f",
+        "target_tag": "cann9.0-a2-long-shared-prefix-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-rt-eefc2fe60266cf9ed55d86d7d85058228922780a9af4d0eea7b3a5c1623ae397",
+        "target_builder_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000d7a",
+        "mooncake_source_runtime_id": "sha256:8b8be8a9aa9336119d99eb39c89de758402fc0dae6679ba9a228734eacb819ef",
         "mooncake_source_runtime_image": "quay.io/ascend/vllm-ascend@sha256:1c11111111111111111111111111111111111111111111111111111111111111",
         "mooncake_version": "0.3.11.post1",
-        "builder_fact_id": "sha256:f14175a2f1a34dd82109055647f2eb95d4a6326c087c6c7bebe7b717bd62d197"
+        "builder_fact_id": "sha256:f13cd6ceb4bfb949a94fd88cd89e3716a26ad9bab6222e1ac3a4a2440a1fda2d"
       },
       {
         "project": "vllm-project/vllm-ascend",
@@ -440,12 +440,12 @@
         "recipe_sha256": "sha256:d111111111111111111111111111111111111111111111111111111111111111",
         "toolchain_sha256": "sha256:e111111111111111111111111111111111111111111111111111111111111111",
         "target_repository": "ghcr.io/release-org/ucm-builder-vllm-ascend",
-        "target_tag": "cann9.0-a2-long-shared-prefix-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-rt-3c052a755cfdcea4f0fecb08f3d5f8828837792e67056912b0538505dcc45a4d",
-        "target_builder_digest": "sha256:00000000000000000000000000000000000000000000000000000000000010cf",
-        "mooncake_source_runtime_id": "sha256:91b213d23203d626016967c38ced6f7918ab5e765708cc9ea94c45f3d1d81a37",
+        "target_tag": "cann9.0-a2-long-shared-prefix-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-rt-0444fc0b8051be4a5306c2519231376ce35188b114225d2fd259135bb6fdbd44",
+        "target_builder_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000fcd",
+        "mooncake_source_runtime_id": "sha256:1acea6c26eb3dd997cdc225c58203aa52645a1b9526a1952332a406f1536a21b",
         "mooncake_source_runtime_image": "quay.io/ascend/vllm-ascend@sha256:1f11111111111111111111111111111111111111111111111111111111111111",
         "mooncake_version": "0.3.12",
-        "builder_fact_id": "sha256:f352d109273c68bc15fbffd53048b1cc77ba493baadab9cfd7473e7b6b9d608f"
+        "builder_fact_id": "sha256:f3831ec20252cde01fffdd34f1c6b42bd5d4b40aee08fddcd375405487423041"
       },
       {
         "project": "vllm-project/vllm-ascend",
@@ -464,12 +464,12 @@
         "recipe_sha256": "sha256:d111111111111111111111111111111111111111111111111111111111111111",
         "toolchain_sha256": "sha256:e111111111111111111111111111111111111111111111111111111111111111",
         "target_repository": "ghcr.io/release-org/ucm-builder-vllm-ascend",
-        "target_tag": "cann9.0-a2-long-shared-prefix-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-rt-bc4eef7fb6bbe0952b441412392db4b225cb027ca91afbf5c6ef8f5768859542",
-        "target_builder_digest": "sha256:000000000000000000000000000000000000000000000000000000000000156d",
-        "mooncake_source_runtime_id": "sha256:26df9e311185c4ed4a9175a71d3fd0437ccf1b12b306ea1221bbd50243a2bb1f",
+        "target_tag": "cann9.0-a2-long-shared-prefix-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-rt-9f7994436f10c34310657c2d98b8a930763798fdbb8209ef40dff727a4b1a09f",
+        "target_builder_digest": "sha256:0000000000000000000000000000000000000000000000000000000000001394",
+        "mooncake_source_runtime_id": "sha256:8b8be8a9aa9336119d99eb39c89de758402fc0dae6679ba9a228734eacb819ef",
         "mooncake_source_runtime_image": "quay.io/ascend/vllm-ascend@sha256:1c11111111111111111111111111111111111111111111111111111111111111",
         "mooncake_version": "0.3.11.post1",
-        "builder_fact_id": "sha256:f5fb96799f9a51c26c8013af0bacbb9891631834a0451b3cae31a68edc94ef4f"
+        "builder_fact_id": "sha256:f50fbc82067a0bf0d8276bf834937299a88ebb473598ec0f12419ee87b432875"
       },
       {
         "project": "vllm-project/vllm-ascend",
@@ -488,12 +488,12 @@
         "recipe_sha256": "sha256:d111111111111111111111111111111111111111111111111111111111111111",
         "toolchain_sha256": "sha256:e111111111111111111111111111111111111111111111111111111111111111",
         "target_repository": "ghcr.io/release-org/ucm-builder-vllm-ascend",
-        "target_tag": "cann9.0-a2-long-shared-prefix-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-rt-34a940185cdf7f88c1190f6ee3e49a26b0e0418bb43c575671afd2494f181a04",
-        "target_builder_digest": "sha256:0000000000000000000000000000000000000000000000000000000000001a52",
-        "mooncake_source_runtime_id": "sha256:91b213d23203d626016967c38ced6f7918ab5e765708cc9ea94c45f3d1d81a37",
+        "target_tag": "cann9.0-a2-long-shared-prefix-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-rt-d3d6287073365578da7327100940bba576e9517072cc8b0a293548e8e140c28a",
+        "target_builder_digest": "sha256:00000000000000000000000000000000000000000000000000000000000017ca",
+        "mooncake_source_runtime_id": "sha256:1acea6c26eb3dd997cdc225c58203aa52645a1b9526a1952332a406f1536a21b",
         "mooncake_source_runtime_image": "quay.io/ascend/vllm-ascend@sha256:1f11111111111111111111111111111111111111111111111111111111111111",
         "mooncake_version": "0.3.12",
-        "builder_fact_id": "sha256:f7dc57033527ef7d0d7b3220591dee5e8dffb920dd90c411377bd2909f5b5e7c"
+        "builder_fact_id": "sha256:f7ad5df373b1f5a685eb385f5141fef79c2369c692c3a0b204ec0563ebeda358"
       }
     ],
     "failures": [
@@ -761,9 +761,9 @@
         "wheel_tag": "cp312-cp312-manylinux_2_28_aarch64"
       },
       {
-        "builder_fact_id": "sha256:c0250da30e17f349f08c6ce450112574852e6f1ac1fb0cab2df83904baa753e9",
-        "builder_image": "ghcr.io/release-org/ucm-builder-vllm-ascend@sha256:0000000000000000000000000000000000000000000000000000000000000034",
-        "target_builder_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000034",
+        "builder_fact_id": "sha256:c0ae09cd4ef55d7de2bdd5aeb92afbb29e772564cc7a52a95ac898742c77611a",
+        "builder_image": "ghcr.io/release-org/ucm-builder-vllm-ascend@sha256:000000000000000000000000000000000000000000000000000000000000003b",
+        "target_builder_digest": "sha256:000000000000000000000000000000000000000000000000000000000000003b",
         "cpu_architecture": "amd64",
         "runner": "ubuntu-24.04",
         "interpreter_path": "/opt/python/cp310-cp310/bin/python",
@@ -772,9 +772,9 @@
         "wheel_tag": "cp310-cp310-manylinux_2_34_x86_64"
       },
       {
-        "builder_fact_id": "sha256:d0a59b8910bbc69a4b2456e0f0182640b7d54392fd4aeac85f74f8275afc2fff",
-        "builder_image": "ghcr.io/release-org/ucm-builder-vllm-ascend@sha256:0000000000000000000000000000000000000000000000000000000000000496",
-        "target_builder_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000496",
+        "builder_fact_id": "sha256:d03bd36fd0c9cdccc94d344fa5a81c00af303ff51549a2333f6fbcc54dc77d62",
+        "builder_image": "ghcr.io/release-org/ucm-builder-vllm-ascend@sha256:00000000000000000000000000000000000000000000000000000000000004a2",
+        "target_builder_digest": "sha256:00000000000000000000000000000000000000000000000000000000000004a2",
         "cpu_architecture": "amd64",
         "runner": "ubuntu-24.04",
         "interpreter_path": "/opt/python/cp310-cp310/bin/python",
@@ -783,9 +783,9 @@
         "wheel_tag": "cp310-cp310-manylinux_2_34_x86_64"
       },
       {
-        "builder_fact_id": "sha256:e09bcd8904d74409110b8a1eeb1f7a3b4be6873cc0a62318a51dcb2519788b28",
-        "builder_image": "ghcr.io/release-org/ucm-builder-vllm-ascend@sha256:0000000000000000000000000000000000000000000000000000000000000873",
-        "target_builder_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000873",
+        "builder_fact_id": "sha256:e0d1dd563224c77f521ac64dc8ce51db12a988a8cf75e66802cab32578874898",
+        "builder_image": "ghcr.io/release-org/ucm-builder-vllm-ascend@sha256:0000000000000000000000000000000000000000000000000000000000000afe",
+        "target_builder_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000afe",
         "cpu_architecture": "arm64",
         "runner": "ubuntu-24.04-arm",
         "interpreter_path": "/opt/python/cp311-cp311/bin/python",
@@ -794,9 +794,9 @@
         "wheel_tag": "cp311-cp311-manylinux_2_34_aarch64"
       },
       {
-        "builder_fact_id": "sha256:f14175a2f1a34dd82109055647f2eb95d4a6326c087c6c7bebe7b717bd62d197",
-        "builder_image": "ghcr.io/release-org/ucm-builder-vllm-ascend@sha256:0000000000000000000000000000000000000000000000000000000000000cb2",
-        "target_builder_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000cb2",
+        "builder_fact_id": "sha256:f13cd6ceb4bfb949a94fd88cd89e3716a26ad9bab6222e1ac3a4a2440a1fda2d",
+        "builder_image": "ghcr.io/release-org/ucm-builder-vllm-ascend@sha256:0000000000000000000000000000000000000000000000000000000000000d7a",
+        "target_builder_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000d7a",
         "cpu_architecture": "amd64",
         "runner": "ubuntu-24.04",
         "interpreter_path": "/opt/python/cp310-cp310/bin/python",
@@ -805,9 +805,9 @@
         "wheel_tag": "cp310-cp310-manylinux_2_34_x86_64"
       },
       {
-        "builder_fact_id": "sha256:f352d109273c68bc15fbffd53048b1cc77ba493baadab9cfd7473e7b6b9d608f",
-        "builder_image": "ghcr.io/release-org/ucm-builder-vllm-ascend@sha256:00000000000000000000000000000000000000000000000000000000000010cf",
-        "target_builder_digest": "sha256:00000000000000000000000000000000000000000000000000000000000010cf",
+        "builder_fact_id": "sha256:f3831ec20252cde01fffdd34f1c6b42bd5d4b40aee08fddcd375405487423041",
+        "builder_image": "ghcr.io/release-org/ucm-builder-vllm-ascend@sha256:0000000000000000000000000000000000000000000000000000000000000fcd",
+        "target_builder_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000fcd",
         "cpu_architecture": "amd64",
         "runner": "ubuntu-24.04",
         "interpreter_path": "/opt/python/cp310-cp310/bin/python",
@@ -816,9 +816,9 @@
         "wheel_tag": "cp310-cp310-manylinux_2_34_x86_64"
       },
       {
-        "builder_fact_id": "sha256:f5fb96799f9a51c26c8013af0bacbb9891631834a0451b3cae31a68edc94ef4f",
-        "builder_image": "ghcr.io/release-org/ucm-builder-vllm-ascend@sha256:000000000000000000000000000000000000000000000000000000000000156d",
-        "target_builder_digest": "sha256:000000000000000000000000000000000000000000000000000000000000156d",
+        "builder_fact_id": "sha256:f50fbc82067a0bf0d8276bf834937299a88ebb473598ec0f12419ee87b432875",
+        "builder_image": "ghcr.io/release-org/ucm-builder-vllm-ascend@sha256:0000000000000000000000000000000000000000000000000000000000001394",
+        "target_builder_digest": "sha256:0000000000000000000000000000000000000000000000000000000000001394",
         "cpu_architecture": "amd64",
         "runner": "ubuntu-24.04",
         "interpreter_path": "/opt/python/cp310-cp310/bin/python",
@@ -827,9 +827,9 @@
         "wheel_tag": "cp310-cp310-manylinux_2_34_x86_64"
       },
       {
-        "builder_fact_id": "sha256:f7dc57033527ef7d0d7b3220591dee5e8dffb920dd90c411377bd2909f5b5e7c",
-        "builder_image": "ghcr.io/release-org/ucm-builder-vllm-ascend@sha256:0000000000000000000000000000000000000000000000000000000000001a52",
-        "target_builder_digest": "sha256:0000000000000000000000000000000000000000000000000000000000001a52",
+        "builder_fact_id": "sha256:f7ad5df373b1f5a685eb385f5141fef79c2369c692c3a0b204ec0563ebeda358",
+        "builder_image": "ghcr.io/release-org/ucm-builder-vllm-ascend@sha256:00000000000000000000000000000000000000000000000000000000000017ca",
+        "target_builder_digest": "sha256:00000000000000000000000000000000000000000000000000000000000017ca",
         "cpu_architecture": "amd64",
         "runner": "ubuntu-24.04",
         "interpreter_path": "/opt/python/cp310-cp310/bin/python",
