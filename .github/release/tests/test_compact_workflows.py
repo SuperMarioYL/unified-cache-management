@@ -411,40 +411,34 @@ def test_builder_sync_exports_run_scoped_capability_catalog_from_assembly() -> N
 
     assert {
         "prepare",
-        "build-missing",
-        "probe-python",
         "discover-runtimes",
         "probe-mooncake",
+        "plan-builder-sync",
+        "build-missing",
+        "collect-builder-revisions",
+        "probe-python",
         "assemble-capability-catalog",
     } <= set(jobs)
     assert jobs["build-missing"]["name"] == "Builder · ${{ matrix.label }}"
     assert "capability_catalog_artifact" in outputs
     prepare = jobs["prepare"]
+    prepare_outputs = set(prepare.get("outputs", {}))
+    assert "builder_catalog_artifact" in prepare_outputs
     assert {
-        "builder_catalog_artifact",
-        "has_missing",
         "matrix",
+        "has_missing",
         "python_probe_matrix",
-    } <= set(prepare.get("outputs", {}))
-    assert prepare["outputs"]["python_probe_matrix"] == (
-        "${{ steps.plan.outputs.python_probe_matrix }}"
-    )
-    plan_steps = [step for step in prepare["steps"] if step.get("id") == "plan"]
-    assert len(plan_steps) == 1
-    plan = plan_steps[0]
-    plan_run = str(plan["run"])
-    assert ".builder_revisions[]" in plan_run
-    for field in (
+        "builder_fact_id",
         "builder_revision_id",
-        "builder_image",
-        "runner",
-        "cpu_architecture",
+    }.isdisjoint(prepare_outputs)
+    prepare_source = yaml.safe_dump(prepare, sort_keys=False)
+    for predicted in (
+        "python_probe_matrix",
+        "builder_fact_id",
+        "builder_revision_id",
+        "target_builder_digest",
     ):
-        assert field in plan_run
-    assert "@sha256:" in plan_run
-    assert "python_probe_matrix=" in plan_run
-    assert "${GITHUB_OUTPUT}" in plan_run
-    assert {"prepare"} <= _needs(jobs["build-missing"])
+        assert predicted not in prepare_source
     assert (
         outputs["capability_catalog_artifact"]["value"]
         == "${{ jobs.assemble-capability-catalog.outputs.capability_catalog_artifact }}"
@@ -461,13 +455,14 @@ def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> 
     job = workflow["jobs"].get("probe-python")
 
     assert isinstance(job, dict), "missing stable probe-python job"
-    assert {"prepare", "build-missing"} <= _needs(job)
+    assert _needs(job) == {"collect-builder-revisions"}
     condition = str(job.get("if", ""))
     assert "always()" in condition
-    assert "needs.prepare.result" in condition and "success" in condition
+    assert "needs.collect-builder-revisions.result" in condition
+    assert "success" in condition
     assert job["strategy"].get("fail-fast") is False
     assert job["strategy"].get("matrix") == (
-        "${{ fromJSON(needs.prepare.outputs.python_probe_matrix) }}"
+        "${{ fromJSON(needs.collect-builder-revisions.outputs.python_probe_matrix) }}"
     )
     assert job["runs-on"] == "${{ matrix.runner }}"
     probe_steps = [
@@ -478,8 +473,11 @@ def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> 
     assert len(probe_steps) == 1
     probe = probe_steps[0]
     assert probe.get("env", {}).get("BUILDER_IMAGE") == "${{ matrix.builder_image }}"
-    assert probe.get("env", {}).get("BUILDER_REVISION_ID") == (
-        "${{ matrix.builder_revision_id }}"
+    assert probe.get("env", {}).get("BUILDER_FACT_ID") == (
+        "${{ matrix.builder_fact_id }}"
+    )
+    assert probe.get("env", {}).get("TARGET_BUILDER_DIGEST") == (
+        "${{ matrix.target_builder_digest }}"
     )
     run = str(probe["run"])
     _assert_digest_guard_precedes(
@@ -488,15 +486,20 @@ def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> 
         r'(?m)^\s*docker\s+run\b[\s\S]*?"\$\{BUILDER_IMAGE\}"',
     )
     assert "out/python-probe/result.json" in run
-    assert "builder_revision_id" in run
+    assert "builder_fact_id" in run
+    assert "builder_image" in run
     for field in (
-        "builder_digest",
+        "target_builder_digest",
+        "interpreter_path",
         "python_version",
         "python_abi",
         "wheel_tag",
         "cpu_architecture",
     ):
         assert field in run
+    probe_source = yaml.safe_dump(probe, sort_keys=False)
+    assert "builder_revision_id" not in probe_source
+    assert "builder_source_image_digest" not in probe_source
     assert "cp312" not in run
     uploads = _artifact_steps(job, "upload")
     assert len(uploads) == 1
@@ -518,7 +521,7 @@ def test_runtime_discovery_records_immutable_image_and_git_source_facts() -> Non
     job = workflow["jobs"].get("discover-runtimes")
 
     assert isinstance(job, dict), "missing stable discover-runtimes job"
-    assert {"prepare"} <= _needs(job)
+    assert _needs(job) == {"prepare"}
     assert {
         "runtime_discovery_artifact",
         "runtime_probe_matrix",
@@ -566,7 +569,7 @@ def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version()
     job = workflow["jobs"].get("probe-mooncake")
 
     assert isinstance(job, dict), "missing stable probe-mooncake job"
-    assert {"discover-runtimes"} <= _needs(job)
+    assert _needs(job) == {"discover-runtimes"}
     condition = str(job.get("if", ""))
     assert "always()" in condition
     assert "needs.discover-runtimes.result" in condition and "success" in condition
@@ -644,23 +647,238 @@ def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version()
     }
 
 
+def test_builder_sync_plan_waits_for_runtime_and_mooncake_results() -> None:
+    workflow = _load("sync-builders.yml")
+    job = workflow["jobs"].get("plan-builder-sync")
+
+    assert isinstance(job, dict), "missing stable plan-builder-sync job"
+    assert _needs(job) == {"prepare", "discover-runtimes", "probe-mooncake"}
+    condition = str(job.get("if", ""))
+    assert "always()" in condition
+    for dependency in ("prepare", "discover-runtimes", "probe-mooncake"):
+        assert f"needs.{dependency}.result" in condition
+    assert "success" in condition
+    assert {"builder_plan_artifact", "matrix"} <= set(job.get("outputs", {}))
+
+    required_downloads = {
+        _normalized_with(
+            {
+                "name": "${{ needs.prepare.outputs.builder_catalog_artifact }}",
+                "path": "input/builder-source",
+            }
+        ),
+        _normalized_with(
+            {
+                "name": (
+                    "${{ needs.discover-runtimes.outputs."
+                    "runtime_discovery_artifact }}"
+                ),
+                "path": "input/runtime-discovery",
+            }
+        ),
+        _normalized_with(
+            {
+                "pattern": (
+                    "ucm-mooncake-probe-*-run-${{ github.run_id }}-"
+                    "attempt-${{ github.run_attempt }}"
+                ),
+                "path": "input/mooncake-probes",
+                "merge-multiple": True,
+            }
+        ),
+    }
+    downloads = {
+        _normalized_with(step.get("with", {}))
+        for step in _artifact_steps(job, "download")
+    }
+    assert required_downloads <= downloads
+    plan_steps = [
+        step
+        for step in job["steps"]
+        if "out/builder-sync-plan.json" in str(step.get("run", ""))
+    ]
+    assert len(plan_steps) == 1
+    run = str(plan_steps[0]["run"])
+    for field in (
+        "accelerator",
+        "target_repository",
+        "target_tag",
+        "runner",
+        "cpu_architecture",
+        "mooncake_source_runtime_id",
+        "mooncake_source_runtime_image",
+        "mooncake_version",
+    ):
+        assert field in run
+    assert "matrix=" in run
+    assert "${GITHUB_OUTPUT}" in run
+    for premature in (
+        "builder_fact_id",
+        "builder_revision_id",
+        "target_builder_digest",
+        "python_probe_matrix",
+    ):
+        assert premature not in run
+
+
+def test_builder_fanout_always_emits_existing_built_or_failed_result() -> None:
+    workflow = _load("sync-builders.yml")
+    job = workflow["jobs"].get("build-missing")
+
+    assert isinstance(job, dict), "missing stable build-missing job"
+    assert _needs(job) == {"plan-builder-sync"}
+    condition = str(job.get("if", ""))
+    assert "always()" in condition
+    assert "needs.plan-builder-sync.result" in condition and "success" in condition
+    assert job["strategy"].get("fail-fast") is False
+    assert job["strategy"].get("matrix") == (
+        "${{ fromJSON(needs.plan-builder-sync.outputs.matrix) }}"
+    )
+    assert job["runs-on"] == "${{ matrix.runner }}"
+    job_source = yaml.safe_dump(job, sort_keys=False)
+    assert "matrix.builder_fact_id" not in job_source
+    assert "matrix.builder_revision_id" not in job_source
+    assert "matrix.target_builder_digest" not in job_source
+
+    build = _step_named(job, "Build missing Builder")
+    build_run = str(build.get("run", ""))
+    assert "docker buildx imagetools inspect" in build_run
+    assert "docker buildx build" in build_run or "imagetools create" in build_run
+    result_steps = [
+        step
+        for step in job["steps"]
+        if "out/builder-result/result.json" in str(step.get("run", ""))
+    ]
+    assert len(result_steps) == 1
+    result = result_steps[0]
+    assert "always()" in str(result.get("if", ""))
+    result_run = str(result["run"])
+    assert "docker buildx imagetools inspect" in result_run
+    assert _structured_json_producer(
+        _noncomment_shell(result_run), "out/builder-result/result.json"
+    )
+    for field in (
+        "status",
+        "evidence",
+        "target_repository",
+        "target_tag",
+        "target_builder_digest",
+        "cpu_architecture",
+        "mooncake_source_runtime_id",
+        "mooncake_source_runtime_image",
+        "mooncake_version",
+    ):
+        assert field in result_run
+    for status in ("existing", "built", "failed"):
+        assert status in job_source
+    uploads = _artifact_steps(job, "upload")
+    assert len(uploads) == 1
+    assert uploads[0].get("if") == "${{ always() }}"
+    assert uploads[0]["with"] == {
+        "name": (
+            "ucm-builder-result-${{ matrix.id }}-run-${{ github.run_id }}-"
+            "attempt-${{ github.run_attempt }}"
+        ),
+        "path": "out/builder-result/result.json",
+        "if-no-files-found": "error",
+        "overwrite": False,
+        "retention-days": 7,
+    }
+
+
+def test_builder_collector_links_every_result_before_python_probe_matrix() -> None:
+    workflow = _load("sync-builders.yml")
+    job = workflow["jobs"].get("collect-builder-revisions")
+
+    assert isinstance(job, dict), "missing stable collect-builder-revisions job"
+    assert _needs(job) == {"plan-builder-sync", "build-missing"}
+    condition = str(job.get("if", ""))
+    assert "always()" in condition
+    assert "needs.plan-builder-sync.result" in condition and "success" in condition
+    assert {"builder_facts_artifact", "python_probe_matrix"} <= set(
+        job.get("outputs", {})
+    )
+    assert job["outputs"]["builder_facts_artifact"] == (
+        "${{ steps.collect.outputs.builder_facts_artifact }}"
+    )
+    assert job["outputs"]["python_probe_matrix"] == (
+        "${{ steps.collect.outputs.python_probe_matrix }}"
+    )
+    required_downloads = {
+        _normalized_with(
+            {
+                "name": "${{ needs.plan-builder-sync.outputs.builder_plan_artifact }}",
+                "path": "input/builder-plan",
+            }
+        ),
+        _normalized_with(
+            {
+                "pattern": (
+                    "ucm-builder-result-*-run-${{ github.run_id }}-"
+                    "attempt-${{ github.run_attempt }}"
+                ),
+                "path": "input/builder-results",
+                "merge-multiple": True,
+            }
+        ),
+    }
+    downloads = {
+        _normalized_with(step.get("with", {}))
+        for step in _artifact_steps(job, "download")
+    }
+    assert required_downloads <= downloads
+    collect_steps = [step for step in job["steps"] if step.get("id") == "collect"]
+    assert len(collect_steps) == 1
+    run = str(collect_steps[0]["run"])
+    assert "out/builder-facts.json" in run
+    for field in (
+        "builder_fact_id",
+        "builder_image",
+        "target_builder_digest",
+        "runner",
+        "cpu_architecture",
+        "status",
+        "evidence",
+        "python_probe_matrix",
+    ):
+        assert field in run
+    assert "builder_revision_id" not in run
+    assert "builder_source_image_digest" not in run
+    for status in ("existing", "built", "failed"):
+        assert status in run
+    assert "length" in run or "count" in run
+    assert "${GITHUB_OUTPUT}" in run
+    uploads = _artifact_steps(job, "upload")
+    assert len(uploads) == 1
+    assert uploads[0].get("if") == "${{ always() }}"
+    assert uploads[0]["with"] == {
+        "name": "${{ steps.collect.outputs.builder_facts_artifact }}",
+        "path": "out/builder-facts.json",
+        "if-no-files-found": "error",
+        "overwrite": False,
+        "retention-days": 7,
+    }
+
+
 def test_catalog_assembly_waits_for_all_results_and_calls_public_seam() -> None:
     workflow = _load("sync-builders.yml")
     assembly = workflow["jobs"].get("assemble-capability-catalog")
 
     assert isinstance(assembly, dict), "missing Capability Catalog assembly job"
-    assert {
-        "prepare",
-        "build-missing",
+    assert _needs(assembly) == {
+        "collect-builder-revisions",
         "probe-python",
         "discover-runtimes",
         "probe-mooncake",
-    } <= _needs(assembly)
+    }
     assert assembly.get("if") == "${{ always() }}"
     downloads = _artifact_steps(assembly, "download")
     required_download_values = [
         {
-            "name": "${{ needs.prepare.outputs.builder_catalog_artifact }}",
+            "name": (
+                "${{ needs.collect-builder-revisions.outputs."
+                "builder_facts_artifact }}"
+            ),
             "path": "input/builders",
         },
         {
@@ -748,7 +966,15 @@ def test_ascend_builder_copies_mooncake_from_matching_immutable_runtime() -> Non
         ROOT / ".github" / "release" / "docker" / "Dockerfile.builder"
     ).read_text(encoding="utf-8")
 
-    assert build.get("env", {}).get("RUNTIME_IMAGE") == "${{ matrix.runtime_image }}"
+    assert build.get("env", {}).get("RUNTIME_IMAGE") == (
+        "${{ matrix.mooncake_source_runtime_image }}"
+    )
+    assert build.get("env", {}).get("RUNTIME_ID") == (
+        "${{ matrix.mooncake_source_runtime_id }}"
+    )
+    assert build.get("env", {}).get("MOONCAKE_VERSION") == (
+        "${{ matrix.mooncake_version }}"
+    )
     run = str(build["run"])
     _assert_digest_guard_precedes(
         run,
@@ -794,7 +1020,7 @@ def test_ascend_builder_has_no_tag_inference_or_fixed_mooncake_clone() -> None:
 
 def test_probe_matrices_isolate_failures_and_always_upload_results() -> None:
     workflow = _load("sync-builders.yml")
-    for job_id in ("probe-python", "probe-mooncake"):
+    for job_id in ("build-missing", "probe-python", "probe-mooncake"):
         job = workflow["jobs"].get(job_id)
         assert isinstance(job, dict), f"missing stable {job_id} job"
         assert job["strategy"].get("fail-fast") is False

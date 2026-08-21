@@ -126,6 +126,65 @@ EXCLUSION_FIELDS = {
     "runtime_id",
     "evidence",
 }
+BUILDER_SYNC_FIELDS = {
+    "mode",
+    "target_digests_verified",
+    "deletions",
+}
+BUILDER_FACT_FIELDS = {
+    "builder_fact_id",
+    "project",
+    "accelerator",
+    "accelerator_runtime",
+    "variant",
+    "cpu_architecture",
+    "manylinux",
+    "source_kind",
+    "source_path",
+    "source_image_repository",
+    "source_image_tag",
+    "source_image_digest",
+    "recipe_path",
+    "recipe_source_commit",
+    "recipe_sha256",
+    "toolchain_sha256",
+    "target_repository",
+    "target_tag",
+    "target_builder_digest",
+    "mooncake_source_runtime_id",
+    "mooncake_source_runtime_image",
+    "mooncake_version",
+}
+BUILDER_FACT_IDENTITY_FIELDS = (
+    "accelerator",
+    "accelerator_runtime",
+    "variant",
+    "cpu_architecture",
+    "manylinux",
+    "source_image_repository",
+    "source_image_digest",
+    "recipe_path",
+    "recipe_source_commit",
+    "recipe_sha256",
+    "toolchain_sha256",
+    "target_repository",
+    "target_tag",
+    "target_builder_digest",
+    "mooncake_source_runtime_id",
+    "mooncake_source_runtime_image",
+    "mooncake_version",
+)
+PYTHON_PROBE_FIELDS = {
+    "builder_fact_id",
+    "builder_image",
+    "target_builder_digest",
+    "cpu_architecture",
+    "runner",
+    "interpreter_path",
+    "python_version",
+    "python_abi",
+    "wheel_tag",
+}
 
 
 def _load_fixture() -> dict[str, Any]:
@@ -141,8 +200,7 @@ def _require_public_callable(name: str) -> Callable[..., dict[str, Any]]:
     return function
 
 
-def _assemble() -> dict[str, Any]:
-    fixture = _load_fixture()
+def _assemble_fixture(fixture: dict[str, Any]) -> dict[str, Any]:
     original = copy.deepcopy(fixture)
     assemble = _require_public_callable("assemble_capability_catalog")
 
@@ -157,6 +215,10 @@ def _assemble() -> dict[str, Any]:
     assert fixture == original, "Catalog assembly must not mutate discovery facts"
     assert isinstance(catalog, dict)
     return catalog
+
+
+def _assemble() -> dict[str, Any]:
+    return _assemble_fixture(_load_fixture())
 
 
 def _catalog_digest(catalog: dict[str, Any]) -> str:
@@ -187,6 +249,125 @@ def _assert_no_wall_clock_fields(value: object) -> None:
             _assert_no_wall_clock_fields(nested)
 
 
+def test_builder_fact_fixture_is_abi_independent_and_target_bound() -> None:
+    """Physical Builder identity exists only after immutable target readback."""
+    fixture = _load_fixture()
+    discovery = fixture["builder_discovery"]
+    source_builders = discovery["builders"]
+    facts = discovery["builder_facts"]
+
+    assert all("target_builder_digest" not in item for item in source_builders)
+    assert all("builder_fact_id" not in item for item in source_builders)
+    assert all("builder_revision_id" not in item for item in source_builders)
+    assert all("python_abi" not in item for item in source_builders)
+    assert all(set(fact) == BUILDER_FACT_FIELDS for fact in facts)
+    assert facts == sorted(facts, key=lambda item: item["builder_fact_id"])
+    source_by_target = {
+        (item["target_repository"], item["target_tag"]): item
+        for item in source_builders
+    }
+
+    runtime_by_id = {
+        _canonical_digest(
+            {
+                field: runtime[field]
+                for field in (
+                    "product_id",
+                    "runtime_image_repository",
+                    "runtime_image_tag",
+                    "variant",
+                    "cpu_architecture",
+                )
+            }
+        ): runtime
+        for runtime in fixture["runtime_discovery"]["runtime_candidates"]
+    }
+    mooncake_probe_by_target = {
+        (probe["runtime_image_digest"], probe["cpu_architecture"]): probe
+        for probe in fixture["mooncake_probes"]["probes"]
+    }
+    for fact in facts:
+        source = source_by_target[(fact["target_repository"], fact["target_tag"])]
+        for field in (
+            "accelerator",
+            "accelerator_runtime",
+            "variant",
+            "cpu_architecture",
+            "manylinux",
+            "source_image_repository",
+            "source_image_digest",
+            "recipe_path",
+            "recipe_source_commit",
+            "recipe_sha256",
+            "toolchain_sha256",
+        ):
+            assert fact[field] == source[field]
+        identity = {
+            field: fact[field] for field in BUILDER_FACT_IDENTITY_FIELDS
+        }
+        assert fact["builder_fact_id"] == _canonical_digest(identity)
+        assert "python_version" not in fact
+        assert "python_abi" not in fact
+        if fact["accelerator"] == "cuda":
+            assert fact["mooncake_source_runtime_id"] is None
+            assert fact["mooncake_source_runtime_image"] is None
+            assert fact["mooncake_version"] is None
+        else:
+            runtime = runtime_by_id[fact["mooncake_source_runtime_id"]]
+            assert fact["mooncake_source_runtime_image"] == (
+                f'{runtime["runtime_image_repository"]}@'
+                f'{runtime["runtime_image_digest"]}'
+            )
+            assert fact["mooncake_version"] == runtime["mooncake_version"]
+            probe = mooncake_probe_by_target[
+                (runtime["runtime_image_digest"], fact["cpu_architecture"])
+            ]
+            assert probe["declared_version"] == fact["mooncake_version"]
+            assert probe["installed_version"] == fact["mooncake_version"]
+
+    shared_source = [
+        fact
+        for fact in facts
+        if fact["source_image_digest"] == "sha256:" + "b" * 64
+    ]
+    assert len(shared_source) == 2
+    assert len({fact["builder_fact_id"] for fact in shared_source}) == 2
+    assert len({fact["target_builder_digest"] for fact in shared_source}) == 2
+    assert len({fact["toolchain_sha256"] for fact in shared_source}) == 2
+
+
+def test_python_probe_fixture_links_exact_fact_and_defers_revision_identity() -> None:
+    """ABI probes reopen target Builders without claiming public revision IDs."""
+    fixture = _load_fixture()
+    facts = {
+        fact["builder_fact_id"]: fact
+        for fact in fixture["builder_discovery"]["builder_facts"]
+    }
+    probes = fixture["python_probes"]["probes"]
+
+    assert all(set(probe) == PYTHON_PROBE_FIELDS for probe in probes)
+    for probe in probes:
+        fact = facts[probe["builder_fact_id"]]
+        assert probe["builder_image"] == (
+            f'{fact["target_repository"]}@{fact["target_builder_digest"]}'
+        )
+        assert probe["target_builder_digest"] == fact["target_builder_digest"]
+        assert probe["cpu_architecture"] == fact["cpu_architecture"]
+        assert "builder_revision_id" not in probe
+        assert "builder_source_image_digest" not in probe
+
+    multi_abi_fact = next(
+        fact
+        for fact in facts.values()
+        if fact["target_tag"] == "cuda12.9-cp-all-manylinux2_28-amd64-r1"
+    )
+    assert {
+        probe["python_abi"]
+        for probe in probes
+        if probe["builder_fact_id"] == multi_abi_fact["builder_fact_id"]
+    } == {"cp39", "cp310", "cp311", "cp312"}
+
+
 def test_assembled_catalog_is_closed_digest_bound_and_valid() -> None:
     """A partial, open, or non-canonical object cannot be a Catalog artifact."""
     validate = _require_public_callable("validate_capability_catalog")
@@ -196,9 +377,14 @@ def test_assembled_catalog_is_closed_digest_bound_and_valid() -> None:
     assert catalog["kind"] == "ucm-capability-catalog"
     assert catalog["schema_version"] == 3
     assert catalog["source_sha"] == "1" * 40
-    assert (
-        catalog["builder_sync"] == _load_fixture()["builder_discovery"]["builder_sync"]
-    )
+    expected_sync = _load_fixture()["builder_discovery"]["builder_sync"]
+    assert set(catalog["builder_sync"]) == BUILDER_SYNC_FIELDS
+    assert catalog["builder_sync"] == expected_sync
+    assert catalog["builder_sync"] == {
+        "mode": "append-only",
+        "target_digests_verified": True,
+        "deletions": [],
+    }
     assert catalog["catalog_sha256"] == _catalog_digest(catalog)
     assert validate(copy.deepcopy(catalog)) == catalog
     _assert_no_wall_clock_fields(catalog)
@@ -260,6 +446,37 @@ def test_catalog_entries_cover_discovered_dimensions_and_filter_python_requires(
     )
 
 
+def test_one_physical_builder_fact_expands_only_after_multi_abi_probing() -> None:
+    """One physical target becomes separate public revisions only after ABI facts."""
+    fixture = _load_fixture()
+    fact = next(
+        item
+        for item in fixture["builder_discovery"]["builder_facts"]
+        if item["target_tag"] == "cuda12.9-cp-all-manylinux2_28-amd64-r1"
+    )
+    catalog = _assemble()
+    revisions = [
+        revision
+        for revision in catalog["builder_revisions"]
+        if revision["target_builder_digest"] == fact["target_builder_digest"]
+    ]
+    capabilities_by_id = {
+        item["builder_capability_id"]: item
+        for item in catalog["builder_capabilities"]
+    }
+
+    assert len(revisions) == 3
+    assert len({item["builder_revision_id"] for item in revisions}) == 3
+    assert {
+        capabilities_by_id[item["builder_capability_id"]]["python_abi"]
+        for item in revisions
+    } == {"cp310", "cp311", "cp312"}
+    assert all(
+        capabilities_by_id[item["builder_capability_id"]]["python_abi"] != "cp39"
+        for item in revisions
+    )
+
+
 def test_catalog_preserves_discovery_origins_and_filters_only_exact_310p() -> None:
     """Source provenance and future Variants must survive canonical assembly."""
     catalog = _assemble()
@@ -305,6 +522,13 @@ def test_runtime_candidates_remain_multi_version_and_git_source_bound() -> None:
         and runtime["accelerator_runtime"] == "cuda-12.9"
         and runtime["cpu_architecture"] == "amd64"
     } == {"0.10.0", "0.10.1"}
+    assert {
+        runtime["mooncake_version"]
+        for runtime in runtimes
+        if runtime["accelerator_runtime"] == "cann-9.0"
+        and runtime["variant"] == "a2"
+        and runtime["cpu_architecture"] == "amd64"
+    } == {"0.3.11.post1", "0.3.12"}
     assert all("@sha256:" in runtime["runtime_image"] for runtime in runtimes)
     assert all(runtime["git_tag"].startswith("v") for runtime in runtimes)
     assert all(len(runtime["git_commit"]) == 40 for runtime in runtimes)
@@ -312,35 +536,69 @@ def test_runtime_candidates_remain_multi_version_and_git_source_bound() -> None:
 
 def test_mooncake_runtime_copy_is_version_exact_and_mismatch_is_local() -> None:
     """A fixed clone or global mismatch failure violates Ascend isolation."""
+    fixture = _load_fixture()
     catalog = _assemble()
-    matched = next(
-        entry
-        for entry in catalog["entries"]
-        if entry["accelerator_runtime"] == "cann-9.0" and entry["variant"] == "a2"
+    a2_fact = next(
+        item
+        for item in fixture["builder_discovery"]["builder_facts"]
+        if item["accelerator_runtime"] == "cann-9.0" and item["variant"] == "a2"
     )
-
-    matched_runtime = next(
+    source_runtime = next(
         runtime
         for runtime in catalog["runtime_candidates"]
-        if runtime["runtime_id"] == matched["runtime_id"]
+        if runtime["runtime_id"] == a2_fact["mooncake_source_runtime_id"]
     )
-    matched_binding = next(
-        binding
-        for binding in catalog["bindings"]
-        if binding["runtime_id"] == matched["runtime_id"]
-        and binding["builder_revision_id"] == matched["builder_revision_id"]
+    alternate_runtime = next(
+        runtime
+        for runtime in catalog["runtime_candidates"]
+        if runtime["runtime_tag"] == "v0.9.1-a2"
     )
-    assert matched["mooncake_version"] == "0.3.11.post1"
-    assert matched_runtime["mooncake_version"] == "0.3.11.post1"
-    assert matched["runtime_image"] == matched_runtime["runtime_image"]
-    assert matched_binding["runtime_id"] == matched_runtime["runtime_id"]
-    assert matched["mooncake_copy_mode"] == "runtime-copy"
-    assert matched_binding["mooncake_copy_mode"] == "runtime-copy"
+    a2_revisions = {
+        item["builder_revision_id"]
+        for item in catalog["builder_revisions"]
+        if item["target_builder_digest"] == a2_fact["target_builder_digest"]
+    }
+    capabilities_by_id = {
+        item["builder_capability_id"]: item
+        for item in catalog["builder_capabilities"]
+    }
+    revisions_by_id = {
+        item["builder_revision_id"]: item for item in catalog["builder_revisions"]
+    }
+    a2_bindings = [
+        item
+        for item in catalog["bindings"]
+        if item["builder_revision_id"] in a2_revisions
+    ]
 
+    assert source_runtime["mooncake_version"] == "0.3.11.post1"
+    assert alternate_runtime["mooncake_version"] == "0.3.12"
+    assert a2_revisions
+    assert {
+        capabilities_by_id[revisions_by_id[item]["builder_capability_id"]][
+            "mooncake_version"
+        ]
+        for item in a2_revisions
+    } == {a2_fact["mooncake_version"]}
+    assert {item["runtime_id"] for item in a2_bindings} == {
+        a2_fact["mooncake_source_runtime_id"]
+    }
+    assert all(item["mooncake_copy_mode"] == "runtime-copy" for item in a2_bindings)
+    assert all(
+        item["runtime_id"] != alternate_runtime["runtime_id"]
+        for item in catalog["bindings"]
+        if item["builder_revision_id"] in a2_revisions
+    )
+
+    a4_fact = next(
+        item
+        for item in fixture["builder_discovery"]["builder_facts"]
+        if item["accelerator_runtime"] == "cann-9.1" and item["variant"] == "a4"
+    )
     mismatched_runtime = next(
         runtime
         for runtime in catalog["runtime_candidates"]
-        if runtime["accelerator_runtime"] == "cann-9.1" and runtime["variant"] == "a4"
+        if runtime["runtime_tag"] == "v0.10.0-a4"
     )
     mismatch = next(
         item
@@ -352,6 +610,18 @@ def test_mooncake_runtime_copy_is_version_exact_and_mismatch_is_local() -> None:
         "declared_version": "0.3.12",
         "installed_version": "0.3.11.post1",
     }
+    mismatch_revision = revisions_by_id[mismatch["builder_revision_id"]]
+    assert mismatch_revision["target_builder_digest"] == a4_fact[
+        "target_builder_digest"
+    ]
+    assert mismatch["builder_capability_id"] == mismatch_revision[
+        "builder_capability_id"
+    ]
+    assert any(
+        item["runtime_id"] == a4_fact["mooncake_source_runtime_id"]
+        and item["builder_revision_id"] == mismatch["builder_revision_id"]
+        for item in catalog["bindings"]
+    )
     assert all(
         entry["runtime_id"] != mismatched_runtime["runtime_id"]
         for entry in catalog["entries"]
@@ -366,7 +636,7 @@ def test_mooncake_runtime_copy_is_version_exact_and_mismatch_is_local() -> None:
 
 
 def test_stable_capability_retains_two_immutable_builder_revisions() -> None:
-    """Capability-level latest-wins replacement loses baseline revisions."""
+    """Shared source images must not collapse distinct physical targets."""
     catalog = _assemble()
     capability = next(
         item
@@ -388,7 +658,8 @@ def test_stable_capability_retains_two_immutable_builder_revisions() -> None:
     assert revision_ids == sorted(revision_ids)
     assert len(revisions) == 2
     assert all(set(revision) == REVISION_FIELDS for revision in revisions)
-    assert len({revision["source_image_digest"] for revision in revisions}) == 2
+    assert len({revision["source_image_digest"] for revision in revisions}) == 1
+    assert len({revision["toolchain_sha256"] for revision in revisions}) == 2
     assert len({revision["target_builder_digest"] for revision in revisions}) == 2
     assert {
         binding["builder_revision_id"]
@@ -613,6 +884,65 @@ def test_catalog_set_like_arrays_use_approved_canonical_order() -> None:
     )
 
 
+def _dangling_probe_fact(fixture: dict[str, Any]) -> None:
+    fixture["python_probes"]["probes"][0]["builder_fact_id"] = (
+        "sha256:" + "f" * 64
+    )
+
+
+def _wrong_probe_target_digest(fixture: dict[str, Any]) -> None:
+    fixture["python_probes"]["probes"][0]["target_builder_digest"] = (
+        "sha256:" + "d" * 64
+    )
+
+
+def _wrong_probe_target_image(fixture: dict[str, Any]) -> None:
+    fixture["python_probes"]["probes"][0]["builder_image"] = (
+        "ghcr.io/release-org/ucm-builder-vllm@sha256:" + "d" * 64
+    )
+
+
+def _conflicting_builder_fact(fixture: dict[str, Any]) -> None:
+    conflict = copy.deepcopy(fixture["builder_discovery"]["builder_facts"][0])
+    conflict["target_tag"] += "-conflict"
+    fixture["builder_discovery"]["builder_facts"].append(conflict)
+
+
+def _conflicting_python_probe(fixture: dict[str, Any]) -> None:
+    conflict = copy.deepcopy(fixture["python_probes"]["probes"][0])
+    conflict["wheel_tag"] = "cp39-cp39-manylinux_2_34_x86_64"
+    fixture["python_probes"]["probes"].append(conflict)
+
+
+def _probe_architecture_mismatch(fixture: dict[str, Any]) -> None:
+    fixture["python_probes"]["probes"][0]["cpu_architecture"] = "arm64"
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        pytest.param(_dangling_probe_fact, id="dangling-builder-fact-id"),
+        pytest.param(_wrong_probe_target_digest, id="wrong-target-digest"),
+        pytest.param(_wrong_probe_target_image, id="wrong-target-image"),
+        pytest.param(_conflicting_builder_fact, id="conflicting-builder-fact"),
+        pytest.param(_conflicting_python_probe, id="conflicting-python-probe"),
+        pytest.param(_probe_architecture_mismatch, id="probe-architecture-mismatch"),
+    ],
+)
+def test_assembly_rejects_dangling_or_conflicting_physical_fact_linkage(
+    mutation: Callable[[dict[str, Any]], None],
+) -> None:
+    """Reject-all cannot pass because the unmodified fact graph is valid first."""
+    validate = _require_public_callable("validate_capability_catalog")
+    baseline = _assemble()
+    assert validate(copy.deepcopy(baseline)) == baseline
+    fixture = _load_fixture()
+    mutation(fixture)
+
+    with pytest.raises(ValueError):
+        _assemble_fixture(fixture)
+
+
 def _duplicate_capability_id(catalog: dict[str, Any]) -> None:
     catalog["builder_capabilities"].append(
         copy.deepcopy(catalog["builder_capabilities"][0])
@@ -668,6 +998,22 @@ def _binding_field_drift(catalog: dict[str, Any]) -> None:
 
 def _duplicate_entry_coordinate(catalog: dict[str, Any]) -> None:
     catalog["entries"].append(copy.deepcopy(catalog["entries"][0]))
+
+
+def _unknown_builder_sync_field(catalog: dict[str, Any]) -> None:
+    catalog["builder_sync"]["future_field"] = "unexpected"
+
+
+def _non_append_builder_sync(catalog: dict[str, Any]) -> None:
+    catalog["builder_sync"]["mode"] = "replace"
+
+
+def _unverified_builder_sync_digests(catalog: dict[str, Any]) -> None:
+    catalog["builder_sync"]["target_digests_verified"] = False
+
+
+def _builder_sync_deletion(catalog: dict[str, Any]) -> None:
+    catalog["builder_sync"]["deletions"] = ["ghcr.io/release-org/obsolete"]
 
 
 def _unknown_catalog_field(catalog: dict[str, Any]) -> None:
@@ -746,6 +1092,15 @@ def _noncanonical_nested_revision_ids(catalog: dict[str, Any]) -> None:
         pytest.param(_duplicate_binding_pair, id="duplicate-binding-pair"),
         pytest.param(_binding_field_drift, id="binding-field-drift"),
         pytest.param(_duplicate_entry_coordinate, id="duplicate-entry-coordinate"),
+        pytest.param(
+            _unknown_builder_sync_field, id="unknown-builder-sync-field"
+        ),
+        pytest.param(_non_append_builder_sync, id="non-append-builder-sync"),
+        pytest.param(
+            _unverified_builder_sync_digests,
+            id="unverified-builder-sync-digests",
+        ),
+        pytest.param(_builder_sync_deletion, id="builder-sync-deletion"),
         pytest.param(_unknown_catalog_field, id="unknown-catalog-field"),
         pytest.param(_unknown_capability_field, id="unknown-capability-field"),
         pytest.param(_unknown_revision_field, id="unknown-revision-field"),
