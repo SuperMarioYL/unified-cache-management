@@ -257,8 +257,10 @@ def build_parser() -> argparse.ArgumentParser:
     discover_runtimes.add_argument("--output", type=Path, required=True)
 
     def _cmd_discover_runtimes(a):
+        # Release-derived version fields are not runtime discovery authority.
+        release = core.load_catalog(version_override="0.0.0")
         result = capabilities.discover_live_runtime_candidates(
-            core.load_json(a.builder_catalog), core.load_catalog()
+            core.load_json(a.builder_catalog), release
         )
         a.output.parent.mkdir(parents=True, exist_ok=True)
         _write(a.output, result)
