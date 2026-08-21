@@ -976,10 +976,22 @@ def _runtime_dockerfiles(
             continue
         runtime, hardware = base
         mapped_variant = variant_by_hardware.get(hardware)
-        if declared_variant is None and mapped_variant is None:
-            raise ValueError(f"{project}/{path}: CANN hardware has no Builder variant")
-        variant = declared_variant or mapped_variant
-        assert variant is not None
+        if mapped_variant is not None:
+            if declared_variant is not None and declared_variant != mapped_variant:
+                raise ValueError(
+                    f"{project}/{path}: filename variant and CANN hardware disagree"
+                )
+            variant = mapped_variant
+        else:
+            if declared_variant is None:
+                raise ValueError(
+                    f"{project}/{path}: CANN hardware has no Builder variant"
+                )
+            if declared_variant in known_variants:
+                raise ValueError(
+                    f"{project}/{path}: known variant requires mapped CANN hardware"
+                )
+            variant = declared_variant
         filtered = variant in excluded_variants
         mooncake_version = (
             None
