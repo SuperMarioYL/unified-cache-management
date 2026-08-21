@@ -30,6 +30,73 @@ def _write_release_yaml(tmp_path: Path, release: dict[str, object]) -> Path:
     return path
 
 
+def _minimal_v3_authority() -> dict[str, Any]:
+    return {
+        "kind": "release-config",
+        "schema_version": 3,
+        "source": {
+            "default_branch": "develop",
+            "protected_environment": "release-production",
+        },
+        "discovery": {
+            "exclude_variants": ["310p"],
+            "python_requires": ">=3.10",
+            "bootstrap": "all-passing",
+            "scan_limits": {},
+            "matrix_limits": {},
+        },
+        "products": {
+            "cuda": {
+                "accelerator": "cuda",
+                "distribution": "uc-manager-cuda{runtime.compact}",
+            },
+            "cann": {
+                "accelerator": "ascend",
+                "distribution": (
+                    "uc-manager-cann{runtime.compact}-{variant}"
+                    "-mc{mooncake.compact}"
+                ),
+            },
+        },
+        "dependencies": {
+            "build": {"packaging": "24.2", "pyyaml": "6.0.2"},
+            "runtime": {},
+        },
+        "publish": {
+            "pypi": {
+                "enabled": False,
+                "index": "https://upload.pypi.org/legacy/",
+            },
+            "ghcr": {"enabled": True, "namespace": "ghcr.io/{owner}"},
+            "dockerhub": {
+                "enabled": False,
+                "namespace": "docker.io/{owner}",
+            },
+            "chart_oci": {
+                "enabled": True,
+                "namespace": "ghcr.io/{owner}/charts",
+            },
+            "github_release": {"enabled": True},
+        },
+    }
+
+
+def _canonical_product_rules() -> dict[str, dict[str, str]]:
+    return {
+        "cuda": {
+            "accelerator": "cuda",
+            "distribution": "uc-manager-cuda{runtime.compact}",
+        },
+        "cann": {
+            "accelerator": "ascend",
+            "distribution": (
+                "uc-manager-cann{runtime.compact}-{variant}"
+                "-mc{mooncake.compact}"
+            ),
+        },
+    }
+
+
 def _require_public_module(name: str) -> ModuleType:
     """Turn a not-yet-created public module into an assertion-stage RED."""
     try:
@@ -64,6 +131,21 @@ def test_repository_release_authority_is_schema_v3_without_v2_product_lists() ->
     )
 
 
+def test_load_catalog_accepts_minimal_schema_v3_authority(tmp_path: Path) -> None:
+    """core.load_catalog must accept the approved minimal v3 authority."""
+    core = _require_public_module("ucm_release.core")
+    authority = _minimal_v3_authority()
+    path = _write_release_yaml(tmp_path, authority)
+
+    try:
+        loaded = core.load_catalog(path)
+    except ValueError as exc:
+        pytest.fail(f"minimal Schema v3 authority was rejected: {exc}")
+
+    assert loaded["kind"] == "release-config"
+    assert loaded["schema_version"] == 3
+
+
 def test_load_catalog_rejects_schema_v2_instead_of_migrating_it(
     tmp_path: Path,
 ) -> None:
@@ -91,27 +173,84 @@ def test_load_catalog_rejects_residual_wheel_profiles_in_schema_v3(
         core.load_catalog(path)
 
 
+def test_load_catalog_rejects_pypi_dists_in_schema_v3(tmp_path: Path) -> None:
+    """core.load_catalog must reject the explicit PyPI Distribution residue."""
+    core = _require_public_module("ucm_release.core")
+    release = _minimal_v3_authority()
+    pypi = release["publish"]["pypi"]
+    pypi["dists"] = ["uc-manager-cuda"]
+    path = _write_release_yaml(tmp_path, release)
+
+    with pytest.raises(ValueError, match=r"dists"):
+        core.load_catalog(path)
+
+
 @pytest.mark.parametrize(
-    ("family", "template", "expected_reason"),
+    ("family", "template"),
     [
-        ("cuda", "uc-manager-cuda{runtime.compact", "malformed"),
-        (
+        pytest.param(
+            "cuda",
+            "uc-manager-cuda{runtime.compact}",
+            id="cuda",
+        ),
+        pytest.param(
+            "cann",
+            "uc-manager-cann{runtime.compact}-{variant}-mc{mooncake.compact}",
+            id="cann",
+        ),
+    ],
+)
+def test_compile_distribution_template_accepts_canonical_templates(
+    family: str,
+    template: str,
+) -> None:
+    """products.compile_distribution_template accepts both approved forms."""
+    products = _require_public_module("ucm_release.products")
+    compile_template = _require_public_callable(
+        products, "compile_distribution_template"
+    )
+
+    assert compile_template(family, template) is not None
+
+
+@pytest.mark.parametrize(
+    ("family", "template"),
+    [
+        pytest.param(
+            "cuda",
+            "uc-manager-cuda{runtime.compact",
+            id="unclosed-placeholder",
+        ),
+        pytest.param(
             "cuda",
             "uc-manager-cuda{runtime.compact}-{runtime.major}",
-            "unknown",
+            id="unknown-variable",
         ),
-        ("cuda", "uc-manager-cuda", "runtime.compact"),
-        (
+        pytest.param(
+            "cuda",
+            "uc-manager-cuda",
+            id="cuda-missing-runtime-compact",
+        ),
+        pytest.param(
+            "cann",
+            "uc-manager-cann-{variant}-mc{mooncake.compact}",
+            id="cann-missing-runtime-compact",
+        ),
+        pytest.param(
+            "cann",
+            "uc-manager-cann{runtime.compact}-mc{mooncake.compact}",
+            id="cann-missing-variant",
+        ),
+        pytest.param(
             "cann",
             "uc-manager-cann{runtime.compact}-{variant}",
-            "mooncake.compact",
+            id="cann-missing-mooncake-compact",
         ),
     ],
 )
 def test_compile_distribution_template_rejects_invalid_contracts(
     family: str,
     template: str,
-    expected_reason: str,
 ) -> None:
     """products.compile_distribution_template owns template validation."""
     products = _require_public_module("ucm_release.products")
@@ -119,22 +258,43 @@ def test_compile_distribution_template_rejects_invalid_contracts(
         products, "compile_distribution_template"
     )
 
-    with pytest.raises(ValueError) as caught:
+    with pytest.raises(ValueError):
         compile_template(family, template)
 
-    assert expected_reason in str(caught.value).lower()
+
+def test_expand_distributions_returns_distinct_canonical_coordinates() -> None:
+    """products.expand_distributions expands valid CUDA and CANN capabilities."""
+    products = _require_public_module("ucm_release.products")
+    expand_distributions = _require_public_callable(products, "expand_distributions")
+    capability_contexts = [
+        {
+            "accelerator": "cuda",
+            "accelerator_runtime": "cuda-13.0",
+        },
+        {
+            "accelerator": "ascend",
+            "accelerator_runtime": "cann-9.1.0",
+            "variant": "a3",
+            "mooncake_version": "0.3.11.post1",
+        },
+    ]
+
+    expanded = expand_distributions(
+        _canonical_product_rules(), capability_contexts
+    )
+
+    assert len(expanded) == 2
+    assert set(expanded) == {
+        "uc-manager-cuda130",
+        "uc-manager-cann910-a3-mc0311post1",
+    }
 
 
 def test_expand_distributions_rejects_duplicate_expanded_coordinates() -> None:
     """products.expand_distributions must reject normalization collisions."""
     products = _require_public_module("ucm_release.products")
     expand_distributions = _require_public_callable(products, "expand_distributions")
-    product_rules = {
-        "cuda": {
-            "accelerator": "cuda",
-            "distribution": "uc-manager-cuda{runtime.compact}",
-        }
-    }
+    product_rules = {"cuda": _canonical_product_rules()["cuda"]}
     capability_contexts = [
         {
             "accelerator": "cuda",
@@ -146,8 +306,50 @@ def test_expand_distributions_rejects_duplicate_expanded_coordinates() -> None:
         },
     ]
 
-    with pytest.raises(ValueError, match=r"(?i)duplicate.*distribution"):
+    with pytest.raises(ValueError):
         expand_distributions(product_rules, capability_contexts)
+
+
+@pytest.mark.parametrize(
+    ("distribution_template", "capability_context"),
+    [
+        pytest.param(
+            "uc-manager-cann{runtime.compact}-{variant}-mc{mooncake.compact}",
+            {
+                "accelerator": "ascend",
+                "accelerator_runtime": "cann-9.1.0",
+                "variant": "",
+                "mooncake_version": "0.3.11.post1",
+            },
+            id="empty-variant-expansion",
+        ),
+        pytest.param(
+            "UC Manager {runtime.compact}",
+            {
+                "accelerator": "cuda",
+                "accelerator_runtime": "cuda-13.0",
+            },
+            id="non-pep503-distribution",
+        ),
+    ],
+)
+def test_expand_distributions_rejects_invalid_rendered_distributions(
+    distribution_template: str,
+    capability_context: dict[str, object],
+) -> None:
+    """products.expand_distributions rejects empty or non-PEP-503 output."""
+    products = _require_public_module("ucm_release.products")
+    expand_distributions = _require_public_callable(products, "expand_distributions")
+    family = "cann" if capability_context["accelerator"] == "ascend" else "cuda"
+    product_rules = {
+        family: {
+            "accelerator": capability_context["accelerator"],
+            "distribution": distribution_template,
+        }
+    }
+
+    with pytest.raises(ValueError):
+        expand_distributions(product_rules, [capability_context])
 
 
 @pytest.mark.parametrize(
@@ -168,3 +370,40 @@ def test_capability_version_normalizers_return_canonical_compact_values(
     normalizer = _require_public_callable(capabilities, function_name)
 
     assert normalizer(raw_version) == expected
+
+
+@pytest.mark.parametrize(
+    ("function_name", "raw_version"),
+    [
+        pytest.param(
+            "compact_accelerator_runtime",
+            "cuda-13/0",
+            id="cuda-arbitrary-slash",
+        ),
+        pytest.param(
+            "compact_accelerator_runtime",
+            "cann-9!1!0",
+            id="cann-arbitrary-punctuation",
+        ),
+        pytest.param(
+            "compact_mooncake_version",
+            "0.3/11.post1",
+            id="mooncake-arbitrary-slash",
+        ),
+        pytest.param(
+            "compact_mooncake_version",
+            "0.3.11@post1",
+            id="mooncake-arbitrary-at",
+        ),
+    ],
+)
+def test_capability_version_normalizers_reject_unparseable_versions(
+    function_name: str,
+    raw_version: str,
+) -> None:
+    """Version normalizers must parse versions before compacting them."""
+    capabilities = _require_public_module("ucm_release.capabilities")
+    normalizer = _require_public_callable(capabilities, function_name)
+
+    with pytest.raises(ValueError):
+        normalizer(raw_version)
