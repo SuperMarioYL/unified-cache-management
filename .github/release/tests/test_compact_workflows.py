@@ -38,6 +38,10 @@ def test_release_workflow_has_six_visible_stages_and_flat_build_matrices() -> No
         "package-chart",
         "build-images",
     }
+    assert jobs["build-images"]["with"]["upload_oci"] == (
+        "${{ needs.plan.outputs.route == 'release' || "
+        "inputs.deliver_full_oci == true }}"
+    )
 
 
 def test_builder_sync_contains_only_prepare_and_independent_missing_builds() -> None:
