@@ -389,6 +389,21 @@ class CMakeBuild(build_ext):
         if ASCEND_ROOT:
             cmake_args += [f"-DASCEND_ROOT={ASCEND_ROOT}"]
 
+        compact_cpu_arch = os.environ.get("UCM_BUILD_CPU_ARCH")
+        if PLATFORM == "ascend-a3" and compact_cpu_arch:
+            ascend_subdirectory = {
+                "amd64": "x86_64-linux",
+                "arm64": "aarch64-linux",
+            }.get(compact_cpu_arch)
+            if ascend_subdirectory is None:
+                raise RuntimeError(
+                    f"unsupported compact build architecture: {compact_cpu_arch}"
+                )
+            cmake_args += [
+                "-DASCEND_ARCH_DIR="
+                f"/usr/local/Ascend/ascend-toolkit/latest/{ascend_subdirectory}"
+            ]
+
         match PLATFORM:
             case "cuda":
                 cmake_args += ["-DRUNTIME_ENVIRONMENT=cuda"]

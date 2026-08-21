@@ -73,6 +73,18 @@ def test_reusable_builds_expose_only_functional_inputs() -> None:
         assert "source_sha" not in text
 
 
+def test_compact_wheel_passes_cpu_architecture_to_the_native_build() -> None:
+    workflow = _load("_build-wheel.yml")
+    dockerfile = (
+        ROOT / ".github" / "release" / "docker" / "Dockerfile.wheel"
+    ).read_text(encoding="utf-8")
+    text = yaml.safe_dump(workflow)
+
+    assert "UCM_CPU_ARCH=$(jq -r '.cpu_arch' out/wheel-task.json)" in text
+    assert "ARG UCM_CPU_ARCH" in dockerfile
+    assert 'UCM_BUILD_CPU_ARCH="${UCM_CPU_ARCH}"' in dockerfile
+
+
 def test_removed_wrapper_workflows_are_absent() -> None:
     for name in (
         "release-vllm-images.yml",

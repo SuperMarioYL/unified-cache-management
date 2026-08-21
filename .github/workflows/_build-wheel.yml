@@ -86,6 +86,7 @@ jobs:
             --target wheel \
             --build-arg "UCM_BUILDER_IMAGE=${builder}" \
             --build-arg "UCM_BUILD_VERSION=$(jq -r '.wheel_version' out/wheel-task.json)" \
+            --build-arg "UCM_CPU_ARCH=$(jq -r '.cpu_arch' out/wheel-task.json)" \
             --build-arg "UCM_DIST_NAME=$(jq -r '.dist_name' out/wheel-task.json)" \
             --build-arg "UCM_PLATFORM=$(jq -r '.build.platform_arg' out/wheel-task.json)" \
             --build-arg "UCM_PYTHON_VERSION=$(jq -r '.python_version' out/wheel-task.json)" \
