@@ -135,7 +135,6 @@ def test_fixture_plan_projects_platform_loaders_and_driver_boundary() -> None:
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
-        ("missing-profile", "no compatible wheel profile"),
         ("extra-profile", "overlapping wheel profiles"),
         ("unresolved-lock", "missing required properties"),
         ("missing-builder-manylinux", "missing required properties"),
@@ -146,9 +145,7 @@ def test_release_authority_mutations_fail_closed(
     tmp_path: Path, mutation: str, message: str
 ) -> None:
     release = copy.deepcopy(release_core.load_catalog())
-    if mutation == "missing-profile":
-        release["wheel_profiles"].pop()
-    elif mutation == "extra-profile":
+    if mutation == "extra-profile":
         extra = _clone(release["wheel_profiles"][-1])
         assert isinstance(extra, dict)
         extra["id"] = "cann900-a5"
@@ -161,6 +158,39 @@ def test_release_authority_mutations_fail_closed(
         release["wheel_profiles"][0]["runner"] = "self-hosted"
     rejected = _reject_fixture_resolution(tmp_path / mutation, release)
     assert message in rejected
+
+
+def test_missing_profile_excludes_unsupported_target_from_feature_plan() -> None:
+    release = copy.deepcopy(release_core.load_catalog())
+    removed_profile = release["wheel_profiles"].pop()
+    assert removed_profile["id"] == "cann900-a3"
+    fixture = _fixture_registry()
+    del fixture["repositories"]["quay.io/ascend/vllm-ascend"]["snapshots"][
+        "v0.22.1rc3-a3"
+    ]
+
+    with mock.patch.object(
+        release_registry, "resolve_builder_root", return_value=_resolved_builder_root()
+    ):
+        plan = release_registry.resolve_catalog(
+            release,
+            builder_catalog=_builder_catalog(),
+            source_sha="0" * 40,
+            lane="feature-candidate",
+            fixture=fixture,
+        )
+
+    assert any(
+        item["product_id"] == "vllm-ascend"
+        and item["tag"].endswith("-a3")
+        and item["reason"] == "compatibility-unsupported"
+        for item in plan["exclusions"]
+    )
+    assert plan["image_tasks"]
+    assert all(
+        task["runtime"]["variant"] != "a3" for task in plan["image_tasks"]
+    )
+    assert all(task["runtime"]["variant"] != "a3" for task in plan["family_tasks"])
 
 
 def test_feature_preflight_planner_mode_has_no_write_authority() -> None:
@@ -178,18 +208,37 @@ def test_feature_preflight_planner_mode_has_no_write_authority() -> None:
     assert feature["write_authority"] == []
 
 
-def test_fixture_resolution_rejects_compatibility_without_matching_profile(
-    tmp_path: Path,
-) -> None:
-    """A compatibility rule that no wheel profile satisfies must fail closed."""
-    release = yaml.safe_load(
-        (RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8")
-    )
+def test_fixture_resolution_excludes_compatibility_without_matching_profile() -> None:
+    """An unsupported target is explained and omitted from a feature plan."""
+    release = release_core.load_catalog()
     release["compatibility"]["rules"][0]["accelerator_runtimes"] = ["cuda-12.9"]
+    fixture = _fixture_registry()
+    del fixture["repositories"]["docker.io/vllm/vllm-openai"]["snapshots"][
+        "v0.21.2"
+    ]
 
-    drift = _reject_fixture_resolution(tmp_path, release)
+    with mock.patch.object(
+        release_registry, "resolve_builder_root", return_value=_resolved_builder_root()
+    ):
+        plan = release_registry.resolve_catalog(
+            release,
+            builder_catalog=_builder_catalog(),
+            source_sha="0" * 40,
+            lane="feature-candidate",
+            fixture=fixture,
+        )
 
-    assert "no compatible wheel profile" in drift
+    assert any(
+        item["product_id"] == "vllm"
+        and item["reason"] == "compatibility-unsupported"
+        for item in plan["exclusions"]
+    )
+    assert plan["image_tasks"]
+    assert all(
+        task["runtime"]["product_id"] != "vllm" for task in plan["image_tasks"]
+    )
+    assert all(task["product_id"] != "vllm" for task in plan["family_tasks"])
+    assert all(task["profile_id"] != "cuda130" for task in plan["wheel_tasks"])
 
 
 def test_setup_chart_and_configuration_share_version_authority() -> None:

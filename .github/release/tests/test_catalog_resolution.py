@@ -202,6 +202,218 @@ def _resolve_fixture(catalog: dict[str, object], *, source_sha: str):
         )
 
 
+def test_latest_admissible_candidate_is_selected_per_product_variant() -> None:
+    catalog = core.load_catalog()
+    catalog["scan_limits"]["max_selected_upstreams"] = 3
+
+    plan = _resolve_fixture(catalog, source_sha="9" * 40)
+
+    assert [
+        (snapshot["product_id"], snapshot["variant"], snapshot["tag"])
+        for snapshot in plan["resolved_upstreams"]
+    ] == [
+        ("vllm", "default", "v0.21.2"),
+        ("vllm-ascend", "a2", "v0.22.1rc3"),
+        ("vllm-ascend", "a3", "v0.22.1rc3-a3"),
+    ]
+
+
+def test_superseded_compatible_candidates_are_each_excluded_once() -> None:
+    plan = _resolve_fixture(core.load_catalog(), source_sha="8" * 40)
+
+    superseded = [
+        (item["product_id"], item["tag"])
+        for item in plan["exclusions"]
+        if item["reason"] == "superseded-compatible-version"
+    ]
+    assert superseded == [
+        ("vllm", "v0.21.0"),
+        ("vllm", "v0.21.1"),
+        ("vllm-ascend", "v0.22.1rc1"),
+        ("vllm-ascend", "v0.22.1rc1-a3"),
+        ("vllm-ascend", "v0.22.1rc2"),
+        ("vllm-ascend", "v0.22.1rc2-a3"),
+    ]
+
+
+def test_newest_runtime_patch_unsupported_candidate_falls_back() -> None:
+    plan = _resolve_fixture(core.load_catalog(), source_sha="7" * 40)
+
+    assert [
+        (snapshot["variant"], snapshot["tag"])
+        for snapshot in plan["resolved_upstreams"]
+        if snapshot["product_id"] == "vllm-ascend"
+    ] == [("a2", "v0.22.1rc3"), ("a3", "v0.22.1rc3-a3")]
+    assert [
+        (item["tag"], item["reason"])
+        for item in plan["exclusions"]
+        if item["reason"] == "runtime-patch-unsupported"
+    ] == [
+        ("v0.22.2rc1", "runtime-patch-unsupported"),
+        ("v0.22.2rc1-a3", "runtime-patch-unsupported"),
+    ]
+
+
+def test_latest_candidate_missing_required_architecture_falls_back() -> None:
+    fixture = _registry_fixture()
+    repository = "docker.io/vllm/vllm-openai"
+    snapshots = fixture["repositories"][repository]["snapshots"]
+    fallback = copy.deepcopy(snapshots["v0.21.2"])
+    fallback.update(
+        {
+            "upstream_tag": "v0.21.1",
+            "index_digest": "sha256:" + "c" * 64,
+        }
+    )
+    fallback["platforms"][0].update(
+        {
+            "manifest_digest": "sha256:" + "d" * 64,
+            "config_digest": "sha256:" + "e" * 64,
+        }
+    )
+    fallback["platforms"][1].update(
+        {
+            "manifest_digest": "sha256:" + "1" * 64,
+            "config_digest": "sha256:" + "2" * 64,
+        }
+    )
+    snapshots["v0.21.1"] = fallback
+    snapshots["v0.21.2"]["platforms"] = [
+        member
+        for member in snapshots["v0.21.2"]["platforms"]
+        if member["architecture"] == "amd64"
+    ]
+
+    with mock.patch.object(
+        registry, "resolve_builder_root", side_effect=_resolved_builder_root
+    ):
+        plan = registry.resolve_catalog(
+            core.load_catalog(),
+            builder_catalog=_builder_catalog(),
+            source_sha="6" * 40,
+            lane="feature-candidate",
+            fixture=fixture,
+        )
+
+    assert next(
+        item["tag"]
+        for item in plan["resolved_upstreams"]
+        if item["product_id"] == "vllm"
+    ) == "v0.21.1"
+    assert {
+        "product_id": "vllm",
+        "repository": repository,
+        "tag": "v0.21.2",
+        "reason": "required-architecture-missing",
+    } in plan["exclusions"]
+
+
+def test_non_architecture_registry_blocker_remains_hard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_live_registry_fakes(monkeypatch)
+    monkeypatch.setattr(registry, "resolve_builder_root", _resolved_builder_root)
+
+    def blocked(*args, **kwargs):
+        raise registry.RegistryBlocker("transport-timeout", "registry transport failed")
+
+    monkeypatch.setattr(registry, "resolve_repository_tag", blocked)
+
+    with pytest.raises(registry.RegistryBlocker, match="registry transport failed"):
+        registry.resolve_catalog(
+            core.load_catalog(),
+            builder_catalog=_builder_catalog(),
+            source_sha="5" * 40,
+            lane="feature-candidate",
+        )
+
+
+def test_unsupported_selector_exclusion_permits_partial_feature_plan() -> None:
+    catalog = core.load_catalog()
+    patch_rule = next(
+        rule
+        for rule in catalog["runtime_patch_rules"]
+        if rule["id"] == "vllm-ascend-0221"
+    )
+    patch_rule["variants"] = ["a3"]
+    fixture = _registry_fixture()
+    del fixture["repositories"]["quay.io/ascend/vllm-ascend"]["snapshots"][
+        "v0.22.1rc3"
+    ]
+
+    with mock.patch.object(
+        registry, "resolve_builder_root", side_effect=_resolved_builder_root
+    ):
+        plan = registry.resolve_catalog(
+            catalog,
+            builder_catalog=_builder_catalog(),
+            source_sha="4" * 40,
+            lane="feature-candidate",
+            fixture=fixture,
+        )
+
+    assert {
+        (item["product_id"], item["variant"])
+        for item in plan["resolved_upstreams"]
+    } == {("vllm", "default"), ("vllm-ascend", "a3")}
+    smoke_images = plan["pr_smoke"]["github_image_matrix"]["include"]
+    assert len(smoke_images) == 1
+    selected = next(
+        task for task in plan["image_tasks"] if task["task_id"] == smoke_images[0]["task_id"]
+    )
+    assert (selected["runtime"]["product_id"], selected["cpu_arch"]) == (
+        "vllm",
+        "amd64",
+    )
+
+
+def test_inspected_variant_is_rechecked_before_live_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog = core.load_catalog()
+    ascend_rule = next(
+        rule
+        for rule in catalog["compatibility"]["rules"]
+        if rule["id"] == "ascend-supported"
+    )
+    ascend_rule["variants"] = ["a2"]
+    _install_live_registry_fakes(monkeypatch)
+    enumerate_tags = registry.enumerate_repository_tags
+
+    def enumerate_latest_tags(repository: str, *, fixture=None, max_tags: int):
+        result = enumerate_tags(repository, fixture=fixture, max_tags=max_tags)
+        if repository == "quay.io/ascend/vllm-ascend":
+            result["tags"] = ["v0.22.1rc3", "v0.22.1rc3-a3"]
+        return result
+
+    monkeypatch.setattr(registry, "enumerate_repository_tags", enumerate_latest_tags)
+    monkeypatch.setattr(registry, "resolve_builder_root", _resolved_builder_root)
+    monkeypatch.setattr(
+        registry,
+        "_inspect_upstream_variant",
+        lambda crane, repository, digest, product: (
+            ("default", None) if product["id"] == "vllm" else ("a3", None)
+        ),
+    )
+
+    plan = registry.resolve_catalog(
+        catalog,
+        builder_catalog=_builder_catalog(),
+        source_sha="3" * 40,
+        lane="feature-candidate",
+    )
+
+    assert [
+        (item["product_id"], item["variant"])
+        for item in plan["resolved_upstreams"]
+    ] == [("vllm", "default")]
+    assert any(
+        item["tag"] == "v0.22.1rc3"
+        and item["reason"] == "compatibility-unsupported"
+        for item in plan["exclusions"]
+    )
+
+
 def test_registry_resolves_exactly_the_six_selected_builder_refs(monkeypatch) -> None:
     calls: list[tuple[str, str, str]] = []
 
@@ -393,7 +605,7 @@ def test_arm64_only_family_binds_control_runner_and_tool_arch_in_plan() -> None:
     }
     selected_snapshot = fixture["repositories"]["docker.io/vllm/vllm-openai"][
         "snapshots"
-    ]["v0.21.0"]
+    ]["v0.21.2"]
     selected_snapshot["platforms"] = [
         member
         for member in selected_snapshot["platforms"]
@@ -921,4 +1133,72 @@ def test_resolve_catalog_pin_path_inspects_variant_and_binds_builders(
     ]
     assert _wheel_builder_roots(plan) == {
         key: root for key, root in expected.items() if key[0] == "cann900-a3"
+    }
+
+
+def test_unsupported_pinned_tag_is_excluded_without_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolved_tags: list[str] = []
+
+    def resolve_upstream(
+        repository, upstream_tag, *, required_architectures, fixture=None
+    ):
+        assert fixture is None
+        resolved_tags.append(upstream_tag)
+        return {
+            "operations": [
+                {
+                    "type": "crane-digest",
+                    "capability": "read",
+                    "reference": f"{repository}:{upstream_tag}",
+                }
+            ],
+            "snapshot": {
+                "repository": repository,
+                "tag": upstream_tag,
+                "index_digest": "sha256:" + "7" * 64,
+                "members": {
+                    architecture: {
+                        "manifest_digest": "sha256:"
+                        + ("8" if architecture == "amd64" else "9") * 64,
+                        "config_digest": "sha256:"
+                        + ("a" if architecture == "amd64" else "b") * 64,
+                    }
+                    for architecture in required_architectures
+                },
+            },
+        }
+
+    monkeypatch.setattr(registry, "resolve_builder_root", _resolved_builder_root)
+    monkeypatch.setattr(registry, "resolve_repository_tag", resolve_upstream)
+    monkeypatch.setattr(registry, "resolve_pinned_crane", lambda: "crane")
+    monkeypatch.setattr(
+        registry,
+        "_inspect_upstream_variant",
+        lambda crane, repo, digest, product: ("a3", None),
+    )
+
+    plan = registry.resolve_catalog(
+        core.load_catalog(),
+        builder_catalog=_builder_catalog(),
+        source_sha="f" * 40,
+        lane="feature-candidate",
+        pin_upstreams=["quay.io/ascend/vllm-ascend:v0.22.2rc1-a3"],
+    )
+
+    assert resolved_tags == ["v0.22.2rc1-a3"]
+    assert plan["resolved_upstreams"] == []
+    assert plan["exclusions"] == [
+        {
+            "product_id": "vllm-ascend",
+            "repository": "quay.io/ascend/vllm-ascend",
+            "tag": "v0.22.2rc1-a3",
+            "reason": "runtime-patch-unsupported",
+        }
+    ]
+    assert plan["wheel_tasks"] == plan["image_tasks"] == plan["family_tasks"] == []
+    assert plan["pr_smoke"] == {
+        "github_wheel_matrix": {"include": []},
+        "github_image_matrix": {"include": []},
     }
