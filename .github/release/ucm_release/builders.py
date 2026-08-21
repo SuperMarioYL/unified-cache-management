@@ -368,10 +368,7 @@ class _GitHubSource:
             f"https://api.github.com/repos/{self.project}/commits/"
             f"{urllib.parse.quote(self.branch, safe='')}"
         ).get("sha")
-        if (
-            not isinstance(commit, str)
-            or re.fullmatch(r"[0-9a-f]{40}", commit) is None
-        ):
+        if not isinstance(commit, str) or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
             raise ValueError(f"{self.project}: GitHub response has no branch commit")
         self.commit = commit
         self.ref = commit
@@ -1082,9 +1079,7 @@ def validate_builder_source_discovery(value: object) -> dict[str, Any]:
         raise ValueError("Builder source discovery kind is invalid")
     if discovery.get("schema_version") != 3:
         raise ValueError("Builder source discovery schema_version must be 3")
-    _require_commit(
-        discovery.get("source_sha"), "Builder source discovery source_sha"
-    )
+    _require_commit(discovery.get("source_sha"), "Builder source discovery source_sha")
     reads = discovery.get("upstream_reads")
     if not isinstance(reads, list) or not reads:
         raise ValueError("Builder source discovery upstream_reads must be non-empty")
