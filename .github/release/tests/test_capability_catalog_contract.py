@@ -262,10 +262,6 @@ def test_builder_fact_fixture_is_abi_independent_and_target_bound() -> None:
     assert all("python_abi" not in item for item in source_builders)
     assert all(set(fact) == BUILDER_FACT_FIELDS for fact in facts)
     assert facts == sorted(facts, key=lambda item: item["builder_fact_id"])
-    source_by_target = {
-        (item["target_repository"], item["target_tag"]): item
-        for item in source_builders
-    }
 
     runtime_by_id = {
         _canonical_digest(
@@ -287,7 +283,20 @@ def test_builder_fact_fixture_is_abi_independent_and_target_bound() -> None:
         for probe in fixture["mooncake_probes"]["probes"]
     }
     for fact in facts:
-        source = source_by_target[(fact["target_repository"], fact["target_tag"])]
+        source_matches = [
+            item
+            for item in source_builders
+            if item["target_repository"] == fact["target_repository"]
+            and (
+                item["target_tag"] == fact["target_tag"]
+                or (
+                    fact["accelerator"] == "ascend"
+                    and fact["target_tag"].startswith(item["target_tag"] + "-rt-")
+                )
+            )
+        ]
+        assert len(source_matches) == 1
+        source = source_matches[0]
         for field in (
             "accelerator",
             "accelerator_runtime",
@@ -366,6 +375,17 @@ def test_python_probe_fixture_links_exact_fact_and_defers_revision_identity() ->
         for probe in probes
         if probe["builder_fact_id"] == multi_abi_fact["builder_fact_id"]
     } == {"cp39", "cp310", "cp311", "cp312"}
+    a2_fact_ids = {
+        item["builder_fact_id"]
+        for item in facts.values()
+        if item["accelerator_runtime"] == "cann-9.0" and item["variant"] == "a2"
+    }
+    assert len(a2_fact_ids) == 2
+    assert {
+        probe["builder_fact_id"]
+        for probe in probes
+        if probe["builder_fact_id"] in a2_fact_ids
+    } == a2_fact_ids
 
 
 def test_assembled_catalog_is_closed_digest_bound_and_valid() -> None:
@@ -538,26 +558,11 @@ def test_mooncake_runtime_copy_is_version_exact_and_mismatch_is_local() -> None:
     """A fixed clone or global mismatch failure violates Ascend isolation."""
     fixture = _load_fixture()
     catalog = _assemble()
-    a2_fact = next(
+    a2_facts = [
         item
         for item in fixture["builder_discovery"]["builder_facts"]
         if item["accelerator_runtime"] == "cann-9.0" and item["variant"] == "a2"
-    )
-    source_runtime = next(
-        runtime
-        for runtime in catalog["runtime_candidates"]
-        if runtime["runtime_id"] == a2_fact["mooncake_source_runtime_id"]
-    )
-    alternate_runtime = next(
-        runtime
-        for runtime in catalog["runtime_candidates"]
-        if runtime["runtime_tag"] == "v0.9.1-a2"
-    )
-    a2_revisions = {
-        item["builder_revision_id"]
-        for item in catalog["builder_revisions"]
-        if item["target_builder_digest"] == a2_fact["target_builder_digest"]
-    }
+    ]
     capabilities_by_id = {
         item["builder_capability_id"]: item
         for item in catalog["builder_capabilities"]
@@ -565,30 +570,72 @@ def test_mooncake_runtime_copy_is_version_exact_and_mismatch_is_local() -> None:
     revisions_by_id = {
         item["builder_revision_id"]: item for item in catalog["builder_revisions"]
     }
-    a2_bindings = [
-        item
-        for item in catalog["bindings"]
-        if item["builder_revision_id"] in a2_revisions
-    ]
-
-    assert source_runtime["mooncake_version"] == "0.3.11.post1"
-    assert alternate_runtime["mooncake_version"] == "0.3.12"
-    assert a2_revisions
-    assert {
-        capabilities_by_id[revisions_by_id[item]["builder_capability_id"]][
-            "mooncake_version"
-        ]
-        for item in a2_revisions
-    } == {a2_fact["mooncake_version"]}
-    assert {item["runtime_id"] for item in a2_bindings} == {
-        a2_fact["mooncake_source_runtime_id"]
+    runtimes_by_id = {
+        item["runtime_id"]: item for item in catalog["runtime_candidates"]
     }
-    assert all(item["mooncake_copy_mode"] == "runtime-copy" for item in a2_bindings)
-    assert all(
-        item["runtime_id"] != alternate_runtime["runtime_id"]
-        for item in catalog["bindings"]
-        if item["builder_revision_id"] in a2_revisions
+
+    assert len(a2_facts) == 2
+    assert len({item["builder_fact_id"] for item in a2_facts}) == 2
+    assert len({item["target_tag"] for item in a2_facts}) == 2
+    assert len({item["target_builder_digest"] for item in a2_facts}) == 2
+    assert {item["mooncake_version"] for item in a2_facts} == {
+        "0.3.11.post1",
+        "0.3.12",
+    }
+    all_a2_revision_ids = set()
+    for fact in a2_facts:
+        revisions = [
+            item
+            for item in catalog["builder_revisions"]
+            if item["target_builder_digest"] == fact["target_builder_digest"]
+        ]
+        assert len(revisions) == 1
+        revision = revisions[0]
+        all_a2_revision_ids.add(revision["builder_revision_id"])
+        capability = capabilities_by_id[revision["builder_capability_id"]]
+        runtime = runtimes_by_id[fact["mooncake_source_runtime_id"]]
+        bindings = [
+            item
+            for item in catalog["bindings"]
+            if item["builder_revision_id"] == revision["builder_revision_id"]
+        ]
+        assert capability["mooncake_version"] == fact["mooncake_version"]
+        assert runtime["mooncake_version"] == fact["mooncake_version"]
+        assert {item["runtime_id"] for item in bindings} == {
+            fact["mooncake_source_runtime_id"]
+        }
+        assert all(item["mooncake_copy_mode"] == "runtime-copy" for item in bindings)
+        assert all(
+            item["runtime_image"] == fact["mooncake_source_runtime_image"]
+            for item in bindings
+        )
+    assert len(all_a2_revision_ids) == 2
+
+    cuda_fact = next(
+        item
+        for item in fixture["builder_discovery"]["builder_facts"]
+        if item["accelerator_runtime"] == "cuda-12.9"
     )
+    compatible_cuda_runtimes = {
+        item["runtime_id"]
+        for item in catalog["runtime_candidates"]
+        if item["accelerator_runtime"] == "cuda-12.9"
+        and item["variant"] == "default"
+        and item["cpu_architecture"] == "amd64"
+    }
+    cuda_revisions = [
+        item
+        for item in catalog["builder_revisions"]
+        if item["target_builder_digest"] == cuda_fact["target_builder_digest"]
+    ]
+    assert len(compatible_cuda_runtimes) > 1
+    assert cuda_revisions
+    for revision in cuda_revisions:
+        assert {
+            item["runtime_id"]
+            for item in catalog["bindings"]
+            if item["builder_revision_id"] == revision["builder_revision_id"]
+        } == compatible_cuda_runtimes
 
     a4_fact = next(
         item

@@ -6,6 +6,7 @@ import copy
 import hashlib
 import importlib
 import json
+import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -21,6 +22,8 @@ FIXTURE_PATH = (
 sys.path.insert(0, str(RELEASE_ROOT))
 
 builders = importlib.import_module("ucm_release.builders")
+
+OCI_TAG = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$", re.ASCII)
 
 PLAN_FIELDS = {
     "kind",
@@ -256,6 +259,16 @@ def _runtime_id(value: dict[str, Any]) -> str:
     )
 
 
+def _ascend_target_tag(source: dict[str, Any], runtime: dict[str, Any]) -> str:
+    suffix = _canonical_digest(
+        {
+            "runtime_id": _runtime_id(runtime),
+            "runtime_image_digest": runtime["runtime_image_digest"],
+        }
+    ).split(":", 1)[1]
+    return f'{source["target_tag"]}-rt-{suffix}'
+
+
 def test_builder_fact_flow_public_apis_exist() -> None:
     assert _require_public_callable("plan_builder_facts")
     assert _require_public_callable("collect_builder_facts")
@@ -271,27 +284,64 @@ def test_plan_builder_facts_is_closed_canonical_and_abi_independent() -> None:
     assert plan["source_sha"] == fixture["builder_discovery"]["source_sha"]
     plans = plan["builder_plans"]
     assert plans == sorted(plans, key=lambda item: item["builder_plan_id"])
-    expected_targets = {
-        (item["target_repository"], item["target_tag"])
+    source_builders = [
+        item
         for item in fixture["builder_discovery"]["builders"]
         if item["variant"] != "310p"
-    }
-    assert {
-        (item["target_repository"], item["target_tag"]) for item in plans
-    } == expected_targets
-
-    runtimes = {
-        _runtime_id(item): item
-        for item in fixture["runtime_discovery"]["runtime_candidates"]
-    }
+    ]
+    runtime_values = fixture["runtime_discovery"]["runtime_candidates"]
+    runtimes = {_runtime_id(item): item for item in runtime_values}
     probes = {
         (item["runtime_image_digest"], item["cpu_architecture"]): item
         for item in fixture["mooncake_probes"]["probes"]
     }
-    expected_fact_by_target = {
-        (item["target_repository"], item["target_tag"]): item
-        for item in fixture["builder_discovery"]["builder_facts"]
-    }
+    expected_plans = set()
+    for source in source_builders:
+        if source["accelerator"] == "cuda":
+            expected_plans.add(
+                (source["target_repository"], source["target_tag"], None)
+            )
+            continue
+        compatible = [
+            runtime
+            for runtime in runtime_values
+            if all(
+                runtime[field] == source[field]
+                for field in (
+                    "accelerator",
+                    "accelerator_runtime",
+                    "variant",
+                    "cpu_architecture",
+                )
+            )
+        ]
+        for runtime in compatible:
+            probe = probes[
+                (runtime["runtime_image_digest"], runtime["cpu_architecture"])
+            ]
+            if not (
+                probe["declared_version"]
+                == probe["installed_version"]
+                == runtime["mooncake_version"]
+            ):
+                continue
+            expected_plans.add(
+                (
+                    source["target_repository"],
+                    _ascend_target_tag(source, runtime),
+                    _runtime_id(runtime),
+                )
+            )
+    assert {
+        (
+            item["target_repository"],
+            item["target_tag"],
+            item["mooncake_source_runtime_id"],
+        )
+        for item in plans
+    } == expected_plans
+    assert len({item["target_tag"] for item in plans}) == len(plans)
+
     for item in plans:
         assert set(item) == BUILDER_PLAN_FIELDS
         identity = {field: item[field] for field in PLAN_IDENTITY_FIELDS}
@@ -306,25 +356,44 @@ def test_plan_builder_facts_is_closed_canonical_and_abi_independent() -> None:
             assert item["mooncake_version"] is None
         else:
             runtime = runtimes[item["mooncake_source_runtime_id"]]
+            source = next(
+                source
+                for source in source_builders
+                if all(
+                    source[field] == item[field]
+                    for field in (
+                        "accelerator",
+                        "accelerator_runtime",
+                        "variant",
+                        "cpu_architecture",
+                        "target_repository",
+                    )
+                )
+            )
             probe = probes[
                 (runtime["runtime_image_digest"], item["cpu_architecture"])
             ]
+            expected_tag = _ascend_target_tag(source, runtime)
+            assert item["target_tag"] == expected_tag
+            assert _ascend_target_tag(source, runtime) == expected_tag
+            assert OCI_TAG.fullmatch(item["target_tag"])
+            assert len(item["target_tag"]) <= 128
             assert item["mooncake_source_runtime_image"] == (
                 f'{runtime["runtime_image_repository"]}@'
                 f'{runtime["runtime_image_digest"]}'
             )
             assert probe["declared_version"] == item["mooncake_version"]
             assert probe["installed_version"] == item["mooncake_version"]
-        expected_fact = expected_fact_by_target.get(
-            (item["target_repository"], item["target_tag"])
-        )
-        if expected_fact is not None:
-            for field in (
-                "mooncake_source_runtime_id",
-                "mooncake_source_runtime_image",
-                "mooncake_version",
-            ):
-                assert item[field] == expected_fact[field]
+
+    a2_plans = [
+        item
+        for item in plans
+        if item["accelerator_runtime"] == "cann-9.0" and item["variant"] == "a2"
+    ]
+    assert len(a2_plans) == 2
+    assert len({item["builder_plan_id"] for item in a2_plans}) == 2
+    assert len({item["target_tag"] for item in a2_plans}) == 2
+    assert len({item["mooncake_source_runtime_id"] for item in a2_plans}) == 2
 
     matrix = plan["matrix"]
     assert set(matrix) == {"include"}
@@ -361,8 +430,18 @@ def test_plan_builder_facts_keeps_mooncake_failure_local() -> None:
         "declared_version": "0.3.12",
         "installed_version": "0.3.11.post1",
     }
+    source = next(
+        item
+        for item in fixture["builder_discovery"]["builders"]
+        if item["variant"] == "a4"
+    )
+    healthy_runtime = next(
+        item
+        for item in fixture["runtime_discovery"]["runtime_candidates"]
+        if item["runtime_image_tag"] == "v0.9.9-a4"
+    )
     assert any(
-        item["target_tag"] == "cann9.1-a4-cp-all-manylinux2_34-arm64-r1"
+        item["target_tag"] == _ascend_target_tag(source, healthy_runtime)
         and item["mooncake_source_runtime_id"]
         != mismatch["runtime_id"]
         for item in plan["builder_plans"]
@@ -449,6 +528,16 @@ def test_collect_builder_facts_is_closed_and_matches_catalog_fixture() -> None:
         )
         assert row["target_builder_digest"] == fact["target_builder_digest"]
         assert row["cpu_architecture"] == fact["cpu_architecture"]
+
+    a2_facts = [
+        item
+        for item in collected["builder_facts"]
+        if item["accelerator_runtime"] == "cann-9.0" and item["variant"] == "a2"
+    ]
+    assert len(a2_facts) == 2
+    assert {
+        item["builder_fact_id"] for item in a2_facts
+    } <= {item["builder_fact_id"] for item in rows}
 
 
 @pytest.mark.parametrize(
