@@ -847,7 +847,8 @@ def _runtime_dockerfiles(
     project: str,
     commit: str,
     variant_by_hardware: dict[str, str],
-) -> list[dict[str, str]]:
+    excluded_variants: frozenset[str],
+) -> list[dict[str, Any]]:
     tree = _mapping(
         _request_json(
             f"https://api.github.com/repos/{project}/git/trees/{commit}?recursive=1"
@@ -862,7 +863,7 @@ def _runtime_dockerfiles(
         and isinstance(item.get("path"), str)
         and re.fullmatch(r"Dockerfile(?:\.[^/]+)*", item["path"])
     )
-    values: list[dict[str, str]] = []
+    values: list[dict[str, Any]] = []
     for path in paths:
         quoted_path = urllib.parse.quote(path, safe="/")
         text = _request_bytes(
@@ -875,11 +876,16 @@ def _runtime_dockerfiles(
         )
         if base is None:
             continue
-        mooncake_version = _literal_mooncake_version(text, f"{project}/{path}")
         hardware = base.group(2).lower()
         variant = variant_by_hardware.get(hardware)
         if variant is None:
             continue
+        filtered = variant in excluded_variants
+        mooncake_version = (
+            None
+            if filtered
+            else _literal_mooncake_version(text, f"{project}/{path}")
+        )
         suffix = path.removeprefix("Dockerfile").lstrip(".")
         values.append(
             {
@@ -890,6 +896,7 @@ def _runtime_dockerfiles(
                 "accelerator_runtime": f"cann-{base.group(1)}",
                 "hardware_token": hardware,
                 "tag_suffix": normalize_variant(suffix) if suffix else "",
+                "filtered": filtered,
             }
         )
     return values
@@ -904,6 +911,12 @@ def discover_live_runtime_candidates(
     products = _array(release_input.get("upstream_products"), "upstream products")
     discovery = _mapping(release_input.get("discovery"), "release discovery")
     limits = _mapping(discovery.get("scan_limits"), "release scan limits")
+    excluded_values = _array(
+        discovery.get("exclude_variants"), "release excluded variants"
+    )
+    excluded_variants = frozenset(normalize_variant(item) for item in excluded_values)
+    if len(excluded_variants) != len(excluded_values):
+        raise ValueError("release excluded variants must be unique")
     selected_limit = limits.get("max_selected_upstreams")
     if not isinstance(selected_limit, int) or selected_limit < 1:
         raise ValueError("max_selected_upstreams must be positive")
@@ -996,15 +1009,14 @@ def discover_live_runtime_candidates(
                     env_map.get("CUDA_VERSION"), f"{reference} CUDA_VERSION"
                 )
                 variant_candidates = ["default"]
-                dockerfiles: list[dict[str, str]] = []
-                source_dockerfiles: list[dict[str, str]] = []
+                dockerfiles: list[dict[str, Any]] = []
             else:
                 discovered_dockerfiles = _runtime_dockerfiles(
                     project,
                     commit,
                     variant_by_hardware,
+                    excluded_variants,
                 )
-                source_dockerfiles = discovered_dockerfiles
                 suffix = tag.removeprefix(git_tag).lstrip("-")
                 normalized_suffix = normalize_variant(suffix) if suffix else ""
                 dockerfiles = [
@@ -1016,8 +1028,21 @@ def discover_live_runtime_candidates(
                     raise ValueError(
                         f"{reference}: runtime Dockerfile suffix is not unique"
                     )
-                runtime = dockerfiles[0]["accelerator_runtime"]
-                variant_candidates = [dockerfiles[0]["variant"]]
+                selected_dockerfile = dockerfiles[0]
+                upstream_reads.extend(
+                    {
+                        "project": project,
+                        "source_kind": "runtime-dockerfile-and-annotated-tag",
+                        "source_path": item["source_path"],
+                        "source_commit": commit,
+                        "fact": "FROM" if item["filtered"] else "MOONCAKE_TAG",
+                    }
+                    for item in discovered_dockerfiles
+                )
+                if selected_dockerfile["filtered"] is True:
+                    continue
+                runtime = selected_dockerfile["accelerator_runtime"]
+                variant_candidates = [selected_dockerfile["variant"]]
 
             candidate_architectures = sorted(
                 architectures_by_variant.get(variant_candidates[0], set())
@@ -1071,17 +1096,6 @@ def discover_live_runtime_candidates(
                         "source_commit": commit,
                         "fact": "runtime-image",
                     }
-                )
-            else:
-                upstream_reads.extend(
-                    {
-                        "project": project,
-                        "source_kind": "runtime-dockerfile-and-annotated-tag",
-                        "source_path": item["source_path"],
-                        "source_commit": commit,
-                        "fact": "MOONCAKE_TAG",
-                    }
-                    for item in source_dockerfiles
                 )
     runtime_sources = {
         "source_sha": source_sha,
