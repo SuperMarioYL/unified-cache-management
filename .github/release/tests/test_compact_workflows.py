@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -323,29 +324,34 @@ def _structured_json_producer(branch: str, path: str) -> str | None:
     return None
 
 
-def _has_executable_failure_marker(source: str, marker: str) -> bool:
-    source = _noncomment_shell(source)
-    branches = [
-        match.group(0)
-        for pattern in (
-            r"(?ms)^\s*if\b.*?^\s*fi(?:\s*;)?\s*$",
-            r"(?ms)^\s*case\b.*?^\s*esac(?:\s*;)?\s*$",
-        )
-        for match in re.finditer(pattern, source)
+def _cli_command(run: str, group: str, action: str) -> list[str]:
+    source = re.sub(r"\\\s*\n", " ", _noncomment_shell(run))
+    pattern = (
+        rf"(?m)^\s*(?:[A-Z_][A-Z0-9_]*=\S+\s+)*"
+        rf"python(?:3)?\s+-m\s+ucm_release\s+{re.escape(group)}\s+"
+        rf"{re.escape(action)}\b[^\n]*$"
+    )
+    matches = list(re.finditer(pattern, source))
+    assert len(matches) == 1
+    command = shlex.split(matches[0].group(0))
+    python_index = next(
+        index for index, token in enumerate(command) if token in {"python", "python3"}
+    )
+    assert command[python_index : python_index + 5] == [
+        command[python_index],
+        "-m",
+        "ucm_release",
+        group,
+        action,
     ]
-    shell_failure = any(
-        marker in branch and _has_failure_command(branch) for branch in branches
-    )
-    python_failure = re.search(
-        rf"(?ms)^\s*if[^\n]*{re.escape(marker)}[^\n]*:\s*\n"
-        r"(?:(?:[ \t]+).*\n?)*?(?:raise\b|sys\.exit\s*\()",
-        source,
-    )
-    return shell_failure or python_failure is not None
+    return command[python_index:]
 
 
-def _assert_executable_failure_marker(source: str, marker: str) -> None:
-    assert _has_executable_failure_marker(source, marker)
+def _assert_cli_options(command: list[str], expected: dict[str, str]) -> None:
+    for option, value in expected.items():
+        assert command.count(option) == 1
+        index = command.index(option)
+        assert command[index + 1] == value
 
 
 def _string_values(value: object) -> list[str]:
@@ -733,30 +739,21 @@ def test_builder_sync_plan_waits_for_runtime_and_mooncake_results() -> None:
     plan = plan_steps[0]
     assert plan.get("id") == "plan"
     run = _noncomment_shell(str(plan["run"]))
-    producer = _structured_json_producer(run, "out/builder-sync-plan.json")
-    assert producer is not None
-    for field in (
-        "builder_plan_id",
-        "accelerator",
-        "target_repository",
-        "target_tag",
-        "runner",
-        "cpu_architecture",
-        "mooncake_source_runtime_id",
-        "mooncake_source_runtime_image",
-        "mooncake_version",
-    ):
-        assert field in producer
+    command = _cli_command(run, "builders", "plan-facts")
+    _assert_cli_options(
+        command,
+        {
+            "--builder-catalog": "input/builder-source/builder-catalog.json",
+            "--runtime-discovery": (
+                "input/runtime-discovery/runtime-discovery.json"
+            ),
+            "--mooncake-probes": "input/mooncake-probes",
+            "--output": "out/builder-sync-plan.json",
+        },
+    )
     assert "matrix=" in run
     assert "builder_plan_artifact=" in run
     assert "${GITHUB_OUTPUT}" in run
-    for premature in (
-        "builder_fact_id",
-        "builder_revision_id",
-        "target_builder_digest",
-        "python_probe_matrix",
-    ):
-        assert premature not in run
     assert job["outputs"]["builder_plan_artifact"] == (
         "${{ steps.plan.outputs.builder_plan_artifact }}"
     )
@@ -793,6 +790,7 @@ def test_builder_fanout_always_emits_existing_built_or_failed_result() -> None:
     assert "matrix.target_builder_digest" not in job_source
 
     build = _step_named(job, "Build missing Builder")
+    assert build.get("id") == "build"
     build_run = _noncomment_shell(str(build.get("run", "")))
     assert "docker buildx imagetools inspect" in build_run
     assert "docker buildx build" in build_run or "imagetools create" in build_run
@@ -805,27 +803,20 @@ def test_builder_fanout_always_emits_existing_built_or_failed_result() -> None:
     result = result_steps[0]
     assert "always()" in str(result.get("if", ""))
     result_run = _noncomment_shell(str(result["run"]))
-    assert "docker buildx imagetools inspect" in result_run
-    producer = _structured_json_producer(
-        result_run, "out/builder-result/result.json"
+    assert "out/builder-result/result.json" in result_run
+    assert re.search(
+        r"(?m)^\s*docker\s+buildx\s+imagetools\s+inspect\b", result_run
     )
-    assert producer is not None
-    for field in (
-        "builder_plan_id",
-        "status",
-        "readback",
-        "evidence",
-        "target_repository",
-        "target_tag",
-        "target_builder_digest",
-        "cpu_architecture",
-        "mooncake_source_runtime_id",
-        "mooncake_source_runtime_image",
-        "mooncake_version",
-    ):
-        assert field in producer
-    for status in ("existing", "built", "failed"):
-        assert status in job_source
+    assert result.get("env", {}).get("BUILDER_PLAN_ID") == (
+        "${{ matrix.builder_plan_id }}"
+    )
+    assert result.get("env", {}).get("BUILD_OUTCOME") == (
+        "${{ steps.build.outcome }}"
+    )
+    assert result.get("env", {}).get("TARGET_REPOSITORY") == (
+        "${{ matrix.target_repository }}"
+    )
+    assert result.get("env", {}).get("TARGET_TAG") == "${{ matrix.target_tag }}"
     uploads = _artifact_steps(job, "upload")
     assert len(uploads) == 1
     assert uploads[0].get("if") == "${{ always() }}"
@@ -885,50 +876,15 @@ def test_builder_collector_links_every_result_before_python_probe_matrix() -> No
     collect_steps = [step for step in job["steps"] if step.get("id") == "collect"]
     assert len(collect_steps) == 1
     run = _noncomment_shell(str(collect_steps[0]["run"]))
-    assert "out/builder-facts.json" in run
-    assert re.search(
-        r"(?:planned[\s\S]*?builder_plan_id|builder_plan_id[\s\S]*?planned)",
-        run,
-        re.IGNORECASE,
+    command = _cli_command(run, "builders", "collect-facts")
+    _assert_cli_options(
+        command,
+        {
+            "--plan": "input/builder-plan/builder-sync-plan.json",
+            "--results": "input/builder-results",
+            "--output": "out/builder-facts.json",
+        },
     )
-    assert re.search(
-        r"(?:result[\s\S]*?builder_plan_id|builder_plan_id[\s\S]*?result)",
-        run,
-        re.IGNORECASE,
-    )
-    for relation in (
-        r"(?:missing[\s\S]*?planned[\s\S]*?result|"
-        r"planned[\s\S]*?result[\s\S]*?missing)",
-        r"(?:unexpected[\s\S]*?result[\s\S]*?planned|"
-        r"result[\s\S]*?planned[\s\S]*?unexpected)",
-        r"(?:duplicate[\s\S]*?builder_plan_id|"
-        r"builder_plan_id[\s\S]*?duplicate)",
-    ):
-        assert re.search(relation, run, re.IGNORECASE)
-    for marker in ("missing", "unexpected", "duplicate"):
-        _assert_executable_failure_marker(run, marker)
-    producer = _structured_json_producer(run, "out/builder-facts.json")
-    assert producer is not None
-    for field in (
-        "builder_plan_id",
-        "builder_fact_id",
-        "builder_image",
-        "target_builder_digest",
-        "runner",
-        "cpu_architecture",
-        "status",
-        "evidence",
-        "builder_facts",
-        "failures",
-        "python_probe_matrix",
-    ):
-        assert field in producer
-    assert "builder_revision_id" not in run
-    assert "builder_source_image_digest" not in run
-    for status in ("existing", "built", "failed"):
-        assert status in producer
-    assert "resolved" in producer
-    assert "length" in run or "count" in run or "Counter" in run
     assert "${GITHUB_OUTPUT}" in run
     uploads = _artifact_steps(job, "upload")
     assert len(uploads) == 1
@@ -942,46 +898,7 @@ def test_builder_collector_links_every_result_before_python_probe_matrix() -> No
     }
 
 
-@pytest.mark.parametrize(
-    ("status", "collection"),
-    [
-        pytest.param("existing", "builder_facts", id="zero-new-existing-readback"),
-        pytest.param("built", "builder_facts", id="same-run-built-target"),
-        pytest.param("failed", "failures", id="failed-new-target-is-local"),
-    ],
-)
-def test_builder_collector_routes_static_result_cases_without_global_failure(
-    status: str,
-    collection: str,
-) -> None:
-    workflow = _load("sync-builders.yml")
-    job = workflow["jobs"].get("collect-builder-revisions")
-
-    assert isinstance(job, dict), "missing stable collect-builder-revisions job"
-    collect = [step for step in job["steps"] if step.get("id") == "collect"]
-    assert len(collect) == 1
-    run = _noncomment_shell(str(collect[0]["run"]))
-    producer = _structured_json_producer(run, "out/builder-facts.json")
-    assert producer is not None
-    assert re.search(
-        rf"(?:{re.escape(status)}[\s\S]*?{re.escape(collection)}|"
-        rf"{re.escape(collection)}[\s\S]*?{re.escape(status)})",
-        producer,
-        re.IGNORECASE,
-    )
-    if status in {"existing", "built"}:
-        assert "resolved" in producer
-        assert "python_probe_matrix" in producer
-    else:
-        assert "evidence" in producer
-        assert not _has_executable_failure_marker(run, "failed")
-        assert "existing" in producer
-        assert "built" in producer
-        assert "builder_facts" in producer
-        assert "python_probe_matrix" in producer
-
-
-def test_catalog_assembly_waits_for_all_results_and_calls_public_seam() -> None:
+def test_catalog_assembly_waits_for_all_results_and_calls_stable_cli() -> None:
     workflow = _load("sync-builders.yml")
     assembly = workflow["jobs"].get("assemble-capability-catalog")
 
@@ -1029,23 +946,19 @@ def test_catalog_assembly_waits_for_all_results_and_calls_public_seam() -> None:
     catalog_steps = [step for step in assembly["steps"] if step.get("id") == "catalog"]
     assert len(catalog_steps) == 1
     run = _noncomment_shell(str(catalog_steps[0]["run"]))
-    assert "assemble_capability_catalog" in run
-    assert "validate_capability_catalog" in run
-    assert "out/capability-catalog.json" in run
-    assert "input/builders/builder-facts.json" in run
-    assert "failures" in run
-    assert "exclusion" in run
-    direct_failures = re.search(
-        r"assemble_capability_catalog\s*\([\s\S]*?"
-        r"(?:builder_failures|failures)\s*=",
-        run,
+    command = _cli_command(run, "catalog", "assemble-capabilities")
+    _assert_cli_options(
+        command,
+        {
+            "--builder-facts": "input/builders/builder-facts.json",
+            "--python-probes": "input/python-probes",
+            "--runtime-discovery": (
+                "input/runtime-discovery/runtime-discovery.json"
+            ),
+            "--mooncake-probes": "input/mooncake-probes",
+            "--output": "out/capability-catalog.json",
+        },
     )
-    collected_failures = re.search(
-        r"[\"']failures[\"'][\s\S]*?"
-        r"assemble_capability_catalog\s*\([\s\S]*?builder_discovery",
-        run,
-    )
-    assert direct_failures or collected_failures
     assert (
         "ucm-capability-catalog-run-${GITHUB_RUN_ID}-attempt-"
         "${GITHUB_RUN_ATTEMPT}" in run

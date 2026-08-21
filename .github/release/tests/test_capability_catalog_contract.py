@@ -668,6 +668,45 @@ def test_stable_capability_retains_two_immutable_builder_revisions() -> None:
     } == set(revision_ids)
 
 
+def test_failed_new_builder_becomes_source_only_exclusion() -> None:
+    """A failed same-run target is evidence, not a fabricated public revision."""
+    fixture = _load_fixture()
+    failure = fixture["builder_discovery"]["failures"][0]
+    catalog = _assemble()
+    exclusion = next(
+        item
+        for item in catalog["exclusions"]
+        if item["reason_code"] == "builder-sync-failed"
+    )
+
+    assert exclusion == {
+        "reason_code": "builder-sync-failed",
+        "source_kind": failure["source_kind"],
+        "source_id": failure["source_id"],
+        "builder_capability_id": None,
+        "builder_revision_id": None,
+        "runtime_id": None,
+        "evidence": {
+            "builder_plan_id": failure["builder_plan_id"],
+            "status": "failed",
+            "target_repository": failure["target_repository"],
+            "target_tag": failure["target_tag"],
+            "target_builder_digest": None,
+            "digest_readback": False,
+            "failure": failure["evidence"],
+        },
+    }
+    assert exclusion["evidence"]["failure"]["plan"]["target_tag"] == failure[
+        "target_tag"
+    ]
+    assert all(
+        (item["target_repository"], item["target_tag"])
+        != (failure["target_repository"], failure["target_tag"])
+        for item in catalog["builder_revisions"]
+    )
+    assert catalog["bindings"]
+
+
 def test_capability_revision_and_runtime_digest_identities_are_recomputable() -> None:
     """Opaque or mutable identity inputs cannot support independent validation."""
     catalog = _assemble()
@@ -821,6 +860,7 @@ def test_bindings_entries_and_exclusions_are_closed_and_consistent() -> None:
         assert revision_id is None or revision_id in revisions_by_id
         assert runtime_id is None or runtime_id in runtimes_by_id
         if exclusion["reason_code"] in {
+            "builder-sync-failed",
             "python-requires-mismatch",
             "variant-filtered-310p",
         }:

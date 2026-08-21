@@ -116,6 +116,25 @@
         "target_tag": "cuda13.0-cp-all-manylinux2_28-arm64-r1"
       },
       {
+        "project": "vllm-project/vllm",
+        "accelerator": "cuda",
+        "accelerator_runtime": "cuda-13.0",
+        "variant": "default",
+        "cpu_architecture": "arm64",
+        "manylinux": "manylinux_2_28",
+        "source_kind": "buildkite-build-base-image",
+        "source_path": ".buildkite/release-pipeline.yaml",
+        "source_image_repository": "docker.io/pytorch/manylinuxaarch64-builder",
+        "source_image_tag": "cuda13.0-failed-new",
+        "source_image_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "recipe_path": ".github/builder/docker/vllm.Dockerfile",
+        "recipe_source_commit": "9111111111111111111111111111111111111111",
+        "recipe_sha256": "sha256:2211111111111111111111111111111111111111111111111111111111111111",
+        "toolchain_sha256": "sha256:2311111111111111111111111111111111111111111111111111111111111111",
+        "target_repository": "ghcr.io/release-org/ucm-builder-vllm",
+        "target_tag": "cuda13.0-cp-all-manylinux2_28-arm64-r2"
+      },
+      {
         "project": "vllm-project/vllm-ascend",
         "accelerator": "ascend",
         "accelerator_runtime": "cann-9.0",
@@ -317,6 +336,41 @@
         "mooncake_source_runtime_image": "quay.io/ascend/vllm-ascend@sha256:2011111111111111111111111111111111111111111111111111111111111111",
         "mooncake_version": "0.3.12",
         "builder_fact_id": "sha256:d1f6d003cc1a24e9ef8781e9d1107e2318e99f3bd088c5e1b3f5644f3707723f"
+      }
+    ],
+    "failures": [
+      {
+        "builder_plan_id": "sha256:d0fde34d5109aae935397cfeb3b557a26319e526ceb009b55500d0be575d2043",
+        "status": "failed",
+        "reason_code": "builder-sync-failed",
+        "source_kind": "builder-plan",
+        "source_id": "sha256:d0fde34d5109aae935397cfeb3b557a26319e526ceb009b55500d0be575d2043",
+        "target_repository": "ghcr.io/release-org/ucm-builder-vllm",
+        "target_tag": "cuda13.0-cp-all-manylinux2_28-arm64-r2",
+        "target_builder_digest": null,
+        "digest_readback": false,
+        "evidence": {
+          "phase": "build",
+          "message": "synthetic same-run Builder failure",
+          "plan": {
+            "accelerator": "cuda",
+            "accelerator_runtime": "cuda-13.0",
+            "variant": "default",
+            "cpu_architecture": "arm64",
+            "manylinux": "manylinux_2_28",
+            "source_image_repository": "docker.io/pytorch/manylinuxaarch64-builder",
+            "source_image_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "recipe_path": ".github/builder/docker/vllm.Dockerfile",
+            "recipe_source_commit": "9111111111111111111111111111111111111111",
+            "recipe_sha256": "sha256:2211111111111111111111111111111111111111111111111111111111111111",
+            "toolchain_sha256": "sha256:2311111111111111111111111111111111111111111111111111111111111111",
+            "target_repository": "ghcr.io/release-org/ucm-builder-vllm",
+            "target_tag": "cuda13.0-cp-all-manylinux2_28-arm64-r2",
+            "mooncake_source_runtime_id": null,
+            "mooncake_source_runtime_image": null,
+            "mooncake_version": null
+          }
+        }
       }
     ]
   },
