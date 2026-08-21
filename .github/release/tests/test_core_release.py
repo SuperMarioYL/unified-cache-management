@@ -100,6 +100,8 @@ def _clone(value: object) -> object:
 
 def _write_catalog(directory: Path, release: dict) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
+    release = copy.deepcopy(release)
+    release.pop("build_profiles", None)
     release_path = directory / "release.yaml"
     release_path.write_text(yaml.safe_dump(release, sort_keys=False), encoding="utf-8")
     return release_path
@@ -135,7 +137,7 @@ def test_fixture_plan_projects_platform_loaders_and_driver_boundary() -> None:
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
-        ("extra-profile", "overlapping wheel profiles"),
+        ("extra-builder-requirement", "exactly one builder/native fact"),
         ("unresolved-lock", "missing required properties"),
         ("missing-builder-manylinux", "missing required properties"),
         ("caller-raw-runner", "Additional properties are not allowed"),
@@ -145,25 +147,26 @@ def test_release_authority_mutations_fail_closed(
     tmp_path: Path, mutation: str, message: str
 ) -> None:
     release = copy.deepcopy(release_core.load_catalog())
-    if mutation == "extra-profile":
-        extra = _clone(release["wheel_profiles"][-1])
+    if mutation == "extra-builder-requirement":
+        extra = _clone(release["builder_requirements"][-1])
         assert isinstance(extra, dict)
-        extra["id"] = "cann900-a5"
-        release["wheel_profiles"].append(extra)
+        release["builder_requirements"].append(extra)
     elif mutation == "unresolved-lock":
         del release["python_build_lock"]["packages"]["wheel"]["sha256"]
     elif mutation == "missing-builder-manylinux":
-        del release["wheel_profiles"][0]["builder_manylinux"]
+        del release["builder_requirements"][0]["manylinux"]
     elif mutation == "caller-raw-runner":
-        release["wheel_profiles"][0]["runner"] = "self-hosted"
+        release["builder_requirements"][0]["architectures"]["amd64"][
+            "runner"
+        ] = "self-hosted"
     rejected = _reject_fixture_resolution(tmp_path / mutation, release)
     assert message in rejected
 
 
 def test_missing_profile_excludes_unsupported_target_from_feature_plan() -> None:
     release = copy.deepcopy(release_core.load_catalog())
-    removed_profile = release["wheel_profiles"].pop()
-    assert removed_profile["id"] == "cann900-a3"
+    removed_profile = release["build_profiles"].pop(1)
+    assert removed_profile["id"] == "ascend900-a3-cp312"
     fixture = _fixture_registry()
     del fixture["repositories"]["quay.io/ascend/vllm-ascend"]["snapshots"][
         "v0.22.1rc3-a3"
@@ -231,7 +234,10 @@ def test_fixture_resolution_excludes_compatibility_without_matching_profile() ->
     assert plan["image_tasks"]
     assert all(task["runtime"]["product_id"] != "vllm" for task in plan["image_tasks"])
     assert all(task["product_id"] != "vllm" for task in plan["family_tasks"])
-    assert all(task["profile_id"] != "cuda130" for task in plan["wheel_tasks"])
+    assert all(
+        task["profile_id"] != "cuda130-default-cp312"
+        for task in plan["wheel_tasks"]
+    )
 
 
 def test_setup_chart_and_configuration_share_version_authority() -> None:
@@ -286,7 +292,7 @@ def test_json_array_loader_preserves_duplicate_key_rejection(tmp_path: Path) -> 
 
 def test_wheel_tasks_carry_dist_name_and_unique_filenames() -> None:
     """Each wheel task carries its profile dist_name and the derived wheel
-    filename is globally unique, so cann900-a2/a3 no longer collide on the
+    filename is globally unique, so the CANN variants do not collide on the
     shared ``linux`` wheel_platform."""
     wheel = importlib.import_module("ucm_release.wheel")
     plan = _fixture_resolved_plan()
@@ -303,19 +309,23 @@ def test_wheel_tasks_carry_dist_name_and_unique_filenames() -> None:
         )
         assert filename not in filenames, f"wheel filename collision: {filename}"
         filenames.add(filename)
-    # cann900-a2 and cann900-a3 both use wheel_platform=linux but must differ.
+    # Both CANN variants use wheel_platform=linux but must remain distinct.
     dist_names = {task["dist_name"] for task in plan["wheel_tasks"]}
-    assert "uc-manager-cann-a2" in dist_names and "uc-manager-cann-a3" in dist_names
+    assert "uc-manager-cann900-a2-mc039" in dist_names
+    assert "uc-manager-cann900-a3-mc039" in dist_names
 
 
 def test_dist_name_helpers_use_profile_name() -> None:
     """The sealer/fixture name helpers derive output from the profile dist_name."""
     wheel = importlib.import_module("ucm_release.wheel")
-    assert wheel._dist_filename_component("uc-manager-cann-a2") == "uc_manager_cann_a2"
+    assert (
+        wheel._dist_filename_component("uc-manager-cann900-a2-mc039")
+        == "uc_manager_cann900_a2_mc039"
+    )
     assert wheel._dist_filename_component("uc-manager") == "uc_manager"
     metadata = wheel._canonical_metadata(
-        "uc-manager-cann-a3", "0.7.55", ["wrapt==1.17.2"]
+        "uc-manager-cann900-a3-mc039", "0.7.55", ["wrapt==1.17.2"]
     )
-    assert b"Name: uc-manager-cann-a3" in metadata
+    assert b"Name: uc-manager-cann900-a3-mc039" in metadata
     assert b"Version: 0.7.55" in metadata
     assert b"Requires-Dist: wrapt==1.17.2" in metadata

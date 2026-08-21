@@ -678,7 +678,8 @@ def resolve_catalog(
         raise ValueError("pin_upstreams (PR path) is only valid for the feature-candidate lane")
     if re.fullmatch(r"[0-9a-f]{40}", source_sha) is None:
         raise ValueError("source_sha must be an exact lowercase 40-hex commit")
-    limits = catalog.get("scan_limits")
+    discovery = catalog.get("discovery")
+    limits = discovery.get("scan_limits") if isinstance(discovery, dict) else None
     if not isinstance(limits, dict) or set(limits) != {
         "max_tags_per_repository",
         "max_selected_upstreams",
@@ -709,7 +710,7 @@ def resolve_catalog(
 
     tag_lists: dict[str, list[str]] = {}
     operations: list[dict[str, Any]] = []
-    for profile in catalog["wheel_profiles"]:
+    for profile in catalog["build_profiles"]:
         for architecture, builder in profile["builders"].items():
             unresolved_root = builder["root"]
             repository = unresolved_root["repository"]

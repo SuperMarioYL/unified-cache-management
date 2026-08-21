@@ -153,54 +153,68 @@
       "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
       "additionalProperties": {"$ref": "#/$defs/builder"}
     },
-    "wheelProfile": {
+    "productRule": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "id", "build", "accelerator", "accelerator_runtime", "npu_arch", "os",
-        "wheel_platform", "builder_manylinux", "binary_profile_id", "external_required_dependencies", "validation_targets"
-      ],
+      "required": ["accelerator", "distribution"],
       "properties": {
-        "id": {"type": "string", "minLength": 1},
+        "accelerator": {"enum": ["cuda", "ascend"]},
+        "distribution": {"type": "string", "minLength": 1}
+      }
+    },
+    "products": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cuda", "cann"],
+      "properties": {
+        "cuda": {"$ref": "#/$defs/productRule"},
+        "cann": {"$ref": "#/$defs/productRule"}
+      }
+    },
+    "discovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exclude_variants", "python_requires", "bootstrap", "scan_limits", "matrix_limits"],
+      "properties": {
+        "exclude_variants": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "python_requires": {"type": "string", "minLength": 1},
+        "bootstrap": {"const": "all-passing"},
+        "scan_limits": {"$ref": "#/$defs/scanLimits"},
+        "matrix_limits": {"$ref": "#/$defs/matrixLimits"}
+      }
+    },
+    "dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["build", "runtime"],
+      "properties": {
         "build": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["docker_target", "platform_arg"],
+          "required": ["packaging", "pyyaml"],
           "properties": {
-            "docker_target": {"const": "wheel"},
-            "platform_arg": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"}
+            "packaging": {"type": "string", "minLength": 1},
+            "pyyaml": {"type": "string", "minLength": 1}
           }
         },
-        "accelerator": {"type": "string", "minLength": 1},
+        "runtime": {
+          "type": "object",
+          "propertyNames": {"pattern": "^[A-Za-z0-9_.+-]+$"},
+          "additionalProperties": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "nativeContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accelerator", "required_native", "forbidden_native", "allowed_dt_needed", "external_required_dependencies"],
+      "properties": {
+        "accelerator": {"enum": ["cuda", "ascend"]},
         "accelerator_runtime": {"type": "string", "minLength": 1},
-        "npu_arch": {
-          "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true,
-          "items": {"type": "string", "minLength": 1}
-        },
-        "os": {
-          "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true,
-          "items": {"type": "string", "minLength": 1}
-        },
-        "cpu_arch": {
-          "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true,
-          "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"}
-        },
-        "python_version": {"type": "string", "minLength": 1},
-        "python_abi": {"type": "string", "minLength": 1},
-        "wheel_version": {"type": "string", "minLength": 1},
-        "dist_name": {"type": "string", "pattern": "^uc-manager(-[a-z0-9]+(-[a-z0-9]+)?)?$"},
-        "wheel_platform": {"type": "string", "minLength": 1},
-        "builder_manylinux": {"type": "string", "pattern": "^manylinux_[0-9]+_[0-9]+$"},
-        "binary_profile_id": {"type": "string", "minLength": 1},
-        "allowed_dt_needed": {
-          "type": "array", "minItems": 1, "uniqueItems": true,
-          "items": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+$"}
-        },
-        "external_required_dependencies": {
-          "type": "array", "maxItems": 64, "uniqueItems": true,
-          "items": {"$ref": "#/$defs/externalRequiredDependency"}
-        },
-        "validation_targets": {
+        "variants": {
           "type": "array", "minItems": 1, "uniqueItems": true,
           "items": {"type": "string", "minLength": 1}
         },
@@ -212,7 +226,39 @@
           "type": "array", "minItems": 1, "uniqueItems": true,
           "items": {"type": "string", "minLength": 1}
         },
-        "builders": {"$ref": "#/$defs/builders"}
+        "allowed_dt_needed": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+$"}
+        },
+        "external_required_dependencies": {
+          "type": "array", "maxItems": 64, "uniqueItems": true,
+          "items": {"$ref": "#/$defs/externalRequiredDependency"}
+        }
+      }
+    },
+    "builderRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accelerator", "accelerator_runtime", "variants", "python_version", "python_abi", "manylinux", "build_platform", "wheel_platform", "mooncake_version", "architectures"],
+      "properties": {
+        "accelerator": {"enum": ["cuda", "ascend"]},
+        "accelerator_runtime": {"type": "string", "minLength": 1},
+        "variants": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "python_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$"},
+        "python_abi": {"type": "string", "pattern": "^cp[0-9]+$"},
+        "manylinux": {"type": "string", "pattern": "^manylinux_[0-9]+_[0-9]+$"},
+        "build_platform": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "wheel_platform": {"type": "string", "minLength": 1},
+        "mooncake_version": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "string", "minLength": 1}
+          ]
+        },
+        "architectures": {"$ref": "#/$defs/builders"}
       }
     },
     "runtimePatchImport": {
@@ -283,11 +329,10 @@
     "publishPypi": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "index", "dists"],
+      "required": ["enabled", "index"],
       "properties": {
         "enabled": {"type": "boolean"},
-        "index": {"type": "string", "minLength": 1},
-        "dists": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1, "uniqueItems": true}
+        "index": {"type": "string", "minLength": 1}
       }
     },
     "publishOci": {
@@ -377,12 +422,12 @@
       "additionalProperties": false,
       "required": [
         "kind", "schema_version", "image_revision", "source",
-        "lanes", "runner_map", "upstream_products", "compatibility",
-        "chart", "publish", "wheel_profiles"
+        "lanes", "runner_map", "discovery", "products", "dependencies",
+        "upstream_products", "compatibility", "chart", "publish", "native_contracts"
       ],
       "properties": {
         "kind": {"const": "release-config"},
-        "schema_version": {"type": "integer", "const": 2},
+        "schema_version": {"type": "integer", "const": 3},
         "ucm_version": {"type": "string", "minLength": 1},
         "image_revision": {"type": "integer", "minimum": 1},
         "source": {
@@ -408,6 +453,13 @@
           "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
           "additionalProperties": {"type": "string", "minLength": 1}
         },
+        "discovery": {"$ref": "#/$defs/discovery"},
+        "products": {"$ref": "#/$defs/products"},
+        "dependencies": {"$ref": "#/$defs/dependencies"},
+        "native_contracts": {
+          "type": "array", "minItems": 1,
+          "items": {"$ref": "#/$defs/nativeContract"}
+        },
         "pr_smoke": {"$ref": "#/$defs/prSmoke"},
         "docker_recipes": {
           "type": "array", "minItems": 1,
@@ -422,8 +474,10 @@
           "type": "array", "minItems": 1,
           "items": {"$ref": "#/$defs/runtimePatchRule"}
         },
-        "matrix_limits": {"$ref": "#/$defs/matrixLimits"},
-        "scan_limits": {"$ref": "#/$defs/scanLimits"},
+        "builder_requirements": {
+          "type": "array", "minItems": 1,
+          "items": {"$ref": "#/$defs/builderRequirement"}
+        },
         "python_runtime_dependencies": {
           "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true,
           "items": {
@@ -491,11 +545,7 @@
           }
         },
         "chart": {"$ref": "#/$defs/chart"},
-        "publish": {"$ref": "#/$defs/publish"},
-        "wheel_profiles": {
-          "type": "array", "minItems": 1,
-          "items": {"$ref": "#/$defs/wheelProfile"}
-        }
+        "publish": {"$ref": "#/$defs/publish"}
       }
     },
     "upstreamVariant": {

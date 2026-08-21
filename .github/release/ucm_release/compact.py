@@ -60,7 +60,7 @@ def _product_label(product_id: str) -> str:
 
 
 def _live_tag_lists(catalog: Mapping[str, Any]) -> dict[str, list[str]]:
-    limit = int(catalog["scan_limits"]["max_tags_per_repository"])
+    limit = int(catalog["discovery"]["scan_limits"]["max_tags_per_repository"])
     crane = shutil.which("crane")
     if crane is None:
         raise ValueError("compact release planning requires crane on PATH")

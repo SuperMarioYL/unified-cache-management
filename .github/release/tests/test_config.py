@@ -115,25 +115,26 @@ def test_forbidden_content_scan_covers_the_new_release_tree(tmp_path: Path) -> N
     assert wrapt_paths == [".github/release/ucm_release/wrapt_bundle.py"]
 
 
-def test_release_config_profiles_are_dynamic_and_have_no_runner_escape_hatch() -> None:
+def test_release_config_owns_templates_without_build_profile_escape_hatches() -> None:
     release = yaml.safe_load(
         (REPO_ROOT / ".github" / "release" / "release.yaml").read_text(encoding="utf-8")
     )
 
-    profiles = release["wheel_profiles"]
-    assert profiles
-    assert len({item["id"] for item in profiles}) == len(profiles)
-    assert all(item["cpu_arch"] for item in profiles)
-    assert all(len(set(item["cpu_arch"])) == len(item["cpu_arch"]) for item in profiles)
-    assert {item["id"]: item["builder_manylinux"] for item in profiles} == {
-        "cuda130": "manylinux_2_28",
-        "cann900-a2": "manylinux_2_34",
-        "cann900-a3": "manylinux_2_34",
+    assert release["schema_version"] == 3
+    assert "wheel_profiles" not in release
+    assert release["products"] == {
+        "cuda": {
+            "accelerator": "cuda",
+            "distribution": "uc-manager-cuda{runtime.compact}",
+        },
+        "cann": {
+            "accelerator": "ascend",
+            "distribution": (
+                "uc-manager-cann{runtime.compact}-{variant}" "-mc{mooncake.compact}"
+            ),
+        },
     }
-    assert all("runner" not in item for item in release["wheel_profiles"])
-    assert set(release["runner_map"]) == {
-        architecture for profile in profiles for architecture in profile["cpu_arch"]
-    }
+    assert set(release["runner_map"]) == {"amd64", "arm64"}
 
 
 def test_toolchain_lock_owns_builder_requirements_but_no_builder_coordinates() -> None:
@@ -143,15 +144,20 @@ def test_toolchain_lock_owns_builder_requirements_but_no_builder_coordinates() -
         )
     )
 
-    assert set(toolchain["builders"]) == {"cuda130", "cann900-a2", "cann900-a3"}
-    for profile_builders in toolchain["builders"].values():
-        assert set(profile_builders) == {"amd64", "arm64"}
-        for requirement in profile_builders.values():
+    requirements = toolchain["builder_requirements"]
+    assert len(requirements) == 3
+    assert all(
+        "id" not in item and "profile_id" not in item and "distribution" not in item
+        for item in requirements
+    )
+    for capability in requirements:
+        assert set(capability["architectures"]) == {"amd64", "arm64"}
+        for requirement in capability["architectures"].values():
             assert set(requirement) == {"sources", "copy_paths", "checks"}
 
     core = importlib.import_module("ucm_release.core")
     catalog = core.load_catalog()
-    for profile in catalog["wheel_profiles"]:
+    for profile in catalog["build_profiles"]:
         assert set(profile["builders"]) == set(profile["cpu_arch"])
         assert all(
             "root" not in requirement for requirement in profile["builders"].values()
@@ -167,11 +173,6 @@ def test_release_yaml_is_the_exact_publication_authority() -> None:
         "pypi": {
             "enabled": False,
             "index": "https://upload.pypi.org/legacy/",
-            "dists": [
-                "uc-manager-cuda",
-                "uc-manager-cann-a2",
-                "uc-manager-cann-a3",
-            ],
         },
         "ghcr": {"enabled": True, "namespace": "ghcr.io/{owner}"},
         "dockerhub": {"enabled": False, "namespace": "docker.io/{owner}"},
@@ -198,11 +199,6 @@ def test_publish_plan_is_the_normalized_config_without_runtime_layers() -> None:
         "pypi": {
             "enabled": False,
             "index": "https://upload.pypi.org/legacy/",
-            "dists": [
-                "uc-manager-cuda",
-                "uc-manager-cann-a2",
-                "uc-manager-cann-a3",
-            ],
         },
         "ghcr": {"enabled": True, "namespace": "ghcr.io/release-org"},
         "dockerhub": {

@@ -19,6 +19,8 @@ from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
+from . import products
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RELEASE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RELEASE = RELEASE_ROOT / "release.yaml"
@@ -510,9 +512,9 @@ def _validate_resolved_builder_roots(catalog: dict[str, Any]) -> None:
         "manifest_digest",
         "config_digest",
     }
-    for profile_index, profile in enumerate(catalog.get("wheel_profiles", [])):
+    for profile_index, profile in enumerate(catalog.get("build_profiles", [])):
         for architecture, builder in profile.get("builders", {}).items():
-            location = f"wheel_profiles[{profile_index}].builders.{architecture}"
+            location = f"build_profiles[{profile_index}].builders.{architecture}"
             root = builder.get("root") if isinstance(builder, dict) else None
             if not isinstance(root, dict) or set(root) != required:
                 raise ValueError(f"{location} builder root must be resolved")
@@ -814,15 +816,15 @@ def _validate_catalog_cpu_toolchains(catalog: dict[str, Any]) -> None:
     declarations: list[tuple[str, object]] = []
     runner_map = catalog.get("runner_map")
     if isinstance(runner_map, dict): declarations.extend(((f'runner_map.{key}', key) for key in runner_map))  # noqa: E701,E501
-    for index, profile in enumerate(catalog.get("wheel_profiles", [])):
+    for index, profile in enumerate(catalog.get("build_profiles", [])):
         if not isinstance(profile, dict):
             continue
         architectures = profile.get("cpu_arch")
         if isinstance(architectures, list):
-            declarations.extend(((f'wheel_profiles[{index}].cpu_arch', architecture) for architecture in architectures))  # fmt: skip  # noqa: E501
+            declarations.extend(((f'build_profiles[{index}].cpu_arch', architecture) for architecture in architectures))  # fmt: skip  # noqa: E501
         builders = profile.get("builders")
         if isinstance(builders, dict):
-            declarations.extend(((f'wheel_profiles[{index}].builders.{architecture}', architecture) for architecture in builders))  # fmt: skip  # noqa: E501
+            declarations.extend(((f'build_profiles[{index}].builders.{architecture}', architecture) for architecture in builders))  # fmt: skip  # noqa: E501
     for index, product in enumerate(catalog.get("upstream_products", [])):
         if not isinstance(product, dict):
             continue
@@ -855,7 +857,7 @@ def validate_catalog(
     _validate_catalog_cpu_toolchains(catalog)
     _pep440_version(catalog.get("ucm_version"), "ucm_version")
     python_runtime_requirements(catalog)
-    profiles = catalog.get("wheel_profiles", [])
+    profiles = catalog.get("build_profiles", [])
     products = catalog.get("upstream_products", [])
     compatibility = catalog.get("compatibility", {})
     rules = compatibility.get("rules", [])
@@ -865,16 +867,16 @@ def validate_catalog(
     _require_unique_ids(rules, "compatibility rule")
     _require_unique_ids(recipes, "Docker recipe")
     for index, profile in enumerate(profiles):
-        _pep440_version(profile.get('wheel_version'), f'wheel_profiles[{index}].wheel_version')  # fmt: skip  # noqa: E501
+        _pep440_version(profile.get('wheel_version'), f'build_profiles[{index}].wheel_version')  # fmt: skip  # noqa: E501
         for architecture in profile.get("cpu_arch", []):
             runtime_dependency_records(catalog, profile.get("python_abi"), architecture)
             build_tool_dependency_records(catalog, profile.get('python_abi'), architecture)  # fmt: skip  # noqa: E501
         builders = profile.get("builders")
-        if not isinstance(builders, dict): raise ValueError(f'wheel_profiles[{index}].builders must be an object')  # noqa: E701,E501
+        if not isinstance(builders, dict): raise ValueError(f'build_profiles[{index}].builders must be an object')  # noqa: E701,E501
         for architecture, builder in builders.items():
-            if not isinstance(builder, dict): raise ValueError(f'wheel_profiles[{index}].builders.{architecture} must be an object')  # noqa: E701,E501
-            _validate_builder_checks(builder.get('checks'), profile=profile, location=f'wheel_profiles[{index}].builders.{architecture}')  # fmt: skip  # noqa: E501
-            _validate_builder_root(builder.get('root'), location=f'wheel_profiles[{index}].builders.{architecture}')  # fmt: skip  # noqa: E501
+            if not isinstance(builder, dict): raise ValueError(f'build_profiles[{index}].builders.{architecture} must be an object')  # noqa: E701,E501
+            _validate_builder_checks(builder.get('checks'), profile=profile, location=f'build_profiles[{index}].builders.{architecture}')  # fmt: skip  # noqa: E501
+            _validate_builder_root(builder.get('root'), location=f'build_profiles[{index}].builders.{architecture}')  # fmt: skip  # noqa: E501
     for index, product in enumerate(products):
         _pep440_specifier(product.get('version_specifier'), f'upstream_products[{index}].version_specifier')  # fmt: skip  # noqa: E501
         _require_unique_ids(product["variants"], "upstream variant")
@@ -1301,7 +1303,7 @@ def _find_profile(
             or snapshot["channel"] not in rule["upstream_channels"]
         ):
             continue
-        for profile in catalog["wheel_profiles"]:
+        for profile in catalog["build_profiles"]:
             if (
                 architecture in profile["cpu_arch"]
                 and profile["accelerator"] == rule["accelerator"]
@@ -1381,7 +1383,7 @@ _RUNTIME_KEYS = tuple("repository tag version channel variant index_digest".spli
 def release_topology(catalog: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
     wheels = [
         {"profile_id": profile["id"], "cpu_arch": architecture}
-        for profile in catalog["wheel_profiles"]
+        for profile in catalog["build_profiles"]
         for architecture in profile["cpu_arch"]
     ]
     families = [
@@ -1519,7 +1521,7 @@ class ReleasePlan:
             family_tasks.append(family_task)
 
         wheel_tasks = sorted(wheel_tasks_by_key.values(), key=lambda item: (item['profile_id'], item['cpu_arch']))  # fmt: skip  # noqa: E501
-        limits = catalog["matrix_limits"]
+        limits = catalog["discovery"]["matrix_limits"]
         cardinalities = {'wheel_tasks': len(wheel_tasks), 'image_tasks': len(image_tasks), 'family_tasks': len(family_tasks)}  # fmt: skip  # noqa: E501
         for task_kind, count in cardinalities.items():
             limit = limits[f"max_{task_kind}"]
@@ -1540,9 +1542,9 @@ def expand_release_plan(
     return result
 
 
-RELEASE_KEYS = frozenset('kind schema_version image_revision source lanes runner_map upstream_products compatibility chart publish wheel_profiles'.split())  # fmt: skip  # noqa: E501
-OPTIONAL_CATALOG_KEYS = frozenset('ucm_version pr_smoke docker_recipes runtime_patch_rules matrix_limits scan_limits python_runtime_dependencies python_build_lock'.split())  # fmt: skip  # noqa: E501
-SUPPLEMENTARY_TOP_LEVEL_KEYS = frozenset({'pr_smoke', 'docker_recipes', 'runtime_patch_rules', 'matrix_limits', 'scan_limits', 'python_runtime_dependencies', 'python_build_lock'})  # fmt: skip  # noqa: E501
+RELEASE_KEYS = frozenset('kind schema_version image_revision source lanes runner_map discovery products dependencies upstream_products compatibility chart publish native_contracts'.split())  # fmt: skip  # noqa: E501
+OPTIONAL_CATALOG_KEYS = frozenset('ucm_version pr_smoke docker_recipes runtime_patch_rules python_runtime_dependencies python_build_lock builder_requirements build_profiles'.split())  # fmt: skip  # noqa: E501
+SUPPLEMENTARY_TOP_LEVEL_KEYS = frozenset({'pr_smoke', 'docker_recipes', 'runtime_patch_rules', 'python_runtime_dependencies', 'python_build_lock', 'builder_requirements'})  # fmt: skip  # noqa: E501
 LANES = ("feature-candidate", "protected-tag")
 
 
@@ -1564,23 +1566,34 @@ def _validate_cross_config(
 ) -> None:
     validate_catalog(release, repository_root=repository_root)
     publish = compute_publish_plan(release)
-    if publish["pypi"]["dists"] != [
-        "uc-manager-cuda",
-        "uc-manager-cann-a2",
-        "uc-manager-cann-a3",
-    ]:
-        raise ValueError("PyPI channel requires the exact three release distributions")
     if any(publish[channel]["enabled"] for channel in PUBLISH_CHANNELS[:-1]) and not publish["github_release"]["enabled"]:
         raise ValueError("enabled public channels require the GitHub Release Draft barrier")
     if publish["dockerhub"]["enabled"] and not publish["ghcr"]["enabled"]:
         raise ValueError("Docker Hub publication requires GHCR source publication")
-    profiles = release["wheel_profiles"]
+    profiles = release["build_profiles"]
     for profile in profiles:
         architectures = set(profile["cpu_arch"])
         if architectures != set(profile["builders"]):
-            raise ValueError(f"wheel profile {profile['id']!r} builder architectures do not match cpu_arch")  # fmt: skip  # noqa: E501
+            raise ValueError(f"build profile {profile['id']!r} builder architectures do not match cpu_arch")  # fmt: skip  # noqa: E501
         missing_runners = sorted(architectures - set(release["runner_map"]))
-        if missing_runners: raise ValueError(f"wheel profile {profile['id']!r} has no runner for {missing_runners}")  # noqa: E701,E501
+        if missing_runners: raise ValueError(f"build profile {profile['id']!r} has no runner for {missing_runners}")  # noqa: E701,E501
+    dependency_versions = release["dependencies"]["build"]
+    build_lock = release["python_build_lock"]
+    if dependency_versions["packaging"] != build_lock["packages"]["packaging"]["version"]:
+        raise ValueError("dependencies.build.packaging differs from the build lock")
+    if dependency_versions["pyyaml"] != build_lock["pyyaml"]["version"]:
+        raise ValueError("dependencies.build.pyyaml differs from the build lock")
+    declared_runtime = sorted(
+        [f"packaging=={dependency_versions['packaging']}"]
+        + [
+            f"{name}=={version}"
+            for name, version in release["dependencies"]["runtime"].items()
+        ]
+    )
+    if declared_runtime != python_runtime_requirements(release):
+        raise ValueError("dependencies runtime versions differ from the build lock")
+    if release["discovery"]["exclude_variants"] != ["310p"]:
+        raise ValueError("discovery.exclude_variants must contain only 310p")
     products = {product["id"]: product for product in release["upstream_products"]}
     chart_selectors: set[tuple[str, str]] = set()
     for case in release["chart"]["validation_cases"]:
@@ -1598,7 +1611,7 @@ def _load_supplementary_configs(
     release_path: Path, repository_root: Path
 ) -> dict[str, Any]:
     merged: dict[str, Any] = {}
-    candidates = (DEFAULT_RELEASE.parents[1] / 'docker-recipes.yaml', DEFAULT_RELEASE.parent / 'toolchain.lock.yaml', DEFAULT_RELEASE.parent / 'native-contract.yaml', DEFAULT_RELEASE.parents[2] / 'ucm' / 'integration' / 'runtime-patches.yaml')  # fmt: skip  # noqa: E501
+    candidates = (DEFAULT_RELEASE.parents[1] / 'docker-recipes.yaml', DEFAULT_RELEASE.parent / 'toolchain.lock.yaml', DEFAULT_RELEASE.parents[2] / 'ucm' / 'integration' / 'runtime-patches.yaml')  # fmt: skip  # noqa: E501
     for path in candidates:
         if path.is_file(): merged.update(load_yaml(path))  # noqa: E701
     return merged
@@ -1615,21 +1628,7 @@ def load_catalog(
     config_schema = load_json(schema_dir / "config.schema.json")
     release = load_yaml(release_path)
     supplementary = _load_supplementary_configs(release_path, repository_root)
-    profile_ids = {p["id"] for p in release.get("wheel_profiles", [])}
     for key, value in supplementary.items():
-        if key == "builders" and isinstance(value, dict):
-            for profile in release.get("wheel_profiles", []):
-                pid = profile["id"]
-                if pid in value and 'builders' not in profile: profile['builders'] = value[pid]  # noqa: E701,E501
-        elif key in profile_ids and isinstance(value, dict):
-            for profile in release.get("wheel_profiles", []):
-                if profile["id"] == key:
-                    for field in (
-                        "required_native",
-                        "forbidden_native",
-                        "allowed_dt_needed",
-                    ):
-                        if field in value and field not in profile: profile[field] = value[field]  # noqa: E701,E501
         if key not in release and key in SUPPLEMENTARY_TOP_LEVEL_KEYS: release[key] = value  # noqa: E701,E501
     resolved_repository = resolve_repository(repository, repository_root=repository_root)  # fmt: skip  # noqa: E501
     release = resolve_owner_templates(release, repository=resolved_repository)
@@ -1646,10 +1645,7 @@ def load_catalog(
     image_suffix = f"-ucm-{_oci_tag_version(version)}-r{release.get('image_revision', 1)}"  # fmt: skip  # noqa: E501
     for product in release.get("upstream_products", []):
         product["target_tag_suffix"] = image_suffix
-    for profile in release.get("wheel_profiles", []):
-
-        profile["wheel_version"] = version  # fmt: skip  # noqa: E501
-        profile.setdefault("dist_name", "uc-manager")  # fmt: skip  # noqa: E501
+    release["build_profiles"] = products.derive_build_profiles(release)
     chart = load_yaml(repository_root / release["chart"]["source"] / "Chart.yaml")
     if chart.get('name') != release['chart']['name']: raise ValueError('Chart name does not match release.yaml')  # noqa: E701,E501
     _validate_cross_config(release, repository_root=repository_root)
@@ -1659,7 +1655,7 @@ def load_catalog(
 
 PUBLISH_CHANNELS = ("pypi", "ghcr", "dockerhub", "chart_oci", "github_release")
 PUBLISH_CHANNEL_KEYS = {
-    "pypi": frozenset({"enabled", "index", "dists"}),
+    "pypi": frozenset({"enabled", "index"}),
     "ghcr": frozenset({"enabled", "namespace"}),
     "dockerhub": frozenset({"enabled", "namespace"}),
     "chart_oci": frozenset({"enabled", "namespace"}),
@@ -1677,13 +1673,9 @@ def compute_publish_plan(catalog: dict[str, Any]) -> dict[str, dict[str, Any]]:
             raise ValueError(f"publish channel {channel} configuration is malformed")
         if not isinstance(config["enabled"], bool):
             raise ValueError(f"publish channel {channel} enabled must be boolean")
-        for field in PUBLISH_CHANNEL_KEYS[channel] - {"enabled", "dists"}:
+        for field in PUBLISH_CHANNEL_KEYS[channel] - {"enabled"}:
             if not isinstance(config[field], str) or not config[field]:
                 raise ValueError(f"publish channel {channel} {field} must be non-empty")
-        if channel == "pypi":
-            dists = config["dists"]
-            if not isinstance(dists, list) or not dists or len(dists) != len(set(dists)) or any(not isinstance(dist, str) or not dist for dist in dists):
-                raise ValueError("publish channel pypi dists must be a non-empty unique string array")
     return {channel: copy.deepcopy(publish[channel]) for channel in PUBLISH_CHANNELS}
 
 

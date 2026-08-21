@@ -85,10 +85,21 @@ def _profile(
 def _catalog() -> dict[str, object]:
     return {
         "kind": "release-config",
-        "schema_version": 2,
+        "schema_version": 3,
         "ucm_version": "0.5.0rc1",
         "lanes": ["feature-candidate", "protected-tag"],
         "runner_map": {"amd64": "runner-x64", "arm64": "runner-arm64"},
+        "discovery": {
+            "scan_limits": {
+                "max_tags_per_repository": 64,
+                "max_selected_upstreams": 8,
+            },
+            "matrix_limits": {
+                "max_wheel_tasks": 8,
+                "max_image_tasks": 16,
+                "max_family_tasks": 8,
+            },
+        },
         "python_runtime_dependencies": [
             {
                 "requirement": "wrapt==1.17.2",
@@ -154,7 +165,7 @@ def _catalog() -> dict[str, object]:
                 }
             ]
         },
-        "wheel_profiles": [_profile("shared", ["amd64", "arm64"])],
+        "build_profiles": [_profile("shared", ["amd64", "arm64"])],
         "upstream_products": [
             {
                 "id": "vllm",
@@ -207,11 +218,6 @@ def _catalog() -> dict[str, object]:
                 ],
             }
         ],
-        "matrix_limits": {
-            "max_wheel_tasks": 8,
-            "max_image_tasks": 16,
-            "max_family_tasks": 8,
-        },
     }
 
 

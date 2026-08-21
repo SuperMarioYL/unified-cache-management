@@ -153,9 +153,7 @@ def test_sync_plan_schedules_only_missing_target_tags() -> None:
 
 
 def test_selects_exactly_current_six_release_builders() -> None:
-    release = yaml.safe_load(
-        (RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8")
-    )
+    release = core.load_catalog()
 
     selection = builders.select_builders(_discover(), release)
 
@@ -175,10 +173,7 @@ def test_selects_exactly_current_six_release_builders() -> None:
 
 
 def _current_selection() -> dict[str, object]:
-    release = yaml.safe_load(
-        (RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8")
-    )
-    return builders.select_builders(_discover(), release)
+    return builders.select_builders(_discover(), core.load_catalog())
 
 
 def test_bind_selection_adds_only_current_six_builder_coordinates() -> None:
@@ -190,7 +185,7 @@ def test_bind_selection_adds_only_current_six_builder_coordinates() -> None:
     assert catalog == original
     roots = {
         (profile["id"], architecture): requirement["root"]
-        for profile in bound["wheel_profiles"]
+        for profile in bound["build_profiles"]
         for architecture, requirement in profile["builders"].items()
     }
     assert len(roots) == 6
@@ -243,15 +238,17 @@ def test_bind_selection_rejects_profile_capability_mismatch() -> None:
     cuda_amd64 = next(
         item
         for item in selected
-        if item["profile_id"] == "cuda130" and item["cpu_arch"] == "amd64"
+        if item["profile_id"] == "cuda130-default-cp312"
+        and item["cpu_arch"] == "amd64"
     )
     cann_a2_amd64 = next(
         item
         for item in selected
-        if item["profile_id"] == "cann900-a2" and item["cpu_arch"] == "amd64"
+        if item["profile_id"] == "ascend900-a2-cp312"
+        and item["cpu_arch"] == "amd64"
     )
     selected.remove(cann_a2_amd64)
-    cuda_amd64["profile_id"] = "cann900-a2"
+    cuda_amd64["profile_id"] = "ascend900-a2-cp312"
     selection["matrix"]["include"] = selected
 
     with pytest.raises(ValueError, match="does not match release profile"):
@@ -259,16 +256,14 @@ def test_bind_selection_rejects_profile_capability_mismatch() -> None:
 
 
 def test_release_profile_owns_builder_manylinux_selection() -> None:
-    release = yaml.safe_load(
-        (RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8")
-    )
+    release = core.load_catalog()
     assert {
         profile["id"]: profile["builder_manylinux"]
-        for profile in release["wheel_profiles"]
+        for profile in release["build_profiles"]
     } == {
-        "cuda130": "manylinux_2_28",
-        "cann900-a2": "manylinux_2_34",
-        "cann900-a3": "manylinux_2_34",
+        "cuda130-default-cp312": "manylinux_2_28",
+        "ascend900-a2-cp312": "manylinux_2_34",
+        "ascend900-a3-cp312": "manylinux_2_34",
     }
     catalog = _discover()
     for item in catalog["builders"]:
@@ -533,9 +528,7 @@ def test_existing_exact_tags_produce_empty_no_delete_plan() -> None:
 
 
 def test_selection_missing_and_multiple_candidates_hard_fail() -> None:
-    release = yaml.safe_load(
-        (RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8")
-    )
+    release = core.load_catalog()
     catalog = _discover()
     wanted = next(
         item
@@ -566,23 +559,21 @@ def test_selection_missing_and_multiple_candidates_hard_fail() -> None:
 
 
 def test_selection_rejects_duplicate_profile_ids() -> None:
-    release = yaml.safe_load(
-        (RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8")
-    )
-    release["wheel_profiles"].append(dict(release["wheel_profiles"][0]))
+    release = core.load_catalog()
+    release["build_profiles"].append(dict(release["build_profiles"][0]))
 
-    with pytest.raises(ValueError, match=r"duplicate release profile id: cuda130"):
+    with pytest.raises(
+        ValueError, match=r"duplicate release profile id: ascend900-a2-cp312"
+    ):
         builders.select_builders(_discover(), release)
 
 
 def test_selection_rejects_duplicate_profile_architectures() -> None:
-    release = yaml.safe_load(
-        (RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8")
-    )
-    release["wheel_profiles"][0]["cpu_arch"] = ["amd64", "amd64"]
+    release = core.load_catalog()
+    release["build_profiles"][0]["cpu_arch"] = ["amd64", "amd64"]
 
     with pytest.raises(
-        ValueError, match=r"wheel_profiles\[0\]: cpu_arch contains duplicates"
+        ValueError, match=r"build_profiles\[0\]: cpu_arch contains duplicates"
     ):
         builders.select_builders(_discover(), release)
 

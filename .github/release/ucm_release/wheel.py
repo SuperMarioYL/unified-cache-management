@@ -152,31 +152,6 @@ PRODUCTION_V2_AUTHORITY_FIELDS = {
     "forbidden_native",
     "build_context_sha256",
 }
-WHEEL_BUILD_PYTHON = {"abi": "cp312", "version": "3.12"}
-WHEEL_BUILD_RUNTIME_REQUIREMENTS = ["packaging==24.2", "wrapt==1.17.2"]
-WHEEL_BUILD_PROFILES = {
-    "cuda130": {
-        "build_platform": "cuda",
-        "distribution": "uc-manager-cuda",
-        "python": WHEEL_BUILD_PYTHON,
-        "runtime_requirements": WHEEL_BUILD_RUNTIME_REQUIREMENTS,
-        "wheel_platform": "manylinux_2_28",
-    },
-    "cann900-a2": {
-        "build_platform": "ascend",
-        "distribution": "uc-manager-cann-a2",
-        "python": WHEEL_BUILD_PYTHON,
-        "runtime_requirements": WHEEL_BUILD_RUNTIME_REQUIREMENTS,
-        "wheel_platform": "linux",
-    },
-    "cann900-a3": {
-        "build_platform": "ascend-a3",
-        "distribution": "uc-manager-cann-a3",
-        "python": WHEEL_BUILD_PYTHON,
-        "runtime_requirements": WHEEL_BUILD_RUNTIME_REQUIREMENTS,
-        "wheel_platform": "linux",
-    },
-}
 PRODUCTION_WHEEL_TASK_FIELDS = {
     "kind",
     "schema_version",
@@ -286,7 +261,7 @@ def _wheel_spec_from_task(task: dict[str, Any]) -> dict[str, Any]:
 def _fixture_wheel_specs(release: dict[str, Any]) -> list[dict[str, Any]]:
     """Extract wheel spec declarations from the catalog for fixture/inspection paths."""
     specs: list[dict[str, Any]] = []
-    for item in release.get("wheel_profiles", []):
+    for item in release.get("build_profiles", []):
         spec = copy.deepcopy(item)
         if "spec_id" not in spec:
             spec["spec_id"] = spec.get("id", "")
@@ -731,27 +706,29 @@ def _validate_wheel_build_authority(authority: object) -> dict[str, Any]:
     _validate_native_lists(authority)
     if schema_version == 1:
         build = authority.get("build")
-        profile_settings = WHEEL_BUILD_PROFILES.get(authority.get("profile_id"))
         if (
             re.fullmatch(r"wheel-[0-9a-f]{64}", str(authority.get("task_id"))) is None
-            or profile_settings is None
+            or not isinstance(authority.get("profile_id"), str)
+            or not authority["profile_id"]
             or authority.get("spec_id") != f"{authority.get('profile_id')}-{cpu_arch}"
             or not isinstance(build, dict)
             or set(build) != {"docker_target", "platform_arg"}
             or not all(isinstance(value, str) and value for value in build.values())
-            or build.get("platform_arg") != profile_settings["build_platform"]
-            or authority.get("python_version") != profile_settings["python"]["version"]
-            or authority.get("python_abi") != profile_settings["python"]["abi"]
-            or authority.get("wheel_platform") != profile_settings["wheel_platform"]
-            or authority.get("runtime_requirements")
-            != profile_settings["runtime_requirements"]
+            or not isinstance(authority.get("python_version"), str)
+            or re.fullmatch(r"cp[0-9]+", str(authority.get("python_abi"))) is None
+            or not isinstance(authority.get("wheel_platform"), str)
+            or not authority["wheel_platform"]
+            or not isinstance(authority.get("runtime_requirements"), list)
+            or any(
+                not isinstance(requirement, str) or not requirement
+                for requirement in authority["runtime_requirements"]
+            )
             or DIGEST_RE.fullmatch(str(authority.get("runtime_patch_manifest_sha256")))
             is None
         ):
             raise ValueError("extended schema-v1 build authority is invalid")
     else:
         profile = authority.get("profile_id")
-        expected = WHEEL_BUILD_PROFILES.get(profile)
         base_version = str(authority.get("base_version"))
         stage = authority.get("stage")
         stage_patterns = {
@@ -761,8 +738,10 @@ def _validate_wheel_build_authority(authority: object) -> dict[str, Any]:
             "hotfix": re.escape(base_version),
         }
         if (
-            expected is None
-            or authority.get("distribution") != expected["distribution"]
+            not isinstance(profile, str)
+            or not profile
+            or canonicalize_name(str(authority.get("distribution")))
+            != authority.get("distribution")
             or authority.get("spec_id") != f"{profile}-{cpu_arch}"
             or re.fullmatch(
                 r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)",
@@ -786,17 +765,24 @@ def _validate_wheel_build_config_value(config: object) -> dict[str, Any]:
     ):
         raise ValueError("wheel build config contract is invalid")
     authority = _validate_wheel_build_authority(config.get("authority"))
-    profile = authority["profile_id"]
-    expected = WHEEL_BUILD_PROFILES.get(profile)
-    if expected is None:
-        raise ValueError("wheel build config profile is invalid")
-    distribution = expected["distribution"]
-    platform_arg = expected["build_platform"]
+    distribution = config.get("distribution")
+    platform_arg = config.get("platform")
+    python = config.get("python")
+    runtime_requirements = config.get("runtime_requirements")
     if (
-        config.get("python") != expected["python"]
-        or config.get("runtime_requirements") != expected["runtime_requirements"]
+        not isinstance(distribution, str)
+        or canonicalize_name(distribution) != distribution
+        or not isinstance(platform_arg, str)
+        or not platform_arg
+        or not isinstance(python, dict)
+        or set(python) != {"version", "abi"}
+        or not isinstance(runtime_requirements, list)
+        or any(
+            not isinstance(requirement, str) or not requirement
+            for requirement in runtime_requirements
+        )
     ):
-        raise ValueError("wheel build config profile settings are invalid")
+        raise ValueError("wheel build config projection is invalid")
     if authority["schema_version"] == 1:
         platform_arg = authority["build"]["platform_arg"]
         if (
@@ -805,6 +791,8 @@ def _validate_wheel_build_config_value(config: object) -> dict[str, Any]:
             or authority["runtime_requirements"] != config["runtime_requirements"]
         ):
             raise ValueError("wheel build config differs from schema-v1 authority")
+    else:
+        distribution = authority["distribution"]
     if (
         config.get("distribution") != distribution
         or config.get("platform") != platform_arg
@@ -821,20 +809,26 @@ def load_wheel_build_config(path: Path) -> dict[str, Any]:
 
 
 def wheel_build_profile(profile_id: object) -> dict[str, Any]:
-    """Project one stable canonical wheel profile by ID."""
-    profile = (
-        WHEEL_BUILD_PROFILES.get(profile_id) if isinstance(profile_id, str) else None
+    """Project one derived canonical build profile by ID."""
+    catalog = load_catalog()
+    profile = next(
+        (
+            item
+            for item in catalog["build_profiles"]
+            if isinstance(profile_id, str) and item["id"] == profile_id
+        ),
+        None,
     )
     if profile is None:
         raise ValueError("wheel build profile_id is invalid")
     return {
         "id": profile_id,
-        "distribution": profile["distribution"],
-        "build_platform": profile["build_platform"],
+        "distribution": profile["dist_name"],
+        "build_platform": profile["build"]["platform_arg"],
         "wheel_platform": profile["wheel_platform"],
-        "python_version": profile["python"]["version"],
-        "python_abi": profile["python"]["abi"],
-        "runtime_requirements": copy.deepcopy(profile["runtime_requirements"]),
+        "python_version": profile["python_version"],
+        "python_abi": profile["python_abi"],
+        "runtime_requirements": python_runtime_requirements(catalog),
     }
 
 
@@ -912,20 +906,20 @@ def _validate_production_wheel_task(value: object) -> dict[str, Any]:
     payload = {key: item for key, item in task.items() if key != "sha256"}
     actual_hash = hashlib.sha256(canonical_bytes(payload)).hexdigest()
     profile = task.get("profile_id")
-    settings = WHEEL_BUILD_PROFILES.get(profile)
-    if settings is None:
-        raise ValueError("production wheel task profile_id is invalid")
-    expected_profile_fields = {
-        "distribution": settings["distribution"],
-        "build_platform": settings["build_platform"],
-        "python_version": settings["python"]["version"],
-        "python_abi": settings["python"]["abi"],
-        "wheel_platform": settings["wheel_platform"],
-        "runtime_requirements": settings["runtime_requirements"],
-    }
-    for field, expected in expected_profile_fields.items():
-        if task.get(field) != expected:
-            raise ValueError(f"production wheel task {field} differs from profile")
+    if (
+        not isinstance(profile, str)
+        or not profile
+        or canonicalize_name(str(task.get("distribution")))
+        != task.get("distribution")
+        or not isinstance(task.get("build_platform"), str)
+        or not task["build_platform"]
+        or not isinstance(task.get("python_version"), str)
+        or re.fullmatch(r"cp[0-9]+", str(task.get("python_abi"))) is None
+        or not isinstance(task.get("wheel_platform"), str)
+        or not task["wheel_platform"]
+        or not isinstance(task.get("runtime_requirements"), list)
+    ):
+        raise ValueError("production wheel task profile projection is invalid")
     cpu_arch = task.get("cpu_arch")
     stage = task.get("stage")
     base_version = str(task.get("base_version"))

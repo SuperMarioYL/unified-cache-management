@@ -35,27 +35,27 @@ def _git(*arguments: str) -> str:
 
 
 def _extended_task(
-    *, profile: str = "cann900-a2", cpu_arch: str = "amd64"
+    *, profile: str = "ascend900-a2-cp312", cpu_arch: str = "amd64"
 ) -> dict[str, Any]:
     profiles = {
-        "cuda130": {
+        "cuda130-default-cp312": {
             "accelerator": "cuda",
             "build_arg": "cuda",
-            "distribution": "uc-manager-cuda",
+            "distribution": "uc-manager-cuda130",
             "npu_arch": "na",
             "wheel_platform": "manylinux_2_28",
         },
-        "cann900-a2": {
+        "ascend900-a2-cp312": {
             "accelerator": "ascend",
             "build_arg": "ascend",
-            "distribution": "uc-manager-cann-a2",
+            "distribution": "uc-manager-cann900-a2-mc039",
             "npu_arch": "a2",
             "wheel_platform": "linux",
         },
-        "cann900-a3": {
+        "ascend900-a3-cp312": {
             "accelerator": "ascend",
             "build_arg": "ascend-a3",
-            "distribution": "uc-manager-cann-a3",
+            "distribution": "uc-manager-cann900-a3-mc039",
             "npu_arch": "a3",
             "wheel_platform": "linux",
         },
@@ -65,7 +65,9 @@ def _extended_task(
         "spec_id": f"{profile}-{cpu_arch}",
         "profile_id": profile,
         "accelerator": selected["accelerator"],
-        "accelerator_runtime": ("cuda-13.0" if profile == "cuda130" else "cann-9.0.0"),
+        "accelerator_runtime": (
+            "cuda-13.0" if profile == "cuda130-default-cp312" else "cann-9.0.0"
+        ),
         "npu_arch_or_na": selected["npu_arch"],
         "os": "ubuntu-22.04",
         "cpu_arch": cpu_arch,
@@ -77,10 +79,14 @@ def _extended_task(
         "dist_name": selected["distribution"],
         "validation_targets": [selected["npu_arch"]],
         "required_native": (
-            ["ucmtrans"] if profile == "cuda130" else ["ucmtrans", "mooncakestore"]
+            ["ucmtrans"]
+            if profile == "cuda130-default-cp312"
+            else ["ucmtrans", "mooncakestore"]
         ),
         "forbidden_native": (
-            ["mooncakestore", "ds3fsstore"] if profile == "cuda130" else ["ds3fsstore"]
+            ["mooncakestore", "ds3fsstore"]
+            if profile == "cuda130-default-cp312"
+            else ["ds3fsstore"]
         ),
         "allowed_dt_needed": ["libc.so.6"],
         "external_required_dependencies": [],
@@ -172,9 +178,9 @@ def _production_task(*, stage: str = "rc") -> dict[str, Any]:
     task: dict[str, Any] = {
         "kind": "ucm-production-wheel-build-task",
         "schema_version": 1,
-        "spec_id": "cann900-a2-amd64",
-        "profile_id": "cann900-a2",
-        "distribution": "uc-manager-cann-a2",
+        "spec_id": "ascend900-a2-cp312-amd64",
+        "profile_id": "ascend900-a2-cp312",
+        "distribution": "uc-manager-cann900-a2-mc039",
         "build_platform": "ascend",
         "cpu_arch": "amd64",
         "platform": "linux/amd64",
@@ -258,7 +264,7 @@ def test_extended_v1_projection_writes_the_exact_canonical_wrapper(
 
     expected = {
         "authority": authority,
-        "distribution": "uc-manager-cann-a2",
+        "distribution": "uc-manager-cann900-a2-mc039",
         "kind": "ucm-wheel-build-config",
         "platform": "ascend",
         "python": {"abi": "cp312", "version": "3.12"},
@@ -290,7 +296,7 @@ def test_production_v2_projection_has_the_same_exact_top_level_contract(
 
     assert result == {
         "authority": authority,
-        "distribution": "uc-manager-cann-a2",
+        "distribution": "uc-manager-cann900-a2-mc039",
         "kind": "ucm-wheel-build-config",
         "platform": "ascend",
         "python": {"abi": "cp312", "version": "3.12"},
@@ -337,26 +343,14 @@ def test_production_projection_names_profile_field_drift(
         )
 
 
-def test_checked_in_production_profiles_match_canonical_wheel_domain() -> None:
-    production = json.loads(
-        (RELEASE_ROOT / "production" / "production-release.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    expected_requirements = sorted(
-        [
-            "packaging=="
-            + production["toolchain"]["python_build"]["packaging"]["version"],
-            "wrapt==" + production["toolchain"]["wrapt"]["version"],
-        ]
-    )
-
-    for profile in production["build_profiles"]:
+def test_v3_derived_profiles_project_canonical_wheel_domain() -> None:
+    catalog = core.load_catalog()
+    for profile in catalog["build_profiles"]:
         canonical = wheel.wheel_build_profile(profile["id"])
         assert (
             profile["id"],
-            profile["distribution"],
-            profile["build_platform"],
+            profile["dist_name"],
+            profile["build"]["platform_arg"],
             profile["wheel_platform"],
             profile["python_version"],
             profile["python_abi"],
@@ -368,11 +362,7 @@ def test_checked_in_production_profiles_match_canonical_wheel_domain() -> None:
             canonical["python_version"],
             canonical["python_abi"],
         )
-        assert (
-            production["toolchain"]["runtime_requirements"]
-            == (canonical["runtime_requirements"])
-            == expected_requirements
-        )
+        assert canonical["runtime_requirements"] == RUNTIME_REQUIREMENTS
 
 
 @pytest.mark.parametrize(
@@ -381,7 +371,7 @@ def test_checked_in_production_profiles_match_canonical_wheel_domain() -> None:
         (lambda task: task.update(sha256="9" * 64), False, "hash"),
         (lambda task: task.update(cpu_arch="arm64"), True, "cpu_arch/spec/platform"),
         (
-            lambda task: task.update(spec_id="cann900-a2-arm64"),
+            lambda task: task.update(spec_id="ascend900-a2-cp312-arm64"),
             True,
             "cpu_arch/spec/platform",
         ),
@@ -446,7 +436,7 @@ def test_load_accepts_only_the_exact_canonical_wrapper(tmp_path: Path) -> None:
     authority = _extended_authority(task)
     config = {
         "authority": authority,
-        "distribution": "uc-manager-cann-a2",
+        "distribution": "uc-manager-cann900-a2-mc039",
         "kind": "ucm-wheel-build-config",
         "platform": "ascend",
         "python": {"abi": "cp312", "version": "3.12"},
@@ -463,8 +453,8 @@ def test_load_accepts_only_the_exact_canonical_wrapper(tmp_path: Path) -> None:
     "mutation",
     [
         lambda value: value.update(task_id="wheel-" + "9" * 64),
-        lambda value: value.update(spec_id="cann900-a2-arm64"),
-        lambda value: value.update(profile_id="cann900-a3"),
+        lambda value: value.update(spec_id="ascend900-a2-cp312-arm64"),
+        lambda value: value.update(profile_id="ascend900-a3-cp312"),
         lambda value: value.update(cpu_arch="arm64", platform="linux/arm64"),
         lambda value: value.update(platform="linux/arm64"),
         lambda value: value.update(
@@ -511,7 +501,7 @@ def _valid_config() -> dict[str, Any]:
     task = _extended_task()
     return {
         "authority": _extended_authority(task),
-        "distribution": "uc-manager-cann-a2",
+        "distribution": "uc-manager-cann900-a2-mc039",
         "kind": "ucm-wheel-build-config",
         "platform": "ascend",
         "python": {"abi": "cp312", "version": "3.12"},
@@ -527,7 +517,6 @@ def _valid_config() -> dict[str, Any]:
         lambda value: value.update(extra=True),
         lambda value: value.update(kind="ucm-wheel-build"),
         lambda value: value.update(schema_version=2),
-        lambda value: value.update(distribution="uc-manager-cann-a3"),
         lambda value: value.update(platform="ascend-a3"),
         lambda value: value.update(python={"abi": "cp311", "version": "3.11"}),
         lambda value: value.update(runtime_requirements=["wrapt==1.17.2"]),
@@ -554,7 +543,7 @@ def test_loader_rejects_missing_extra_and_drifted_fields(
         lambda value: json.dumps(value, sort_keys=True).encode("utf-8"),
         lambda value: json.dumps(value, sort_keys=True).encode("utf-8") + b"\n\n",
         lambda value: (
-            b'{"authority":{},"authority":{},"distribution":"uc-manager-cann-a2",'
+            b'{"authority":{},"authority":{},"distribution":"uc-manager-cann900-a2-mc039",'
             b'"kind":"ucm-wheel-build-config","platform":"ascend",'
             b'"python":{"abi":"cp312","version":"3.12"},'
             b'"runtime_requirements":["packaging==24.2","wrapt==1.17.2"],'
@@ -590,11 +579,11 @@ def test_prepare_source_changes_only_the_project_name(tmp_path: Path) -> None:
 
     expected = original.replace(
         b'name = "uc-manager" # preserved',
-        b'name = "uc-manager-cann-a2" # preserved',
+        b'name = "uc-manager-cann900-a2-mc039" # preserved',
         1,
     )
     assert (source_root / "pyproject.toml").read_bytes() == expected
-    assert result["distribution"] == "uc-manager-cann-a2"
+    assert result["distribution"] == "uc-manager-cann900-a2-mc039"
 
 
 @pytest.mark.parametrize(
@@ -646,7 +635,7 @@ def test_prepare_source_supports_valid_quoted_dotted_and_inline_project_names(
     wheel.prepare_wheel_source(config_path, source_root)
 
     assert project_path.read_bytes() == original.replace(
-        b"uc-manager", b"uc-manager-cann-a2", 1
+        b"uc-manager", b"uc-manager-cann900-a2-mc039", 1
     )
 
 
@@ -672,7 +661,7 @@ def test_prepare_source_ignores_fake_assignments_inside_multiline_strings(
 
     assert project_path.read_bytes() == original.replace(
         b'name = "uc-manager" # real',
-        b'name = "uc-manager-cann-a2" # real',
+        b'name = "uc-manager-cann900-a2-mc039" # real',
     )
 
 
@@ -689,7 +678,7 @@ def test_prepare_source_preserves_crlf_and_mode(tmp_path: Path) -> None:
     wheel.prepare_wheel_source(config_path, source_root)
 
     assert project_path.read_bytes() == original.replace(
-        b"uc-manager", b"uc-manager-cann-a2"
+        b"uc-manager", b"uc-manager-cann900-a2-mc039"
     )
     assert stat.S_IMODE(project_path.stat().st_mode) == 0o640
 
@@ -701,7 +690,8 @@ def test_prepare_source_is_idempotent_for_the_exact_target(tmp_path: Path) -> No
     source_root.mkdir()
     project_path = source_root / "pyproject.toml"
     original = (
-        b'note = """name = "uc-manager"""\n' b'[project]\nname = "uc-manager-cann-a2"\n'
+        b'note = """name = "uc-manager"""\n'
+        b'[project]\nname = "uc-manager-cann900-a2-mc039"\n'
     )
     project_path.write_bytes(original)
     before_inode = project_path.stat().st_ino
@@ -726,8 +716,8 @@ def test_prepare_source_rejects_ambiguous_semantic_candidate_selection(
 
     def ambiguous_loads(value: str) -> dict[str, object]:
         parsed = real_loads(value)
-        if "uc-manager-cann-a2" in value:
-            parsed["project"]["name"] = "uc-manager-cann-a2"
+        if "uc-manager-cann900-a2-mc039" in value:
+            parsed["project"]["name"] = "uc-manager-cann900-a2-mc039"
         return parsed
 
     monkeypatch.setattr(wheel.tomllib, "loads", ambiguous_loads)
@@ -776,7 +766,7 @@ def test_cli_build_config_writes_exact_stdout_and_output(tmp_path: Path) -> None
 def test_cli_build_config_failure_leaves_no_partial_output(tmp_path: Path) -> None:
     task = _extended_task()
     authority = _extended_authority(task)
-    authority["profile_id"] = "cann900-a3"
+    authority["profile_id"] = "ascend900-a3-cp312"
     task_path = tmp_path / "task.json"
     authority_path = tmp_path / "authority.json"
     output = tmp_path / "wheel-build.json"
@@ -864,7 +854,7 @@ def test_cli_prepare_source_reports_canonical_success(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {
-        "distribution": "uc-manager-cann-a2",
+        "distribution": "uc-manager-cann900-a2-mc039",
         "kind": "ucm-wheel-source-preparation",
         "project_file": "pyproject.toml",
         "schema_version": 1,
@@ -933,9 +923,13 @@ def _run_copied_setup(
 @pytest.mark.parametrize(
     ("profile", "distribution", "platform_arg"),
     [
-        ("cuda130", "uc-manager-cuda", "cuda"),
-        ("cann900-a2", "uc-manager-cann-a2", "ascend"),
-        ("cann900-a3", "uc-manager-cann-a3", "ascend-a3"),
+        ("cuda130-default-cp312", "uc-manager-cuda130", "cuda"),
+        ("ascend900-a2-cp312", "uc-manager-cann900-a2-mc039", "ascend"),
+        (
+            "ascend900-a3-cp312",
+            "uc-manager-cann900-a3-mc039",
+            "ascend-a3",
+        ),
     ],
 )
 def test_setup_release_mode_uses_only_the_extended_v1_build_config(
@@ -1007,7 +1001,7 @@ def test_setup_build_config_preserves_release_feature_exclusions(
     task = _extended_task(cpu_arch=_host_architecture())
     config = {
         "authority": _extended_authority(task),
-        "distribution": "uc-manager-cann-a2",
+        "distribution": "uc-manager-cann900-a2-mc039",
         "kind": "ucm-wheel-build-config",
         "platform": "ascend",
         "python": {"abi": "cp312", "version": "3.12"},

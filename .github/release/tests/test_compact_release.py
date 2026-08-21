@@ -58,12 +58,12 @@ def test_compact_plan_uses_stable_readable_build_matrices() -> None:
     )
 
     assert [item["id"] for item in plan["wheels"]] == [
-        "cann900-a2-amd64",
-        "cann900-a2-arm64",
-        "cann900-a3-amd64",
-        "cann900-a3-arm64",
-        "cuda130-amd64",
-        "cuda130-arm64",
+        "ascend900-a2-cp312-amd64",
+        "ascend900-a2-cp312-arm64",
+        "ascend900-a3-cp312-amd64",
+        "ascend900-a3-cp312-arm64",
+        "cuda130-default-cp312-amd64",
+        "cuda130-default-cp312-arm64",
     ]
     assert [item["id"] for item in plan["images"]] == [
         "vllm-ascend-a2-amd64",
@@ -74,7 +74,7 @@ def test_compact_plan_uses_stable_readable_build_matrices() -> None:
         "vllm-default-arm64",
     ]
     assert plan["wheel_matrix"]["include"][0] == {
-        "id": "cann900-a2-amd64",
+        "id": "ascend900-a2-cp312-amd64",
         "label": "CANN 9.0 A2 · amd64",
         "runner": "ubuntu-24.04",
     }
@@ -82,7 +82,7 @@ def test_compact_plan_uses_stable_readable_build_matrices() -> None:
         "id": "vllm-ascend-a2-amd64",
         "label": "vLLM Ascend · CANN 9.0 A2 · amd64",
         "runner": "ubuntu-24.04",
-        "wheel_id": "cann900-a2-amd64",
+        "wheel_id": "ascend900-a2-cp312-amd64",
     }
 
 
@@ -136,8 +136,8 @@ def test_compact_plan_can_build_only_a_requested_upstream_family() -> None:
         "vllm-ascend-a3-arm64",
     ]
     assert [item["id"] for item in plan["wheels"]] == [
-        "cann900-a3-amd64",
-        "cann900-a3-arm64",
+        "ascend900-a3-cp312-amd64",
+        "ascend900-a3-cp312-arm64",
     ]
 
 
@@ -157,8 +157,8 @@ def test_compact_wheel_environment_controls_distribution_and_version(
     tmp_path: Path,
 ) -> None:
     shutil.copyfile(ROOT / "pyproject.toml", tmp_path / "pyproject.toml")
-    compact.prepare_wheel_source(tmp_path, "uc-manager-cuda")
-    assert 'name = "uc-manager-cuda"' in (tmp_path / "pyproject.toml").read_text()
+    compact.prepare_wheel_source(tmp_path, "uc-manager-cuda130")
+    assert 'name = "uc-manager-cuda130"' in (tmp_path / "pyproject.toml").read_text()
 
     env = {
         key: value
@@ -169,7 +169,7 @@ def test_compact_wheel_environment_controls_distribution_and_version(
         {
             "PLATFORM": "cuda",
             "UCM_BUILD_VERSION": "0.7.59rc3",
-            "UCM_DIST_NAME": "uc-manager-cuda",
+            "UCM_DIST_NAME": "uc-manager-cuda130",
             "UCM_RUNTIME_REQUIREMENTS": '["packaging==24.2","wrapt==1.17.2"]',
         }
     )

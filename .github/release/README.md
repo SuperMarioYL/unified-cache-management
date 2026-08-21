@@ -29,7 +29,7 @@ Builder synchronization itself has two jobs: `prepare` and a dynamic
 
 Task IDs are stable coordinates rather than content hashes:
 
-- wheel: `<profile>-<arch>`, for example `cuda130-amd64`;
+- wheel: `<derived-profile>-<arch>`, for example `cuda130-default-cp312-amd64`;
 - image: `<product>-<variant>-<arch>`, for example
   `vllm-ascend-a3-arm64`;
 - family: `<product>-<variant>`.

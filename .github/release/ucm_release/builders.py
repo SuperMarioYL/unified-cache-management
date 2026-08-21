@@ -707,17 +707,17 @@ def _nearest_candidates(
 
 
 def select_builders(catalog: object, release: object) -> dict[str, object]:
-    """Select one builder for every release wheel profile and architecture."""
+    """Select one builder for every derived build profile and architecture."""
     validated = validate_catalog(catalog)
     available = list(validated["builders"])  # type: ignore[arg-type]
     release_config = _require_mapping(release, "release config")
-    profiles = release_config.get("wheel_profiles")
+    profiles = release_config.get("build_profiles")
     if not isinstance(profiles, list) or not profiles:
-        raise ValueError("release config: wheel_profiles must be a non-empty list")
+        raise ValueError("release config: build_profiles must be a non-empty list")
     selected: list[dict[str, str]] = []
     profile_ids: set[str] = set()
     for index, raw_profile in enumerate(profiles):
-        context = f"release config wheel_profiles[{index}]"
+        context = f"release config build_profiles[{index}]"
         profile = _require_mapping(raw_profile, context)
         profile_id = _require_string(profile, "id", context)
         if profile_id in profile_ids:
@@ -789,11 +789,11 @@ def select_builders(catalog: object, release: object) -> dict[str, object]:
 
 
 def bind_selection(catalog: object, selection: object) -> dict[str, object]:
-    """Bind one selected project builder to every release profile architecture."""
+    """Bind one selected project builder to every derived profile architecture."""
     release = copy.deepcopy(_require_mapping(catalog, "release catalog"))
-    profiles = release.get("wheel_profiles")
+    profiles = release.get("build_profiles")
     if not isinstance(profiles, list) or not profiles:
-        raise ValueError("release catalog: wheel_profiles must be a non-empty list")
+        raise ValueError("release catalog: build_profiles must be a non-empty list")
 
     selected = _require_mapping(selection, "builder selection")
     if set(selected) != {"kind", "schema_version", "builders", "matrix"}:
@@ -818,7 +818,7 @@ def bind_selection(catalog: object, selection: object) -> dict[str, object]:
     profiles_by_id: dict[str, dict[str, object]] = {}
     expected_coordinates: set[tuple[str, str]] = set()
     for index, raw_profile in enumerate(profiles):
-        context = f"release catalog wheel_profiles[{index}]"
+        context = f"release catalog build_profiles[{index}]"
         profile = _require_mapping(raw_profile, context)
         profile_id = _require_string(profile, "id", context)
         if profile_id in profiles_by_id:

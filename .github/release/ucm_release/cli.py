@@ -75,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     def _cmd_builders_select(a):
         result = builders.select_builders(
-            core.load_json(a.catalog), core.load_yaml(a.release)
+            core.load_json(a.catalog), core.load_catalog(a.release)
         )
         a.output.parent.mkdir(parents=True, exist_ok=True)
         _write(a.output, result)
@@ -132,7 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
     config_actions = config.add_subparsers(dest="action", required=True)
     validate = config_actions.add_parser("validate")
     _paths(validate)
-    validate.set_defaults(func=lambda a: {'schema_version': 1, 'wheel_profiles': len(core.load_catalog(a.release, a.schema_dir)['wheel_profiles']), 'compatibility_rules': len(core.load_catalog(a.release, a.schema_dir)['compatibility']['rules'])})  # fmt: skip  # noqa: E501
+    validate.set_defaults(func=lambda a: {'schema_version': 1, 'build_profiles': len(core.load_catalog(a.release, a.schema_dir)['build_profiles']), 'compatibility_rules': len(core.load_catalog(a.release, a.schema_dir)['compatibility']['rules'])})  # fmt: skip  # noqa: E501
 
     catalog_parser = groups.add_parser("catalog")
     catalog_actions = catalog_parser.add_subparsers(dest="action", required=True)

@@ -75,27 +75,27 @@ def _resolved_builder_root(
 
 def _expected_builder_roots() -> dict[tuple[str, str], dict[str, str]]:
     references = {
-        ("cuda130", "amd64"): (
+        ("cuda130-default-cp312", "amd64"): (
             "ghcr.io/release-org/ucm-builder-vllm",
             "cuda13.0-cp312-manylinux2_28-amd64-r1",
         ),
-        ("cuda130", "arm64"): (
+        ("cuda130-default-cp312", "arm64"): (
             "ghcr.io/release-org/ucm-builder-vllm",
             "cuda13.0-cp312-manylinux2_28-arm64-r1",
         ),
-        ("cann900-a2", "amd64"): (
+        ("ascend900-a2-cp312", "amd64"): (
             "ghcr.io/release-org/ucm-builder-vllm-ascend",
             "cann9.0.0-a2-cp312-manylinux2_34-mooncake0.3.9-amd64-r1",
         ),
-        ("cann900-a2", "arm64"): (
+        ("ascend900-a2-cp312", "arm64"): (
             "ghcr.io/release-org/ucm-builder-vllm-ascend",
             "cann9.0.0-a2-cp312-manylinux2_34-mooncake0.3.9-arm64-r1",
         ),
-        ("cann900-a3", "amd64"): (
+        ("ascend900-a3-cp312", "amd64"): (
             "ghcr.io/release-org/ucm-builder-vllm-ascend",
             "cann9.0.0-a3-cp312-manylinux2_34-mooncake0.3.9-amd64-r1",
         ),
-        ("cann900-a3", "arm64"): (
+        ("ascend900-a3-cp312", "arm64"): (
             "ghcr.io/release-org/ucm-builder-vllm-ascend",
             "cann9.0.0-a3-cp312-manylinux2_34-mooncake0.3.9-arm64-r1",
         ),
@@ -179,7 +179,7 @@ def _install_live_registry_fakes(
 def _resolved_catalog(catalog: dict[str, object]) -> dict[str, object]:
     selection = builders.select_builders(_builder_catalog(), catalog)
     bound = builders.bind_selection(catalog, selection)
-    for profile in bound["wheel_profiles"]:
+    for profile in bound["build_profiles"]:
         for architecture, requirement in profile["builders"].items():
             unresolved = requirement["root"]
             requirement["root"] = {
@@ -213,7 +213,7 @@ def _resolve_fixture(
 def _single_family_catalog_and_fixture() -> tuple[dict[str, object], dict[str, object]]:
     catalog = core.load_catalog()
     catalog["upstream_products"] = [copy.deepcopy(catalog["upstream_products"][0])]
-    catalog["wheel_profiles"] = [copy.deepcopy(catalog["wheel_profiles"][0])]
+    catalog["build_profiles"] = [copy.deepcopy(catalog["build_profiles"][-1])]
     catalog["compatibility"]["rules"] = [
         copy.deepcopy(catalog["compatibility"]["rules"][0])
     ]
@@ -234,7 +234,7 @@ def _single_family_catalog_and_fixture() -> tuple[dict[str, object], dict[str, o
 
 def test_latest_admissible_candidate_is_selected_per_product_variant() -> None:
     catalog = core.load_catalog()
-    catalog["scan_limits"]["max_selected_upstreams"] = 3
+    catalog["discovery"]["scan_limits"]["max_selected_upstreams"] = 3
 
     plan = _resolve_fixture(catalog, source_sha="9" * 40)
 
@@ -507,7 +507,7 @@ def test_registry_resolves_exactly_the_six_selected_builder_refs(monkeypatch) ->
     expected = _expected_builder_roots()
     assert calls == [
         (root["repository"], root["tag"], architecture)
-        for (_, architecture), root in expected.items()
+        for (_, architecture), root in sorted(expected.items())
     ]
     assert _wheel_builder_roots(plan) == expected
 
@@ -519,11 +519,6 @@ def test_resolved_plan_freezes_publish_and_removes_secondary_authorities() -> No
         "pypi": {
             "enabled": False,
             "index": "https://upload.pypi.org/legacy/",
-            "dists": [
-                "uc-manager-cuda",
-                "uc-manager-cann-a2",
-                "uc-manager-cann-a3",
-            ],
         },
         "ghcr": {"enabled": True, "namespace": "ghcr.io/release-org"},
         "dockerhub": {
@@ -556,19 +551,19 @@ def test_resolved_plan_freezes_publish_and_removes_secondary_authorities() -> No
 
 def test_release_topology_expands_with_catalog_profile_architecture() -> None:
     catalog = core.load_catalog()
-    extra_profile = copy.deepcopy(catalog["wheel_profiles"][0])
+    extra_profile = copy.deepcopy(catalog["build_profiles"][-1])
     extra_profile["id"] = "cuda131"
     extra_profile["cpu_arch"] = ["arm64"]
-    catalog["wheel_profiles"].append(extra_profile)
+    catalog["build_profiles"].append(extra_profile)
 
     assert core.release_topology(catalog) == {
         "wheels": [
-            {"profile_id": "cann900-a2", "cpu_arch": "amd64"},
-            {"profile_id": "cann900-a2", "cpu_arch": "arm64"},
-            {"profile_id": "cann900-a3", "cpu_arch": "amd64"},
-            {"profile_id": "cann900-a3", "cpu_arch": "arm64"},
-            {"profile_id": "cuda130", "cpu_arch": "amd64"},
-            {"profile_id": "cuda130", "cpu_arch": "arm64"},
+            {"profile_id": "ascend900-a2-cp312", "cpu_arch": "amd64"},
+            {"profile_id": "ascend900-a2-cp312", "cpu_arch": "arm64"},
+            {"profile_id": "ascend900-a3-cp312", "cpu_arch": "amd64"},
+            {"profile_id": "ascend900-a3-cp312", "cpu_arch": "arm64"},
+            {"profile_id": "cuda130-default-cp312", "cpu_arch": "amd64"},
+            {"profile_id": "cuda130-default-cp312", "cpu_arch": "arm64"},
             {"profile_id": "cuda131", "cpu_arch": "arm64"},
         ],
         "families": [
@@ -697,7 +692,7 @@ def test_registry_normal_scan_binds_distinct_builder_digest_chains(
     assert plan["fixture_only"] is False
     assert calls == [
         (root["repository"], root["tag"], architecture)
-        for (_, architecture), root in expected.items()
+        for (_, architecture), root in sorted(expected.items())
     ]
     assert _wheel_builder_roots(plan) == expected
     assert all(
@@ -794,24 +789,25 @@ def test_arm64_only_family_binds_control_runner_and_tool_arch_in_plan() -> None:
 def test_scan_and_matrix_overflow_fail_without_truncation() -> None:
     """Selecting or generating more than the configured max must fail closed."""
     catalog = core.load_catalog()
-    catalog["scan_limits"]["max_selected_upstreams"] = 2
+    catalog["discovery"]["scan_limits"]["max_selected_upstreams"] = 2
     with pytest.raises(ValueError, match="max_selected_upstreams"):
         _resolve_fixture(catalog, source_sha="1" * 40)
 
-    catalog["scan_limits"]["max_selected_upstreams"] = 8
-    catalog["matrix_limits"]["max_family_tasks"] = 2
+    catalog["discovery"]["scan_limits"]["max_selected_upstreams"] = 8
+    catalog["discovery"]["matrix_limits"]["max_family_tasks"] = 2
     with pytest.raises(ValueError, match="max_family_tasks"):
         _resolve_fixture(catalog, source_sha="1" * 40)
 
 
-def test_v2_catalog_still_rejects_overlapping_compatibility_rules(
+def test_v3_catalog_rejects_overlapping_compatibility_rules(
     tmp_path: Path,
 ) -> None:
-    """Deleting the adapter must not weaken v2 rule ambiguity validation."""
+    """The v3 authority must reject ambiguous compatibility selectors."""
     catalog = core.load_catalog()
     duplicate = copy.deepcopy(catalog["compatibility"]["rules"][0])
     duplicate["id"] = "overlapping-copy"
     catalog["compatibility"]["rules"].append(duplicate)
+    catalog.pop("build_profiles")
     catalog_path = tmp_path / "release.yaml"
     catalog_path.write_text(yaml.safe_dump(catalog, sort_keys=False), encoding="utf-8")
 
@@ -819,7 +815,7 @@ def test_v2_catalog_still_rejects_overlapping_compatibility_rules(
         core.load_catalog(catalog_path)
 
 
-def test_v2_catalog_rejects_semantic_range_overlap_without_a_current_target() -> None:
+def test_v3_catalog_rejects_semantic_range_overlap_without_a_current_target() -> None:
     """Future targets cannot make two previously accepted rule selectors ambiguous."""
     catalog = core.load_catalog()
     product = next(
@@ -1281,10 +1277,10 @@ def test_resolve_catalog_pin_path_inspects_variant_and_binds_builders(
     expected = _expected_builder_roots()
     assert builder_calls == [
         (root["repository"], root["tag"], architecture)
-        for (_, architecture), root in expected.items()
+        for (_, architecture), root in sorted(expected.items())
     ]
     assert _wheel_builder_roots(plan) == {
-        key: root for key, root in expected.items() if key[0] == "cann900-a3"
+        key: root for key, root in expected.items() if key[0] == "ascend900-a3-cp312"
     }
 
 

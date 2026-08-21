@@ -1,11 +1,4 @@
 # toolchain.lock.yaml — builder environment requirements and build dependency locks
-matrix_limits:
-  max_wheel_tasks: 64
-  max_image_tasks: 128
-  max_family_tasks: 64
-scan_limits:
-  max_tags_per_repository: 1024
-  max_selected_upstreams: 64
 python_runtime_dependencies:
 - requirement: wrapt==1.17.2
   import_name: wrapt
@@ -65,8 +58,17 @@ python_build_lock:
       arm64:
         filename: cmake-3.31.6-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
         sha256: sha256:42d9883b8958da285d53d5f69d40d9650c2d1bcf922d82b3ebdceb2b3a7d4521
-builders:
-  cuda130:
+builder_requirements:
+- accelerator: cuda
+  accelerator_runtime: cuda-13.0
+  variants: [default]
+  python_version: '3.12'
+  python_abi: cp312
+  manylinux: manylinux_2_28
+  build_platform: cuda
+  wheel_platform: manylinux_2_28
+  mooncake_version: null
+  architectures:
     amd64:
       sources: []
       copy_paths: []
@@ -141,7 +143,16 @@ builders:
         path: /usr/local/cuda/include/cuda.h
       - kind: file
         path: /usr/local/cuda/lib64/libcudart.so.13
-  cann900-a2:
+- accelerator: ascend
+  accelerator_runtime: cann-9.0.0
+  variants: [a2]
+  python_version: '3.12'
+  python_abi: cp312
+  manylinux: manylinux_2_34
+  build_platform: ascend
+  wheel_platform: linux
+  mooncake_version: 0.3.9
+  architectures:
     amd64:
       sources: []
       copy_paths: []
@@ -218,7 +229,16 @@ builders:
         path: /usr/local/include/transfer_engine.h
       - kind: shared-library-dependencies
         path: /usr/local/lib/libmooncake_store.so
-  cann900-a3:
+- accelerator: ascend
+  accelerator_runtime: cann-9.0.0
+  variants: [a3]
+  python_version: '3.12'
+  python_abi: cp312
+  manylinux: manylinux_2_34
+  build_platform: ascend-a3
+  wheel_platform: linux
+  mooncake_version: 0.3.9
+  architectures:
     amd64:
       sources: []
       copy_paths: []
