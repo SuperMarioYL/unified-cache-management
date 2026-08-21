@@ -227,30 +227,6 @@ docker_recipes:
   upstream_product_id: vllm-ascend
   upstream_variant: a2
   exclusion_reason: Historical source-build recipe is excluded from formal release.
-- id: vllm-ascend-a2-0230-source
-  path: docker/Dockerfile.ucm-vllm-ascend.a2-v0.23.0
-  status: legacy
-  lanes:
-  - manual
-  product: vllm-ascend
-  backend: ascend
-  variant: a2
-  upstream_version: 0.23.0
-  base_image:
-    source: quay.io/ascend
-    name_version: vllm-ascend:v0.23.0
-  cpu_arch: arm64
-  platform: linux/arm64
-  runner: ubuntu-24.04-arm
-  build_mode: legacy-source-build
-  cache_scope: recipe-vllm-ascend-a2-0230
-  build_args:
-  - PIP_INDEX_URL=https://pypi.org/simple
-  engine_type: vllm-ascend.a2
-  install_hook: required
-  upstream_product_id: vllm-ascend
-  upstream_variant: a2
-  exclusion_reason: Historical source-build recipe is excluded from formal release.
 - id: vllm-ascend-a3-0180-glm51-source
   path: docker/Dockerfile.ucm-vllm-ascend.a3-v0.18.0glm5.1
   status: specialized
@@ -364,30 +340,6 @@ docker_recipes:
   runner: ubuntu-24.04-arm
   build_mode: legacy-source-build
   cache_scope: recipe-vllm-ascend-a3-0230rc1
-  build_args:
-  - PIP_INDEX_URL=https://pypi.org/simple
-  engine_type: vllm-ascend.a3
-  install_hook: required
-  upstream_product_id: vllm-ascend
-  upstream_variant: a3
-  exclusion_reason: Historical source-build recipe is excluded from formal release.
-- id: vllm-ascend-a3-0230-source
-  path: docker/Dockerfile.ucm-vllm-ascend.a3-v0.23.0
-  status: legacy
-  lanes:
-  - manual
-  product: vllm-ascend
-  backend: ascend
-  variant: a3
-  upstream_version: 0.23.0
-  base_image:
-    source: quay.io/ascend
-    name_version: vllm-ascend:v0.23.0-a3
-  cpu_arch: arm64
-  platform: linux/arm64
-  runner: ubuntu-24.04-arm
-  build_mode: legacy-source-build
-  cache_scope: recipe-vllm-ascend-a3-0230
   build_args:
   - PIP_INDEX_URL=https://pypi.org/simple
   engine_type: vllm-ascend.a3

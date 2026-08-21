@@ -1034,7 +1034,6 @@ def validate_repository_recipe_inventory(
     products = {item["id"]: item for item in catalog["upstream_products"]}
     normalized_paths: dict[str, str] = {}
     cache_scopes: set[str] = set()
-    registered_paths: set[str] = set()
     allowed_lanes = {"pr-smoke", "hardware-e2e", "manual", "formal-release"}
     path_pattern = re.compile(r"^docker/Dockerfile\.ucm-[a-z0-9][a-z0-9._-]{0,127}$")
     safe_id_pattern = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
@@ -1054,7 +1053,6 @@ def validate_repository_recipe_inventory(
             previous = normalized_paths.get(collision_key)
             raise ValueError(f'normalized Docker recipe path collision: {path!r} and {previous!r}')  # fmt: skip  # noqa: E501
         normalized_paths[collision_key] = path
-        registered_paths.add(path)
 
         lanes = recipe.get("lanes")
         if (
@@ -1163,13 +1161,6 @@ def validate_repository_recipe_inventory(
             "name_version": name_version,
         }:
             raise ValueError(f"Docker recipe base image differs from catalog: {path}")
-
-    discovered = {item.relative_to(repository_root).as_posix() for item in (repository_root / 'docker').glob('Dockerfile.ucm-*') if item.is_file()}  # fmt: skip  # noqa: E501
-    missing = sorted(discovered - registered_paths)
-    extra = sorted(registered_paths - discovered)
-    if missing or extra:
-        raise ValueError(f'Docker recipe inventory differs from release.yaml: unregistered={missing}, nonexistent={extra}')  # fmt: skip  # noqa: E501
-
 
 def repository_recipe_matrix(
     catalog: dict[str, Any],

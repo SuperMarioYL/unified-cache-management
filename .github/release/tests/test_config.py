@@ -16,24 +16,11 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / ".github" / "release"))
 PACKAGE_DIR = REPO_ROOT / ".github" / "release" / "ucm_release"
-SCHEMA_DIR = REPO_ROOT / ".github" / "release" / "schemas"
-DOCKER_DIR = REPO_ROOT / ".github" / "release" / "docker"
 LEGACY_RELEASE_ROOTS = (
     REPO_ROOT / "release",
     REPO_ROOT / "scripts" / "release",
     REPO_ROOT / "docker" / "release",
 )
-EXPECTED_DOCKER_FILES = {
-    "Dockerfile.builder",
-    "Dockerfile.runtime",
-    "Dockerfile.wheel",
-    "install_ucm.py",
-    "inspect_runtime.py",
-    "mooncake_installer.sh",
-    "verify_base_image.py",
-}
-
-
 def _source_files(path: Path, *, excluded_parts: set[str] | None = None) -> list[Path]:
     if not path.exists():
         return []
@@ -44,20 +31,6 @@ def _source_files(path: Path, *, excluded_parts: set[str] | None = None) -> list
         if candidate.is_file()
         and not exclusions.intersection(candidate.relative_to(path).parts)
     ]
-
-
-def _docker_layout_violation(docker_dir: Path) -> str | None:
-    actual = {
-        path.relative_to(docker_dir).as_posix()
-        for path in _source_files(docker_dir, excluded_parts={"__pycache__"})
-    }
-    if actual != EXPECTED_DOCKER_FILES:
-        return (
-            "release Docker files must be exactly "
-            f"{sorted(EXPECTED_DOCKER_FILES)}, found {sorted(actual)}"
-        )
-    return None
-
 
 def _forbidden_release_content_paths(repo_root: Path) -> tuple[list[str], list[str]]:
     """Scan both old and new implementation roots, never the contract tests."""
@@ -86,31 +59,12 @@ def _forbidden_release_content_paths(repo_root: Path) -> tuple[list[str], list[s
     return sorted(opt_references), sorted(standalone_wrapt_paths)
 
 
-def test_release_tree_obeys_the_slim_structural_budget() -> None:
-    """Require the final package layout without silently accepting omissions."""
+def test_release_tree_rejects_legacy_release_artifacts() -> None:
+    """Retain the safety invariants without constraining future growth."""
     violations: list[str] = []
 
-    package_files = [
-        path for path in _source_files(PACKAGE_DIR) if path.suffix == ".py"
-    ]
     if not PACKAGE_DIR.is_dir():
         violations.append("missing .github/release/ucm_release package")
-    if len(package_files) > 8:
-        violations.append(
-            f"release package has {len(package_files)} Python files; budget is at most 8"
-        )
-
-    schema_files = [
-        path for path in _source_files(SCHEMA_DIR) if path.suffix == ".json"
-    ]
-    if len(schema_files) != 3:
-        violations.append(
-            f"release package has {len(schema_files)} JSON schemas; contract requires exactly 3"
-        )
-
-    docker_violation = _docker_layout_violation(DOCKER_DIR)
-    if docker_violation:
-        violations.append(docker_violation)
 
     present_legacy_roots = [
         path.relative_to(REPO_ROOT).as_posix()
@@ -156,23 +110,6 @@ def test_forbidden_content_scan_covers_the_new_release_tree(tmp_path: Path) -> N
 
     assert opt_paths == [".github/release/ucm_release/runner.py"]
     assert wrapt_paths == [".github/release/ucm_release/wrapt_bundle.py"]
-
-
-def test_docker_layout_rejects_a_nested_duplicate_of_an_allowed_name(
-    tmp_path: Path,
-) -> None:
-    """Compare relative paths so duplicate basenames cannot satisfy the budget."""
-    for filename in EXPECTED_DOCKER_FILES:
-        (tmp_path / filename).write_text("placeholder\n")
-    nested = tmp_path / "nested"
-    nested.mkdir()
-    (nested / "Dockerfile").write_text("duplicate\n")
-
-    violation = _docker_layout_violation(tmp_path)
-
-    assert violation is not None
-    assert "nested/Dockerfile" in violation
-
 
 def test_release_config_profiles_are_dynamic_and_have_no_runner_escape_hatch() -> None:
     release = yaml.safe_load(

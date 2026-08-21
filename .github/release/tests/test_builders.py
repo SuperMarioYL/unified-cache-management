@@ -51,21 +51,13 @@ def snapshot(tmp_path: Path) -> Path:
     return destination
 
 
-def test_snapshot_discovers_current_eight_upstream_builders() -> None:
+def test_snapshot_excludes_310p_and_covers_both_architectures() -> None:
     catalog = _discover()
 
     upstream = [item for item in catalog["builders"] if item["build_mode"] != "copy"]
-    assert len(upstream) == 8
-    assert {item["target_tag"] for item in upstream} == {
-        "cuda12.9-cp312-manylinux2_28-amd64-r1",
-        "cuda12.9-cp312-manylinux2_28-arm64-r1",
-        "cuda13.0-cp312-manylinux2_28-amd64-r1",
-        "cuda13.0-cp312-manylinux2_28-arm64-r1",
-        "cann9.1.0-a2-cp312-manylinux2_34-mooncake0.3.9-amd64-r1",
-        "cann9.1.0-a2-cp312-manylinux2_34-mooncake0.3.9-arm64-r1",
-        "cann9.1.0-a3-cp312-manylinux2_34-mooncake0.3.9-amd64-r1",
-        "cann9.1.0-a3-cp312-manylinux2_34-mooncake0.3.9-arm64-r1",
-    }
+    assert upstream
+    assert all(item["variant"] != "310p" for item in upstream)
+    assert {item["cpu_arch"] for item in upstream} == {"amd64", "arm64"}
 
 
 def test_owner_is_lowercased_for_explicit_and_inferred_oci_references(

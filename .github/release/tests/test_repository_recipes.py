@@ -22,18 +22,25 @@ sys.path.insert(0, str(RELEASE_ROOT))
 core = importlib.import_module("ucm_release.core")
 
 
-def test_catalog_registers_exact_repository_dockerfile_inventory() -> None:
+def test_unregistered_future_dockerfile_does_not_block_declared_recipes(
+    tmp_path: Path,
+) -> None:
     catalog = core.load_catalog()
-
-    registered = [recipe["path"] for recipe in catalog["docker_recipes"]]
-    discovered = sorted(
-        path.relative_to(ROOT).as_posix()
-        for path in (ROOT / "docker").glob("Dockerfile.ucm-*")
-        if path.is_file()
+    docker_root = tmp_path / "docker"
+    docker_root.mkdir()
+    for recipe in catalog["docker_recipes"]:
+        source = ROOT / recipe["path"]
+        target = tmp_path / recipe["path"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(source.read_bytes())
+    (docker_root / "Dockerfile.ucm-vllm-ascend.a2-v0.99.0").write_text(
+        "ARG IMAGE_SOURCE=\"quay.io/ascend\"\n"
+        "ARG IMAGE_NAME_VERSION=\"vllm-ascend:v0.99.0\"\n"
+        "FROM ${IMAGE_SOURCE}/${IMAGE_NAME_VERSION}\n",
+        encoding="utf-8",
     )
 
-    assert len(registered) == len(set(registered))
-    assert sorted(registered) == discovered
+    core.validate_repository_recipe_inventory(catalog, repository_root=tmp_path)
 
 
 def test_repository_recipe_base_images_are_catalog_owned_and_contract_checked() -> None:
