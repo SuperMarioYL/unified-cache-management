@@ -399,8 +399,7 @@ def test_vllm_discovery_accepts_opaque_builder_tag_revision(snapshot: Path) -> N
     arm64 = next(
         item
         for item in catalog["builders"]
-        if item["accelerator_runtime"] == "cuda-13.0"
-        and item["cpu_arch"] == "arm64"
+        if item["accelerator_runtime"] == "cuda-13.0" and item["cpu_arch"] == "arm64"
     )
 
     assert arm64["source_image"] == "docker.io/" + revised
