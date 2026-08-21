@@ -2,19 +2,44 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
+from typing import Any
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 
-def _load(name: str) -> dict[str, object]:
+def _load(name: str) -> dict[str, Any]:
     value = yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))
+    assert isinstance(value, dict)
     if True in value and "on" not in value:
         value["on"] = value.pop(True)
     return value
+
+
+def _job_source(job: dict[str, Any]) -> str:
+    return yaml.safe_dump(job, sort_keys=False)
+
+
+def _needs(job: dict[str, Any]) -> set[str]:
+    value = job.get("needs", [])
+    return {value} if isinstance(value, str) else set(value)
+
+
+def _artifact_steps(job: dict[str, Any], action: str) -> list[dict[str, Any]]:
+    return [
+        step
+        for step in job.get("steps", [])
+        if str(step.get("uses", "")).startswith(f"actions/{action}-artifact@")
+    ]
+
+
+def _is_always(value: object) -> bool:
+    return str(value).replace("${{", "").replace("}}", "").strip() == "always()"
 
 
 def test_release_workflow_has_six_visible_stages_and_flat_build_matrices() -> None:
@@ -44,16 +69,198 @@ def test_release_workflow_has_six_visible_stages_and_flat_build_matrices() -> No
     )
 
 
-def test_builder_sync_contains_only_prepare_and_independent_missing_builds() -> None:
+def test_builder_sync_exports_run_scoped_capability_catalog_from_assembly() -> None:
     workflow = _load("sync-builders.yml")
     jobs = workflow["jobs"]
+    outputs = workflow["on"]["workflow_call"]["outputs"]
 
-    assert list(jobs) == ["prepare", "build-missing"]
+    assert "prepare" in jobs
+    assert "build-missing" in jobs
     assert jobs["build-missing"]["name"] == "Builder · ${{ matrix.label }}"
-    assert (
-        workflow["on"]["workflow_call"]["outputs"]["builder_catalog_artifact"]["value"]
-        == "${{ jobs.prepare.outputs.builder_catalog_artifact }}"
+    assert "capability_catalog_artifact" in outputs, (
+        "sync-builders must export the assembled Capability Catalog artifact"
     )
+    assert (
+        outputs["capability_catalog_artifact"]["value"]
+        == "${{ jobs.assemble-capability-catalog.outputs.capability_catalog_artifact }}"
+    )
+    assembly = jobs.get("assemble-capability-catalog")
+    assert isinstance(assembly, dict)
+    source = _job_source(assembly)
+    assert (
+        "ucm-capability-catalog-run-${GITHUB_RUN_ID}-attempt-"
+        "${GITHUB_RUN_ATTEMPT}" in source
+    )
+    uploads = _artifact_steps(assembly, "upload")
+    assert any(
+        "capability_catalog_artifact"
+        in str(step.get("with", {}).get("name", ""))
+        and "capability-catalog.json" in str(step.get("with", {}).get("path", ""))
+        for step in uploads
+    )
+
+
+def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> None:
+    workflow = _load("sync-builders.yml")
+    candidates = [
+        (job_id, job)
+        for job_id, job in workflow["jobs"].items()
+        if "/opt/python/cp*-cp*/bin/python" in _job_source(job)
+    ]
+
+    assert candidates, "missing native Builder Python probe matrix"
+    _, job = candidates[0]
+    source = _job_source(job)
+    assert job.get("strategy", {}).get("fail-fast") is False
+    assert "matrix" in job.get("strategy", {})
+    runs_on = str(job.get("runs-on", ""))
+    assert any(
+        selector in runs_on
+        for selector in ("matrix.runner", "matrix.cpu_architecture", "matrix.cpu_arch")
+    )
+    assert "docker run" in source
+    assert "builder_digest" in source
+    assert "python_version" in source
+    assert "python_abi" in source
+    assert "wheel_tag" in source
+    assert "cpu_architecture" in source
+    assert "cp312" not in source
+
+
+def test_runtime_discovery_records_immutable_image_and_git_source_facts() -> None:
+    workflow = _load("sync-builders.yml")
+    required = {
+        "runtime_image_digest",
+        "git_tag",
+        "git_commit",
+        "variant",
+        "cpu_architecture",
+    }
+    candidates = [
+        job
+        for job in workflow["jobs"].values()
+        if required <= set(re.findall(r"[a-z][a-z0-9_-]*", _job_source(job).lower()))
+    ]
+
+    assert candidates, "missing runtime image and Git-source discovery job"
+    source = _job_source(candidates[0])
+    assert "@sha256:" in source or "runtime_image_digest" in source
+    assert "runtime-discovery.json" in source
+
+
+def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version() -> (
+    None
+):
+    workflow = _load("sync-builders.yml")
+    candidates = [
+        job
+        for job in workflow["jobs"].values()
+        if "MOONCAKE_TAG" in _job_source(job)
+        and "installed_version" in _job_source(job)
+    ]
+
+    assert candidates, "missing native Mooncake declaration/installation probe"
+    source = _job_source(candidates[0])
+    assert "Dockerfile" in source
+    assert "runtime_image_digest" in source
+    runs_on = str(candidates[0].get("runs-on", ""))
+    assert any(
+        selector in runs_on
+        for selector in ("matrix.runner", "matrix.cpu_architecture", "matrix.cpu_arch")
+    )
+    assert "mooncake-probe.json" in source
+
+
+def test_catalog_assembly_waits_for_all_results_and_calls_public_seam() -> None:
+    workflow = _load("sync-builders.yml")
+    assembly = workflow["jobs"].get("assemble-capability-catalog")
+
+    assert isinstance(assembly, dict), "missing Capability Catalog assembly job"
+    source = _job_source(assembly)
+    needs = _needs(assembly)
+    assert "build-missing" in needs
+    assert len(needs) >= 4
+    assert _is_always(assembly.get("if"))
+    downloads = _artifact_steps(assembly, "download")
+    downloaded = "\n".join(_job_source(step).lower() for step in downloads)
+    for result in ("builder", "python", "runtime", "mooncake"):
+        assert result in downloaded
+    assert "assemble_capability_catalog" in source
+    assert "validate_capability_catalog" in source
+    uploads = _artifact_steps(assembly, "upload")
+    assert uploads
+    assert all(_is_always(step.get("if")) for step in uploads)
+
+
+@pytest.mark.parametrize("filename", ["release-ucm.yml", "ucm-build-bot.yml"])
+def test_planners_consume_capability_catalog_instead_of_flat_builder_catalog(
+    filename: str,
+) -> None:
+    workflow = _load(filename)
+    sync_outputs = workflow["jobs"]["sync-builders"].get("outputs", {})
+    plan = workflow["jobs"]["plan"]
+    source = _job_source(plan)
+
+    assert "capability_catalog_artifact" in sync_outputs or (
+        "needs.sync-builders.outputs.capability_catalog_artifact" in source
+    )
+    assert "--capability-catalog" in source
+    assert "capability-catalog.json" in source
+    assert "--builder-catalog" not in source
+
+
+def test_ascend_builder_copies_mooncake_from_matching_immutable_runtime() -> None:
+    workflow = (WORKFLOWS / "sync-builders.yml").read_text(encoding="utf-8")
+    dockerfile = (
+        ROOT / ".github" / "release" / "docker" / "Dockerfile.builder"
+    ).read_text(encoding="utf-8")
+
+    assert "matrix.runtime_image" in workflow
+    runtime_stage = re.search(
+        r"^ARG\s+(?P<arg>[A-Z_]*RUNTIME_IMAGE)\s*$\n"
+        r"FROM\s+\$\{(?P=arg)\}\s+AS\s+(?P<stage>[-a-z0-9]+)$",
+        dockerfile,
+        re.MULTILINE,
+    )
+    assert runtime_stage
+    assert runtime_stage.group("arg") in workflow
+    stage = runtime_stage.group("stage")
+    assert re.search(
+        rf"^COPY\s+--from={re.escape(stage)}\s+.*include", dockerfile, re.MULTILINE
+    )
+    assert re.search(
+        rf"^COPY\s+--from={re.escape(stage)}\s+.*lib", dockerfile, re.MULTILINE
+    )
+
+
+def test_ascend_builder_has_no_tag_inference_or_fixed_mooncake_clone() -> None:
+    workflow = (WORKFLOWS / "sync-builders.yml").read_text(encoding="utf-8")
+    dockerfile = (
+        ROOT / ".github" / "release" / "docker" / "Dockerfile.builder"
+    ).read_text(encoding="utf-8")
+    active_source = workflow + "\n" + dockerfile
+
+    assert "mooncake_installer.sh" not in active_source
+    assert "MOONCAKE_TAG" not in active_source
+    assert "git clone" not in active_source
+    assert "mooncake_version=\"$(printf '%s' \"${TARGET_TAG}\"" not in active_source
+    assert "0.3.9" not in active_source
+
+
+def test_probe_matrices_isolate_failures_and_always_upload_results() -> None:
+    workflow = _load("sync-builders.yml")
+    probe_jobs = [
+        job
+        for job_id, job in workflow["jobs"].items()
+        if job_id != "build-missing" and "matrix" in job.get("strategy", {})
+    ]
+
+    assert len(probe_jobs) >= 2, "missing dynamic native probe matrices"
+    for job in probe_jobs:
+        assert job["strategy"].get("fail-fast") is False
+        uploads = _artifact_steps(job, "upload")
+        assert uploads
+        assert all(_is_always(step.get("if")) for step in uploads)
 
 
 def test_reusable_builds_expose_only_functional_inputs() -> None:
