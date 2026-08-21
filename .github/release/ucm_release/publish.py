@@ -335,6 +335,7 @@ def _family_references(plan: dict[str, Any], namespace: str, *, configured_targe
 def inspect_oci_reference(
     reference: str,
     *,
+    expected_platforms: Sequence[str],
     run: Run = _default_run,
     crane_binary: str | None = None,
     insecure: bool = False,
@@ -381,8 +382,15 @@ def inspect_oci_reference(
                     "config_digest": child["config"]["digest"],
                 }
             )
-        if sorted(platforms) != ["linux/amd64", "linux/arm64"] or len(platforms) != len(set(platforms)):
-            raise ValueError("published OCI index must contain exact linux/amd64 and linux/arm64 platforms")
+        expected = sorted(expected_platforms)
+        if (
+            not expected
+            or any(not isinstance(platform, str) or not platform for platform in expected)
+            or len(expected) != len(set(expected))
+        ):
+            raise ValueError("OCI readback expected platform set is malformed")
+        if sorted(platforms) != expected or len(platforms) != len(set(platforms)):
+            raise ValueError("published OCI index differs from expected platform set")
         return {
             "reference": reference,
             "index_digest": digest,
@@ -402,7 +410,7 @@ def _inspect_oci_families(
     _require_release_image_matrix(plan)
     results: list[dict[str, Any]] = []
     for family, tagged_reference in _family_references(plan, namespace, configured_targets=configured_targets):
-        inspected = inspect_oci_reference(tagged_reference, run=run, crane_binary=crane_binary)
+        inspected = inspect_oci_reference(tagged_reference, expected_platforms=family["platform"], run=run, crane_binary=crane_binary)
         results.append({"family_task_id": family["task_id"], **inspected})
     return results
 
@@ -699,6 +707,7 @@ def publish_ghcr(
         )
         inspected = inspect_oci_reference(
             target,
+            expected_platforms=family["platform"],
             run=run,
             crane_binary=crane_binary,
         )
@@ -756,10 +765,16 @@ def publish_dockerhub(
     ):
         target_reference = targets_by_family[family["task_id"]]
         source = inspect_oci_reference(
-            source_reference, run=run, crane_binary=crane_binary
+            source_reference,
+            expected_platforms=family["platform"],
+            run=run,
+            crane_binary=crane_binary,
         )
         target = inspect_oci_reference(
-            target_reference, run=run, crane_binary=crane_binary
+            target_reference,
+            expected_platforms=family["platform"],
+            run=run,
+            crane_binary=crane_binary,
         )
         if source["index_digest"] != target["index_digest"]:
             raise ValueError("Docker Hub target index differs from GHCR source")

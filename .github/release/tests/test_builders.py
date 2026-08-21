@@ -358,6 +358,9 @@ def test_mocked_live_github_source_matches_snapshot_bytes(
 
 
 def test_duplicate_upstream_tasks_collapse_by_capability(snapshot: Path) -> None:
+    before = [
+        item for item in _discover(snapshot)["builders"] if item["build_mode"] != "copy"
+    ]
     pipeline = snapshot / "vllm-project/vllm/.buildkite/release-pipeline.yaml"
     pipeline.write_text(
         pipeline.read_text(encoding="utf-8")
@@ -367,11 +370,21 @@ def test_duplicate_upstream_tasks_collapse_by_capability(snapshot: Path) -> None
         encoding="utf-8",
     )
 
-    upstream = [
+    after = [
         item for item in _discover(snapshot)["builders"] if item["build_mode"] != "copy"
     ]
+    identity_fields = (
+        "project",
+        "accelerator",
+        *builders.CAPABILITY_FIELDS,
+        "target_repository",
+    )
+    identities = lambda items: {  # noqa: E731
+        tuple(item[field] for field in identity_fields) for item in items
+    }
 
-    assert len(upstream) == 8
+    assert identities(after) == identities(before)
+    assert len(after) == len(identities(after))
 
 
 @pytest.mark.parametrize(

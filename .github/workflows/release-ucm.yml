@@ -134,8 +134,12 @@ jobs:
             --lane "${lane}" --source-sha "${GITHUB_SHA}" \
             --builder-catalog input/builders/builder-catalog.json \
             --output out/plan/resolved-plan.json >/dev/null
-          PYTHONPATH=.github/release python -m ucm_release catalog validate-main-loop \
+          PYTHONPATH=.github/release python -m ucm_release catalog validate-resolved-plan \
             --plan out/plan/resolved-plan.json >/dev/null
+          if [[ "${lane}" == protected-tag ]]; then
+            PYTHONPATH=.github/release python -m ucm_release catalog validate-main-loop \
+              --plan out/plan/resolved-plan.json >/dev/null
+          fi
           resolved_plan_sha256="$(jq -r '.resolved_plan_sha256' out/plan/resolved-plan.json)"
           logical_artifact="$(jq -r '.expected_artifacts.resolved_plan' out/plan/resolved-plan.json)"
           resolved_plan_artifact="${logical_artifact}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"

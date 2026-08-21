@@ -775,6 +775,20 @@ _DEVELOP_WORKFLOW_RUN_POLICY = {
     "branches": ["develop"],
     "types": ["completed"],
 }
+_DEVELOP_TRUST_STEP_ENV_POLICY = {
+    "CONFIGURED_MAIN": "main",
+    "DEFAULT_BRANCH": "${{ github.event.repository.default_branch }}",
+    "EVENT_REPOSITORY": "${{ github.repository }}",
+    "GITHUB_REF_NAME": "${{ github.ref_name }}",
+    "HEAD_BRANCH": "${{ github.event.workflow_run.head_branch }}",
+    "HEAD_REPOSITORY": "${{ github.event.workflow_run.head_repository.full_name }}",
+    "HEAD_SHA": "${{ github.event.workflow_run.head_sha }}",
+    "WORKFLOW_CONCLUSION": "${{ github.event.workflow_run.conclusion }}",
+    "WORKFLOW_EVENT": "${{ github.event.workflow_run.event }}",
+    "WORKFLOW_NAME": "${{ github.event.workflow_run.name }}",
+    "WORKFLOW_PATH": "${{ github.event.workflow_run.path }}",
+    "WORKFLOW_SHA": "${{ github.workflow_sha }}",
+}
 _PR_EVENT_POLICY = {
     "pull_request": {"types": ["opened", "reopened", "synchronize"]},
     "issue_comment": {"types": ["created"]},
@@ -1734,6 +1748,15 @@ def audit_workflow_source(source: str, name: str) -> list[Finding]:
             if not isinstance(environment, dict):
                 findings.append(Finding(name, "step env must be an object"))
             else:
+                if (
+                    name == "develop-release-dry-run.yml"
+                    and step_name
+                    == "Validate trusted controller and develop source event"
+                    and environment != _DEVELOP_TRUST_STEP_ENV_POLICY
+                ):
+                    findings.append(
+                        Finding(name, "develop trust-step env mapping differs")
+                    )
                 for value in environment.values():
                     if (
                         isinstance(value, str)

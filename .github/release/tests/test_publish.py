@@ -191,6 +191,41 @@ def _single_family_plan() -> dict[str, object]:
     )
 
 
+def _single_platform_plan() -> dict[str, object]:
+    catalog = core.load_catalog(version_override="0.7.59rc1")
+    product = copy.deepcopy(catalog["upstream_products"][0])
+    product["required_cpu_architectures"] = ["arm64"]
+    catalog["upstream_products"] = [product]
+    profile = copy.deepcopy(catalog["wheel_profiles"][0])
+    profile["cpu_arch"] = ["arm64"]
+    profile["builders"] = {"arm64": profile["builders"]["arm64"]}
+    catalog["wheel_profiles"] = [profile]
+    compatibility = copy.deepcopy(catalog["compatibility"]["rules"][0])
+    compatibility["cpu_architectures"] = ["arm64"]
+    catalog["compatibility"]["rules"] = [compatibility]
+    catalog["chart"]["validation_cases"] = [
+        copy.deepcopy(catalog["chart"]["validation_cases"][0])
+    ]
+    selector = copy.deepcopy(catalog["pr_smoke"]["image_selectors"][0])
+    selector["cpu_arch"] = "arm64"
+    catalog["pr_smoke"]["image_selectors"] = [selector]
+    catalog["runtime_patch_rules"] = [
+        rule for rule in catalog["runtime_patch_rules"] if rule["product"] == "vllm"
+    ]
+    fixture = _registry_fixture()
+    repository = product["repository"]
+    fixture["repositories"] = {repository: fixture["repositories"][repository]}
+    snapshot = fixture["repositories"][repository]["snapshots"]["v0.21.2"]
+    snapshot["platforms"] = [
+        item for item in snapshot["platforms"] if item["architecture"] == "arm64"
+    ]
+    return _resolved_plan(
+        lane="protected-tag",
+        catalog_override=catalog,
+        registry_fixture=fixture,
+    )
+
+
 def _write_plan(path: Path, plan: dict[str, object]) -> Path:
     path.write_bytes(core.canonical_bytes(plan) + b"\n")
     return path
@@ -429,11 +464,16 @@ def _completed(
 
 class OciRunner:
     def __init__(
-        self, *, extra_platform: bool = False, dockerhub_digest_conflict: bool = False
+        self,
+        *,
+        extra_platform: bool = False,
+        dockerhub_digest_conflict: bool = False,
+        platforms: tuple[str, ...] = ("amd64", "arm64"),
     ) -> None:
         self.calls: list[tuple[list[str], dict[str, str] | None, bytes | None]] = []
         self.extra_platform = extra_platform
         self.dockerhub_digest_conflict = dockerhub_digest_conflict
+        self.platforms = platforms
 
     def __call__(self, command, *, env=None, input_bytes=None):
         command = list(command)
@@ -463,14 +503,12 @@ class OciRunner:
             manifests = [
                 {
                     "mediaType": "application/vnd.oci.image.manifest.v1+json",
-                    "digest": AMD64_DIGEST,
-                    "platform": {"os": "linux", "architecture": "amd64"},
-                },
-                {
-                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
-                    "digest": ARM64_DIGEST,
-                    "platform": {"os": "linux", "architecture": "arm64"},
-                },
+                    "digest": (
+                        AMD64_DIGEST if architecture == "amd64" else ARM64_DIGEST
+                    ),
+                    "platform": {"os": "linux", "architecture": architecture},
+                }
+                for architecture in self.platforms
             ]
             if self.extra_platform:
                 manifests.append(
@@ -995,6 +1033,22 @@ def test_ghcr_readback_uses_empty_auth_and_records_index_digest(
     )
 
 
+def test_ghcr_readback_uses_each_family_resolved_platform_set(tmp_path: Path) -> None:
+    """A supported subset family must not inherit a global two-platform check."""
+    publication = importlib.import_module("ucm_release.publish")
+    plan_path = _write_plan(tmp_path / "resolved-plan.json", _single_platform_plan())
+
+    result = publication.publish_ghcr(
+        plan_path,
+        stage="readback",
+        run=OciRunner(platforms=("arm64",)),
+        crane_binary="/pinned/crane",
+    )
+
+    assert len(result["images"]) == 1
+    assert result["images"][0]["platforms"] == ["linux/arm64"]
+
+
 def test_publication_matrix_and_member_artifacts_follow_resolved_task_links(
     tmp_path: Path,
 ) -> None:
@@ -1144,6 +1198,7 @@ def test_shared_oci_reader_returns_exact_index_and_platforms() -> None:
 
     result = publication.inspect_oci_reference(
         "ghcr.io/release-org/example:v1",
+        expected_platforms=["linux/amd64", "linux/arm64"],
         run=OciRunner(),
         crane_binary="/pinned/crane",
     )
@@ -1170,7 +1225,7 @@ def test_shared_oci_reader_returns_exact_index_and_platforms() -> None:
 def test_ghcr_readback_rejects_extra_platform(plan_path: Path) -> None:
     publication = importlib.import_module("ucm_release.publish")
 
-    with pytest.raises(ValueError, match="exact linux/amd64 and linux/arm64"):
+    with pytest.raises(ValueError, match="expected platform set"):
         publication.publish_ghcr(
             plan_path,
             stage="readback",
@@ -2167,7 +2222,10 @@ def test_local_registry_dual_arch_index_exercises_shared_reader(tmp_path: Path) 
         assert indexed.returncode == 0, indexed.stderr
 
         result = publication.inspect_oci_reference(
-            reference, crane_binary=crane, insecure=True
+            reference,
+            expected_platforms=["linux/amd64", "linux/arm64"],
+            crane_binary=crane,
+            insecure=True,
         )
         assert result["index_digest"].startswith("sha256:")
         assert result["platforms"] == ["linux/amd64", "linux/arm64"]

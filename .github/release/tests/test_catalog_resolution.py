@@ -31,6 +31,7 @@ sys.path.insert(0, PYTHONPATH)
 core = importlib.import_module("ucm_release.core")
 registry = importlib.import_module("ucm_release.registry")
 builders = importlib.import_module("ucm_release.builders")
+cli = importlib.import_module("ucm_release.cli")
 
 
 def _registry_fixture() -> dict[str, object]:
@@ -263,6 +264,25 @@ def test_superseded_compatible_candidates_are_each_excluded_once() -> None:
         ("vllm-ascend", "v0.22.1rc2"),
         ("vllm-ascend", "v0.22.1rc2-a3"),
     ]
+
+
+def test_older_unsupported_candidate_keeps_its_precomputed_reason() -> None:
+    """Selection may supersede only an older candidate that was admissible."""
+    catalog = core.load_catalog()
+    patch_rule = next(
+        rule for rule in catalog["runtime_patch_rules"] if rule["id"] == "vllm-021x"
+    )
+    patch_rule["version_specifier"] = ">=0.21.1,<0.22"
+
+    plan = _resolve_fixture(catalog, source_sha="d" * 40)
+
+    reasons = {
+        item["tag"]: item["reason"]
+        for item in plan["exclusions"]
+        if item["product_id"] == "vllm"
+    }
+    assert reasons["v0.21.0"] == "runtime-patch-unsupported"
+    assert reasons["v0.21.1"] == "superseded-compatible-version"
 
 
 def test_newest_runtime_patch_unsupported_candidate_falls_back() -> None:
@@ -605,6 +625,52 @@ def test_resolved_plan_rejects_noncanonical_channel_shape_with_fresh_hash() -> N
     )
 
     with pytest.raises(ValueError, match="publish channel ghcr"):
+        registry.validate_resolved_plan(plan)
+
+
+def test_validate_resolved_plan_cli_runs_structural_validation(tmp_path: Path) -> None:
+    plan = _resolve_fixture(core.load_catalog(), source_sha="c" * 40)
+    plan_path = tmp_path / "resolved-plan.json"
+    plan_path.write_bytes(core.canonical_bytes(plan) + b"\n")
+    args = cli.build_parser().parse_args(
+        ["catalog", "validate-resolved-plan", "--plan", str(plan_path)]
+    )
+
+    assert args.func(args) == {
+        "kind": "ucm-resolved-plan-validation",
+        "schema_version": 1,
+    }
+
+    plan["lane"] = "invalid"
+    plan["resolved_plan_sha256"] = core.sha256_value(
+        {key: value for key, value in plan.items() if key != "resolved_plan_sha256"}
+    )
+    plan_path.write_bytes(core.canonical_bytes(plan) + b"\n")
+    with pytest.raises(ValueError, match="lane is invalid"):
+        args.func(args)
+
+
+def test_protected_plan_still_rejects_empty_pr_smoke_matrices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Empty PR-smoke projections are feature-only, never protected authority."""
+    _install_live_registry_fakes(monkeypatch)
+    monkeypatch.setattr(registry, "resolve_builder_root", _resolved_builder_root)
+    plan = registry.resolve_catalog(
+        core.load_catalog(),
+        builder_catalog=_builder_catalog(),
+        source_sha="c" * 40,
+        lane="protected-tag",
+    )
+    plan["pr_smoke"] = {
+        "github_wheel_matrix": {"include": []},
+        "github_image_matrix": {"include": []},
+    }
+    plan["resolved_plan_sha256"] = core.sha256_value(
+        {key: value for key, value in plan.items() if key != "resolved_plan_sha256"}
+    )
+
+    with pytest.raises(ValueError, match="PR smoke matrices"):
         registry.validate_resolved_plan(plan)
 
 
@@ -1288,3 +1354,4 @@ def test_unsupported_pinned_tag_is_excluded_without_fallback(
         "github_wheel_matrix": {"include": []},
         "github_image_matrix": {"include": []},
     }
+    registry.validate_resolved_plan(plan)

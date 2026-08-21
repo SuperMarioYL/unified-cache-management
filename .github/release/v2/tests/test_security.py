@@ -165,6 +165,76 @@ def test_develop_checkout_cannot_move_before_trusted_event_validation() -> None:
 
 
 @pytest.mark.parametrize(
+    ("binding", "replacement"),
+    [
+        ("CONFIGURED_MAIN", "${{ github.sha }}"),
+        ("DEFAULT_BRANCH", "main"),
+        ("EVENT_REPOSITORY", "${{ github.sha }}"),
+        ("GITHUB_REF_NAME", "main"),
+        ("HEAD_BRANCH", "develop"),
+        ("HEAD_REPOSITORY", "${{ github.repository }}"),
+        ("HEAD_SHA", "${{ github.workflow_sha }}"),
+        ("WORKFLOW_CONCLUSION", "success"),
+        ("WORKFLOW_EVENT", "push"),
+        ("WORKFLOW_NAME", "Push Commit Checks"),
+        ("WORKFLOW_PATH", ".github/workflows/push-check.yml@develop"),
+        ("WORKFLOW_SHA", "${{ github.event.workflow_run.head_sha }}"),
+    ],
+)
+def test_develop_trust_step_requires_exact_environment_bindings(
+    binding: str, replacement: str
+) -> None:
+    """Trusted predicates must consume the intended GitHub context, not aliases."""
+    workflow_name = "develop-release-dry-run.yml"
+    source = (REPOSITORY_ROOT / ".github/workflows" / workflow_name).read_text(
+        encoding="utf-8"
+    )
+    document = yaml.safe_load(source)
+    assert isinstance(document, dict)
+    step = document["jobs"]["develop-preview"]["steps"][2]
+    environment = step["env"]
+    assert isinstance(environment, dict)
+    assert environment[binding] != replacement
+    environment[binding] = replacement
+
+    findings = _security().audit_workflow_source(
+        yaml.safe_dump(document, sort_keys=False), workflow_name
+    )
+
+    assert any(
+        "develop trust-step env mapping differs" in finding.message
+        for finding in findings
+    ), (binding, findings)
+
+
+@pytest.mark.parametrize("mutation", ["missing", "extra"])
+def test_develop_trust_step_requires_exact_environment_key_set(mutation: str) -> None:
+    """The validator may neither lose a trusted input nor gain an ambient one."""
+    workflow_name = "develop-release-dry-run.yml"
+    source = (REPOSITORY_ROOT / ".github/workflows" / workflow_name).read_text(
+        encoding="utf-8"
+    )
+    document = yaml.safe_load(source)
+    assert isinstance(document, dict)
+    step = document["jobs"]["develop-preview"]["steps"][2]
+    environment = step["env"]
+    assert isinstance(environment, dict)
+    if mutation == "missing":
+        del environment["WORKFLOW_SHA"]
+    else:
+        environment["UNREVIEWED_INPUT"] = "constant"
+
+    findings = _security().audit_workflow_source(
+        yaml.safe_dump(document, sort_keys=False), workflow_name
+    )
+
+    assert any(
+        "develop trust-step env mapping differs" in finding.message
+        for finding in findings
+    ), (mutation, findings)
+
+
+@pytest.mark.parametrize(
     ("before", "after"),
     [
         (

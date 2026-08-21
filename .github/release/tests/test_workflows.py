@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import gzip
 import io
+import json
 import os
 import re
 import subprocess
@@ -661,6 +662,111 @@ def test_release_routes_use_full_matrices_and_develop_only_daily_dispatch() -> N
     }
 
 
+@pytest.mark.parametrize(
+    ("event", "ref", "ref_type", "ref_protected", "full_loop_expected"),
+    [
+        ("pull_request", "refs/pull/1/merge", "branch", "false", False),
+        ("push", "refs/tags/v0.7.59rc1", "tag", "true", True),
+    ],
+)
+def test_release_plan_runs_full_loop_validation_only_for_protected_tags(
+    tmp_path: Path,
+    event: str,
+    ref: str,
+    ref_type: str,
+    ref_protected: str,
+    full_loop_expected: bool,
+) -> None:
+    """Feature plans stay structurally checked without requiring full topology."""
+    workflow = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
+    command = str(
+        _named_step(
+            _jobs(workflow)["plan"],
+            "Route invocation and resolve one frozen catalog plan",
+        )["run"]
+    )
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    command_log = tmp_path / "commands.jsonl"
+
+    fake_git = fake_bin / "git"
+    fake_git.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = rev-parse ]; then printf "%s\\n" "$GITHUB_SHA"; fi\n',
+        encoding="utf-8",
+    )
+    fake_git.chmod(0o755)
+
+    fake_python = fake_bin / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, pathlib, sys\n"
+        "args = sys.argv[1:]\n"
+        "with open(os.environ['COMMAND_LOG'], 'a', encoding='utf-8') as log:\n"
+        "    log.write(json.dumps(args) + '\\n')\n"
+        "if 'catalog' in args and 'resolve' in args:\n"
+        "    output = pathlib.Path(args[args.index('--output') + 1])\n"
+        "    output.parent.mkdir(parents=True, exist_ok=True)\n"
+        "    output.write_text(json.dumps({\n"
+        "        'resolved_plan_sha256': 'sha256:' + 'a' * 64,\n"
+        "        'expected_artifacts': {'resolved_plan': 'ucm-resolved-plan-test'},\n"
+        "        'github_wheel_matrix': {'include': []},\n"
+        "        'github_image_matrix': {'include': []},\n"
+        "        'publish': {},\n"
+        "    }), encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+
+    fake_jq = fake_bin / "jq"
+    fake_jq.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, sys\n"
+        "value = json.load(open(sys.argv[-1], encoding='utf-8'))\n"
+        "query = next(arg for arg in sys.argv[1:] if arg.startswith('.'))\n"
+        "for part in query[1:].split('.'):\n"
+        "    value = value[part]\n"
+        "if '-c' in sys.argv:\n"
+        "    print(json.dumps(value, separators=(',', ':')))\n"
+        "elif isinstance(value, (dict, list)):\n"
+        "    print(json.dumps(value))\n"
+        "else:\n"
+        "    print(value)\n",
+        encoding="utf-8",
+    )
+    fake_jq.chmod(0o755)
+
+    completed = subprocess.run(
+        ["bash", "-c", command],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "COMMAND_LOG": str(command_log),
+            "EVENT_NAME": event,
+            "REF": ref,
+            "REF_TYPE": ref_type,
+            "REF_PROTECTED": ref_protected,
+            "PR_DELIVERY": "false",
+            "GITHUB_SHA": "a" * 40,
+            "GITHUB_RUN_ID": "41",
+            "GITHUB_RUN_ATTEMPT": "1",
+            "GITHUB_OUTPUT": str(tmp_path / "github-output.txt"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    calls = [json.loads(line) for line in command_log.read_text().splitlines()]
+    catalog_actions = [
+        call[3] for call in calls if call[:3] == ["-m", "ucm_release", "catalog"]
+    ]
+    assert "validate-resolved-plan" in catalog_actions
+    assert ("validate-main-loop" in catalog_actions) is full_loop_expected
+
+
 def test_protected_ghcr_publisher_reuses_resolved_same_run_oci_builds() -> None:
     protected = _load_workflow(WORKFLOW_DIR / "release-vllm-images-protected.yml")
     jobs = _jobs(protected)
@@ -756,6 +862,119 @@ def test_chart_result_retains_live_package_sha_without_release_tree_seal() -> No
     assert 'chart_sha="sha256:$(sha256sum "$package"' in source
     assert "sha256:$s" in source
     assert "release_tree_sha256" not in source
+
+
+def _run_chart_validation_cases(
+    tmp_path: Path, validation_cases: list[dict[str, str]]
+) -> subprocess.CompletedProcess[str]:
+    workflow = _load_workflow(WORKFLOW_DIR / "_build-chart.yml")
+    chart_job = _jobs(workflow)["package-chart"]
+    command = str(_named_step(chart_job, "Validate and package chart")["run"])
+    plan_dir = tmp_path / "input" / "plan"
+    fake_bin = tmp_path / "bin"
+    plan_dir.mkdir(parents=True)
+    fake_bin.mkdir()
+    plan = {
+        "chart": {
+            "source": "chart",
+            "version": "0.7.59-rc.1",
+            "app_version": "0.7.59rc1",
+            "validation_cases": validation_cases,
+        },
+        "family_tasks": [
+            {
+                "task_id": "family-selected",
+                "product_id": "vllm",
+                "runtime": {
+                    "variant": "default",
+                    "repository": "docker.io/vllm/vllm-openai",
+                    "index_digest": "sha256:" + "a" * 64,
+                },
+            }
+        ],
+    }
+    (plan_dir / "resolved-plan.json").write_text(json.dumps(plan), encoding="utf-8")
+    fake_helm = fake_bin / "helm"
+    fake_helm.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        'case "$1" in\n'
+        "  lint) exit 0 ;;\n"
+        "  template)\n"
+        "    printf '%s\\n' 'kind: ModelServing' "
+        "'docker.io/vllm/vllm-openai@sha256:" + "a" * 64 + "' 'nvidia.com/gpu'\n"
+        "    ;;\n"
+        "  package)\n"
+        "    destination=''\n"
+        '    while [ "$#" -gt 0 ]; do\n'
+        '      if [ "$1" = --destination ]; then shift; destination="$1"; fi\n'
+        "      shift\n"
+        "    done\n"
+        '    mkdir -p "$destination"\n'
+        '    : >"$destination/unified-cache-pd-0.7.59-rc.1.tgz"\n'
+        "    ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    fake_helm.chmod(0o755)
+    return subprocess.run(
+        ["bash", "-c", command],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "RESOLVED_PLAN_SHA256": "sha256:" + "b" * 64,
+            "GITHUB_OUTPUT": str(tmp_path / "github-output.txt"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_chart_validation_ignores_cases_for_explained_absent_families(
+    tmp_path: Path,
+) -> None:
+    """A partial feature plan validates only the families it selected."""
+    completed = _run_chart_validation_cases(
+        tmp_path,
+        [
+            {
+                "name": "cuda",
+                "values": "cuda-values.yaml",
+                "product_id": "vllm",
+                "variant": "default",
+                "expected_resource": "nvidia.com/gpu",
+            },
+            {
+                "name": "a2",
+                "values": "ascend-values.yaml",
+                "product_id": "vllm-ascend",
+                "variant": "a2",
+                "expected_resource": "huawei.com/Ascend910",
+            },
+        ],
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_chart_validation_requires_exactly_one_case_per_selected_family(
+    tmp_path: Path,
+) -> None:
+    """Duplicate cases cannot ambiguously validate one selected family."""
+    selected_case = {
+        "name": "cuda",
+        "values": "cuda-values.yaml",
+        "product_id": "vllm",
+        "variant": "default",
+        "expected_resource": "nvidia.com/gpu",
+    }
+    duplicate = {**selected_case, "name": "cuda-duplicate"}
+
+    completed = _run_chart_validation_cases(tmp_path, [selected_case, duplicate])
+
+    assert completed.returncode != 0
 
 
 def test_protected_ghcr_publisher_executes_plan_derived_image_count(

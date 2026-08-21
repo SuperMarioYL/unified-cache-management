@@ -809,8 +809,8 @@ def resolve_catalog(
                         exclusions.append({'product_id': item['product_id'], 'repository': item['repository'], 'tag': item['tag'], 'reason': inspected_reason})  # fmt: skip  # noqa: E501
                         continue
                 resolved_upstreams.append({**copy.deepcopy(item), 'variant': variant, 'index_digest': scan['snapshot']['index_digest'], 'members': scan['snapshot']['members'], 'target_repository': product['target_repository'], 'target_tag': item['tag'] + product['target_tag_suffix']})  # fmt: skip  # noqa: E501
-                for superseded, _reason in group[index + 1 :]:
-                    exclusions.append({'product_id': superseded['product_id'], 'repository': superseded['repository'], 'tag': superseded['tag'], 'reason': 'superseded-compatible-version'})  # fmt: skip  # noqa: E501
+                for superseded, superseded_reason in group[index + 1 :]:
+                    exclusions.append({'product_id': superseded['product_id'], 'repository': superseded['repository'], 'tag': superseded['tag'], 'reason': superseded_reason or 'superseded-compatible-version'})  # fmt: skip  # noqa: E501
                 break
         if repositories_fixture is not None:
             for repository in sorted(configured_repositories):
@@ -1060,7 +1060,7 @@ def validate_resolved_plan(plan: dict[str, Any]) -> None:
             not isinstance(matrix, dict)
             or set(matrix) != {"include"}
             or not isinstance(matrix["include"], list)
-            or not matrix["include"]
+            or (not matrix["include"] and plan["lane"] != "feature-candidate")
         ):
             raise ValueError("resolved plan PR smoke matrices are malformed")
     expected_wheels_by_id = {i['task_id']: i for i in _wheel_matrix(wheel_tasks)['include']}  # fmt: skip  # noqa: E501

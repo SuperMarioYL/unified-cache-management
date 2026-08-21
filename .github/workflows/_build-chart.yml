@@ -105,19 +105,23 @@ jobs:
           chart_app_version="$(jq -r '.chart.app_version' "$plan")"
           # helm lint
           helm lint "${chart_source}"
-          # helm template (validation cases): bind each case to its family runtime image
-          case_count="$(jq '.chart.validation_cases | length' "$plan")"
+          # helm template: require one validation case for each selected family.
+          family_count="$(jq '.family_tasks | length' "$plan")"
           i=0
-          while [ "$i" -lt "$case_count" ]; do
-            case_name="$(jq -r ".chart.validation_cases[${i}].name" "$plan")"
-            values="$(jq -r ".chart.validation_cases[${i}].values" "$plan")"
-            product_id="$(jq -r ".chart.validation_cases[${i}].product_id" "$plan")"
-            variant="$(jq -r ".chart.validation_cases[${i}].variant" "$plan")"
-            expected_resource="$(jq -r ".chart.validation_cases[${i}].expected_resource" "$plan")"
-            repo="$(jq -r --arg pid "$product_id" --arg v "$variant" \
-              '.family_tasks[] | select(.product_id == $pid and .runtime.variant == $v) | .runtime.repository' "$plan")"
-            digest="$(jq -r --arg pid "$product_id" --arg v "$variant" \
-              '.family_tasks[] | select(.product_id == $pid and .runtime.variant == $v) | .runtime.index_digest' "$plan")"
+          while [ "$i" -lt "$family_count" ]; do
+            product_id="$(jq -r ".family_tasks[${i}].product_id" "$plan")"
+            variant="$(jq -r ".family_tasks[${i}].runtime.variant" "$plan")"
+            case_count="$(jq --arg pid "$product_id" --arg v "$variant" \
+              '[.chart.validation_cases[] | select(.product_id == $pid and .variant == $v)] | length' "$plan")"
+            test "$case_count" = 1
+            case_name="$(jq -r --arg pid "$product_id" --arg v "$variant" \
+              '.chart.validation_cases[] | select(.product_id == $pid and .variant == $v) | .name' "$plan")"
+            values="$(jq -r --arg pid "$product_id" --arg v "$variant" \
+              '.chart.validation_cases[] | select(.product_id == $pid and .variant == $v) | .values' "$plan")"
+            expected_resource="$(jq -r --arg pid "$product_id" --arg v "$variant" \
+              '.chart.validation_cases[] | select(.product_id == $pid and .variant == $v) | .expected_resource' "$plan")"
+            repo="$(jq -r ".family_tasks[${i}].runtime.repository" "$plan")"
+            digest="$(jq -r ".family_tasks[${i}].runtime.index_digest" "$plan")"
             test -n "$repo"
             test -n "$digest"
             image="${repo}@${digest}"

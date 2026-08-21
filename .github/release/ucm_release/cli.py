@@ -154,6 +154,16 @@ def build_parser() -> argparse.ArgumentParser:
         return result
     catalog_resolve.set_defaults(func=_cmd_resolve)
 
+    validate_resolved_plan = catalog_actions.add_parser("validate-resolved-plan")
+    validate_resolved_plan.add_argument("--plan", type=Path, required=True)
+
+    def _cmd_validate_resolved_plan(a):
+        plan = core.load_json(a.plan)
+        registry.validate_resolved_plan(plan)
+        return {"kind": "ucm-resolved-plan-validation", "schema_version": 1}
+
+    validate_resolved_plan.set_defaults(func=_cmd_validate_resolved_plan)
+
     validate_main_loop = catalog_actions.add_parser("validate-main-loop")
     validate_main_loop.add_argument("--plan", type=Path, required=True)
     validate_main_loop.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
