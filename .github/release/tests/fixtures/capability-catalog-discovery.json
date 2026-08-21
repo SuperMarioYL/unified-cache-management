@@ -1,0 +1,420 @@
+{
+  "builder_discovery": {
+    "kind": "ucm-builder-discovery",
+    "schema_version": 3,
+    "source_sha": "1111111111111111111111111111111111111111",
+    "upstream_reads": [
+      {
+        "project": "vllm-project/vllm",
+        "source_kind": "buildkite-build-base-image",
+        "source_path": ".buildkite/release-pipeline.yaml",
+        "source_commit": "2111111111111111111111111111111111111111",
+        "fact": "BUILD_BASE_IMAGE"
+      },
+      {
+        "project": "vllm-project/vllm-ascend",
+        "source_kind": "buildwheel-dockerfile",
+        "source_path": ".github/workflows/dockerfiles/Dockerfile.buildwheel.310p",
+        "source_commit": "3111111111111111111111111111111111111111",
+        "fact": "FROM"
+      },
+      {
+        "project": "vllm-project/vllm-ascend",
+        "source_kind": "buildwheel-dockerfile",
+        "source_path": ".github/workflows/dockerfiles/Dockerfile.buildwheel.a2",
+        "source_commit": "3111111111111111111111111111111111111111",
+        "fact": "FROM"
+      },
+      {
+        "project": "vllm-project/vllm-ascend",
+        "source_kind": "buildwheel-dockerfile",
+        "source_path": ".github/workflows/dockerfiles/Dockerfile.buildwheel.a4",
+        "source_commit": "3111111111111111111111111111111111111111",
+        "fact": "FROM"
+      }
+    ],
+    "builder_sync": {
+      "mode": "append-only",
+      "target_digests_verified": true,
+      "deletions": []
+    },
+    "builders": [
+      {
+        "project": "vllm-project/vllm",
+        "accelerator": "cuda",
+        "accelerator_runtime": "cuda-12.9",
+        "variant": "default",
+        "cpu_architecture": "amd64",
+        "manylinux": "manylinux_2_28",
+        "source_kind": "buildkite-build-base-image",
+        "source_path": ".buildkite/release-pipeline.yaml",
+        "source_image_repository": "docker.io/pytorch/manylinux2_28-builder",
+        "source_image_tag": "cuda12.9",
+        "source_image_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "recipe_path": ".github/builder/docker/vllm.Dockerfile",
+        "recipe_source_commit": "4111111111111111111111111111111111111111",
+        "recipe_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "toolchain_sha256": "sha256:2111111111111111111111111111111111111111111111111111111111111111",
+        "target_repository": "ghcr.io/release-org/ucm-builder-vllm",
+        "target_tag": "cuda12.9-cp-all-manylinux2_28-amd64-r1",
+        "target_builder_digest": "sha256:3111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "project": "vllm-project/vllm",
+        "accelerator": "cuda",
+        "accelerator_runtime": "cuda-13.0",
+        "variant": "default",
+        "cpu_architecture": "amd64",
+        "manylinux": "manylinux_2_28",
+        "source_kind": "buildkite-build-base-image",
+        "source_path": ".buildkite/release-pipeline.yaml",
+        "source_image_repository": "docker.io/pytorch/manylinux2_28-builder",
+        "source_image_tag": "cuda13.0-revision-one",
+        "source_image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "recipe_path": ".github/builder/docker/vllm.Dockerfile",
+        "recipe_source_commit": "5111111111111111111111111111111111111111",
+        "recipe_sha256": "sha256:4111111111111111111111111111111111111111111111111111111111111111",
+        "toolchain_sha256": "sha256:5111111111111111111111111111111111111111111111111111111111111111",
+        "target_repository": "ghcr.io/release-org/ucm-builder-vllm",
+        "target_tag": "cuda13.0-cp-all-manylinux2_28-amd64-r1",
+        "target_builder_digest": "sha256:6111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "project": "vllm-project/vllm",
+        "accelerator": "cuda",
+        "accelerator_runtime": "cuda-13.0",
+        "variant": "default",
+        "cpu_architecture": "amd64",
+        "manylinux": "manylinux_2_28",
+        "source_kind": "buildkite-build-base-image",
+        "source_path": ".buildkite/release-pipeline.yaml",
+        "source_image_repository": "docker.io/pytorch/manylinux2_28-builder",
+        "source_image_tag": "cuda13.0-revision-two",
+        "source_image_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "recipe_path": ".github/builder/docker/vllm.Dockerfile",
+        "recipe_source_commit": "6111111111111111111111111111111111111111",
+        "recipe_sha256": "sha256:7111111111111111111111111111111111111111111111111111111111111111",
+        "toolchain_sha256": "sha256:8111111111111111111111111111111111111111111111111111111111111111",
+        "target_repository": "ghcr.io/release-org/ucm-builder-vllm",
+        "target_tag": "cuda13.0-cp-all-manylinux2_28-amd64-r2",
+        "target_builder_digest": "sha256:9111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "project": "vllm-project/vllm",
+        "accelerator": "cuda",
+        "accelerator_runtime": "cuda-13.0",
+        "variant": "default",
+        "cpu_architecture": "arm64",
+        "manylinux": "manylinux_2_28",
+        "source_kind": "buildkite-build-base-image",
+        "source_path": ".buildkite/release-pipeline.yaml",
+        "source_image_repository": "docker.io/pytorch/manylinuxaarch64-builder",
+        "source_image_tag": "cuda13.0",
+        "source_image_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "recipe_path": ".github/builder/docker/vllm.Dockerfile",
+        "recipe_source_commit": "4111111111111111111111111111111111111111",
+        "recipe_sha256": "sha256:a111111111111111111111111111111111111111111111111111111111111111",
+        "toolchain_sha256": "sha256:b111111111111111111111111111111111111111111111111111111111111111",
+        "target_repository": "ghcr.io/release-org/ucm-builder-vllm",
+        "target_tag": "cuda13.0-cp-all-manylinux2_28-arm64-r1",
+        "target_builder_digest": "sha256:c111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "project": "vllm-project/vllm-ascend",
+        "accelerator": "ascend",
+        "accelerator_runtime": "cann-9.0",
+        "variant": "a2",
+        "cpu_architecture": "amd64",
+        "manylinux": "manylinux_2_34",
+        "source_kind": "buildwheel-dockerfile",
+        "source_path": ".github/workflows/dockerfiles/Dockerfile.buildwheel.a2",
+        "source_image_repository": "quay.io/ascend/manylinux",
+        "source_image_tag": "9.0-a2-manylinux_2_34",
+        "source_image_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "recipe_path": ".github/builder/docker/vllm-ascend.Dockerfile",
+        "recipe_source_commit": "7111111111111111111111111111111111111111",
+        "recipe_sha256": "sha256:d111111111111111111111111111111111111111111111111111111111111111",
+        "toolchain_sha256": "sha256:e111111111111111111111111111111111111111111111111111111111111111",
+        "target_repository": "ghcr.io/release-org/ucm-builder-vllm-ascend",
+        "target_tag": "cann9.0-a2-cp-all-manylinux2_34-amd64-r1",
+        "target_builder_digest": "sha256:f111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "project": "vllm-project/vllm-ascend",
+        "accelerator": "ascend",
+        "accelerator_runtime": "cann-9.1",
+        "variant": "a4",
+        "cpu_architecture": "arm64",
+        "manylinux": "manylinux_2_34",
+        "source_kind": "buildwheel-dockerfile",
+        "source_path": ".github/workflows/dockerfiles/Dockerfile.buildwheel.a4",
+        "source_image_repository": "quay.io/ascend/manylinux",
+        "source_image_tag": "9.1-a4-manylinux_2_34",
+        "source_image_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "recipe_path": ".github/builder/docker/vllm-ascend.Dockerfile",
+        "recipe_source_commit": "8111111111111111111111111111111111111111",
+        "recipe_sha256": "sha256:1211111111111111111111111111111111111111111111111111111111111111",
+        "toolchain_sha256": "sha256:1311111111111111111111111111111111111111111111111111111111111111",
+        "target_repository": "ghcr.io/release-org/ucm-builder-vllm-ascend",
+        "target_tag": "cann9.1-a4-cp-all-manylinux2_34-arm64-r1",
+        "target_builder_digest": "sha256:1411111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "project": "vllm-project/vllm-ascend",
+        "accelerator": "ascend",
+        "accelerator_runtime": "cann-9.1",
+        "variant": "310p",
+        "cpu_architecture": "amd64",
+        "manylinux": "manylinux_2_34",
+        "source_kind": "buildwheel-dockerfile",
+        "source_path": ".github/workflows/dockerfiles/Dockerfile.buildwheel.310p",
+        "source_image_repository": "quay.io/ascend/manylinux",
+        "source_image_tag": "9.1-310p-manylinux_2_34",
+        "source_image_digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+        "recipe_path": ".github/builder/docker/vllm-ascend.Dockerfile",
+        "recipe_source_commit": "8111111111111111111111111111111111111111",
+        "recipe_sha256": "sha256:1511111111111111111111111111111111111111111111111111111111111111",
+        "toolchain_sha256": "sha256:1611111111111111111111111111111111111111111111111111111111111111",
+        "target_repository": "ghcr.io/release-org/ucm-builder-vllm-ascend",
+        "target_tag": "cann9.1-310p-cp-all-manylinux2_34-amd64-r1",
+        "target_builder_digest": "sha256:1711111111111111111111111111111111111111111111111111111111111111"
+      }
+    ]
+  },
+  "runtime_discovery": {
+    "kind": "ucm-runtime-discovery",
+    "schema_version": 3,
+    "source_sha": "1111111111111111111111111111111111111111",
+    "runtime_candidates": [
+      {
+        "product_id": "vllm",
+        "runtime_version": "0.10.0",
+        "channel": "stable",
+        "variant": "default",
+        "cpu_architecture": "amd64",
+        "accelerator": "cuda",
+        "accelerator_runtime": "cuda-12.9",
+        "mooncake_version": null,
+        "runtime_image_repository": "docker.io/vllm/vllm-openai",
+        "runtime_image_tag": "v0.10.0",
+        "runtime_image_digest": "sha256:1811111111111111111111111111111111111111111111111111111111111111",
+        "git_tag": "v0.10.0",
+        "git_commit": "9111111111111111111111111111111111111111"
+      },
+      {
+        "product_id": "vllm",
+        "runtime_version": "0.10.1",
+        "channel": "stable",
+        "variant": "default",
+        "cpu_architecture": "amd64",
+        "accelerator": "cuda",
+        "accelerator_runtime": "cuda-12.9",
+        "mooncake_version": null,
+        "runtime_image_repository": "docker.io/vllm/vllm-openai",
+        "runtime_image_tag": "v0.10.1",
+        "runtime_image_digest": "sha256:1911111111111111111111111111111111111111111111111111111111111111",
+        "git_tag": "v0.10.1",
+        "git_commit": "a111111111111111111111111111111111111111"
+      },
+      {
+        "product_id": "vllm",
+        "runtime_version": "0.11.0",
+        "channel": "stable",
+        "variant": "default",
+        "cpu_architecture": "amd64",
+        "accelerator": "cuda",
+        "accelerator_runtime": "cuda-13.0",
+        "mooncake_version": null,
+        "runtime_image_repository": "docker.io/vllm/vllm-openai",
+        "runtime_image_tag": "v0.11.0",
+        "runtime_image_digest": "sha256:1a11111111111111111111111111111111111111111111111111111111111111",
+        "git_tag": "v0.11.0",
+        "git_commit": "b111111111111111111111111111111111111111"
+      },
+      {
+        "product_id": "vllm",
+        "runtime_version": "0.11.0",
+        "channel": "stable",
+        "variant": "default",
+        "cpu_architecture": "arm64",
+        "accelerator": "cuda",
+        "accelerator_runtime": "cuda-13.0",
+        "mooncake_version": null,
+        "runtime_image_repository": "docker.io/vllm/vllm-openai",
+        "runtime_image_tag": "v0.11.0",
+        "runtime_image_digest": "sha256:1b11111111111111111111111111111111111111111111111111111111111111",
+        "git_tag": "v0.11.0",
+        "git_commit": "b111111111111111111111111111111111111111"
+      },
+      {
+        "product_id": "vllm-ascend",
+        "runtime_version": "0.9.0",
+        "channel": "stable",
+        "variant": "a2",
+        "cpu_architecture": "amd64",
+        "accelerator": "ascend",
+        "accelerator_runtime": "cann-9.0",
+        "mooncake_version": "0.3.11.post1",
+        "mooncake_source_path": "docker/Dockerfile.runtime.a2",
+        "runtime_image_repository": "quay.io/ascend/vllm-ascend",
+        "runtime_image_tag": "v0.9.0-a2",
+        "runtime_image_digest": "sha256:1c11111111111111111111111111111111111111111111111111111111111111",
+        "git_tag": "v0.9.0",
+        "git_commit": "c111111111111111111111111111111111111111"
+      },
+      {
+        "product_id": "vllm-ascend",
+        "runtime_version": "0.10.0",
+        "channel": "stable",
+        "variant": "a4",
+        "cpu_architecture": "arm64",
+        "accelerator": "ascend",
+        "accelerator_runtime": "cann-9.1",
+        "mooncake_version": "0.3.12",
+        "mooncake_source_path": "docker/Dockerfile.runtime.a4",
+        "runtime_image_repository": "quay.io/ascend/vllm-ascend",
+        "runtime_image_tag": "v0.10.0-a4",
+        "runtime_image_digest": "sha256:1d11111111111111111111111111111111111111111111111111111111111111",
+        "git_tag": "v0.10.0",
+        "git_commit": "d111111111111111111111111111111111111111"
+      },
+      {
+        "product_id": "vllm-ascend",
+        "runtime_version": "0.10.0",
+        "channel": "stable",
+        "variant": "310p",
+        "cpu_architecture": "amd64",
+        "accelerator": "ascend",
+        "accelerator_runtime": "cann-9.1",
+        "mooncake_version": "0.3.12",
+        "mooncake_source_path": "docker/Dockerfile.runtime.310p",
+        "runtime_image_repository": "quay.io/ascend/vllm-ascend",
+        "runtime_image_tag": "v0.10.0-310p",
+        "runtime_image_digest": "sha256:1e11111111111111111111111111111111111111111111111111111111111111",
+        "git_tag": "v0.10.0",
+        "git_commit": "d111111111111111111111111111111111111111"
+      }
+    ]
+  },
+  "python_probes": {
+    "kind": "ucm-builder-python-probes",
+    "schema_version": 3,
+    "probes": [
+      {
+        "builder_source_image_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "cpu_architecture": "amd64",
+        "runner": "ubuntu-24.04",
+        "interpreter_path": "/opt/python/cp39-cp39/bin/python",
+        "python_version": "3.9",
+        "python_abi": "cp39",
+        "wheel_tag": "cp39-cp39-manylinux_2_28_x86_64"
+      },
+      {
+        "builder_source_image_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "cpu_architecture": "amd64",
+        "runner": "ubuntu-24.04",
+        "interpreter_path": "/opt/python/cp310-cp310/bin/python",
+        "python_version": "3.10",
+        "python_abi": "cp310",
+        "wheel_tag": "cp310-cp310-manylinux_2_28_x86_64"
+      },
+      {
+        "builder_source_image_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "cpu_architecture": "amd64",
+        "runner": "ubuntu-24.04",
+        "interpreter_path": "/opt/python/cp311-cp311/bin/python",
+        "python_version": "3.11",
+        "python_abi": "cp311",
+        "wheel_tag": "cp311-cp311-manylinux_2_28_x86_64"
+      },
+      {
+        "builder_source_image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "cpu_architecture": "amd64",
+        "runner": "ubuntu-24.04",
+        "interpreter_path": "/opt/python/cp312-cp312/bin/python",
+        "python_version": "3.12",
+        "python_abi": "cp312",
+        "wheel_tag": "cp312-cp312-manylinux_2_28_x86_64"
+      },
+      {
+        "builder_source_image_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "cpu_architecture": "amd64",
+        "runner": "ubuntu-24.04",
+        "interpreter_path": "/opt/python/cp312-cp312/bin/python",
+        "python_version": "3.12",
+        "python_abi": "cp312",
+        "wheel_tag": "cp312-cp312-manylinux_2_28_x86_64"
+      },
+      {
+        "builder_source_image_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "cpu_architecture": "arm64",
+        "runner": "ubuntu-24.04-arm",
+        "interpreter_path": "/opt/python/cp312-cp312/bin/python",
+        "python_version": "3.12",
+        "python_abi": "cp312",
+        "wheel_tag": "cp312-cp312-manylinux_2_28_aarch64"
+      },
+      {
+        "builder_source_image_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "cpu_architecture": "amd64",
+        "runner": "ubuntu-24.04",
+        "interpreter_path": "/opt/python/cp310-cp310/bin/python",
+        "python_version": "3.10",
+        "python_abi": "cp310",
+        "wheel_tag": "cp310-cp310-manylinux_2_34_x86_64"
+      },
+      {
+        "builder_source_image_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "cpu_architecture": "arm64",
+        "runner": "ubuntu-24.04-arm",
+        "interpreter_path": "/opt/python/cp311-cp311/bin/python",
+        "python_version": "3.11",
+        "python_abi": "cp311",
+        "wheel_tag": "cp311-cp311-manylinux_2_34_aarch64"
+      },
+      {
+        "builder_source_image_digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+        "cpu_architecture": "amd64",
+        "runner": "ubuntu-24.04",
+        "interpreter_path": "/opt/python/cp312-cp312/bin/python",
+        "python_version": "3.12",
+        "python_abi": "cp312",
+        "wheel_tag": "cp312-cp312-manylinux_2_34_x86_64"
+      }
+    ]
+  },
+  "mooncake_probes": {
+    "kind": "ucm-runtime-mooncake-probes",
+    "schema_version": 3,
+    "probes": [
+      {
+        "runtime_image_digest": "sha256:1c11111111111111111111111111111111111111111111111111111111111111",
+        "cpu_architecture": "amd64",
+        "runner": "ubuntu-24.04",
+        "declared_version": "0.3.11.post1",
+        "installed_version": "0.3.11.post1",
+        "headers_path": "/usr/local/include/mooncake",
+        "libraries_path": "/usr/local/lib"
+      },
+      {
+        "runtime_image_digest": "sha256:1d11111111111111111111111111111111111111111111111111111111111111",
+        "cpu_architecture": "arm64",
+        "runner": "ubuntu-24.04-arm",
+        "declared_version": "0.3.12",
+        "installed_version": "0.3.11.post1",
+        "headers_path": "/usr/local/include/mooncake",
+        "libraries_path": "/usr/local/lib"
+      },
+      {
+        "runtime_image_digest": "sha256:1e11111111111111111111111111111111111111111111111111111111111111",
+        "cpu_architecture": "amd64",
+        "runner": "ubuntu-24.04",
+        "declared_version": "0.3.12",
+        "installed_version": "0.3.12",
+        "headers_path": "/usr/local/include/mooncake",
+        "libraries_path": "/usr/local/lib"
+      }
+    ]
+  },
+  "python_requires": ">=3.10"
+}
