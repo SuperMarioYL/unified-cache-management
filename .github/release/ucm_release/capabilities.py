@@ -193,6 +193,7 @@ PYTHON_PROBE_FIELDS = frozenset(
         "builder_image",
         "target_builder_digest",
         "cpu_architecture",
+        "manylinux",
         "runner",
         "interpreter_path",
         "python_version",
@@ -227,6 +228,7 @@ PYTHON_PROBE_FAILURE_FIELDS = frozenset(
         "builder_image",
         "target_builder_digest",
         "cpu_architecture",
+        "manylinux",
         "runner",
         "interpreter_path",
         "builder_capability_id",
@@ -580,9 +582,7 @@ def discover_runtime_candidates(
             raw.get("variant_candidates"),
             f"runtime source candidates[{index}] variant_candidates",
         )
-        normalized_variants = sorted(
-            {normalize_variant(value) for value in candidates}
-        )
+        normalized_variants = sorted({normalize_variant(value) for value in candidates})
         if len(normalized_variants) != 1:
             raise ValueError("runtime candidate variant must be unique")
         variant = normalized_variants[0]
@@ -638,9 +638,12 @@ def discover_runtime_candidates(
             mooncake_source_path = _string(
                 dockerfile.get("source_path"), "runtime Dockerfile source_path"
             )
-            if _commit(
-                dockerfile.get("source_commit"), "runtime Dockerfile source_commit"
-            ) != git_commit:
+            if (
+                _commit(
+                    dockerfile.get("source_commit"), "runtime Dockerfile source_commit"
+                )
+                != git_commit
+            ):
                 raise ValueError("runtime Dockerfile commit differs from peeled tag")
             mooncake_version = _string(
                 dockerfile.get("mooncake_version"),
@@ -649,9 +652,7 @@ def discover_runtime_candidates(
 
         record = {
             "product_id": _string(raw.get("product_id"), "runtime product_id"),
-            "runtime_version": _string(
-                raw.get("runtime_version"), "runtime version"
-            ),
+            "runtime_version": _string(raw.get("runtime_version"), "runtime version"),
             "channel": _string(raw.get("channel"), "runtime channel"),
             "variant": variant,
             "cpu_architecture": architecture,
@@ -788,9 +789,7 @@ def _peel_git_tag(project: str, tag: str) -> tuple[str, str]:
         object_type = _string(
             target.get("type"), f"{project} annotated tag {tag} object type"
         )
-        sha = _string(
-            target.get("sha"), f"{project} annotated tag {tag} object sha"
-        )
+        sha = _string(target.get("sha"), f"{project} annotated tag {tag} object sha")
     raise ValueError(f"{project} tag {tag} has excessive annotation depth")
 
 
@@ -816,9 +815,7 @@ def _runtime_dockerfiles(project: str, commit: str) -> list[dict[str, str]]:
         text = _request_bytes(
             f"https://raw.githubusercontent.com/{project}/{commit}/{quoted_path}"
         ).decode("utf-8")
-        match = re.search(
-            r"(?m)^\s*ARG\s+MOONCAKE_TAG=v?([^\s#]+)", text
-        )
+        match = re.search(r"(?m)^\s*ARG\s+MOONCAKE_TAG=v?([^\s#]+)", text)
         if match is None:
             continue
         values.append(
@@ -946,9 +943,7 @@ def discover_live_runtime_candidates(
                     variant for variant in builder_variants if variant == suffix
                 ]
             else:
-                dockerfile_variants = {
-                    item["variant"] for item in dockerfiles
-                }
+                dockerfile_variants = {item["variant"] for item in dockerfiles}
                 variant_candidates = [
                     variant
                     for variant in builder_variants
@@ -963,8 +958,7 @@ def discover_live_runtime_candidates(
                 image_architectures = {
                     item.get("platform", {}).get("architecture")
                     for item in manifests
-                    if isinstance(item, dict)
-                    and isinstance(item.get("platform"), dict)
+                    if isinstance(item, dict) and isinstance(item.get("platform"), dict)
                 }
             else:
                 image_architectures = {config.get("architecture")}
@@ -975,9 +969,7 @@ def discover_live_runtime_candidates(
                     {
                         "product_id": product_id,
                         "runtime_version": str(version),
-                        "channel": (
-                            "rc" if version.is_prerelease else "stable"
-                        ),
+                        "channel": ("rc" if version.is_prerelease else "stable"),
                         "accelerator": accelerator,
                         "accelerator_runtime": runtime,
                         "cpu_architecture": architecture,
@@ -1166,6 +1158,11 @@ def assemble_capability_catalog(
         )
         if architecture != fact["cpu_architecture"]:
             raise ValueError("Python probe architecture differs from Builder fact")
+        manylinux = _string(probe.get("manylinux"), "Python probe manylinux")
+        if manylinux != fact["manylinux"]:
+            raise ValueError("Python probe manylinux differs from Builder fact")
+        if _MANYLINUX.fullmatch(manylinux) is None:
+            raise ValueError("Python probe manylinux is invalid")
         _string(probe.get("runner"), "Python probe runner")
         abi = _string(probe.get("python_abi"), "Python probe python_abi")
         version = _string(probe.get("python_version"), "Python probe python_version")
@@ -1177,8 +1174,13 @@ def assemble_capability_catalog(
         wheel_tag = _string(probe.get("wheel_tag"), "Python probe wheel_tag")
         if f"/{abi}-{abi}/bin/python" not in interpreter:
             raise ValueError("Python probe path and ABI differ")
-        if not wheel_tag.startswith(f"{abi}-{abi}-"):
-            raise ValueError("Python probe wheel tag and ABI differ")
+        platform_architecture = {
+            "amd64": "x86_64",
+            "arm64": "aarch64",
+        }[architecture]
+        expected_wheel_tag = f"{abi}-{abi}-{manylinux}_{platform_architecture}"
+        if wheel_tag != expected_wheel_tag:
+            raise ValueError("Python probe wheel tag is not canonical")
         coordinate = (fact_id, interpreter)
         previous = probes_by_coordinate.get(coordinate)
         if previous is not None and previous != probe:
@@ -1221,6 +1223,17 @@ def assemble_capability_catalog(
         )
         if digest != fact["target_builder_digest"]:
             raise ValueError("Python probe failure target digest differs")
+        expected_image = f"{fact['target_repository']}@{digest}"
+        if failure["builder_image"] != expected_image:
+            raise ValueError("Python probe failure target image differs")
+        architecture = _string(
+            failure["cpu_architecture"], "Python probe failure architecture"
+        )
+        if architecture != fact["cpu_architecture"]:
+            raise ValueError("Python probe failure architecture differs")
+        manylinux = _string(failure["manylinux"], "Python probe failure manylinux")
+        if manylinux != fact["manylinux"]:
+            raise ValueError("Python probe failure manylinux differs")
         failed_python_facts.add(fact_id)
         exclusions.append(
             _exclusion(
@@ -1242,9 +1255,8 @@ def assemble_capability_catalog(
                         failure["cpu_architecture"],
                         "Python probe failure architecture",
                     ),
-                    "runner": _string(
-                        failure["runner"], "Python probe failure runner"
-                    ),
+                    "manylinux": manylinux,
+                    "runner": _string(failure["runner"], "Python probe failure runner"),
                     "interpreter_path": _string(
                         failure["interpreter_path"],
                         "Python probe failure interpreter",
@@ -1291,9 +1303,7 @@ def assemble_capability_catalog(
             for field in ("builder_capability_id", "builder_revision_id")
         ):
             raise ValueError("Mooncake probe failure cannot claim Builders")
-        runtime_id = _digest(
-            failure["runtime_id"], "Mooncake probe failure runtime ID"
-        )
+        runtime_id = _digest(failure["runtime_id"], "Mooncake probe failure runtime ID")
         runtime = runtime_by_id.get(runtime_id)
         if runtime is None:
             raise ValueError("Mooncake probe failure references an unknown runtime")
@@ -1401,9 +1411,7 @@ def assemble_capability_catalog(
                 for field in ("builder_capability_id", "builder_revision_id")
             ):
                 raise ValueError("Mooncake mismatch cannot claim Builder references")
-            runtime_id = _digest(
-                failure["runtime_id"], "Mooncake mismatch runtime ID"
-            )
+            runtime_id = _digest(failure["runtime_id"], "Mooncake mismatch runtime ID")
             if runtime_id not in runtime_by_id:
                 raise ValueError("Mooncake mismatch references an unknown runtime")
             if any(
@@ -1544,6 +1552,9 @@ def assemble_capability_catalog(
                 revision_ids = existing["builder_revision_ids"]
                 if revision["builder_revision_id"] not in revision_ids:
                     revision_ids.append(revision["builder_revision_id"])
+
+    if facts_by_id and not capability_by_id and failed_python_facts == set(facts_by_id):
+        raise ValueError("all Builder facts failed native Python probing")
 
     for capability in capability_by_id.values():
         capability["builder_revision_ids"].sort()

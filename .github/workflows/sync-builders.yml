@@ -78,6 +78,7 @@ jobs:
     outputs:
       runtime_discovery_artifact: ${{ steps.discover.outputs.runtime_discovery_artifact }}
       runtime_probe_matrix: ${{ steps.discover.outputs.runtime_probe_matrix }}
+      has_mooncake_probes: ${{ steps.discover.outputs.has_mooncake_probes }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -113,6 +114,7 @@ jobs:
           {
             echo "runtime_discovery_artifact=${artifact}"
             echo "runtime_probe_matrix=$(jq -c '.runtime_probe_matrix' out/runtime-discovery.json)"
+            echo "has_mooncake_probes=$(jq -r '.runtime_probe_matrix.include | length > 0' out/runtime-discovery.json)"
           } >>"${GITHUB_OUTPUT}"
       - if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -126,7 +128,7 @@ jobs:
   probe-mooncake:
     name: Mooncake probe · ${{ matrix.id }}
     needs: discover-runtimes
-    if: ${{ always() && needs.discover-runtimes.result == 'success' }}
+    if: ${{ always() && needs.discover-runtimes.result == 'success' && needs.discover-runtimes.outputs.has_mooncake_probes == 'true' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.discover-runtimes.outputs.runtime_probe_matrix) }}
@@ -153,7 +155,7 @@ jobs:
           declared_version="$(sed -nE 's/^ARG MOONCAKE_TAG=v?([^[:space:]]+).*$/\1/p' <<<"${dockerfile}" | head -1)"
           test -n "${declared_version}"
           printf '%s' "${declared_version}" >out/mooncake-probe/declared-version.txt
-          docker run --rm "${RUNTIME_IMAGE}" sh -lc \
+          docker run --rm --entrypoint sh "${RUNTIME_IMAGE}" -lc \
             'test -d /usr/local/include/mooncake &&
              find /usr/local/lib -maxdepth 1 -type f -name "*mooncake*" -print -quit | grep -q . &&
              (pkg-config --modversion mooncake 2>/dev/null || cat /usr/local/lib/mooncake.version)' \
@@ -222,6 +224,7 @@ jobs:
     outputs:
       builder_plan_artifact: ${{ steps.plan.outputs.builder_plan_artifact }}
       matrix: ${{ steps.plan.outputs.matrix }}
+      has_builder_plans: ${{ steps.plan.outputs.has_builder_plans }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: {persist-credentials: false}
@@ -238,7 +241,8 @@ jobs:
         with:
           name: ${{ needs.discover-runtimes.outputs.runtime_discovery_artifact }}
           path: input/runtime-discovery
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - if: ${{ needs.discover-runtimes.outputs.has_mooncake_probes == 'true' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: ucm-mooncake-probe-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/mooncake-probes
@@ -246,7 +250,7 @@ jobs:
       - id: plan
         run: |
           set -euo pipefail
-          mkdir -p out
+          mkdir -p out input/mooncake-probes
           PYTHONPATH=.github/release python -m ucm_release builders plan-facts \
             --builder-catalog input/builder-source/builder-catalog.json \
             --runtime-discovery input/runtime-discovery/runtime-discovery.json \
@@ -255,6 +259,7 @@ jobs:
           artifact="ucm-builder-plan-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           {
             echo "matrix=$(jq -c '.matrix' out/builder-sync-plan.json)"
+            echo "has_builder_plans=$(jq -r '.matrix.include | length > 0' out/builder-sync-plan.json)"
             echo "builder_plan_artifact=${artifact}"
           } >>"${GITHUB_OUTPUT}"
       - if: ${{ always() }}
@@ -269,7 +274,7 @@ jobs:
   build-missing:
     name: Builder · ${{ matrix.label }}
     needs: plan-builder-sync
-    if: ${{ always() && needs.plan-builder-sync.result == 'success' }}
+    if: ${{ always() && needs.plan-builder-sync.result == 'success' && needs.plan-builder-sync.outputs.has_builder_plans == 'true' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan-builder-sync.outputs.matrix) }}
@@ -360,6 +365,7 @@ jobs:
     outputs:
       builder_facts_artifact: ${{ steps.collect.outputs.builder_facts_artifact }}
       python_probe_matrix: ${{ steps.collect.outputs.python_probe_matrix }}
+      has_python_probes: ${{ steps.collect.outputs.has_python_probes }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: {persist-credentials: false}
@@ -372,7 +378,8 @@ jobs:
         with:
           name: ${{ needs.plan-builder-sync.outputs.builder_plan_artifact }}
           path: input/builder-plan
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - if: ${{ needs.plan-builder-sync.outputs.has_builder_plans == 'true' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: ucm-builder-result-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/builder-results
@@ -380,7 +387,7 @@ jobs:
       - id: collect
         run: |
           set -euo pipefail
-          mkdir -p out
+          mkdir -p out input/builder-results
           PYTHONPATH=.github/release python -m ucm_release builders collect-facts \
             --plan input/builder-plan/builder-sync-plan.json \
             --results input/builder-results \
@@ -389,6 +396,7 @@ jobs:
           {
             echo "builder_facts_artifact=${artifact}"
             echo "python_probe_matrix=$(jq -c '.python_probe_matrix' out/builder-facts.json)"
+            echo "has_python_probes=$(jq -r '.python_probe_matrix.include | length > 0' out/builder-facts.json)"
           } >>"${GITHUB_OUTPUT}"
       - if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -402,7 +410,7 @@ jobs:
   probe-python:
     name: Python ABI probe · ${{ matrix.id }}
     needs: collect-builder-revisions
-    if: ${{ always() && needs.collect-builder-revisions.result == 'success' }}
+    if: ${{ always() && needs.collect-builder-revisions.result == 'success' && needs.collect-builder-revisions.outputs.has_python_probes == 'true' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.collect-builder-revisions.outputs.python_probe_matrix) }}
@@ -415,6 +423,7 @@ jobs:
           BUILDER_FACT_ID: ${{ matrix.builder_fact_id }}
           TARGET_BUILDER_DIGEST: ${{ matrix.target_builder_digest }}
           CPU_ARCHITECTURE: ${{ matrix.cpu_architecture }}
+          MANYLINUX: ${{ matrix.manylinux }}
         run: |
           set -euo pipefail
           case "${BUILDER_IMAGE}" in
@@ -423,16 +432,46 @@ jobs:
           esac
           mkdir -p out/python-probe
           : >out/python-probe/probes.jsonl
-          docker run --rm -v "${PWD}/out/python-probe:/out" "${BUILDER_IMAGE}" \
+          cat >out/python-probe/probe.py <<'PY'
+          import json
+          import platform
+          import sys
+          import sysconfig
+
+          interpreter_path = sys.argv[1]
+          manylinux = sys.argv[2]
+          cpu_architecture = sys.argv[3]
+          platform_architecture = {"amd64": "x86_64", "arm64": "aarch64"}[cpu_architecture]
+          sysconfig_platform = sysconfig.get_platform().lower().replace("-", "_")
+          machine = platform.machine().lower().replace("arm64", "aarch64")
+          if not sysconfig_platform.endswith(platform_architecture):
+              raise SystemExit("sysconfig platform architecture mismatch")
+          if machine != platform_architecture:
+              raise SystemExit("runtime platform architecture mismatch")
+          python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+          python_abi = f"cp{sys.version_info.major}{sys.version_info.minor}"
+          path_abi = interpreter_path.split("/")[-3].split("-", 1)[0]
+          if path_abi != python_abi:
+              raise SystemExit("interpreter path ABI mismatch")
+          platform_tag = f"{manylinux}_{platform_architecture}"
+          wheel_tag = f"{python_abi}-{python_abi}-{platform_tag}"
+          print(json.dumps({
+              "interpreter_path": interpreter_path,
+              "python_version": python_version,
+              "python_abi": python_abi,
+              "wheel_tag": wheel_tag,
+              "platform_tag": platform_tag,
+              "manylinux": manylinux,
+          }, sort_keys=True, separators=(",", ":")))
+          PY
+          docker run --rm -v "${PWD}/out/python-probe:/out" \
+            --env MANYLINUX --env CPU_ARCHITECTURE "${BUILDER_IMAGE}" \
             bash -ceu '
               for interpreter in /opt/python/cp*-cp*/bin/python; do
                 [ -x "${interpreter}" ] || continue
-                abi="$(basename "$(dirname "$(dirname "${interpreter}")")" | cut -d- -f1)"
-                version="$(${interpreter} -c "import platform; print(platform.python_version())")"
-                wheel_tag="$(${interpreter} -c "from packaging.tags import sys_tags; print(next(sys_tags()))")"
-                jq -n --arg interpreter_path "${interpreter}" --arg python_version "${version%.*}" \
-                  --arg python_abi "${abi}" --arg wheel_tag "${wheel_tag}" \
-                  "{interpreter_path:\$interpreter_path,python_version:\$python_version,python_abi:\$python_abi,wheel_tag:\$wheel_tag}" >>/out/probes.jsonl
+                "${interpreter}" /out/probe.py \
+                  "${interpreter}" "${MANYLINUX}" "${CPU_ARCHITECTURE}" \
+                  >>/out/probes.jsonl
               done'
           test -s out/python-probe/probes.jsonl
       - name: Seal Python probe Result
@@ -443,6 +482,7 @@ jobs:
           BUILDER_FACT_ID: ${{ matrix.builder_fact_id }}
           TARGET_BUILDER_DIGEST: ${{ matrix.target_builder_digest }}
           CPU_ARCHITECTURE: ${{ matrix.cpu_architecture }}
+          MANYLINUX: ${{ matrix.manylinux }}
         run: |
           set -euo pipefail
           mkdir -p out/python-probe
@@ -450,28 +490,31 @@ jobs:
             status=success
             probes="$(jq -s --arg builder_fact_id "${BUILDER_FACT_ID}" --arg builder_image "${BUILDER_IMAGE}" \
               --arg target_builder_digest "${TARGET_BUILDER_DIGEST}" \
-              --arg cpu_architecture "${CPU_ARCHITECTURE}" --arg runner "${RUNNER_NAME}" \
-              '[.[] + {builder_fact_id:$builder_fact_id,builder_image:$builder_image,target_builder_digest:$target_builder_digest,cpu_architecture:$cpu_architecture,runner:$runner}]' \
+              --arg cpu_architecture "${CPU_ARCHITECTURE}" --arg manylinux "${MANYLINUX}" \
+              --arg runner "${RUNNER_NAME}" \
+              '[.[] | {interpreter_path,python_version,python_abi,wheel_tag} + {builder_fact_id:$builder_fact_id,builder_image:$builder_image,target_builder_digest:$target_builder_digest,cpu_architecture:$cpu_architecture,manylinux:$manylinux,runner:$runner}]' \
               out/python-probe/probes.jsonl)"
             failures='[]'
           else
             status=failed
             probes='[]'
-            interpreter_path="/opt/python/cp*-cp*/bin/python"
+            interpreter_path="/opt/python/unavailable"
             source_id="${BUILDER_FACT_ID}:${interpreter_path}"
             failures="$(jq -n --arg builder_fact_id "${BUILDER_FACT_ID}" --arg builder_image "${BUILDER_IMAGE}" \
               --arg target_builder_digest "${TARGET_BUILDER_DIGEST}" \
-              --arg cpu_architecture "${CPU_ARCHITECTURE}" --arg runner "${RUNNER_NAME}" \
+              --arg cpu_architecture "${CPU_ARCHITECTURE}" --arg manylinux "${MANYLINUX}" \
+              --arg runner "${RUNNER_NAME}" \
               --arg interpreter_path "${interpreter_path}" --arg source_id "${source_id}" \
               --arg outcome "${PROBE_OUTCOME}" \
-              '[{status:"failed",reason_code:"python-probe-failed",source_kind:"python-probe",source_id:$source_id,builder_fact_id:$builder_fact_id,builder_image:$builder_image,target_builder_digest:$target_builder_digest,cpu_architecture:$cpu_architecture,runner:$runner,interpreter_path:$interpreter_path,builder_capability_id:null,builder_revision_id:null,runtime_id:null,evidence:{outcome:$outcome}}]')"
+              '[{status:"failed",reason_code:"python-probe-failed",source_kind:"python-probe",source_id:$source_id,builder_fact_id:$builder_fact_id,builder_image:$builder_image,target_builder_digest:$target_builder_digest,cpu_architecture:$cpu_architecture,manylinux:$manylinux,runner:$runner,interpreter_path:$interpreter_path,builder_capability_id:null,builder_revision_id:null,runtime_id:null,evidence:{outcome:$outcome}}]')"
           fi
           jq -n --arg status "${status}" --arg outcome "${PROBE_OUTCOME}" \
             --arg builder_fact_id "${BUILDER_FACT_ID}" --arg builder_image "${BUILDER_IMAGE}" \
             --arg target_builder_digest "${TARGET_BUILDER_DIGEST}" \
-            --arg cpu_architecture "${CPU_ARCHITECTURE}" --arg runner "${RUNNER_NAME}" \
+            --arg cpu_architecture "${CPU_ARCHITECTURE}" --arg manylinux "${MANYLINUX}" \
+            --arg runner "${RUNNER_NAME}" \
             --argjson probes "${probes}" --argjson failures "${failures}" \
-            '{status:$status,probes:$probes,failures:$failures,evidence:{outcome:$outcome,builder_fact_id:$builder_fact_id,builder_image:$builder_image,target_builder_digest:$target_builder_digest,cpu_architecture:$cpu_architecture,runner:$runner,success:($status=="success"),failed:($status=="failed"),reason_code:"python-probe-failed"}}' \
+            '{status:$status,probes:$probes,failures:$failures,evidence:{outcome:$outcome,builder_fact_id:$builder_fact_id,builder_image:$builder_image,target_builder_digest:$target_builder_digest,cpu_architecture:$cpu_architecture,manylinux:$manylinux,runner:$runner,success:($status=="success"),failed:($status=="failed"),reason_code:"python-probe-failed"}}' \
             >out/python-probe/result.json
       - if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -502,7 +545,8 @@ jobs:
         with:
           name: ${{ needs.collect-builder-revisions.outputs.builder_facts_artifact }}
           path: input/builders
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - if: ${{ needs.collect-builder-revisions.outputs.has_python_probes == 'true' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: ucm-python-probe-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/python-probes
@@ -511,7 +555,8 @@ jobs:
         with:
           name: ${{ needs.discover-runtimes.outputs.runtime_discovery_artifact }}
           path: input/runtime-discovery
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - if: ${{ needs.discover-runtimes.outputs.has_mooncake_probes == 'true' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: ucm-mooncake-probe-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/mooncake-probes
@@ -519,7 +564,7 @@ jobs:
       - id: catalog
         run: |
           set -euo pipefail
-          mkdir -p out
+          mkdir -p out input/python-probes input/mooncake-probes
           PYTHONPATH=.github/release python -m ucm_release catalog assemble-capabilities \
             --builder-facts input/builders/builder-facts.json \
             --python-probes input/python-probes \

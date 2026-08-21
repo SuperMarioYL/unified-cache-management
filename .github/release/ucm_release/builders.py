@@ -162,6 +162,7 @@ PROBE_MATRIX_ROW_FIELDS = frozenset(
         "target_builder_digest",
         "runner",
         "cpu_architecture",
+        "manylinux",
     }
 )
 _SOURCE_BUILDER_FIELDS = frozenset(
@@ -204,6 +205,8 @@ _MOONCAKE_PROBE_FIELDS = frozenset(
 )
 _ASCEND_TARGET_SEPARATOR = "-rt-"
 _ASCEND_TARGET_PREFIX_BUDGET = 60
+_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$", re.ASCII)
+_COMMIT = re.compile(r"^[0-9a-f]{40}$", re.ASCII)
 
 
 def _read_yaml(path: Path) -> object:
@@ -240,6 +243,18 @@ def _require_string(mapping: dict[str, object], key: str, context: str) -> str:
     value = mapping.get(key)
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{context}: {key} must be a non-empty string")
+    return value
+
+
+def _require_digest(value: object, context: str) -> str:
+    if not isinstance(value, str) or _DIGEST.fullmatch(value) is None:
+        raise ValueError(f"{context}: expected sha256:<64 lowercase hex>")
+    return value
+
+
+def _require_commit(value: object, context: str) -> str:
+    if not isinstance(value, str) or _COMMIT.fullmatch(value) is None:
+        raise ValueError(f"{context}: expected a 40-character lowercase Git commit")
     return value
 
 
@@ -319,6 +334,9 @@ class _SnapshotSource:
         self.root = root / project
         self.commit = os.environ.get("GITHUB_SHA", "0" * 40)
 
+    def freeze_commit(self) -> str:
+        return _require_commit(self.commit, "snapshot commit")
+
     def read(self, path: str) -> str:
         source = self.root / path
         if not source.is_file():
@@ -342,13 +360,22 @@ class _GitHubSource:
         if not isinstance(branch, str) or not branch:
             raise ValueError(f"{project}: GitHub response has no default_branch")
         self.branch = branch
+        self.ref = branch
+        self.commit: str | None = None
+
+    def freeze_commit(self) -> str:
         commit = self._json(
-            f"https://api.github.com/repos/{project}/commits/"
-            f"{urllib.parse.quote(branch, safe='')}"
+            f"https://api.github.com/repos/{self.project}/commits/"
+            f"{urllib.parse.quote(self.branch, safe='')}"
         ).get("sha")
-        if not isinstance(commit, str) or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
-            raise ValueError(f"{project}: GitHub response has no branch commit")
+        if (
+            not isinstance(commit, str)
+            or re.fullmatch(r"[0-9a-f]{40}", commit) is None
+        ):
+            raise ValueError(f"{self.project}: GitHub response has no branch commit")
         self.commit = commit
+        self.ref = commit
+        return commit
 
     @staticmethod
     def _request(url: str) -> bytes:
@@ -374,11 +401,11 @@ class _GitHubSource:
         return _require_mapping(value, url)
 
     def read(self, path: str) -> str:
-        quoted_commit = urllib.parse.quote(self.commit, safe="")
+        quoted_ref = urllib.parse.quote(self.ref, safe="")
         quoted_path = urllib.parse.quote(path, safe="/")
         url = (
             f"https://raw.githubusercontent.com/{self.project}/"
-            f"{quoted_commit}/{quoted_path}"
+            f"{quoted_ref}/{quoted_path}"
         )
         try:
             return self._request(url).decode("utf-8")
@@ -391,7 +418,7 @@ class _GitHubSource:
         quoted = urllib.parse.quote(directory, safe="/")
         url = (
             f"https://api.github.com/repos/{self.project}/contents/{quoted}"
-            f"?ref={urllib.parse.quote(self.commit, safe='')}"
+            f"?ref={urllib.parse.quote(self.ref, safe='')}"
         )
         try:
             value = json.loads(self._request(url))
@@ -841,7 +868,7 @@ def _resolve_image_digest(image: str) -> str:
         digest = json.loads(output)
     except json.JSONDecodeError as error:
         raise ValueError(f"invalid digest readback for {image}") from error
-    return capabilities._digest(digest, f"source image {image}")
+    return _require_digest(digest, f"source image {image}")
 
 
 def discover_builder_sources(
@@ -864,6 +891,7 @@ def discover_builder_sources(
             if snapshot_dir is not None
             else _GitHubSource(project_name)
         )
+        source_commit = source.freeze_commit()
         if project["discovery"] == "vllm-buildkite":
             rows = _discover_vllm(project, source, resolved_owner)
             source_kind = "buildkite-build-base-image"
@@ -892,14 +920,14 @@ def discover_builder_sources(
                 "project": project_name,
                 "source_kind": source_kind,
                 "source_path": source_path,
-                "source_commit": source.commit,
+                "source_commit": source_commit,
                 "fact": fact,
             }
             for source_path in source_paths
         )
 
     release_commit = source_sha or os.environ.get("GITHUB_SHA")
-    capabilities._commit(release_commit, "Builder source discovery source_sha")
+    _require_commit(release_commit, "Builder source discovery source_sha")
     toolchain = RELEASE_ROOT / "toolchain.lock.yaml"
     toolchain_sha = "sha256:" + hashlib.sha256(toolchain.read_bytes()).hexdigest()
     typed_rows: list[dict[str, Any]] = []
@@ -1054,7 +1082,7 @@ def validate_builder_source_discovery(value: object) -> dict[str, Any]:
         raise ValueError("Builder source discovery kind is invalid")
     if discovery.get("schema_version") != 3:
         raise ValueError("Builder source discovery schema_version must be 3")
-    capabilities._commit(
+    _require_commit(
         discovery.get("source_sha"), "Builder source discovery source_sha"
     )
     reads = discovery.get("upstream_reads")
@@ -1065,7 +1093,7 @@ def validate_builder_source_discovery(value: object) -> dict[str, Any]:
         _closed_fields(item, UPSTREAM_READ_FIELDS, f"Builder upstream reads[{index}]")
         for field in ("project", "source_kind", "source_path", "fact"):
             _require_string(item, field, f"Builder upstream reads[{index}]")
-        capabilities._commit(
+        _require_commit(
             item.get("source_commit"),
             f"Builder upstream reads[{index}] source_commit",
         )
@@ -1089,18 +1117,18 @@ def validate_builder_source_discovery(value: object) -> dict[str, Any]:
             raise ValueError(f"Builder sources[{index}] accelerator is unsupported")
         if item["cpu_architecture"] not in {"amd64", "arm64"}:
             raise ValueError(f"Builder sources[{index}] architecture is unsupported")
-        capabilities._digest(
+        _require_digest(
             item["source_image_digest"],
             f"Builder sources[{index}] source image digest",
         )
-        capabilities._commit(
+        _require_commit(
             item["recipe_source_commit"],
             f"Builder sources[{index}] recipe source commit",
         )
-        capabilities._digest(
+        _require_digest(
             item["recipe_sha256"], f"Builder sources[{index}] recipe digest"
         )
-        capabilities._digest(
+        _require_digest(
             item["toolchain_sha256"], f"Builder sources[{index}] toolchain digest"
         )
     return copy.deepcopy(discovery)
@@ -1187,7 +1215,7 @@ def plan_builder_facts(
         probe = _require_mapping(raw, f"Mooncake probes[{index}]")
         _closed_fields(probe, _MOONCAKE_PROBE_FIELDS, f"Mooncake probes[{index}]")
         key = (
-            capabilities._digest(
+            _require_digest(
                 probe.get("runtime_image_digest"), "Mooncake runtime digest"
             ),
             _require_string(probe, "cpu_architecture", "Mooncake probe"),
@@ -1210,7 +1238,7 @@ def plan_builder_facts(
         ):
             raise ValueError("Mooncake probe failure status/reason is invalid")
         failed_runtime_ids.add(
-            capabilities._digest(
+            _require_digest(
                 failure.get("runtime_id"),
                 f"Mooncake probe failures[{index}] runtime ID",
             )
@@ -1347,7 +1375,7 @@ def collect_builder_facts(plan: object, builder_results: object) -> dict[str, ob
     for index, raw in enumerate(plan_items):
         item = _require_mapping(raw, f"Builder plans[{index}]")
         _closed_fields(item, BUILDER_PLAN_FIELDS, f"Builder plans[{index}]")
-        plan_id = capabilities._digest(item["builder_plan_id"], "Builder plan ID")
+        plan_id = _require_digest(item["builder_plan_id"], "Builder plan ID")
         if plan_id in plans_by_id:
             raise ValueError("duplicate Builder plan ID")
         plans_by_id[plan_id] = item
@@ -1355,7 +1383,7 @@ def collect_builder_facts(plan: object, builder_results: object) -> dict[str, ob
     for index, raw in enumerate(result_items):
         item = _require_mapping(raw, f"Builder Results[{index}]")
         _closed_fields(item, BUILDER_RESULT_FIELDS, f"Builder Results[{index}]")
-        plan_id = capabilities._digest(item["builder_plan_id"], "Builder Result ID")
+        plan_id = _require_digest(item["builder_plan_id"], "Builder Result ID")
         if plan_id in results_by_id:
             raise ValueError("duplicate Builder Result ID")
         results_by_id[plan_id] = item
@@ -1379,7 +1407,7 @@ def collect_builder_facts(plan: object, builder_results: object) -> dict[str, ob
         )
         if reason_code != "mooncake-version-mismatch":
             raise ValueError(f"unsupported Builder plan failure {reason_code!r}")
-        runtime_id = capabilities._digest(
+        runtime_id = _require_digest(
             failure.get("runtime_id"),
             f"Builder plan failures[{index}] runtime ID",
         )
@@ -1424,7 +1452,7 @@ def collect_builder_facts(plan: object, builder_results: object) -> dict[str, ob
         if status in {"existing", "built"}:
             if result.get("digest_readback") is not True:
                 raise ValueError("resolved Builder Result requires digest readback")
-            target_digest = capabilities._digest(
+            target_digest = _require_digest(
                 result.get("target_builder_digest"), "Builder target digest"
             )
             fact = {
@@ -1448,6 +1476,7 @@ def collect_builder_facts(plan: object, builder_results: object) -> dict[str, ob
                     "target_builder_digest": target_digest,
                     "runner": planned_item["runner"],
                     "cpu_architecture": planned_item["cpu_architecture"],
+                    "manylinux": planned_item["manylinux"],
                 }
             )
         elif status == "failed":
