@@ -4,7 +4,7 @@
   "title": "UCM repository policy report v2",
   "type": "object",
   "additionalProperties": false,
-  "required": ["checks", "compliant", "expected_repository", "kind", "mode", "observed_repository", "repository_role", "schema_version", "sha256", "snapshot_sha256"],
+  "required": ["checks", "compliant", "expected_repository", "kind", "mode", "observed_repository", "repository_role", "schema_version"],
   "properties": {
     "checks": {
       "type": "array",
@@ -18,9 +18,7 @@
     "mode": {"const": "read-only"},
     "observed_repository": {"$ref": "#/$defs/repository"},
     "repository_role": {"enum": ["validation", "production"]},
-    "schema_version": {"const": 2},
-    "sha256": {"$ref": "#/$defs/sha256"},
-    "snapshot_sha256": {"$ref": "#/$defs/sha256"}
+    "schema_version": {"const": 2}
   },
   "allOf": [
     {"properties": {"checks": {"contains": {"type": "object", "properties": {"id": {"const": "branch.develop.exists"}}, "required": ["id"]}, "minContains": 1, "maxContains": 1}}},
@@ -42,7 +40,6 @@
     }
   ],
   "$defs": {
-    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
     "check": {
       "type": "object",

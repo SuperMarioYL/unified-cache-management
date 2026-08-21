@@ -1,10 +1,8 @@
 """Runtime patch rule selection basics.
 
-Only the pure patch-rule selection tests are retained: PEP 440 range/rc/
-post/local matching, fail-closed on zero-overlap/overlap/malformed rules,
-and the required-variant split-rule contract.  The apply-mechanism and
-declared-route-table change-detector suites were removed per the slimming
-plan.
+The suite covers PEP 440 range/rc/post/local matching, fail-closed selection,
+the required-variant contract, and the concrete routes that preserve upstream
+runtime patches when the manifest-driven dispatcher replaces direct imports.
 """
 
 from __future__ import annotations
@@ -15,9 +13,19 @@ import types
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / ".github/release"))
+
+ALIAS = "ucm.integration.vllm.patch.ucm_connector_registration_patch"
+BIND_MEMORY = "ucm.integration.vllm.patch.bind_memory_patch"
+KIMI_K3 = (
+    "ucm.integration.vllm.patch.v0270.vllm.models.kimi_k3.nvidia."
+    "kimi_k3_mla_kv_hook_patch"
+)
+LOAD_FAILURE = "ucm.integration.vllm.patch.load_failure_patch"
+MAMBA_COPY_ORDER = "ucm.integration.vllm.patch.v0210.vllm_ascend.mamba_copy_order_patch"
 
 
 class _Logger:
@@ -56,6 +64,17 @@ def _manifest(*rules: dict[str, object]) -> dict[str, object]:
         "kind": "ucm-runtime-patch-rules",
         "rules": list(rules),
     }
+
+
+def _source_manifest() -> dict[str, object]:
+    source = yaml.safe_load(
+        (ROOT / "ucm/integration/runtime-patches.yaml").read_text(encoding="utf-8")
+    )
+    return _manifest(*source["runtime_patch_rules"])
+
+
+def _modules(rule: dict[str, object]) -> list[str]:
+    return [declaration["module"] for declaration in rule["imports"]]
 
 
 def _rule(
@@ -181,3 +200,71 @@ def test_runtime_variant_is_required_and_selects_one_split_rule(patch_module) ->
         )["id"]
         == "ascend_a3"
     )
+
+
+def test_source_manifest_preserves_latest_upstream_patch_routes(patch_module) -> None:
+    manifest = _source_manifest()
+    vllm_routes = {
+        "0.24.0": [LOAD_FAILURE],
+        "0.25.1": [LOAD_FAILURE],
+        "0.26.0": [LOAD_FAILURE],
+        "0.27.0": [LOAD_FAILURE, KIMI_K3],
+        "0.28.0": [LOAD_FAILURE, KIMI_K3],
+    }
+    for version, expected in vllm_routes.items():
+        rule = patch_module.select_runtime_patch_rule(
+            manifest, "vllm", version, variant="default"
+        )
+        assert _modules(rule) == expected
+
+    ascend_routes = {
+        "0.24.0": [
+            ALIAS,
+            BIND_MEMORY,
+            "ucm.integration.vllm.patch.v0240.vllm_ascend.ascend_hybrid_cache_patch",
+            "ucm.integration.vllm.patch.v0240.vllm_ascend.cpu_binding_patch",
+            MAMBA_COPY_ORDER,
+        ],
+        "0.25.1": [
+            ALIAS,
+            BIND_MEMORY,
+            "ucm.integration.vllm.patch.v0251.vllm_ascend.ascend_hybrid_cache_patch",
+            "ucm.integration.vllm.patch.v0251.vllm_ascend.cpu_binding_patch",
+            MAMBA_COPY_ORDER,
+        ],
+        "0.26.0": [
+            ALIAS,
+            BIND_MEMORY,
+            "ucm.integration.vllm.patch.v0260.vllm_ascend.cpu_binding_patch",
+            MAMBA_COPY_ORDER,
+        ],
+    }
+    for (version, variant), expected in zip(
+        (("0.24.0", "a2"), ("0.25.1", "a3"), ("0.26.0", "a2")),
+        ascend_routes.values(),
+        strict=True,
+    ):
+        rule = patch_module.select_runtime_patch_rule(
+            manifest, "vllm-ascend", version, variant=variant
+        )
+        assert _modules(rule) == expected
+
+    for rule in manifest["rules"]:
+        if rule["product"] != "vllm-ascend":
+            continue
+        modules = _modules(rule)
+        assert BIND_MEMORY in modules
+        cpu_bindings = [
+            index
+            for index, module in enumerate(modules)
+            if module.endswith("cpu_binding_patch")
+        ]
+        assert not cpu_bindings or modules.index(BIND_MEMORY) < min(cpu_bindings)
+
+    for rule_id in (
+        "vllm-ascend-0210",
+        "vllm-ascend-0221",
+        "vllm-ascend-0230",
+    ):
+        rule = next(rule for rule in manifest["rules"] if rule["id"] == rule_id)
+        assert _modules(rule)[-1] == MAMBA_COPY_ORDER

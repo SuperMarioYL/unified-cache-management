@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import gzip
 import io
+import json
 import os
 import re
 import subprocess
@@ -45,6 +46,16 @@ SAFE_FORK_ACTIONS = {
     "docker/setup-qemu-action",
     "sigstore/cosign-installer",
 }
+MAPFILE_COMPAT = r"""
+mapfile() {
+  local option="$1" name="$2" line
+  test "${option}" = -t
+  eval "${name}=()"
+  while IFS= read -r line; do
+    eval "${name}+=(\"\${line}\")"
+  done
+}
+"""
 
 
 def _strings(value: object) -> list[str]:
@@ -525,6 +536,24 @@ def test_image_workflow_hashes_runtime_source_but_keeps_context_filename() -> No
     assert f"cp {runtime_path} context/Dockerfile" in source
     assert source.count(f"sha256sum {runtime_path}") == 2
     assert 'files:{"Dockerfile":$df' in source
+    for path in (
+        ".github/release/docker/install_ucm.py",
+        ".github/release/docker/inspect_runtime.py",
+        ".github/release/docker/verify_base_image.py",
+    ):
+        assert f"sha256sum {path}" in source
+    assert ".aggregate_sha256 = $agg" in source
+    assert "base_authority_sha256" not in source
+    assert "image_toolchain_authority_sha256" not in source
+    schema = yaml.safe_load(
+        (REPO_ROOT / ".github/release/schemas/image-result.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert set(schema["properties"]["implementation"]["required"]) == {
+        "files",
+        "aggregate_sha256",
+    }
     assert "--target runtime-real" in source
     assert ".github/release/docker/Dockerfile |" not in source
 
@@ -633,7 +662,112 @@ def test_release_routes_use_full_matrices_and_develop_only_daily_dispatch() -> N
     }
 
 
-def test_protected_ghcr_publisher_reuses_six_same_run_oci_builds() -> None:
+@pytest.mark.parametrize(
+    ("event", "ref", "ref_type", "ref_protected", "full_loop_expected"),
+    [
+        ("pull_request", "refs/pull/1/merge", "branch", "false", False),
+        ("push", "refs/tags/v0.7.59rc1", "tag", "true", True),
+    ],
+)
+def test_release_plan_runs_full_loop_validation_only_for_protected_tags(
+    tmp_path: Path,
+    event: str,
+    ref: str,
+    ref_type: str,
+    ref_protected: str,
+    full_loop_expected: bool,
+) -> None:
+    """Feature plans stay structurally checked without requiring full topology."""
+    workflow = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
+    command = str(
+        _named_step(
+            _jobs(workflow)["plan"],
+            "Route invocation and resolve one frozen catalog plan",
+        )["run"]
+    )
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    command_log = tmp_path / "commands.jsonl"
+
+    fake_git = fake_bin / "git"
+    fake_git.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = rev-parse ]; then printf "%s\\n" "$GITHUB_SHA"; fi\n',
+        encoding="utf-8",
+    )
+    fake_git.chmod(0o755)
+
+    fake_python = fake_bin / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, pathlib, sys\n"
+        "args = sys.argv[1:]\n"
+        "with open(os.environ['COMMAND_LOG'], 'a', encoding='utf-8') as log:\n"
+        "    log.write(json.dumps(args) + '\\n')\n"
+        "if 'catalog' in args and 'resolve' in args:\n"
+        "    output = pathlib.Path(args[args.index('--output') + 1])\n"
+        "    output.parent.mkdir(parents=True, exist_ok=True)\n"
+        "    output.write_text(json.dumps({\n"
+        "        'resolved_plan_sha256': 'sha256:' + 'a' * 64,\n"
+        "        'expected_artifacts': {'resolved_plan': 'ucm-resolved-plan-test'},\n"
+        "        'github_wheel_matrix': {'include': []},\n"
+        "        'github_image_matrix': {'include': []},\n"
+        "        'publish': {},\n"
+        "    }), encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+
+    fake_jq = fake_bin / "jq"
+    fake_jq.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, sys\n"
+        "value = json.load(open(sys.argv[-1], encoding='utf-8'))\n"
+        "query = next(arg for arg in sys.argv[1:] if arg.startswith('.'))\n"
+        "for part in query[1:].split('.'):\n"
+        "    value = value[part]\n"
+        "if '-c' in sys.argv:\n"
+        "    print(json.dumps(value, separators=(',', ':')))\n"
+        "elif isinstance(value, (dict, list)):\n"
+        "    print(json.dumps(value))\n"
+        "else:\n"
+        "    print(value)\n",
+        encoding="utf-8",
+    )
+    fake_jq.chmod(0o755)
+
+    completed = subprocess.run(
+        ["bash", "-c", command],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "COMMAND_LOG": str(command_log),
+            "EVENT_NAME": event,
+            "REF": ref,
+            "REF_TYPE": ref_type,
+            "REF_PROTECTED": ref_protected,
+            "PR_DELIVERY": "false",
+            "GITHUB_SHA": "a" * 40,
+            "GITHUB_RUN_ID": "41",
+            "GITHUB_RUN_ATTEMPT": "1",
+            "GITHUB_OUTPUT": str(tmp_path / "github-output.txt"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    calls = [json.loads(line) for line in command_log.read_text().splitlines()]
+    catalog_actions = [
+        call[3] for call in calls if call[:3] == ["-m", "ucm_release", "catalog"]
+    ]
+    assert "validate-resolved-plan" in catalog_actions
+    assert ("validate-main-loop" in catalog_actions) is full_loop_expected
+
+
+def test_protected_ghcr_publisher_reuses_resolved_same_run_oci_builds() -> None:
     protected = _load_workflow(WORKFLOW_DIR / "release-vllm-images-protected.yml")
     jobs = _jobs(protected)
     assert list(jobs) == ["publish-members", "publish-ghcr"]
@@ -648,7 +782,6 @@ def test_protected_ghcr_publisher_reuses_six_same_run_oci_builds() -> None:
     publish_text = "\n".join(_strings(jobs["publish-ghcr"]))
     for fragment in (
         "ucm-member-${task_id}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}",
-        "test \"$(find out/members -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')\" = 6",
         "publish ghcr",
         "--stage publish",
         "--members-dir out/members",
@@ -707,6 +840,199 @@ def test_protected_ghcr_publisher_reuses_six_same_run_oci_builds() -> None:
     ):
         assert fragment in member_text
     assert "printf '%s' \"${ops}\" | sha256sum" not in member_text
+    member_upload = next(
+        step
+        for step in _steps(member_jobs["publish-member"])
+        if str(step.get("uses", "")).startswith("actions/upload-artifact@")
+    )
+    member_paths = str(member_upload["with"]["path"])
+    assert "out/member-record.json" in member_paths
+    assert "member-audit" not in member_paths
+
+
+def test_chart_result_retains_live_package_sha_without_release_tree_seal() -> None:
+    workflow = _load_workflow(WORKFLOW_DIR / "_build-chart.yml")
+    record = next(
+        step
+        for step in _steps(_jobs(workflow)["package-chart"])
+        if step.get("id") == "record"
+    )
+    source = str(record["run"])
+
+    assert 'chart_sha="sha256:$(sha256sum "$package"' in source
+    assert "sha256:$s" in source
+    assert "release_tree_sha256" not in source
+
+
+def _run_chart_validation_cases(
+    tmp_path: Path, validation_cases: list[dict[str, str]]
+) -> subprocess.CompletedProcess[str]:
+    workflow = _load_workflow(WORKFLOW_DIR / "_build-chart.yml")
+    chart_job = _jobs(workflow)["package-chart"]
+    command = str(_named_step(chart_job, "Validate and package chart")["run"])
+    plan_dir = tmp_path / "input" / "plan"
+    fake_bin = tmp_path / "bin"
+    plan_dir.mkdir(parents=True)
+    fake_bin.mkdir()
+    plan = {
+        "chart": {
+            "source": "chart",
+            "version": "0.7.59-rc.1",
+            "app_version": "0.7.59rc1",
+            "validation_cases": validation_cases,
+        },
+        "family_tasks": [
+            {
+                "task_id": "family-selected",
+                "product_id": "vllm",
+                "runtime": {
+                    "variant": "default",
+                    "repository": "docker.io/vllm/vllm-openai",
+                    "index_digest": "sha256:" + "a" * 64,
+                },
+            }
+        ],
+    }
+    (plan_dir / "resolved-plan.json").write_text(json.dumps(plan), encoding="utf-8")
+    fake_helm = fake_bin / "helm"
+    fake_helm.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        'case "$1" in\n'
+        "  lint) exit 0 ;;\n"
+        "  template)\n"
+        "    printf '%s\\n' 'kind: ModelServing' "
+        "'docker.io/vllm/vllm-openai@sha256:" + "a" * 64 + "' 'nvidia.com/gpu'\n"
+        "    ;;\n"
+        "  package)\n"
+        "    destination=''\n"
+        '    while [ "$#" -gt 0 ]; do\n'
+        '      if [ "$1" = --destination ]; then shift; destination="$1"; fi\n'
+        "      shift\n"
+        "    done\n"
+        '    mkdir -p "$destination"\n'
+        '    : >"$destination/unified-cache-pd-0.7.59-rc.1.tgz"\n'
+        "    ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    fake_helm.chmod(0o755)
+    return subprocess.run(
+        ["bash", "-c", command],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "RESOLVED_PLAN_SHA256": "sha256:" + "b" * 64,
+            "GITHUB_OUTPUT": str(tmp_path / "github-output.txt"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_chart_validation_ignores_cases_for_explained_absent_families(
+    tmp_path: Path,
+) -> None:
+    """A partial feature plan validates only the families it selected."""
+    completed = _run_chart_validation_cases(
+        tmp_path,
+        [
+            {
+                "name": "cuda",
+                "values": "cuda-values.yaml",
+                "product_id": "vllm",
+                "variant": "default",
+                "expected_resource": "nvidia.com/gpu",
+            },
+            {
+                "name": "a2",
+                "values": "ascend-values.yaml",
+                "product_id": "vllm-ascend",
+                "variant": "a2",
+                "expected_resource": "huawei.com/Ascend910",
+            },
+        ],
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_chart_validation_requires_exactly_one_case_per_selected_family(
+    tmp_path: Path,
+) -> None:
+    """Duplicate cases cannot ambiguously validate one selected family."""
+    selected_case = {
+        "name": "cuda",
+        "values": "cuda-values.yaml",
+        "product_id": "vllm",
+        "variant": "default",
+        "expected_resource": "nvidia.com/gpu",
+    }
+    duplicate = {**selected_case, "name": "cuda-duplicate"}
+
+    completed = _run_chart_validation_cases(tmp_path, [selected_case, duplicate])
+
+    assert completed.returncode != 0
+
+
+def test_protected_ghcr_publisher_executes_plan_derived_image_count(
+    tmp_path: Path,
+) -> None:
+    workflow = _load_workflow(WORKFLOW_DIR / "release-vllm-images-protected.yml")
+    job = _jobs(workflow)["publish-ghcr"]
+    step = next(item for item in _steps(job) if item.get("id") == "publish")
+    command = step["run"]
+    assert isinstance(command, str)
+
+    plan_sha256 = "sha256:" + "a" * 64
+    task_ids = ["image-a", "image-b"]
+    plan_dir = tmp_path / "input" / "plan"
+    members_dir = tmp_path / "input" / "members"
+    fake_bin = tmp_path / "bin"
+    for directory in (plan_dir, members_dir, fake_bin):
+        directory.mkdir(parents=True, exist_ok=True)
+    (plan_dir / "resolved-plan.json").write_text(
+        (
+            '{"resolved_plan_sha256":"'
+            + plan_sha256
+            + '","image_tasks":[{"task_id":"image-a"},{"task_id":"image-b"}]}'
+        ),
+        encoding="utf-8",
+    )
+    for task_id in task_ids:
+        physical = f"ucm-member-{task_id}-run-41-attempt-1"
+        source = members_dir / physical / "member-record.json"
+        source.parent.mkdir(parents=True)
+        source.write_text(task_id, encoding="utf-8")
+    fake_python = fake_bin / "python"
+    fake_python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_python.chmod(0o755)
+
+    completed = subprocess.run(
+        ["bash", "-x", "-c", command],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "SOURCE_SHA": "b" * 40,
+            "RESOLVED_PLAN_SHA256": plan_sha256,
+            "ALREADY_PUBLIC": "false",
+            "GITHUB_RUN_ID": "41",
+            "GITHUB_RUN_ATTEMPT": "1",
+            "GITHUB_OUTPUT": str(tmp_path / "github-output.txt"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert sorted(path.name for path in (tmp_path / "out" / "members").iterdir()) == [
+        "image-a.json",
+        "image-b.json",
+    ]
 
 
 def test_release_channels_are_draft_bound_and_fail_closed_at_readback_barrier() -> None:
@@ -747,7 +1073,6 @@ def test_release_channels_are_draft_bound_and_fail_closed_at_readback_barrier() 
 
     assets_text = "\n".join(_strings(jobs["publish-release-assets"]))
     for fragment in (
-        'test "${#wheels[@]}" = 6',
         'test "${#charts[@]}" = 1',
         'test ! -e "${target}"',
         "--stage assets",
@@ -843,6 +1168,112 @@ def test_release_channels_are_draft_bound_and_fail_closed_at_readback_barrier() 
             ).returncode
             != 0
         )
+
+
+def test_release_asset_workflow_executes_plan_derived_artifact_counts(
+    tmp_path: Path,
+) -> None:
+    workflow = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
+    job = _jobs(workflow)["publish-release-assets"]
+    step = next(item for item in _steps(job) if item.get("id") == "publish")
+    command = step["run"]
+    assert isinstance(command, str)
+
+    wheels = [
+        "uc_manager_cuda-0.7.59rc1-cp312-cp312-manylinux_2_28_x86_64.whl",
+        "uc_manager_cuda-0.7.59rc1-cp312-cp312-manylinux_2_28_aarch64.whl",
+    ]
+    wheel_dir = tmp_path / "input" / "wheels"
+    chart_dir = tmp_path / "input" / "chart"
+    plan_dir = tmp_path / "input" / "plan"
+    fake_bin = tmp_path / "bin"
+    for directory in (wheel_dir, chart_dir, plan_dir, fake_bin):
+        directory.mkdir(parents=True, exist_ok=True)
+    for wheel in wheels:
+        (wheel_dir / wheel).write_text(wheel, encoding="utf-8")
+    chart = "unified-cache-pd-0.7.59-rc.1.tgz"
+    (chart_dir / chart).write_text(chart, encoding="utf-8")
+    (plan_dir / "resolved-plan.json").write_text(
+        '{"wheel_tasks":[{"task_id":"wheel-a"},{"task_id":"wheel-b"}]}',
+        encoding="utf-8",
+    )
+    fake_python = fake_bin / "python"
+    fake_python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_python.chmod(0o755)
+    github_output = tmp_path / "github-output.txt"
+
+    completed = subprocess.run(
+        ["bash", "-x", "-c", MAPFILE_COMPAT + command],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "GH_TOKEN": "test-token",
+            "SOURCE_SHA": "a" * 40,
+            "GITHUB_RUN_ID": "41",
+            "GITHUB_RUN_ATTEMPT": "1",
+            "GITHUB_OUTPUT": str(github_output),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert sorted(
+        path.name for path in (tmp_path / "out" / "assets").iterdir()
+    ) == sorted([*wheels, chart])
+
+
+@pytest.mark.parametrize(
+    ("job_name", "step_id"),
+    [("publish-pypi", "publish"), ("pypi-readback", "readback")],
+)
+def test_pypi_workflow_executes_plan_derived_wheel_count(
+    tmp_path: Path, job_name: str, step_id: str
+) -> None:
+    workflow = _load_workflow(WORKFLOW_DIR / "release-ucm.yml")
+    job = _jobs(workflow)[job_name]
+    step = next(item for item in _steps(job) if item.get("id") == step_id)
+    command = step["run"]
+    assert isinstance(command, str)
+
+    wheels = ["wheel-a.whl", "wheel-b.whl"]
+    wheel_dir = tmp_path / "input" / "wheels"
+    plan_dir = tmp_path / "input" / "plan"
+    fake_bin = tmp_path / "bin"
+    for directory in (wheel_dir, plan_dir, fake_bin):
+        directory.mkdir(parents=True, exist_ok=True)
+    for wheel in wheels:
+        (wheel_dir / wheel).write_text(wheel, encoding="utf-8")
+    (plan_dir / "resolved-plan.json").write_text(
+        '{"wheel_tasks":[{"task_id":"wheel-a"},{"task_id":"wheel-b"}]}',
+        encoding="utf-8",
+    )
+    fake_python = fake_bin / "python"
+    fake_python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_python.chmod(0o755)
+
+    completed = subprocess.run(
+        ["bash", "-x", "-c", MAPFILE_COMPAT + command],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "SOURCE_SHA": "b" * 40,
+            "GITHUB_RUN_ID": "41",
+            "GITHUB_RUN_ATTEMPT": "1",
+            "GITHUB_OUTPUT": str(tmp_path / "github-output.txt"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert (
+        sorted(path.name for path in (tmp_path / "out" / "wheels").iterdir()) == wheels
+    )
 
 
 def test_active_main_release_workflows_have_no_superseded_policy_or_fake_readback() -> (
@@ -1321,6 +1752,27 @@ def test_release_tests_checkout_fetches_tags_for_git_describe() -> None:
 
     assert checkout["with"]["fetch-depth"] == 0
     assert checkout["with"]["fetch-tags"] is True
+
+    steps = _steps(_jobs(workflow)["release-tests"])
+    seed = next(
+        step
+        for step in steps
+        if step.get("name") == "Fetch fork-source tags when no release tag is reachable"
+    )
+    assert seed["env"] == {"GH_TOKEN": "${{ github.token }}"}
+    command = str(seed["run"])
+    assert "git describe --tags --match 'v[0-9]*' HEAD" in command
+    assert 'gh api "repos/${GITHUB_REPOSITORY}"' in command
+    assert ".source.clone_url // .parent.clone_url // empty" in command
+    assert "git fetch --force" in command
+    assert '"${source_repository_url}"' in command
+    assert "+refs/tags/*:refs/tags/*" in command
+    assert "git tag" not in command
+    assert steps.index(seed) < next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Run compact release tests"
+    )
 
 
 def test_repository_recipe_jobs_fetch_reachable_tags() -> None:

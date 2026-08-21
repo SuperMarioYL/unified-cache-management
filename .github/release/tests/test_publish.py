@@ -66,9 +66,21 @@ def _builder_root(*_args, **_kwargs) -> dict[str, object]:
     }
 
 
-def _resolved_plan(*, lane: str, fixture_only: bool | None = None) -> dict[str, object]:
-    catalog = core.load_catalog(version_override="0.7.59rc1")
-    fixture = _registry_fixture()
+def _resolved_plan(
+    *,
+    lane: str,
+    fixture_only: bool | None = None,
+    catalog_override: dict[str, object] | None = None,
+    registry_fixture: dict[str, object] | None = None,
+) -> dict[str, object]:
+    catalog = (
+        copy.deepcopy(catalog_override)
+        if catalog_override
+        else core.load_catalog(version_override="0.7.59rc1")
+    )
+    fixture = (
+        copy.deepcopy(registry_fixture) if registry_fixture else _registry_fixture()
+    )
     if lane == "feature-candidate" and fixture_only is not False:
         with mock.patch.object(
             registry, "resolve_builder_root", side_effect=_builder_root
@@ -153,6 +165,67 @@ def _resolved_plan(*, lane: str, fixture_only: bool | None = None) -> dict[str, 
         )
 
 
+def _single_family_plan() -> dict[str, object]:
+    catalog = core.load_catalog(version_override="0.7.59rc1")
+    catalog["upstream_products"] = [copy.deepcopy(catalog["upstream_products"][0])]
+    catalog["wheel_profiles"] = [copy.deepcopy(catalog["wheel_profiles"][0])]
+    catalog["compatibility"]["rules"] = [
+        copy.deepcopy(catalog["compatibility"]["rules"][0])
+    ]
+    catalog["chart"]["validation_cases"] = [
+        copy.deepcopy(catalog["chart"]["validation_cases"][0])
+    ]
+    catalog["pr_smoke"]["image_selectors"] = [
+        copy.deepcopy(catalog["pr_smoke"]["image_selectors"][0])
+    ]
+    catalog["runtime_patch_rules"] = [
+        rule for rule in catalog["runtime_patch_rules"] if rule["product"] == "vllm"
+    ]
+    fixture = _registry_fixture()
+    repository = catalog["upstream_products"][0]["repository"]
+    fixture["repositories"] = {repository: fixture["repositories"][repository]}
+    return _resolved_plan(
+        lane="protected-tag",
+        catalog_override=catalog,
+        registry_fixture=fixture,
+    )
+
+
+def _single_platform_plan() -> dict[str, object]:
+    catalog = core.load_catalog(version_override="0.7.59rc1")
+    product = copy.deepcopy(catalog["upstream_products"][0])
+    product["required_cpu_architectures"] = ["arm64"]
+    catalog["upstream_products"] = [product]
+    profile = copy.deepcopy(catalog["wheel_profiles"][0])
+    profile["cpu_arch"] = ["arm64"]
+    profile["builders"] = {"arm64": profile["builders"]["arm64"]}
+    catalog["wheel_profiles"] = [profile]
+    compatibility = copy.deepcopy(catalog["compatibility"]["rules"][0])
+    compatibility["cpu_architectures"] = ["arm64"]
+    catalog["compatibility"]["rules"] = [compatibility]
+    catalog["chart"]["validation_cases"] = [
+        copy.deepcopy(catalog["chart"]["validation_cases"][0])
+    ]
+    selector = copy.deepcopy(catalog["pr_smoke"]["image_selectors"][0])
+    selector["cpu_arch"] = "arm64"
+    catalog["pr_smoke"]["image_selectors"] = [selector]
+    catalog["runtime_patch_rules"] = [
+        rule for rule in catalog["runtime_patch_rules"] if rule["product"] == "vllm"
+    ]
+    fixture = _registry_fixture()
+    repository = product["repository"]
+    fixture["repositories"] = {repository: fixture["repositories"][repository]}
+    snapshot = fixture["repositories"][repository]["snapshots"]["v0.21.2"]
+    snapshot["platforms"] = [
+        item for item in snapshot["platforms"] if item["architecture"] == "arm64"
+    ]
+    return _resolved_plan(
+        lane="protected-tag",
+        catalog_override=catalog,
+        registry_fixture=fixture,
+    )
+
+
 def _write_plan(path: Path, plan: dict[str, object]) -> Path:
     path.write_bytes(core.canonical_bytes(plan) + b"\n")
     return path
@@ -174,14 +247,18 @@ def _rewrite_channel(plan_path: Path, channel: str, enabled: bool) -> None:
     plan_path.write_bytes(core.canonical_bytes(plan) + b"\n")
 
 
-def _artifacts(tmp_path: Path) -> list[Path]:
+def _named_artifacts(tmp_path: Path, names: list[str]) -> list[Path]:
     tmp_path.mkdir(parents=True, exist_ok=True)
     paths: list[Path] = []
-    for name in [*WHEELS, CHART]:
+    for name in names:
         path = tmp_path / name
         path.write_bytes((name + "-bytes").encode())
         paths.append(path)
     return paths
+
+
+def _artifacts(tmp_path: Path) -> list[Path]:
+    return _named_artifacts(tmp_path, [*WHEELS, CHART])
 
 
 def _draft_state(
@@ -387,11 +464,16 @@ def _completed(
 
 class OciRunner:
     def __init__(
-        self, *, extra_platform: bool = False, dockerhub_digest_conflict: bool = False
+        self,
+        *,
+        extra_platform: bool = False,
+        dockerhub_digest_conflict: bool = False,
+        platforms: tuple[str, ...] = ("amd64", "arm64"),
     ) -> None:
         self.calls: list[tuple[list[str], dict[str, str] | None, bytes | None]] = []
         self.extra_platform = extra_platform
         self.dockerhub_digest_conflict = dockerhub_digest_conflict
+        self.platforms = platforms
 
     def __call__(self, command, *, env=None, input_bytes=None):
         command = list(command)
@@ -421,14 +503,12 @@ class OciRunner:
             manifests = [
                 {
                     "mediaType": "application/vnd.oci.image.manifest.v1+json",
-                    "digest": AMD64_DIGEST,
-                    "platform": {"os": "linux", "architecture": "amd64"},
-                },
-                {
-                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
-                    "digest": ARM64_DIGEST,
-                    "platform": {"os": "linux", "architecture": "arm64"},
-                },
+                    "digest": (
+                        AMD64_DIGEST if architecture == "amd64" else ARM64_DIGEST
+                    ),
+                    "platform": {"os": "linux", "architecture": architecture},
+                }
+                for architecture in self.platforms
             ]
             if self.extra_platform:
                 manifests.append(
@@ -831,7 +911,48 @@ def test_public_release_binding_makes_every_channel_publish_a_zero_write_reuse(
     assert calls == []
 
 
-def test_pypi_publish_and_readback_use_exact_six_wheels_and_three_dists(
+def test_publication_artifact_and_asset_sets_follow_smaller_resolved_plan(
+    tmp_path: Path,
+) -> None:
+    publication = importlib.import_module("ucm_release.publish")
+    path = _write_plan(tmp_path / "resolved-plan.json", _single_family_plan())
+    wheel_names = [
+        "uc_manager_cuda-0.7.59rc1-cp312-cp312-manylinux_2_28_x86_64.whl",
+        "uc_manager_cuda-0.7.59rc1-cp312-cp312-manylinux_2_28_aarch64.whl",
+    ]
+    expected_assets = sorted([*wheel_names, CHART])
+    artifacts = _named_artifacts(tmp_path / "artifacts", [*wheel_names, CHART])
+    api = GithubApi()
+
+    assert publication.expected_release_asset_names(path) == expected_assets
+    draft = publication.publish_github_release(path, stage="draft", api=api)
+    draft_state = tmp_path / "draft-state.json"
+    draft_state.write_bytes(core.canonical_bytes(draft) + b"\n")
+    assets = publication.publish_github_release(
+        path,
+        stage="assets",
+        artifacts=artifacts,
+        draft_state=draft_state,
+        api=api,
+        download_bytes=api.download,
+    )
+    asset_state = tmp_path / "asset-state.json"
+    asset_state.write_bytes(core.canonical_bytes(assets) + b"\n")
+    finalized = publication.publish_github_release(
+        path,
+        stage="finalize",
+        draft_state=draft_state,
+        asset_state=asset_state,
+        api=api,
+        download_bytes=api.download,
+    )
+
+    assert assets["asset_names"] == expected_assets
+    assert [item["name"] for item in assets["asset_manifest"]] == expected_assets
+    assert finalized["asset_names"] == expected_assets
+
+
+def test_pypi_publish_and_readback_use_resolved_wheels_and_configured_dists(
     plan_path: Path, tmp_path: Path
 ) -> None:
     publication = importlib.import_module("ucm_release.publish")
@@ -912,22 +1033,43 @@ def test_ghcr_readback_uses_empty_auth_and_records_index_digest(
     )
 
 
-def test_publication_matrix_has_exact_three_families_and_six_images(
-    plan_path: Path,
+def test_ghcr_readback_uses_each_family_resolved_platform_set(tmp_path: Path) -> None:
+    """A supported subset family must not inherit a global two-platform check."""
+    publication = importlib.import_module("ucm_release.publish")
+    plan_path = _write_plan(tmp_path / "resolved-plan.json", _single_platform_plan())
+
+    result = publication.publish_ghcr(
+        plan_path,
+        stage="readback",
+        run=OciRunner(platforms=("arm64",)),
+        crane_binary="/pinned/crane",
+    )
+
+    assert len(result["images"]) == 1
+    assert result["images"][0]["platforms"] == ["linux/arm64"]
+
+
+def test_publication_matrix_and_member_artifacts_follow_resolved_task_links(
+    tmp_path: Path,
 ) -> None:
     publication = importlib.import_module("ucm_release.publish")
+    plan_path = _write_plan(tmp_path / "resolved-plan.json", _single_family_plan())
     plan = core.load_json(plan_path)
+    members_dir = _member_records(plan_path, tmp_path / "members")
 
     publication._require_release_image_matrix(plan)
-    plan["family_tasks"].pop()
+    records = publication._load_member_results(plan, members_dir)
 
-    with pytest.raises(
-        ValueError,
-        match=(
-            "publication matrix requires exactly 3 family tasks and 6 image tasks; "
-            "got family_tasks=2, image_tasks=6"
-        ),
-    ):
+    family_task = plan["family_tasks"][0]
+    assert list(records) == [family_task["task_id"]]
+    assert [record["platform"] for record in records[family_task["task_id"]]] == [
+        "linux/amd64",
+        "linux/arm64",
+    ]
+
+    plan["image_tasks"][0]["family_task_id"] = "unknown-family"
+
+    with pytest.raises(ValueError, match="family/image linkage"):
         publication._require_release_image_matrix(plan)
 
 
@@ -986,7 +1128,7 @@ def test_ghcr_publish_validates_six_members_and_creates_three_indexes(
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
-        ("missing", "exactly six member-result JSON files"),
+        ("missing", "one member-result JSON file per resolved image task"),
         ("target", "member target differs from resolved image task"),
         ("plan", "member resolved_plan_sha256 differs from resolved plan"),
         ("record", "record_sha256"),
@@ -1056,6 +1198,7 @@ def test_shared_oci_reader_returns_exact_index_and_platforms() -> None:
 
     result = publication.inspect_oci_reference(
         "ghcr.io/release-org/example:v1",
+        expected_platforms=["linux/amd64", "linux/arm64"],
         run=OciRunner(),
         crane_binary="/pinned/crane",
     )
@@ -1082,7 +1225,7 @@ def test_shared_oci_reader_returns_exact_index_and_platforms() -> None:
 def test_ghcr_readback_rejects_extra_platform(plan_path: Path) -> None:
     publication = importlib.import_module("ucm_release.publish")
 
-    with pytest.raises(ValueError, match="exact linux/amd64 and linux/arm64"):
+    with pytest.raises(ValueError, match="expected platform set"):
         publication.publish_ghcr(
             plan_path,
             stage="readback",
@@ -1235,7 +1378,7 @@ def test_github_assets_validate_complete_local_set_before_api_write(
         }
     )
 
-    with pytest.raises(ValueError, match="exact seven release assets"):
+    with pytest.raises(ValueError, match="exact resolved asset set"):
         publication.publish_github_release(
             plan_path,
             stage="assets",
@@ -1458,7 +1601,7 @@ def test_github_release_incomplete_public_release_fails(plan_path: Path) -> None
     publication = importlib.import_module("ucm_release.publish")
     api = GithubApi(_public_release(WHEELS))
 
-    with pytest.raises(ValueError, match="exact seven assets"):
+    with pytest.raises(ValueError, match="exact resolved assets"):
         publication.publish_github_release(plan_path, stage="draft", api=api)
 
 
@@ -2079,7 +2222,10 @@ def test_local_registry_dual_arch_index_exercises_shared_reader(tmp_path: Path) 
         assert indexed.returncode == 0, indexed.stderr
 
         result = publication.inspect_oci_reference(
-            reference, crane_binary=crane, insecure=True
+            reference,
+            expected_platforms=["linux/amd64", "linux/arm64"],
+            crane_binary=crane,
+            insecure=True,
         )
         assert result["index_digest"].startswith("sha256:")
         assert result["platforms"] == ["linux/amd64", "linux/arm64"]

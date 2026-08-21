@@ -601,9 +601,9 @@ def runtime_patch_manifest_sha256(manifest: dict[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(canonical_bytes(manifest) + b"\n").hexdigest()
 
 
-def _matching_runtime_patch_rule(
+def find_runtime_patch_rule(
     manifest: dict[str, Any], snapshot: dict[str, Any], variant: str, *, relaxed: bool = False
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     runtime_product = snapshot.get("runtime_product", snapshot["product_id"])
     if relaxed:
         # Tolerate non-pep440 versions (e.g. mutable 'latest'); when the
@@ -620,10 +620,23 @@ def _matching_runtime_patch_rule(
     else:
         matches = [rule for rule in manifest['rules'] if rule['product'] == runtime_product and snapshot['channel'] in rule['channels'] and (variant in rule['variants'])]  # fmt: skip  # noqa: E501
     if not matches:
-        raise ValueError(f"resolved upstream has no runtime patch strategy: product={runtime_product}, version={snapshot['version']}, channel={snapshot['channel']}, variant={variant}")  # fmt: skip  # noqa: E501
+        return None
     if len(matches) > 1:
-        raise ValueError('resolved upstream matches overlapping runtime patch strategies: ' + ', '.join((rule['id'] for rule in matches)))  # fmt: skip  # noqa: E501
+        identifiers = ", ".join(rule["id"] for rule in matches)
+        raise ValueError(
+            f"resolved upstream matches overlapping runtime patch strategies: {identifiers}"
+        )
     return matches[0]
+
+
+def _matching_runtime_patch_rule(
+    manifest: dict[str, Any], snapshot: dict[str, Any], variant: str, *, relaxed: bool = False
+) -> dict[str, Any]:
+    match = find_runtime_patch_rule(manifest, snapshot, variant, relaxed=relaxed)
+    if match is None:
+        runtime_product = snapshot.get("runtime_product", snapshot["product_id"])
+        raise ValueError(f"resolved upstream has no runtime patch strategy: product={runtime_product}, version={snapshot['version']}, channel={snapshot['channel']}, variant={variant}")  # fmt: skip  # noqa: E501
+    return match
 
 
 def _exact_runtime_requirement(value: object) -> tuple[str, str, str]:
@@ -1034,7 +1047,6 @@ def validate_repository_recipe_inventory(
     products = {item["id"]: item for item in catalog["upstream_products"]}
     normalized_paths: dict[str, str] = {}
     cache_scopes: set[str] = set()
-    registered_paths: set[str] = set()
     allowed_lanes = {"pr-smoke", "hardware-e2e", "manual", "formal-release"}
     path_pattern = re.compile(r"^docker/Dockerfile\.ucm-[a-z0-9][a-z0-9._-]{0,127}$")
     safe_id_pattern = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
@@ -1054,7 +1066,6 @@ def validate_repository_recipe_inventory(
             previous = normalized_paths.get(collision_key)
             raise ValueError(f'normalized Docker recipe path collision: {path!r} and {previous!r}')  # fmt: skip  # noqa: E501
         normalized_paths[collision_key] = path
-        registered_paths.add(path)
 
         lanes = recipe.get("lanes")
         if (
@@ -1164,13 +1175,6 @@ def validate_repository_recipe_inventory(
         }:
             raise ValueError(f"Docker recipe base image differs from catalog: {path}")
 
-    discovered = {item.relative_to(repository_root).as_posix() for item in (repository_root / 'docker').glob('Dockerfile.ucm-*') if item.is_file()}  # fmt: skip  # noqa: E501
-    missing = sorted(discovered - registered_paths)
-    extra = sorted(registered_paths - discovered)
-    if missing or extra:
-        raise ValueError(f'Docker recipe inventory differs from release.yaml: unregistered={missing}, nonexistent={extra}')  # fmt: skip  # noqa: E501
-
-
 def repository_recipe_matrix(
     catalog: dict[str, Any],
     *,
@@ -1273,14 +1277,14 @@ def validate_resolved_upstreams(resolved_upstreams: object, *, relaxed: bool = F
 _LINKED_WHEEL_FIELDS = tuple('spec_id profile_id runner cpu_arch platform builder builder_sha256 build python_abi python_version wheel_version wheel_platform required_native forbidden_native allowed_dt_needed external_required_dependencies dependency_lock_sha256 dependency_lock runtime_requirements runtime_patch_manifest_sha256 write_authority build_eligible'.split())  # fmt: skip  # noqa: E501
 
 
-def _matching_profile(
+def _find_profile(
     catalog: dict[str, Any],
     product: dict[str, Any],
     snapshot: dict[str, Any],
     architecture: str,
     *,
     relaxed: bool = False,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
     variant = next((v for v in product['variants'] if v['id'] == snapshot['variant']), None)  # fmt: skip  # noqa: E501
     if variant is None:
         raise ValueError(f"snapshot variant {snapshot['variant']!r} is not declared by upstream product {product['id']!r}")  # fmt: skip  # noqa: E501
@@ -1309,17 +1313,108 @@ def _matching_profile(
             ):
                 matches.append((profile, rule))
     if not matches:
-        raise ValueError(f"resolved upstream member has no compatible wheel profile: product={product['id']}, tag={snapshot['tag']}, architecture={architecture}")  # fmt: skip  # noqa: E501
+        return None
     if len(matches) > 1:
         matched = sorted((f"{profile['id']} via {rule['id']}" for profile, rule in matches))  # fmt: skip  # noqa: E501
         raise ValueError(f"resolved upstream member matches overlapping wheel profiles: product={product['id']}, tag={snapshot['tag']}, architecture={architecture}, matches={matched}")  # fmt: skip  # noqa: E501
     return matches[0]
 
 
+def _matching_profile(
+    catalog: dict[str, Any],
+    product: dict[str, Any],
+    snapshot: dict[str, Any],
+    architecture: str,
+    *,
+    relaxed: bool = False,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    match = _find_profile(
+        catalog, product, snapshot, architecture, relaxed=relaxed
+    )
+    if match is None:
+        raise ValueError(f"resolved upstream member has no compatible wheel profile: product={product['id']}, tag={snapshot['tag']}, architecture={architecture}")  # fmt: skip  # noqa: E501
+    return match
+
+
+def candidate_exclusion_reason(
+    catalog: dict[str, Any],
+    product: dict[str, Any],
+    candidate: dict[str, Any],
+    patch_manifest: dict[str, Any],
+    *,
+    relaxed: bool = False,
+) -> str | None:
+    product_variant = next(
+        (item for item in product["variants"] if item["id"] == candidate["variant"]),
+        None,
+    )
+    if product_variant is None:
+        raise ValueError(
+            f"snapshot variant {candidate['variant']!r} is not declared by upstream product {product['id']!r}"
+        )
+    runtime_product = product["runtime_product"]
+    patch_variant = product_variant["runtime_patch_variants"][runtime_product]
+    patch_snapshot = {**candidate, "runtime_product": runtime_product}
+    runtime_patch_supported = (
+        find_runtime_patch_rule(
+            patch_manifest, patch_snapshot, patch_variant, relaxed=relaxed
+        )
+        is not None
+    )
+    profile_matches = [
+        _find_profile(catalog, product, candidate, architecture, relaxed=relaxed)
+        for architecture in product["required_cpu_architectures"]
+    ]
+    if not runtime_patch_supported:
+        return "runtime-patch-unsupported"
+    if any(match is None for match in profile_matches):
+        return "compatibility-unsupported"
+    return None
+
+
 _PROFILE_DIRECT_FIELDS = tuple('accelerator accelerator_runtime python_version python_abi wheel_version wheel_platform binary_profile_id dist_name'.split())  # fmt: skip  # noqa: E501
 _PROFILE_DEEPCOPY_FIELDS = tuple('validation_targets required_native forbidden_native allowed_dt_needed external_required_dependencies'.split())  # fmt: skip  # noqa: E501
 _FAMILY_IDENTITY_KEYS = tuple('product_id repository tag variant index_digest target_repository target_tag'.split())  # fmt: skip  # noqa: E501
 _RUNTIME_KEYS = tuple("repository tag version channel variant index_digest".split())
+
+
+def release_topology(catalog: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
+    wheels = [
+        {"profile_id": profile["id"], "cpu_arch": architecture}
+        for profile in catalog["wheel_profiles"]
+        for architecture in profile["cpu_arch"]
+    ]
+    families = [
+        {"product_id": product["id"], "variant": variant["id"]}
+        for product in catalog["upstream_products"]
+        for variant in product["variants"]
+    ]
+    images = [
+        {
+            "product_id": product["id"],
+            "variant": variant["id"],
+            "cpu_arch": architecture,
+        }
+        for product in catalog["upstream_products"]
+        for variant in product["variants"]
+        for architecture in product["required_cpu_architectures"]
+    ]
+    return {
+        "wheels": sorted(
+            wheels, key=lambda item: (item["profile_id"], item["cpu_arch"])
+        ),
+        "families": sorted(
+            families, key=lambda item: (item["product_id"], item["variant"])
+        ),
+        "images": sorted(
+            images,
+            key=lambda item: (
+                item["product_id"],
+                item["variant"],
+                item["cpu_arch"],
+            ),
+        ),
+    }
 
 
 @dataclass(frozen=True, slots=True)

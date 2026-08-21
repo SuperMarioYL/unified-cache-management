@@ -791,7 +791,6 @@ jobs:
               f"- validated repository identity: `{report['observed_repository']}`",
               f"- validated expected repository identity: `{report['expected_repository']}`",
               f"- validated compliance status: `{str(report['compliant']).lower()}`",
-              f"- validated report digest: `{report['sha256']}`",
               "",
               "### Gaps (free-form evidence omitted)",
               "",

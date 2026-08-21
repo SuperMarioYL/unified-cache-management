@@ -136,7 +136,7 @@ jobs:
           mkdir -p out/members
           test "$(jq -r '.resolved_plan_sha256' input/plan/resolved-plan.json)" = \
             "${RESOLVED_PLAN_SHA256}"
-          test "$(jq '.image_tasks | length' input/plan/resolved-plan.json)" = 6
+          expected_images="$(jq '.image_tasks | length' input/plan/resolved-plan.json)"
           if [[ "${ALREADY_PUBLIC}" == false ]]; then
             while IFS= read -r task_id; do
               physical="ucm-member-${task_id}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
@@ -144,7 +144,7 @@ jobs:
               test -f "${source}"
               cp "${source}" "out/members/${task_id}.json"
             done < <(jq -r '.image_tasks[].task_id' input/plan/resolved-plan.json)
-            test "$(find out/members -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')" = 6
+            test "$(find out/members -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')" = "${expected_images}"
           else
             test "${ALREADY_PUBLIC}" == true
           fi

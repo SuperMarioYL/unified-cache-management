@@ -5,7 +5,7 @@
     "docker.io/vllm/vllm-openai": {
       "pages": [
         {
-          "tags": ["v0.21.0", "v0.20.9", "latest"],
+          "tags": ["v0.21.0", "v0.21.1", "v0.21.2", "v0.20.9", "latest"],
           "next_page": "page-2"
         },
         {
@@ -14,11 +14,11 @@
         }
       ],
       "snapshots": {
-        "v0.21.0": {
+        "v0.21.2": {
           "schema_version": 1,
           "kind": "upstream-registry-snapshot",
           "repository": "docker.io/vllm/vllm-openai",
-          "upstream_tag": "v0.21.0",
+          "upstream_tag": "v0.21.2",
           "index_digest": "sha256:a230095847e93bd4df9888b33dab956fa9504537b828a23657d2b26fed57b5c9",
           "platforms": [
             {
@@ -40,7 +40,7 @@
     "quay.io/ascend/vllm-ascend": {
       "pages": [
         {
-          "tags": ["v0.22.1rc1", "v0.22.1rc1-a3", "v0.22.1"],
+          "tags": ["v0.22.1rc1", "v0.22.1rc2", "v0.22.1rc3", "v0.22.2rc1", "v0.22.1rc1-a3", "v0.22.1rc2-a3", "v0.22.1rc3-a3", "v0.22.2rc1-a3", "v0.22.1"],
           "next_page": "page-2"
         },
         {
@@ -49,11 +49,11 @@
         }
       ],
       "snapshots": {
-        "v0.22.1rc1": {
+        "v0.22.1rc3": {
           "schema_version": 1,
           "kind": "upstream-registry-snapshot",
           "repository": "quay.io/ascend/vllm-ascend",
-          "upstream_tag": "v0.22.1rc1",
+          "upstream_tag": "v0.22.1rc3",
           "index_digest": "sha256:9008b47081282612abfe4d28069ce34436752c980fd06f7599343213205ce64d",
           "platforms": [
             {
@@ -70,11 +70,11 @@
             }
           ]
         },
-        "v0.22.1rc1-a3": {
+        "v0.22.1rc3-a3": {
           "schema_version": 1,
           "kind": "upstream-registry-snapshot",
           "repository": "quay.io/ascend/vllm-ascend",
-          "upstream_tag": "v0.22.1rc1-a3",
+          "upstream_tag": "v0.22.1rc3-a3",
           "index_digest": "sha256:e3d89f09a1c1d85f0ec6a1cc26e3c807b7bc8a7ec0f97a830dbef63ab50d8f81",
           "platforms": [
             {
