@@ -725,10 +725,13 @@ def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> 
         risky_source,
     )
     assert re.search(r"(?m)^\s*wheel_tag\s*=.*\bplatform_tag\b", risky_source)
-    assert re.search(
-        r"(?m)^\s*(?:platform_tag|wheel_tag)\s*=.*sysconfig\.get_platform",
-        risky_source,
-    ) is None
+    assert (
+        re.search(
+            r"(?m)^\s*(?:platform_tag|wheel_tag)\s*=.*sysconfig\.get_platform",
+            risky_source,
+        )
+        is None
+    )
     probe_source = yaml.safe_dump(probe, sort_keys=False)
     assert "builder_revision_id" not in probe_source
     assert "builder_source_image_digest" not in probe_source
@@ -1283,9 +1286,7 @@ def test_empty_probe_matrices_still_reach_downstream_consumers() -> None:
         run_source = _noncomment_shell(
             "\n".join(str(step.get("run", "")) for step in consumer["steps"])
         )
-        assert re.search(
-            rf"(?m)^\s*mkdir\s+-p\s+[^\n]*{re.escape(path)}", run_source
-        )
+        assert re.search(rf"(?m)^\s*mkdir\s+-p\s+[^\n]*{re.escape(path)}", run_source)
 
 
 @pytest.mark.parametrize("filename", ["release-ucm.yml", "ucm-build-bot.yml"])
