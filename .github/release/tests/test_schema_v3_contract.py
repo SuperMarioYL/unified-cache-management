@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import importlib
 import sys
 from collections.abc import Callable
@@ -18,67 +19,16 @@ RELEASE_PATH = RELEASE_ROOT / "release.yaml"
 sys.path.insert(0, str(RELEASE_ROOT))
 
 
-def _load_release_yaml() -> dict[str, object]:
+def _load_release_yaml() -> dict[str, Any]:
     release = yaml.safe_load(RELEASE_PATH.read_text(encoding="utf-8"))
     assert isinstance(release, dict), "release.yaml must contain a YAML object"
     return release
 
 
-def _write_release_yaml(tmp_path: Path, release: dict[str, object]) -> Path:
+def _write_release_yaml(tmp_path: Path, release: dict[str, Any]) -> Path:
     path = tmp_path / "release.yaml"
     path.write_text(yaml.safe_dump(release, sort_keys=False), encoding="utf-8")
     return path
-
-
-def _minimal_v3_authority() -> dict[str, Any]:
-    return {
-        "kind": "release-config",
-        "schema_version": 3,
-        "source": {
-            "default_branch": "develop",
-            "protected_environment": "release-production",
-        },
-        "discovery": {
-            "exclude_variants": ["310p"],
-            "python_requires": ">=3.10",
-            "bootstrap": "all-passing",
-            "scan_limits": {},
-            "matrix_limits": {},
-        },
-        "products": {
-            "cuda": {
-                "accelerator": "cuda",
-                "distribution": "uc-manager-cuda{runtime.compact}",
-            },
-            "cann": {
-                "accelerator": "ascend",
-                "distribution": (
-                    "uc-manager-cann{runtime.compact}-{variant}"
-                    "-mc{mooncake.compact}"
-                ),
-            },
-        },
-        "dependencies": {
-            "build": {"packaging": "24.2", "pyyaml": "6.0.2"},
-            "runtime": {},
-        },
-        "publish": {
-            "pypi": {
-                "enabled": False,
-                "index": "https://upload.pypi.org/legacy/",
-            },
-            "ghcr": {"enabled": True, "namespace": "ghcr.io/{owner}"},
-            "dockerhub": {
-                "enabled": False,
-                "namespace": "docker.io/{owner}",
-            },
-            "chart_oci": {
-                "enabled": True,
-                "namespace": "ghcr.io/{owner}/charts",
-            },
-            "github_release": {"enabled": True},
-        },
-    }
 
 
 def _canonical_product_rules() -> dict[str, dict[str, str]]:
@@ -131,16 +81,14 @@ def test_repository_release_authority_is_schema_v3_without_v2_product_lists() ->
     )
 
 
-def test_load_catalog_accepts_minimal_schema_v3_authority(tmp_path: Path) -> None:
-    """core.load_catalog must accept the approved minimal v3 authority."""
+def test_load_catalog_accepts_repository_schema_v3_authority() -> None:
+    """core.load_catalog must accept the complete repository v3 authority."""
     core = _require_public_module("ucm_release.core")
-    authority = _minimal_v3_authority()
-    path = _write_release_yaml(tmp_path, authority)
 
     try:
-        loaded = core.load_catalog(path)
+        loaded = core.load_catalog(RELEASE_PATH)
     except ValueError as exc:
-        pytest.fail(f"minimal Schema v3 authority was rejected: {exc}")
+        pytest.fail(f"repository Schema v3 authority was rejected: {exc}")
 
     assert loaded["kind"] == "release-config"
     assert loaded["schema_version"] == 3
@@ -164,8 +112,11 @@ def test_load_catalog_rejects_residual_wheel_profiles_in_schema_v3(
 ) -> None:
     """core.load_catalog must identify wheel_profiles as an illegal v2 residue."""
     core = _require_public_module("ucm_release.core")
-    release = _load_release_yaml()
-    release["schema_version"] = 3
+    authority = _load_release_yaml()
+    assert authority.get("schema_version") == 3, (
+        "repository authority must migrate to Schema v3 before residue mutation"
+    )
+    release = copy.deepcopy(authority)
     release["wheel_profiles"] = [{"id": "legacy-fixed-profile"}]
     path = _write_release_yaml(tmp_path, release)
 
@@ -176,7 +127,11 @@ def test_load_catalog_rejects_residual_wheel_profiles_in_schema_v3(
 def test_load_catalog_rejects_pypi_dists_in_schema_v3(tmp_path: Path) -> None:
     """core.load_catalog must reject the explicit PyPI Distribution residue."""
     core = _require_public_module("ucm_release.core")
-    release = _minimal_v3_authority()
+    authority = _load_release_yaml()
+    assert authority.get("schema_version") == 3, (
+        "repository authority must migrate to Schema v3 before residue mutation"
+    )
+    release = copy.deepcopy(authority)
     pypi = release["publish"]["pypi"]
     pypi["dists"] = ["uc-manager-cuda"]
     path = _write_release_yaml(tmp_path, release)
@@ -262,10 +217,10 @@ def test_compile_distribution_template_rejects_invalid_contracts(
         compile_template(family, template)
 
 
-def test_expand_distributions_returns_distinct_canonical_coordinates() -> None:
-    """products.expand_distributions expands valid CUDA and CANN capabilities."""
+def test_expand_distribution_names_returns_deterministic_distinct_names() -> None:
+    """products.expand_distribution_names projects canonical names in order."""
     products = _require_public_module("ucm_release.products")
-    expand_distributions = _require_public_callable(products, "expand_distributions")
+    expand_names = _require_public_callable(products, "expand_distribution_names")
     capability_contexts = [
         {
             "accelerator": "cuda",
@@ -279,21 +234,21 @@ def test_expand_distributions_returns_distinct_canonical_coordinates() -> None:
         },
     ]
 
-    expanded = expand_distributions(
-        _canonical_product_rules(), capability_contexts
+    expanded = expand_names(
+        product_rules=_canonical_product_rules(),
+        capability_contexts=capability_contexts,
     )
 
-    assert len(expanded) == 2
-    assert set(expanded) == {
-        "uc-manager-cuda130",
+    assert expanded == (
         "uc-manager-cann910-a3-mc0311post1",
-    }
+        "uc-manager-cuda130",
+    )
 
 
-def test_expand_distributions_rejects_duplicate_expanded_coordinates() -> None:
-    """products.expand_distributions must reject normalization collisions."""
+def test_expand_distribution_names_rejects_duplicate_names() -> None:
+    """products.expand_distribution_names rejects normalization collisions."""
     products = _require_public_module("ucm_release.products")
-    expand_distributions = _require_public_callable(products, "expand_distributions")
+    expand_names = _require_public_callable(products, "expand_distribution_names")
     product_rules = {"cuda": _canonical_product_rules()["cuda"]}
     capability_contexts = [
         {
@@ -307,7 +262,10 @@ def test_expand_distributions_rejects_duplicate_expanded_coordinates() -> None:
     ]
 
     with pytest.raises(ValueError):
-        expand_distributions(product_rules, capability_contexts)
+        expand_names(
+            product_rules=product_rules,
+            capability_contexts=capability_contexts,
+        )
 
 
 @pytest.mark.parametrize(
@@ -333,13 +291,13 @@ def test_expand_distributions_rejects_duplicate_expanded_coordinates() -> None:
         ),
     ],
 )
-def test_expand_distributions_rejects_invalid_rendered_distributions(
+def test_expand_distribution_names_rejects_invalid_rendered_names(
     distribution_template: str,
     capability_context: dict[str, object],
 ) -> None:
-    """products.expand_distributions rejects empty or non-PEP-503 output."""
+    """products.expand_distribution_names rejects empty or invalid output."""
     products = _require_public_module("ucm_release.products")
-    expand_distributions = _require_public_callable(products, "expand_distributions")
+    expand_names = _require_public_callable(products, "expand_distribution_names")
     family = "cann" if capability_context["accelerator"] == "ascend" else "cuda"
     product_rules = {
         family: {
@@ -349,7 +307,10 @@ def test_expand_distributions_rejects_invalid_rendered_distributions(
     }
 
     with pytest.raises(ValueError):
-        expand_distributions(product_rules, [capability_context])
+        expand_names(
+            product_rules=product_rules,
+            capability_contexts=[capability_context],
+        )
 
 
 @pytest.mark.parametrize(
