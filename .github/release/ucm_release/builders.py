@@ -395,7 +395,7 @@ def _discover_vllm(
             )
         source_image = _normalize_image(next(iter(images)))
         image_match = re.fullmatch(
-            r"docker\.io/pytorch/manylinux(?:(?P<arm>aarch64)|(?P<major>\d+)_(?P<minor>\d+))-builder:cuda(?P<runtime>\d+\.\d+)",
+            r"docker\.io/pytorch/manylinux(?:(?P<arm>aarch64)|(?P<major>\d+)_(?P<minor>\d+))-builder:cuda(?P<runtime>\d+\.\d+)(?:-[A-Za-z0-9_][A-Za-z0-9_.-]*)?",
             source_image,
         )
         if image_match is None:
