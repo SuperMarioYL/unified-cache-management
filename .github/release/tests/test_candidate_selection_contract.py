@@ -206,9 +206,7 @@ def _import_aliases(tree: ast.Module) -> dict[str, str]:
             prefix = node.module or ""
             for item in node.names:
                 local = item.asname or item.name
-                aliases[local] = ".".join(
-                    part for part in (prefix, item.name) if part
-                )
+                aliases[local] = ".".join(part for part in (prefix, item.name) if part)
     return aliases
 
 
@@ -267,8 +265,10 @@ def _is_direct_network_call(target: str) -> bool:
 
 
 def _literal_subprocess_tokens(call: ast.Call) -> tuple[str, ...] | None:
-    argument = call.args[0] if call.args else next(
-        (item.value for item in call.keywords if item.arg == "args"), None
+    argument = (
+        call.args[0]
+        if call.args
+        else next((item.value for item in call.keywords if item.arg == "args"), None)
     )
     if argument is None:
         return None
@@ -292,9 +292,7 @@ def _is_network_command_tokens(tokens: tuple[str, ...], depth: int = 0) -> bool:
     if not tokens:
         return False
     executable = tokens[0].rsplit("/", 1)[-1].lower()
-    if executable in {"curl", "wget", "pip", "pip3"} or executable.startswith(
-        "pip3."
-    ):
+    if executable in {"curl", "wget", "pip", "pip3"} or executable.startswith("pip3."):
         return True
     if executable == "gh" and len(tokens) > 1 and tokens[1] == "api":
         return True
@@ -401,9 +399,7 @@ def _selected_runtime_tags(
     *,
     product_id: str | None = None,
 ) -> set[str]:
-    selected_ids = {
-        item["runtime_id"] for item in selection["discovered_selections"]
-    }
+    selected_ids = {item["runtime_id"] for item in selection["discovered_selections"]}
     return {
         item["runtime_tag"]
         for item in catalog["runtime_candidates"]
@@ -427,15 +423,11 @@ def _requirements(config: dict[str, Any]) -> list[dict[str, str]]:
     for scope in ("build", "runtime"):
         for name, version in config["dependencies"][scope].items():
             identity = {"scope": scope, "name": name, "version": version}
-            records.append(
-                {"requirement_id": _canonical_digest(identity), **identity}
-            )
+            records.append({"requirement_id": _canonical_digest(identity), **identity})
     return sorted(records, key=lambda item: item["requirement_id"])
 
 
-def _request(
-    capability: dict[str, Any], config: dict[str, Any]
-) -> dict[str, Any]:
+def _request(capability: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
     projection = {
         "coordinate": _coordinate_from_capability(capability),
         "requirements": _requirements(config),
@@ -538,9 +530,7 @@ def _add_ascend_selector_group(
     recipe = next(
         item
         for item in authority["recipes"]
-        if fixture["repository_files"][item["recipe_path"]].lstrip().startswith(
-            "FROM "
-        )
+        if fixture["repository_files"][item["recipe_path"]].lstrip().startswith("FROM ")
     )
     source_path = f".github/workflows/dockerfiles/Dockerfile.buildwheel.{variant}"
     fixture["builder_discovery"]["upstream_reads"].append(
@@ -560,9 +550,7 @@ def _add_ascend_selector_group(
         }
     )
 
-    for index, (runtime_version, runtime_tag, mooncake_version) in enumerate(
-        runtimes
-    ):
+    for index, (runtime_version, runtime_tag, mooncake_version) in enumerate(runtimes):
         seed = f"{variant}:{runtime_version}:{runtime_tag}:{mooncake_version}"
         digest = "sha256:" + hashlib.sha256(seed.encode()).hexdigest()
         source_commit = hashlib.sha256(
@@ -616,9 +604,9 @@ def _add_ascend_selector_group(
             }
         )
 
-        target_digest = "sha256:" + hashlib.sha256(
-            f"builder:{seed}".encode()
-        ).hexdigest()
+        target_digest = (
+            "sha256:" + hashlib.sha256(f"builder:{seed}".encode()).hexdigest()
+        )
         fact = {
             "builder_fact_id": "",
             "project": "vllm-project/vllm-ascend",
@@ -684,9 +672,7 @@ def test_task4_a1_fixture_is_raw_separate_and_self_consistent() -> None:
     )
     for recipe in authority["recipes"]:
         raw = fixture["repository_files"][recipe["recipe_path"]].encode("utf-8")
-        assert recipe["recipe_sha256"] == (
-            "sha256:" + hashlib.sha256(raw).hexdigest()
-        )
+        assert recipe["recipe_sha256"] == ("sha256:" + hashlib.sha256(raw).hexdigest())
     for fact in fixture["builder_discovery"]["builder_facts"]:
         identity = {
             field: fact[field] for field in capabilities.BUILDER_FACT_IDENTITY_FIELDS
@@ -894,9 +880,10 @@ def prepare_candidate_selection(command):
     ]
     for source, expected in cases:
         calls = _reachable_calls(ast.parse(source), "prepare_candidate_selection")
-        assert any(
-            _is_network_behavior(target, call) for target, call in calls
-        ) is expected
+        assert (
+            any(_is_network_behavior(target, call) for target, call in calls)
+            is expected
+        )
 
 
 def test_catalog_shape_and_assembly_share_python_coordinate_owner() -> None:
@@ -904,9 +891,7 @@ def test_catalog_shape_and_assembly_share_python_coordinate_owner() -> None:
     assert set(catalog) == CATALOG_FIELDS
 
     capability_tree = ast.parse(
-        (RELEASE_ROOT / "ucm_release" / "capabilities.py").read_text(
-            encoding="utf-8"
-        )
+        (RELEASE_ROOT / "ucm_release" / "capabilities.py").read_text(encoding="utf-8")
     )
     capability_calls = _reachable_call_targets(
         capability_tree, "assemble_capability_catalog"
@@ -918,16 +903,12 @@ def test_catalog_shape_and_assembly_share_python_coordinate_owner() -> None:
     product_tree = ast.parse(
         (RELEASE_ROOT / "ucm_release" / "products.py").read_text(encoding="utf-8")
     )
-    product_calls = _reachable_calls(
-        product_tree, "prepare_candidate_selection"
-    )
+    product_calls = _reachable_calls(product_tree, "prepare_candidate_selection")
     assert any(
         target.rsplit(".", 1)[-1] == "compile_python_coordinate"
         for target, _ in product_calls
     )
-    assert not any(
-        _is_network_behavior(target, call) for target, call in product_calls
-    )
+    assert not any(_is_network_behavior(target, call) for target, call in product_calls)
     assert "compile_python_coordinate" not in {
         node.name for node in product_tree.body if isinstance(node, ast.FunctionDef)
     }
@@ -967,9 +948,12 @@ def test_freeze_current_builder_authority_hashes_owned_raw_files(
     )
     assert all(set(item) == AUTHORITY_RECIPE_FIELDS for item in authority["recipes"])
     for recipe in authority["recipes"]:
-        expected = "sha256:" + hashlib.sha256(
-            (tmp_path / recipe["recipe_path"]).read_bytes()
-        ).hexdigest()
+        expected = (
+            "sha256:"
+            + hashlib.sha256(
+                (tmp_path / recipe["recipe_path"]).read_bytes()
+            ).hexdigest()
+        )
         assert recipe["recipe_sha256"] == expected
     assert validate(copy.deepcopy(authority)) == authority
 
@@ -1258,9 +1242,7 @@ def test_selection_uses_version_buckets_then_declared_selector_order(
     selection, catalog, _ = _selection(fixture)
 
     assert _selected_runtime_tags(selection, catalog) == {expected_tag}
-    exclusions = {
-        item["reason_code"] for item in selection["exclusions"]
-    }
+    exclusions = {item["reason_code"] for item in selection["exclusions"]}
     assert ("runtime-flavor-unsupported" in exclusions) is expects_unsupported
 
 
@@ -1369,9 +1351,9 @@ def test_ascend_selection_uses_catalog_variant_and_ordered_selectors(
         if runtime_tag == expected_tag
     )
     assert runtime["runtime_tag"] == expected_tag
-    assert _selected_runtime_tags(
-        selection, catalog, product_id="vllm-ascend"
-    ) == {expected_tag}
+    assert _selected_runtime_tags(selection, catalog, product_id="vllm-ascend") == {
+        expected_tag
+    }
     assert capability["mooncake_version"] == expected_mooncake
     assert runtime["mooncake_version"] == expected_mooncake
     assert binding["mooncake_version"] == expected_mooncake
@@ -1403,11 +1385,8 @@ def test_ascend_selection_uses_catalog_variant_and_ordered_selectors(
     ]
     if unselected_runtime_ids:
         assert len(unselected_bindings) == len(unselected_runtime_ids)
-    assert not {
-        item["builder_capability_id"] for item in unselected_bindings
-    } & {
-        item["builder_capability_id"]
-        for item in selection["builder_capabilities"]
+    assert not {item["builder_capability_id"] for item in unselected_bindings} & {
+        item["builder_capability_id"] for item in selection["builder_capabilities"]
     }
     assert not {item["builder_revision_id"] for item in unselected_bindings} & {
         item["builder_revision_id"] for item in selection["builder_revisions"]
@@ -1439,9 +1418,7 @@ def test_selection_keeps_family_variant_and_architecture_groups_independent(
     groups = {
         (
             item["product_id"],
-            capabilities_by_id[item["builder_capability_id"]][
-                "accelerator_runtime"
-            ],
+            capabilities_by_id[item["builder_capability_id"]]["accelerator_runtime"],
             capabilities_by_id[item["builder_capability_id"]]["variant"],
             capabilities_by_id[item["builder_capability_id"]]["cpu_architecture"],
             runtimes_by_id[item["runtime_id"]]["runtime_tag"],
@@ -1569,12 +1546,10 @@ def test_selection_grows_for_future_abi_without_fixed_allowlist() -> None:
     expanded, _, _ = _selection(expanded_fixture)
 
     baseline_abis = {
-        item["coordinate"]["python_abi"]
-        for item in baseline["dependency_requests"]
+        item["coordinate"]["python_abi"] for item in baseline["dependency_requests"]
     }
     expanded_abis = {
-        item["coordinate"]["python_abi"]
-        for item in expanded["dependency_requests"]
+        item["coordinate"]["python_abi"] for item in expanded["dependency_requests"]
     }
     assert expanded_abis == baseline_abis | {"cp316t"}
 
@@ -1709,9 +1684,7 @@ def test_prepare_candidates_cli_loads_validates_freezes_once_and_writes(
 
     assert arguments.baseline_manifest == baseline_path
     assert arguments.func(arguments) is selection
-    assert freeze_calls == [
-        {"source_sha": "4" * 40, "repository_root": tmp_path}
-    ]
+    assert freeze_calls == [{"source_sha": "4" * 40, "repository_root": tmp_path}]
     assert prepare_calls == [
         (
             config,
