@@ -87,9 +87,9 @@
 
 ### Task 4A2: DependencyResolution 和纯 Candidate graph
 
-- 新增 `dependencies.py` 与 CLI `ucm_release dependencies resolve --selection`。它是唯一网络/索引 owner，按 standards-compatible binary wheel-tag rank 解析 exact request set，禁止 sdist、fallback 或数组顺序选择。
-- `ucm-dependency-resolution` 绑定 source/config/catalog/selection hashes；request status 仅 `success/failure`，resolved record 重复 exact `{requirement_id,scope,name,version}`。success 对每个 requirement 恰有一个 compatible resolved 且 failures 为空；failure 不含 partial resolved 且 failures 非空。拒绝 missing/duplicate/unexpected/scope-name-version drift；同一最高 wheel-tag rank 多解硬失败。
-- `ucm_release plan candidates --selection --dependency-resolution` 是纯 planner；校验摘要和 request closure，把 resolved records 冻结进 Candidate Plan，绝不重新选择或联网。新增 `selection_sha256` 与 `dependency_resolution_sha256`。
+- 新增 `dependencies.py` 与 CLI `ucm_release dependencies resolve --selection`。它显式消费规范化 config + Selection，先校验 config digest 和 `max_wheel_tasks` request fan-out，再访问固定 `https://pypi.org/simple/`；CLI 不接受任意 index override。它是唯一网络/索引 owner，按 request coordinate 构造 standards-compatible target tags，禁止 host `sys_tags`、sdist、fallback 或数组顺序选择。
+- `ucm-dependency-resolution` 绑定 source/config/catalog/selection hashes 与固定 `index_url`；request status 仅 `success/failure`，resolved record 重复 exact `{requirement_id,scope,name,version}` 并冻结 filename/absolute HTTPS URL/canonical SHA256/`requires_python`/parsed wheel tags。name/version/tags 必须与标准 wheel filename exact 相等，target Python 必须满足 Simple API `requires_python`。success 对每个 requirement 恰有一个 compatible resolved 且 failures 为空；failure 不含 partial resolved 且 failures 非空。拒绝 missing/duplicate/unexpected/scope-name-version drift；同一最高 wheel-tag rank 多解硬失败。
+- `ucm_release plan candidates --selection --dependency-resolution` 是显式消费规范化 config 的纯 planner；校验 config 摘要、输入摘要和 request closure，把 resolved records 冻结进 Candidate Plan，绝不重新选择或联网。新增 `selection_sha256` 与 `dependency_resolution_sha256`。
 - unresolved new dependency 形成 `dependency-unavailable` exclusion 且不建 task；unresolved baseline dependency 形成 `baseline-dependency-unavailable` blocker。Candidate Plan 原样继承 Selection blockers 并规范加入该 Resolution blocker，不能消费 partial failed data。
 - WHL/image/family坐标按 Spec 计算；Task 4 `binding_id` 只由 exact revision/runtime pair 计算。Wheel 按完整 build coordinate 唯一且可被多个 image 共享。
 - Candidate Plan 冻结 Python coordinate、动态 tasks/matrices、`admission_requirements[]` 和 graph-derived `baseline_required`。`candidate_role` 只在 requirements 中。

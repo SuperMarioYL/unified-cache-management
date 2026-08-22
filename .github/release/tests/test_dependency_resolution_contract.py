@@ -12,12 +12,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from packaging import tags as packaging_tags
 from packaging.utils import canonicalize_name, parse_wheel_filename
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RELEASE_ROOT = REPO_ROOT / ".github" / "release"
 SELECTION_FIXTURE = RELEASE_ROOT / "tests" / "fixtures" / "task4-candidate-input.json"
 INDEX_FIXTURE = RELEASE_ROOT / "tests" / "fixtures" / "task4-dependency-index.json"
+PYPI_SIMPLE_INDEX = "https://pypi.org/simple/"
 sys.path.insert(0, str(RELEASE_ROOT))
 
 capabilities = importlib.import_module("ucm_release.capabilities")
@@ -32,6 +34,7 @@ RESOLUTION_FIELDS = {
     "config_sha256",
     "catalog_sha256",
     "selection_sha256",
+    "index_url",
     "requests",
     "resolution_sha256",
 }
@@ -51,9 +54,19 @@ RESOLVED_FIELDS = {
     "filename",
     "url",
     "sha256",
+    "requires_python",
     "wheel_tags",
 }
 FAILURE_FIELDS = {"code", "requirement_id", "scope", "name", "version"}
+INDEX_FILE_FIELDS = {
+    "name",
+    "version",
+    "filename",
+    "url",
+    "sha256",
+    "requires_python",
+    "wheel_tags",
+}
 
 
 def _dependencies() -> Any:
@@ -144,11 +157,17 @@ def _reader(
 
 
 def _resolve(
-    selection: dict[str, Any], fixture: dict[str, Any] | None = None
+    selection: dict[str, Any],
+    fixture: dict[str, Any] | None = None,
+    *,
+    config: dict[str, Any] | None = None,
+    index_reader: Callable[[str, str], Sequence[Mapping[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     resolve = _public_callable(_dependencies(), "resolve_dependency_resolution")
     result = resolve(
-        copy.deepcopy(selection), index_reader=_reader(fixture or _index_fixture())
+        copy.deepcopy(config or _config()),
+        copy.deepcopy(selection),
+        index_reader=index_reader or _reader(fixture or _index_fixture()),
     )
     assert isinstance(result, dict)
     return result
@@ -212,14 +231,19 @@ def test_task4_dependency_index_fixture_is_raw_binary_evidence() -> None:
 
     assert fixture["kind"] == "task4-dependency-index-fixture"
     assert fixture["schema_version"] == 3
+    assert fixture["index_url"] == PYPI_SIMPLE_INDEX
     assert set(fixture["projects"]) == set(fixture["expected_cp314t"])
     for project, files in fixture["projects"].items():
         assert files
         for record in files:
+            assert set(record) == INDEX_FILE_FIELDS
             assert canonicalize_name(record["name"]) == project
             assert record["url"].endswith(record["filename"])
             assert record["sha256"].startswith("sha256:")
             assert len(record["sha256"]) == 71
+            assert record["requires_python"] is None or isinstance(
+                record["requires_python"], str
+            )
             if not record["filename"].endswith(".whl"):
                 assert record["wheel_tags"] == []
                 continue
@@ -240,6 +264,40 @@ def test_dependency_resolution_public_seams_are_owned_by_dependencies_module() -
     assert not hasattr(products, "resolve_dependency_resolution")
 
 
+def test_resolver_rejects_config_digest_drift_before_index_read() -> None:
+    selection, _ = _selection()
+    config = _config()
+    config["image_revision"] += 1
+    reads: list[tuple[str, str]] = []
+
+    def reader(name: str, version: str) -> Sequence[Mapping[str, Any]]:
+        reads.append((name, version))
+        raise AssertionError("index reader must not run after config identity drift")
+
+    with pytest.raises(ValueError, match="config|digest"):
+        _resolve(selection, config=config, index_reader=reader)
+    assert reads == []
+
+
+def test_resolver_rejects_request_fanout_limit_before_index_read() -> None:
+    selection, _ = _selection(_future_abi_fixture())
+    config = _config()
+    request_count = len(selection["dependency_requests"])
+    assert request_count > 1
+    config["discovery"]["matrix_limits"]["max_wheel_tasks"] = request_count - 1
+    selection["config_sha256"] = _canonical_digest(config)
+    _reseal(selection, "selection_sha256")
+    reads: list[tuple[str, str]] = []
+
+    def reader(name: str, version: str) -> Sequence[Mapping[str, Any]]:
+        reads.append((name, version))
+        raise AssertionError("index reader must not run after request limit overflow")
+
+    with pytest.raises(ValueError, match="max_wheel_tasks|request limit"):
+        _resolve(selection, config=config, index_reader=reader)
+    assert reads == []
+
+
 def test_dependency_resolution_is_closed_exact_and_self_digesting() -> None:
     selection, _ = _selection()
     fixture = _index_fixture()
@@ -249,6 +307,7 @@ def test_dependency_resolution_is_closed_exact_and_self_digesting() -> None:
     assert set(resolution) == RESOLUTION_FIELDS
     assert resolution["kind"] == "ucm-dependency-resolution"
     assert resolution["schema_version"] == 3
+    assert resolution["index_url"] == PYPI_SIMPLE_INDEX
     for field in ("source_sha", "config_sha256", "catalog_sha256", "selection_sha256"):
         assert resolution[field] == selection[field]
     assert resolution["resolution_sha256"] == _canonical_digest(
@@ -258,7 +317,12 @@ def test_dependency_resolution_is_closed_exact_and_self_digesting() -> None:
             if key != "resolution_sha256"
         }
     )
-    assert validate(copy.deepcopy(resolution), copy.deepcopy(selection)) == resolution
+    assert (
+        validate(
+            copy.deepcopy(resolution), _config(), copy.deepcopy(selection)
+        )
+        == resolution
+    )
     assert resolution["requests"] == sorted(
         resolution["requests"], key=lambda item: item["request_id"]
     )
@@ -294,6 +358,13 @@ def test_dependency_resolution_is_closed_exact_and_self_digesting() -> None:
             assert resolved["filename"] == fixture["expected_cp314t"][resolved["name"]]
             assert resolved["url"].endswith(resolved["filename"])
             assert resolved["wheel_tags"] == sorted(set(resolved["wheel_tags"]))
+            source_record = next(
+                item
+                for item in fixture["projects"][resolved["name"]]
+                if item["filename"] == resolved["filename"]
+            )
+            assert resolved["sha256"] == source_record["sha256"]
+            assert resolved["requires_python"] == source_record["requires_python"]
 
 
 def test_dependency_resolution_uses_wheel_tag_rank_not_file_order() -> None:
@@ -389,6 +460,109 @@ def test_dependency_resolution_fails_without_compatible_exact_binary(
     ]
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "declared-name",
+        "declared-version",
+        "filename-name",
+        "filename-version",
+        "declared-tags",
+        "http-url",
+        "relative-url",
+        "malformed-sha256",
+        "malformed-requires-python",
+    ],
+)
+def test_resolver_rejects_malformed_exact_file_evidence(mutation: str) -> None:
+    selection, _ = _selection()
+    fixture = _index_fixture()
+    record = copy.deepcopy(
+        next(
+            item
+            for item in fixture["projects"]["packaging"]
+            if item["filename"] == fixture["expected_cp314t"]["packaging"]
+        )
+    )
+    fixture["projects"]["packaging"] = [record]
+    if mutation == "declared-name":
+        record["name"] = "other-project"
+    elif mutation == "declared-version":
+        record["version"] = "24.3"
+    elif mutation == "filename-name":
+        record["filename"] = "other_project-24.2-py3-none-any.whl"
+        record["url"] = f"https://files.example.invalid/{record['filename']}"
+    elif mutation == "filename-version":
+        record["filename"] = "packaging-24.3-py3-none-any.whl"
+        record["url"] = f"https://files.example.invalid/{record['filename']}"
+    elif mutation == "declared-tags":
+        record["wheel_tags"] = ["cp312-cp312-manylinux_2_28_x86_64"]
+    elif mutation == "http-url":
+        record["url"] = record["url"].replace("https://", "http://")
+    elif mutation == "relative-url":
+        record["url"] = f"files/{record['filename']}"
+    elif mutation == "malformed-sha256":
+        record["sha256"] = "sha256:" + "g" * 64
+    else:
+        record["requires_python"] = "not a specifier"
+
+    resolution = _resolve(selection, fixture)
+    request = resolution["requests"][0]
+    assert request["status"] == "failure"
+    assert request["resolved"] == []
+    assert request["failures"] == [
+        {
+            "code": "binary-wheel-unavailable",
+            **_requirement(selection, "packaging"),
+        }
+    ]
+
+
+def test_requires_python_excludes_best_tag_then_uses_next_compatible() -> None:
+    selection, _ = _selection()
+    fixture = _index_fixture()
+    exact = next(
+        item
+        for item in fixture["projects"]["pyyaml"]
+        if item["filename"] == fixture["expected_cp314t"]["pyyaml"]
+    )
+    exact["requires_python"] = "<3.14"
+
+    resolution = _resolve(selection, fixture)
+    resolved = next(
+        item
+        for item in resolution["requests"][0]["resolved"]
+        if item["name"] == "pyyaml"
+    )
+
+    assert resolved["filename"] == "PyYAML-6.0.2-py3-none-any.whl"
+    assert resolved["requires_python"] == ">=3.8"
+
+
+def test_requires_python_excludes_all_compatible_files() -> None:
+    selection, _ = _selection()
+    fixture = _index_fixture()
+    generic = next(
+        item
+        for item in fixture["projects"]["packaging"]
+        if item["filename"] == fixture["expected_cp314t"]["packaging"]
+    )
+    generic["requires_python"] = "<3.14"
+    fixture["projects"]["packaging"] = [generic]
+
+    resolution = _resolve(selection, fixture)
+    request = resolution["requests"][0]
+
+    assert request["status"] == "failure"
+    assert request["resolved"] == []
+    assert request["failures"] == [
+        {
+            "code": "binary-wheel-unavailable",
+            **_requirement(selection, "packaging"),
+        }
+    ]
+
+
 def test_failed_request_discards_other_successful_requirement_records() -> None:
     selection, _ = _selection()
     resolution = _failure_resolution(selection)
@@ -405,7 +579,16 @@ def test_failed_request_discards_other_successful_requirement_records() -> None:
     assert set(request["failures"][0]) == FAILURE_FIELDS
 
 
-def test_dependency_resolution_grows_for_future_free_threaded_abi() -> None:
+def test_dependency_resolution_grows_for_future_free_threaded_abi_without_host_tags(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def forbidden_host_tags(*args: object, **kwargs: object) -> object:
+        raise AssertionError("resolver must derive target tags from request coordinate")
+
+    monkeypatch.setattr(packaging_tags, "sys_tags", forbidden_host_tags)
+    dependency_module = _dependencies()
+    if hasattr(dependency_module, "sys_tags"):
+        monkeypatch.setattr(dependency_module, "sys_tags", forbidden_host_tags)
     selection, _ = _selection(_future_abi_fixture())
     resolution = _resolve(selection, _future_index_fixture())
 
@@ -435,6 +618,7 @@ def test_dependency_resolution_grows_for_future_free_threaded_abi() -> None:
         "config-identity",
         "catalog-identity",
         "selection-identity",
+        "index-url",
         "missing-request",
         "duplicate-request",
         "unexpected-request",
@@ -448,8 +632,16 @@ def test_dependency_resolution_grows_for_future_free_threaded_abi() -> None:
         "success-missing-resolved",
         "duplicate-resolved",
         "unexpected-resolved",
-        "resolved-identity-drift",
+        "resolved-name-drift",
+        "resolved-version-drift",
+        "resolved-url-http",
+        "resolved-url-relative",
+        "resolved-sha256",
+        "resolved-filename-name-drift",
+        "resolved-filename-version-drift",
         "resolved-filename-tag-drift",
+        "resolved-requires-python-incompatible",
+        "resolved-requires-python-invalid",
         "duplicate-wheel-tag",
         "resolved-sdist",
         "resolved-order",
@@ -476,6 +668,9 @@ def test_dependency_resolution_validator_rejects_resealed_closure_drift(
             resolution[field] = "f" * 40
         else:
             resolution[field] = "sha256:" + "f" * 64
+        _reseal(resolution, "resolution_sha256")
+    elif mutation == "index-url":
+        resolution["index_url"] = "https://mirror.example.invalid/simple/"
         _reseal(resolution, "resolution_sha256")
     elif mutation == "missing-request":
         resolution["requests"] = []
@@ -536,11 +731,37 @@ def test_dependency_resolution_validator_rejects_resealed_closure_drift(
         request["resolved"].append(extra)
         request["resolved"].sort(key=lambda item: item["requirement_id"])
         _reseal(resolution, "resolution_sha256")
-    elif mutation == "resolved-identity-drift":
+    elif mutation == "resolved-name-drift":
+        request["resolved"][0]["name"] = "other-project"
+        _reseal(resolution, "resolution_sha256")
+    elif mutation == "resolved-version-drift":
         request["resolved"][0]["version"] = "999"
+        _reseal(resolution, "resolution_sha256")
+    elif mutation == "resolved-url-http":
+        resolved = request["resolved"][0]
+        resolved["url"] = resolved["url"].replace("https://", "http://")
+        _reseal(resolution, "resolution_sha256")
+    elif mutation == "resolved-url-relative":
+        resolved = request["resolved"][0]
+        resolved["url"] = f"files/{resolved['filename']}"
+        _reseal(resolution, "resolution_sha256")
+    elif mutation == "resolved-sha256":
+        request["resolved"][0]["sha256"] = "sha256:" + "g" * 64
+        _reseal(resolution, "resolution_sha256")
+    elif mutation == "resolved-filename-name-drift":
+        request["resolved"][0]["filename"] = "other-24.2-py3-none-any.whl"
+        _reseal(resolution, "resolution_sha256")
+    elif mutation == "resolved-filename-version-drift":
+        request["resolved"][0]["filename"] = "packaging-24.3-py3-none-any.whl"
         _reseal(resolution, "resolution_sha256")
     elif mutation == "resolved-filename-tag-drift":
         request["resolved"][0]["wheel_tags"] = ["cp312-cp312-any"]
+        _reseal(resolution, "resolution_sha256")
+    elif mutation == "resolved-requires-python-incompatible":
+        request["resolved"][0]["requires_python"] = "<3.14"
+        _reseal(resolution, "resolution_sha256")
+    elif mutation == "resolved-requires-python-invalid":
+        request["resolved"][0]["requires_python"] = "not a specifier"
         _reseal(resolution, "resolution_sha256")
     elif mutation == "duplicate-wheel-tag":
         request["resolved"][0]["wheel_tags"] *= 2
@@ -555,7 +776,7 @@ def test_dependency_resolution_validator_rejects_resealed_closure_drift(
 
     validate = _public_callable(_dependencies(), "validate_dependency_resolution")
     with pytest.raises(ValueError):
-        validate(resolution, selection)
+        validate(resolution, _config(), selection)
 
 
 @pytest.mark.parametrize(
@@ -578,7 +799,7 @@ def test_dependency_resolution_validator_rejects_failed_request_cardinality_drif
 
     validate = _public_callable(_dependencies(), "validate_dependency_resolution")
     with pytest.raises(ValueError):
-        validate(resolution, selection)
+        validate(resolution, _config(), selection)
 
 
 def test_dependencies_resolve_cli_loads_selection_resolves_once_and_writes(
@@ -587,33 +808,66 @@ def test_dependencies_resolve_cli_loads_selection_resolves_once_and_writes(
     dependency_module = _dependencies()
     monkeypatch.setattr(cli, "dependencies", dependency_module, raising=False)
     parser = cli.build_parser()
+    release_path = tmp_path / "release.yaml"
+    schema_dir = tmp_path / "schemas"
+    repository_root = tmp_path / "repository"
     selection_path = tmp_path / "selection.json"
     output_path = tmp_path / "resolution.json"
     argv = [
         "dependencies",
         "resolve",
+        "--release",
+        str(release_path),
+        "--schema-dir",
+        str(schema_dir),
+        "--repository-root",
+        str(repository_root),
         "--selection",
         str(selection_path),
         "--output",
         str(output_path),
     ]
-    for forbidden in ("--allow-sdist", "--fallback-version"):
+    default_arguments = parser.parse_args(
+        [
+            "dependencies",
+            "resolve",
+            "--selection",
+            str(selection_path),
+            "--output",
+            str(output_path),
+        ]
+    )
+    assert default_arguments.release == core.DEFAULT_RELEASE
+    assert default_arguments.schema_dir == core.DEFAULT_SCHEMA_DIR
+    assert default_arguments.repository_root == core.REPO_ROOT
+    for forbidden in (
+        ["--allow-sdist"],
+        ["--fallback-version"],
+        ["--index-url", "https://mirror.example.invalid/simple/"],
+    ):
         with pytest.raises(SystemExit):
-            parser.parse_args([*argv, forbidden])
+            parser.parse_args([*argv, *forbidden])
     arguments = parser.parse_args(argv)
+    config = {"config": "normalized"}
     selection = {"selection": "validated-by-resolver"}
     resolution = {"resolution": "written"}
-    calls: list[object] = []
+    calls: list[tuple[object, ...]] = []
     writes: list[tuple[Path, object]] = []
+
+    def fake_load_catalog(*args: object, **kwargs: object) -> object:
+        assert args[:2] == (release_path, schema_dir)
+        assert kwargs == {"repository_root": repository_root}
+        return config
 
     def fake_load(path: Path) -> object:
         assert path == selection_path
         return selection
 
-    def fake_resolve(value: object) -> object:
-        calls.append(value)
+    def fake_resolve(config_value: object, selection_value: object) -> object:
+        calls.append((config_value, selection_value))
         return resolution
 
+    monkeypatch.setattr(core, "load_catalog", fake_load_catalog)
     monkeypatch.setattr(core, "load_json", fake_load)
     monkeypatch.setattr(
         dependency_module, "resolve_dependency_resolution", fake_resolve
@@ -621,5 +875,5 @@ def test_dependencies_resolve_cli_loads_selection_resolves_once_and_writes(
     monkeypatch.setattr(cli, "_write", lambda path, value: writes.append((path, value)))
 
     assert arguments.func(arguments) is resolution
-    assert calls == [selection]
+    assert calls == [(config, selection)]
     assert writes == [(output_path, resolution)]

@@ -418,11 +418,15 @@ admission、dependency request 或已形成的 coordinate 时，对应字段才�
 
 ### 5.2 DependencyResolution
 
-`ucm_release dependencies resolve --selection` 是唯一网络/索引 owner，输出封闭、自摘要的
+`ucm_release dependencies resolve --selection` 是唯一网络/索引 owner。它显式消费按
+`--release/--schema-dir/--repository-root` 加载并规范化的 config 与 CandidateSelection，先
+校验 `config_sha256` exact 相等，再检查 dependency request 数不超过
+`config.discovery.matrix_limits.max_wheel_tasks`；两项都必须在第一次索引读取前完成。索引固定
+为 `https://pypi.org/simple/`，CLI 不接受任意 index override。输出封闭、自摘要的
 `ucm-dependency-resolution`：
 
 ```text
-kind, schema_version, source_sha, config_sha256, catalog_sha256, selection_sha256
+kind, schema_version, source_sha, config_sha256, catalog_sha256, selection_sha256, index_url
 requests[{request_id, coordinate, requirements, status, resolved[], failures[]}]
 resolution_sha256
 ```
@@ -430,8 +434,12 @@ resolution_sha256
 `requests[]` 按 `request_id` 规范排序。coordinate/requirements 与 CandidateSelection
 exact 相等；`status` 只能是 `success` 或 `failure`。`resolved[]` 的每条记录重复 exact
 `{requirement_id, scope, name, version}`，并冻结
-`{filename, url, sha256, wheel_tags}`；记录按 `requirement_id` 排序，`wheel_tags` 规范唯一
-排序。`success` 要求 `failures[]` 为空，且每个
+`{filename, url, sha256, requires_python, wheel_tags}`；记录按 `requirement_id` 排序，
+`wheel_tags` 规范唯一排序。filename 必须按 wheel 标准解析出与 request exact 相等的 canonical
+name/version，并与声明 tags exact 相等；URL 必须是 absolute HTTPS，SHA256 必须规范。resolver
+只从 request coordinate 构造 target tags，禁止使用 host `sys_tags`。`requires_python` 为
+Simple API 的字符串或 null；非 null 时必须由从 request ABI 推导的 target Python version
+满足。`success` 要求 `failures[]` 为空，且每个
 `requirement_id` 恰有一个 compatible resolved record、没有多余记录；`failure` 要求
 `resolved[]` 为空且 `failures[]` 非空并使用稳定 code，禁止输出部分成功数据。
 
@@ -441,9 +449,10 @@ wheel tags。resolver 不选择版本，只解析显式 pin；它只接受 stand
 binary wheel，并按标准 wheel-tag 兼容度排名，同一最高 rank 多解是硬歧义。禁止 sdist、
 环境 fallback、Catalog/索引数组顺序或文件名顺序成为选择规则。
 
-`ucm_release plan candidates --selection --dependency-resolution` 是纯函数：先校验两个对象的
-摘要、source/config/catalog identity 和 exact request set，再把 resolved URL/filename/
-SHA256 冻结进 Candidate Plan。validator 只重算闭包与摘要，绝不重新选择 runtime、Builder
+`ucm_release plan candidates --selection --dependency-resolution` 是纯函数：显式消费规范化
+config，先校验其摘要、两个输入对象的 source/config/catalog identity 和 exact request set，
+再把 resolved URL/filename/SHA256 冻结进 Candidate Plan。validator 只重算闭包与摘要，
+绝不重新选择 runtime、Builder
 revision 或依赖。未解析的新 dependency 形成 `dependency-unavailable` local exclusion 且
 不生成相关 task；未解析的 baseline dependency 形成显式
 `baseline-dependency-unavailable` blocker，不能替换 requirement 或 wheel。Candidate Plan
