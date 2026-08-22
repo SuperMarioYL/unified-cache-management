@@ -307,10 +307,10 @@ Artifact 为止，不实现 trusted rebuild、publication DAG、远端写入或 
 
 `ucm_release plan candidates` 消费 Schema v3 配置、一个已验证 Catalog，以及可选的上一版
 正式 v3 Manifest。Catalog 没有“current”标记。新 discovered selection 按
-`product + runtime_version + binding/Builder accelerator_runtime family + variant + cpu_architecture`
-分组；例如同一 runtime version 的 `cuda-12.9` 与 `cuda-13.0` 必须独立
-选择。Ascend 必须先完成真实 Variant 提取，再进入 tag selector。planner 按 PEP 440
-runtime version 降序检查，
+`product + binding/Builder accelerator_runtime family + variant + cpu_architecture` 分组；
+例如同一 runtime version 的 `cuda-12.9` 与 `cuda-13.0` 必须独立选择。每组内再按
+`runtime_version` 分桶并以 PEP 440 version 降序检查，
+Ascend 必须先完成真实 Variant 提取，再进入 tag selector。
 在同一 version 内严格按该 product 的 `runtime_tag_selectors[]` 顺序求 exact tag：第一个恰好
 匹配一个 runtime candidate 的 selector 胜出；同一 selector 匹配多个候选是硬歧义；全部
 selector 无匹配则记录 `runtime-flavor-unsupported` 并继续同组下一旧版本。禁止用 tag
