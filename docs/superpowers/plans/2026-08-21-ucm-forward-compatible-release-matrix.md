@@ -74,22 +74,30 @@
 
 ## Task 4: 动态生成 Candidate 和 Admitted Plan
 
-- 新增 CLI：`ucm_release catalog discover`、`ucm_release plan candidates`、`ucm_release plan admit`、`ucm_release plan select`。
-- WHL 唯一坐标为 `distribution + ucm_version + python_abi + cpu_architecture`。
-- Runtime Image 绑定键为 `accelerator + accelerator_runtime + variant + mooncake_version + python_abi + cpu_architecture`。
-- CUDA Distribution 模板为 `uc-manager-cuda{runtime.compact}`。
-- CANN Distribution 模板为 `uc-manager-cann{runtime.compact}-{variant}-mc{mooncake.compact}`。
-- 依赖配置只保存版本；GitHub 计划 Job 为每个 Python ABI/架构解析二进制 wheel 并冻结文件名和摘要。
-- 从最近的 Schema v3 Release Manifest 读取 baseline；首次使用 `bootstrap: all-passing`。
-- 准入状态机：baseline success → admitted；baseline failure → block release；new success → promote；new failure → quarantine。
-- 先推送矩阵展开 RED 测试，在 GitHub 验证旧逻辑只能生成固定六项。
-- 推送实现后，fixture 为 6 个工具链产品 × 3 个 Python ABI × 2 个架构生成 36 个唯一 WHL。
-- GitHub 分别验证新项失败隔离、baseline 失败阻断、隔离项下次成功后晋级。
+### Task 4A: Authority、选择和 Candidate graph
+
+- Task 3 的 validated Capability Catalog 是唯一发现输入；新增 CLI：`ucm_release plan candidates` 和 `ucm_release plan select`。
+- Schema v3 为每个 upstream product 增加有序 exact `runtime_tag_selectors`，只允许 `{version}`、`{variant.tag_suffix}`、`{runtime.major_minor.compact}`。按 version 降序、selector 声明顺序选择；同 selector 多匹配硬失败，无匹配形成 `runtime-flavor-unsupported` 后检查旧版本。Ascend 先提取 Variant；baseline exact `runtime_id` 绕过 selector。
+- `builders.py` 从 planner checkout 冻结 `ucm-current-builder-authority`：`source_sha`、`toolchain_sha256`、规范排序的 recipe commit/hash 和 `authority_sha256`。新候选 revision 必须 exact 匹配；零匹配 local exclusion，多匹配硬失败；baseline exact revision 绕过 current authority。
+- WHL publication/build 坐标、Runtime Image 绑定键和 build instance 坐标按 Spec 计算；Task 4 `binding_id` 只由 `{builder_revision_id, runtime_id}` 的规范 JSON 计算，不修改 Catalog。
+- Wheel task 按完整 build coordinate 唯一生成并允许多个 image 共享，不能按 binding 重复创建。
+- Candidate Plan 冻结 `current_builder_authority_sha256`、`python_tag`、exact interpreter path、expected SOABI/wheel tag，以及 `admission_requirements[]` 的 `{admission_key,candidate_role,required_task_ids[]}`。`baseline_required` 只从该 dependency graph 反向传播。
+- CUDA/CANN Distribution 模板继续分别为 `uc-manager-cuda{runtime.compact}` 和 `uc-manager-cann{runtime.compact}-{variant}-mc{mooncake.compact}`；依赖配置只保存版本，计划按动态 ABI/架构冻结文件名、URL 和摘要。
+- 从最近的 Schema v3 Release Manifest 精确重建 baseline，同时保留最新 discovered successor；禁止用 tag、数组、字典或摘要顺序替换选择权威。
+- 先提交 authority/selector/Candidate graph RED，fixture 从真实 Catalog 动态展开并加入新 ABI/runtime/Variant 验证增长，不固定六产品、三个 ABI 或任务数量。
+
+### Task 4B: Result closure 和 admission
+
+- 新增 CLI：`ucm_release plan admit`；Candidate build Result 使用统一闭包。wheel 的 capability/revision 非空且 `binding_id: null`，image 三者非空，Chart 三者为 null。
+- 从 `admission_requirements[]` 和 Result exact set 决定：baseline success → admitted；baseline failure/missing → block；new success → promote；new failure → quarantine。共享 wheel 只要被 baseline 反向依赖即为 baseline required。
+- 首次正式 v3 RC 使用 `bootstrap: all-passing`；PR/daily 只输出不可发布 evaluation，不能生成正式 Admitted Plan。
+- 分别验证 missing/duplicate/unexpected Result、新项失败隔离、baseline 阻断、显式 supersession 和隔离项后续晋级。
+- Task 4 到 Candidate/Evaluation/Admitted Plan Artifact 为止；不实现 Task 6 的 trusted rebuild、publication DAG、Registry/Release 写入或 Manifest finalize。
 
 ## Task 5: 改造 WHL 和镜像构建
 
 - `_build-wheel.yml` 只接收任务 ID 和冻结 Candidate Plan。
-- Builder 按任务依次选择 `/opt/python/{python_abi}-{python_abi}/bin/python`、`python{python_version}`、`python3`。
+- Builder 只打开 Task 4 冻结的 `/opt/python/{python_tag}-{python_abi}/bin/python`，并核对 expected SOABI/wheel tag；不得重新推导或 fallback。
 - 删除 `wheel.py` 中固定 Python/Profile 常量及固定 `cuda130/cann900/cp312` 判断。
 - Wheel 文件名、METADATA、RECORD、ELF 和依赖闭包全部从动态任务生成。
 - 每个任务无论成功失败均上传规范化 Result Artifact。

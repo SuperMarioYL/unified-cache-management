@@ -67,6 +67,7 @@ flowchart LR
 | --- | --- | --- |
 | `.github/release/release.yaml` + `schemas/config.schema.json` | 静态产品规则、模板、版本约束、渠道开关、扫描与矩阵上限、首次 v3 bootstrap 策略 | 已发现版本、ABI、架构和构建结果 |
 | `ucm_release/capabilities.py` | 上游读取、规范化、去重、exclusion、Capability Catalog | Distribution 命名和发布准入 |
+| `ucm_release/builders.py` | planner checkout 的当前 Builder recipe/toolchain 权威、Builder 同步与精确 revision 证据 | runtime 选择和 baseline 准入 |
 | `ucm_release/products.py` | 模板编译、产品展开、精确任务坐标、Candidate Plan、依赖解析冻结 | 构建是否成功 |
 | `ucm_release/results.py` | Build/Trusted Build/Publication Result 的统一写入、校验与闭包收集 | 产品选择和 baseline 决策 |
 | `ucm_release/admission.py` | baseline 读取、状态机、依赖传播、Admitted Release Plan | 构建与发布动作 |
@@ -127,6 +128,17 @@ publish:
   dockerhub: {enabled: false, namespace: "docker.io/{owner}"}
   chart_oci: {enabled: true, namespace: "ghcr.io/{owner}/charts"}
   github_release: {enabled: true}
+```
+
+每个 `upstream_products[]` 还必须声明有序 `runtime_tag_selectors[]`。每个 selector
+是 exact template，字段 allowlist 只有 `{version}`、`{variant.tag_suffix}` 和
+`{runtime.major_minor.compact}`；未知字段、空展开、重复 template 或非 OCI tag 结果是配置
+错误。数组顺序是显式选择优先级，不得排序或按摘要重排。例如：
+
+```yaml
+runtime_tag_selectors:
+  - "{version}{variant.tag_suffix}"
+  - "{version}-{runtime.major_minor.compact}{variant.tag_suffix}"
 ```
 
 示例只表达字段职责，最终配置还保留现有上游版本范围、渠道、运行时 patch、Chart、
@@ -285,10 +297,25 @@ baseline Manifest 引用的 revision；同步只新增 content-addressed/revisio
 
 ## 5. Candidate Plan 与精确任务坐标
 
+Task 4 分为两个顺序边界：Task 4A 冻结 current Builder authority、runtime selector 选择、
+精确 IDs 和 Candidate dependency graph；Task 4B 在 Candidate Plan 不再变化后定义 Build
+Result 闭包、baseline/evaluation 状态机和 Admitted Release Plan。Task 4 到 Admitted Plan
+Artifact 为止，不实现 trusted rebuild、publication DAG、远端写入或 Release Manifest；
+这些仍由 Task 6 及后续阶段拥有。
+
 `ucm_release plan candidates` 消费 Schema v3 配置、一个已验证 Catalog，以及可选的上一版
-正式 v3 Manifest。它先按现有 growth-safe 规则从完整 `runtime_candidates[]` 为每个
-产品/Variant 选择最新可支持 runtime，再让 `products.py` 展开产品。某个目标不支持形成
-exclusion，并继续检查同组下一版本；规则重叠、模板冲突或任务坐标重复仍然全局失败。
+正式 v3 Manifest。Catalog 没有“current”标记。新 discovered selection 按
+`product + runtime_version + accelerator family + variant + cpu_architecture` 分组；Ascend 必须
+先完成真实 Variant 提取，再进入 tag selector。planner 按 PEP 440 runtime version 降序检查，
+在同一 version 内严格按该 product 的 `runtime_tag_selectors[]` 顺序求 exact tag：第一个恰好
+匹配一个 runtime candidate 的 selector 胜出；同一 selector 匹配多个候选是硬歧义；全部
+selector 无匹配则记录 `runtime-flavor-unsupported` 并继续同组下一旧版本。禁止用 tag
+字典序、Catalog 数组顺序、摘要顺序或 Registry 创建时间决定选择。
+
+Catalog 保留全部 runtime tags。上述 selector 只决定新 discovered selection；baseline
+carry-forward 按 Manifest 的 exact `runtime_id` 直接重开，不经过 selector，也不能被同组
+更新 runtime 替换。某个 discovered 目标不支持形成 exclusion 并继续检查同组下一版本；
+规则重叠、模板冲突或任务坐标重复仍然全局失败。
 
 选择“最新”只决定新的 discovered selection，不能删除 baseline。Candidate task set 是
 以下集合的规范并集：
@@ -305,11 +332,24 @@ Manifest 冻结的 runtime digest/commit 和 append-only Builder revision。旧 
 不能改选相同 capability 的新 revision，也不能直接从计划中消失。这样旧 baseline 和新
 候选在同一 run 共存并分别产生 Build Result。
 
-新 discovered selection 从与当前 recipe/toolchain authority 完全匹配的 revision 中选择，
-并在 Candidate Plan 冻结其 `builder_revision_id`。同一 capability 下零个匹配 revision
-形成该新候选 exclusion，多个匹配 revision 是歧义并硬失败。选择器不使用可变 target
-Tag 的创建时间或字典顺序决定 revision。新 revision 若替换旧 revision，必须作为独立
-successor task 走现有 promoted/quarantined/superseded 状态机。
+Catalog 同样没有 Builder “current”标记。`builders.py` 从 planner checkout 冻结封闭且
+自摘要的 `ucm-current-builder-authority`：
+
+```text
+kind, schema_version, source_sha, toolchain_sha256
+recipes[{recipe_path, recipe_source_commit, recipe_sha256}]
+authority_sha256
+```
+
+`recipes[]` 按上述三字段规范排序；`authority_sha256` 使用通用 self-digest projection，只
+排除自身。新 discovered selection 只从 `recipe_source_commit + recipe_sha256 +
+toolchain_sha256` 与该 authority exact 相等的 revision 中选择，并在 Candidate Plan 冻结
+其 `builder_revision_id`。零个匹配 revision 形成该新候选 local exclusion；多个匹配
+revision 是硬歧义。选择器不使用 target Tag 创建时间、Catalog/字典顺序或摘要顺序。
+baseline carry-forward 按 Manifest 的 exact `builder_revision_id` 重开并绕过 current
+authority；不可回读时按 baseline failure 处理，不能改选 current revision。新 revision
+若替换旧 revision，必须作为独立 successor task 走
+promoted/quarantined/superseded 状态机。
 
 每个任务除 `admission_key` 外还有 `lineage_key`。Lineage 保留 accelerator runtime、
 Variant、ABI 和 architecture，但不包含 UCM version、上游 runtime version 或 Mooncake
@@ -341,6 +381,18 @@ Image Family = accelerator + accelerator_runtime + variant
              + mooncake_version + runtime_version
 ```
 
+Catalog binding 不新增字段。Task 4 在 Candidate graph 内从 exact pair 独立派生：
+
+```text
+binding_id = sha256(canonical JSON {
+  "builder_revision_id": <exact ID>,
+  "runtime_id": <exact ID>
+})
+```
+
+该 ID 只标识本次计划消费的 Builder revision/runtime 组合；校验器重算并拒绝 pair drift，
+不得把数组位置或 Catalog binding 的完整投影纳入 identity。
+
 CUDA Runtime Image 的 `mooncake_version` 使用显式 `null`，不能省略。计划要求的 Runtime
 Image 绑定键保持上述六字段精确闭包；`runtime_id` 只用于区分同一绑定键下的 baseline
 runtime revision 与新 upstream revision；`builder_revision_id/wheel_task_id` 则区分同一
@@ -365,7 +417,9 @@ admission key 是计划歧义并失败。
 Candidate Plan 允许 baseline/successor Wheel build instances 共享一个 publication
 coordinate，但 `builder_revision_id/task_id` 必须不同；Admitted Plan 对每个 publication
 coordinate 必须恰好选择一个 lifecycle active revision，否则 publication closure 失败。
-一个已选择 wheel 可以供多个 runtime image 使用，但 image 必须通过其 `wheel_task_id`
+Wheel task 按完整 Wheel build instance 坐标唯一生成；多个 image 需要同一坐标时共享一个
+`wheel_task_id`，不能为每个 binding 重复建 wheel。一个已选择 wheel 可以供多个 runtime
+image 使用，但 image 必须通过其 `wheel_task_id`
 精确绑定 Builder revision，不能按 `*.whl` 或 capability key 搜索。Runtime Image 键包含
 Mooncake、ABI 和 architecture，防止 CANN runtime 与错误 Mooncake 或 Python wheel
 拼接。Family 明确列出其 member task IDs 和 publication channels，不假设只有
@@ -376,20 +430,32 @@ Mooncake、ABI 和 architecture，防止 CANN runtime 与错误 Mooncake 或 Pyt
 `ucm-candidate-plan` 至少包含：
 
 - `route`、`source_sha`、`ucm_version`、`release_tag`、`config_sha256`、
-  `catalog_sha256`、可选 `baseline_manifest_sha256`；
+  `catalog_sha256`、`current_builder_authority_sha256`、可选
+  `baseline_manifest_sha256`；
 - `capabilities[]`、`builder_revisions[]` 和 `bindings[]`：实际被产品展开消费的精确 IDs；
+  其中每个 Task 4 `binding_id` 按 exact Builder revision/runtime pair 重算；
 - `wheel_tasks[]`：精确坐标、动态 Distribution、Builder digest、manylinux、Python、
   `builder_capability_id`、`builder_revision_id`、source/recipe/toolchain/target digests、
-  native/ELF 规则、冻结依赖、预期 wheel 文件名和 Artifact 名；
+  `python_tag`、exact `interpreter_path`、expected SOABI/wheel tag、native/ELF 规则、冻结
+  依赖、预期 wheel 文件名和 Artifact 名；
 - `image_tasks[]`：精确坐标、`wheel_task_id`、runtime digest、Mooncake、目标 repository
   与 member tag、`runtime_id`、`builder_revision_id`、`candidate_role`、预期 OCI 输出和
   Artifact 名；
 - `family_tasks[]`：动态 family 坐标、member task IDs、每个启用 channel 的目标 index；
 - `baseline_carry_forward[]`、`discovered_selections[]`、显式 `supersessions[]` 和
   `retirements[]`；
+- `admission_requirements[]`：封闭记录
+  `{admission_key, candidate_role, required_task_ids[]}`，其中 task IDs 规范排序且唯一；
 - `chart_task`：唯一的 Chart 输入、版本、文件名和目标 OCI 坐标；
 - `expected_build_results[]`、`exclusions[]`、动态 Actions matrices 和资源计数；
 - `candidate_plan_sha256`。
+
+Candidate graph 先冻结全部依赖边，再从每个 baseline role 的
+`admission_requirements[].required_task_ids[]` 反向传播 `baseline_required`。任何被 baseline
+active revision 直接或间接需要的 wheel/image/family/chart task 都是 baseline required；共享
+wheel 只要服务任一 baseline consumer 就必须标记为 true。该字段不能由任务类型、失败原因
+或是否也被 successor 复用来猜测。Admission 只消费这份显式 requirement graph 决定
+baseline block 与 new quarantine。
 
 计划中的 wheel 文件名由 Distribution、UCM version、ABI 和 architecture 冻结；
 依赖 wheel 也逐项冻结文件名和摘要。`plan select` 只能按 `task_id` 返回恰好一个任务，
@@ -414,8 +480,9 @@ started_at, completed_at, outputs, failure, result_sha256
 
 `status` 只有 `success` 或 `failure`。成功时 `failure` 为 `null`，`outputs` 必须闭合；
 失败时 `outputs` 只保留已经验证的诊断输出，`failure` 包含稳定 `code`、阶段和简短摘要，
-不得把 token 或完整环境写入 Result。Builder/binding 字段对 wheel/image 必须非空并与任务
-一致，对 Chart 为显式 `null`。
+不得把 token 或完整环境写入 Result。Builder/binding 身份字段按任务类型闭包且必须与任务
+一致：wheel 的 `builder_capability_id/builder_revision_id` 非空且
+`binding_id` 显式 `null`；image 三者都非空；Chart 三者都显式 `null`。
 
 - wheel 输出：唯一文件名、Distribution、UCM version、Python ABI、architecture、
   wheel tag、SHA256、精确 source/recipe/toolchain/target Builder revision、
@@ -429,16 +496,18 @@ started_at, completed_at, outputs, failure, result_sha256
 Image 构建在安装前核对精确 wheel 文件名、Distribution、ABI、accelerator runtime 与
 Mooncake；任何一项不同都写失败 Result，不尝试“最接近”匹配。
 
-Builder 内 Python 选择顺序固定为：
+Task 4 wheel task 从 Catalog probe 冻结 `python_tag`、`python_abi`、`python_version`、
+expected SOABI、expected wheel tag，以及 exact：
 
 ```text
-/opt/python/{python_abi}-{python_abi}/bin/python
-python{python_version}
-python3
+/opt/python/{python_tag}-{python_abi}/bin/python
 ```
 
-后两个只是在解释器存在时的兼容查找，最终报告的 version、SOABI 和 ABI 必须与任务
-一致，否则失败。不能恢复 `cp312` 特判或 Profile 常量。
+Task 5 只消费这些冻结字段并打开 exact interpreter path，不从 Python version、目录 glob、
+SOABI 或当前 Profile 重新推导 ABI，也不回退到 `python{python_version}`/`python3`。运行时
+报告的 version、SOABI、ABI 和 wheel tag 任一项与任务不一致即失败。不能恢复 `cp312`
+特判或 Profile 常量；例如 free-threaded `cp314t` 使用
+`python_tag=cp314` 和 `/opt/python/cp314-cp314t/bin/python`。
 
 ## 7. Baseline 与准入状态机
 
