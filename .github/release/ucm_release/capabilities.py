@@ -321,9 +321,8 @@ _REVISION_PROJECTION_FIELDS = (
     "toolchain_sha256",
     "target_builder_digest",
 )
-_RUNTIME_COMPATIBILITY_FIELDS = (
+_RUNTIME_EXACT_COMPATIBILITY_FIELDS = (
     "accelerator",
-    "accelerator_runtime",
     "variant",
     "cpu_architecture",
     "mooncake_version",
@@ -373,6 +372,40 @@ def compact_mooncake_version(value: object) -> str:
     return _compact_version(
         _parse_version(value, "Mooncake version"), "Mooncake version"
     )
+
+
+def _runtime_compatible(capability: dict[str, Any], runtime: dict[str, Any]) -> bool:
+    if any(
+        capability[field] != runtime[field]
+        for field in _RUNTIME_EXACT_COMPATIBILITY_FIELDS
+    ):
+        return False
+    capability_runtime = _string(
+        capability.get("accelerator_runtime"), "Builder accelerator runtime"
+    )
+    runtime_runtime = _string(
+        runtime.get("accelerator_runtime"), "runtime accelerator runtime"
+    )
+    if capability["accelerator"] != "cuda":
+        return capability_runtime == runtime_runtime
+    capability_match = _ACCELERATOR_RUNTIME.fullmatch(capability_runtime)
+    runtime_match = _ACCELERATOR_RUNTIME.fullmatch(runtime_runtime)
+    if (
+        capability_match is None
+        or capability_match.group(1) != "cuda"
+        or runtime_match is None
+        or runtime_match.group(1) != "cuda"
+    ):
+        return False
+    capability_version = _parse_version(
+        capability_match.group(2), "Builder CUDA runtime version"
+    )
+    runtime_version = _parse_version(
+        runtime_match.group(2), "runtime CUDA version"
+    )
+    if len(capability_version.release) < 2 or len(runtime_version.release) < 2:
+        return False
+    return capability_version.release[:2] == runtime_version.release[:2]
 
 
 def normalize_variant(value: object) -> str:
@@ -1777,10 +1810,7 @@ def assemble_capability_catalog(
     entries: list[dict[str, Any]] = []
     for capability in builder_capabilities:
         for runtime in runtime_candidates:
-            if any(
-                capability[field] != runtime[field]
-                for field in _RUNTIME_COMPATIBILITY_FIELDS
-            ):
+            if not _runtime_compatible(capability, runtime):
                 continue
             raw_runtime = raw_runtime_by_id[runtime["runtime_id"]]
             mooncake_probe = None
@@ -2067,9 +2097,8 @@ def validate_capability_catalog(value: object) -> dict[str, Any]:
         for field in _REVISION_PROJECTION_FIELDS:
             if binding[field] != revision[field]:
                 raise ValueError(f"Binding revision projection differs at {field}")
-        for field in _RUNTIME_COMPATIBILITY_FIELDS:
-            if binding[field] != runtime[field]:
-                raise ValueError(f"Binding runtime projection differs at {field}")
+        if not _runtime_compatible(capability, runtime):
+            raise ValueError("Binding capability is incompatible with runtime")
         if binding["source_image"] != (
             f"{revision['source_image_repository']}@{revision['source_image_digest']}"
         ):
