@@ -529,15 +529,17 @@ def test_pep691_extensions_are_ignored_and_requires_python_is_optional() -> None
 def test_dependency_resolution_accepts_newer_pep691_minor_version() -> None:
     selection, _ = _selection()
     expected = _resolve(selection)
-    responses = _pep691_responses()
-    for response in responses.values():
-        response["meta"]["api-version"] = "1.4"
-
-    resolution = _resolve(selection, responses)
     validate = _public_callable(_dependencies(), "validate_dependency_resolution")
 
-    assert resolution == expected
-    assert validate(copy.deepcopy(resolution), _config(), selection) == resolution
+    for api_version in ("1.4", "1.999999"):
+        responses = _pep691_responses()
+        for response in responses.values():
+            response["meta"]["api-version"] = api_version
+
+        resolution = _resolve(selection, responses)
+
+        assert resolution == expected
+        assert validate(copy.deepcopy(resolution), _config(), selection) == resolution
 
 
 @pytest.mark.parametrize("api_version", ["2.0", "not-a-version"])
