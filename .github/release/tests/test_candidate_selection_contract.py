@@ -288,8 +288,7 @@ def _literal_subprocess_tokens(call: ast.Call) -> tuple[str, ...] | None:
     return None
 
 
-def _is_network_subprocess(call: ast.Call) -> bool:
-    tokens = _literal_subprocess_tokens(call)
+def _is_network_command_tokens(tokens: tuple[str, ...], depth: int = 0) -> bool:
     if not tokens:
         return False
     executable = tokens[0].rsplit("/", 1)[-1].lower()
@@ -300,11 +299,27 @@ def _is_network_subprocess(call: ast.Call) -> bool:
     if executable == "gh" and len(tokens) > 1 and tokens[1] == "api":
         return True
     if executable == "python" or executable.startswith("python3"):
-        return any(
+        if any(
             tokens[index : index + 2] == ("-m", "pip")
             for index in range(1, len(tokens) - 1)
-        )
+        ):
+            return True
+    if executable in {"bash", "dash", "sh"} and depth < 4:
+        for index, option in enumerate(tokens[1:], start=1):
+            if option.startswith("-") and "c" in option.lstrip("-"):
+                if index + 1 >= len(tokens):
+                    return False
+                try:
+                    nested = tuple(shlex.split(tokens[index + 1]))
+                except ValueError:
+                    return False
+                return _is_network_command_tokens(nested, depth + 1)
     return False
+
+
+def _is_network_subprocess(call: ast.Call) -> bool:
+    tokens = _literal_subprocess_tokens(call)
+    return tokens is not None and _is_network_command_tokens(tokens)
 
 
 def _is_network_behavior(target: str, call: ast.Call) -> bool:
@@ -803,6 +818,24 @@ def prepare_candidate_selection():
 from subprocess import Popen as launch
 def prepare_candidate_selection():
     return launch("wget https://example.invalid", shell=True)
+""",
+            True,
+        ),
+        (
+            """
+import subprocess
+def prepare_candidate_selection():
+    return subprocess.run(["/bin/sh", "-c", "curl https://example.invalid"])
+""",
+            True,
+        ),
+        (
+            """
+import subprocess
+def prepare_candidate_selection():
+    return subprocess.check_call(
+        ["bash", "-ceu", "python3 -m pip download example"]
+    )
 """,
             True,
         ),
