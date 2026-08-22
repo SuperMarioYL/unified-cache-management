@@ -400,9 +400,7 @@ def _runtime_compatible(capability: dict[str, Any], runtime: dict[str, Any]) -> 
     capability_version = _parse_version(
         capability_match.group(2), "Builder CUDA runtime version"
     )
-    runtime_version = _parse_version(
-        runtime_match.group(2), "runtime CUDA version"
-    )
+    runtime_version = _parse_version(runtime_match.group(2), "runtime CUDA version")
     if len(capability_version.release) < 2 or len(runtime_version.release) < 2:
         return False
     return capability_version.release[:2] == runtime_version.release[:2]
