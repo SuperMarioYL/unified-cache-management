@@ -405,6 +405,15 @@ def _task4_config() -> dict[str, Any]:
     return config
 
 
+def _schema_ready_active_release() -> dict[str, Any]:
+    raw = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8"))
+    resolved = core.resolve_owner_templates(
+        raw, repository="example/unified-cache-management"
+    )
+    assert isinstance(resolved, dict)
+    return resolved
+
+
 def _selection(
     fixture: dict[str, Any],
     *,
@@ -1127,7 +1136,7 @@ def test_active_schema_v3_declares_exact_pins_and_ordered_selectors() -> None:
 
 
 def test_schema_binds_exact_selector_policy_to_runtime_product() -> None:
-    raw = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8"))
+    raw = _schema_ready_active_release()
     schema = core.load_json(RELEASE_ROOT / "schemas" / "config.schema.json")
     release_schema = schema["$defs"]["release"]
     core.validate_schema(raw, release_schema, root=schema)
@@ -1169,19 +1178,25 @@ def test_schema_binds_exact_selector_policy_to_runtime_product() -> None:
 def test_schema_rejects_nonexact_or_noncanonical_dependency_pins(
     invalid_pin: str,
 ) -> None:
-    raw = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8"))
-    raw["dependencies"]["build"]["packaging"] = invalid_pin
+    raw = _schema_ready_active_release()
     schema = core.load_json(RELEASE_ROOT / "schemas" / "config.schema.json")
+    release_schema = schema["$defs"]["release"]
+    core.validate_schema(raw, release_schema, root=schema)
+    mutated = copy.deepcopy(raw)
+    mutated["dependencies"]["build"]["packaging"] = invalid_pin
     with pytest.raises(ValueError):
-        core.validate_schema(raw, schema["$defs"]["release"], root=schema)
+        core.validate_schema(mutated, release_schema, root=schema)
 
 
 def test_schema_rejects_noncanonical_dependency_name() -> None:
-    raw = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8"))
-    raw["dependencies"]["runtime"] = {"Wrapt": "1.17.2"}
+    raw = _schema_ready_active_release()
     schema = core.load_json(RELEASE_ROOT / "schemas" / "config.schema.json")
+    release_schema = schema["$defs"]["release"]
+    core.validate_schema(raw, release_schema, root=schema)
+    mutated = copy.deepcopy(raw)
+    mutated["dependencies"]["runtime"] = {"Wrapt": "1.17.2"}
     with pytest.raises(ValueError):
-        core.validate_schema(raw, schema["$defs"]["release"], root=schema)
+        core.validate_schema(mutated, release_schema, root=schema)
 
 
 def test_runtime_tag_selector_compiler_preserves_policy_and_future_values() -> None:
