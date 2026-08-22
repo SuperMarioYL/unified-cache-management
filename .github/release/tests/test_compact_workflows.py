@@ -422,17 +422,15 @@ def _balanced_if_bodies(
     source: str, body_start: int
 ) -> tuple[str, str | None] | None:
     controls: list[tuple[int, str, re.Match[str]]] = []
-    for control in re.finditer(
+    open_controls = re.compile(
         r"(?m)^[ \t]*if\b[^\n]*" + _SHELL_THEN,
-        source,
-        body_start,
-    ):
+    )
+    for control in open_controls.finditer(source, body_start):
         controls.append((control.start(), "open", control))
-    for control in re.finditer(
-        r"(?m)^[ \t]*(?P<control>else|fi)[ \t]*;?[ \t]*$",
-        source,
-        body_start,
-    ):
+    terminal_controls = re.compile(
+        r"(?m)^[ \t]*(?P<control>else|fi)[ \t]*;?[ \t]*$"
+    )
+    for control in terminal_controls.finditer(source, body_start):
         controls.append((control.start(), control.group("control"), control))
     controls.sort(key=lambda item: item[0])
 
