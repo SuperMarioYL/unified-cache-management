@@ -22,16 +22,65 @@ permissions:
   contents: read
 
 jobs:
+  resolve-upstreams:
+    name: Resolve upstream Tags
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      upstream_selection_artifact: ${{ steps.resolve.outputs.upstream_selection_artifact }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - name: Install crane for runtime discovery
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 \
+            https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
+            | tar -xz -C "${RUNNER_TEMP}/crane" crane
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - id: resolve
+        name: Select runtime versions and parse upstream recipes
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == push && "${GITHUB_REF_TYPE}" == tag ]]; then
+            python scripts/materialize_version.py --tag "${GITHUB_REF_NAME}" >/dev/null
+          fi
+          mkdir -p out/upstreams
+          PYTHONPATH=.github/release python -m ucm_release upstreams resolve \
+            --output out/upstreams/upstream-selection.json >/dev/null
+          artifact="ucm-upstream-selection-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          echo "upstream_selection_artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ steps.resolve.outputs.upstream_selection_artifact }}
+          path: out/upstreams/upstream-selection.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}
+
   sync-builders:
     name: Sync builders
+    needs: resolve-upstreams
     permissions:
       contents: read
       packages: write
     uses: ./.github/workflows/sync-builders.yml
+    with:
+      upstream_selection_artifact: ${{ needs.resolve-upstreams.outputs.upstream_selection_artifact }}
 
   plan:
     name: Plan release
-    needs: sync-builders
+    needs: [resolve-upstreams, sync-builders]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
@@ -39,6 +88,7 @@ jobs:
       plan_artifact: ${{ steps.plan.outputs.plan_artifact }}
       wheel_matrix: ${{ steps.plan.outputs.wheel_matrix }}
       image_matrix: ${{ steps.plan.outputs.image_matrix }}
+      image_index_matrix: ${{ steps.plan.outputs.image_index_matrix }}
     steps:
       - uses: actions/checkout@v4.2.2
         with:
@@ -53,18 +103,14 @@ jobs:
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
       - uses: actions/download-artifact@v4.3.0
         with:
+          name: ${{ needs.resolve-upstreams.outputs.upstream_selection_artifact }}
+          path: input/upstreams
+      - uses: actions/download-artifact@v4.3.0
+        with:
           name: ${{ needs.sync-builders.outputs.builder_catalog_artifact }}
           path: input/builders
-      - name: Install crane for tag discovery
-        run: |
-          set -euo pipefail
-          mkdir -p "${RUNNER_TEMP}/crane"
-          curl -fsSL --retry 3 \
-            https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
-            | tar -xz -C "${RUNNER_TEMP}/crane" crane
-          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
       - id: plan
-        name: Resolve build matrices
+        name: Generate final build matrices
         run: |
           set -euo pipefail
           case "${GITHUB_EVENT_NAME}:${GITHUB_REF}" in
@@ -73,15 +119,16 @@ jobs:
             push:refs/tags/v*) route="release" ;;
             *) echo "unsupported release invocation" >&2; exit 2 ;;
           esac
-          if [[ "${route}" == "release" ]]; then
+          if [[ "${route}" == release ]]; then
             materialized_version="$(python scripts/materialize_version.py \
               --tag "${GITHUB_REF_NAME}")"
           fi
           mkdir -p out/plan
           PYTHONPATH=.github/release python -m ucm_release compact plan \
+            --upstream-selection input/upstreams/upstream-selection.json \
             --builder-catalog input/builders/builder-catalog.json \
             --route "${route}" --output out/plan/release-plan.json >/dev/null
-          if [[ "${route}" == "release" ]]; then
+          if [[ "${route}" == release ]]; then
             chart_version="$(PYTHONPATH=.github/release python -c \
               'from ucm_release.core import derive_chart_version, read_version; print(derive_chart_version(read_version()))')"
             jq -e --arg tag "${GITHUB_REF_NAME}" \
@@ -99,6 +146,9 @@ jobs:
             echo "plan_artifact=${artifact}"
             echo "wheel_matrix=$(jq -c '.wheel_matrix' out/plan/release-plan.json)"
             echo "image_matrix=$(jq -c '.image_matrix' out/plan/release-plan.json)"
+            echo "image_index_matrix=$(jq -c \
+              '{include:[.families[]|{id,label,target_repository,target_tag}]}' \
+              out/plan/release-plan.json)"
           } >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@v4.6.2
         with:
@@ -147,34 +197,19 @@ jobs:
       plan_artifact: ${{ needs.plan.outputs.plan_artifact }}
       upload_oci: ${{ needs.plan.outputs.route == 'release' || inputs.deliver_full_oci == true }}
 
-  publish-release:
-    name: Publish release
+  prepare-release-draft:
+    name: Publish · Prepare Draft
     needs: [plan, build-wheels, package-chart, build-images]
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 30
     environment: release-production
     permissions:
       actions: read
       contents: write
-      packages: write
     env:
       GH_TOKEN: ${{ github.token }}
-      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4.2.2
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-      - uses: docker/setup-buildx-action@v3.11.1
-      - uses: azure/setup-helm@v4.3.1
-        with:
-          version: v3.15.3
-      - uses: actions/setup-python@v5.6.0
-        with:
-          python-version: "3.12"
       - uses: actions/download-artifact@v4.3.0
         with:
           name: ${{ needs.plan.outputs.plan_artifact }}
@@ -187,109 +222,279 @@ jobs:
         with:
           name: ucm-chart-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: input/chart
-      - name: Install publication tools
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes skopeo
-          python -m pip install --disable-pip-version-check --no-cache-dir twine
-      - name: Authenticate enabled registries
+      - name: Validate publication artifacts
         run: |
           set -euo pipefail
           plan=input/plan/release-plan.json
-          if [ "$(jq -r '.publish.ghcr.enabled or .publish.chart_oci.enabled' "${plan}")" = true ]; then
+          mapfile -t manifests < <(find input/wheels -name wheel-result.json -type f | sort)
+          test "${#manifests[@]}" = "$(jq '.wheels | length' "${plan}")"
+          for manifest in "${manifests[@]}"; do
+            filename="$(jq -er '.filename' "${manifest}")"
+            test -f "$(dirname "${manifest}")/${filename}"
+          done
+          jq -s '.' "${manifests[@]}" >wheel-results.json
+          jq -e --slurpfile results wheel-results.json '
+            ([.wheels[].id] | sort) == ([$results[0][].task_id] | sort) and
+            (([$results[0][].task_id] | length) ==
+             ([$results[0][].task_id] | unique | length)) and
+            (([$results[0][].filename] | length) ==
+             ([$results[0][].filename] | unique | length)) and
+            ([.wheels[].dist_name] | unique | sort) == .publish.pypi.distributions and
+            all($results[0][] as $result;
+              any(.wheels[];
+                .id == $result.task_id and
+                .dist_name == $result.distribution and
+                .wheel_version == $result.version and
+                .python_abi == $result.python_abi and
+                .cpu_arch == $result.cpu_arch))
+          ' "${plan}" >/dev/null
+          test "$(find input/wheels -name '*.whl' -type f | wc -l | tr -d ' ')" = \
+            "$(jq '.wheels | length' "${plan}")"
+          test "$(find input/chart -name '*.tgz' -type f | wc -l | tr -d ' ')" = 1
+      - name: Create or reuse GitHub Draft
+        run: |
+          set -euo pipefail
+          plan=input/plan/release-plan.json
+          if [ "$(jq -r '.publish.github_release.enabled' "${plan}")" != true ]; then
+            exit 0
+          fi
+          tag="$(jq -r '.release_tag' "${plan}")"
+          if gh release view "${tag}" --json isDraft,isPrerelease >release.json 2>/dev/null; then
+            jq -e '.isDraft == true and .isPrerelease == true' release.json >/dev/null
+            exit 0
+          fi
+          notes="${RUNNER_TEMP}/ucm-release-notes.md"
+          printf '%s\n' \
+            "Automated UCM release ${tag}." \
+            "" \
+            "Build note: GitHub's automatically generated Tag source archives retain the" \
+            "checked-in version.ini from the tagged commit. Release wheels, images, and the" \
+            "Chart were built from the same Tag checkout after the runner materialized" \
+            "version.ini from ${tag}." >"${notes}"
+          gh release create "${tag}" --draft --prerelease \
+            --title "${tag}" --notes-file "${notes}"
+
+  publish-image-members:
+    name: Publish member · ${{ matrix.label }}
+    needs: [plan, prepare-release-draft]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.image_matrix) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: release-production
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    steps:
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.plan.outputs.plan_artifact }}
+          path: input/plan
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ucm-image-${{ matrix.id }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: input/image
+      - name: Install skopeo
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes skopeo
+      - name: Publish architecture member
+        env:
+          IMAGE_ID: ${{ matrix.id }}
+        run: |
+          set -euo pipefail
+          plan=input/plan/release-plan.json
+          image="$(jq -e --arg id "${IMAGE_ID}" '.images[] | select(.id == $id)' "${plan}")"
+          archive=input/image/image.oci.tar
+          test -s "${archive}"
+          arch="$(jq -r '.cpu_arch' <<<"${image}")"
+          target_repository="$(jq -r '.target_repository' <<<"${image}")"
+          target_tag="$(jq -r '.target_tag' <<<"${image}")"
+          if [ "$(jq -r '.publish.ghcr.enabled' "${plan}")" = true ]; then
             printf '%s' "${GH_TOKEN}" | docker login ghcr.io \
               --username "${GITHUB_ACTOR}" --password-stdin
-            printf '%s' "${GH_TOKEN}" | helm registry login ghcr.io \
-              --username "${GITHUB_ACTOR}" --password-stdin
+            skopeo copy "oci-archive:${archive}" \
+              "docker://${target_repository}:${target_tag}-${arch}"
           fi
           if [ "$(jq -r '.publish.dockerhub.enabled' "${plan}")" = true ]; then
             test -n "${DOCKERHUB_USERNAME}" && test -n "${DOCKERHUB_TOKEN}"
             printf '%s' "${DOCKERHUB_TOKEN}" | docker login docker.io \
               --username "${DOCKERHUB_USERNAME}" --password-stdin
+            namespace="$(jq -r '.publish.dockerhub.namespace' "${plan}")"
+            repository="${namespace}/$(basename "${target_repository}")"
+            skopeo copy "oci-archive:${archive}" \
+              "docker://${repository}:${target_tag}-${arch}"
           fi
-      - name: Create or reuse GitHub Draft
+
+  publish-image-indexes:
+    name: Publish index · ${{ matrix.label }}
+    needs: [plan, publish-image-members]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.image_index_matrix) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release-production
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    steps:
+      - uses: docker/setup-buildx-action@v3.11.1
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.plan.outputs.plan_artifact }}
+          path: input/plan
+      - name: Publish multi-architecture index
+        env:
+          TARGET_REPOSITORY: ${{ matrix.target_repository }}
+          TARGET_TAG: ${{ matrix.target_tag }}
         run: |
           set -euo pipefail
           plan=input/plan/release-plan.json
-          if [ "$(jq -r '.publish.github_release.enabled' "${plan}")" = true ]; then
-            tag="$(jq -r '.release_tag' "${plan}")"
-            notes="${RUNNER_TEMP}/ucm-release-notes.md"
-            printf '%s\n' \
-              "Automated UCM release ${tag}." \
-              "" \
-              "Build note: GitHub's automatically generated Tag source archives retain the" \
-              "checked-in version.ini from the tagged commit. Release wheels, images, and the" \
-              "Chart were built from the same Tag checkout after the runner materialized" \
-              "version.ini from ${tag}." >"${notes}"
-            gh release view "${tag}" >/dev/null 2>&1 || \
-              gh release create "${tag}" --draft --prerelease \
-                --title "${tag}" --notes-file "${notes}"
+          if [ "$(jq -r '.publish.ghcr.enabled' "${plan}")" = true ]; then
+            printf '%s' "${GH_TOKEN}" | docker login ghcr.io \
+              --username "${GITHUB_ACTOR}" --password-stdin
+            docker buildx imagetools create \
+              --tag "${TARGET_REPOSITORY}:${TARGET_TAG}" \
+              "${TARGET_REPOSITORY}:${TARGET_TAG}-amd64" \
+              "${TARGET_REPOSITORY}:${TARGET_TAG}-arm64"
+            docker buildx imagetools inspect \
+              "${TARGET_REPOSITORY}:${TARGET_TAG}" >/dev/null
           fi
-      - name: Publish image members and indexes
+          if [ "$(jq -r '.publish.dockerhub.enabled' "${plan}")" = true ]; then
+            test -n "${DOCKERHUB_USERNAME}" && test -n "${DOCKERHUB_TOKEN}"
+            printf '%s' "${DOCKERHUB_TOKEN}" | docker login docker.io \
+              --username "${DOCKERHUB_USERNAME}" --password-stdin
+            namespace="$(jq -r '.publish.dockerhub.namespace' "${plan}")"
+            repository="${namespace}/$(basename "${TARGET_REPOSITORY}")"
+            docker buildx imagetools create \
+              --tag "${repository}:${TARGET_TAG}" \
+              "${repository}:${TARGET_TAG}-amd64" \
+              "${repository}:${TARGET_TAG}-arm64"
+            docker buildx imagetools inspect "${repository}:${TARGET_TAG}" >/dev/null
+          fi
+
+  publish-pypi:
+    name: Publish · PyPI
+    needs: [plan, prepare-release-draft]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release-production
+    permissions:
+      actions: read
+      contents: read
+    env:
+      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+    steps:
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.plan.outputs.plan_artifact }}
+          path: input/plan
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          pattern: ucm-wheel-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: input/wheels
+      - name: Publish Wheels
         run: |
           set -euo pipefail
           plan=input/plan/release-plan.json
-          ghcr_enabled="$(jq -r '.publish.ghcr.enabled' "${plan}")"
-          dockerhub_enabled="$(jq -r '.publish.dockerhub.enabled' "${plan}")"
-          dockerhub_namespace="$(jq -r '.publish.dockerhub.namespace' "${plan}")"
-          while IFS=$'\t' read -r image_id arch target_repository target_tag; do
-            artifact="ucm-image-${image_id}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
-            work="${RUNNER_TEMP}/${image_id}"
-            rm -rf "${work}"
-            gh run download "${GITHUB_RUN_ID}" --name "${artifact}" --dir "${work}"
-            archive="${work}/image.oci.tar"
-            test -s "${archive}"
-            if [ "${ghcr_enabled}" = true ]; then
-              skopeo copy "oci-archive:${archive}" \
-                "docker://${target_repository}:${target_tag}-${arch}"
-            fi
-            if [ "${dockerhub_enabled}" = true ]; then
-              repository="${dockerhub_namespace}/$(basename "${target_repository}")"
-              skopeo copy "oci-archive:${archive}" \
-                "docker://${repository}:${target_tag}-${arch}"
-            fi
-            rm -rf "${work}"
-          done < <(jq -r '.images[] | [.id,.cpu_arch,.target_repository,.target_tag] | @tsv' "${plan}")
-          while IFS=$'\t' read -r target_repository target_tag; do
-            if [ "${ghcr_enabled}" = true ]; then
-              docker buildx imagetools create \
-                --tag "${target_repository}:${target_tag}" \
-                "${target_repository}:${target_tag}-amd64" \
-                "${target_repository}:${target_tag}-arm64"
-              docker buildx imagetools inspect "${target_repository}:${target_tag}" >/dev/null
-            fi
-            if [ "${dockerhub_enabled}" = true ]; then
-              repository="${dockerhub_namespace}/$(basename "${target_repository}")"
-              docker buildx imagetools create \
-                --tag "${repository}:${target_tag}" \
-                "${repository}:${target_tag}-amd64" \
-                "${repository}:${target_tag}-arm64"
-              docker buildx imagetools inspect "${repository}:${target_tag}" >/dev/null
-            fi
-          done < <(jq -r '.families[] | [.target_repository,.target_tag] | @tsv' "${plan}")
-      - name: Publish PyPI and Chart channels
+          if [ "$(jq -r '.publish.pypi.enabled' "${plan}")" != true ]; then
+            exit 0
+          fi
+          test -n "${PYPI_API_TOKEN}"
+          python -m pip install --disable-pip-version-check --no-cache-dir twine
+          TWINE_USERNAME=__token__ TWINE_PASSWORD="${PYPI_API_TOKEN}" \
+            python -m twine upload \
+              --repository-url "$(jq -r '.publish.pypi.index' "${plan}")" \
+              input/wheels/*/*.whl
+
+  publish-chart-oci:
+    name: Publish · Chart OCI
+    needs: [plan, prepare-release-draft]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release-production
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: azure/setup-helm@v4.3.1
+        with:
+          version: v3.15.3
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.plan.outputs.plan_artifact }}
+          path: input/plan
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ucm-chart-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: input/chart
+      - name: Publish Chart package
         run: |
           set -euo pipefail
           plan=input/plan/release-plan.json
-          if [ "$(jq -r '.publish.pypi.enabled' "${plan}")" = true ]; then
-            test -n "${PYPI_API_TOKEN}"
-            TWINE_USERNAME=__token__ TWINE_PASSWORD="${PYPI_API_TOKEN}" \
-              python -m twine upload \
-                --repository-url "$(jq -r '.publish.pypi.index' "${plan}")" \
-                input/wheels/*/*.whl
+          if [ "$(jq -r '.publish.chart_oci.enabled' "${plan}")" != true ]; then
+            exit 0
           fi
-          if [ "$(jq -r '.publish.chart_oci.enabled' "${plan}")" = true ]; then
-            helm push input/chart/*.tgz \
-              "oci://$(jq -r '.publish.chart_oci.namespace' "${plan}")"
-          fi
+          printf '%s' "${GH_TOKEN}" | helm registry login ghcr.io \
+            --username "${GITHUB_ACTOR}" --password-stdin
+          helm push input/chart/*.tgz \
+            "oci://$(jq -r '.publish.chart_oci.namespace' "${plan}")"
+
+  finalize-release:
+    name: Publish · Finalize Release
+    needs:
+      - plan
+      - prepare-release-draft
+      - publish-image-members
+      - publish-image-indexes
+      - publish-pypi
+      - publish-chart-oci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release-production
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.plan.outputs.plan_artifact }}
+          path: input/plan
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          pattern: ucm-wheel-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: input/wheels
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ucm-chart-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: input/chart
       - name: Upload assets and publish GitHub Release
         run: |
           set -euo pipefail
           plan=input/plan/release-plan.json
-          if [ "$(jq -r '.publish.github_release.enabled' "${plan}")" = true ]; then
-            tag="$(jq -r '.release_tag' "${plan}")"
-            gh release upload "${tag}" --clobber input/wheels/*/*.whl input/chart/*.tgz
-            gh release edit "${tag}" --draft=false --prerelease=true
-            gh release view "${tag}" >/dev/null
+          if [ "$(jq -r '.publish.github_release.enabled' "${plan}")" != true ]; then
+            exit 0
           fi
+          tag="$(jq -r '.release_tag' "${plan}")"
+          gh release upload "${tag}" --clobber input/wheels/*/*.whl input/chart/*.tgz
+          gh release edit "${tag}" --draft=false --prerelease=true

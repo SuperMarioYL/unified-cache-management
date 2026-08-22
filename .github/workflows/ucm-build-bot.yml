@@ -67,7 +67,7 @@ jobs:
 
           | Command | Result |
           | --- | --- |
-          | `/ucm-build wheel [profile=cuda130|cann900-a2|cann900-a3]` | Independent wheel artifacts |
+          | `/ucm-build wheel [profile=cuda129|cuda130|cann900-a2|cann900-a3]` | Independent wheel artifacts |
           | `/ucm-build image <repository:tag> [...]` | Wheels, OCI images and PR-tagged GHCR indexes |
           | `/ucm-build chart` | Linted and packaged Helm Chart |
           | `/ucm-build all` | Complete wheel, image and Chart matrices |
@@ -103,17 +103,69 @@ jobs:
             echo "author=$(jq -r '.user.login' <<<"${pr}")"
           } >>"${GITHUB_OUTPUT}"
 
-  sync-builders:
+  resolve-upstreams:
+    name: Resolve upstream Tags
     needs: permission-check
+    if: needs.permission-check.outputs.allowed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      upstream_selection_artifact: ${{ steps.resolve.outputs.upstream_selection_artifact }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ needs.permission-check.outputs.source-ref }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - name: Install crane for runtime discovery
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 \
+            https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
+            | tar -xz -C "${RUNNER_TEMP}/crane" crane
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - id: resolve
+        env:
+          SUBCOMMAND: ${{ needs.permission-check.outputs.subcommand }}
+          IMAGE_REFS: ${{ needs.permission-check.outputs.image-refs }}
+        run: |
+          set -euo pipefail
+          mkdir -p out/upstreams
+          args=(--output out/upstreams/upstream-selection.json)
+          if [ "${SUBCOMMAND}" = image ]; then
+            while IFS= read -r ref; do
+              [ -n "${ref}" ] && args+=(--pin-upstream "${ref}")
+            done <<<"${IMAGE_REFS}"
+          fi
+          PYTHONPATH=.github/release python -m ucm_release upstreams resolve \
+            "${args[@]}" >/dev/null
+          artifact="ucm-upstream-selection-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          echo "upstream_selection_artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ steps.resolve.outputs.upstream_selection_artifact }}
+          path: out/upstreams/upstream-selection.json
+          if-no-files-found: error
+
+  sync-builders:
+    needs: [permission-check, resolve-upstreams]
     if: needs.permission-check.outputs.allowed == 'true'
     permissions:
       contents: read
       packages: write
     uses: ./.github/workflows/sync-builders.yml
+    with:
+      upstream_selection_artifact: ${{ needs.resolve-upstreams.outputs.upstream_selection_artifact }}
 
   plan:
     name: Plan requested build
-    needs: [permission-check, sync-builders]
+    needs: [permission-check, resolve-upstreams, sync-builders]
     if: needs.permission-check.outputs.allowed == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -140,14 +192,10 @@ jobs:
         with:
           name: ${{ needs.sync-builders.outputs.builder_catalog_artifact }}
           path: input/builders
-      - name: Install crane for tag discovery
-        run: |
-          set -euo pipefail
-          mkdir -p "${RUNNER_TEMP}/crane"
-          curl -fsSL --retry 3 \
-            https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
-            | tar -xz -C "${RUNNER_TEMP}/crane" crane
-          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.resolve-upstreams.outputs.upstream_selection_artifact }}
+          path: input/upstreams
       - id: plan
         name: Resolve compact plan
         env:
@@ -156,7 +204,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out/plan
-          args=(--builder-catalog input/builders/builder-catalog.json --route pr \
+          args=(--upstream-selection input/upstreams/upstream-selection.json \
+            --builder-catalog input/builders/builder-catalog.json --route pr \
             --output out/plan/release-plan.json)
           if [ "${SUBCOMMAND}" = image ]; then
             while IFS= read -r ref; do

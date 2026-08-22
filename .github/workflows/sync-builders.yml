@@ -1,10 +1,12 @@
 name: Synchronize project builder pool
 
 on:
-  schedule:
-    - cron: "0 4 * * *"
-  workflow_dispatch:
   workflow_call:
+    inputs:
+      upstream_selection_artifact:
+        description: Exact upstream selection for this release run
+        type: string
+        required: true
     outputs:
       builder_catalog_artifact:
         description: Discovered Builder catalog for this run
@@ -38,6 +40,10 @@ jobs:
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
       - uses: docker/setup-buildx-action@v3.11.1
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ inputs.upstream_selection_artifact }}
+          path: input/upstreams
       - name: Authenticate to GHCR
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -51,6 +57,7 @@ jobs:
           set -euo pipefail
           mkdir -p out
           PYTHONPATH=.github/release python -m ucm_release builders discover \
+            --selection input/upstreams/upstream-selection.json \
             --output out/builder-catalog.json >/dev/null
           printf '{}\n' >out/existing-tags.json
           while IFS=$'\t' read -r repository tag; do
@@ -100,6 +107,13 @@ jobs:
       - uses: actions/checkout@v4.2.2
         with:
           persist-credentials: false
+      - if: ${{ matrix.build_mode == 'recipe-extend' }}
+        uses: actions/checkout@v4.2.2
+        with:
+          repository: ${{ matrix.source_repository }}
+          ref: ${{ matrix.source_ref }}
+          path: upstream
+          persist-credentials: false
       - uses: docker/setup-buildx-action@v3.11.1
       - name: Authenticate to GHCR
         env:
@@ -114,34 +128,82 @@ jobs:
           SOURCE_IMAGE: ${{ matrix.source_image }}
           TARGET_REPOSITORY: ${{ matrix.target_repository }}
           TARGET_TAG: ${{ matrix.target_tag }}
+          CPU_ARCH: ${{ matrix.cpu_arch }}
+          MOONCAKE_VERSION: ${{ matrix.mooncake_version }}
+          RECIPE: ${{ toJSON(matrix.recipe) }}
+          CHECKS: ${{ toJSON(matrix.checks) }}
         run: |
           set -euo pipefail
           target="${TARGET_REPOSITORY}:${TARGET_TAG}"
           if docker buildx imagetools inspect "${target}" >/dev/null 2>&1; then
             echo "Builder already exists: ${target}"
-            exit 0
-          fi
-          case "${BUILD_MODE}" in
-            mirror|copy)
+          else
+            case "${BUILD_MODE}" in
+            mirror)
               docker buildx imagetools create --tag "${target}" "${SOURCE_IMAGE}"
               ;;
-            extend)
-              mooncake_version="$(printf '%s' "${TARGET_TAG}" | sed -nE \
-                's/^.*-mooncake([0-9]+\.[0-9]+\.[0-9]+)-.*$/\1/p')"
-              test -n "${mooncake_version}"
+            recipe)
+              dockerfile="$(jq -er '.dockerfile' <<<"${RECIPE}")"
+              recipe_target="$(jq -er '.target' <<<"${RECIPE}")"
+              mapfile -t build_args < <(jq -r \
+                '.build_args | to_entries[] | "--build-arg", "\(.key)=\(.value)"' \
+                <<<"${RECIPE}")
+              target_args=()
+              [ -n "${recipe_target}" ] && target_args=(--target "${recipe_target}")
+              docker buildx build --push \
+                --platform "linux/${CPU_ARCH}" \
+                --file "upstream/${dockerfile}" \
+                "${target_args[@]}" "${build_args[@]}" \
+                --tag "${target}" upstream
+              ;;
+            recipe-extend)
+              dockerfile="$(jq -er '.dockerfile' <<<"${RECIPE}")"
+              recipe_target="$(jq -er '.target' <<<"${RECIPE}")"
+              mapfile -t build_args < <(jq -r \
+                '.build_args | to_entries[] | "--build-arg", "\(.key)=\(.value)"' \
+                <<<"${RECIPE}")
+              target_args=()
+              [ -n "${recipe_target}" ] && target_args=(--target "${recipe_target}")
+              upstream_target="${target}-upstream"
+              docker buildx build --push \
+                --platform "linux/${CPU_ARCH}" \
+                --file "upstream/${dockerfile}" \
+                "${target_args[@]}" "${build_args[@]}" \
+                --tag "${upstream_target}" upstream
               mkdir -p context/tools
               cp .github/release/docker/mooncake_installer.sh \
                 context/tools/mooncake_installer.sh
               docker buildx build --push \
-                --platform "linux/${{ matrix.cpu_arch }}" \
+                --platform "linux/${CPU_ARCH}" \
                 --file .github/release/docker/Dockerfile.builder \
-                --build-arg "CANN_BASE=${SOURCE_IMAGE}" \
-                --build-arg "MOONCAKE_TAG=v${mooncake_version}" \
+                --build-arg "CANN_BASE=${upstream_target}" \
+                --build-arg "MOONCAKE_TAG=v${MOONCAKE_VERSION}" \
                 --tag "${target}" context
               ;;
             *)
               echo "unsupported Builder mode: ${BUILD_MODE}" >&2
               exit 2
               ;;
-          esac
+            esac
+          fi
           docker buildx imagetools inspect "${target}" >/dev/null
+          commands="$(jq -r '.commands | join(" ")' <<<"${CHECKS}")"
+          docker run --rm \
+            -e EXPECTED_PYTHON="$(jq -r '.python_version' <<<"${CHECKS}")" \
+            -e EXPECTED_ABI="$(jq -r '.python_abi' <<<"${CHECKS}")" \
+            -e EXPECTED_RUNTIME="$(jq -r '.accelerator_runtime' <<<"${CHECKS}")" \
+            -e REQUIRED_COMMANDS="${commands}" \
+            -e REQUIRE_MOONCAKE="$(jq -r '.mooncake' <<<"${CHECKS}")" \
+            "${target}" bash -c '
+              set -euo pipefail
+              candidate="/opt/python/${EXPECTED_ABI}-${EXPECTED_ABI}/bin/python"
+              if [ ! -x "${candidate}" ]; then candidate="$(command -v python3)"; fi
+              test "$("${candidate}" -c "import sys; print(f\"{sys.version_info.major}.{sys.version_info.minor}\")")" = "${EXPECTED_PYTHON}"
+              for command_name in ${REQUIRED_COMMANDS}; do command -v "${command_name}" >/dev/null; done
+              if [[ "${EXPECTED_RUNTIME}" == cuda-* ]]; then
+                nvcc --version | grep -F "release ${EXPECTED_RUNTIME#cuda-}"
+              fi
+              if [ "${REQUIRE_MOONCAKE}" = true ]; then
+                find /usr/local -name libmooncake_store.so -print -quit | grep -q .
+              fi
+            '

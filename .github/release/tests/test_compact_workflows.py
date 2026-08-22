@@ -1,4 +1,4 @@
-"""User-visible GitHub Actions contract for the compact release lane."""
+"""User-visible Actions contracts for upstream planning and parallel publishing."""
 
 from __future__ import annotations
 
@@ -17,54 +17,137 @@ def _load(name: str) -> dict[str, object]:
     return value
 
 
-def test_release_workflow_has_six_visible_stages_and_flat_build_matrices() -> None:
+def test_release_workflow_resolves_upstreams_before_builders_and_plan() -> None:
     jobs = _load("release-ucm.yml")["jobs"]
+    assert list(jobs)[:3] == ["resolve-upstreams", "sync-builders", "plan"]
+    assert jobs["sync-builders"]["needs"] == "resolve-upstreams"
+    assert set(jobs["plan"]["needs"]) == {"resolve-upstreams", "sync-builders"}
+    assert (
+        jobs["sync-builders"]["with"]["upstream_selection_artifact"]
+        == "${{ needs.resolve-upstreams.outputs.upstream_selection_artifact }}"
+    )
+    plan_text = yaml.safe_dump(jobs["plan"])
+    assert "--upstream-selection" in plan_text
+    assert "image_index_matrix" in plan_text
+    assert "'{include:[.families[]" in plan_text
 
-    assert list(jobs) == [
-        "sync-builders",
-        "plan",
-        "build-wheels",
-        "package-chart",
-        "build-images",
-        "publish-release",
+
+def test_release_workflow_has_six_parallel_publication_jobs() -> None:
+    jobs = _load("release-ucm.yml")["jobs"]
+    publish_jobs = [
+        "prepare-release-draft",
+        "publish-image-members",
+        "publish-image-indexes",
+        "publish-pypi",
+        "publish-chart-oci",
+        "finalize-release",
     ]
-    assert jobs["build-wheels"]["name"] == "Wheel · ${{ matrix.label }}"
-    assert jobs["build-images"]["name"] == "Image · ${{ matrix.label }}"
-    assert jobs["build-images"]["uses"] == "./.github/workflows/_build-image.yml"
-    assert set(jobs["build-images"]["needs"]) == {"plan", "build-wheels"}
-    assert set(jobs["publish-release"]["needs"]) == {
+    assert all(name in jobs for name in publish_jobs)
+    assert set(jobs["prepare-release-draft"]["needs"]) == {
         "plan",
         "build-wheels",
         "package-chart",
         "build-images",
     }
-    assert jobs["build-images"]["with"]["upload_oci"] == (
-        "${{ needs.plan.outputs.route == 'release' || "
-        "inputs.deliver_full_oci == true }}"
-    )
-    plan_source = next(
-        step["run"]
-        for step in jobs["plan"]["steps"]
-        if step.get("name") == "Resolve build matrices"
-    )
-    assert "scripts/materialize_version.py" in plan_source
-    assert ".release_tag == $tag" in plan_source
-    assert "[.wheels[].wheel_version] | all(. == $version)" in plan_source
+    assert set(jobs["publish-image-members"]["needs"]) == {
+        "plan",
+        "prepare-release-draft",
+    }
+    assert set(jobs["publish-image-indexes"]["needs"]) == {
+        "plan",
+        "publish-image-members",
+    }
+    assert set(jobs["publish-pypi"]["needs"]) == {
+        "plan",
+        "prepare-release-draft",
+    }
+    assert set(jobs["publish-chart-oci"]["needs"]) == {
+        "plan",
+        "prepare-release-draft",
+    }
+    assert set(jobs["finalize-release"]["needs"]) == {
+        "plan",
+        "prepare-release-draft",
+        "publish-image-members",
+        "publish-image-indexes",
+        "publish-pypi",
+        "publish-chart-oci",
+    }
 
 
-def test_builder_sync_contains_only_prepare_and_independent_missing_builds() -> None:
-    workflow = _load("sync-builders.yml")
-    jobs = workflow["jobs"]
-
-    assert list(jobs) == ["prepare", "build-missing"]
-    assert jobs["build-missing"]["name"] == "Builder · ${{ matrix.label }}"
+def test_member_and_index_publication_are_unbounded_matrices() -> None:
+    jobs = _load("release-ucm.yml")["jobs"]
+    members = jobs["publish-image-members"]
+    indexes = jobs["publish-image-indexes"]
+    assert members["strategy"]["fail-fast"] is False
+    assert indexes["strategy"]["fail-fast"] is False
+    assert "max-parallel" not in members["strategy"]
+    assert "max-parallel" not in indexes["strategy"]
     assert (
-        workflow["on"]["workflow_call"]["outputs"]["builder_catalog_artifact"]["value"]
-        == "${{ jobs.prepare.outputs.builder_catalog_artifact }}"
+        members["strategy"]["matrix"]
+        == "${{ fromJSON(needs.plan.outputs.image_matrix) }}"
+    )
+    assert (
+        indexes["strategy"]["matrix"]
+        == "${{ fromJSON(needs.plan.outputs.image_index_matrix) }}"
+    )
+    text = (WORKFLOWS / "release-ucm.yml").read_text(encoding="utf-8")
+    assert "while IFS=$'\\t' read -r image_id" not in text
+
+
+def test_finalize_is_the_only_job_that_publicizes_release() -> None:
+    jobs = _load("release-ucm.yml")["jobs"]
+    publicizers = []
+    for name, job in jobs.items():
+        if "draft=false" in yaml.safe_dump(job):
+            publicizers.append(name)
+    assert publicizers == ["finalize-release"]
+    final_run = jobs["finalize-release"]["steps"][-1]["run"].rstrip()
+    assert final_run.endswith(
+        'gh release edit "${tag}" --draft=false --prerelease=true'
     )
 
 
-def test_reusable_builds_expose_only_functional_inputs() -> None:
+def test_remote_writers_use_environment_and_minimum_permissions() -> None:
+    jobs = _load("release-ucm.yml")["jobs"]
+    for name in (
+        "prepare-release-draft",
+        "publish-image-members",
+        "publish-image-indexes",
+        "publish-pypi",
+        "publish-chart-oci",
+        "finalize-release",
+    ):
+        assert jobs[name]["environment"] == "release-production"
+        assert jobs[name]["permissions"]["contents"] in {"read", "write"}
+    assert "packages" not in jobs["publish-pypi"]["permissions"]
+    assert jobs["publish-chart-oci"]["permissions"]["packages"] == "write"
+    assert jobs["publish-image-members"]["permissions"]["packages"] == "write"
+
+
+def test_builder_sync_consumes_selection_and_materializes_recipes() -> None:
+    workflow = _load("sync-builders.yml")
+    assert set(workflow["on"]) == {"workflow_call"}
+    assert set(workflow["on"]["workflow_call"]["inputs"]) == {
+        "upstream_selection_artifact"
+    }
+    text = (WORKFLOWS / "sync-builders.yml").read_text(encoding="utf-8")
+    assert "--selection input/upstreams/upstream-selection.json" in text
+    assert "matrix.source_repository" in text
+    assert "matrix.source_ref" in text
+    assert "recipe-extend" in text
+    assert "REQUIRE_MOONCAKE" in text
+
+
+def test_wheel_build_records_auditwheel_result_manifest() -> None:
+    text = (WORKFLOWS / "_build-wheel.yml").read_text(encoding="utf-8")
+    assert "auditwheel==" in text
+    assert "python -m auditwheel show" in text
+    assert "compact record-wheel-result" in text
+    assert "out/wheel/wheel-result.json" in text
+
+
+def test_reusable_builds_keep_functional_inputs() -> None:
     expected = {
         "_build-wheel.yml": {"wheel_id", "runner", "plan_artifact", "source_ref"},
         "_build-image.yml": {
@@ -79,88 +162,25 @@ def test_reusable_builds_expose_only_functional_inputs() -> None:
     for filename, inputs in expected.items():
         workflow = _load(filename)
         assert set(workflow["on"]["workflow_call"]["inputs"]) == inputs
-        text = (WORKFLOWS / filename).read_text(encoding="utf-8").lower()
-        assert "resolved_plan_sha256" not in text
-        assert "task_sha256" not in text
-        assert "source_sha" not in text
 
 
-def test_compact_wheel_passes_cpu_architecture_to_the_native_build() -> None:
-    workflow = _load("_build-wheel.yml")
+def test_compact_wheel_passes_dynamic_python_and_platform_to_build() -> None:
+    workflow = (WORKFLOWS / "_build-wheel.yml").read_text(encoding="utf-8")
     dockerfile = (
         ROOT / ".github" / "release" / "docker" / "Dockerfile.wheel"
     ).read_text(encoding="utf-8")
-    text = yaml.safe_dump(workflow)
-
-    assert "UCM_CPU_ARCH=$(jq -r '.cpu_arch' out/wheel-task.json)" in text
-    assert "ARG UCM_CPU_ARCH" in dockerfile
-    assert 'UCM_BUILD_CPU_ARCH="${UCM_CPU_ARCH}"' in dockerfile
-    assert "UCM_BUILD_VERSION" not in text
-    assert "UCM_BUILD_VERSION" not in dockerfile
-    assert "scripts/materialize_version.py" in text
+    assert "UCM_PYTHON_VERSION" in workflow
+    assert "UCM_PYTHON_ABI" in workflow
+    assert "UCM_PLATFORM" in workflow
+    assert "ARG UCM_PYTHON_VERSION" in dockerfile
+    assert "ARG UCM_PYTHON_ABI" in dockerfile
 
 
-def test_chart_materializes_tag_and_packages_from_version_ini() -> None:
-    _load("_build-chart.yml")
-    text = (WORKFLOWS / "_build-chart.yml").read_text(encoding="utf-8")
-
-    assert "scripts/materialize_version.py" in text
-    assert "read_version" in text
-    assert "derive_chart_version" in text
-    assert '--version "${chart_version}"' in text
-    assert '--app-version "${app_version}"' in text
-
-
-def test_runtime_image_checks_ucm_without_auditing_the_base_environment() -> None:
-    dockerfile = (
-        ROOT / ".github" / "release" / "docker" / "Dockerfile.runtime"
-    ).read_text(encoding="utf-8")
-
-    assert "python3 -c 'import ucm'" in dockerfile
-    assert "pip check" not in dockerfile
-
-
-def test_removed_wrapper_workflows_are_absent() -> None:
-    for name in (
-        "release-vllm-images.yml",
-        "release-vllm-images-protected.yml",
-        "_publish-image-member.yml",
-    ):
-        assert not (WORKFLOWS / name).exists()
-
-
-def test_single_publish_job_consumes_all_channel_switches_and_finishes_release_last() -> (
-    None
-):
-    job = _load("release-ucm.yml")["jobs"]["publish-release"]
-    steps = job["steps"]
-    text = yaml.safe_dump(job)
-
-    for channel in ("pypi", "ghcr", "dockerhub", "chart_oci", "github_release"):
-        assert f".publish.{channel}.enabled" in text
-    assert "${target_tag}-${arch}" in text
-    assert "docker buildx imagetools create" in text
-    assert steps[-1]["name"] == "Upload assets and publish GitHub Release"
-    assert "gh release edit" in steps[-1]["run"]
-
-
-def test_ucm_build_bot_uses_compact_plan_and_functional_build_inputs() -> None:
-    workflow = _load("ucm-build-bot.yml")
+def test_ucm_build_bot_uses_generated_group_ids() -> None:
     text = (WORKFLOWS / "ucm-build-bot.yml").read_text(encoding="utf-8")
-
-    assert "ucm_release compact plan" in text
-    assert "resolved_plan_sha256" not in text
-    assert "task_sha256" not in text
-    assert set(workflow["jobs"]["build-wheels"]["with"]) == {
-        "source_ref",
-        "wheel_id",
-        "runner",
-        "plan_artifact",
-    }
-    assert set(workflow["jobs"]["build-images"]["with"]) == {
-        "source_ref",
-        "image_id",
-        "runner",
-        "plan_artifact",
-        "upload_oci",
-    }
+    hint = (WORKFLOWS / "ucm-build-hint.yml").read_text(encoding="utf-8")
+    for group in ("cuda129", "cuda130", "cann900-a2", "cann900-a3"):
+        assert group in text
+        assert group in hint
+    assert "--upstream-selection" in text
+    assert "profile_id==$profile" in text

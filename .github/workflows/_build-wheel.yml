@@ -97,10 +97,21 @@ jobs:
             --output type=local,dest=out/wheel \
             --progress plain .
           test "$(find out/wheel -maxdepth 1 -type f -name '*.whl' | wc -l | tr -d ' ')" = 1
+      - name: Inspect Wheel platform and record result
+        run: |
+          set -euo pipefail
+          wheel="$(find out/wheel -maxdepth 1 -type f -name '*.whl' -print -quit)"
+          test -n "${wheel}"
+          python -m pip install --disable-pip-version-check --no-cache-dir \
+            auditwheel==6.4.2
+          python -m auditwheel show "${wheel}"
+          PYTHONPATH=.github/release python -m ucm_release compact record-wheel-result \
+            --task out/wheel-task.json --wheel "${wheel}" \
+            --output out/wheel/wheel-result.json >/dev/null
       - uses: actions/upload-artifact@v4.6.2
         with:
           name: ${{ steps.task.outputs.wheel_artifact }}
-          path: out/wheel/*.whl
+          path: out/wheel/
           if-no-files-found: error
           overwrite: false
           retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}

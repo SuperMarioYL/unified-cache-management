@@ -12,35 +12,42 @@ independent wheel and Chart checkout before planning or building. Only formal
 ## Workflow shape
 
 ```text
-Sync builders -> Plan -> Wheel[] -> Image[] -> Publish release
-                      \-> Chart -------------------/
+Resolve upstream Tags -> Sync builders -> Plan -> Wheel[] -> Image[]
+                                         \-> Chart -----------/
+All builds -> Draft -> Members[] -> Indexes[] -----\
+                    \-> PyPI -----------------------+-> Finalize prerelease
+                    \-> Chart OCI -----------------/
 ```
 
-`.github/workflows/release-ucm.yml` contains six top-level jobs:
-
-1. `sync-builders` discovers the current vLLM and vLLM Ascend Builder pool.
-2. `plan` selects compatible upstream tags and emits `release-plan.json`.
-3. `build-wheels` runs one named matrix job per profile and architecture.
-4. `package-chart` validates and packages the Helm Chart.
-5. `build-images` runs one named matrix job per product, variant, and architecture.
-6. `publish-release` publishes every enabled channel in one job.
+`resolve-upstreams` chooses each runtime version once and parses its exact Git
+Tag. `sync-builders` and `plan` consume the same `upstream-selection.json`, so
+Builder discovery cannot drift from the runtime matrix. `plan` emits the
+stable `wheels`, `images`, `families`, `wheel_matrix`, and `image_matrix`
+contract. The image-index matrix is derived from `families` only as an Actions
+output.
 
 Builder synchronization itself has two jobs: `prepare` and a dynamic
 `build-missing` matrix. Ascend 310P definitions are filtered by
-`builders.yaml`; newly discovered supported Builders are added automatically.
+`builders.yaml`; newly discovered default-OS variants enter automatically and
+must have a UCM backend contract before build matrices start. Registry
+publication is append-only: old Builder tags remain but are no longer selected.
 
 ## Task and artifact names
 
 Task IDs are stable coordinates rather than content hashes:
 
-- wheel: `<profile>-<arch>`, for example `cuda130-amd64`;
-- image: `<product>-<variant>-<arch>`, for example
-  `vllm-ascend-a3-arm64`;
-- family: `<product>-<variant>`.
+- wheel: `<group>-<python-abi>-<arch>`, for example
+  `cann900-a2-cp310-arm64`;
+- image: `<group>-<arch>`, for example `cuda129-amd64`;
+- family: `cuda129`, `cuda130`, `cann900-a2`, or `cann900-a3`.
 
 The Actions UI displays capability labels such as
-`Wheel · CUDA 13.0 · amd64` and
+`Wheel · CUDA 13.0 · cp312 · amd64` and
 `Image · vLLM Ascend · CANN 9.0 A2 · arm64`.
+
+Each Wheel artifact contains the Wheel plus `wheel-result.json`. The result
+records the actual filename and platform tags checked by `auditwheel`; release
+publication never guesses the filename from configuration.
 
 Artifacts are scoped by run and attempt:
 
@@ -56,21 +63,21 @@ upload the archive for publication.
 ## Publication
 
 `release.yaml` remains the single switchboard for PyPI, GHCR, Docker Hub,
-Chart OCI, and GitHub Release. `publish-release` performs the enabled operations
-in this order:
+Chart OCI, and GitHub Release. After every build succeeds, publication runs as:
 
 1. create or reuse a GitHub Draft;
-2. publish architecture image tags as `<target-tag>-amd64` and
-   `<target-tag>-arm64`;
-3. compose the final multi-architecture image tag;
-4. upload PyPI wheels and the Chart OCI package when enabled;
-5. upload wheel and Chart assets, then publish the GitHub prerelease.
+2. publish architecture image members in an unbounded matrix;
+3. publish all family indexes after every member succeeds;
+4. publish PyPI and Chart OCI independently in parallel with image publication;
+5. upload Wheel and Chart assets, then publish the GitHub prerelease from the
+   sole `finalize-release` job.
 
 The active lane uses mutable `repository:tag` references. It does not persist
 or compare source, plan, task, artifact, or OCI digests. A failed publication
-may leave partial remote objects; rerunning the same Tag overwrites or fills in
-the same coordinates. Hashes required internally by wheel and OCI file formats
-remain implementation details and are not release-plan fields.
+may leave partial Registry, Chart, or PyPI objects, but the GitHub Draft remains
+private until every publication branch succeeds. Hashes required internally by
+wheel and OCI file formats remain implementation details and are not
+release-plan fields.
 
 GitHub's automatically generated Tag source archives retain the checked-in
 `version.ini` from the tagged commit. Published wheels, images, and the Chart

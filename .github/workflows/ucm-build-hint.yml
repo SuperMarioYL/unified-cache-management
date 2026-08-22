@@ -32,7 +32,7 @@ jobs:
 
           | 命令 / Command | 构建 / Builds | 推 GHCR? / Push? |
           | --- | --- | --- |
-          | `/ucm-build wheel [profile=<name>]` | UCM wheel — profile: `cuda130`/`cann900-a2`/`cann900-a3`(省略=全部)/ UCM wheel — profile: `cuda130`/`cann900-a2`/`cann900-a3` (omit for all) | 否 / no(仅 artifact / artifact only) |
+          | `/ucm-build wheel [profile=<name>]` | UCM wheel — profile: `cuda129`/`cuda130`/`cann900-a2`/`cann900-a3`(省略=全部)/ UCM wheel — profile: `cuda129`/`cuda130`/`cann900-a2`/`cann900-a3` (omit for all) | 否 / no(仅 artifact / artifact only) |
           | `/ucm-build image <repo:tag> [<repo:tag>...]` | 钉住上游的 wheel + 镜像,自动推送 / wheels + images for the pinned upstreams, auto-push | 是 / yes |
           | `/ucm-build chart` | chart(lint + template + package)/ chart (lint + template + package) | 否 / no(仅 artifact / artifact only) |
           | `/ucm-build all` | 全部(wheel + image + chart)/ everything (wheel + image + chart) | 是(镜像)/ yes (images) |
