@@ -415,15 +415,45 @@ def _assert_digest_guard_precedes(
     ), f"{variable} must be validated before it is consumed"
 
 
+def _balanced_if_bodies(
+    source: str, body_start: int
+) -> tuple[str, str | None] | None:
+    controls = re.compile(
+        r"(?m)^\s*(?:(?P<open>if\b[^\n]*\bthen)|"
+        r"(?P<alternative>else)|(?P<close>fi))\s*;?\s*$"
+    )
+    depth = 1
+    alternative: re.Match[str] | None = None
+    for control in controls.finditer(source, body_start):
+        if control.group("open"):
+            depth += 1
+            continue
+        if control.group("alternative") and depth == 1 and alternative is None:
+            alternative = control
+            continue
+        if not control.group("close"):
+            continue
+        depth -= 1
+        if depth != 0:
+            continue
+        if alternative is None:
+            return source[body_start : control.start()], None
+        return (
+            source[body_start : alternative.start()],
+            source[alternative.end() : control.start()],
+        )
+    return None
+
+
 def _mismatch_result_branch(source: str) -> str | None:
+    source = re.sub(r"\\\s*\n", " ", _noncomment_shell(source))
     declared = re.compile(_shell_variable("declared_version"))
     installed = re.compile(_shell_variable("installed_version"))
 
     for branch in re.finditer(
-        r"(?ms)^\s*if\s+(?:\[\[(?P<double>.*?)\]\]|"
-        r"\[(?P<single>.*?)\]|test\s+(?P<test>.*?))"
-        r"\s*;?\s*then(?P<body>.*?)"
-        r"^\s*fi(?:\s*;)?\s*$",
+        r"(?m)^\s*if\s+(?:\[\[(?P<double>[^\n]*?)\]\]|"
+        r"\[(?P<single>[^\n]*?)\]|test\s+(?P<test>[^\n]*?))"
+        r"\s*;?\s*then\s*$",
         source,
     ):
         condition = (
@@ -434,11 +464,17 @@ def _mismatch_result_branch(source: str) -> str | None:
         )
         if not declared.search(condition) or not installed.search(condition):
             continue
-        bodies = re.split(r"(?m)^\s*else\s*$", branch.group("body"), maxsplit=1)
+        bodies = _balanced_if_bodies(source, branch.end())
+        if bodies is None:
+            continue
+        then_body, else_body = bodies
         if "!=" in condition:
-            mismatch_body = bodies[0]
-        elif re.search(r"(?:==|(?<![!<>=])=(?!=))", condition) and len(bodies) == 2:
-            mismatch_body = bodies[1]
+            mismatch_body = then_body
+        elif (
+            re.search(r"(?:==|(?<![!<>=])=(?!=))", condition)
+            and else_body is not None
+        ):
+            mismatch_body = else_body
         else:
             continue
         return mismatch_body
@@ -654,6 +690,88 @@ def test_mooncake_shell_run_parser_requires_executable_exact_tokens(
     expected: bool,
 ) -> None:
     assert (_mooncake_shell_run_tokens(source) is not None) is expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            """
+            if [ "${PROBE_OUTCOME}" = success ]; then
+              if [ "${declared_version}" != "${installed_version}" ]; then
+                reason_code=mooncake-version-mismatch
+              else
+                reason_code=success
+              fi
+            fi
+            """,
+            True,
+            id="nested-posix-inequality",
+        ),
+        pytest.param(
+            """
+            if test "${declared_version}" = "${installed_version}"; then
+              reason_code=success
+            else
+              reason_code=mooncake-version-mismatch
+            fi
+            """,
+            True,
+            id="test-equality-else",
+        ),
+        pytest.param(
+            """
+            if [[ "${declared_version}" != "${installed_version}" ]]; then
+              reason_code=mooncake-version-mismatch
+            fi
+            """,
+            True,
+            id="bash-inequality",
+        ),
+        pytest.param(
+            """
+            case "${declared_version}:${installed_version}" in
+              "${installed_version}:${installed_version}") reason_code=success ;;
+              *) reason_code=mooncake-version-mismatch ;;
+            esac
+            """,
+            True,
+            id="case-mismatch-arm",
+        ),
+        pytest.param(
+            'echo \'if [ "${declared_version}" != "${installed_version}" ]; '
+            "then reason_code=mooncake-version-mismatch; fi'",
+            False,
+            id="echo-is-not-control-flow",
+        ),
+        pytest.param(
+            """
+            if [ "${PROBE_OUTCOME}" != success ]; then
+              reason_code=mooncake-version-mismatch
+            fi
+            """,
+            False,
+            id="unrelated-condition",
+        ),
+        pytest.param(
+            """
+            if [ "${declared_version}" != "${installed_version}" ]; then
+              reason_code=success
+            else
+              reason_code=mooncake-version-mismatch
+            fi
+            """,
+            False,
+            id="mismatch-reason-in-wrong-branch",
+        ),
+    ],
+)
+def test_mismatch_result_branch_handles_nested_control_flow_without_fake_tokens(
+    source: str,
+    expected: bool,
+) -> None:
+    body = _mismatch_result_branch(source)
+    assert (body is not None and "mooncake-version-mismatch" in body) is expected
 
 
 def test_release_workflow_has_six_visible_stages_and_flat_build_matrices() -> None:
