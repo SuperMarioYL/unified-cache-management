@@ -1,0 +1,295 @@
+# toolchain.lock.yaml — builder environment requirements and build dependency locks
+matrix_limits:
+  max_wheel_tasks: 64
+  max_image_tasks: 128
+  max_family_tasks: 64
+scan_limits:
+  max_tags_per_repository: 1024
+  max_selected_upstreams: 64
+python_runtime_dependencies:
+- requirement: wrapt==1.17.2
+  import_name: wrapt
+  wheel_artifacts:
+    cp312:
+      amd64:
+        filename: wrapt-1.17.2-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+        sha256: sha256:bc570b5f14a79734437cb7b0500376b6b791153314986074486e0b0fa8d71d98
+      arm64:
+        filename: wrapt-1.17.2-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+        sha256: sha256:5bb1d0dbf99411f3d871deb6faa9aabb9d4e744d67dcaaa05399af89d847a91d
+python_build_lock:
+  install_flags:
+  - --no-index
+  - --find-links
+  - --require-hashes
+  - '--only-binary=:all:'
+  packages:
+    build:
+      version: 1.3.0
+      filename: build-1.3.0-py3-none-any.whl
+      sha256: sha256:7145f0b5061ba90a1500d60bd1b13ca0a8a4cebdd0cc16ed8adf1c0e739f43b4
+    pyproject-hooks:
+      version: 1.2.0
+      filename: pyproject_hooks-1.2.0-py3-none-any.whl
+      sha256: sha256:9e5c6bfa8dcc30091c74b0cf803c81fdd29d94f01992a7707bc97babb1141913
+    packaging:
+      version: '24.2'
+      filename: packaging-24.2-py3-none-any.whl
+      sha256: sha256:09abb1bccd265c01f4a3aa3f7a7db064b36514d2cba19a2f694fe6150451a759
+    setuptools:
+      version: 75.8.2
+      filename: setuptools-75.8.2-py3-none-any.whl
+      sha256: sha256:558e47c15f1811c1fa7adbd0096669bf76c1d3f433f58324df69f3f5ecac4e8f
+    wheel:
+      version: 0.45.1
+      filename: wheel-0.45.1-py3-none-any.whl
+      sha256: sha256:708e7481cc80179af0e556bbf0cc00b8444c7321e2700b8d8580231d13017248
+  pyyaml:
+    version: 6.0.2
+    artifacts:
+      cp312:
+        amd64:
+          filename: PyYAML-6.0.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+          sha256: sha256:80bab7bfc629882493af4aa31a4cfa43a4c57c83813253626916b8c7ada83476
+        arm64:
+          filename: PyYAML-6.0.2-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+          sha256: sha256:1f71ea527786de97d1a0cc0eacd1defc0985dcf6b3f17bb77dcfc8c34bec4dc5
+  cmake:
+    version: 3.31.6
+    artifacts:
+      amd64:
+        filename: cmake-3.31.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+        sha256: sha256:1c8b05df0602365da91ee6a3336fe57525b137706c4ab5675498f662ae1dbcec
+      arm64:
+        filename: cmake-3.31.6-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+        sha256: sha256:42d9883b8958da285d53d5f69d40d9650c2d1bcf922d82b3ebdceb2b3a7d4521
+builders:
+  cuda130:
+    amd64:
+      sources: []
+      copy_paths: []
+      checks:
+      - kind: python
+        version: '3.12'
+        abi: cp312
+      - kind: python-soabi
+        prefix: cpython
+      - kind: command
+        name: gcc
+      - kind: command
+        name: g++
+      - kind: command
+        name: make
+      - kind: command
+        name: git
+      - kind: command
+        name: readelf
+      - kind: command-version
+        name: nvcc
+        arguments:
+        - --version
+        contains: release 13.0, V13.0.88
+      - kind: command-version
+        name: cmake
+        arguments:
+        - --version
+        contains: cmake version 3.31.6
+      - kind: library-cache
+        path: /usr/local/lib
+      - kind: library-cache
+        path: /usr/local/cuda/lib64
+      - kind: file
+        path: /usr/local/cuda/include/cuda.h
+      - kind: file
+        path: /usr/local/cuda/lib64/libcudart.so.13
+    arm64:
+      sources: []
+      copy_paths: []
+      checks:
+      - kind: python
+        version: '3.12'
+        abi: cp312
+      - kind: python-soabi
+        prefix: cpython
+      - kind: command
+        name: gcc
+      - kind: command
+        name: g++
+      - kind: command
+        name: make
+      - kind: command
+        name: git
+      - kind: command
+        name: readelf
+      - kind: command-version
+        name: nvcc
+        arguments:
+        - --version
+        contains: release 13.0, V13.0.88
+      - kind: command-version
+        name: cmake
+        arguments:
+        - --version
+        contains: cmake version 3.31.6
+      - kind: library-cache
+        path: /usr/local/lib
+      - kind: library-cache
+        path: /usr/local/cuda/lib64
+      - kind: file
+        path: /usr/local/cuda/include/cuda.h
+      - kind: file
+        path: /usr/local/cuda/lib64/libcudart.so.13
+  cann900-a2:
+    amd64:
+      sources: []
+      copy_paths: []
+      checks:
+      - kind: python
+        version: '3.12'
+        abi: cp312
+      - kind: python-soabi
+        prefix: cpython
+      - kind: command
+        name: gcc
+      - kind: command
+        name: g++
+      - kind: command
+        name: make
+      - kind: command
+        name: git
+      - kind: command
+        name: readelf
+      - kind: command
+        name: ccec
+      - kind: command-version
+        name: cmake
+        arguments:
+        - --version
+        contains: cmake version 3.31.6
+      - kind: library-cache
+        path: /usr/local/lib
+      - kind: file
+        path: /usr/local/Ascend/ascend-toolkit/latest/include/acl/acl.h
+      - kind: file
+        path: /usr/local/Ascend/ascend-toolkit/latest/lib64/libascendcl.so
+      - kind: directory
+        path: /vllm-workspace/Mooncake/mooncake-store/include
+      - kind: file
+        path: /usr/local/include/transfer_engine.h
+      - kind: shared-library-dependencies
+        path: /usr/local/lib/libmooncake_store.so
+    arm64:
+      sources: []
+      copy_paths: []
+      checks:
+      - kind: python
+        version: '3.12'
+        abi: cp312
+      - kind: python-soabi
+        prefix: cpython
+      - kind: command
+        name: gcc
+      - kind: command
+        name: g++
+      - kind: command
+        name: make
+      - kind: command
+        name: git
+      - kind: command
+        name: readelf
+      - kind: command
+        name: ccec
+      - kind: command-version
+        name: cmake
+        arguments:
+        - --version
+        contains: cmake version 3.31.6
+      - kind: library-cache
+        path: /usr/local/lib
+      - kind: file
+        path: /usr/local/Ascend/ascend-toolkit/latest/include/acl/acl.h
+      - kind: file
+        path: /usr/local/Ascend/ascend-toolkit/latest/lib64/libascendcl.so
+      - kind: directory
+        path: /vllm-workspace/Mooncake/mooncake-store/include
+      - kind: file
+        path: /usr/local/include/transfer_engine.h
+      - kind: shared-library-dependencies
+        path: /usr/local/lib/libmooncake_store.so
+  cann900-a3:
+    amd64:
+      sources: []
+      copy_paths: []
+      checks:
+      - kind: python
+        version: '3.12'
+        abi: cp312
+      - kind: python-soabi
+        prefix: cpython
+      - kind: command
+        name: gcc
+      - kind: command
+        name: g++
+      - kind: command
+        name: make
+      - kind: command
+        name: git
+      - kind: command
+        name: readelf
+      - kind: command
+        name: ccec
+      - kind: command-version
+        name: cmake
+        arguments:
+        - --version
+        contains: cmake version 3.31.6
+      - kind: library-cache
+        path: /usr/local/lib
+      - kind: file
+        path: /usr/local/Ascend/ascend-toolkit/latest/include/acl/acl.h
+      - kind: file
+        path: /usr/local/Ascend/ascend-toolkit/latest/lib64/libascendcl.so
+      - kind: directory
+        path: /vllm-workspace/Mooncake/mooncake-store/include
+      - kind: file
+        path: /usr/local/include/transfer_engine.h
+      - kind: shared-library-dependencies
+        path: /usr/local/lib/libmooncake_store.so
+    arm64:
+      sources: []
+      copy_paths: []
+      checks:
+      - kind: python
+        version: '3.12'
+        abi: cp312
+      - kind: python-soabi
+        prefix: cpython
+      - kind: command
+        name: gcc
+      - kind: command
+        name: g++
+      - kind: command
+        name: make
+      - kind: command
+        name: git
+      - kind: command
+        name: readelf
+      - kind: command
+        name: ccec
+      - kind: command-version
+        name: cmake
+        arguments:
+        - --version
+        contains: cmake version 3.31.6
+      - kind: library-cache
+        path: /usr/local/lib
+      - kind: file
+        path: /usr/local/Ascend/ascend-toolkit/latest/include/acl/acl.h
+      - kind: file
+        path: /usr/local/Ascend/ascend-toolkit/latest/lib64/libascendcl.so
+      - kind: directory
+        path: /vllm-workspace/Mooncake/mooncake-store/include
+      - kind: file
+        path: /usr/local/include/transfer_engine.h
+      - kind: shared-library-dependencies
+        path: /usr/local/lib/libmooncake_store.so

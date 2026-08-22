@@ -1,0 +1,44 @@
+name: UCM Build Bot Hint
+
+on:
+  pull_request:
+    types: [opened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  hint:
+    # same-repo PRs only — external-fork PRs get a read-only GITHUB_TOKEN on
+    # pull_request events, so they can't post. (head.repo.fork is true for ANY
+    # PR in a fork-of-a-fork repo, so compare head vs base repo full_name instead.)
+    # Fork contributors can run /ucm-build help.
+    if: github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Post /ucm-build command list
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          cat >hint.md <<'EOF'
+          ## 🤖 `/ucm-build` 命令 / Commands
+
+          仓库成员(write+)可用。每次构建固定当前 PR head SHA;推送的镜像在 PR 关闭时自动删除。
+          Available to repo members (write+). Each run fixes the current PR head SHA; pushed images auto-delete when the PR closes.
+
+          | 命令 / Command | 构建 / Builds | 推 GHCR? / Push? |
+          | --- | --- | --- |
+          | `/ucm-build wheel [profile=<name>]` | UCM wheel — profile: `cuda130`/`cann900-a2`/`cann900-a3`(省略=全部)/ UCM wheel — profile: `cuda130`/`cann900-a2`/`cann900-a3` (omit for all) | 否 / no(仅 artifact / artifact only) |
+          | `/ucm-build image <repo:tag> [<repo:tag>...]` | 钉住上游的 wheel + 镜像,自动推送 / wheels + images for the pinned upstreams, auto-push | 是 / yes |
+          | `/ucm-build chart` | chart(lint + template + package)/ chart (lint + template + package) | 否 / no(仅 artifact / artifact only) |
+          | `/ucm-build all` | 全部(wheel + image + chart)/ everything (wheel + image + chart) | 是(镜像)/ yes (images) |
+
+          - 镜像 tag / Image tag: `ghcr.io/<owner>/<family>:v<upstream-ver>-pr-<n>-<author>-<sha8>`(ascend 带 `-a2`/`-a3` 变体 / ascend variants carry `-a2`/`-a3`)。
+          - 钉住的上游仓库 / Pinned repos: `docker.io/vllm/vllm-openai`(cuda)/ `quay.io/ascend/vllm-ascend`(a2/a3)。变体由检查镜像 `SOC_VERSION` 自动检测 / variant auto-detected by inspecting the image;任意 pep440 tag 都行(含超 specifier 版本)/ any pep440 tag works (incl. out-of-specifier)。
+          - `/ucm-build help`(或光敲 `/ucm-build`)重显本消息 / re-shows this message.
+          EOF
+          gh pr comment "${PR_NUMBER}" --repo "${{ github.repository }}" --body-file hint.md

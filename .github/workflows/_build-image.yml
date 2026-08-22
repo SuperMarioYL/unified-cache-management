@@ -1,0 +1,109 @@
+name: Build one UCM runtime image
+
+on:
+  workflow_call:
+    inputs:
+      image_id:
+        type: string
+        required: true
+      runner:
+        type: string
+        required: true
+      plan_artifact:
+        type: string
+        required: true
+      upload_oci:
+        type: boolean
+        required: true
+      source_ref:
+        type: string
+        required: false
+        default: ""
+    outputs:
+      image_artifact:
+        description: OCI archive artifact produced when upload_oci is enabled
+        value: ${{ jobs.build.outputs.image_artifact }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 180
+    outputs:
+      image_artifact: ${{ steps.task.outputs.image_artifact }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ inputs.plan_artifact }}
+          path: input/plan
+      - id: task
+        name: Select image task and wheel
+        env:
+          IMAGE_ID: ${{ inputs.image_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p out context
+          PYTHONPATH=.github/release python -m ucm_release compact select \
+            --plan input/plan/release-plan.json --kind image --id "${IMAGE_ID}" \
+            --output out/image-task.json >/dev/null
+          wheel_id="$(jq -r '.wheel_id' out/image-task.json)"
+          wheel_artifact="ucm-wheel-${wheel_id}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          image_artifact="ucm-image-${IMAGE_ID}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          {
+            echo "wheel_artifact=${wheel_artifact}"
+            echo "image_artifact=${image_artifact}"
+          } >>"${GITHUB_OUTPUT}"
+      - uses: ./.github/actions/download-artifact-retry
+        with:
+          name: ${{ steps.task.outputs.wheel_artifact }}
+          path: input/wheel
+      - uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: false
+      - uses: docker/setup-buildx-action@v3.11.1
+      - name: Build install-only runtime image
+        run: |
+          set -euo pipefail
+          wheel="$(find input/wheel -maxdepth 1 -type f -name '*.whl' -print -quit)"
+          test -n "${wheel}"
+          cp .github/release/docker/Dockerfile.runtime context/Dockerfile
+          cp "${wheel}" "context/$(basename "${wheel}")"
+          base="$(jq -r '.runtime.repository + ":" + .runtime.tag' out/image-task.json)"
+          docker buildx build \
+            --platform "$(jq -r '.platform' out/image-task.json)" \
+            --file context/Dockerfile \
+            --target runtime \
+            --build-arg "BASE_IMAGE=${base}" \
+            --build-arg "UCM_WHEEL=$(basename "${wheel}")" \
+            --output type=oci,dest=out/image.oci.tar \
+            --progress plain context
+          test -s out/image.oci.tar
+      - if: ${{ inputs.upload_oci }}
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ steps.task.outputs.image_artifact }}
+          path: out/image.oci.tar
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: false
+          retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}

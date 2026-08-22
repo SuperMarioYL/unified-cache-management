@@ -1,0 +1,360 @@
+name: UCM Build Bot
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  permission-check:
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/ucm-build')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    outputs:
+      source-ref: ${{ steps.pr.outputs.source-ref }}
+      pr-number: ${{ steps.pr.outputs.number }}
+      pr-author: ${{ steps.pr.outputs.author }}
+      allowed: ${{ steps.permission.outputs.allowed }}
+      subcommand: ${{ steps.parse.outputs.subcommand }}
+      profile: ${{ steps.parse.outputs.profile }}
+      image-refs: ${{ steps.parse.outputs.image-refs }}
+    steps:
+      - id: parse
+        name: Parse command
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          read -r -a words <<<"${COMMENT_BODY}"
+          subcommand="${words[1]:-help}"
+          case "${subcommand}" in help|wheel|image|chart|all) ;; *) exit 2 ;; esac
+          profile=""
+          refs=()
+          for word in "${words[@]:2}"; do
+            case "${word}" in
+              profile=*) profile="${word#profile=}" ;;
+              *:*) refs+=("${word}") ;;
+              *) echo "unsupported /ucm-build argument: ${word}" >&2; exit 2 ;;
+            esac
+          done
+          if [ "${subcommand}" = image ] && [ "${#refs[@]}" -eq 0 ]; then
+            echo "/ucm-build image requires at least one repository:tag" >&2
+            exit 2
+          fi
+          if [ -n "${profile}" ] && [ "${subcommand}" != wheel ] && [ "${subcommand}" != all ]; then
+            echo "profile= is only valid for wheel or all" >&2
+            exit 2
+          fi
+          {
+            echo "subcommand=${subcommand}"
+            echo "profile=${profile}"
+            echo "image-refs<<EOF"
+            printf '%s\n' "${refs[@]}"
+            echo "EOF"
+          } >>"${GITHUB_OUTPUT}"
+      - name: Post help
+        if: steps.parse.outputs.subcommand == 'help'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat >help.md <<'EOF'
+          ## `/ucm-build`
+
+          | Command | Result |
+          | --- | --- |
+          | `/ucm-build wheel [profile=cuda130|cann900-a2|cann900-a3]` | Independent wheel artifacts |
+          | `/ucm-build image <repository:tag> [...]` | Wheels, OCI images and PR-tagged GHCR indexes |
+          | `/ucm-build chart` | Linted and packaged Helm Chart |
+          | `/ucm-build all` | Complete wheel, image and Chart matrices |
+
+          PR image tags use `pr-<number>-<author>-run-<run-id>` and are removed by the PR cleanup workflow.
+          EOF
+          gh pr comment "${{ github.event.issue.number }}" --body-file help.md
+      - id: permission
+        name: Check write permission
+        if: steps.parse.outputs.subcommand != 'help'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          permission="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/collaborators/${{ github.event.comment.user.login }}/permission" \
+            --jq '.permission')"
+          case "${permission}" in
+            admin|maintain|write) echo "allowed=true" >>"${GITHUB_OUTPUT}" ;;
+            *) echo "commenter needs write access" >&2; exit 1 ;;
+          esac
+      - id: pr
+        name: Read PR source
+        if: steps.parse.outputs.subcommand != 'help'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pr="$(gh api "${{ github.event.issue.pull_request.url }}")"
+          {
+            echo "source-ref=$(jq -r '.head.sha' <<<"${pr}")"
+            echo "number=$(jq -r '.number' <<<"${pr}")"
+            echo "author=$(jq -r '.user.login' <<<"${pr}")"
+          } >>"${GITHUB_OUTPUT}"
+
+  sync-builders:
+    needs: permission-check
+    if: needs.permission-check.outputs.allowed == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/sync-builders.yml
+
+  plan:
+    name: Plan requested build
+    needs: [permission-check, sync-builders]
+    if: needs.permission-check.outputs.allowed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      source_ref: ${{ needs.permission-check.outputs.source-ref }}
+      plan_artifact: ${{ steps.plan.outputs.plan_artifact }}
+      wheel_matrix: ${{ steps.filter.outputs.wheel_matrix }}
+      image_matrix: ${{ steps.filter.outputs.image_matrix }}
+      chart_enabled: ${{ steps.filter.outputs.chart_enabled }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ needs.permission-check.outputs.source-ref }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.sync-builders.outputs.builder_catalog_artifact }}
+          path: input/builders
+      - name: Install crane for tag discovery
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 \
+            https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
+            | tar -xz -C "${RUNNER_TEMP}/crane" crane
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - id: plan
+        name: Resolve compact plan
+        env:
+          SUBCOMMAND: ${{ needs.permission-check.outputs.subcommand }}
+          IMAGE_REFS: ${{ needs.permission-check.outputs.image-refs }}
+        run: |
+          set -euo pipefail
+          mkdir -p out/plan
+          args=(--builder-catalog input/builders/builder-catalog.json --route pr \
+            --output out/plan/release-plan.json)
+          if [ "${SUBCOMMAND}" = image ]; then
+            while IFS= read -r ref; do
+              [ -n "${ref}" ] && args+=(--pin-upstream "${ref}")
+            done <<<"${IMAGE_REFS}"
+          fi
+          PYTHONPATH=.github/release python -m ucm_release compact plan "${args[@]}" >/dev/null
+          echo "plan_artifact=ucm-release-plan-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}" \
+            >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ steps.plan.outputs.plan_artifact }}
+          path: out/plan/release-plan.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
+      - id: filter
+        name: Select requested matrices
+        env:
+          SUBCOMMAND: ${{ needs.permission-check.outputs.subcommand }}
+          PROFILE: ${{ needs.permission-check.outputs.profile }}
+        run: |
+          set -euo pipefail
+          plan=out/plan/release-plan.json
+          case "${SUBCOMMAND}" in
+            wheel)
+              if [ -n "${PROFILE}" ]; then
+                wheels="$(jq -c --arg profile "${PROFILE}" \
+                  '{include:[.wheels[]|select(.profile_id==$profile)|{id,label,runner}]}' "${plan}")"
+                test "$(jq '.include|length' <<<"${wheels}")" -gt 0
+              else
+                wheels="$(jq -c '.wheel_matrix' "${plan}")"
+              fi
+              images='{"include":[]}' chart=false
+              ;;
+            image)
+              images="$(jq -c '.image_matrix' "${plan}")"
+              needed="$(jq -c '[.images[].wheel_id]' "${plan}")"
+              wheels="$(jq -c --argjson ids "${needed}" \
+                '{include:[.wheels[]|select(.id|IN($ids[]))|{id,label,runner}]}' "${plan}")"
+              chart=false
+              ;;
+            chart)
+              wheels='{"include":[]}' images='{"include":[]}' chart=true
+              ;;
+            all)
+              wheels="$(jq -c '.wheel_matrix' "${plan}")"
+              images="$(jq -c '.image_matrix' "${plan}")"
+              chart=true
+              ;;
+          esac
+          {
+            echo "wheel_matrix=${wheels}"
+            echo "image_matrix=${images}"
+            echo "chart_enabled=${chart}"
+          } >>"${GITHUB_OUTPUT}"
+
+  build-wheels:
+    name: Wheel · ${{ matrix.label }}
+    needs: [permission-check, plan]
+    if: contains(fromJSON('["wheel","image","all"]'), needs.permission-check.outputs.subcommand)
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.wheel_matrix) }}
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/_build-wheel.yml
+    with:
+      source_ref: ${{ needs.plan.outputs.source_ref }}
+      wheel_id: ${{ matrix.id }}
+      runner: ${{ matrix.runner }}
+      plan_artifact: ${{ needs.plan.outputs.plan_artifact }}
+
+  build-images:
+    name: Image · ${{ matrix.label }}
+    needs: [permission-check, plan, build-wheels]
+    if: contains(fromJSON('["image","all"]'), needs.permission-check.outputs.subcommand)
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.image_matrix) }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_build-image.yml
+    with:
+      source_ref: ${{ needs.plan.outputs.source_ref }}
+      image_id: ${{ matrix.id }}
+      runner: ${{ matrix.runner }}
+      plan_artifact: ${{ needs.plan.outputs.plan_artifact }}
+      upload_oci: true
+
+  package-chart:
+    name: Chart · Helm package
+    needs: [permission-check, plan]
+    if: needs.plan.outputs.chart_enabled == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_build-chart.yml
+    with:
+      source_ref: ${{ needs.plan.outputs.source_ref }}
+      plan_artifact: ${{ needs.plan.outputs.plan_artifact }}
+
+  publish-trusted:
+    name: Publish PR build receipt
+    needs: [permission-check, plan, build-wheels, build-images, package-chart]
+    if: >-
+      ${{
+        always() && needs.permission-check.result == 'success' &&
+        (needs.build-wheels.result == 'success' ||
+         needs.build-images.result == 'success' ||
+         needs.package-chart.result == 'success')
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: docker/setup-buildx-action@v3.11.1
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.plan.outputs.plan_artifact }}
+          path: input/plan
+      - if: needs.build-images.result == 'success'
+        uses: actions/download-artifact@v4.3.0
+        with:
+          pattern: ucm-image-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: input/images
+      - if: needs.build-images.result == 'success'
+        name: Publish PR-tagged images
+        id: images
+        env:
+          PR_NUMBER: ${{ needs.permission-check.outputs.pr-number }}
+          PR_AUTHOR: ${{ needs.permission-check.outputs.pr-author }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes skopeo
+          printf '%s' "${GH_TOKEN}" | docker login ghcr.io \
+            --username "${GITHUB_ACTOR}" --password-stdin
+          owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          author="$(printf '%s' "${PR_AUTHOR}" | tr '[:upper:]' '[:lower:]')"
+          plan=input/plan/release-plan.json
+          : >published-tags.txt
+          while IFS=$'\t' read -r id product variant arch version; do
+            directory="input/images/ucm-image-${id}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+            archive="${directory}/image.oci.tar"
+            test -s "${archive}"
+            suffix=""; [ "${variant}" != default ] && suffix="-${variant}"
+            base="v${version}-pr-${PR_NUMBER}-${author}-run-${GITHUB_RUN_ID}${suffix}"
+            repository="ghcr.io/${owner}/${product}"
+            skopeo copy "oci-archive:${archive}" "docker://${repository}:${base}-${arch}"
+          done < <(jq -r '.images[] | [.id,.runtime.product_id,.runtime.variant,.cpu_arch,.runtime.version] | @tsv' "${plan}")
+          while IFS=$'\t' read -r product variant version; do
+            suffix=""; [ "${variant}" != default ] && suffix="-${variant}"
+            base="v${version}-pr-${PR_NUMBER}-${author}-run-${GITHUB_RUN_ID}${suffix}"
+            repository="ghcr.io/${owner}/${product}"
+            docker buildx imagetools create --tag "${repository}:${base}" \
+              "${repository}:${base}-amd64" "${repository}:${base}-arm64"
+            docker buildx imagetools inspect "${repository}:${base}" >/dev/null
+            echo "${repository}:${base}" >>published-tags.txt
+          done < <(jq -r '.families[] | [.product_id,.variant,.runtime.version] | @tsv' "${plan}")
+          {
+            echo "tags<<EOF"
+            cat published-tags.txt
+            echo "EOF"
+          } >>"${GITHUB_OUTPUT}"
+      - name: Post build receipt
+        env:
+          PR_NUMBER: ${{ needs.permission-check.outputs.pr-number }}
+          SUBCOMMAND: ${{ needs.permission-check.outputs.subcommand }}
+          WHEEL_RESULT: ${{ needs.build-wheels.result }}
+          IMAGE_RESULT: ${{ needs.build-images.result }}
+          CHART_RESULT: ${{ needs.package-chart.result }}
+          IMAGE_TAGS: ${{ steps.images.outputs.tags }}
+        run: |
+          set -euo pipefail
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          {
+            echo "## \`/ucm-build ${SUBCOMMAND}\` build receipt"
+            echo
+            echo "| Product | Result |"
+            echo "| --- | --- |"
+            echo "| wheel | \`${WHEEL_RESULT}\` |"
+            echo "| image | \`${IMAGE_RESULT}\` |"
+            echo "| chart | \`${CHART_RESULT}\` |"
+            if [ -n "${IMAGE_TAGS}" ]; then
+              echo
+              echo "### Images"
+              echo '```bash'
+              while IFS= read -r tag; do [ -n "${tag}" ] && echo "docker pull ${tag}"; done <<<"${IMAGE_TAGS}"
+              echo '```'
+            fi
+            echo
+            echo "Artifacts: ${run_url}"
+          } >receipt.md
+          gh pr comment "${PR_NUMBER}" --body-file receipt.md

@@ -1,0 +1,21 @@
+steps:
+- group: CUDA wheels
+  steps:
+  - id: build-wheel-x86-cuda-13-0
+    commands:
+    - docker build --build-arg BUILD_BASE_IMAGE=pytorch/manylinux2_28-builder:cuda13.0 .
+  - id: build-wheel-arm64-cuda-13-0
+    commands:
+    - docker build --build-arg BUILD_BASE_IMAGE=pytorch/manylinuxaarch64-builder:cuda13.0 .
+  - id: build-wheel-x86-cuda-12-9
+    commands:
+    - docker build --build-arg BUILD_BASE_IMAGE=pytorch/manylinux2_28-builder:cuda12.9 .
+  - id: build-wheel-arm64-cuda-12-9
+    commands:
+    - docker build --build-arg BUILD_BASE_IMAGE=pytorch/manylinuxaarch64-builder:cuda12.9 .
+  - id: build-wheel-x86-cpu
+    commands:
+    - docker build --build-arg BUILD_BASE_IMAGE=quay.io/pypa/manylinux_2_28_x86_64 .
+  - id: build-release-image-x86-cuda-13-0
+    commands:
+    - docker build --build-arg BUILD_BASE_IMAGE=ignored/release-image:cuda13.0 .

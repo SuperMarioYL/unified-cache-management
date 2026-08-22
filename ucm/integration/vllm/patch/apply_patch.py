@@ -32,7 +32,7 @@ from ucm.logger import init_logger
 
 logger = init_logger(__name__)
 
-import os
+import os  # noqa: E402 - preserve the dispatcher import order
 
 ENABLE_SPARSE = os.getenv("ENABLE_SPARSE", "0").lower() in (
     "1",
@@ -135,7 +135,7 @@ def apply_all_patches() -> None:
     """Apply all vLLM patches based on detected version."""
     version: Optional[str] = None
     try:
-        from ucm.integration.vllm.patch.logger_patch import patch_logger
+        from ucm.integration.vllm.patch.logger_patch import patch_logger  # noqa: F401
 
         if not ENABLE_UCM_PATCH:
             return
@@ -270,7 +270,7 @@ def apply_all_patches() -> None:
         # Fix: vLLM >= 0.27.0 Kimi-K3's MLA bypasses @maybe_transfer_kv_layer,
         # so wait_for_layer_load/save_kv_layer are never called. @when_imported
         # only fires when vllm.models.kimi_k3.nvidia.mla is imported.
-        import ucm.integration.vllm.patch.v0270.vllm.models.kimi_k3.nvidia.kimi_k3_mla_kv_hook_patch
+        import ucm.integration.vllm.patch.v0270.vllm.models.kimi_k3.nvidia.kimi_k3_mla_kv_hook_patch  # noqa: F401,E501
 
         logger.info("UCM patch initialization completed!")
 

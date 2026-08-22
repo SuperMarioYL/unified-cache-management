@@ -1,0 +1,147 @@
+name: Synchronize project builder pool
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+  workflow_call:
+    outputs:
+      builder_catalog_artifact:
+        description: Discovered Builder catalog for this run
+        value: ${{ jobs.prepare.outputs.builder_catalog_artifact }}
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ucm-builder-sync-${{ github.repository_id }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare builders
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      builder_catalog_artifact: ${{ steps.plan.outputs.builder_catalog_artifact }}
+      has_missing: ${{ steps.plan.outputs.has_missing }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: docker/setup-buildx-action@v3.11.1
+      - name: Authenticate to GHCR
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${GITHUB_TOKEN}" | docker login ghcr.io \
+            --username "${GITHUB_ACTOR}" --password-stdin
+      - id: plan
+        name: Discover builders and compute missing targets
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          PYTHONPATH=.github/release python -m ucm_release builders discover \
+            --output out/builder-catalog.json >/dev/null
+          printf '{}\n' >out/existing-tags.json
+          while IFS=$'\t' read -r repository tag; do
+            tags='[]'
+            if docker buildx imagetools inspect "${repository}:${tag}" >/dev/null 2>&1; then
+              tags="$(jq -cn --arg tag "${tag}" '[$tag]')"
+            fi
+            jq --arg repository "${repository}" --argjson tags "${tags}" \
+              '.[$repository] = ((.[$repository] // []) + $tags | unique | sort)' \
+              out/existing-tags.json >out/existing-tags.next.json
+            mv out/existing-tags.next.json out/existing-tags.json
+          done < <(jq -r '.builders[] | [.target_repository,.target_tag] | @tsv' \
+            out/builder-catalog.json)
+          PYTHONPATH=.github/release python -m ucm_release builders sync-plan \
+            --catalog out/builder-catalog.json \
+            --existing out/existing-tags.json \
+            --output out/builder-sync-plan.json >/dev/null
+          count="$(jq '.builders | length' out/builder-sync-plan.json)"
+          artifact="ucm-builder-catalog-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          {
+            echo "builder_catalog_artifact=${artifact}"
+            echo "matrix=$(jq -c '.matrix' out/builder-sync-plan.json)"
+            if [ "${count}" -gt 0 ]; then
+              echo "has_missing=true"
+            else
+              echo "has_missing=false"
+            fi
+          } >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ steps.plan.outputs.builder_catalog_artifact }}
+          path: out/builder-catalog.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
+
+  build-missing:
+    name: Builder · ${{ matrix.label }}
+    needs: prepare
+    if: ${{ needs.prepare.outputs.has_missing == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: ${{ matrix.cpu_arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3.11.1
+      - name: Authenticate to GHCR
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${GITHUB_TOKEN}" | docker login ghcr.io \
+            --username "${GITHUB_ACTOR}" --password-stdin
+      - name: Build missing Builder
+        env:
+          BUILD_MODE: ${{ matrix.build_mode }}
+          SOURCE_IMAGE: ${{ matrix.source_image }}
+          TARGET_REPOSITORY: ${{ matrix.target_repository }}
+          TARGET_TAG: ${{ matrix.target_tag }}
+        run: |
+          set -euo pipefail
+          target="${TARGET_REPOSITORY}:${TARGET_TAG}"
+          if docker buildx imagetools inspect "${target}" >/dev/null 2>&1; then
+            echo "Builder already exists: ${target}"
+            exit 0
+          fi
+          case "${BUILD_MODE}" in
+            mirror|copy)
+              docker buildx imagetools create --tag "${target}" "${SOURCE_IMAGE}"
+              ;;
+            extend)
+              mooncake_version="$(printf '%s' "${TARGET_TAG}" | sed -nE \
+                's/^.*-mooncake([0-9]+\.[0-9]+\.[0-9]+)-.*$/\1/p')"
+              test -n "${mooncake_version}"
+              mkdir -p context/tools
+              cp .github/release/docker/mooncake_installer.sh \
+                context/tools/mooncake_installer.sh
+              docker buildx build --push \
+                --platform "linux/${{ matrix.cpu_arch }}" \
+                --file .github/release/docker/Dockerfile.builder \
+                --build-arg "CANN_BASE=${SOURCE_IMAGE}" \
+                --build-arg "MOONCAKE_TAG=v${mooncake_version}" \
+                --tag "${target}" context
+              ;;
+            *)
+              echo "unsupported Builder mode: ${BUILD_MODE}" >&2
+              exit 2
+              ;;
+          esac
+          docker buildx imagetools inspect "${target}" >/dev/null
