@@ -1338,7 +1338,7 @@ def plan_builder_facts(
         "matrix": {
             "include": [
                 {
-                    "id": item["builder_plan_id"],
+                    "id": item["builder_plan_id"].removeprefix("sha256:"),
                     "label": (
                         f"{str(item['accelerator_runtime']).upper()} · "
                         f"{item['variant']} · {item['cpu_architecture']}"
@@ -1465,7 +1465,7 @@ def collect_builder_facts(plan: object, builder_results: object) -> dict[str, ob
             facts.append(fact)
             rows.append(
                 {
-                    "id": fact["builder_fact_id"],
+                    "id": fact["builder_fact_id"].removeprefix("sha256:"),
                     "builder_fact_id": fact["builder_fact_id"],
                     "builder_image": (f"{fact['target_repository']}@{target_digest}"),
                     "target_builder_digest": target_digest,

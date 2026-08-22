@@ -695,7 +695,7 @@ def discover_runtime_candidates(
             )
             matrix.append(
                 {
-                    "id": normalized["runtime_id"],
+                    "id": normalized["runtime_id"].removeprefix("sha256:"),
                     "runtime_id": normalized["runtime_id"],
                     "runtime_image": normalized["runtime_image"],
                     "runtime_image_digest": record["runtime_image_digest"],

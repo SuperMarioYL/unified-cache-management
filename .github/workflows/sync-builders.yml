@@ -155,7 +155,7 @@ jobs:
           declared_version="$(sed -nE 's/^ARG MOONCAKE_TAG=v?([^[:space:]]+).*$/\1/p' <<<"${dockerfile}" | head -1)"
           test -n "${declared_version}"
           printf '%s' "${declared_version}" >out/mooncake-probe/declared-version.txt
-          docker run --rm --entrypoint sh "${RUNTIME_IMAGE}" -lc \
+          docker run --rm --entrypoint sh "${RUNTIME_IMAGE}" -c \
             'test -d /usr/local/include/mooncake &&
              find /usr/local/lib -maxdepth 1 -type f -name "*mooncake*" -print -quit | grep -q . &&
              (pkg-config --modversion mooncake 2>/dev/null || cat /usr/local/lib/mooncake.version)' \
