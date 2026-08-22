@@ -81,7 +81,7 @@
 - 按 product/binding accelerator-runtime family/Variant/architecture 分组；组内按 runtime version 分桶降序，再执行 selector 声明顺序。同 selector 多匹配硬失败；无匹配形成 `runtime-flavor-unsupported` 后检查旧版本。baseline exact runtime 重开延后 Task 4B。
 - `builders.py` 冻结并验证 `ucm-current-builder-authority`。CandidateSelection/Catalog/authority source SHA exact 相等；新 revision exact 匹配 current recipe/toolchain，零匹配 local exclusion，多匹配硬失败；products 不复制 authority validator。
 - Schema v3 `dependencies` 只接受 canonical name 与不含 epoch/local 的 exact canonical PEP 440 pins；prerelease 必须显式 pin，禁止 constraint/range。每个 requirement 冻结 `{requirement_id,scope,name,version}`。
-- `capabilities.compile_python_coordinate` 是 Python coordinate 唯一公式 owner；`validate_selected_capability_evidence` 是 capability/revision/runtime/binding identity/projection/compatibility 唯一 validator，products 调用后再校验 discovered product/runtime 关系。
+- `capabilities.compile_python_coordinate` 是 Python coordinate 唯一公式 owner；`validate_selected_capability_evidence` 是 capability/revision/runtime/binding identity/projection/compatibility 唯一 validator，且把每个 capability 的 revision IDs 精确投影为本次 selected revisions，拒绝 full historical/dangling ID；products 调用后再校验 discovered product/runtime 关系。
 - `products.py` 输出封闭 `ucm-candidate-selection`，冻结 exact selected evidence、exclusions 和规范唯一 dependency requests。A1 CLI/API 不读 baseline；`baseline_manifest_sha256: null`、`baseline_selections: []`、`blockers: []`，不包含 build tasks 或网络访问。
 - 先提交 authority/selector/Python coordinate/CandidateSelection RED；fixture 从独立 live-shaped raw Catalog 输入动态增长，不固定 runtime、binding 或 ABI 数量。
 

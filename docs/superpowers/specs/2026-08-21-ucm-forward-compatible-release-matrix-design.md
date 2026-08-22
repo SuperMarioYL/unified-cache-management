@@ -315,10 +315,12 @@ free-threaded `cpXYt` 共用该函数：`python_tag` 始终为 `cpXY`，ABI 保�
 
 `capabilities.py` 还公开唯一 `validate_selected_capability_evidence(value)`，校验冻结的
 capability/revision/runtime/binding evidence：重算三个 identity、revision self-digest、
-binding projections 与 runtime compatibility。`products.validate_candidate_selection` 必须调用
-该 public seam，再自行校验 discovered `product_id` exact 等于其 runtime；不得复制 Catalog
-语义。`products.py` 同样必须调用 `builders.validate_current_builder_authority`，不得维护第二份
-authority validator/policy。
+binding projections 与 runtime compatibility。每个 selected capability 的
+`builder_revision_ids[]` 必须 exact 等于本次 evidence 中实际携带的该 capability revisions，
+不能复制完整 Catalog historical list 或保留 dangling ID。
+`products.validate_candidate_selection` 必须调用该 public seam，再自行校验 discovered
+`product_id` exact 等于其 runtime；不得复制 Catalog 语义。`products.py` 同样必须调用
+`builders.validate_current_builder_authority`，不得维护第二份 authority validator/policy。
 
 ## 5. Candidate Plan 与精确任务坐标
 
