@@ -501,8 +501,7 @@ def test_python_probe_fixture_links_exact_fact_and_defers_revision_identity() ->
         assert interpreter_coordinate == f"{python_tag}-{abi}"
         assert SOABI.fullmatch(probe["soabi"])
         assert probe["soabi"] == (
-            f'cpython-{abi.removeprefix("cp")}-'
-            f"{platform_architecture}-linux-gnu"
+            f'cpython-{abi.removeprefix("cp")}-' f"{platform_architecture}-linux-gnu"
         )
         assert probe["wheel_tag"] == (
             f'{python_tag}-{abi}-{fact["manylinux"]}_{platform_architecture}'
@@ -658,8 +657,7 @@ def test_one_physical_builder_fact_expands_only_after_multi_abi_probing() -> Non
         probe["python_abi"]
         for probe in fixture["python_probes"]["probes"]
         if probe["builder_fact_id"] == fact["builder_fact_id"]
-        and tuple(int(part) for part in probe["python_version"].split("."))
-        >= (3, 10)
+        and tuple(int(part) for part in probe["python_version"].split(".")) >= (3, 10)
     }
 
     assert len(revisions) == len(expected_abis)
@@ -1401,9 +1399,9 @@ def _free_threaded_probe(fixture: dict[str, Any]) -> dict[str, Any]:
 
 
 def _free_threaded_path_abi_drift(fixture: dict[str, Any]) -> None:
-    _free_threaded_probe(fixture)["interpreter_path"] = (
-        "/opt/python/cp314-cp314/bin/python-ft"
-    )
+    _free_threaded_probe(fixture)[
+        "interpreter_path"
+    ] = "/opt/python/cp314-cp314/bin/python-ft"
 
 
 def _free_threaded_soabi_drift(fixture: dict[str, Any]) -> None:

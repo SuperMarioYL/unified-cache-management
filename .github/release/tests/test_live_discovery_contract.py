@@ -198,9 +198,10 @@ def test_runtime_discovery_peels_tag_and_binds_matching_variant_dockerfile() -> 
         )
         assert CANONICAL_SHA256_ID.fullmatch(row["runtime_id"])
         assert row["runtime_id"] == expected_runtime_id
-        assert row["mooncake_version"] == candidates_by_digest[
-            row["runtime_image_digest"]
-        ]["mooncake_version"]
+        assert (
+            row["mooncake_version"]
+            == candidates_by_digest[row["runtime_image_digest"]]["mooncake_version"]
+        )
         assert row["id"] == row["runtime_id"].removeprefix("sha256:")
         assert ARTIFACT_SAFE_MATRIX_ID.fullmatch(row["id"])
         assert ":" not in row["id"]

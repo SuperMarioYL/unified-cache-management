@@ -870,8 +870,7 @@ def _cann_base_fact(
     context: str,
 ) -> tuple[str, str] | None:
     tags = re.findall(
-        r"(?mi)^\s*FROM(?:\s+--platform=\S+)?\s+"
-        r"quay\.io/ascend/cann:([^\s@]+)",
+        r"(?mi)^\s*FROM(?:\s+--platform=\S+)?\s+" r"quay\.io/ascend/cann:([^\s@]+)",
         text,
     )
     if not tags:
@@ -892,9 +891,7 @@ def _cann_base_fact(
             candidates: list[int] = []
             for index in range(1, len(parts)):
                 if (
-                    re.fullmatch(
-                        r"(?:a[0-9]+|[0-9]{3,}[a-z]?|[0-9]+p)", parts[index]
-                    )
+                    re.fullmatch(r"(?:a[0-9]+|[0-9]{3,}[a-z]?|[0-9]+p)", parts[index])
                     is None
                 ):
                     continue
@@ -994,9 +991,7 @@ def _runtime_dockerfiles(
             variant = declared_variant
         filtered = variant in excluded_variants
         mooncake_version = (
-            None
-            if filtered
-            else _literal_mooncake_version(text, f"{project}/{path}")
+            None if filtered else _literal_mooncake_version(text, f"{project}/{path}")
         )
         values.append(
             {

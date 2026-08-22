@@ -185,10 +185,15 @@ def _has_exact_mooncake_checkout_tag_readback(source: str) -> bool:
         checkout_bound = arguments[:2] == ["-C", checkout]
         if checkout_bound:
             arguments = arguments[2:]
-        elif index < len(commands) and index > 0 and commands[index - 1] == [
-            "cd",
-            checkout,
-        ]:
+        elif (
+            index < len(commands)
+            and index > 0
+            and commands[index - 1]
+            == [
+                "cd",
+                checkout,
+            ]
+        ):
             checkout_bound = True
         if not checkout_bound or not arguments or arguments[0] != "describe":
             continue
@@ -201,12 +206,16 @@ def _has_exact_mooncake_checkout_tag_readback(source: str) -> bool:
 def _has_mooncake_tag_canonicalization(source: str) -> bool:
     parameter_trim = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*#v\}")
     for command in _shell_command_argvs(source):
-        if command and command[0] in {"echo", "printf"} and any(
-            parameter_trim.fullmatch(token) for token in command[1:]
+        if (
+            command
+            and command[0] in {"echo", "printf"}
+            and any(parameter_trim.fullmatch(token) for token in command[1:])
         ):
             return True
-        if command and command[0] == "sed" and any(
-            re.search(r"s.\^v.", token) for token in command[1:]
+        if (
+            command
+            and command[0] == "sed"
+            and any(re.search(r"s.\^v.", token) for token in command[1:])
         ):
             return True
     return False
@@ -249,8 +258,7 @@ def _has_mooncake_header_and_library_checks(source: str) -> bool:
             and command[2].startswith("/usr/local/lib/")
         ):
             library_checked = library_checked or any(
-                name in command[2].lower()
-                for name in ("mooncake", "transfer_engine")
+                name in command[2].lower() for name in ("mooncake", "transfer_engine")
             )
         if (
             len(command) > 2
@@ -259,8 +267,7 @@ def _has_mooncake_header_and_library_checks(source: str) -> bool:
             and command[2].startswith("/usr/local/lib/")
         ):
             library_checked = library_checked or any(
-                name in command[2].lower()
-                for name in ("mooncake", "transfer_engine")
+                name in command[2].lower() for name in ("mooncake", "transfer_engine")
             )
     return header_checked and library_checked
 
@@ -990,8 +997,7 @@ def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version()
     probe_steps = [
         step
         for step in job["steps"]
-        if step.get("id") == "probe"
-        and "docker run" in str(step.get("run", ""))
+        if step.get("id") == "probe" and "docker run" in str(step.get("run", ""))
     ]
     assert len(probe_steps) == 1
     probe = probe_steps[0]
