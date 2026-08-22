@@ -149,6 +149,7 @@ def test_mooncake_installer_supports_old_upstream_curl() -> None:
     assert "curl --help all" in text
     assert "curl_retry_all_errors=(--retry-all-errors)" in text
     assert '"${curl_retry_all_errors[@]}"' in text
+    assert "--retry 8 --retry-all-errors" not in text
 
 
 def test_wheel_build_records_auditwheel_result_manifest() -> None:
