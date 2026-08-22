@@ -3,9 +3,6 @@
     "api-version": "1.0"
   },
   "name": "wrapt",
-  "versions": [
-    "1.17.2"
-  ],
   "files": [
     {
       "filename": "wrapt-1.17.2-py3-none-any.whl",
@@ -20,8 +17,7 @@
       "url": "https://files.example.invalid/wrapt/wrapt-1.17.2-cp314-cp314t-manylinux_2_28_x86_64.whl",
       "hashes": {
         "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-      },
-      "requires-python": null
+      }
     }
   ]
 }

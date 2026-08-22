@@ -70,13 +70,8 @@ RESOLVED_FIELDS = {
     "wheel_tags",
 }
 FAILURE_FIELDS = {"code", "requirement_id", "scope", "name", "version"}
-PEP691_FIELDS = {"meta", "name", "versions", "files"}
-PEP691_FILE_FIELDS = {
-    "filename",
-    "url",
-    "hashes",
-    "requires-python",
-}
+PEP691_REQUIRED_FIELDS = {"meta", "name", "files"}
+PEP691_REQUIRED_FILE_FIELDS = {"filename", "url", "hashes"}
 
 
 def _dependencies() -> Any:
@@ -89,42 +84,6 @@ def _public_callable(module: object, name: str) -> Callable[..., Any]:
         function
     ), f"required public API {module.__name__}.{name} is missing"
     return function
-
-
-def _call_target(node: ast.expr) -> str | None:
-    if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        parent = _call_target(node.value)
-        return f"{parent}.{node.attr}" if parent else node.attr
-    return None
-
-
-def _reachable_call_targets(tree: ast.Module, entrypoint: str) -> set[str]:
-    functions = {
-        node.name: node
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
-    assert entrypoint in functions
-    pending = [entrypoint]
-    visited: set[str] = set()
-    reachable: set[str] = set()
-    while pending:
-        name = pending.pop()
-        if name in visited:
-            continue
-        visited.add(name)
-        for node in ast.walk(functions[name]):
-            if not isinstance(node, ast.Call):
-                continue
-            target = _call_target(node.func)
-            if target is None:
-                continue
-            reachable.add(target)
-            if target in functions:
-                pending.append(target)
-    return reachable
 
 
 def _canonical_digest(value: object) -> str:
@@ -198,9 +157,7 @@ def _http_json_reader(
     responses: Mapping[str, Mapping[str, Any]],
     calls: list[tuple[str, dict[str, str]]] | None = None,
 ) -> Callable[..., Mapping[str, Any]]:
-    def read_json(
-        url: str, *, headers: Mapping[str, str]
-    ) -> Mapping[str, Any]:
+    def read_json(url: str, *, headers: Mapping[str, str]) -> Mapping[str, Any]:
         assert url.startswith(PYPI_SIMPLE_INDEX)
         assert url.endswith("/")
         assert headers["Accept"] == PEP691_MEDIA_TYPE
@@ -261,9 +218,7 @@ def _future_pep691_responses() -> dict[str, dict[str, Any]]:
     return responses
 
 
-def _requirement(
-    selection: Mapping[str, Any], name: str
-) -> Mapping[str, Any]:
+def _requirement(selection: Mapping[str, Any], name: str) -> Mapping[str, Any]:
     return next(
         item
         for item in selection["dependency_requests"][0]["requirements"]
@@ -271,9 +226,7 @@ def _requirement(
     )
 
 
-def _failure_resolution(
-    selection: dict[str, Any], *names: str
-) -> dict[str, Any]:
+def _failure_resolution(selection: dict[str, Any], *names: str) -> dict[str, Any]:
     responses = _pep691_responses()
     for name in names or ("pyyaml",):
         responses[name]["files"] = []
@@ -287,24 +240,22 @@ def test_task4_dependency_fixture_is_raw_pep691_project_json() -> None:
 
     assert set(responses) == set(EXPECTED_CP314T_FILENAMES)
     for project, response in responses.items():
-        assert set(response) == PEP691_FIELDS
+        assert PEP691_REQUIRED_FIELDS <= set(response)
         assert response["meta"] == {"api-version": "1.0"}
         assert canonicalize_name(response["name"]) == project
-        assert response["versions"] == sorted(set(response["versions"]))
+        assert "versions" not in response
         assert response["files"]
         for file_record in response["files"]:
-            assert set(file_record) == PEP691_FILE_FIELDS
+            assert PEP691_REQUIRED_FILE_FIELDS <= set(file_record)
             assert file_record["url"].startswith("https://")
             sha256 = file_record["hashes"]["sha256"]
             assert len(sha256) == 64
             assert set(sha256) <= set("0123456789abcdef")
-            assert file_record["requires-python"] is None or isinstance(
-                file_record["requires-python"], str
-            )
+            requires_python = file_record.get("requires-python")
+            assert requires_python is None or isinstance(requires_python, str)
             if file_record["filename"].endswith(".whl"):
-                name, version, _, _ = parse_wheel_filename(file_record["filename"])
+                name, _, _, _ = parse_wheel_filename(file_record["filename"])
                 assert canonicalize_name(name) == project
-                assert str(version) in response["versions"]
         assert EXPECTED_CP314T_FILENAMES[project] in {
             item["filename"] for item in response["files"]
         }
@@ -318,33 +269,43 @@ def test_dependency_resolution_public_seams_are_owned_by_dependencies_module() -
     assert not hasattr(products, "resolve_dependency_resolution")
 
 
-def test_dependency_selection_validation_ownership_is_one_way() -> None:
+def test_resolver_calls_public_selection_validator_before_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     dependency_module = _dependencies()
-    dependency_tree = ast.parse(
-        Path(dependency_module.__file__).read_text(encoding="utf-8")
-    )
-    product_tree = ast.parse(Path(products.__file__).read_text(encoding="utf-8"))
-    call_targets = _reachable_call_targets(
-        dependency_tree, "resolve_dependency_resolution"
-    )
-    imports_public_validator = any(
-        isinstance(node, ast.ImportFrom)
-        and (node.module or "").endswith("products")
-        and any(item.name == "validate_candidate_selection" for item in node.names)
-        for node in dependency_tree.body
-    )
-    assert (
-        "products.validate_candidate_selection" in call_targets
-        or (
-            imports_public_validator
-            and "validate_candidate_selection" in call_targets
+    selection, _ = _selection()
+    events: list[str] = []
+
+    class HttpReadReached(Exception):
+        pass
+
+    def validate(value: object) -> object:
+        events.append("selection-validator")
+        assert value == selection
+        return copy.deepcopy(value)
+
+    def read_json(url: str, *, headers: Mapping[str, str]) -> Mapping[str, Any]:
+        events.append("http-read")
+        raise HttpReadReached
+
+    if hasattr(dependency_module, "validate_candidate_selection"):
+        assert (
+            dependency_module.validate_candidate_selection
+            is products.validate_candidate_selection
         )
-    )
-    assert not any(
-        isinstance(node, ast.FunctionDef)
-        and node.name == "validate_candidate_selection"
-        for node in dependency_tree.body
-    )
+        monkeypatch.setattr(dependency_module, "validate_candidate_selection", validate)
+    else:
+        monkeypatch.setattr(products, "validate_candidate_selection", validate)
+        monkeypatch.setattr(dependency_module, "products", products, raising=False)
+
+    with pytest.raises(HttpReadReached):
+        _resolve(selection, http_json_read=read_json)
+    assert events == ["selection-validator", "http-read"]
+
+
+def test_products_never_imports_dependencies() -> None:
+    product_tree = ast.parse(Path(products.__file__).read_text(encoding="utf-8"))
+
     assert not any(
         (
             isinstance(node, ast.ImportFrom)
@@ -361,6 +322,24 @@ def test_dependency_selection_validation_ownership_is_one_way() -> None:
     )
 
 
+def test_dependency_resolver_does_not_use_host_sys_tags() -> None:
+    dependency_module = _dependencies()
+    dependency_tree = ast.parse(
+        Path(dependency_module.__file__).read_text(encoding="utf-8")
+    )
+
+    assert not any(
+        isinstance(node, ast.ImportFrom)
+        and node.module == "packaging.tags"
+        and any(item.name in {"sys_tags", "*"} for item in node.names)
+        for node in ast.walk(dependency_tree)
+    )
+    assert not any(
+        isinstance(node, ast.Attribute) and node.attr == "sys_tags"
+        for node in ast.walk(dependency_tree)
+    )
+
+
 def test_resolver_rejects_resealed_invalid_selection_before_index_read() -> None:
     selection, _ = _selection()
     request = selection["dependency_requests"][0]
@@ -374,9 +353,7 @@ def test_resolver_rejects_resealed_invalid_selection_before_index_read() -> None
     _reseal(selection, "selection_sha256")
     reads: list[tuple[str, dict[str, str]]] = []
 
-    def reader(
-        url: str, *, headers: Mapping[str, str]
-    ) -> Mapping[str, Any]:
+    def reader(url: str, *, headers: Mapping[str, str]) -> Mapping[str, Any]:
         reads.append((url, dict(headers)))
         raise AssertionError("index reader must not run after invalid Selection")
 
@@ -391,9 +368,7 @@ def test_resolver_rejects_config_digest_drift_before_index_read() -> None:
     config["image_revision"] += 1
     reads: list[tuple[str, dict[str, str]]] = []
 
-    def reader(
-        url: str, *, headers: Mapping[str, str]
-    ) -> Mapping[str, Any]:
+    def reader(url: str, *, headers: Mapping[str, str]) -> Mapping[str, Any]:
         reads.append((url, dict(headers)))
         raise AssertionError("index reader must not run after config identity drift")
 
@@ -412,9 +387,7 @@ def test_resolver_rejects_request_fanout_limit_before_index_read() -> None:
     _reseal(selection, "selection_sha256")
     reads: list[tuple[str, dict[str, str]]] = []
 
-    def reader(
-        url: str, *, headers: Mapping[str, str]
-    ) -> Mapping[str, Any]:
+    def reader(url: str, *, headers: Mapping[str, str]) -> Mapping[str, Any]:
         reads.append((url, dict(headers)))
         raise AssertionError("index reader must not run after request limit overflow")
 
@@ -463,10 +436,7 @@ def test_dependency_resolution_is_closed_exact_and_self_digesting() -> None:
         item["name"] for item in selection["dependency_requests"][0]["requirements"]
     ]
     expected_calls = {
-        (
-            f"{PYPI_SIMPLE_INDEX}{project}/",
-            PEP691_MEDIA_TYPE,
-        )
+        (f"{PYPI_SIMPLE_INDEX}{project}/", PEP691_MEDIA_TYPE)
         for project in expected_projects
     }
     actual_calls = {(url, headers["Accept"]) for url, headers in calls}
@@ -509,7 +479,38 @@ def test_dependency_resolution_is_closed_exact_and_self_digesting() -> None:
             assert resolved["sha256"] == (
                 "sha256:" + source_record["hashes"]["sha256"]
             )
-            assert resolved["requires_python"] == source_record["requires-python"]
+            assert resolved["requires_python"] == source_record.get(
+                "requires-python"
+            )
+
+
+def test_pep691_extensions_are_ignored_and_requires_python_is_optional() -> None:
+    selection, _ = _selection()
+    responses = _pep691_responses()
+    response = responses["wrapt"]
+    response["meta"]["extension-meta"] = {"version": 1}
+    response["extension-project"] = {"opaque": True}
+    selected_file = next(
+        item
+        for item in response["files"]
+        if item["filename"] == EXPECTED_CP314T_FILENAMES["wrapt"]
+    )
+    assert "requires-python" not in selected_file
+    selected_file["extension-file"] = ["opaque"]
+
+    resolution = _resolve(selection, responses)
+    resolved = next(
+        item
+        for item in resolution["requests"][0]["resolved"]
+        if item["name"] == "wrapt"
+    )
+
+    assert resolved["filename"] == EXPECTED_CP314T_FILENAMES["wrapt"]
+    assert resolved["url"] == selected_file["url"]
+    assert resolved["sha256"] == (
+        "sha256:" + selected_file["hashes"]["sha256"]
+    )
+    assert resolved["requires_python"] is None
 
 
 def test_dependency_resolution_uses_foreign_target_tag_rank_not_file_order() -> None:

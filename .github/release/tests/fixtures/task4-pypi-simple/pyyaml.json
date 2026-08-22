@@ -3,9 +3,6 @@
     "api-version": "1.0"
   },
   "name": "pyyaml",
-  "versions": [
-    "6.0.2"
-  ],
   "files": [
     {
       "filename": "PyYAML-6.0.2-py3-none-any.whl",

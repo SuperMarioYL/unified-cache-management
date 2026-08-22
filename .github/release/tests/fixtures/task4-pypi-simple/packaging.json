@@ -3,10 +3,6 @@
     "api-version": "1.0"
   },
   "name": "packaging",
-  "versions": [
-    "24.1",
-    "24.2"
-  ],
   "files": [
     {
       "filename": "packaging-24.2.tar.gz",
