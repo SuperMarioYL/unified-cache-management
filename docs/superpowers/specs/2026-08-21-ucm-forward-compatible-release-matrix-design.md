@@ -40,9 +40,14 @@ Schema v3 是一次切换，不双读、不降级、不保留 v2 适配层。旧
 flowchart LR
     Config["release.yaml Schema v3"] --> Catalog["Capability Catalog"]
     Upstream["上游源码、镜像与 Builder"] --> Catalog
-    Catalog --> Candidate["Candidate Plan"]
-    Config --> Candidate
-    Previous["上一版 Release Manifest"] --> Candidate
+    Planner["planner checkout"] --> Authority["Current Builder Authority"]
+    Catalog --> Selection["CandidateSelection"]
+    Config --> Selection
+    Authority --> Selection
+    Previous["上一版 Release Manifest"] --> Selection
+    Selection --> Dependencies["DependencyResolution"]
+    Selection --> Candidate["Candidate Plan"]
+    Dependencies --> Candidate
     Candidate --> Build["Build matrices"]
     Build --> BuildResults["Build Result Artifacts"]
     Previous --> Admission["Admission"]
@@ -66,15 +71,17 @@ flowchart LR
 | 所有者 | 权威职责 | 不拥有的知识 |
 | --- | --- | --- |
 | `.github/release/release.yaml` + `schemas/config.schema.json` | 静态产品规则、模板、版本约束、渠道开关、扫描与矩阵上限、首次 v3 bootstrap 策略 | 已发现版本、ABI、架构和构建结果 |
-| `ucm_release/capabilities.py` | 上游读取、规范化、去重、exclusion、Capability Catalog | Distribution 命名和发布准入 |
+| `ucm_release/capabilities.py` | 上游读取、规范化、去重、exclusion、Capability Catalog、Python coordinate 编译 | Distribution 命名和发布准入 |
 | `ucm_release/builders.py` | planner checkout 的当前 Builder recipe/toolchain 权威、Builder 同步与精确 revision 证据 | runtime 选择和 baseline 准入 |
-| `ucm_release/products.py` | 模板编译、产品展开、精确任务坐标、Candidate Plan、依赖解析冻结 | 构建是否成功 |
+| `ucm_release/products.py` | 模板编译、产品选择、CandidateSelection、精确任务坐标和纯 Candidate Plan | 网络/索引访问和构建是否成功 |
+| `ucm_release/dependencies.py` | dependency request exact closure、兼容 wheel 排序、索引解析和 DependencyResolution | 产品/runtime 选择和 Candidate graph |
 | `ucm_release/results.py` | Build/Trusted Build/Publication Result 的统一写入、校验与闭包收集 | 产品选择和 baseline 决策 |
 | `ucm_release/admission.py` | baseline 读取、状态机、依赖传播、Admitted Release Plan | 构建与发布动作 |
 | `ucm_release/publication.py` | 发布矩阵、渠道坐标、Release Manifest、最终闭包和 readback 判定 | 上游能力发现 |
 | Workflow | 触发、权限、矩阵 fan-out、Artifact 搬运和失败传播 | 业务映射、固定产品列表、文件 glob 推断 |
 
-`capabilities.py` 和 `products.py` 是新的核心深模块。其余支持模块可以在实现时合并，
+`capabilities.py`、`builders.py`、`products.py` 和 `dependencies.py` 是核心深模块。其余
+支持模块可以在实现时合并，
 但以上知识只能有一个权威所有者。例如 Workflow 不得重新实现 Distribution 模板，
 生产 Controller 不得保留 `_PROFILES` 或 `EXPECTED_IMAGE_SPECS`。
 
@@ -131,16 +138,15 @@ publish:
 ```
 
 每个 `upstream_products[]` 还必须声明有序 `runtime_tag_selectors[]`。每个 selector
-是 exact template，字段 allowlist 只有 `{version}`、`{variant.tag_suffix}` 和
+是 exact template，字段 allowlist 只有 `{version}`、`{variant}` 和
 `{runtime.major_minor.compact}`；未知字段、空展开、重复 template 或非 OCI tag 结果是配置
-错误。`{version}` 是不含前导 `v` 的规范 PEP runtime version；
-`{variant.tag_suffix}` 只能是空字符串或以 `-` 开头的规范 token。数组顺序是显式选择
-优先级，不得排序或按摘要重排。例如：
+错误。`{version}` 是不含前导 `v` 的规范 PEP runtime version；`{variant}` 是 Catalog
+已规范化的非空 Variant。数组顺序是显式选择优先级，不得排序或按摘要重排。exact policy
+为：
 
 ```yaml
-runtime_tag_selectors:
-  - "v{version}{variant.tag_suffix}"
-  - "v{version}-cu{runtime.major_minor.compact}{variant.tag_suffix}"
+vllm: ["v{version}", "v{version}-cu{runtime.major_minor.compact}"]
+vllm-ascend: ["v{version}", "v{version}-{variant}"]
 ```
 
 示例只表达字段职责，最终配置还保留现有上游版本范围、渠道、运行时 patch、Chart、
@@ -149,10 +155,10 @@ Profile Builder 注入、固定 `python_abi`、固定 `dist_name` 以及固定�
 配置加载器看到 `schema_version` 不是整数 `3` 或出现这些残留字段时直接失败，不能把
 它们忽略为未知扩展。
 
-依赖配置只保存版本或版本约束。Candidate Plan 的依赖解析阶段必须针对每个
-`python_abi + cpu_architecture` 在 GitHub Hosted Runner 上解析二进制 wheel，冻结
-Distribution、版本、文件名、来源 URL 和 SHA256；构建 Job 只消费冻结结果，不重新
-选择依赖，也不从宽泛 glob 猜测文件。
+依赖配置只保存版本或版本约束。纯 Candidate planner 不访问网络或包索引；Task 4A1 只
+生成规范 dependency requests，Task 4A2 的 `dependencies.py` resolver 在 GitHub Hosted
+Runner 上解析 compatible binary wheels 并冻结文件名、URL 和 SHA256，随后纯 planner
+消费该 Resolution。构建 Job 不重新选择依赖，也不从宽泛 glob 猜测文件。
 
 ### 3.2 模板编译与规范化
 
@@ -297,16 +303,25 @@ baseline Manifest 引用的 revision；同步只新增 content-addressed/revisio
 不覆盖或删除旧 revision。Manifest 引用的 target digest 无法回读时保留该 revision 记录
 并让 baseline build 产生失败 Result，不能静默换成相同 capability 的其他 revision。
 
+`capabilities.py` 公开唯一 `compile_python_coordinate(validated_fields)`。输入是已验证的
+`python_version + python_abi + cpu_architecture + manylinux`；输出封闭
+`python_tag + interpreter_path + expected_soabi + expected_wheel_tag`。普通 `cpXY` 与
+free-threaded `cpXYt` 共用该函数：`python_tag` 始终为 `cpXY`，ABI 保留可选 `t`，路径为
+`/opt/python/{python_tag}-{python_abi}/bin/python`。Catalog assembly 用它校验 probe，
+`products.py` 用它冻结 task；不得扩展 Catalog shape，也不得在任一模块复制公式。
+
 ## 5. Candidate Plan 与精确任务坐标
 
-Task 4 分为两个顺序边界：Task 4A 冻结 current Builder authority、runtime selector 选择、
-精确 IDs 和 Candidate dependency graph；Task 4B 在 Candidate Plan 不再变化后定义 Build
-Result 闭包、baseline/evaluation 状态机和 Admitted Release Plan。Task 4 到 Admitted Plan
-Artifact 为止，不实现 trusted rebuild、publication DAG、远端写入或 Release Manifest；
-这些仍由 Task 6 及后续阶段拥有。
+Task 4 分为顺序边界：Task 4A1 冻结 current Builder authority、runtime selector 选择、
+Python coordinate 和 dependency requests，生成 CandidateSelection；Task 4A2 先独立解析
+DependencyResolution，再由纯 planner 生成精确 Candidate graph；Task 4B 在 Candidate Plan
+不再变化后定义 Build Result 闭包、baseline/evaluation 状态机和 Admitted Release Plan。
+Task 4 到 Admitted Plan Artifact 为止，不实现 trusted rebuild、publication DAG、远端写入
+或 Release Manifest；这些仍由 Task 6 及后续阶段拥有。
 
-`ucm_release plan candidates` 消费 Schema v3 配置、一个已验证 Catalog，以及可选的上一版
-正式 v3 Manifest。Catalog 没有“current”标记。新 discovered selection 按
+`ucm_release plan prepare-candidates` 消费 Schema v3 配置、一个已验证 Catalog、
+`ucm-current-builder-authority`，以及可选的上一版正式 v3 Manifest。Catalog 没有
+“current”标记。新 discovered selection 按
 `product + binding/Builder accelerator_runtime family + variant + cpu_architecture` 分组；
 例如同一 runtime version 的 `cuda-12.9` 与 `cuda-13.0` 必须独立选择。每组内再按
 `runtime_version` 分桶并以 PEP 440 version 降序检查，
@@ -345,12 +360,6 @@ recipes[{recipe_path, recipe_source_commit, recipe_sha256}]
 authority_sha256
 ```
 
-对 discovered selection，`Candidate Plan.source_sha`、`Capability Catalog.source_sha` 与
-`CurrentBuilderAuthority.source_sha` 必须 exact 相等；任一不等是全局失败，不能混用其他
-run 的 Catalog 或 checkout authority。该 top-level 闭包不把历史 recipe 变成 current：
-baseline revision 仍从同一 Catalog 按 exact ID 重开，并绕过下面的 current recipe/
-toolchain 匹配。
-
 `recipes[]` 按上述三字段规范排序；`authority_sha256` 使用通用 self-digest projection，只
 排除自身。新 discovered selection 只从 `recipe_source_commit + recipe_sha256 +
 toolchain_sha256` 与该 authority exact 相等的 revision 中选择，并在 Candidate Plan 冻结
@@ -361,6 +370,52 @@ authority；不可回读时按 baseline failure 处理，不能改选 current re
 若替换旧 revision，必须作为独立 successor task 走
 promoted/quarantined/superseded 状态机。
 
+### 5.1 CandidateSelection
+
+`plan prepare-candidates` 输出封闭、自摘要的 `ucm-candidate-selection`。它至少包含
+`kind/schema_version/route/source_sha/ucm_version/release_tag/config_sha256/catalog_sha256/
+current_builder_authority_sha256`、可选 `baseline_manifest_sha256`、按 exact ID 冻结的
+selected capability/revision/runtime/binding evidence、baseline/discovered selections、
+exclusions、blockers、规范唯一 `dependency_requests[]` 和 `selection_sha256`。它不包含
+build tasks，也不访问网络或包索引。
+
+每个 dependency request 是封闭记录：`request_id`、coordinate
+`{python_tag, python_abi, cpu_architecture, manylinux}`，以及规范排序且唯一的 exact
+requirements `[{scope, name, version}]`。`request_id` 是 coordinate + requirements 的
+canonical digest。相同 request 不因多个 image consumer 重复；missing/duplicate coordinate、
+unknown scope 或不规范 requirement 是 selection 硬失败。
+
+对 discovered selection，`CandidateSelection.source_sha`、`Capability Catalog.source_sha`
+与 `CurrentBuilderAuthority.source_sha` 必须 exact 相等；后续 Candidate Plan 继承同一
+`source_sha`。baseline revision 仍从该 Catalog 按 exact ID 重开并绕过 current recipe
+匹配。
+
+### 5.2 DependencyResolution
+
+`ucm_release dependencies resolve --selection` 是唯一网络/索引 owner，输出封闭、自摘要的
+`ucm-dependency-resolution`：
+
+```text
+kind, schema_version, source_sha, config_sha256, catalog_sha256, selection_sha256
+requests[{request_id, coordinate, requirements, status, resolved[], failures[]}]
+resolution_sha256
+```
+
+`requests[]` 按 `request_id` 规范排序。coordinate/requirements 与 CandidateSelection
+exact 相等；`resolved[]` 记录
+`{name, version, filename, url, sha256, wheel_tags}` 并规范排序，failures 使用稳定 code。
+Resolution 的 request IDs 必须与 Selection 完全闭包，拒绝 missing、duplicate、unexpected、
+coordinate/requirement drift 和不兼容 wheel tags。resolver 只接受 standards-based
+compatible binary wheel tag，并按标准兼容度排名；禁止 sdist、环境 fallback、Catalog/索引
+数组顺序或文件名顺序成为选择规则。
+
+`ucm_release plan candidates --selection --dependency-resolution` 是纯函数：先校验两个对象的
+摘要、source/config/catalog identity 和 exact request set，再把 resolved URL/filename/
+SHA256 冻结进 Candidate Plan。validator 只重算闭包与摘要，绝不重新选择 runtime、Builder
+revision 或依赖。未解析的新 dependency 形成 `dependency-unavailable` local exclusion 且
+不生成相关 task；未解析的 baseline dependency 形成显式
+`baseline-dependency-unavailable` blocker，不能替换 requirement 或 wheel。
+
 每个任务除 `admission_key` 外还有 `lineage_key`。Lineage 保留 accelerator runtime、
 Variant、ABI 和 architecture，但不包含 UCM version、上游 runtime version 或 Mooncake
 patch version。不同 accelerator runtime 是可并存的新产品线；同一 lineage 内更高的
@@ -368,7 +423,7 @@ runtime/Mooncake 候选可以由产品规则产生显式 `supersedes` 关系。�
 “不是最新”而隐式删除 baseline。`retired` 只来自 Schema v3 中包含旧 key、原因、替代项
 和生效版本的显式 retirement 声明。
 
-### 5.1 坐标
+### 5.3 坐标
 
 产品坐标和构建实例坐标都是结构化字段的规范 JSON，不以数组下标、当前 Profile 名或
 文件名代替：
@@ -436,13 +491,13 @@ Mooncake、ABI 和 architecture，防止 CANN runtime 与错误 Mooncake 或 Pyt
 拼接。Family 明确列出其 member task IDs 和 publication channels，不假设只有
 `amd64/arm64`。
 
-### 5.2 Candidate Plan 契约
+### 5.4 Candidate Plan 契约
 
 `ucm-candidate-plan` 至少包含：
 
 - `route`、`source_sha`、`ucm_version`、`release_tag`、`config_sha256`、
-  `catalog_sha256`、`current_builder_authority_sha256`、可选
-  `baseline_manifest_sha256`；
+  `catalog_sha256`、`current_builder_authority_sha256`、`selection_sha256`、
+  `dependency_resolution_sha256`、可选 `baseline_manifest_sha256`；
 - `capabilities[]`、`builder_revisions[]` 和 `bindings[]`：实际被产品展开消费的精确 IDs；
   其中每个 Task 4 `binding_id` 按 exact Builder revision/runtime pair 重算；
 - `wheel_tasks[]`：精确坐标、动态 Distribution、Builder digest、manylinux、Python、
@@ -732,8 +787,9 @@ Manifest 只在所有 publication Result 成功后生成；它自身与 GitHub R
 
 ## 10. 触发、路由与写边界
 
-所有入口共享 `catalog discover -> plan candidates -> build`。PR/daily 随后执行
-`plan admit --mode evaluation`；只有 RC/formal 执行正式 `plan admit`，再进入
+所有入口共享 `catalog discover` → `plan prepare-candidates` → `dependencies resolve` →
+`plan candidates` → build。PR/daily 随后执行 `plan admit --mode evaluation`；只有 RC/
+formal 执行正式 `plan admit`，再进入
 `trusted rebuild -> publication input gate -> publication`。route 同时决定选择范围、
 保留时长和写权限，evaluation 不能通过字段或 Workflow output 冒充正式 Admitted Plan。
 

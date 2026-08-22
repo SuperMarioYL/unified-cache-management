@@ -74,18 +74,26 @@
 
 ## Task 4: 动态生成 Candidate 和 Admitted Plan
 
-### Task 4A: Authority、选择和 Candidate graph
+### Task 4A1: Authority、选择和 dependency requests
 
-- Task 3 的 validated Capability Catalog 是唯一发现输入；新增 CLI：`ucm_release plan candidates` 和 `ucm_release plan select`。
-- Schema v3 为每个 upstream product 增加有序 exact `runtime_tag_selectors`，只允许 `{version}`、`{variant.tag_suffix}`、`{runtime.major_minor.compact}`；`version` 是无前导 `v` 的 PEP runtime version，Variant suffix 是空值或 leading-dash token。模板形如 `v{version}{variant.tag_suffix}`、`v{version}-cu{runtime.major_minor.compact}{variant.tag_suffix}`。
-- 按 product/binding accelerator-runtime family/Variant/architecture 分组；组内按 runtime version 分桶并降序，再在同一 version 内按 selector 声明顺序选择。同 selector 多匹配硬失败，无匹配形成 `runtime-flavor-unsupported` 后检查旧版本。Ascend 先提取 Variant；baseline exact `runtime_id` 绕过 selector。
-- `builders.py` 从 planner checkout 冻结 `ucm-current-builder-authority`：`source_sha`、`toolchain_sha256`、规范排序的 recipe commit/hash 和 `authority_sha256`。discovered selection 要求 Candidate/Catalog/authority 三个 `source_sha` exact 相等；新候选 revision 必须 exact 匹配，零匹配 local exclusion，多匹配硬失败。baseline revision 从同一 Catalog 按 exact ID 重开并绕过 current recipe authority。
-- WHL publication/build 坐标、Runtime Image 绑定键和 build instance 坐标按 Spec 计算；Task 4 `binding_id` 只由 `{builder_revision_id, runtime_id}` 的规范 JSON 计算，不修改 Catalog。
-- Wheel task 按完整 build coordinate 唯一生成并允许多个 image 共享，不能按 binding 重复创建。
-- Candidate Plan 冻结 `current_builder_authority_sha256`、`python_tag`、exact interpreter path、expected SOABI/wheel tag，以及 `admission_requirements[]` 的 `{admission_key,candidate_role,required_task_ids[]}`。`candidate_role` 只在 requirements 中；tasks 只携带从 dependency graph 反向传播的 `baseline_required`。
-- CUDA/CANN Distribution 模板继续分别为 `uc-manager-cuda{runtime.compact}` 和 `uc-manager-cann{runtime.compact}-{variant}-mc{mooncake.compact}`；依赖配置只保存版本，计划按动态 ABI/架构冻结文件名、URL 和摘要。
-- 从最近的 Schema v3 Release Manifest 精确重建 baseline，同时保留最新 discovered successor；禁止用 tag、数组、字典或摘要顺序替换选择权威。
-- 先提交 authority/selector/Candidate graph RED，fixture 从真实 Catalog 动态展开并加入新 ABI/runtime/Variant 验证增长，不固定六产品、三个 ABI 或任务数量。
+- Task 3 validated Capability Catalog 是唯一发现输入；新增 CLI `ucm_release plan prepare-candidates`。
+- Schema v3 每个 upstream product 声明有序 exact selectors：vLLM 为 `v{version}`、`v{version}-cu{runtime.major_minor.compact}`，vLLM-Ascend 为 `v{version}`、`v{version}-{variant}`。`variant` 只来自 Catalog-normalized Variant，不读取 supplementary tag suffix。
+- 按 product/binding accelerator-runtime family/Variant/architecture 分组；组内按 runtime version 分桶降序，再执行 selector 声明顺序。同 selector 多匹配硬失败；无匹配形成 `runtime-flavor-unsupported` 后检查旧版本。baseline exact runtime ID 绕过 selector。
+- `builders.py` 冻结 `ucm-current-builder-authority`。CandidateSelection/Catalog/authority source SHA exact 相等；新 revision exact 匹配 current recipe/toolchain，零匹配 local exclusion，多匹配硬失败；baseline exact revision 绕过。
+- `capabilities.compile_python_coordinate` 是普通/free-threaded Python coordinate 的唯一公式 owner；Catalog assembly 和 products 都调用它，不扩展 Catalog shape。
+- `products.py` 输出封闭 `ucm-candidate-selection`，冻结 exact selected evidence、exclusions/blockers 和规范唯一 dependency requests；不包含 build tasks，不访问网络。
+- 先提交 authority/selector/Python coordinate/CandidateSelection RED；fixture 从独立 live-shaped raw Catalog 输入动态增长，不固定 runtime、binding 或 ABI 数量。
+
+### Task 4A2: DependencyResolution 和纯 Candidate graph
+
+- 新增 `dependencies.py` 与 CLI `ucm_release dependencies resolve --selection`。它是唯一网络/索引 owner，按 standards-compatible binary wheel-tag rank 解析 exact request set，禁止 sdist、fallback 或数组顺序选择。
+- `ucm-dependency-resolution` 绑定 source/config/catalog/selection hashes；每个 request 冻结 coordinate、exact requirements、status、resolved filename/URL/SHA/wheel tags 和 failures，拒绝 missing/duplicate/unexpected/drift。
+- `ucm_release plan candidates --selection --dependency-resolution` 是纯 planner；校验摘要和 request closure，把 resolved records 冻结进 Candidate Plan，绝不重新选择或联网。新增 `selection_sha256` 与 `dependency_resolution_sha256`。
+- unresolved new dependency 形成 `dependency-unavailable` exclusion 且不建 task；unresolved baseline dependency 形成 `baseline-dependency-unavailable` blocker，不能替换。
+- WHL/image/family坐标按 Spec 计算；Task 4 `binding_id` 只由 exact revision/runtime pair 计算。Wheel 按完整 build coordinate 唯一且可被多个 image 共享。
+- Candidate Plan 冻结 Python coordinate、动态 tasks/matrices、`admission_requirements[]` 和 graph-derived `baseline_required`。`candidate_role` 只在 requirements 中。
+- `ucm_release plan select` 只做 expected plan hash + exact task ID lookup，不承担 selection 或 dependency resolution。
+- 先提交 DependencyResolution/Candidate graph/CLI RED，覆盖 request exact set、selector ordering、future ABI、共享 wheel、resource limits 和 anti-ordering；不固定六产品、三个 ABI 或任务数量。
 
 ### Task 4B: Result closure 和 admission
 
