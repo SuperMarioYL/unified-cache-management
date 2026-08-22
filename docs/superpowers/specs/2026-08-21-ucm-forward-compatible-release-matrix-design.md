@@ -441,8 +441,12 @@ resolution_sha256
 exact 相等；`status` 只能是 `success` 或 `failure`。`resolved[]` 的每条记录重复 exact
 `{requirement_id, scope, name, version}`，并冻结
 `{filename, url, sha256, requires_python, wheel_tags}`；记录按 `requirement_id` 排序，
-`wheel_tags` 规范唯一排序。当前只接受 `meta.api-version: "1.0"`；project response required
-fields 是 `meta/name/files`，file required fields 是 `filename/url/hashes`，
+`wheel_tags` 规范唯一排序。客户端支持 PEP 691 Simple API major version `1`：
+`meta.api-version` 必须是合法的 `major.minor`，所有 `1.x` minor（包括比实现时已知版本更新的
+minor）都必须接受，不把 warning 变成行为契约，也不维护固定 current-minor allowlist；不支持的
+major 或 malformed version 是 protocol 硬失败，不能降级为 local
+`binary-wheel-unavailable`。project response required fields 是 `meta/name/files`，file required
+fields 是 `filename/url/hashes`，
 `requires-python` 可选且缺失时冻结为 null。parser 必须忽略不认识的 meta/project/file
 extension keys，不把 PEP 700 `versions`、size 或 v1.1 字段变成本 resolver 的前置要求。PEP
 691 file 只提供这些 raw evidence；canonical name/version/tags、SHA256 和 frozen

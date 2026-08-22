@@ -526,6 +526,33 @@ def test_pep691_extensions_are_ignored_and_requires_python_is_optional() -> None
     assert resolved["requires_python"] is None
 
 
+def test_dependency_resolution_accepts_newer_pep691_minor_version() -> None:
+    selection, _ = _selection()
+    expected = _resolve(selection)
+    responses = _pep691_responses()
+    for response in responses.values():
+        response["meta"]["api-version"] = "1.4"
+
+    resolution = _resolve(selection, responses)
+    validate = _public_callable(_dependencies(), "validate_dependency_resolution")
+
+    assert resolution == expected
+    assert validate(copy.deepcopy(resolution), _config(), selection) == resolution
+
+
+@pytest.mark.parametrize("api_version", ["2.0", "not-a-version"])
+def test_dependency_resolution_rejects_invalid_pep691_api_version_before_files(
+    api_version: str,
+) -> None:
+    selection, _ = _selection()
+    responses = _pep691_responses()
+    responses["packaging"]["meta"]["api-version"] = api_version
+    responses["packaging"]["files"] = []
+
+    with pytest.raises(ValueError):
+        _resolve(selection, responses)
+
+
 def test_dependency_resolution_uses_foreign_target_tag_rank_not_file_order() -> None:
     selection, _ = _selection()
     base = _pep691_responses()
