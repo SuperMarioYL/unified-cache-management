@@ -22,6 +22,8 @@ sys.path.insert(0, str(RELEASE_ROOT))
 builders = importlib.import_module("ucm_release.builders")
 
 OCI_TAG = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$", re.ASCII)
+CANONICAL_SHA256_ID = re.compile(r"^sha256:[0-9a-f]{64}$", re.ASCII)
+ARTIFACT_SAFE_MATRIX_ID = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
 ASCEND_TARGET_SEPARATOR = "-rt-"
 ASCEND_TARGET_SUFFIX_LENGTH = 64
 ASCEND_TARGET_PREFIX_BUDGET = (
@@ -170,6 +172,15 @@ def _canonical_digest(value: object) -> str:
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode()
     return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _assert_artifact_safe_matrix_id(row: dict[str, Any], canonical_field: str) -> None:
+    canonical_id = row[canonical_field]
+    assert isinstance(canonical_id, str)
+    assert CANONICAL_SHA256_ID.fullmatch(canonical_id)
+    assert row["id"] == canonical_id.removeprefix("sha256:")
+    assert ARTIFACT_SAFE_MATRIX_ID.fullmatch(row["id"])
+    assert ":" not in row["id"]
 
 
 def _require_public_callable(name: str) -> Callable[..., dict[str, Any]]:
@@ -445,7 +456,9 @@ def test_plan_builder_facts_is_closed_canonical_and_abi_independent() -> None:
     assert {item["builder_plan_id"] for item in matrix["include"]} == {
         item["builder_plan_id"] for item in plans
     }
-    assert all(item["id"] == item["builder_plan_id"] for item in matrix["include"])
+    for row in matrix["include"]:
+        assert set(row) == BUILDER_PLAN_FIELDS | {"id", "label"}
+        _assert_artifact_safe_matrix_id(row, "builder_plan_id")
 
 
 def test_plan_builder_facts_keeps_mooncake_failure_local() -> None:
@@ -572,7 +585,7 @@ def test_collect_builder_facts_is_closed_and_matches_catalog_fixture() -> None:
     facts = {item["builder_fact_id"]: item for item in collected["builder_facts"]}
     for row in rows:
         fact = facts[row["builder_fact_id"]]
-        assert row["id"] == row["builder_fact_id"]
+        _assert_artifact_safe_matrix_id(row, "builder_fact_id")
         assert row["builder_image"] == (
             f'{fact["target_repository"]}@{fact["target_builder_digest"]}'
         )

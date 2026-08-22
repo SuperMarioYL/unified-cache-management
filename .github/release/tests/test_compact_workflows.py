@@ -130,7 +130,7 @@ def _mooncake_shell_run_tokens(source: str) -> list[str] | None:
                 entrypoints.append(token.split("=", 1)[1])
         if entrypoints != ["sh"]:
             continue
-        if tokens[image_position + 1 : image_position + 2] != ["-lc"]:
+        if tokens[image_position + 1 : image_position + 2] != ["-c"]:
             continue
         matches.append(tokens)
     assert len(matches) <= 1, "ambiguous Mooncake runtime consumers"
@@ -466,44 +466,54 @@ def _normalized_with(value: dict[str, Any]) -> tuple[tuple[str, object], ...]:
     [
         pytest.param(
             "docker run --network none --entrypoint sh --rm "
-            '"${RUNTIME_IMAGE}" -lc true',
+            '"${RUNTIME_IMAGE}" -c true',
             True,
             id="separate-entrypoint-with-additional-flags",
         ),
         pytest.param(
-            'docker run --rm --entrypoint=sh "$RUNTIME_IMAGE" -lc true',
+            'docker run --rm --entrypoint=sh "$RUNTIME_IMAGE" -c true',
             True,
             id="entrypoint-equals",
         ),
         pytest.param(
-            '# docker run --entrypoint sh "${RUNTIME_IMAGE}" -lc true',
+            '# docker run --entrypoint sh "${RUNTIME_IMAGE}" -c true',
             False,
             id="comment-is-dead",
         ),
         pytest.param(
-            'echo docker run --entrypoint sh "${RUNTIME_IMAGE}" -lc true',
+            'echo docker run --entrypoint sh "${RUNTIME_IMAGE}" -c true',
             False,
             id="echo-is-not-executable",
         ),
         pytest.param(
-            'docker run --entrypoint bash "${RUNTIME_IMAGE}" -lc true',
+            'docker run --entrypoint bash "${RUNTIME_IMAGE}" -c true',
             False,
             id="wrong-entrypoint",
         ),
         pytest.param(
-            'docker run --entrypoint sh "${RUNTIME_IMAGE}:latest" -lc true',
+            'docker run --entrypoint sh "${RUNTIME_IMAGE}:latest" -c true',
             False,
             id="image-token-is-not-exact",
         ),
         pytest.param(
-            'docker run "${RUNTIME_IMAGE}" --entrypoint sh -lc true',
+            'docker run "${RUNTIME_IMAGE}" --entrypoint sh -c true',
             False,
             id="entrypoint-after-image",
         ),
         pytest.param(
-            'docker run --entrypoint sh "${RUNTIME_IMAGE}" -c true',
+            'docker run --entrypoint sh "${RUNTIME_IMAGE}" true',
             False,
-            id="missing-login-command",
+            id="missing-command-flag",
+        ),
+        pytest.param(
+            'docker run --entrypoint sh "${RUNTIME_IMAGE}" -l true',
+            False,
+            id="login-shell-short-flag",
+        ),
+        pytest.param(
+            'docker run --entrypoint sh "${RUNTIME_IMAGE}" -lc true',
+            False,
+            id="login-shell-combined-flag",
         ),
     ],
 )
@@ -781,6 +791,7 @@ def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> 
         "overwrite": False,
         "retention-days": 7,
     }
+    assert "matrix.builder_fact_id" not in uploads[0]["with"]["name"]
 
 
 def test_runtime_discovery_records_immutable_image_and_git_source_facts() -> None:
@@ -910,6 +921,7 @@ def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version()
         "overwrite": False,
         "retention-days": 7,
     }
+    assert "matrix.runtime_id" not in uploads[0]["with"]["name"]
 
 
 def test_builder_sync_plan_waits_for_runtime_and_mooncake_results() -> None:
@@ -1058,6 +1070,7 @@ def test_builder_fanout_always_emits_existing_built_or_failed_result() -> None:
         "overwrite": False,
         "retention-days": 7,
     }
+    assert "matrix.builder_plan_id" not in uploads[0]["with"]["name"]
 
 
 def test_builder_collector_links_every_result_before_python_probe_matrix() -> None:

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib
 import json
+import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -42,6 +44,17 @@ RUNTIME_DISCOVERY_FIELDS = {
     "runtime_candidates",
     "runtime_probe_matrix",
 }
+RUNTIME_PROBE_MATRIX_ROW_FIELDS = {
+    "id",
+    "runtime_id",
+    "runtime_image",
+    "runtime_image_digest",
+    "runtime_dockerfile",
+    "cpu_architecture",
+    "runner",
+}
+CANONICAL_SHA256_ID = re.compile(r"^sha256:[0-9a-f]{64}$", re.ASCII)
+ARTIFACT_SAFE_MATRIX_ID = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
 
 
 def _fixture() -> dict[str, Any]:
@@ -54,6 +67,25 @@ def _require(module: object, name: str) -> Callable[..., dict[str, Any]]:
     function = getattr(module, name, None)
     assert callable(function), f"required public API {name} is missing"
     return function
+
+
+def _canonical_digest(value: object) -> str:
+    payload = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _runtime_id(value: dict[str, Any]) -> str:
+    return _canonical_digest(
+        {
+            "product_id": value["product_id"],
+            "runtime_repository": value["runtime_image_repository"],
+            "runtime_tag": value["runtime_image_tag"],
+            "variant": value["variant"],
+            "cpu_architecture": value["cpu_architecture"],
+        }
+    )
 
 
 def _builder_source_fixture() -> dict[str, Any]:
@@ -151,7 +183,23 @@ def test_runtime_discovery_peels_tag_and_binds_matching_variant_dockerfile() -> 
     )
     assert candidate["runtime_image_digest"] == raw["runtime_image_digest"]
     assert candidate["cpu_architecture"] == raw["cpu_architecture"]
-    assert result["runtime_probe_matrix"]["include"]
+    matrix = result["runtime_probe_matrix"]
+    assert set(matrix) == {"include"}
+    rows = matrix["include"]
+    assert rows
+    assert all(set(row) == RUNTIME_PROBE_MATRIX_ROW_FIELDS for row in rows)
+    candidates_by_digest = {
+        item["runtime_image_digest"]: item for item in result["runtime_candidates"]
+    }
+    for row in rows:
+        expected_runtime_id = _runtime_id(
+            candidates_by_digest[row["runtime_image_digest"]]
+        )
+        assert CANONICAL_SHA256_ID.fullmatch(row["runtime_id"])
+        assert row["runtime_id"] == expected_runtime_id
+        assert row["id"] == row["runtime_id"].removeprefix("sha256:")
+        assert ARTIFACT_SAFE_MATRIX_ID.fullmatch(row["id"])
+        assert ":" not in row["id"]
 
 
 def _missing_variant(value: dict[str, Any]) -> None:
