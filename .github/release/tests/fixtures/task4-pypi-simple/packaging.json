@@ -1,0 +1,60 @@
+{
+  "meta": {
+    "api-version": "1.0"
+  },
+  "name": "packaging",
+  "versions": [
+    "24.1",
+    "24.2"
+  ],
+  "files": [
+    {
+      "filename": "packaging-24.2.tar.gz",
+      "url": "https://files.example.invalid/packaging/packaging-24.2.tar.gz",
+      "hashes": {
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "requires-python": ">=3.8"
+    },
+    {
+      "filename": "packaging-24.1-py3-none-any.whl",
+      "url": "https://files.example.invalid/packaging/packaging-24.1-py3-none-any.whl",
+      "hashes": {
+        "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "requires-python": ">=3.8"
+    },
+    {
+      "filename": "packaging-24.2-cp314-cp314t-manylinux_2_28_aarch64.whl",
+      "url": "https://files.example.invalid/packaging/packaging-24.2-cp314-cp314t-manylinux_2_28_aarch64.whl",
+      "hashes": {
+        "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+      },
+      "requires-python": ">=3.8"
+    },
+    {
+      "filename": "packaging-24.2-py3-none-any.whl",
+      "url": "https://files.example.invalid/packaging/packaging-24.2-py3-none-any.whl",
+      "hashes": {
+        "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "requires-python": ">=3.8"
+    },
+    {
+      "filename": "packaging-24.2-py314-none-manylinux_2_28_x86_64.whl",
+      "url": "https://files.example.invalid/packaging/packaging-24.2-py314-none-manylinux_2_28_x86_64.whl",
+      "hashes": {
+        "sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+      },
+      "requires-python": ">=3.8"
+    },
+    {
+      "filename": "packaging-24.2-cp314-cp314t-manylinux_2_28_x86_64.whl",
+      "url": "https://files.example.invalid/packaging/packaging-24.2-cp314-cp314t-manylinux_2_28_x86_64.whl",
+      "hashes": {
+        "sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+      },
+      "requires-python": ">=3.8"
+    }
+  ]
+}

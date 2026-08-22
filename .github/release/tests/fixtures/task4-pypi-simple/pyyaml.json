@@ -1,0 +1,35 @@
+{
+  "meta": {
+    "api-version": "1.0"
+  },
+  "name": "pyyaml",
+  "versions": [
+    "6.0.2"
+  ],
+  "files": [
+    {
+      "filename": "PyYAML-6.0.2-py3-none-any.whl",
+      "url": "https://files.example.invalid/pyyaml/PyYAML-6.0.2-py3-none-any.whl",
+      "hashes": {
+        "sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      "requires-python": ">=3.8"
+    },
+    {
+      "filename": "PyYAML-6.0.2-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "url": "https://files.example.invalid/pyyaml/PyYAML-6.0.2-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "hashes": {
+        "sha256": "8888888888888888888888888888888888888888888888888888888888888888"
+      },
+      "requires-python": ">=3.8"
+    },
+    {
+      "filename": "PyYAML-6.0.2-cp314-cp314t-manylinux_2_28_x86_64.whl",
+      "url": "https://files.example.invalid/pyyaml/PyYAML-6.0.2-cp314-cp314t-manylinux_2_28_x86_64.whl",
+      "hashes": {
+        "sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+      },
+      "requires-python": ">=3.8"
+    }
+  ]
+}

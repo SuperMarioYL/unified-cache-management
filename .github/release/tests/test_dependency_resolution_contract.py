@@ -2,24 +2,36 @@
 
 from __future__ import annotations
 
+import ast
 import copy
 import hashlib
 import importlib
 import json
 import sys
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
+from itertools import permutations
 from pathlib import Path
 from typing import Any
 
 import pytest
-from packaging import tags as packaging_tags
 from packaging.utils import canonicalize_name, parse_wheel_filename
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RELEASE_ROOT = REPO_ROOT / ".github" / "release"
 SELECTION_FIXTURE = RELEASE_ROOT / "tests" / "fixtures" / "task4-candidate-input.json"
-INDEX_FIXTURE = RELEASE_ROOT / "tests" / "fixtures" / "task4-dependency-index.json"
+PEP691_FIXTURE_DIR = RELEASE_ROOT / "tests" / "fixtures" / "task4-pypi-simple"
 PYPI_SIMPLE_INDEX = "https://pypi.org/simple/"
+PEP691_MEDIA_TYPE = "application/vnd.pypi.simple.v1+json"
+EXPECTED_CP314T_FILENAMES = {
+    "packaging": "packaging-24.2-cp314-cp314t-manylinux_2_28_x86_64.whl",
+    "pyyaml": "PyYAML-6.0.2-cp314-cp314t-manylinux_2_28_x86_64.whl",
+    "wrapt": "wrapt-1.17.2-cp314-cp314t-manylinux_2_28_x86_64.whl",
+}
+EXPECTED_CP316T_FILENAMES = {
+    "packaging": "packaging-24.2-cp316-cp316t-manylinux_2_28_x86_64.whl",
+    "pyyaml": "PyYAML-6.0.2-cp316-cp316t-manylinux_2_28_x86_64.whl",
+    "wrapt": "wrapt-1.17.2-cp316-cp316t-manylinux_2_28_x86_64.whl",
+}
 sys.path.insert(0, str(RELEASE_ROOT))
 
 capabilities = importlib.import_module("ucm_release.capabilities")
@@ -58,14 +70,12 @@ RESOLVED_FIELDS = {
     "wheel_tags",
 }
 FAILURE_FIELDS = {"code", "requirement_id", "scope", "name", "version"}
-INDEX_FILE_FIELDS = {
-    "name",
-    "version",
+PEP691_FIELDS = {"meta", "name", "versions", "files"}
+PEP691_FILE_FIELDS = {
     "filename",
     "url",
-    "sha256",
-    "requires_python",
-    "wheel_tags",
+    "hashes",
+    "requires-python",
 }
 
 
@@ -79,6 +89,42 @@ def _public_callable(module: object, name: str) -> Callable[..., Any]:
         function
     ), f"required public API {module.__name__}.{name} is missing"
     return function
+
+
+def _call_target(node: ast.expr) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _call_target(node.value)
+        return f"{parent}.{node.attr}" if parent else node.attr
+    return None
+
+
+def _reachable_call_targets(tree: ast.Module, entrypoint: str) -> set[str]:
+    functions = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert entrypoint in functions
+    pending = [entrypoint]
+    visited: set[str] = set()
+    reachable: set[str] = set()
+    while pending:
+        name = pending.pop()
+        if name in visited:
+            continue
+        visited.add(name)
+        for node in ast.walk(functions[name]):
+            if not isinstance(node, ast.Call):
+                continue
+            target = _call_target(node.func)
+            if target is None:
+                continue
+            reachable.add(target)
+            if target in functions:
+                pending.append(target)
+    return reachable
 
 
 def _canonical_digest(value: object) -> str:
@@ -100,10 +146,15 @@ def _raw_selection_fixture() -> dict[str, Any]:
     return value
 
 
-def _index_fixture() -> dict[str, Any]:
-    value = json.loads(INDEX_FIXTURE.read_text(encoding="utf-8"))
-    assert isinstance(value, dict)
-    return value
+def _pep691_responses() -> dict[str, dict[str, Any]]:
+    responses = {}
+    for path in sorted(PEP691_FIXTURE_DIR.glob("*.json")):
+        value = json.loads(path.read_text(encoding="utf-8"))
+        assert isinstance(value, dict)
+        name = canonicalize_name(value["name"])
+        assert name not in responses
+        responses[name] = value
+    return responses
 
 
 def _config() -> dict[str, Any]:
@@ -143,31 +194,38 @@ def _selection(
     return selection, raw
 
 
-def _reader(
-    fixture: Mapping[str, Any],
-) -> Callable[[str, str], Sequence[Mapping[str, Any]]]:
-    projects = fixture["projects"]
+def _http_json_reader(
+    responses: Mapping[str, Mapping[str, Any]],
+    calls: list[tuple[str, dict[str, str]]] | None = None,
+) -> Callable[..., Mapping[str, Any]]:
+    def read_json(
+        url: str, *, headers: Mapping[str, str]
+    ) -> Mapping[str, Any]:
+        assert url.startswith(PYPI_SIMPLE_INDEX)
+        assert url.endswith("/")
+        assert headers["Accept"] == PEP691_MEDIA_TYPE
+        if calls is not None:
+            calls.append((url, dict(headers)))
+        project = url.removeprefix(PYPI_SIMPLE_INDEX).removesuffix("/")
+        assert canonicalize_name(project) == project
+        return copy.deepcopy(responses[project])
 
-    def read_project(name: str, version: str) -> Sequence[Mapping[str, Any]]:
-        assert canonicalize_name(name) == name
-        assert isinstance(version, str) and version
-        return copy.deepcopy(projects.get(name, []))
-
-    return read_project
+    return read_json
 
 
 def _resolve(
     selection: dict[str, Any],
-    fixture: dict[str, Any] | None = None,
+    responses: dict[str, dict[str, Any]] | None = None,
     *,
     config: dict[str, Any] | None = None,
-    index_reader: Callable[[str, str], Sequence[Mapping[str, Any]]] | None = None,
+    http_json_read: Callable[..., Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     resolve = _public_callable(_dependencies(), "resolve_dependency_resolution")
     result = resolve(
         copy.deepcopy(config or _config()),
         copy.deepcopy(selection),
-        index_reader=index_reader or _reader(fixture or _index_fixture()),
+        http_json_read=http_json_read
+        or _http_json_reader(responses or _pep691_responses()),
     )
     assert isinstance(result, dict)
     return result
@@ -187,23 +245,20 @@ def _future_abi_fixture() -> dict[str, Any]:
     return fixture
 
 
-def _future_index_fixture() -> dict[str, Any]:
-    fixture = _index_fixture()
-    for project in ("pyyaml", "wrapt"):
+def _future_pep691_responses() -> dict[str, dict[str, Any]]:
+    responses = _pep691_responses()
+    for project in ("packaging", "pyyaml", "wrapt"):
         exact = next(
             item
-            for item in fixture["projects"][project]
-            if "cp314-cp314t-manylinux_2_28_x86_64" in item["wheel_tags"]
+            for item in responses[project]["files"]
+            if "cp314-cp314t-manylinux_2_28_x86_64" in item["filename"]
         )
         future = copy.deepcopy(exact)
         for field in ("filename", "url"):
             future[field] = future[field].replace("cp314", "cp316")
-        future["sha256"] = "sha256:" + hashlib.sha256(project.encode()).hexdigest()
-        future["wheel_tags"] = [
-            "cp316-cp316t-manylinux_2_28_x86_64"
-        ]
-        fixture["projects"][project].append(future)
-    return fixture
+        future["hashes"]["sha256"] = hashlib.sha256(project.encode()).hexdigest()
+        responses[project]["files"].append(future)
+    return responses
 
 
 def _requirement(
@@ -217,43 +272,42 @@ def _requirement(
 
 
 def _failure_resolution(
-    selection: dict[str, Any], name: str = "pyyaml"
+    selection: dict[str, Any], *names: str
 ) -> dict[str, Any]:
-    fixture = _index_fixture()
-    fixture["projects"][name] = []
-    result = _resolve(selection, fixture)
+    responses = _pep691_responses()
+    for name in names or ("pyyaml",):
+        responses[name]["files"] = []
+    result = _resolve(selection, responses)
     assert result["requests"][0]["status"] == "failure"
     return result
 
 
-def test_task4_dependency_index_fixture_is_raw_binary_evidence() -> None:
-    fixture = _index_fixture()
+def test_task4_dependency_fixture_is_raw_pep691_project_json() -> None:
+    responses = _pep691_responses()
 
-    assert fixture["kind"] == "task4-dependency-index-fixture"
-    assert fixture["schema_version"] == 3
-    assert fixture["index_url"] == PYPI_SIMPLE_INDEX
-    assert set(fixture["projects"]) == set(fixture["expected_cp314t"])
-    for project, files in fixture["projects"].items():
-        assert files
-        for record in files:
-            assert set(record) == INDEX_FILE_FIELDS
-            assert canonicalize_name(record["name"]) == project
-            assert record["url"].endswith(record["filename"])
-            assert record["sha256"].startswith("sha256:")
-            assert len(record["sha256"]) == 71
-            assert record["requires_python"] is None or isinstance(
-                record["requires_python"], str
+    assert set(responses) == set(EXPECTED_CP314T_FILENAMES)
+    for project, response in responses.items():
+        assert set(response) == PEP691_FIELDS
+        assert response["meta"] == {"api-version": "1.0"}
+        assert canonicalize_name(response["name"]) == project
+        assert response["versions"] == sorted(set(response["versions"]))
+        assert response["files"]
+        for file_record in response["files"]:
+            assert set(file_record) == PEP691_FILE_FIELDS
+            assert file_record["url"].startswith("https://")
+            sha256 = file_record["hashes"]["sha256"]
+            assert len(sha256) == 64
+            assert set(sha256) <= set("0123456789abcdef")
+            assert file_record["requires-python"] is None or isinstance(
+                file_record["requires-python"], str
             )
-            if not record["filename"].endswith(".whl"):
-                assert record["wheel_tags"] == []
-                continue
-            _, version, _, tags = parse_wheel_filename(record["filename"])
-            assert str(version) == record["version"]
-            assert sorted(str(tag) for tag in tags) == record["wheel_tags"]
-        assert any(
-            item["filename"] == fixture["expected_cp314t"][project]
-            for item in files
-        )
+            if file_record["filename"].endswith(".whl"):
+                name, version, _, _ = parse_wheel_filename(file_record["filename"])
+                assert canonicalize_name(name) == project
+                assert str(version) in response["versions"]
+        assert EXPECTED_CP314T_FILENAMES[project] in {
+            item["filename"] for item in response["files"]
+        }
 
 
 def test_dependency_resolution_public_seams_are_owned_by_dependencies_module() -> None:
@@ -264,18 +318,87 @@ def test_dependency_resolution_public_seams_are_owned_by_dependencies_module() -
     assert not hasattr(products, "resolve_dependency_resolution")
 
 
+def test_dependency_selection_validation_ownership_is_one_way() -> None:
+    dependency_module = _dependencies()
+    dependency_tree = ast.parse(
+        Path(dependency_module.__file__).read_text(encoding="utf-8")
+    )
+    product_tree = ast.parse(Path(products.__file__).read_text(encoding="utf-8"))
+    call_targets = _reachable_call_targets(
+        dependency_tree, "resolve_dependency_resolution"
+    )
+    imports_public_validator = any(
+        isinstance(node, ast.ImportFrom)
+        and (node.module or "").endswith("products")
+        and any(item.name == "validate_candidate_selection" for item in node.names)
+        for node in dependency_tree.body
+    )
+    assert (
+        "products.validate_candidate_selection" in call_targets
+        or (
+            imports_public_validator
+            and "validate_candidate_selection" in call_targets
+        )
+    )
+    assert not any(
+        isinstance(node, ast.FunctionDef)
+        and node.name == "validate_candidate_selection"
+        for node in dependency_tree.body
+    )
+    assert not any(
+        (
+            isinstance(node, ast.ImportFrom)
+            and (
+                (node.module or "").endswith("dependencies")
+                or any(item.name == "dependencies" for item in node.names)
+            )
+        )
+        or (
+            isinstance(node, ast.Import)
+            and any(item.name.endswith(".dependencies") for item in node.names)
+        )
+        for node in ast.walk(product_tree)
+    )
+
+
+def test_resolver_rejects_resealed_invalid_selection_before_index_read() -> None:
+    selection, _ = _selection()
+    request = selection["dependency_requests"][0]
+    request["coordinate"]["manylinux"] = "manylinux_2_31"
+    request["request_id"] = _canonical_digest(
+        {
+            "coordinate": request["coordinate"],
+            "requirements": request["requirements"],
+        }
+    )
+    _reseal(selection, "selection_sha256")
+    reads: list[tuple[str, dict[str, str]]] = []
+
+    def reader(
+        url: str, *, headers: Mapping[str, str]
+    ) -> Mapping[str, Any]:
+        reads.append((url, dict(headers)))
+        raise AssertionError("index reader must not run after invalid Selection")
+
+    with pytest.raises(ValueError):
+        _resolve(selection, http_json_read=reader)
+    assert reads == []
+
+
 def test_resolver_rejects_config_digest_drift_before_index_read() -> None:
     selection, _ = _selection()
     config = _config()
     config["image_revision"] += 1
-    reads: list[tuple[str, str]] = []
+    reads: list[tuple[str, dict[str, str]]] = []
 
-    def reader(name: str, version: str) -> Sequence[Mapping[str, Any]]:
-        reads.append((name, version))
+    def reader(
+        url: str, *, headers: Mapping[str, str]
+    ) -> Mapping[str, Any]:
+        reads.append((url, dict(headers)))
         raise AssertionError("index reader must not run after config identity drift")
 
     with pytest.raises(ValueError, match="config|digest"):
-        _resolve(selection, config=config, index_reader=reader)
+        _resolve(selection, config=config, http_json_read=reader)
     assert reads == []
 
 
@@ -287,21 +410,28 @@ def test_resolver_rejects_request_fanout_limit_before_index_read() -> None:
     config["discovery"]["matrix_limits"]["max_wheel_tasks"] = request_count - 1
     selection["config_sha256"] = _canonical_digest(config)
     _reseal(selection, "selection_sha256")
-    reads: list[tuple[str, str]] = []
+    reads: list[tuple[str, dict[str, str]]] = []
 
-    def reader(name: str, version: str) -> Sequence[Mapping[str, Any]]:
-        reads.append((name, version))
+    def reader(
+        url: str, *, headers: Mapping[str, str]
+    ) -> Mapping[str, Any]:
+        reads.append((url, dict(headers)))
         raise AssertionError("index reader must not run after request limit overflow")
 
     with pytest.raises(ValueError, match="max_wheel_tasks|request limit"):
-        _resolve(selection, config=config, index_reader=reader)
+        _resolve(selection, config=config, http_json_read=reader)
     assert reads == []
 
 
 def test_dependency_resolution_is_closed_exact_and_self_digesting() -> None:
     selection, _ = _selection()
-    fixture = _index_fixture()
-    resolution = _resolve(selection, fixture)
+    responses = _pep691_responses()
+    calls: list[tuple[str, dict[str, str]]] = []
+    resolution = _resolve(
+        selection,
+        responses,
+        http_json_read=_http_json_reader(responses, calls),
+    )
     validate = _public_callable(_dependencies(), "validate_dependency_resolution")
 
     assert set(resolution) == RESOLUTION_FIELDS
@@ -329,6 +459,19 @@ def test_dependency_resolution_is_closed_exact_and_self_digesting() -> None:
     assert [item["request_id"] for item in resolution["requests"]] == [
         item["request_id"] for item in selection["dependency_requests"]
     ]
+    expected_projects = [
+        item["name"] for item in selection["dependency_requests"][0]["requirements"]
+    ]
+    expected_calls = {
+        (
+            f"{PYPI_SIMPLE_INDEX}{project}/",
+            PEP691_MEDIA_TYPE,
+        )
+        for project in expected_projects
+    }
+    actual_calls = {(url, headers["Accept"]) for url, headers in calls}
+    assert actual_calls == expected_calls
+    assert len(calls) == len(actual_calls)
     for request, selected_request in zip(
         resolution["requests"], selection["dependency_requests"], strict=True
     ):
@@ -355,101 +498,133 @@ def test_dependency_resolution_is_closed_exact_and_self_digesting() -> None:
                 key: resolved[key]
                 for key in ("requirement_id", "scope", "name", "version")
             } == requirement
-            assert resolved["filename"] == fixture["expected_cp314t"][resolved["name"]]
-            assert resolved["url"].endswith(resolved["filename"])
+            assert resolved["filename"] == EXPECTED_CP314T_FILENAMES[resolved["name"]]
             assert resolved["wheel_tags"] == sorted(set(resolved["wheel_tags"]))
             source_record = next(
                 item
-                for item in fixture["projects"][resolved["name"]]
+                for item in responses[resolved["name"]]["files"]
                 if item["filename"] == resolved["filename"]
             )
-            assert resolved["sha256"] == source_record["sha256"]
-            assert resolved["requires_python"] == source_record["requires_python"]
+            assert resolved["url"] == source_record["url"]
+            assert resolved["sha256"] == (
+                "sha256:" + source_record["hashes"]["sha256"]
+            )
+            assert resolved["requires_python"] == source_record["requires-python"]
 
 
-def test_dependency_resolution_uses_wheel_tag_rank_not_file_order() -> None:
+def test_dependency_resolution_uses_foreign_target_tag_rank_not_file_order() -> None:
     selection, _ = _selection()
-    forward = _index_fixture()
-    reverse = copy.deepcopy(forward)
-    for files in reverse["projects"].values():
-        files.reverse()
-
-    first = _resolve(selection, forward)
-    second = _resolve(selection, reverse)
-
-    assert first == second
-    selected = {
-        item["name"]: item["filename"]
-        for request in first["requests"]
-        for item in request["resolved"]
+    base = _pep691_responses()
+    ranked = [
+        item
+        for item in base["packaging"]["files"]
+        if item["filename"].startswith("packaging-24.2-")
+        and item["filename"].endswith(".whl")
+    ]
+    assert {item["filename"] for item in ranked} == {
+        "packaging-24.2-cp314-cp314t-manylinux_2_28_x86_64.whl",
+        "packaging-24.2-py314-none-manylinux_2_28_x86_64.whl",
+        "packaging-24.2-py3-none-any.whl",
+        "packaging-24.2-cp314-cp314t-manylinux_2_28_aarch64.whl",
     }
-    assert selected == forward["expected_cp314t"]
+
+    canonical_resolution: dict[str, Any] | None = None
+    for ordered in permutations(ranked):
+        responses = copy.deepcopy(base)
+        responses["packaging"]["files"] = list(ordered)
+        resolution = _resolve(selection, responses)
+        selected = next(
+            item
+            for item in resolution["requests"][0]["resolved"]
+            if item["name"] == "packaging"
+        )
+        assert selected["filename"] == EXPECTED_CP314T_FILENAMES["packaging"]
+        if canonical_resolution is None:
+            canonical_resolution = resolution
+        else:
+            assert resolution == canonical_resolution
+
+
+def test_dependency_resolution_selects_middle_rank_without_exact_native() -> None:
+    selection, _ = _selection()
+    responses = _pep691_responses()
+    responses["packaging"]["files"] = [
+        item
+        for item in responses["packaging"]["files"]
+        if item["filename"]
+        != "packaging-24.2-cp314-cp314t-manylinux_2_28_x86_64.whl"
+    ]
+
+    resolution = _resolve(selection, responses)
+    selected = next(
+        item
+        for item in resolution["requests"][0]["resolved"]
+        if item["name"] == "packaging"
+    )
+
+    assert selected["filename"] == (
+        "packaging-24.2-py314-none-manylinux_2_28_x86_64.whl"
+    )
 
 
 def test_dependency_resolution_rejects_same_highest_wheel_tag_rank_tie() -> None:
     selection, _ = _selection()
-    fixture = _index_fixture()
+    responses = _pep691_responses()
     exact = next(
         item
-        for item in fixture["projects"]["pyyaml"]
-        if item["filename"] == fixture["expected_cp314t"]["pyyaml"]
+        for item in responses["pyyaml"]["files"]
+        if item["filename"] == EXPECTED_CP314T_FILENAMES["pyyaml"]
     )
     tied = copy.deepcopy(exact)
     tied["filename"] = tied["filename"].replace("-cp314-", "-1-cp314-")
     tied["url"] = tied["url"].replace("-cp314-", "-1-cp314-")
-    tied["sha256"] = "sha256:" + "a" * 64
-    fixture["projects"]["pyyaml"].append(tied)
+    tied["hashes"]["sha256"] = "c" * 64
+    responses["pyyaml"]["files"].append(tied)
 
     with pytest.raises(ValueError, match="ambiguous|highest|rank"):
-        _resolve(selection, fixture)
+        _resolve(selection, responses)
 
 
 @pytest.mark.parametrize(
-    ("case", "files"),
+    "files",
     [
         pytest.param(
-            "sdist",
-            lambda fixture: [
+            lambda response: [
                 item
-                for item in fixture["projects"]["packaging"]
+                for item in response["files"]
                 if item["filename"].endswith(".tar.gz")
             ],
             id="no-sdist",
         ),
         pytest.param(
-            "version-fallback",
-            lambda fixture: [
+            lambda response: [
                 item
-                for item in fixture["projects"]["packaging"]
-                if item["version"] == "24.1"
+                for item in response["files"]
+                if item["filename"].startswith("packaging-24.1-")
             ],
             id="no-version-fallback",
         ),
         pytest.param(
-            "incompatible",
-            lambda fixture: [
+            lambda response: [
                 item
-                for item in fixture["projects"]["packaging"]
-                if item["wheel_tags"]
-                == ["cp312-cp312-manylinux_2_28_x86_64"]
+                for item in response["files"]
+                if "manylinux_2_28_aarch64" in item["filename"]
             ],
             id="no-environment-fallback",
         ),
     ],
 )
 def test_dependency_resolution_fails_without_compatible_exact_binary(
-    case: str,
     files: Callable[[dict[str, Any]], list[dict[str, Any]]],
 ) -> None:
     selection, _ = _selection()
-    fixture = _index_fixture()
-    fixture["projects"]["packaging"] = files(fixture)
+    responses = _pep691_responses()
+    responses["packaging"]["files"] = files(responses["packaging"])
 
-    resolution = _resolve(selection, fixture)
+    resolution = _resolve(selection, responses)
     request = resolution["requests"][0]
     requirement = _requirement(selection, "packaging")
 
-    assert case in {"sdist", "version-fallback", "incompatible"}
     assert request["status"] == "failure"
     assert request["resolved"] == []
     assert request["failures"] == [
@@ -463,50 +638,47 @@ def test_dependency_resolution_fails_without_compatible_exact_binary(
 @pytest.mark.parametrize(
     "mutation",
     [
-        "declared-name",
-        "declared-version",
+        "response-name",
         "filename-name",
         "filename-version",
-        "declared-tags",
         "http-url",
         "relative-url",
+        "missing-sha256",
         "malformed-sha256",
         "malformed-requires-python",
     ],
 )
 def test_resolver_rejects_malformed_exact_file_evidence(mutation: str) -> None:
     selection, _ = _selection()
-    fixture = _index_fixture()
+    responses = _pep691_responses()
     record = copy.deepcopy(
         next(
             item
-            for item in fixture["projects"]["packaging"]
-            if item["filename"] == fixture["expected_cp314t"]["packaging"]
+            for item in responses["packaging"]["files"]
+            if item["filename"] == EXPECTED_CP314T_FILENAMES["packaging"]
         )
     )
-    fixture["projects"]["packaging"] = [record]
-    if mutation == "declared-name":
-        record["name"] = "other-project"
-    elif mutation == "declared-version":
-        record["version"] = "24.3"
+    responses["packaging"]["files"] = [record]
+    if mutation == "response-name":
+        responses["packaging"]["name"] = "other-project"
     elif mutation == "filename-name":
         record["filename"] = "other_project-24.2-py3-none-any.whl"
         record["url"] = f"https://files.example.invalid/{record['filename']}"
     elif mutation == "filename-version":
         record["filename"] = "packaging-24.3-py3-none-any.whl"
         record["url"] = f"https://files.example.invalid/{record['filename']}"
-    elif mutation == "declared-tags":
-        record["wheel_tags"] = ["cp312-cp312-manylinux_2_28_x86_64"]
     elif mutation == "http-url":
         record["url"] = record["url"].replace("https://", "http://")
     elif mutation == "relative-url":
         record["url"] = f"files/{record['filename']}"
+    elif mutation == "missing-sha256":
+        record["hashes"].pop("sha256")
     elif mutation == "malformed-sha256":
-        record["sha256"] = "sha256:" + "g" * 64
+        record["hashes"]["sha256"] = "g" * 64
     else:
-        record["requires_python"] = "not a specifier"
+        record["requires-python"] = "not a specifier"
 
-    resolution = _resolve(selection, fixture)
+    resolution = _resolve(selection, responses)
     request = resolution["requests"][0]
     assert request["status"] == "failure"
     assert request["resolved"] == []
@@ -520,15 +692,15 @@ def test_resolver_rejects_malformed_exact_file_evidence(mutation: str) -> None:
 
 def test_requires_python_excludes_best_tag_then_uses_next_compatible() -> None:
     selection, _ = _selection()
-    fixture = _index_fixture()
+    responses = _pep691_responses()
     exact = next(
         item
-        for item in fixture["projects"]["pyyaml"]
-        if item["filename"] == fixture["expected_cp314t"]["pyyaml"]
+        for item in responses["pyyaml"]["files"]
+        if item["filename"] == EXPECTED_CP314T_FILENAMES["pyyaml"]
     )
-    exact["requires_python"] = "<3.14"
+    exact["requires-python"] = "<3.14"
 
-    resolution = _resolve(selection, fixture)
+    resolution = _resolve(selection, responses)
     resolved = next(
         item
         for item in resolution["requests"][0]["resolved"]
@@ -541,16 +713,16 @@ def test_requires_python_excludes_best_tag_then_uses_next_compatible() -> None:
 
 def test_requires_python_excludes_all_compatible_files() -> None:
     selection, _ = _selection()
-    fixture = _index_fixture()
+    responses = _pep691_responses()
     generic = next(
         item
-        for item in fixture["projects"]["packaging"]
-        if item["filename"] == fixture["expected_cp314t"]["packaging"]
+        for item in responses["packaging"]["files"]
+        if item["filename"] == "packaging-24.2-py3-none-any.whl"
     )
-    generic["requires_python"] = "<3.14"
-    fixture["projects"]["packaging"] = [generic]
+    generic["requires-python"] = "<3.14"
+    responses["packaging"]["files"] = [generic]
 
-    resolution = _resolve(selection, fixture)
+    resolution = _resolve(selection, responses)
     request = resolution["requests"][0]
 
     assert request["status"] == "failure"
@@ -579,18 +751,30 @@ def test_failed_request_discards_other_successful_requirement_records() -> None:
     assert set(request["failures"][0]) == FAILURE_FIELDS
 
 
-def test_dependency_resolution_grows_for_future_free_threaded_abi_without_host_tags(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def forbidden_host_tags(*args: object, **kwargs: object) -> object:
-        raise AssertionError("resolver must derive target tags from request coordinate")
+def test_failed_request_freezes_exact_sorted_multi_failure_set() -> None:
+    selection, _ = _selection()
+    resolution = _failure_resolution(selection, "pyyaml", "wrapt")
+    request = resolution["requests"][0]
+    expected = sorted(
+        [
+            {"code": "binary-wheel-unavailable", **_requirement(selection, name)}
+            for name in ("pyyaml", "wrapt")
+        ],
+        key=lambda item: item["requirement_id"],
+    )
 
-    monkeypatch.setattr(packaging_tags, "sys_tags", forbidden_host_tags)
-    dependency_module = _dependencies()
-    if hasattr(dependency_module, "sys_tags"):
-        monkeypatch.setattr(dependency_module, "sys_tags", forbidden_host_tags)
+    assert request["status"] == "failure"
+    assert request["resolved"] == []
+    assert request["failures"] == expected
+    validate = _public_callable(_dependencies(), "validate_dependency_resolution")
+    assert validate(resolution, _config(), selection) == resolution
+
+
+def test_dependency_resolution_grows_for_future_free_threaded_abi() -> None:
     selection, _ = _selection(_future_abi_fixture())
-    resolution = _resolve(selection, _future_index_fixture())
+    responses = _future_pep691_responses()
+    resolution = _resolve(selection, responses)
+    validate = _public_callable(_dependencies(), "validate_dependency_resolution")
 
     assert {
         request["coordinate"]["python_abi"] for request in resolution["requests"]
@@ -600,15 +784,19 @@ def test_dependency_resolution_grows_for_future_free_threaded_abi_without_host_t
             "python_abi"
         ].removesuffix("t")
         assert request["status"] == "success"
-        if request["coordinate"]["python_abi"] == "cp316t":
-            native = {
-                item["name"]: item["filename"]
-                for item in request["resolved"]
-                if item["name"] in {"pyyaml", "wrapt"}
-            }
-            assert all("cp316-cp316t" in filename for filename in native.values())
-
-
+        assert len(request["resolved"]) == len(request["requirements"])
+        assert {
+            item["requirement_id"] for item in request["resolved"]
+        } == {item["requirement_id"] for item in request["requirements"]}
+        expected = (
+            EXPECTED_CP316T_FILENAMES
+            if request["coordinate"]["python_abi"] == "cp316t"
+            else EXPECTED_CP314T_FILENAMES
+        )
+        assert {
+            item["name"]: item["filename"] for item in request["resolved"]
+        } == expected
+    assert validate(resolution, _config(), selection) == resolution
 @pytest.mark.parametrize(
     "mutation",
     [
@@ -619,10 +807,14 @@ def test_dependency_resolution_grows_for_future_free_threaded_abi_without_host_t
         "catalog-identity",
         "selection-identity",
         "index-url",
+        "kind",
+        "schema-version",
         "missing-request",
         "duplicate-request",
         "unexpected-request",
         "request-order",
+        "request-missing-field",
+        "request-extra-field",
         "request-id",
         "coordinate-drift",
         "requirements-drift",
@@ -640,8 +832,11 @@ def test_dependency_resolution_grows_for_future_free_threaded_abi_without_host_t
         "resolved-filename-name-drift",
         "resolved-filename-version-drift",
         "resolved-filename-tag-drift",
+        "resolved-coherent-incompatible-wheel",
         "resolved-requires-python-incompatible",
         "resolved-requires-python-invalid",
+        "resolved-missing-field",
+        "resolved-extra-field",
         "duplicate-wheel-tag",
         "resolved-sdist",
         "resolved-order",
@@ -652,7 +847,7 @@ def test_dependency_resolution_validator_rejects_resealed_closure_drift(
 ) -> None:
     if mutation == "request-order":
         selection, _ = _selection(_future_abi_fixture())
-        resolution = _resolve(selection, _future_index_fixture())
+        resolution = _resolve(selection, _future_pep691_responses())
     else:
         selection, _ = _selection()
         resolution = _resolve(selection)
@@ -671,6 +866,12 @@ def test_dependency_resolution_validator_rejects_resealed_closure_drift(
         _reseal(resolution, "resolution_sha256")
     elif mutation == "index-url":
         resolution["index_url"] = "https://mirror.example.invalid/simple/"
+        _reseal(resolution, "resolution_sha256")
+    elif mutation == "kind":
+        resolution["kind"] = "not-a-resolution"
+        _reseal(resolution, "resolution_sha256")
+    elif mutation == "schema-version":
+        resolution["schema_version"] = 4
         _reseal(resolution, "resolution_sha256")
     elif mutation == "missing-request":
         resolution["requests"] = []
@@ -692,6 +893,12 @@ def test_dependency_resolution_validator_rejects_resealed_closure_drift(
         _reseal(resolution, "resolution_sha256")
     elif mutation == "request-order":
         resolution["requests"].reverse()
+        _reseal(resolution, "resolution_sha256")
+    elif mutation == "request-missing-field":
+        request.pop("coordinate")
+        _reseal(resolution, "resolution_sha256")
+    elif mutation == "request-extra-field":
+        request["extra"] = None
         _reseal(resolution, "resolution_sha256")
     elif mutation == "request-id":
         request["request_id"] = "sha256:" + "f" * 64
@@ -757,11 +964,31 @@ def test_dependency_resolution_validator_rejects_resealed_closure_drift(
     elif mutation == "resolved-filename-tag-drift":
         request["resolved"][0]["wheel_tags"] = ["cp312-cp312-any"]
         _reseal(resolution, "resolution_sha256")
+    elif mutation == "resolved-coherent-incompatible-wheel":
+        resolved = next(
+            item for item in request["resolved"] if item["name"] == "packaging"
+        )
+        resolved["filename"] = (
+            "packaging-24.2-cp314-cp314t-manylinux_2_28_aarch64.whl"
+        )
+        resolved["url"] = (
+            "https://files.example.invalid/packaging/" + resolved["filename"]
+        )
+        resolved["wheel_tags"] = [
+            "cp314-cp314t-manylinux_2_28_aarch64"
+        ]
+        _reseal(resolution, "resolution_sha256")
     elif mutation == "resolved-requires-python-incompatible":
         request["resolved"][0]["requires_python"] = "<3.14"
         _reseal(resolution, "resolution_sha256")
     elif mutation == "resolved-requires-python-invalid":
         request["resolved"][0]["requires_python"] = "not a specifier"
+        _reseal(resolution, "resolution_sha256")
+    elif mutation == "resolved-missing-field":
+        request["resolved"][0].pop("url")
+        _reseal(resolution, "resolution_sha256")
+    elif mutation == "resolved-extra-field":
+        request["resolved"][0]["extra"] = None
         _reseal(resolution, "resolution_sha256")
     elif mutation == "duplicate-wheel-tag":
         request["resolved"][0]["wheel_tags"] *= 2
@@ -780,19 +1007,58 @@ def test_dependency_resolution_validator_rejects_resealed_closure_drift(
 
 
 @pytest.mark.parametrize(
-    "mutation", ["failure-with-resolved", "failure-without-failures", "failure-shape"]
+    "mutation",
+    [
+        "empty-failures",
+        "duplicate-failure",
+        "unexpected-failure",
+        "failure-order",
+        "bad-code",
+        "coherent-identity-drift",
+        "failure-with-resolved",
+        "failure-extra-field",
+    ],
 )
-def test_dependency_resolution_validator_rejects_failed_request_cardinality_drift(
+def test_dependency_resolution_validator_rejects_multi_failure_closure_drift(
     mutation: str,
 ) -> None:
     selection, _ = _selection()
-    resolution = _failure_resolution(selection)
+    resolution = _failure_resolution(selection, "pyyaml", "wrapt")
     request = resolution["requests"][0]
-    if mutation == "failure-with-resolved":
+    if mutation == "empty-failures":
+        request["failures"] = []
+    elif mutation == "duplicate-failure":
+        request["failures"].append(copy.deepcopy(request["failures"][0]))
+    elif mutation == "unexpected-failure":
+        identity = {
+            "scope": "runtime",
+            "name": "other-project",
+            "version": "1.0",
+        }
+        request["failures"].append(
+            {
+                "code": "binary-wheel-unavailable",
+                "requirement_id": _canonical_digest(identity),
+                **identity,
+            }
+        )
+        request["failures"].sort(key=lambda item: item["requirement_id"])
+    elif mutation == "failure-order":
+        request["failures"].reverse()
+    elif mutation == "bad-code":
+        request["failures"][0]["code"] = "temporary-error"
+    elif mutation == "coherent-identity-drift":
+        failure = request["failures"][0]
+        identity = {
+            "scope": failure["scope"],
+            "name": "other-project",
+            "version": failure["version"],
+        }
+        failure.update(identity, requirement_id=_canonical_digest(identity))
+        request["failures"].sort(key=lambda item: item["requirement_id"])
+    elif mutation == "failure-with-resolved":
         successful = _resolve(selection)["requests"][0]["resolved"][0]
         request["resolved"] = [successful]
-    elif mutation == "failure-without-failures":
-        request["failures"] = []
     else:
         request["failures"][0]["detail"] = "unstable free text"
     _reseal(resolution, "resolution_sha256")

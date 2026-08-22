@@ -419,10 +419,16 @@ admission、dependency request 或已形成的 coordinate 时，对应字段才�
 ### 5.2 DependencyResolution
 
 `ucm_release dependencies resolve --selection` 是唯一网络/索引 owner。它显式消费按
-`--release/--schema-dir/--repository-root` 加载并规范化的 config 与 CandidateSelection，先
-校验 `config_sha256` exact 相等，再检查 dependency request 数不超过
+`--release/--schema-dir/--repository-root` 加载并规范化的 config 与 raw persisted
+CandidateSelection；`dependencies.py` 必须先调用唯一的 public
+`products.validate_candidate_selection`，再校验 `config_sha256` exact 相等，然后检查
+dependency request 数不超过
 `config.discovery.matrix_limits.max_wheel_tasks`；两项都必须在第一次索引读取前完成。索引固定
-为 `https://pypi.org/simple/`，CLI 不接受任意 index override。输出封闭、自摘要的
+为 `https://pypi.org/simple/`，每个 canonical project 只读取
+`https://pypi.org/simple/<canonical-name>/`，并发送 exact
+`Accept: application/vnd.pypi.simple.v1+json` 解析 PEP 691 project response；CLI 不接受任意
+index override。依赖方向固定为 `dependencies -> products`，`products.py` 不得反向 import
+`dependencies.py`。输出封闭、自摘要的
 `ucm-dependency-resolution`：
 
 ```text
@@ -435,13 +441,21 @@ resolution_sha256
 exact 相等；`status` 只能是 `success` 或 `failure`。`resolved[]` 的每条记录重复 exact
 `{requirement_id, scope, name, version}`，并冻结
 `{filename, url, sha256, requires_python, wheel_tags}`；记录按 `requirement_id` 排序，
-`wheel_tags` 规范唯一排序。filename 必须按 wheel 标准解析出与 request exact 相等的 canonical
-name/version，并与声明 tags exact 相等；URL 必须是 absolute HTTPS，SHA256 必须规范。resolver
+`wheel_tags` 规范唯一排序。PEP 691 file 只提供 filename/URL/hashes/`requires-python` 等 raw
+evidence；canonical name/version/tags、SHA256 和 frozen `requires_python` 均由
+`dependencies.py` 解析/规范化，fixture/index 不声明派生 truth。filename 必须按 wheel 标准
+解析出与 request exact 相等的 canonical name/version；URL 必须是 absolute HTTPS，PEP 691
+`hashes.sha256` 必须存在且规范。resolver
 只从 request coordinate 构造 target tags，禁止使用 host `sys_tags`。`requires_python` 为
 Simple API 的字符串或 null；非 null 时必须由从 request ABI 推导的 target Python version
 满足。`success` 要求 `failures[]` 为空，且每个
 `requirement_id` 恰有一个 compatible resolved record、没有多余记录；`failure` 要求
 `resolved[]` 为空且 `failures[]` 非空并使用稳定 code，禁止输出部分成功数据。
+resolver 必须把本次读取实际观察到的全部失败 requirement 规范唯一排序输出。纯 validator
+不重读 index，只能证明 failures 非空、closed、canonical unique、code 合法且 repeated identity
+引用 request 内 requirement；删除一个仍合法的 in-request failure 或为另一个 in-request
+requirement 添加 failure，在 reseal 后没有独立证据可判定，不能伪称 validator 可恢复该 index
+truth。
 
 Resolution 的 request IDs 与每个 request 内 requirement IDs 必须与 Selection 完全闭包，
 拒绝 missing、duplicate、unexpected、scope/name/version drift、coordinate drift 和不兼容
@@ -449,15 +463,23 @@ wheel tags。resolver 不选择版本，只解析显式 pin；它只接受 stand
 binary wheel，并按标准 wheel-tag 兼容度排名，同一最高 rank 多解是硬歧义。禁止 sdist、
 环境 fallback、Catalog/索引数组顺序或文件名顺序成为选择规则。
 
+当前 4A2 输入是 A1 discovered-only Selection：`baseline_manifest_sha256` 为 null，且没有
+baseline selection/request。失败 request 只能为每个受影响 discovered selection 生成
+`dependency-unavailable` exclusion，不能生成 `baseline-dependency-unavailable` blocker；当前
+graph 的全部 `baseline_required` 为 false。Task 4B 在 public Manifest validator 完成后才重开
+baseline、扩充 dependency request closure 并重新调用同一 resolver/graph builder，由此产生
+baseline blocker 与 `baseline_required: true`。
+
 `ucm_release plan candidates --selection --dependency-resolution` 是纯函数：显式消费规范化
 config，先校验其摘要、两个输入对象的 source/config/catalog identity 和 exact request set，
 再把 resolved URL/filename/SHA256 冻结进 Candidate Plan。validator 只重算闭包与摘要，
 绝不重新选择 runtime、Builder
 revision 或依赖。未解析的新 dependency 形成 `dependency-unavailable` local exclusion 且
-不生成相关 task；未解析的 baseline dependency 形成显式
-`baseline-dependency-unavailable` blocker，不能替换 requirement 或 wheel。Candidate Plan
-不得消费 `failure` request 的任何 resolved 数据；其 `blockers[]` 必须原样保留 Selection 的
-全部 blocker，并只按同一封闭 shape 加入 Resolution 派生 blocker，再 canonical 去重排序。
+不生成相关 task。当前 A2 discovered-only graph 不含 baseline request，`blockers[]` 只能原样
+保留 Selection blockers（合法 A1 输入为空），不得猜测 Resolution blocker。Task 4B 的
+baseline-enriched planning input 才允许把未解析 baseline dependency 规范加入
+`baseline-dependency-unavailable` blocker。两阶段都不得消费 `failure` request 的任何
+resolved 数据，blocker/exclusion 均按各自 closed shape canonical 去重排序。
 
 每个任务除 `admission_key` 外还有 `lineage_key`。Lineage 保留 accelerator runtime、
 Variant、ABI 和 architecture，但不包含 UCM version、上游 runtime version 或 Mooncake
@@ -485,8 +507,14 @@ Runtime Image binding key
 Image build instance
       = Runtime Image binding key + ucm_version + runtime_id + wheel_task_id
 
-Image Family = accelerator + accelerator_runtime + variant
-             + mooncake_version + runtime_version
+Family publication coordinate
+      = product_id + accelerator + accelerator_runtime + variant
+      + mooncake_version + runtime_version + python_abi
+
+Family build instance
+      = Family publication coordinate + ucm_version
+      + ordered unique member_image_task_ids
+      + exact enabled target-channel coordinates
 ```
 
 Catalog binding 不新增字段。Task 4 在 Candidate graph 内从 exact pair 独立派生：
@@ -505,13 +533,17 @@ CUDA Runtime Image 的 `mooncake_version` 使用显式 `null`，不能省略。�
 Image 绑定键保持上述六字段精确闭包；`runtime_id` 只用于区分同一绑定键下的 baseline
 runtime revision 与新 upstream revision；`builder_revision_id/wheel_task_id` 则区分同一
 产品坐标下的新旧 Builder revision。`task_id` 是 build instance 规范 JSON 的
-`wheel-<sha256>`、`image-<sha256>` 或 `family-<sha256>`；Actions UI 另用动态 label 显示
+`wheel-<sha256>`、`image-<sha256>` 或 `family-<sha256>`；family task ID 必须 hash 上述 exact
+build instance，不能只 hash stable admission key；新增 architecture/member 会形成新 task ID。
+Actions UI 另用动态 label 显示
 Distribution、runtime、Variant、ABI 和 architecture。Artifact 名称使用
 `task_id + run_id + run_attempt`，不会因产品数量增长冲突。
 
 每个任务还携带不含本次 UCM version 的稳定 `admission_key`。Wheel 的 admission key
 为 `distribution + python_abi + cpu_architecture`；image 的 admission key 就是上面的
-Runtime Image 绑定键；family 的 admission key 不含上游 runtime patch version。这样
+Runtime Image 绑定键；family admission key 为
+`product_id + accelerator + accelerator_runtime + variant + mooncake_version + python_abi`，
+不含 architecture、上游 runtime patch version 或 UCM version。这样
 正常的 UCM 版本递增仍能匹配上一版正式能力，而新的 accelerator runtime、Mooncake、
 Variant、ABI 或 architecture 会被识别成新能力。`admission_key` 只用于 baseline 状态机，
 不能代替带 UCM version 的精确构建和发布坐标。
@@ -553,9 +585,9 @@ Mooncake、ABI 和 architecture，防止 CANN runtime 与错误 Mooncake 或 Pyt
 - `family_tasks[]`：动态 family 坐标、member task IDs、derived `baseline_required`、每个
   启用 channel 的目标 index；
 - `baseline_carry_forward[]`、`discovered_selections[]`、显式 `supersessions[]` 和
-  `retirements[]`；
-- `blockers[]`：原样继承 CandidateSelection blockers，并加入规范化的
-  `baseline-dependency-unavailable` blockers；
+  `retirements[]`；当前 A2 discovered-only graph 的三个 baseline/lifecycle 数组为空；
+- `blockers[]`：当前 A2 原样继承 CandidateSelection blockers；Task 4B baseline-enriched
+  final graph 才可加入规范化的 `baseline-dependency-unavailable` blockers；
 - `admission_requirements[]`：封闭记录
   `{admission_key, candidate_role, required_task_ids[]}`，其中 task IDs 规范排序且唯一；
 - `chart_task`：唯一的 Chart 输入、版本、文件名、derived `baseline_required` 和目标 OCI
