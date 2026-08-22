@@ -261,7 +261,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--route", choices=("pr", "daily", "release"), required=True
     )
     prepare_candidates.add_argument("--source-sha", required=True)
-    prepare_candidates.add_argument("--baseline-manifest", type=Path)
     prepare_candidates.add_argument("--output", type=Path, required=True)
 
     def _cmd_prepare_candidates(a):
@@ -273,11 +272,6 @@ def build_parser() -> argparse.ArgumentParser:
         catalog = capabilities.validate_capability_catalog(
             core.load_json(a.capability_catalog)
         )
-        baseline = (
-            core.load_json(a.baseline_manifest)
-            if a.baseline_manifest is not None
-            else None
-        )
         authority = builders.freeze_current_builder_authority(
             source_sha=a.source_sha,
             repository_root=a.repository_root,
@@ -288,7 +282,6 @@ def build_parser() -> argparse.ArgumentParser:
             authority,
             route=a.route,
             source_sha=a.source_sha,
-            baseline_manifest=baseline,
         )
         a.output.parent.mkdir(parents=True, exist_ok=True)
         _write(a.output, result)

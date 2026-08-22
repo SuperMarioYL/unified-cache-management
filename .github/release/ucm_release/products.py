@@ -13,17 +13,13 @@ from typing import Any, Mapping, Sequence
 from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
+from . import capabilities
 from .capabilities import (
-    BINDING_FIELDS,
-    CAPABILITY_FIELDS,
-    REVISION_FIELDS,
-    RUNTIME_FIELDS,
-    compile_python_coordinate,
     compact_accelerator_runtime,
     compact_mooncake_version,
+    compile_python_coordinate,
     normalize_variant,
     python_version_from_abi,
-    validate_capability_catalog,
 )
 
 _TEMPLATE_FIELDS = {
@@ -45,6 +41,16 @@ _RUNTIME_SELECTOR_TEMPLATES = frozenset(
         "v{version}-{variant}",
     }
 )
+_RUNTIME_SELECTORS_BY_PRODUCT = {
+    "vllm": (
+        "v{version}",
+        "v{version}-cu{runtime.major_minor.compact}",
+    ),
+    "vllm-ascend": (
+        "v{version}",
+        "v{version}-{variant}",
+    ),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,11 +119,7 @@ def compile_runtime_tag_selectors(
     value: object,
 ) -> tuple[CompiledRuntimeTagSelector, ...]:
     """Compile ordered runtime-tag policy without sorting or external reads."""
-    if (
-        not isinstance(value, Sequence)
-        or isinstance(value, (str, bytes))
-        or not value
-    ):
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or not value:
         raise ValueError("runtime_tag_selectors must be a non-empty sequence")
     if not all(isinstance(item, str) and item for item in value):
         raise ValueError("runtime_tag_selectors must contain non-empty strings")
@@ -669,49 +671,26 @@ def _require_commit(value: object, label: str) -> str:
     return value
 
 
-def _validate_authority_for_selection(value: object) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != {
-        "kind",
-        "schema_version",
-        "source_sha",
-        "toolchain_sha256",
-        "recipes",
-        "authority_sha256",
-    }:
-        raise ValueError("current Builder authority fields must be exact")
-    if value["kind"] != "ucm-current-builder-authority" or value["schema_version"] != 3:
-        raise ValueError("current Builder authority identity is invalid")
-    source_sha = _require_commit(value["source_sha"], "Builder authority source_sha")
-    _require_digest(value["toolchain_sha256"], "Builder authority toolchain digest")
-    recipes = value["recipes"]
-    if not isinstance(recipes, list) or not recipes:
-        raise ValueError("current Builder authority recipes must be non-empty")
-    paths = []
-    for recipe in recipes:
-        if not isinstance(recipe, dict) or set(recipe) != {
-            "recipe_path",
-            "recipe_source_commit",
-            "recipe_sha256",
-        }:
-            raise ValueError("current Builder authority recipe fields must be exact")
-        path = recipe["recipe_path"]
-        if not isinstance(path, str) or not path:
-            raise ValueError("current Builder authority recipe path is invalid")
-        if (
-            _require_commit(recipe["recipe_source_commit"], "recipe commit")
-            != source_sha
-        ):
-            raise ValueError("current Builder authority recipe commit differs")
-        _require_digest(recipe["recipe_sha256"], "recipe digest")
-        paths.append(path)
-    if paths != sorted(paths) or len(paths) != len(set(paths)):
-        raise ValueError("current Builder authority recipes are noncanonical")
-    digest = _require_digest(value["authority_sha256"], "Builder authority digest")
-    projection = copy.deepcopy(value)
-    projection.pop("authority_sha256")
-    if digest != _canonical_digest(projection):
-        raise ValueError("current Builder authority digest differs from contents")
-    return copy.deepcopy(value)
+def _validate_dependency_identity(
+    scope: object, name: object, version: object
+) -> dict[str, str]:
+    if scope not in {"build", "runtime"}:
+        raise ValueError("dependency scope must be build or runtime")
+    if (
+        not isinstance(name, str)
+        or not name
+        or canonicalize_name(name) != name
+    ):
+        raise ValueError("dependency name must be canonical for a public index")
+    if not isinstance(version, str):
+        raise ValueError("dependency version must be a string")
+    try:
+        parsed = Version(version)
+    except InvalidVersion as error:
+        raise ValueError("dependency pin is not PEP 440") from error
+    if str(parsed) != version or parsed.epoch or parsed.local:
+        raise ValueError("dependency pin is not an exact public PEP 440 version")
+    return {"scope": scope, "name": name, "version": version}
 
 
 def _dependency_requirements(config: Mapping[str, Any]) -> list[dict[str, str]]:
@@ -727,15 +706,7 @@ def _dependency_requirements(config: Mapping[str, Any]) -> list[dict[str, str]]:
         if not isinstance(values, Mapping):
             raise ValueError(f"dependencies.{scope} must be an object")
         for name, version in values.items():
-            if not isinstance(name, str) or not name or not isinstance(version, str):
-                raise ValueError("dependency pin must have string name/version")
-            try:
-                parsed = Version(version)
-            except InvalidVersion as error:
-                raise ValueError("dependency pin is not PEP 440") from error
-            if str(parsed) != version:
-                raise ValueError("dependency pin is not exact canonical PEP 440")
-            identity = {"scope": scope, "name": name, "version": version}
+            identity = _validate_dependency_identity(scope, name, version)
             requirements.append(
                 {"requirement_id": _canonical_digest(identity), **identity}
             )
@@ -817,6 +788,8 @@ def prepare_candidate_selection(
     baseline_manifest: object | None = None,
 ) -> dict[str, Any]:
     """Prepare the deterministic Task 4A1 selection without external reads."""
+    from . import builders
+
     if route not in {"pr", "daily", "release"}:
         raise ValueError("Candidate selection route is invalid")
     requested_source_sha = _require_commit(source_sha, "Candidate source_sha")
@@ -824,8 +797,10 @@ def prepare_candidate_selection(
         raise ValueError("Task 4A1 does not yet accept a baseline Manifest")
     if not isinstance(config, Mapping):
         raise ValueError("Candidate config must be an object")
-    validated_catalog = validate_capability_catalog(copy.deepcopy(catalog))
-    authority = _validate_authority_for_selection(current_builder_authority)
+    validated_catalog = capabilities.validate_capability_catalog(copy.deepcopy(catalog))
+    authority = builders.validate_current_builder_authority(
+        current_builder_authority
+    )
     if not (
         requested_source_sha
         == validated_catalog["source_sha"]
@@ -849,6 +824,12 @@ def prepare_candidate_selection(
         ):
             raise ValueError("upstream product ID is missing or duplicate")
         products_by_id[product_id] = product
+        runtime_product = product.get("runtime_product")
+        expected_selectors = _RUNTIME_SELECTORS_BY_PRODUCT.get(runtime_product)
+        if expected_selectors is None or tuple(
+            product.get("runtime_tag_selectors", [])
+        ) != expected_selectors:
+            raise ValueError("runtime selector policy differs from runtime product")
         selectors_by_product[product_id] = compile_runtime_tag_selectors(
             product.get("runtime_tag_selectors")
         )
@@ -864,9 +845,7 @@ def prepare_candidate_selection(
     runtimes_by_id = {
         item["runtime_id"]: item for item in validated_catalog["runtime_candidates"]
     }
-    recipes_by_path = {
-        item["recipe_path"]: item for item in authority["recipes"]
-    }
+    recipes_by_path = {item["recipe_path"]: item for item in authority["recipes"]}
     grouped_bindings: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
     for binding in validated_catalog["bindings"]:
         capability = capabilities_by_id[binding["builder_capability_id"]]
@@ -962,8 +941,7 @@ def prepare_candidate_selection(
                 if recipe is None:
                     continue
                 if (
-                    revision["recipe_source_commit"]
-                    == recipe["recipe_source_commit"]
+                    revision["recipe_source_commit"] == recipe["recipe_source_commit"]
                     and revision["recipe_sha256"] == recipe["recipe_sha256"]
                     and revision["toolchain_sha256"] == authority["toolchain_sha256"]
                 ):
@@ -1047,9 +1025,7 @@ def prepare_candidate_selection(
         "discovered_selections": discovered,
         "exclusions": exclusions,
         "blockers": [],
-        "dependency_requests": [
-            requests_by_id[key] for key in sorted(requests_by_id)
-        ],
+        "dependency_requests": [requests_by_id[key] for key in sorted(requests_by_id)],
         "selection_sha256": "",
     }
     if not isinstance(selection["ucm_version"], str) or not selection["ucm_version"]:
@@ -1071,6 +1047,9 @@ def validate_candidate_selection(value: object) -> dict[str, Any]:
     if value["route"] not in {"pr", "daily", "release"}:
         raise ValueError("Candidate selection route is invalid")
     _require_commit(value["source_sha"], "Candidate selection source_sha")
+    for field in ("ucm_version", "release_tag"):
+        if not isinstance(value[field], str) or not value[field]:
+            raise ValueError(f"Candidate selection {field} must be non-empty")
     for field in (
         "config_sha256",
         "catalog_sha256",
@@ -1083,39 +1062,24 @@ def validate_candidate_selection(value: object) -> dict[str, Any]:
     if value["baseline_selections"] != [] or value["blockers"] != []:
         raise ValueError("Task 4A1 baseline selections/blockers must be empty")
 
-    array_contracts = (
-        ("builder_capabilities", CAPABILITY_FIELDS, "builder_capability_id"),
-        ("builder_revisions", REVISION_FIELDS, "builder_revision_id"),
-        ("runtime_candidates", RUNTIME_FIELDS, "runtime_id"),
-        ("bindings", BINDING_FIELDS, None),
+    arrays = capabilities.validate_selected_capability_evidence(
+        {
+            "builder_capabilities": value["builder_capabilities"],
+            "builder_revisions": value["builder_revisions"],
+            "runtime_candidates": value["runtime_candidates"],
+            "bindings": value["bindings"],
+        }
     )
-    arrays: dict[str, list[dict[str, Any]]] = {}
-    for field, fields, identity in array_contracts:
-        records = value[field]
-        if not isinstance(records, list) or not all(
-            isinstance(item, dict) and set(item) == fields for item in records
-        ):
-            raise ValueError(f"Candidate selection {field} is not closed")
-        if identity is not None:
-            if records != sorted(records, key=lambda item: item[identity]):
-                raise ValueError(f"Candidate selection {field} is noncanonical")
-            ids = [item[identity] for item in records]
-            if len(ids) != len(set(ids)):
-                raise ValueError(f"Candidate selection {field} contains duplicates")
-        arrays[field] = records
-    if arrays["bindings"] != sorted(
-        arrays["bindings"],
-        key=lambda item: (item["builder_revision_id"], item["runtime_id"]),
-    ):
-        raise ValueError("Candidate selection bindings are noncanonical")
 
     capability_ids = {
         item["builder_capability_id"] for item in arrays["builder_capabilities"]
     }
-    revision_ids = {
-        item["builder_revision_id"] for item in arrays["builder_revisions"]
-    }
+    revision_ids = {item["builder_revision_id"] for item in arrays["builder_revisions"]}
     runtime_ids = {item["runtime_id"] for item in arrays["runtime_candidates"]}
+    runtime_products = {
+        item["runtime_id"]: item["product_id"]
+        for item in arrays["runtime_candidates"]
+    }
     binding_coordinates = {
         (
             item["builder_capability_id"],
@@ -1158,6 +1122,8 @@ def validate_candidate_selection(value: object) -> dict[str, Any]:
             not in binding_coordinates
         ):
             raise ValueError("discovered selection references are incomplete")
+        if item["product_id"] != runtime_products[item["runtime_id"]]:
+            raise ValueError("discovered selection product differs from runtime")
     selection_coordinates = {
         (
             item["builder_capability_id"],
@@ -1185,6 +1151,8 @@ def validate_candidate_selection(value: object) -> dict[str, Any]:
         raise ValueError("Candidate selection exclusions are not closed")
     if exclusions != sorted(exclusions, key=_exclusion_key):
         raise ValueError("Candidate selection exclusions are noncanonical")
+    if len(exclusions) != len({_canonical_bytes(item) for item in exclusions}):
+        raise ValueError("Candidate selection exclusions contain duplicates")
 
     requests = value["dependency_requests"]
     if not isinstance(requests, list) or requests != sorted(
@@ -1223,11 +1191,11 @@ def validate_candidate_selection(value: object) -> dict[str, Any]:
                 or set(requirement) != _REQUIREMENT_FIELDS
             ):
                 raise ValueError("dependency requirement fields must be exact")
-            identity = {
-                "scope": requirement["scope"],
-                "name": requirement["name"],
-                "version": requirement["version"],
-            }
+            identity = _validate_dependency_identity(
+                requirement["scope"],
+                requirement["name"],
+                requirement["version"],
+            )
             if requirement["requirement_id"] != _canonical_digest(identity):
                 raise ValueError("dependency requirement ID is not canonical")
         projection = {"coordinate": coordinate, "requirements": requirements}
@@ -1237,15 +1205,24 @@ def validate_candidate_selection(value: object) -> dict[str, Any]:
         request_coordinates.append(coordinate)
     if len(request_ids) != len(set(request_ids)):
         raise ValueError("dependency requests contain duplicates")
-    expected_coordinates = {
-        (
-            "cp" + item["python_version"].replace(".", ""),
-            item["python_abi"],
-            item["cpu_architecture"],
-            item["manylinux"],
+    expected_coordinates = set()
+    for capability in arrays["builder_capabilities"]:
+        compiled = capabilities.compile_python_coordinate(
+            {
+                "python_version": capability["python_version"],
+                "python_abi": capability["python_abi"],
+                "cpu_architecture": capability["cpu_architecture"],
+                "manylinux": capability["manylinux"],
+            }
         )
-        for item in arrays["builder_capabilities"]
-    }
+        expected_coordinates.add(
+            (
+                compiled["python_tag"],
+                capability["python_abi"],
+                capability["cpu_architecture"],
+                capability["manylinux"],
+            )
+        )
     actual_coordinates = {
         (
             item["python_tag"],

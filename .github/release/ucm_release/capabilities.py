@@ -444,9 +444,7 @@ def compile_python_coordinate(validated_fields: object) -> dict[str, str]:
     python_tag = "cp" + version.replace(".", "")
     if abi not in {python_tag, python_tag + "t"}:
         raise ValueError("Python coordinate ABI is not canonical")
-    architecture = _string(
-        fields["cpu_architecture"], "Python coordinate architecture"
-    )
+    architecture = _string(fields["cpu_architecture"], "Python coordinate architecture")
     platform_architecture = {
         "amd64": "x86_64",
         "arm64": "aarch64",
@@ -1956,6 +1954,76 @@ def _validate_capability_semantics(value: dict[str, Any], label: str) -> None:
             raise ValueError(f"{label}: CUDA Mooncake version must be null")
     else:
         compact_mooncake_version(value["mooncake_version"])
+
+
+def validate_selected_capability_evidence(value: object) -> dict[str, Any]:
+    """Validate a closed selected Catalog subgraph through Catalog semantics."""
+    evidence = _mapping(value, "selected capability evidence")
+    expected_fields = {
+        "builder_capabilities",
+        "builder_revisions",
+        "runtime_candidates",
+        "bindings",
+    }
+    if set(evidence) != expected_fields:
+        raise ValueError("selected capability evidence fields must be exact")
+    for field in expected_fields:
+        _array(evidence[field], f"selected capability evidence {field}")
+    revision_ids_by_capability: dict[str, list[str]] = {}
+    for raw in evidence["builder_revisions"]:
+        revision = _mapping(raw, "selected Builder revision")
+        capability_id = _string(
+            revision.get("builder_capability_id"),
+            "selected Builder revision capability ID",
+        )
+        revision_id = _string(
+            revision.get("builder_revision_id"), "selected Builder revision ID"
+        )
+        revision_ids_by_capability.setdefault(capability_id, []).append(revision_id)
+    capabilities = []
+    for raw in evidence["builder_capabilities"]:
+        capability = copy.deepcopy(_mapping(raw, "selected Builder capability"))
+        capability_id = _string(
+            capability.get("builder_capability_id"),
+            "selected Builder capability ID",
+        )
+        selected_revision_ids = sorted(
+            revision_ids_by_capability.get(capability_id, [])
+        )
+        if not selected_revision_ids or not set(selected_revision_ids) <= set(
+            capability.get("builder_revision_ids", [])
+        ):
+            raise ValueError("selected capability revision evidence is incomplete")
+        capability["builder_revision_ids"] = selected_revision_ids
+        capabilities.append(capability)
+    entries = [
+        {field: binding[field] for field in ENTRY_FIELDS}
+        for binding in evidence["bindings"]
+    ]
+    entries.sort(key=_entry_key)
+    catalog = {
+        "kind": "ucm-capability-catalog",
+        "schema_version": 3,
+        "source_sha": "0" * 40,
+        "upstream_reads": [],
+        "builder_sync": {
+            "mode": "append-only",
+            "target_digests_verified": True,
+            "deletions": [],
+        },
+        "builder_capabilities": capabilities,
+        "builder_revisions": copy.deepcopy(evidence["builder_revisions"]),
+        "runtime_candidates": copy.deepcopy(evidence["runtime_candidates"]),
+        "bindings": copy.deepcopy(evidence["bindings"]),
+        "entries": entries,
+        "exclusions": [],
+        "catalog_sha256": "",
+    }
+    catalog["catalog_sha256"] = _canonical_digest(
+        {key: item for key, item in catalog.items() if key != "catalog_sha256"}
+    )
+    validate_capability_catalog(catalog)
+    return copy.deepcopy(evidence)
 
 
 def validate_capability_catalog(value: object) -> dict[str, Any]:

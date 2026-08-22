@@ -202,7 +202,7 @@
         },
         "runtime": {
           "type": "object",
-          "propertyNames": {"pattern": "^[A-Za-z0-9_.+-]+$"},
+          "propertyNames": {"pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
           "additionalProperties": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)*(?:(?:a|b|rc)[0-9]+)?(?:\\.post[0-9]+)?(?:\\.dev[0-9]+)?$"}
         }
       }
@@ -601,6 +601,36 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "runtime_product", "repository", "target_repository", "version_specifier", "channels", "runtime_tag_selectors"],
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["runtime_product", "runtime_tag_selectors"],
+          "properties": {
+            "runtime_product": {"const": "vllm"},
+            "runtime_tag_selectors": {
+              "type": "array", "minItems": 2, "maxItems": 2,
+              "prefixItems": [
+                {"const": "v{version}"},
+                {"const": "v{version}-cu{runtime.major_minor.compact}"}
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["runtime_product", "runtime_tag_selectors"],
+          "properties": {
+            "runtime_product": {"const": "vllm-ascend"},
+            "runtime_tag_selectors": {
+              "type": "array", "minItems": 2, "maxItems": 2,
+              "prefixItems": [
+                {"const": "v{version}"},
+                {"const": "v{version}-{variant}"}
+              ]
+            }
+          }
+        }
+      ],
       "properties": {
         "id": {"type": "string", "minLength": 1},
         "runtime_product": {"enum": ["vllm", "vllm-ascend"]},

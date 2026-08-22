@@ -1228,8 +1228,7 @@ def freeze_current_builder_authority(
             {
                 "recipe_path": recipe_path,
                 "recipe_source_commit": commit,
-                "recipe_sha256": "sha256:"
-                + hashlib.sha256(contents).hexdigest(),
+                "recipe_sha256": "sha256:" + hashlib.sha256(contents).hexdigest(),
             }
         )
     recipes.sort(key=lambda item: item["recipe_path"])
