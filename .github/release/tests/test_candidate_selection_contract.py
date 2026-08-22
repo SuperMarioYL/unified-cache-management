@@ -163,14 +163,99 @@ def _call_target(function: ast.expr) -> str | None:
     return None
 
 
-def _call_targets(node: ast.AST) -> set[str]:
-    return {
-        target
-        for call in ast.walk(node)
-        if isinstance(call, ast.Call)
-        for target in [_call_target(call.func)]
-        if target is not None
+class _DirectCallVisitor(ast.NodeVisitor):
+    def __init__(self) -> None:
+        self.targets: set[str] = set()
+
+    def visit_Call(self, node: ast.Call) -> None:
+        target = _call_target(node.func)
+        if target is not None:
+            self.targets.add(target)
+        self.generic_visit(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        return
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        return
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        return
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        return
+
+
+def _direct_call_targets(function: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+    visitor = _DirectCallVisitor()
+    for statement in function.body:
+        visitor.visit(statement)
+    return visitor.targets
+
+
+def _import_aliases(tree: ast.Module) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for item in node.names:
+                local = item.asname or item.name.split(".", 1)[0]
+                aliases[local] = item.name if item.asname else local
+        elif isinstance(node, ast.ImportFrom):
+            prefix = node.module or ""
+            for item in node.names:
+                local = item.asname or item.name
+                aliases[local] = ".".join(
+                    part for part in (prefix, item.name) if part
+                )
+    return aliases
+
+
+def _resolve_imported_target(target: str, aliases: dict[str, str]) -> str:
+    head, separator, tail = target.partition(".")
+    imported = aliases.get(head)
+    if imported is None:
+        return target
+    return imported + (separator + tail if separator else "")
+
+
+def _reachable_call_targets(tree: ast.Module, entrypoint: str) -> set[str]:
+    functions = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
+    assert entrypoint in functions, f"required public seam {entrypoint} is missing"
+    aliases = _import_aliases(tree)
+    pending = [entrypoint]
+    visited: set[str] = set()
+    reachable: set[str] = set()
+    while pending:
+        function_name = pending.pop()
+        if function_name in visited:
+            continue
+        visited.add(function_name)
+        for target in _direct_call_targets(functions[function_name]):
+            if target in functions:
+                pending.append(target)
+                reachable.add(target)
+            else:
+                reachable.add(_resolve_imported_target(target, aliases))
+    return reachable
+
+
+def _is_network_call(target: str) -> bool:
+    network_roots = (
+        "aiohttp",
+        "http.client",
+        "httpx",
+        "requests",
+        "socket",
+        "urllib.request",
+        "urllib3",
+    )
+    return any(
+        target == root or target.startswith(root + ".") for root in network_roots
+    )
 
 
 def _assemble_catalog(fixture: dict[str, Any]) -> dict[str, Any]:
@@ -648,35 +733,27 @@ def test_catalog_shape_and_assembly_share_python_coordinate_owner() -> None:
             encoding="utf-8"
         )
     )
+    capability_calls = _reachable_call_targets(
+        capability_tree, "assemble_capability_catalog"
+    )
     assert any(
         target.rsplit(".", 1)[-1] == "compile_python_coordinate"
-        for target in _call_targets(capability_tree)
+        for target in capability_calls
     )
     product_tree = ast.parse(
         (RELEASE_ROOT / "ucm_release" / "products.py").read_text(encoding="utf-8")
     )
+    product_calls = _reachable_call_targets(
+        product_tree, "prepare_candidate_selection"
+    )
     assert any(
         target.rsplit(".", 1)[-1] == "compile_python_coordinate"
-        for target in _call_targets(product_tree)
+        for target in product_calls
     )
-    assert not any(
-        target.split(".", 1)[0] in {"requests", "socket", "subprocess", "urllib"}
-        for target in _call_targets(product_tree)
-    )
+    assert not any(_is_network_call(target) for target in product_calls)
     assert "compile_python_coordinate" not in {
         node.name for node in product_tree.body if isinstance(node, ast.FunctionDef)
     }
-    imported_roots = {
-        name.name.split(".", 1)[0]
-        for node in product_tree.body
-        if isinstance(node, ast.Import)
-        for name in node.names
-    } | {
-        node.module.split(".", 1)[0]
-        for node in product_tree.body
-        if isinstance(node, ast.ImportFrom) and node.module is not None
-    }
-    assert not ({"requests", "socket", "subprocess", "urllib"} & imported_roots)
 
 
 def test_builder_recipe_paths_are_one_owner_shared_with_discovery() -> None:
@@ -1059,9 +1136,19 @@ def test_ascend_selection_uses_catalog_variant_and_ordered_selectors(
     _add_ascend_selector_group(fixture, variant=variant, runtimes=runtimes)
     selection, catalog, _ = _selection(fixture)
 
-    assert _selected_runtime_tags(
-        selection, catalog, product_id="vllm-ascend"
-    ) == {expected_tag}
+    ascend_selections = [
+        item
+        for item in selection["discovered_selections"]
+        if item["product_id"] == "vllm-ascend"
+    ]
+    assert len(ascend_selections) == 1
+    selected = ascend_selections[0]
+    assert selected == {
+        "product_id": "vllm-ascend",
+        "builder_capability_id": selected["builder_capability_id"],
+        "builder_revision_id": selected["builder_revision_id"],
+        "runtime_id": selected["runtime_id"],
+    }
     ascend_runtimes = [
         item
         for item in catalog["runtime_candidates"]
@@ -1070,26 +1157,91 @@ def test_ascend_selection_uses_catalog_variant_and_ordered_selectors(
     assert {item["runtime_tag"] for item in ascend_runtimes} == {
         item[1] for item in runtimes
     }
-    selected_ids = {
-        item["runtime_id"]
-        for item in selection["discovered_selections"]
-        if item["product_id"] == "vllm-ascend"
-    }
+    runtime = next(
+        item
+        for item in selection["runtime_candidates"]
+        if item["runtime_id"] == selected["runtime_id"]
+    )
+    capability = next(
+        item
+        for item in selection["builder_capabilities"]
+        if item["builder_capability_id"] == selected["builder_capability_id"]
+    )
+    revision = next(
+        item
+        for item in selection["builder_revisions"]
+        if item["builder_revision_id"] == selected["builder_revision_id"]
+    )
     selected_bindings = [
-        item for item in selection["bindings"] if item["runtime_id"] in selected_ids
+        item
+        for item in selection["bindings"]
+        if item["builder_capability_id"] == selected["builder_capability_id"]
+        and item["builder_revision_id"] == selected["builder_revision_id"]
+        and item["runtime_id"] == selected["runtime_id"]
     ]
-    assert selected_bindings
-    assert all(
-        item["mooncake_copy_mode"] == "runtime-copy"
-        for item in selected_bindings
+    assert len(selected_bindings) == 1
+    binding = selected_bindings[0]
+    assert [
+        item
+        for item in selection["bindings"]
+        if item["accelerator"] == "ascend" and item["variant"] == variant
+    ] == [binding]
+    expected_mooncake = next(
+        mooncake_version
+        for _, runtime_tag, mooncake_version in runtimes
+        if runtime_tag == expected_tag
     )
-    assert all(
-        item["variant"] == variant and item["mooncake_version"] is not None
-        for item in selected_bindings
+    assert runtime["runtime_tag"] == expected_tag
+    assert _selected_runtime_tags(
+        selection, catalog, product_id="vllm-ascend"
+    ) == {expected_tag}
+    assert capability["mooncake_version"] == expected_mooncake
+    assert runtime["mooncake_version"] == expected_mooncake
+    assert binding["mooncake_version"] == expected_mooncake
+    assert binding["mooncake_copy_mode"] == "runtime-copy"
+    assert binding["runtime_image"] == runtime["runtime_image"]
+    assert revision["builder_capability_id"] == capability["builder_capability_id"]
+    assert revision["builder_revision_id"] == binding["builder_revision_id"]
+    selected_fact = next(
+        item
+        for item in fixture["builder_discovery"]["builder_facts"]
+        if item["target_builder_digest"] == revision["target_builder_digest"]
     )
-    exclusions = {
-        item["reason_code"] for item in selection["exclusions"]
+    assert selected_fact["mooncake_source_runtime_id"] == runtime["runtime_id"]
+    assert selected_fact["mooncake_source_runtime_image"] == runtime["runtime_image"]
+    assert selected_fact["mooncake_version"] == expected_mooncake
+
+    unselected_runtime_ids = {
+        item["runtime_id"]
+        for item in ascend_runtimes
+        if item["runtime_id"] != runtime["runtime_id"]
     }
+    assert not unselected_runtime_ids & {
+        item["runtime_id"] for item in selection["runtime_candidates"]
+    }
+    unselected_bindings = [
+        item
+        for item in catalog["bindings"]
+        if item["runtime_id"] in unselected_runtime_ids
+    ]
+    if unselected_runtime_ids:
+        assert len(unselected_bindings) == len(unselected_runtime_ids)
+    assert not {
+        item["builder_capability_id"] for item in unselected_bindings
+    } & {
+        item["builder_capability_id"]
+        for item in selection["builder_capabilities"]
+    }
+    assert not {item["builder_revision_id"] for item in unselected_bindings} & {
+        item["builder_revision_id"] for item in selection["builder_revisions"]
+    }
+    if variant == "a2":
+        assert expected_tag == "v0.22.1rc1"
+        assert expected_mooncake == "0.3.12"
+        assert {item["runtime_tag"] for item in ascend_runtimes} - {expected_tag} == {
+            "v0.22.1rc1-a2"
+        }
+    exclusions = {item["reason_code"] for item in selection["exclusions"]}
     assert ("runtime-flavor-unsupported" in exclusions) is expects_unsupported
 
 
