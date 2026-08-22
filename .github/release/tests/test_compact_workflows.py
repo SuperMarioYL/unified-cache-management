@@ -140,6 +140,15 @@ def test_builder_sync_consumes_selection_and_materializes_recipes() -> None:
     assert "REQUIRE_MOONCAKE" in text
 
 
+def test_mooncake_installer_supports_old_upstream_curl() -> None:
+    text = (
+        ROOT / ".github" / "release" / "docker" / "mooncake_installer.sh"
+    ).read_text(encoding="utf-8")
+    assert "curl --help all" in text
+    assert "curl_retry_all_errors=(--retry-all-errors)" in text
+    assert '"${curl_retry_all_errors[@]}"' in text
+
+
 def test_wheel_build_records_auditwheel_result_manifest() -> None:
     text = (WORKFLOWS / "_build-wheel.yml").read_text(encoding="utf-8")
     assert "auditwheel==" in text

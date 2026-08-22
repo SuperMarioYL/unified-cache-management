@@ -213,7 +213,13 @@ fi
 # Download yalantinglibs
 YALANTINGLIBS_ZIPFILE="yalantinglibs-${YALANTINGLIBS_VERSION}.zip"
 echo "Downloading yalantinglibs ${YALANTINGLIBS_VERSION} from ${GITHUB_PROXY}/alibaba/yalantinglibs/archive/refs/tags/${YALANTINGLIBS_VERSION}.zip"
-curl -L --fail --retry 8 --retry-all-errors --retry-delay 3 -o ${YALANTINGLIBS_ZIPFILE} ${GITHUB_PROXY}/alibaba/yalantinglibs/archive/refs/tags/${YALANTINGLIBS_VERSION}.zip
+curl_retry_all_errors=()
+if curl --help all 2>/dev/null | grep -q -- '--retry-all-errors'; then
+    curl_retry_all_errors=(--retry-all-errors)
+fi
+curl -L --fail --retry 8 "${curl_retry_all_errors[@]}" --retry-delay 3 \
+    -o ${YALANTINGLIBS_ZIPFILE} \
+    ${GITHUB_PROXY}/alibaba/yalantinglibs/archive/refs/tags/${YALANTINGLIBS_VERSION}.zip
 check_success "Failed to download yalantinglibs"
 
 # Extract yalantinglibs
