@@ -415,23 +415,37 @@ def _assert_digest_guard_precedes(
     ), f"{variable} must be validated before it is consumed"
 
 
+_SHELL_THEN = r"(?:;?[ \t]*then[ \t]*$|;?[ \t]*\n[ \t]*then[ \t]*$)"
+
+
 def _balanced_if_bodies(
     source: str, body_start: int
 ) -> tuple[str, str | None] | None:
-    controls = re.compile(
-        r"(?m)^\s*(?:(?P<open>if\b[^\n]*\bthen)|"
-        r"(?P<alternative>else)|(?P<close>fi))\s*;?\s*$"
-    )
+    controls: list[tuple[int, str, re.Match[str]]] = []
+    for control in re.finditer(
+        r"(?m)^[ \t]*if\b[^\n]*" + _SHELL_THEN,
+        source,
+        body_start,
+    ):
+        controls.append((control.start(), "open", control))
+    for control in re.finditer(
+        r"(?m)^[ \t]*(?P<control>else|fi)[ \t]*;?[ \t]*$",
+        source,
+        body_start,
+    ):
+        controls.append((control.start(), control.group("control"), control))
+    controls.sort(key=lambda item: item[0])
+
     depth = 1
     alternative: re.Match[str] | None = None
-    for control in controls.finditer(source, body_start):
-        if control.group("open"):
+    for _, kind, control in controls:
+        if kind == "open":
             depth += 1
             continue
-        if control.group("alternative") and depth == 1 and alternative is None:
+        if kind == "else" and depth == 1 and alternative is None:
             alternative = control
             continue
-        if not control.group("close"):
+        if kind != "fi":
             continue
         depth -= 1
         if depth != 0:
@@ -450,12 +464,12 @@ def _mismatch_result_branch(source: str) -> str | None:
     declared = re.compile(_shell_variable("declared_version"))
     installed = re.compile(_shell_variable("installed_version"))
 
-    for branch in re.finditer(
-        r"(?m)^\s*if\s+(?:\[\[(?P<double>[^\n]*?)\]\]|"
-        r"\[(?P<single>[^\n]*?)\]|test\s+(?P<test>[^\n]*?))"
-        r"\s*;?\s*then\s*$",
-        source,
-    ):
+    if_headers = re.compile(
+        r"(?m)^[ \t]*if[ \t]+(?:\[\[(?P<double>[^\n]*?)\]\]|"
+        r"\[(?P<single>[^\n]*?)\]|test[ \t]+(?P<test>[^\n]*?))"
+        r"[ \t]*" + _SHELL_THEN
+    )
+    for branch in if_headers.finditer(source):
         condition = (
             branch.group("double")
             or branch.group("single")
@@ -707,6 +721,20 @@ def test_mooncake_shell_run_parser_requires_executable_exact_tokens(
             """,
             True,
             id="nested-posix-inequality",
+        ),
+        pytest.param(
+            """
+            if [ "${PROBE_OUTCOME}" = success ]
+            then
+              # The next executable then belongs to the nested comparison.
+              if test "${declared_version}" != "${installed_version}"
+              then
+                reason_code=mooncake-version-mismatch
+              fi
+            fi
+            """,
+            True,
+            id="nested-newline-then",
         ),
         pytest.param(
             """
