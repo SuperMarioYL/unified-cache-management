@@ -80,16 +80,17 @@
 - Schema v3 每个 upstream product 声明有序 exact selectors：vLLM 为 `v{version}`、`v{version}-cu{runtime.major_minor.compact}`，vLLM-Ascend 为 `v{version}`、`v{version}-{variant}`。`variant` 只来自 Catalog-normalized Variant，不读取 supplementary tag suffix。
 - 按 product/binding accelerator-runtime family/Variant/architecture 分组；组内按 runtime version 分桶降序，再执行 selector 声明顺序。同 selector 多匹配硬失败；无匹配形成 `runtime-flavor-unsupported` 后检查旧版本。baseline exact runtime ID 绕过 selector。
 - `builders.py` 冻结 `ucm-current-builder-authority`。CandidateSelection/Catalog/authority source SHA exact 相等；新 revision exact 匹配 current recipe/toolchain，零匹配 local exclusion，多匹配硬失败；baseline exact revision 绕过。
-- `capabilities.compile_python_coordinate` 是普通/free-threaded Python coordinate 的唯一公式 owner；Catalog assembly 和 products 都调用它，不扩展 Catalog shape。
-- `products.py` 输出封闭 `ucm-candidate-selection`，冻结 exact selected evidence、exclusions/blockers 和规范唯一 dependency requests；不包含 build tasks，不访问网络。
+- Schema v3 `dependencies` 只接受 exact canonical PEP 440 pins；prerelease 必须显式 pin，禁止 constraint/range。每个 requirement 冻结 `{requirement_id,scope,name,version}`，ID 由 exact 三元组计算。
+- `capabilities.compile_python_coordinate` 从 public capability validated fields 编译普通/free-threaded Python coordinate；Catalog assembly 和 products 都调用它，不扩展 Catalog shape。
+- `products.py` 输出封闭 `ucm-candidate-selection`，冻结 exact selected evidence、exclusions、规范唯一 dependency requests，以及 canonical `blockers[]`；blocker shape 固定为 `{reason_code,admission_key,dependency_request_id,affected_coordinate,evidence}`。Selection 不包含 build tasks，不访问网络。
 - 先提交 authority/selector/Python coordinate/CandidateSelection RED；fixture 从独立 live-shaped raw Catalog 输入动态增长，不固定 runtime、binding 或 ABI 数量。
 
 ### Task 4A2: DependencyResolution 和纯 Candidate graph
 
 - 新增 `dependencies.py` 与 CLI `ucm_release dependencies resolve --selection`。它是唯一网络/索引 owner，按 standards-compatible binary wheel-tag rank 解析 exact request set，禁止 sdist、fallback 或数组顺序选择。
-- `ucm-dependency-resolution` 绑定 source/config/catalog/selection hashes；每个 request 冻结 coordinate、exact requirements、status、resolved filename/URL/SHA/wheel tags 和 failures，拒绝 missing/duplicate/unexpected/drift。
+- `ucm-dependency-resolution` 绑定 source/config/catalog/selection hashes；request status 仅 `success/failure`，resolved record 重复 exact `{requirement_id,scope,name,version}`。success 对每个 requirement 恰有一个 compatible resolved 且 failures 为空；failure 不含 partial resolved 且 failures 非空。拒绝 missing/duplicate/unexpected/scope-name-version drift；同一最高 wheel-tag rank 多解硬失败。
 - `ucm_release plan candidates --selection --dependency-resolution` 是纯 planner；校验摘要和 request closure，把 resolved records 冻结进 Candidate Plan，绝不重新选择或联网。新增 `selection_sha256` 与 `dependency_resolution_sha256`。
-- unresolved new dependency 形成 `dependency-unavailable` exclusion 且不建 task；unresolved baseline dependency 形成 `baseline-dependency-unavailable` blocker，不能替换。
+- unresolved new dependency 形成 `dependency-unavailable` exclusion 且不建 task；unresolved baseline dependency 形成 `baseline-dependency-unavailable` blocker。Candidate Plan 原样继承 Selection blockers 并规范加入该 Resolution blocker，不能消费 partial failed data。
 - WHL/image/family坐标按 Spec 计算；Task 4 `binding_id` 只由 exact revision/runtime pair 计算。Wheel 按完整 build coordinate 唯一且可被多个 image 共享。
 - Candidate Plan 冻结 Python coordinate、动态 tasks/matrices、`admission_requirements[]` 和 graph-derived `baseline_required`。`candidate_role` 只在 requirements 中。
 - `ucm_release plan select` 只做 expected plan hash + exact task ID lookup，不承担 selection 或 dependency resolution。
@@ -98,6 +99,7 @@
 ### Task 4B: Result closure 和 admission
 
 - 新增 CLI：`ucm_release plan admit`；Candidate build Result 使用统一闭包。wheel 的 capability/revision 非空且 `binding_id: null`，image 三者非空，Chart 三者为 null。
+- `plan admit` 在 Results 前消费 Candidate Plan blockers：formal 任一 blocker 都产生 blocked、`releasable: false`；evaluation 输出 `would-block`。planning blocker 不被成功 Result 或 quarantine 抵消。
 - 从 `admission_requirements[]` 和 Result exact set 决定：baseline success → admitted；baseline failure/missing → block；new success → promote；new failure → quarantine。共享 wheel 只要被 baseline 反向依赖即为 baseline required。
 - 首次正式 v3 RC 使用 `bootstrap: all-passing`；PR/daily 只输出不可发布 evaluation，不能生成正式 Admitted Plan。
 - 分别验证 missing/duplicate/unexpected Result、新项失败隔离、baseline 阻断、显式 supersession 和隔离项后续晋级。

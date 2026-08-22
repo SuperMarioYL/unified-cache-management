@@ -70,7 +70,7 @@ flowchart LR
 
 | 所有者 | 权威职责 | 不拥有的知识 |
 | --- | --- | --- |
-| `.github/release/release.yaml` + `schemas/config.schema.json` | 静态产品规则、模板、版本约束、渠道开关、扫描与矩阵上限、首次 v3 bootstrap 策略 | 已发现版本、ABI、架构和构建结果 |
+| `.github/release/release.yaml` + `schemas/config.schema.json` | 静态产品规则、模板、上游版本范围、依赖精确 pins、渠道开关、扫描与矩阵上限、首次 v3 bootstrap 策略 | 已发现版本、ABI、架构和构建结果 |
 | `ucm_release/capabilities.py` | 上游读取、规范化、去重、exclusion、Capability Catalog、Python coordinate 编译 | Distribution 命名和发布准入 |
 | `ucm_release/builders.py` | planner checkout 的当前 Builder recipe/toolchain 权威、Builder 同步与精确 revision 证据 | runtime 选择和 baseline 准入 |
 | `ucm_release/products.py` | 模板编译、产品选择、CandidateSelection、精确任务坐标和纯 Candidate Plan | 网络/索引访问和构建是否成功 |
@@ -155,10 +155,12 @@ Profile Builder 注入、固定 `python_abi`、固定 `dist_name` 以及固定�
 配置加载器看到 `schema_version` 不是整数 `3` 或出现这些残留字段时直接失败，不能把
 它们忽略为未知扩展。
 
-依赖配置只保存版本或版本约束。纯 Candidate planner 不访问网络或包索引；Task 4A1 只
-生成规范 dependency requests，Task 4A2 的 `dependencies.py` resolver 在 GitHub Hosted
-Runner 上解析 compatible binary wheels 并冻结文件名、URL 和 SHA256，随后纯 planner
-消费该 Resolution。构建 Job 不重新选择依赖，也不从宽泛 glob 猜测文件。
+`dependencies` 的每个值只能是 exact canonical PEP 440 version，不能是范围、通配符或
+其他 constraint。显式配置的 version 就是 resolution version；prerelease 只在配置明确
+pin 该 prerelease 时允许。纯 Candidate planner 不访问网络或包索引；Task 4A1 只生成规范
+dependency requests，Task 4A2 的 `dependencies.py` resolver 在 GitHub Hosted Runner 上
+解析 compatible binary wheels 并冻结文件名、URL 和 SHA256，随后纯 planner 消费该
+Resolution。构建 Job 不重新选择版本或依赖，也不从宽泛 glob 猜测文件。
 
 ### 3.2 模板编译与规范化
 
@@ -303,8 +305,8 @@ baseline Manifest 引用的 revision；同步只新增 content-addressed/revisio
 不覆盖或删除旧 revision。Manifest 引用的 target digest 无法回读时保留该 revision 记录
 并让 baseline build 产生失败 Result，不能静默换成相同 capability 的其他 revision。
 
-`capabilities.py` 公开唯一 `compile_python_coordinate(validated_fields)`。输入是已验证的
-`python_version + python_abi + cpu_architecture + manylinux`；输出封闭
+`capabilities.py` 公开唯一 `compile_python_coordinate(validated_fields)`。输入是 public
+capability 中已验证的 `python_version + python_abi + cpu_architecture + manylinux`；输出封闭
 `python_tag + interpreter_path + expected_soabi + expected_wheel_tag`。普通 `cpXY` 与
 free-threaded `cpXYt` 共用该函数：`python_tag` 始终为 `cpXY`，ABI 保留可选 `t`，路径为
 `/opt/python/{python_tag}-{python_abi}/bin/python`。Catalog assembly 用它校验 probe，
@@ -381,9 +383,17 @@ build tasks，也不访问网络或包索引。
 
 每个 dependency request 是封闭记录：`request_id`、coordinate
 `{python_tag, python_abi, cpu_architecture, manylinux}`，以及规范排序且唯一的 exact
-requirements `[{scope, name, version}]`。`request_id` 是 coordinate + requirements 的
-canonical digest。相同 request 不因多个 image consumer 重复；missing/duplicate coordinate、
-unknown scope 或不规范 requirement 是 selection 硬失败。
+requirements `[{requirement_id, scope, name, version}]`。`requirement_id` 是
+`{scope, name, version}` 的 canonical digest；`request_id` 是 coordinate + 完整 requirements
+的 canonical digest。`version` 必须 exact 等于配置 pin。相同 request 不因多个 image
+consumer 重复；missing/duplicate requirement、unknown scope、非 canonical version 或 ID
+不匹配是 selection 硬失败。
+
+`blockers[]` 也是封闭记录：
+`{reason_code, admission_key, dependency_request_id, affected_coordinate, evidence}`。五个字段
+始终存在，`reason_code` 与非空封闭 `evidence` 不可为 null；仅当 blocker 确实不对应 baseline
+admission、dependency request 或已形成的 coordinate 时，对应字段才为 null，已存在的 exact
+值不得省略、猜测或置空。记录按 canonical JSON 唯一并排序，纳入 `selection_sha256`。
 
 对 discovered selection，`CandidateSelection.source_sha`、`Capability Catalog.source_sha`
 与 `CurrentBuilderAuthority.source_sha` 必须 exact 相等；后续 Candidate Plan 继承同一
@@ -402,19 +412,27 @@ resolution_sha256
 ```
 
 `requests[]` 按 `request_id` 规范排序。coordinate/requirements 与 CandidateSelection
-exact 相等；`resolved[]` 记录
-`{name, version, filename, url, sha256, wheel_tags}` 并规范排序，failures 使用稳定 code。
-Resolution 的 request IDs 必须与 Selection 完全闭包，拒绝 missing、duplicate、unexpected、
-coordinate/requirement drift 和不兼容 wheel tags。resolver 只接受 standards-based
-compatible binary wheel tag，并按标准兼容度排名；禁止 sdist、环境 fallback、Catalog/索引
-数组顺序或文件名顺序成为选择规则。
+exact 相等；`status` 只能是 `success` 或 `failure`。`resolved[]` 的每条记录重复 exact
+`{requirement_id, scope, name, version}`，并冻结
+`{filename, url, sha256, wheel_tags}`；记录按 `requirement_id` 排序，`wheel_tags` 规范唯一
+排序。`success` 要求 `failures[]` 为空，且每个
+`requirement_id` 恰有一个 compatible resolved record、没有多余记录；`failure` 要求
+`resolved[]` 为空且 `failures[]` 非空并使用稳定 code，禁止输出部分成功数据。
+
+Resolution 的 request IDs 与每个 request 内 requirement IDs 必须与 Selection 完全闭包，
+拒绝 missing、duplicate、unexpected、scope/name/version drift、coordinate drift 和不兼容
+wheel tags。resolver 不选择版本，只解析显式 pin；它只接受 standards-based compatible
+binary wheel，并按标准 wheel-tag 兼容度排名，同一最高 rank 多解是硬歧义。禁止 sdist、
+环境 fallback、Catalog/索引数组顺序或文件名顺序成为选择规则。
 
 `ucm_release plan candidates --selection --dependency-resolution` 是纯函数：先校验两个对象的
 摘要、source/config/catalog identity 和 exact request set，再把 resolved URL/filename/
 SHA256 冻结进 Candidate Plan。validator 只重算闭包与摘要，绝不重新选择 runtime、Builder
 revision 或依赖。未解析的新 dependency 形成 `dependency-unavailable` local exclusion 且
 不生成相关 task；未解析的 baseline dependency 形成显式
-`baseline-dependency-unavailable` blocker，不能替换 requirement 或 wheel。
+`baseline-dependency-unavailable` blocker，不能替换 requirement 或 wheel。Candidate Plan
+不得消费 `failure` request 的任何 resolved 数据；其 `blockers[]` 必须原样保留 Selection 的
+全部 blocker，并只按同一封闭 shape 加入 Resolution 派生 blocker，再 canonical 去重排序。
 
 每个任务除 `admission_key` 外还有 `lineage_key`。Lineage 保留 accelerator runtime、
 Variant、ABI 和 architecture，但不包含 UCM version、上游 runtime version 或 Mooncake
@@ -511,6 +529,8 @@ Mooncake、ABI 和 architecture，防止 CANN runtime 与错误 Mooncake 或 Pyt
   启用 channel 的目标 index；
 - `baseline_carry_forward[]`、`discovered_selections[]`、显式 `supersessions[]` 和
   `retirements[]`；
+- `blockers[]`：原样继承 CandidateSelection blockers，并加入规范化的
+  `baseline-dependency-unavailable` blockers；
 - `admission_requirements[]`：封闭记录
   `{admission_key, candidate_role, required_task_ids[]}`，其中 task IDs 规范排序且唯一；
 - `chart_task`：唯一的 Chart 输入、版本、文件名、derived `baseline_required` 和目标 OCI
@@ -566,7 +586,8 @@ started_at, completed_at, outputs, failure, result_sha256
 Image 构建在安装前核对精确 wheel 文件名、Distribution、ABI、accelerator runtime 与
 Mooncake；任何一项不同都写失败 Result，不尝试“最接近”匹配。
 
-Task 4 wheel task 从 Catalog probe 冻结 `python_tag`、`python_abi`、`python_version`、
+Task 4 wheel task 把 public capability 的 validated fields 传给
+`capabilities.compile_python_coordinate`，冻结 `python_tag`、`python_abi`、`python_version`、
 expected SOABI、expected wheel tag，以及 exact：
 
 ```text
@@ -588,6 +609,12 @@ Candidate Plan 已绑定的最近一个公开且成功回读的 Schema v3 Releas
 Schema、Repository、渠道、Manifest 摘要和公共 readback 状态。Admission 必须重开同一
 Manifest 并与 Candidate Plan 中的 `baseline_manifest_sha256` 相等，Actions Artifact、
 Draft 或本地文件不能充当正式 baseline。
+
+Admission 在读取或判定 Build Results 前先消费 Candidate Plan 的 planning `blockers[]`。
+formal route 发现任一 blocker 时直接输出 blocked decisions 与 `releasable: false`；evaluation
+route 对同一记录输出 `would-block`，保持 `publishable: false`。planning blocker 不能被成功
+Result、successor 或 quarantine 规则抵消；`baseline-dependency-unavailable` 因而始终阻断
+formal 发布，而新候选的 `dependency-unavailable` 仍只存在于 local exclusions。
 
 状态机逐项保留任务精确坐标，并用稳定 `admission_key` 加 `candidate_role` 与 baseline
 active revision 建立关系；`successor` 即使复用同一 admission key 仍按新候选评估：
