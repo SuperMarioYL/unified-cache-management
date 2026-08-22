@@ -112,6 +112,12 @@ BLOCKER_FIELDS = {
     "affected_coordinate",
     "evidence",
 }
+SELECTED_EVIDENCE_FIELDS = {
+    "builder_capabilities",
+    "builder_revisions",
+    "runtime_candidates",
+    "bindings",
+}
 
 
 def _fixture() -> dict[str, Any]:
@@ -344,6 +350,31 @@ def _assemble_catalog(fixture: dict[str, Any]) -> dict[str, Any]:
     return capabilities.validate_capability_catalog(catalog)
 
 
+def _selected_evidence_from_catalog(catalog: dict[str, Any]) -> dict[str, Any]:
+    binding = copy.deepcopy(catalog["bindings"][0])
+    capability = next(
+        copy.deepcopy(item)
+        for item in catalog["builder_capabilities"]
+        if item["builder_capability_id"] == binding["builder_capability_id"]
+    )
+    revision = next(
+        copy.deepcopy(item)
+        for item in catalog["builder_revisions"]
+        if item["builder_revision_id"] == binding["builder_revision_id"]
+    )
+    runtime = next(
+        copy.deepcopy(item)
+        for item in catalog["runtime_candidates"]
+        if item["runtime_id"] == binding["runtime_id"]
+    )
+    return {
+        "builder_capabilities": [capability],
+        "builder_revisions": [revision],
+        "runtime_candidates": [runtime],
+        "bindings": [binding],
+    }
+
+
 def _write_repository(root: Path, fixture: dict[str, Any]) -> None:
     for relative, contents in fixture["repository_files"].items():
         path = root / relative
@@ -360,12 +391,14 @@ def _authority_recipe_paths(fixture: dict[str, Any]) -> tuple[str, ...]:
 
 def _task4_config() -> dict[str, Any]:
     config = core.load_catalog(version_override="0.8.0rc1")
-    by_id = {item["id"]: item for item in config["upstream_products"]}
-    by_id["vllm"]["runtime_tag_selectors"] = [
+    by_runtime_product = {
+        item["runtime_product"]: item for item in config["upstream_products"]
+    }
+    by_runtime_product["vllm"]["runtime_tag_selectors"] = [
         "v{version}",
         "v{version}-cu{runtime.major_minor.compact}",
     ]
-    by_id["vllm-ascend"]["runtime_tag_selectors"] = [
+    by_runtime_product["vllm-ascend"]["runtime_tag_selectors"] = [
         "v{version}",
         "v{version}-{variant}",
     ]
@@ -699,6 +732,16 @@ def test_task4_a1_fixture_is_raw_separate_and_self_consistent() -> None:
     assert "capability-catalog-discovery.json" not in str(FIXTURE_PATH)
 
 
+def test_selected_capability_evidence_has_one_public_semantic_validator() -> None:
+    evidence = _selected_evidence_from_catalog(_assemble_catalog(_fixture()))
+    validate = _require_public_callable(
+        capabilities, "validate_selected_capability_evidence"
+    )
+
+    assert set(evidence) == SELECTED_EVIDENCE_FIELDS
+    assert validate(copy.deepcopy(evidence)) == evidence
+
+
 @pytest.mark.parametrize(
     ("validated_fields", "expected"),
     [
@@ -909,9 +952,33 @@ def test_catalog_shape_and_assembly_share_python_coordinate_owner() -> None:
         for target, _ in product_calls
     )
     assert not any(_is_network_behavior(target, call) for target, call in product_calls)
+    assert any(
+        target.endswith("builders.validate_current_builder_authority")
+        for target, _ in product_calls
+    )
+    validation_calls = _reachable_call_targets(
+        product_tree, "validate_candidate_selection"
+    )
+    assert any(
+        target.endswith("capabilities.validate_selected_capability_evidence")
+        for target in validation_calls
+    )
+    assert any(
+        target.rsplit(".", 1)[-1] == "compile_python_coordinate"
+        for target in validation_calls
+    )
     assert "compile_python_coordinate" not in {
         node.name for node in product_tree.body if isinstance(node, ast.FunctionDef)
     }
+    private_authority_policies = {
+        node.name
+        for node in product_tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name.startswith("_")
+        and "authority" in node.name
+        and ("validate" in node.name or "policy" in node.name)
+    }
+    assert private_authority_policies == set()
 
 
 def test_builder_recipe_paths_are_one_owner_shared_with_discovery() -> None:
@@ -1039,7 +1106,7 @@ def test_freeze_current_builder_authority_rejects_missing_or_escaping_sources(
 def test_active_schema_v3_declares_exact_pins_and_ordered_selectors() -> None:
     raw = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8"))
     selectors = {
-        item["id"]: item.get("runtime_tag_selectors")
+        item["runtime_product"]: item.get("runtime_tag_selectors")
         for item in raw["upstream_products"]
     }
     assert selectors == {
@@ -1059,12 +1126,44 @@ def test_active_schema_v3_declares_exact_pins_and_ordered_selectors() -> None:
             assert str(parsed) == version
 
 
+def test_schema_binds_exact_selector_policy_to_runtime_product() -> None:
+    raw = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8"))
+    schema = core.load_json(RELEASE_ROOT / "schemas" / "config.schema.json")
+    release_schema = schema["$defs"]["release"]
+    core.validate_schema(raw, release_schema, root=schema)
+
+    mutations = (
+        (
+            "vllm",
+            ["v{version}-cu{runtime.major_minor.compact}", "v{version}"],
+        ),
+        ("vllm", ["v{version}", "v{version}-{variant}"]),
+        ("vllm-ascend", ["v{version}-{variant}", "v{version}"]),
+        (
+            "vllm-ascend",
+            ["v{version}", "v{version}-cu{runtime.major_minor.compact}"],
+        ),
+    )
+    for runtime_product, selectors in mutations:
+        mutated = copy.deepcopy(raw)
+        product = next(
+            item
+            for item in mutated["upstream_products"]
+            if item["runtime_product"] == runtime_product
+        )
+        product["runtime_tag_selectors"] = selectors
+        with pytest.raises(ValueError):
+            core.validate_schema(mutated, release_schema, root=schema)
+
+
 @pytest.mark.parametrize(
     "invalid_pin",
     [
         pytest.param(">=24.2", id="range"),
         pytest.param("24.*", id="wildcard"),
         pytest.param("1.0RC1", id="noncanonical"),
+        pytest.param("1!24.2", id="epoch"),
+        pytest.param("24.2+local", id="local"),
     ],
 )
 def test_schema_rejects_nonexact_or_noncanonical_dependency_pins(
@@ -1072,6 +1171,14 @@ def test_schema_rejects_nonexact_or_noncanonical_dependency_pins(
 ) -> None:
     raw = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8"))
     raw["dependencies"]["build"]["packaging"] = invalid_pin
+    schema = core.load_json(RELEASE_ROOT / "schemas" / "config.schema.json")
+    with pytest.raises(ValueError):
+        core.validate_schema(raw, schema["$defs"]["release"], root=schema)
+
+
+def test_schema_rejects_noncanonical_dependency_name() -> None:
+    raw = yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8"))
+    raw["dependencies"]["runtime"] = {"Wrapt": "1.17.2"}
     schema = core.load_json(RELEASE_ROOT / "schemas" / "config.schema.json")
     with pytest.raises(ValueError):
         core.validate_schema(raw, schema["$defs"]["release"], root=schema)
@@ -1118,6 +1225,45 @@ def test_runtime_tag_selector_compiler_rejects_invalid_contracts(
     )
     with pytest.raises(ValueError):
         compile_selectors(selectors)
+
+
+@pytest.mark.parametrize(
+    ("runtime_product", "selectors"),
+    [
+        pytest.param(
+            "vllm",
+            ["v{version}-cu{runtime.major_minor.compact}", "v{version}"],
+            id="vllm-order",
+        ),
+        pytest.param(
+            "vllm",
+            ["v{version}", "v{version}-{variant}"],
+            id="vllm-policy",
+        ),
+        pytest.param(
+            "vllm-ascend",
+            ["v{version}-{variant}", "v{version}"],
+            id="ascend-order",
+        ),
+        pytest.param(
+            "vllm-ascend",
+            ["v{version}", "v{version}-cu{runtime.major_minor.compact}"],
+            id="ascend-policy",
+        ),
+    ],
+)
+def test_prepare_selection_rejects_runtime_product_selector_policy_drift(
+    runtime_product: str, selectors: list[str]
+) -> None:
+    config = _task4_config()
+    product = next(
+        item
+        for item in config["upstream_products"]
+        if item["runtime_product"] == runtime_product
+    )
+    product["runtime_tag_selectors"] = selectors
+    with pytest.raises(ValueError):
+        _selection(_fixture(), config=config)
 
 
 def test_candidate_selection_is_closed_exact_and_cp314t_request() -> None:
@@ -1210,6 +1356,59 @@ def test_candidate_selection_is_closed_exact_and_cp314t_request() -> None:
         {"wheel_tasks", "image_tasks", "family_tasks", "chart_task", "matrices"}
         & set(selection)
     )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "capability-identity",
+        "revision-identity",
+        "revision-self-digest",
+        "runtime-identity",
+        "binding-projection",
+        "runtime-compatibility",
+        "discovered-product",
+    ],
+)
+def test_candidate_selection_validator_rejects_resealed_evidence_drift(
+    mutation: str,
+) -> None:
+    selection, _, _ = _selection(_fixture())
+    validate = _require_public_callable(products, "validate_candidate_selection")
+    if mutation == "capability-identity":
+        capability = selection["builder_capabilities"][0]
+        assert capability["accelerator_runtime"] != "cuda-12.9"
+        capability["accelerator_runtime"] = "cuda-12.9"
+    elif mutation == "revision-identity":
+        revision = selection["builder_revisions"][0]
+        drift = "sha256:" + "e" * 64
+        assert revision["source_image_digest"] != drift
+        revision["source_image_digest"] = drift
+    elif mutation == "revision-self-digest":
+        revision = selection["builder_revisions"][0]
+        drift = "sha256:" + "e" * 64
+        assert revision["revision_sha256"] != drift
+        revision["revision_sha256"] = drift
+    elif mutation == "runtime-identity":
+        runtime = selection["runtime_candidates"][0]
+        assert runtime["runtime_tag"] != "v9.9.9"
+        runtime["runtime_tag"] = "v9.9.9"
+    elif mutation == "binding-projection":
+        binding = selection["bindings"][0]
+        drift = "ghcr.io/example/drift@sha256:" + "e" * 64
+        assert binding["source_image"] != drift
+        binding["source_image"] = drift
+    elif mutation == "runtime-compatibility":
+        runtime = selection["runtime_candidates"][0]
+        assert runtime["accelerator_runtime"] != "cuda-12.9.1"
+        runtime["accelerator_runtime"] = "cuda-12.9.1"
+    else:
+        discovered = selection["discovered_selections"][0]
+        assert discovered["product_id"] != "wrong-product"
+        discovered["product_id"] = "wrong-product"
+    _reseal(selection, "selection_sha256")
+    with pytest.raises(ValueError):
+        validate(selection)
 
 
 @pytest.mark.parametrize(
@@ -1554,6 +1753,20 @@ def test_selection_grows_for_future_abi_without_fixed_allowlist() -> None:
     assert expanded_abis == baseline_abis | {"cp316t"}
 
 
+def test_prepare_candidate_selection_rejects_nonnull_baseline_until_task4b() -> None:
+    fixture = _fixture()
+    prepare = _require_public_callable(products, "prepare_candidate_selection")
+    with pytest.raises(ValueError):
+        prepare(
+            _task4_config(),
+            _assemble_catalog(fixture),
+            copy.deepcopy(fixture["expected_current_builder_authority"]),
+            route="release",
+            source_sha=fixture["source_sha"],
+            baseline_manifest={"kind": "unvalidated-manifest"},
+        )
+
+
 @pytest.mark.parametrize(
     "mutation",
     [
@@ -1608,6 +1821,70 @@ def test_candidate_selection_validator_rejects_noncanonical_objects(
         validate(selection)
 
 
+@pytest.mark.parametrize("field", ["ucm_version", "release_tag"])
+def test_candidate_selection_validator_rejects_empty_top_level_strings(
+    field: str,
+) -> None:
+    selection, _, _ = _selection(_fixture())
+    selection[field] = ""
+    _reseal(selection, "selection_sha256")
+    validate = _require_public_callable(products, "validate_candidate_selection")
+    with pytest.raises(ValueError):
+        validate(selection)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        pytest.param("scope", "test", id="scope"),
+        pytest.param("name", "", id="empty-name"),
+        pytest.param("name", "PyYAML", id="noncanonical-name"),
+        pytest.param("version", ">=1.0", id="version-range"),
+        pytest.param("version", "1.0RC1", id="noncanonical-version"),
+        pytest.param("version", "1!1.0", id="version-epoch"),
+        pytest.param("version", "1.0+local", id="version-local"),
+    ],
+)
+def test_candidate_selection_validator_rejects_requirement_semantic_drift(
+    field: str, value: str
+) -> None:
+    selection, _, _ = _selection(_fixture())
+    request = selection["dependency_requests"][0]
+    requirement = request["requirements"][0]
+    requirement[field] = value
+    identity = {
+        "scope": requirement["scope"],
+        "name": requirement["name"],
+        "version": requirement["version"],
+    }
+    requirement["requirement_id"] = _canonical_digest(identity)
+    request["requirements"].sort(key=lambda item: item["requirement_id"])
+    request["request_id"] = _canonical_digest(
+        {
+            "coordinate": request["coordinate"],
+            "requirements": request["requirements"],
+        }
+    )
+    _reseal(selection, "selection_sha256")
+    validate = _require_public_callable(products, "validate_candidate_selection")
+    with pytest.raises(ValueError):
+        validate(selection)
+
+
+def test_candidate_selection_validator_rejects_duplicate_exclusions() -> None:
+    fixture = _fixture()
+    authority = copy.deepcopy(fixture["expected_current_builder_authority"])
+    authority["recipes"][0]["recipe_sha256"] = "sha256:" + "d" * 64
+    _reseal(authority, "authority_sha256")
+    selection, _, _ = _selection(fixture, authority=authority)
+    assert selection["exclusions"]
+    selection["exclusions"].append(copy.deepcopy(selection["exclusions"][0]))
+    _reseal(selection, "selection_sha256")
+    validate = _require_public_callable(products, "validate_candidate_selection")
+    with pytest.raises(ValueError):
+        validate(selection)
+
+
 def test_prepare_candidates_cli_loads_validates_freezes_once_and_writes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1615,35 +1892,34 @@ def test_prepare_candidates_cli_loads_validates_freezes_once_and_writes(
     release_path = tmp_path / "release.yaml"
     schema_dir = tmp_path / "schemas"
     catalog_path = tmp_path / "catalog.json"
-    baseline_path = tmp_path / "baseline.json"
     output_path = tmp_path / "selection.json"
-    arguments = parser.parse_args(
-        [
-            "plan",
-            "prepare-candidates",
-            "--release",
-            str(release_path),
-            "--schema-dir",
-            str(schema_dir),
-            "--repository-root",
-            str(tmp_path),
-            "--capability-catalog",
-            str(catalog_path),
-            "--route",
-            "pr",
-            "--source-sha",
-            "4" * 40,
-            "--baseline-manifest",
-            str(baseline_path),
-            "--output",
-            str(output_path),
-        ]
-    )
+    arguments_list = [
+        "plan",
+        "prepare-candidates",
+        "--release",
+        str(release_path),
+        "--schema-dir",
+        str(schema_dir),
+        "--repository-root",
+        str(tmp_path),
+        "--capability-catalog",
+        str(catalog_path),
+        "--route",
+        "pr",
+        "--source-sha",
+        "4" * 40,
+        "--output",
+        str(output_path),
+    ]
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [*arguments_list, "--baseline-manifest", str(tmp_path / "baseline.json")]
+        )
+    arguments = parser.parse_args(arguments_list)
 
     config = {"config": "validated"}
     raw_catalog = {"catalog": "raw"}
     catalog = {"catalog": "validated"}
-    baseline = {"manifest": "validated"}
     authority = {"authority": "frozen"}
     selection = {"selection": "written"}
     freeze_calls: list[dict[str, object]] = []
@@ -1656,7 +1932,8 @@ def test_prepare_candidates_cli_loads_validates_freezes_once_and_writes(
         return config
 
     def fake_load_json(path: Path) -> object:
-        return {catalog_path: raw_catalog, baseline_path: baseline}[path]
+        assert path == catalog_path
+        return raw_catalog
 
     def fake_validate(value: object) -> dict[str, str]:
         assert value is raw_catalog
@@ -1682,7 +1959,7 @@ def test_prepare_candidates_cli_loads_validates_freezes_once_and_writes(
     monkeypatch.setattr(cli, "products", products, raising=False)
     monkeypatch.setattr(cli, "_write", lambda path, value: writes.append((path, value)))
 
-    assert arguments.baseline_manifest == baseline_path
+    assert not hasattr(arguments, "baseline_manifest")
     assert arguments.func(arguments) is selection
     assert freeze_calls == [{"source_sha": "4" * 40, "repository_root": tmp_path}]
     assert prepare_calls == [
@@ -1693,24 +1970,7 @@ def test_prepare_candidates_cli_loads_validates_freezes_once_and_writes(
             {
                 "route": "pr",
                 "source_sha": "4" * 40,
-                "baseline_manifest": baseline,
             },
         )
     ]
     assert writes == [(output_path, selection)]
-
-    no_baseline = parser.parse_args(
-        [
-            "plan",
-            "prepare-candidates",
-            "--capability-catalog",
-            str(catalog_path),
-            "--route",
-            "pr",
-            "--source-sha",
-            "4" * 40,
-            "--output",
-            str(output_path),
-        ]
-    )
-    assert no_baseline.baseline_manifest is None

@@ -77,12 +77,12 @@
 ### Task 4A1: Authority、选择和 dependency requests
 
 - Task 3 validated Capability Catalog 是唯一发现输入；新增 CLI `ucm_release plan prepare-candidates`。
-- Schema v3 每个 upstream product 声明有序 exact selectors：vLLM 为 `v{version}`、`v{version}-cu{runtime.major_minor.compact}`，vLLM-Ascend 为 `v{version}`、`v{version}-{variant}`。`variant` 只来自 Catalog-normalized Variant，不读取 supplementary tag suffix。
-- 按 product/binding accelerator-runtime family/Variant/architecture 分组；组内按 runtime version 分桶降序，再执行 selector 声明顺序。同 selector 多匹配硬失败；无匹配形成 `runtime-flavor-unsupported` 后检查旧版本。baseline exact runtime ID 绕过 selector。
-- `builders.py` 冻结 `ucm-current-builder-authority`。CandidateSelection/Catalog/authority source SHA exact 相等；新 revision exact 匹配 current recipe/toolchain，零匹配 local exclusion，多匹配硬失败；baseline exact revision 绕过。
-- Schema v3 `dependencies` 只接受 exact canonical PEP 440 pins；prerelease 必须显式 pin，禁止 constraint/range。每个 requirement 冻结 `{requirement_id,scope,name,version}`，ID 由 exact 三元组计算。
-- `capabilities.compile_python_coordinate` 从 public capability validated fields 编译普通/free-threaded Python coordinate；Catalog assembly 和 products 都调用它，不扩展 Catalog shape。
-- `products.py` 输出封闭 `ucm-candidate-selection`，冻结 exact selected evidence、exclusions、规范唯一 dependency requests，以及 canonical `blockers[]`；blocker shape 固定为 `{reason_code,admission_key,dependency_request_id,affected_coordinate,evidence}`。Selection 不包含 build tasks，不访问网络。
+- Schema v3 按 `runtime_product` 绑定有序 exact selectors：vLLM 为 `v{version}`、`v{version}-cu{runtime.major_minor.compact}`，vLLM-Ascend 为 `v{version}`、`v{version}-{variant}`；禁止跨 policy 组合/重排。`variant` 只来自 Catalog-normalized Variant。
+- 按 product/binding accelerator-runtime family/Variant/architecture 分组；组内按 runtime version 分桶降序，再执行 selector 声明顺序。同 selector 多匹配硬失败；无匹配形成 `runtime-flavor-unsupported` 后检查旧版本。baseline exact runtime 重开延后 Task 4B。
+- `builders.py` 冻结并验证 `ucm-current-builder-authority`。CandidateSelection/Catalog/authority source SHA exact 相等；新 revision exact 匹配 current recipe/toolchain，零匹配 local exclusion，多匹配硬失败；products 不复制 authority validator。
+- Schema v3 `dependencies` 只接受 canonical name 与不含 epoch/local 的 exact canonical PEP 440 pins；prerelease 必须显式 pin，禁止 constraint/range。每个 requirement 冻结 `{requirement_id,scope,name,version}`。
+- `capabilities.compile_python_coordinate` 是 Python coordinate 唯一公式 owner；`validate_selected_capability_evidence` 是 capability/revision/runtime/binding identity/projection/compatibility 唯一 validator，products 调用后再校验 discovered product/runtime 关系。
+- `products.py` 输出封闭 `ucm-candidate-selection`，冻结 exact selected evidence、exclusions 和规范唯一 dependency requests。A1 CLI/API 不读 baseline；`baseline_manifest_sha256: null`、`baseline_selections: []`、`blockers: []`，不包含 build tasks 或网络访问。
 - 先提交 authority/selector/Python coordinate/CandidateSelection RED；fixture 从独立 live-shaped raw Catalog 输入动态增长，不固定 runtime、binding 或 ABI 数量。
 
 ### Task 4A2: DependencyResolution 和纯 Candidate graph
@@ -98,6 +98,7 @@
 
 ### Task 4B: Result closure 和 admission
 
+- 先定义 Section 9 Manifest closed projection/public validator，再按 exact revision/runtime ID 从 Catalog 重开 baseline；missing source 形成 `baseline-source-unavailable` blocker，不替换 current。A1 不预测或读取 Manifest。
 - 新增 CLI：`ucm_release plan admit`；Candidate build Result 使用统一闭包。wheel 的 capability/revision 非空且 `binding_id: null`，image 三者非空，Chart 三者为 null。
 - `plan admit` 在 Results 前消费 Candidate Plan blockers：formal 任一 blocker 都产生 blocked、`releasable: false`；evaluation 输出 `would-block`。planning blocker 不被成功 Result 或 quarantine 抵消。
 - 从 `admission_requirements[]` 和 Result exact set 决定：baseline success → admitted；baseline failure/missing → block；new success → promote；new failure → quarantine。共享 wheel 只要被 baseline 反向依赖即为 baseline required。

@@ -44,13 +44,12 @@ flowchart LR
     Catalog --> Selection["CandidateSelection"]
     Config --> Selection
     Authority --> Selection
-    Previous["上一版 Release Manifest"] --> Selection
+    Previous["上一版 Release Manifest"] --> Admission["Admission"]
     Selection --> Dependencies["DependencyResolution"]
     Selection --> Candidate["Candidate Plan"]
     Dependencies --> Candidate
     Candidate --> Build["Build matrices"]
     Build --> BuildResults["Build Result Artifacts"]
-    Previous --> Admission["Admission"]
     Candidate --> Admission
     BuildResults --> Admission
     Admission --> Admitted["Admitted Release Plan"]
@@ -141,8 +140,9 @@ publish:
 是 exact template，字段 allowlist 只有 `{version}`、`{variant}` 和
 `{runtime.major_minor.compact}`；未知字段、空展开、重复 template 或非 OCI tag 结果是配置
 错误。`{version}` 是不含前导 `v` 的规范 PEP runtime version；`{variant}` 是 Catalog
-已规范化的非空 Variant。数组顺序是显式选择优先级，不得排序或按摘要重排。exact policy
-为：
+已规范化的非空 Variant。数组顺序是显式选择优先级，不得排序或按摘要重排。Schema 和
+products 必须按 `runtime_product` 绑定以下 exact policy，不能只把三个 template 放进宽泛
+enum 后任意组合或重排：
 
 ```yaml
 vllm: ["v{version}", "v{version}-cu{runtime.major_minor.compact}"]
@@ -155,9 +155,10 @@ Profile Builder 注入、固定 `python_abi`、固定 `dist_name` 以及固定�
 配置加载器看到 `schema_version` 不是整数 `3` 或出现这些残留字段时直接失败，不能把
 它们忽略为未知扩展。
 
-`dependencies` 的每个值只能是 exact canonical PEP 440 version，不能是范围、通配符或
-其他 constraint。显式配置的 version 就是 resolution version；prerelease 只在配置明确
-pin 该 prerelease 时允许。纯 Candidate planner 不访问网络或包索引；Task 4A1 只生成规范
+`dependencies` 名称必须是非空 canonical PEP 503 name；每个值只能是 exact canonical
+PEP 440 version，不能是范围、通配符、epoch 或 local version。显式配置的 version 就是
+resolution version；prerelease 只在配置明确 pin 该 prerelease 时允许。纯 Candidate planner
+不访问网络或包索引；Task 4A1 只生成规范
 dependency requests，Task 4A2 的 `dependencies.py` resolver 在 GitHub Hosted Runner 上
 解析 compatible binary wheels 并冻结文件名、URL 和 SHA256，随后纯 planner 消费该
 Resolution。构建 Job 不重新选择版本或依赖，也不从宽泛 glob 猜测文件。
@@ -312,6 +313,13 @@ free-threaded `cpXYt` 共用该函数：`python_tag` 始终为 `cpXY`，ABI 保�
 `/opt/python/{python_tag}-{python_abi}/bin/python`。Catalog assembly 用它校验 probe，
 `products.py` 用它冻结 task；不得扩展 Catalog shape，也不得在任一模块复制公式。
 
+`capabilities.py` 还公开唯一 `validate_selected_capability_evidence(value)`，校验冻结的
+capability/revision/runtime/binding evidence：重算三个 identity、revision self-digest、
+binding projections 与 runtime compatibility。`products.validate_candidate_selection` 必须调用
+该 public seam，再自行校验 discovered `product_id` exact 等于其 runtime；不得复制 Catalog
+语义。`products.py` 同样必须调用 `builders.validate_current_builder_authority`，不得维护第二份
+authority validator/policy。
+
 ## 5. Candidate Plan 与精确任务坐标
 
 Task 4 分为顺序边界：Task 4A1 冻结 current Builder authority、runtime selector 选择、
@@ -321,8 +329,9 @@ DependencyResolution，再由纯 planner 生成精确 Candidate graph；Task 4B 
 Task 4 到 Admitted Plan Artifact 为止，不实现 trusted rebuild、publication DAG、远端写入
 或 Release Manifest；这些仍由 Task 6 及后续阶段拥有。
 
-`ucm_release plan prepare-candidates` 消费 Schema v3 配置、一个已验证 Catalog、
-`ucm-current-builder-authority`，以及可选的上一版正式 v3 Manifest。Catalog 没有
+`ucm_release plan prepare-candidates` 只消费 Schema v3 配置、一个已验证 Catalog 与
+`ucm-current-builder-authority`。A1 CLI 没有 baseline Manifest 参数或 loader；public API
+收到非 null baseline 也直接拒绝。Catalog 没有
 “current”标记。新 discovered selection 按
 `product + binding/Builder accelerator_runtime family + variant + cpu_architecture` 分组；
 例如同一 runtime version 的 `cuda-12.9` 与 `cuda-13.0` 必须独立选择。每组内再按
@@ -337,6 +346,10 @@ Catalog 保留全部 runtime tags。上述 selector 只决定新 discovered sele
 carry-forward 按 Manifest 的 exact `runtime_id` 直接重开，不经过 selector，也不能被同组
 更新 runtime 替换。某个 discovered 目标不支持形成 exclusion 并继续检查同组下一版本；
 规则重叠、模板冲突或任务坐标重复仍然全局失败。
+
+上述 baseline carry-forward 是 Task 4B 的最终语义，不属于 A1：只有 Section 9 Manifest
+拥有 closed projection 与 public validator 后，Task 4B 才能读取它并把 exact evidence 交给
+A2/B enrich。A1 不预测 Manifest shape、摘要或 blocker。
 
 选择“最新”只决定新的 discovered selection，不能删除 baseline。Candidate task set 是
 以下集合的规范并集：
@@ -376,10 +389,11 @@ promoted/quarantined/superseded 状态机。
 
 `plan prepare-candidates` 输出封闭、自摘要的 `ucm-candidate-selection`。它至少包含
 `kind/schema_version/route/source_sha/ucm_version/release_tag/config_sha256/catalog_sha256/
-current_builder_authority_sha256`、可选 `baseline_manifest_sha256`、按 exact ID 冻结的
-selected capability/revision/runtime/binding evidence、baseline/discovered selections、
-exclusions、blockers、规范唯一 `dependency_requests[]` 和 `selection_sha256`。它不包含
-build tasks，也不访问网络或包索引。
+current_builder_authority_sha256`、按 exact ID 冻结的 selected
+capability/revision/runtime/binding evidence、discovered selections、exclusions、规范唯一
+`dependency_requests[]` 和 `selection_sha256`。为保持后续 closed shape，A1 的
+`baseline_manifest_sha256` 必须为 null，`baseline_selections[]` 与 `blockers[]` 必须为空；
+它不包含 build tasks，也不访问网络或包索引。
 
 每个 dependency request 是封闭记录：`request_id`、coordinate
 `{python_tag, python_abi, cpu_architecture, manylinux}`，以及规范排序且唯一的 exact
@@ -389,16 +403,16 @@ requirements `[{requirement_id, scope, name, version}]`。`requirement_id` 是
 consumer 重复；missing/duplicate requirement、unknown scope、非 canonical version 或 ID
 不匹配是 selection 硬失败。
 
-`blockers[]` 也是封闭记录：
+从 A2/B 开始使用的 `blockers[]` 是封闭记录：
 `{reason_code, admission_key, dependency_request_id, affected_coordinate, evidence}`。五个字段
 始终存在，`reason_code` 与非空封闭 `evidence` 不可为 null；仅当 blocker 确实不对应 baseline
 admission、dependency request 或已形成的 coordinate 时，对应字段才为 null，已存在的 exact
-值不得省略、猜测或置空。记录按 canonical JSON 唯一并排序，纳入 `selection_sha256`。
+值不得省略、猜测或置空。记录按 canonical JSON 唯一并排序，纳入后续 Candidate Plan
+摘要；A1 不实例化该记录。
 
 对 discovered selection，`CandidateSelection.source_sha`、`Capability Catalog.source_sha`
 与 `CurrentBuilderAuthority.source_sha` 必须 exact 相等；后续 Candidate Plan 继承同一
-`source_sha`。baseline revision 仍从该 Catalog 按 exact ID 重开并绕过 current recipe
-匹配。
+`source_sha`。baseline exact-ID 重开与 current authority bypass 延后到 Task 4B。
 
 ### 5.2 DependencyResolution
 
@@ -601,6 +615,12 @@ SOABI 或当前 Profile 重新推导 ABI，也不回退到 `python{python_versio
 `python_tag=cp314` 和 `/opt/python/cp314-cp314t/bin/python`。
 
 ## 7. Baseline 与准入状态机
+
+Task 4B 首先为 Section 9 Manifest 定义 closed projection 与 public validator；在此之前任何
+raw JSON、CLI path 或 guessed digest 都不能充当 baseline authority。validator 就绪后，
+Task 4B 才按 exact `builder_revision_id + runtime_id` 从同一 Catalog 重开 baseline，绕过
+current authority/selector；missing exact source 产生结构化 `baseline-source-unavailable`
+blocker/evidence，不能替换为 current revision。
 
 正式 `ucm_release plan admit` 消费 Candidate Plan、所有期望 Build Result，以及
 Candidate Plan 已绑定的最近一个公开且成功回读的 Schema v3 Release Manifest（存在时）。
