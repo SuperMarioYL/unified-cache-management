@@ -165,11 +165,15 @@ jobs:
               target_args=()
               [ -n "${recipe_target}" ] && target_args=(--target "${recipe_target}")
               upstream_target="${target}-upstream"
-              docker buildx build --push \
-                --platform "linux/${CPU_ARCH}" \
-                --file "upstream/${dockerfile}" \
-                "${target_args[@]}" "${build_args[@]}" \
-                --tag "${upstream_target}" upstream
+              if docker buildx imagetools inspect "${upstream_target}" >/dev/null 2>&1; then
+                echo "Upstream recipe stage already exists: ${upstream_target}"
+              else
+                docker buildx build --push \
+                  --platform "linux/${CPU_ARCH}" \
+                  --file "upstream/${dockerfile}" \
+                  "${target_args[@]}" "${build_args[@]}" \
+                  --tag "${upstream_target}" upstream
+              fi
               mkdir -p context/tools
               cp .github/release/docker/mooncake_installer.sh \
                 context/tools/mooncake_installer.sh

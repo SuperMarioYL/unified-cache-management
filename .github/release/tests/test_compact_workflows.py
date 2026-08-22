@@ -137,6 +137,8 @@ def test_builder_sync_consumes_selection_and_materializes_recipes() -> None:
     assert "matrix.source_ref" in text
     assert "matrix.build_mode != 'mirror'" in text
     assert "recipe-extend" in text
+    assert 'imagetools inspect "${upstream_target}"' in text
+    assert "Upstream recipe stage already exists" in text
     assert "REQUIRE_MOONCAKE" in text
 
 
