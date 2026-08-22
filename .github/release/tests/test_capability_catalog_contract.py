@@ -351,9 +351,7 @@ def _runtime_id(value: dict[str, Any]) -> str:
     )
 
 
-def _runtime_is_compatible(
-    capability: dict[str, Any], runtime: dict[str, Any]
-) -> bool:
+def _runtime_is_compatible(capability: dict[str, Any], runtime: dict[str, Any]) -> bool:
     if any(
         capability[field] != runtime[field]
         for field in (
@@ -810,9 +808,7 @@ def test_runtime_candidates_remain_multi_version_and_git_source_bound() -> None:
         for runtime in runtimes
         if runtime["accelerator"] == "cuda"
     } == {"cuda-12.8.1", "cuda-12.9.1", "cuda-13.0.2"}
-    assert any(
-        runtime["accelerator_runtime"] == "cann-9.0.0" for runtime in runtimes
-    )
+    assert any(runtime["accelerator_runtime"] == "cann-9.0.0" for runtime in runtimes)
     assert {
         runtime["mooncake_version"]
         for runtime in runtimes

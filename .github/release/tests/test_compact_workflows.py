@@ -418,9 +418,7 @@ def _assert_digest_guard_precedes(
 _SHELL_THEN = r"(?:;?[ \t]*then[ \t]*$|;?[ \t]*\n[ \t]*then[ \t]*$)"
 
 
-def _balanced_if_bodies(
-    source: str, body_start: int
-) -> tuple[str, str | None] | None:
+def _balanced_if_bodies(source: str, body_start: int) -> tuple[str, str | None] | None:
     controls: list[tuple[int, str, re.Match[str]]] = []
     open_controls = re.compile(
         r"(?m)^[ \t]*if\b[^\n]*" + _SHELL_THEN,
@@ -483,8 +481,7 @@ def _mismatch_result_branch(source: str) -> str | None:
         if "!=" in condition:
             mismatch_body = then_body
         elif (
-            re.search(r"(?:==|(?<![!<>=])=(?!=))", condition)
-            and else_body is not None
+            re.search(r"(?:==|(?<![!<>=])=(?!=))", condition) and else_body is not None
         ):
             mismatch_body = else_body
         else:
