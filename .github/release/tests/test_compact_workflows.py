@@ -137,6 +137,134 @@ def _mooncake_shell_run_tokens(source: str) -> list[str] | None:
     return matches[0] if matches else None
 
 
+def _shell_command_argvs(source: str) -> list[list[str]]:
+    active = _noncomment_shell(source).replace("\n", " ; ")
+    lexer = shlex.shlex(active, posix=True, punctuation_chars=";&|()")
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    commands: list[list[str]] = []
+    command: list[str] = []
+    for token in lexer:
+        if token and set(token) <= set(";&|()"):
+            if command:
+                commands.append(command)
+                command = []
+            continue
+        command.append(token)
+    if command:
+        commands.append(command)
+    return commands
+
+
+def _mooncake_probe_payload(command: list[str]) -> str:
+    image_tokens = {"$RUNTIME_IMAGE", "${RUNTIME_IMAGE}"}
+    image_position = next(
+        index for index, token in enumerate(command) if token in image_tokens
+    )
+    assert command[image_position + 1] == "-c"
+    return command[image_position + 2]
+
+
+def _has_exact_mooncake_checkout_tag_readback(source: str) -> bool:
+    checkout = "/vllm-workspace/Mooncake"
+    commands = _shell_command_argvs(source)
+    candidates = list(commands)
+    for command in commands:
+        if len(command) != 1:
+            continue
+        assignment = re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_]*=\$\((?P<command>.*)\)",
+            command[0],
+        )
+        if assignment is not None:
+            candidates.append(shlex.split(assignment.group("command")))
+    for index, command in enumerate(candidates):
+        if not command or command[0] != "git":
+            continue
+        arguments = command[1:]
+        checkout_bound = arguments[:2] == ["-C", checkout]
+        if checkout_bound:
+            arguments = arguments[2:]
+        elif index < len(commands) and index > 0 and commands[index - 1] == [
+            "cd",
+            checkout,
+        ]:
+            checkout_bound = True
+        if not checkout_bound or not arguments or arguments[0] != "describe":
+            continue
+        options = set(arguments[1:])
+        if {"--tags", "--exact-match"} <= options and "--always" not in options:
+            return True
+    return False
+
+
+def _has_mooncake_tag_canonicalization(source: str) -> bool:
+    parameter_trim = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*#v\}")
+    for command in _shell_command_argvs(source):
+        if command and command[0] in {"echo", "printf"} and any(
+            parameter_trim.fullmatch(token) for token in command[1:]
+        ):
+            return True
+        if command and command[0] == "sed" and any(
+            re.search(r"s.\^v.", token) for token in command[1:]
+        ):
+            return True
+    return False
+
+
+def _has_mooncake_header_and_library_checks(source: str) -> bool:
+    header = "/usr/local/include/transfer_engine.h"
+    header_checked = False
+    library_checked = False
+    for command in _shell_command_argvs(source):
+        if (
+            len(command) > 2
+            and command[0] == "test"
+            and command[1] in {"-e", "-f", "-r"}
+            and command[2] == header
+        ):
+            header_checked = True
+        if (
+            len(command) > 2
+            and command[0] == "["
+            and command[1] in {"-e", "-f", "-r"}
+            and command[2] == header
+        ):
+            header_checked = True
+        if command[:1] == ["stat"] and header in command[1:]:
+            header_checked = True
+        if command[:2] == ["find", "/usr/local/lib"]:
+            library_checked = library_checked or (
+                "-type" in command
+                and "f" in command
+                and any(
+                    "mooncake" in token.lower() or "transfer_engine" in token.lower()
+                    for token in command
+                )
+            )
+        if (
+            len(command) > 2
+            and command[0] == "test"
+            and command[1] in {"-e", "-f", "-r"}
+            and command[2].startswith("/usr/local/lib/")
+        ):
+            library_checked = library_checked or any(
+                name in command[2].lower()
+                for name in ("mooncake", "transfer_engine")
+            )
+        if (
+            len(command) > 2
+            and command[0] == "["
+            and command[1] in {"-e", "-f", "-r"}
+            and command[2].startswith("/usr/local/lib/")
+        ):
+            library_checked = library_checked or any(
+                name in command[2].lower()
+                for name in ("mooncake", "transfer_engine")
+            )
+    return header_checked and library_checked
+
+
 def _shell_variable(variable: str) -> str:
     name = re.escape(variable)
     reference = rf"\$(?:\{{{name}\}}|{name})"
@@ -306,8 +434,7 @@ def _mismatch_result_branch(source: str) -> str | None:
             mismatch_body = bodies[1]
         else:
             continue
-        if "out/mooncake-probe/result.json" in mismatch_body:
-            return mismatch_body
+        return mismatch_body
 
     for branch in re.finditer(
         r"(?ms)^\s*case\s+(?P<expression>.*?)\s+in(?P<body>.*?)"
@@ -334,9 +461,7 @@ def _mismatch_result_branch(source: str) -> str | None:
         ):
             continue
         for arm in arms:
-            if arm.group(
-                "pattern"
-            ).strip() == "*" and "out/mooncake-probe/result.json" in arm.group("body"):
+            if arm.group("pattern").strip() == "*":
                 return arm.group("body")
     return None
 
@@ -721,6 +846,7 @@ def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> 
         "interpreter_path",
         "python_version",
         "python_abi",
+        "soabi",
         "wheel_tag",
         "platform_tag",
     ):
@@ -730,6 +856,21 @@ def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> 
     assert "x86_64" in risky_source
     assert "aarch64" in risky_source
     assert "sysconfig.get_platform" in risky_source
+    assert re.search(
+        r"sysconfig\.get_config_var\(\s*[\"']SOABI[\"']\s*\)",
+        risky_source,
+    )
+    abi_assignment = re.search(
+        r"(?m)^\s*python_abi\s*=\s*(?P<value>[^\n]+)$",
+        risky_source,
+    )
+    assert abi_assignment is not None
+    assert any(
+        authority in abi_assignment.group("value")
+        for authority in ("path_abi", "soabi")
+    )
+    assert "sys.version_info" not in abi_assignment.group("value")
+    assert 'f"{python_abi}-{python_abi}-' not in risky_source
     assert re.search(
         r"(?mi)^\s*platform_tag\s*=.*\bmanylinux\b",
         risky_source,
@@ -760,6 +901,7 @@ def test_python_probe_matrix_enumerates_all_abis_on_native_builder_runners() -> 
     )
     assert seal.get("env", {}).get("MANYLINUX") == "${{ matrix.manylinux }}"
     seal_run = _noncomment_shell(str(seal["run"]))
+    assert "soabi" in seal_run
     producer = _structured_json_producer(seal_run, "out/python-probe/result.json")
     assert producer is not None
     for field in (
@@ -848,8 +990,8 @@ def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version()
     probe_steps = [
         step
         for step in job["steps"]
-        if "docker run" in str(step.get("run", ""))
-        and "MOONCAKE_TAG" in str(step.get("run", ""))
+        if step.get("id") == "probe"
+        and "docker run" in str(step.get("run", ""))
     ]
     assert len(probe_steps) == 1
     probe = probe_steps[0]
@@ -865,10 +1007,19 @@ def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version()
     assert probe.get("env", {}).get("CPU_ARCHITECTURE") == (
         "${{ matrix.cpu_architecture }}"
     )
+    assert probe.get("env", {}).get("MOONCAKE_VERSION") == (
+        "${{ matrix.mooncake_version }}"
+    )
     run = str(probe["run"])
     source = _noncomment_shell(run)
-    assert "MOONCAKE_TAG" in source
-    assert "${RUNTIME_DOCKERFILE}" in source
+    assert all(
+        not (
+            command
+            and command[0] == "sed"
+            and any("MOONCAKE_TAG" in token for token in command)
+        )
+        for command in _shell_command_argvs(source)
+    )
     _assert_digest_guard_precedes(
         run,
         "RUNTIME_IMAGE",
@@ -876,6 +1027,11 @@ def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version()
     )
     command = _mooncake_shell_run_tokens(run)
     assert command is not None
+    payload = _mooncake_probe_payload(command)
+    assert "/usr/local/include/mooncake" not in _noncomment_shell(payload)
+    assert _has_mooncake_header_and_library_checks(payload)
+    assert _has_exact_mooncake_checkout_tag_readback(payload)
+    assert _has_mooncake_tag_canonicalization(payload)
     seal_steps = [
         step
         for step in job["steps"]
@@ -888,7 +1044,17 @@ def test_mooncake_probe_compares_runtime_dockerfile_tag_with_installed_version()
     assert seal.get("env", {}).get("PROBE_OUTCOME") == (
         f"${{{{ steps.{probe['id']}.outcome }}}}"
     )
+    assert seal.get("env", {}).get("MOONCAKE_VERSION") == (
+        "${{ matrix.mooncake_version }}"
+    )
     seal_run = _noncomment_shell(str(seal["run"]))
+    assert re.search(
+        r'(?m)^\s*declared_version="\$\{MOONCAKE_VERSION\}"\s*$',
+        seal_run,
+    )
+    mismatch_body = _mismatch_result_branch(seal_run)
+    assert mismatch_body is not None
+    assert "mooncake-version-mismatch" in mismatch_body
     producer = _structured_json_producer(seal_run, "out/mooncake-probe/result.json")
     assert producer is not None
     for field in (
@@ -1441,6 +1607,64 @@ def test_probe_matrices_isolate_failures_and_always_upload_results() -> None:
         uploads = _artifact_steps(job, "upload")
         assert len(uploads) == 1
         assert uploads[0].get("if") == "${{ always() }}"
+
+
+@pytest.mark.parametrize(
+    ("job_id", "risky_id", "outcome_env", "result_path"),
+    [
+        pytest.param(
+            "probe-mooncake",
+            "probe",
+            "PROBE_OUTCOME",
+            "out/mooncake-probe/result.json",
+            id="mooncake-local-quarantine",
+        ),
+        pytest.param(
+            "build-missing",
+            "build",
+            "BUILD_OUTCOME",
+            "out/builder-result/result.json",
+            id="builder-local-quarantine",
+        ),
+        pytest.param(
+            "probe-python",
+            "probe",
+            "PROBE_OUTCOME",
+            "out/python-probe/result.json",
+            id="python-local-quarantine",
+        ),
+    ],
+)
+def test_risky_matrix_steps_quarantine_failures_after_sealing_results(
+    job_id: str,
+    risky_id: str,
+    outcome_env: str,
+    result_path: str,
+) -> None:
+    job = _load("sync-builders.yml")["jobs"][job_id]
+    risky_steps = [step for step in job["steps"] if step.get("id") == risky_id]
+    assert len(risky_steps) == 1
+    assert risky_steps[0].get("continue-on-error") is True
+
+    expected_outcome = f"${{{{ steps.{risky_id}.outcome }}}}"
+    seals = [
+        step
+        for step in job["steps"]
+        if step.get("env", {}).get(outcome_env) == expected_outcome
+    ]
+    assert len(seals) == 1
+    seal = seals[0]
+    assert seal.get("if") == "${{ always() }}"
+    producer = _structured_json_producer(
+        _noncomment_shell(str(seal.get("run", ""))),
+        result_path,
+    )
+    assert producer is not None
+
+    uploads = _artifact_steps(job, "upload")
+    assert len(uploads) == 1
+    assert uploads[0].get("if") == "${{ always() }}"
+    assert uploads[0].get("with", {}).get("path") == result_path
 
 
 def test_reusable_builds_expose_only_functional_inputs() -> None:

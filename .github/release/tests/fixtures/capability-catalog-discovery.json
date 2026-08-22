@@ -730,6 +730,7 @@
         "interpreter_path": "/opt/python/cp39-cp39/bin/python",
         "python_version": "3.9",
         "python_abi": "cp39",
+        "soabi": "cpython-39-x86_64-linux-gnu",
         "wheel_tag": "cp39-cp39-manylinux_2_28_x86_64"
       },
       {
@@ -742,6 +743,7 @@
         "interpreter_path": "/opt/python/cp310-cp310/bin/python",
         "python_version": "3.10",
         "python_abi": "cp310",
+        "soabi": "cpython-310-x86_64-linux-gnu",
         "wheel_tag": "cp310-cp310-manylinux_2_28_x86_64"
       },
       {
@@ -754,6 +756,7 @@
         "interpreter_path": "/opt/python/cp311-cp311/bin/python",
         "python_version": "3.11",
         "python_abi": "cp311",
+        "soabi": "cpython-311-x86_64-linux-gnu",
         "wheel_tag": "cp311-cp311-manylinux_2_28_x86_64"
       },
       {
@@ -766,7 +769,60 @@
         "interpreter_path": "/opt/python/cp312-cp312/bin/python",
         "python_version": "3.12",
         "python_abi": "cp312",
+        "soabi": "cpython-312-x86_64-linux-gnu",
         "wheel_tag": "cp312-cp312-manylinux_2_28_x86_64"
+      },
+      {
+        "builder_fact_id": "sha256:0868a8a48a9c5e99bc2c5b83a8b92dfacb3e320aaf06c55a4004ee803887657d",
+        "builder_image": "ghcr.io/release-org/ucm-builder-vllm@sha256:3111111111111111111111111111111111111111111111111111111111111111",
+        "target_builder_digest": "sha256:3111111111111111111111111111111111111111111111111111111111111111",
+        "cpu_architecture": "amd64",
+        "manylinux": "manylinux_2_28",
+        "runner": "ubuntu-24.04",
+        "interpreter_path": "/opt/python/cp314-cp314/bin/python",
+        "python_version": "3.14",
+        "python_abi": "cp314",
+        "soabi": "cpython-314-x86_64-linux-gnu",
+        "wheel_tag": "cp314-cp314-manylinux_2_28_x86_64"
+      },
+      {
+        "builder_fact_id": "sha256:0868a8a48a9c5e99bc2c5b83a8b92dfacb3e320aaf06c55a4004ee803887657d",
+        "builder_image": "ghcr.io/release-org/ucm-builder-vllm@sha256:3111111111111111111111111111111111111111111111111111111111111111",
+        "target_builder_digest": "sha256:3111111111111111111111111111111111111111111111111111111111111111",
+        "cpu_architecture": "amd64",
+        "manylinux": "manylinux_2_28",
+        "runner": "ubuntu-24.04",
+        "interpreter_path": "/opt/python/cp314-cp314t/bin/python",
+        "python_version": "3.14",
+        "python_abi": "cp314t",
+        "soabi": "cpython-314t-x86_64-linux-gnu",
+        "wheel_tag": "cp314-cp314t-manylinux_2_28_x86_64"
+      },
+      {
+        "builder_fact_id": "sha256:0868a8a48a9c5e99bc2c5b83a8b92dfacb3e320aaf06c55a4004ee803887657d",
+        "builder_image": "ghcr.io/release-org/ucm-builder-vllm@sha256:3111111111111111111111111111111111111111111111111111111111111111",
+        "target_builder_digest": "sha256:3111111111111111111111111111111111111111111111111111111111111111",
+        "cpu_architecture": "amd64",
+        "manylinux": "manylinux_2_28",
+        "runner": "ubuntu-24.04",
+        "interpreter_path": "/opt/python/cp315-cp315/bin/python",
+        "python_version": "3.15",
+        "python_abi": "cp315",
+        "soabi": "cpython-315-x86_64-linux-gnu",
+        "wheel_tag": "cp315-cp315-manylinux_2_28_x86_64"
+      },
+      {
+        "builder_fact_id": "sha256:0868a8a48a9c5e99bc2c5b83a8b92dfacb3e320aaf06c55a4004ee803887657d",
+        "builder_image": "ghcr.io/release-org/ucm-builder-vllm@sha256:3111111111111111111111111111111111111111111111111111111111111111",
+        "target_builder_digest": "sha256:3111111111111111111111111111111111111111111111111111111111111111",
+        "cpu_architecture": "amd64",
+        "manylinux": "manylinux_2_28",
+        "runner": "ubuntu-24.04",
+        "interpreter_path": "/opt/python/cp315-cp315t/bin/python",
+        "python_version": "3.15",
+        "python_abi": "cp315t",
+        "soabi": "cpython-315t-x86_64-linux-gnu",
+        "wheel_tag": "cp315-cp315t-manylinux_2_28_x86_64"
       },
       {
         "builder_fact_id": "sha256:510935e5f9e557f8839e7a8773af094cf05218c05a66a40be787f0baea76e67d",
@@ -778,6 +834,7 @@
         "interpreter_path": "/opt/python/cp312-cp312/bin/python",
         "python_version": "3.12",
         "python_abi": "cp312",
+        "soabi": "cpython-312-x86_64-linux-gnu",
         "wheel_tag": "cp312-cp312-manylinux_2_28_x86_64"
       },
       {
@@ -790,6 +847,7 @@
         "interpreter_path": "/opt/python/cp312-cp312/bin/python",
         "python_version": "3.12",
         "python_abi": "cp312",
+        "soabi": "cpython-312-x86_64-linux-gnu",
         "wheel_tag": "cp312-cp312-manylinux_2_28_x86_64"
       },
       {
@@ -802,6 +860,7 @@
         "interpreter_path": "/opt/python/cp312-cp312/bin/python",
         "python_version": "3.12",
         "python_abi": "cp312",
+        "soabi": "cpython-312-aarch64-linux-gnu",
         "wheel_tag": "cp312-cp312-manylinux_2_28_aarch64"
       },
       {
@@ -814,6 +873,7 @@
         "interpreter_path": "/opt/python/cp310-cp310/bin/python",
         "python_version": "3.10",
         "python_abi": "cp310",
+        "soabi": "cpython-310-x86_64-linux-gnu",
         "wheel_tag": "cp310-cp310-manylinux_2_34_x86_64"
       },
       {
@@ -826,6 +886,7 @@
         "interpreter_path": "/opt/python/cp310-cp310/bin/python",
         "python_version": "3.10",
         "python_abi": "cp310",
+        "soabi": "cpython-310-x86_64-linux-gnu",
         "wheel_tag": "cp310-cp310-manylinux_2_34_x86_64"
       },
       {
@@ -838,6 +899,7 @@
         "interpreter_path": "/opt/python/cp311-cp311/bin/python",
         "python_version": "3.11",
         "python_abi": "cp311",
+        "soabi": "cpython-311-aarch64-linux-gnu",
         "wheel_tag": "cp311-cp311-manylinux_2_34_aarch64"
       },
       {
@@ -850,6 +912,7 @@
         "interpreter_path": "/opt/python/cp310-cp310/bin/python",
         "python_version": "3.10",
         "python_abi": "cp310",
+        "soabi": "cpython-310-x86_64-linux-gnu",
         "wheel_tag": "cp310-cp310-manylinux_2_34_x86_64"
       },
       {
@@ -862,6 +925,7 @@
         "interpreter_path": "/opt/python/cp310-cp310/bin/python",
         "python_version": "3.10",
         "python_abi": "cp310",
+        "soabi": "cpython-310-x86_64-linux-gnu",
         "wheel_tag": "cp310-cp310-manylinux_2_34_x86_64"
       },
       {
@@ -874,6 +938,7 @@
         "interpreter_path": "/opt/python/cp310-cp310/bin/python",
         "python_version": "3.10",
         "python_abi": "cp310",
+        "soabi": "cpython-310-x86_64-linux-gnu",
         "wheel_tag": "cp310-cp310-manylinux_2_34_x86_64"
       },
       {
@@ -886,6 +951,7 @@
         "interpreter_path": "/opt/python/cp310-cp310/bin/python",
         "python_version": "3.10",
         "python_abi": "cp310",
+        "soabi": "cpython-310-x86_64-linux-gnu",
         "wheel_tag": "cp310-cp310-manylinux_2_34_x86_64"
       }
     ],

@@ -23,6 +23,11 @@ FIXTURE_PATH = (
 sys.path.insert(0, str(RELEASE_ROOT))
 
 capabilities = importlib.import_module("ucm_release.capabilities")
+cli = importlib.import_module("ucm_release.cli")
+
+PYTHON_ABI = re.compile(r"^cp[0-9]+t?$", re.ASCII)
+PYTHON_VERSION = re.compile(r"^[0-9]+\.[0-9]+$", re.ASCII)
+SOABI = re.compile(r"^cpython-[0-9]+t?-(?:x86_64|aarch64)-linux-gnu$", re.ASCII)
 
 CATALOG_FIELDS = {
     "kind",
@@ -186,6 +191,7 @@ PYTHON_PROBE_FIELDS = {
     "interpreter_path",
     "python_version",
     "python_abi",
+    "soabi",
     "wheel_tag",
 }
 PYTHON_PROBE_FAILURE_FIELDS = {
@@ -253,6 +259,70 @@ def _assemble_fixture(fixture: dict[str, Any]) -> dict[str, Any]:
 
 def _assemble() -> dict[str, Any]:
     return _assemble_fixture(_load_fixture())
+
+
+def test_catalog_assembly_cli_uses_neutral_version_without_overriding_source_sha(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_sha = "7" * 40
+    builder_facts = {"source_sha": source_sha}
+    runtime_discovery = {"runtime_candidates": []}
+    python_probes = {"probes": [], "failures": []}
+    mooncake_probes = {"probes": [], "failures": []}
+    captured: dict[str, Any] = {}
+
+    def load_catalog(*, version_override: str) -> dict[str, Any]:
+        captured["version_override"] = version_override
+        return {"discovery": {"python_requires": ">=3.10"}}
+
+    def load_json(path: Path) -> dict[str, Any]:
+        return {
+            tmp_path / "builder-facts.json": builder_facts,
+            tmp_path / "runtime-discovery.json": runtime_discovery,
+        }[path]
+
+    def assemble(**values: Any) -> dict[str, Any]:
+        assert values["builder_discovery"] is builder_facts
+        assert values["runtime_discovery"] is runtime_discovery
+        assert values["python_probes"] is python_probes
+        assert values["mooncake_probes"] is mooncake_probes
+        assert values["python_requires"] == ">=3.10"
+        return {"source_sha": values["builder_discovery"]["source_sha"]}
+
+    monkeypatch.setattr(cli.core, "load_catalog", load_catalog)
+    monkeypatch.setattr(cli.core, "load_json", load_json)
+    monkeypatch.setattr(cli, "_load_result_records", lambda *args: python_probes)
+    monkeypatch.setattr(cli, "_load_mooncake_probes", lambda path: mooncake_probes)
+    monkeypatch.setattr(cli.capabilities, "assemble_capability_catalog", assemble)
+    monkeypatch.setattr(
+        cli.capabilities,
+        "validate_capability_catalog",
+        lambda value: value,
+    )
+    monkeypatch.setattr(cli, "_write", lambda path, value: None)
+
+    arguments = cli.build_parser().parse_args(
+        [
+            "catalog",
+            "assemble-capabilities",
+            "--builder-facts",
+            str(tmp_path / "builder-facts.json"),
+            "--python-probes",
+            str(tmp_path / "python-probes"),
+            "--runtime-discovery",
+            str(tmp_path / "runtime-discovery.json"),
+            "--mooncake-probes",
+            str(tmp_path / "mooncake-probes"),
+            "--output",
+            str(tmp_path / "catalog.json"),
+        ]
+    )
+    result = arguments.func(arguments)
+
+    assert captured["version_override"] == "0.0.0"
+    assert result["source_sha"] == source_sha
+    assert result["source_sha"] != captured["version_override"]
 
 
 def _catalog_digest(catalog: dict[str, Any]) -> str:
@@ -422,9 +492,20 @@ def test_python_probe_fixture_links_exact_fact_and_defers_revision_identity() ->
             "amd64": "x86_64",
             "arm64": "aarch64",
         }[fact["cpu_architecture"]]
+        assert PYTHON_VERSION.fullmatch(probe["python_version"])
         abi = probe["python_abi"]
+        assert PYTHON_ABI.fullmatch(abi)
+        python_tag = "cp" + probe["python_version"].replace(".", "")
+        assert abi in {python_tag, python_tag + "t"}
+        interpreter_coordinate = probe["interpreter_path"].split("/")[-3]
+        assert interpreter_coordinate == f"{python_tag}-{abi}"
+        assert SOABI.fullmatch(probe["soabi"])
+        assert probe["soabi"] == (
+            f'cpython-{abi.removeprefix("cp")}-'
+            f"{platform_architecture}-linux-gnu"
+        )
         assert probe["wheel_tag"] == (
-            f'{abi}-{abi}-{fact["manylinux"]}_{platform_architecture}'
+            f'{python_tag}-{abi}-{fact["manylinux"]}_{platform_architecture}'
         )
         assert "builder_revision_id" not in probe
         assert "builder_source_image_digest" not in probe
@@ -438,11 +519,17 @@ def test_python_probe_fixture_links_exact_fact_and_defers_revision_identity() ->
         for fact in facts.values()
         if fact["target_tag"] == "cuda12.9-cp-all-manylinux2_28-amd64-r1"
     )
-    assert {
-        probe["python_abi"]
+    multi_abi_probes = [
+        probe
         for probe in probes
         if probe["builder_fact_id"] == multi_abi_fact["builder_fact_id"]
-    } == {"cp39", "cp310", "cp311", "cp312"}
+    ]
+    assert all(PYTHON_ABI.fullmatch(probe["python_abi"]) for probe in multi_abi_probes)
+    assert {
+        (probe["python_version"], probe["python_abi"])
+        for probe in multi_abi_probes
+        if probe["python_abi"].endswith("t")
+    } == {("3.14", "cp314t"), ("3.15", "cp315t")}
     a2_fact_ids = {
         item["builder_fact_id"]
         for item in facts.values()
@@ -518,11 +605,15 @@ def test_catalog_entries_cover_discovered_dimensions_and_filter_python_requires(
         "amd64",
         "arm64",
     }
-    assert {item["python_abi"] for item in catalog["builder_capabilities"]} == {
-        "cp310",
-        "cp311",
-        "cp312",
+    fixture = _load_fixture()
+    expected_supported_abis = {
+        probe["python_abi"]
+        for probe in fixture["python_probes"]["probes"]
+        if tuple(int(part) for part in probe["python_version"].split(".")) >= (3, 10)
     }
+    catalog_abis = {item["python_abi"] for item in catalog["builder_capabilities"]}
+    assert catalog_abis == expected_supported_abis
+    assert all(PYTHON_ABI.fullmatch(abi) for abi in catalog_abis)
     assert ("cuda-12.9", "default", "amd64", "cp310") in capabilities_by_coordinate
     assert ("cuda-12.9", "default", "amd64", "cp311") in capabilities_by_coordinate
     assert ("cuda-13.0", "default", "arm64", "cp312") in capabilities_by_coordinate
@@ -563,17 +654,22 @@ def test_one_physical_builder_fact_expands_only_after_multi_abi_probing() -> Non
     capabilities_by_id = {
         item["builder_capability_id"]: item for item in catalog["builder_capabilities"]
     }
+    expected_abis = {
+        probe["python_abi"]
+        for probe in fixture["python_probes"]["probes"]
+        if probe["builder_fact_id"] == fact["builder_fact_id"]
+        and tuple(int(part) for part in probe["python_version"].split("."))
+        >= (3, 10)
+    }
 
-    assert len(revisions) == 3
-    assert len({item["builder_revision_id"] for item in revisions}) == 3
+    assert len(revisions) == len(expected_abis)
+    assert len({item["builder_revision_id"] for item in revisions}) == len(
+        expected_abis
+    )
     assert {
         capabilities_by_id[item["builder_capability_id"]]["python_abi"]
         for item in revisions
-    } == {"cp310", "cp311", "cp312"}
-    assert all(
-        capabilities_by_id[item["builder_capability_id"]]["python_abi"] != "cp39"
-        for item in revisions
-    )
+    } == expected_abis
 
 
 def test_catalog_preserves_discovery_origins_and_filters_only_exact_310p() -> None:
@@ -1296,6 +1392,35 @@ def _wrong_wheel_platform_architecture(fixture: dict[str, Any]) -> None:
     )
 
 
+def _free_threaded_probe(fixture: dict[str, Any]) -> dict[str, Any]:
+    return next(
+        probe
+        for probe in fixture["python_probes"]["probes"]
+        if probe["python_abi"] == "cp314t"
+    )
+
+
+def _free_threaded_path_abi_drift(fixture: dict[str, Any]) -> None:
+    _free_threaded_probe(fixture)["interpreter_path"] = (
+        "/opt/python/cp314-cp314/bin/python-ft"
+    )
+
+
+def _free_threaded_soabi_drift(fixture: dict[str, Any]) -> None:
+    _free_threaded_probe(fixture)["soabi"] = "cpython-314-x86_64-linux-gnu"
+
+
+def _free_threaded_wheel_tag_drift(fixture: dict[str, Any]) -> None:
+    probe = _free_threaded_probe(fixture)
+    probe["wheel_tag"] = "cp314-cp314-manylinux_2_28_x86_64"
+
+
+def _duplicate_free_threaded_probe(fixture: dict[str, Any]) -> None:
+    fixture["python_probes"]["probes"].append(
+        copy.deepcopy(_free_threaded_probe(fixture))
+    )
+
+
 @pytest.mark.parametrize(
     "mutation",
     [
@@ -1314,6 +1439,22 @@ def _wrong_wheel_platform_architecture(fixture: dict[str, Any]) -> None:
         pytest.param(
             _wrong_wheel_platform_architecture,
             id="wrong-wheel-platform-architecture",
+        ),
+        pytest.param(
+            _free_threaded_path_abi_drift,
+            id="free-threaded-path-abi-drift",
+        ),
+        pytest.param(
+            _free_threaded_soabi_drift,
+            id="free-threaded-soabi-drift",
+        ),
+        pytest.param(
+            _free_threaded_wheel_tag_drift,
+            id="free-threaded-wheel-tag-drift",
+        ),
+        pytest.param(
+            _duplicate_free_threaded_probe,
+            id="duplicate-free-threaded-probe",
         ),
     ],
 )
