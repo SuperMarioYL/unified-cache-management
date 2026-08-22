@@ -245,13 +245,18 @@ def _failure_resolution(selection: dict[str, Any], *names: str) -> dict[str, Any
     return result
 
 
-def _older_modern_packaging_resolution() -> tuple[dict[str, Any], dict[str, Any]]:
+def _compressed_older_packaging_resolution() -> tuple[dict[str, Any], dict[str, Any]]:
     selection, _ = _selection()
     responses = _pep691_responses()
+    allowed_filenames = {
+        COMPATIBLE_CP314T_PACKAGING_2_17_COMPRESSED_FILENAME,
+        "packaging-24.2-py314-none-manylinux_2_28_x86_64.whl",
+        "packaging-24.2-py3-none-any.whl",
+    }
     responses["packaging"]["files"] = [
         item
         for item in responses["packaging"]["files"]
-        if item["filename"] != EXPECTED_CP314T_FILENAMES["packaging"]
+        if item["filename"] in allowed_filenames
     ]
     return selection, _resolve(selection, responses)
 
@@ -851,9 +856,9 @@ def test_dependency_resolution_grows_for_future_free_threaded_abi() -> None:
     assert validate(resolution, _config(), selection) == resolution
 
 
-def test_dependency_resolution_validator_accepts_older_compatible_manylinux_wheel(
+def test_dependency_resolution_validator_accepts_compressed_older_manylinux_wheel(
 ) -> None:
-    selection, resolution = _older_modern_packaging_resolution()
+    selection, resolution = _compressed_older_packaging_resolution()
     validate = _public_callable(_dependencies(), "validate_dependency_resolution")
     resolved = next(
         item
@@ -861,7 +866,14 @@ def test_dependency_resolution_validator_accepts_older_compatible_manylinux_whee
         if item["name"] == "packaging"
     )
 
-    assert resolved["filename"] == COMPATIBLE_CP314T_PACKAGING_2_24_FILENAME
+    assert (
+        resolved["filename"]
+        == COMPATIBLE_CP314T_PACKAGING_2_17_COMPRESSED_FILENAME
+    )
+    assert resolved["wheel_tags"] == [
+        "cp314-cp314t-manylinux2014_x86_64",
+        "cp314-cp314t-manylinux_2_17_x86_64",
+    ]
     assert validate(copy.deepcopy(resolution), _config(), selection) == resolution
 
 
@@ -902,14 +914,17 @@ def test_dependency_resolution_accepts_legacy_manylinux2014_alias_without_modern
 def test_dependency_resolution_validator_rejects_incompatible_manylinux_platform(
     incompatible_platform: str,
 ) -> None:
-    selection, resolution = _older_modern_packaging_resolution()
+    selection, resolution = _compressed_older_packaging_resolution()
     validate = _public_callable(_dependencies(), "validate_dependency_resolution")
     resolved = next(
         item
         for item in resolution["requests"][0]["resolved"]
         if item["name"] == "packaging"
     )
-    assert resolved["filename"] == COMPATIBLE_CP314T_PACKAGING_2_24_FILENAME
+    assert (
+        resolved["filename"]
+        == COMPATIBLE_CP314T_PACKAGING_2_17_COMPRESSED_FILENAME
+    )
     resolved["filename"] = (
         f"packaging-24.2-cp314-cp314t-{incompatible_platform}.whl"
     )
