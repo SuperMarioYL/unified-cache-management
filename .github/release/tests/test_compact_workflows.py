@@ -135,6 +135,7 @@ def test_builder_sync_consumes_selection_and_materializes_recipes() -> None:
     assert "--selection input/upstreams/upstream-selection.json" in text
     assert "matrix.source_repository" in text
     assert "matrix.source_ref" in text
+    assert "matrix.build_mode != 'mirror'" in text
     assert "recipe-extend" in text
     assert "REQUIRE_MOONCAKE" in text
 

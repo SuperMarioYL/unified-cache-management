@@ -107,7 +107,7 @@ jobs:
       - uses: actions/checkout@v4.2.2
         with:
           persist-credentials: false
-      - if: ${{ matrix.build_mode == 'recipe-extend' }}
+      - if: ${{ matrix.build_mode != 'mirror' }}
         uses: actions/checkout@v4.2.2
         with:
           repository: ${{ matrix.source_repository }}
