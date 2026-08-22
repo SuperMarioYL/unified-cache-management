@@ -7,6 +7,7 @@ import copy
 import hashlib
 import importlib
 import json
+import shlex
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -165,12 +166,11 @@ def _call_target(function: ast.expr) -> str | None:
 
 class _DirectCallVisitor(ast.NodeVisitor):
     def __init__(self) -> None:
-        self.targets: set[str] = set()
+        self.calls: list[ast.Call] = []
 
     def visit_Call(self, node: ast.Call) -> None:
-        target = _call_target(node.func)
-        if target is not None:
-            self.targets.add(target)
+        if _call_target(node.func) is not None:
+            self.calls.append(node)
         self.generic_visit(node)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
@@ -186,11 +186,13 @@ class _DirectCallVisitor(ast.NodeVisitor):
         return
 
 
-def _direct_call_targets(function: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+def _direct_calls(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> list[ast.Call]:
     visitor = _DirectCallVisitor()
     for statement in function.body:
         visitor.visit(statement)
-    return visitor.targets
+    return visitor.calls
 
 
 def _import_aliases(tree: ast.Module) -> dict[str, str]:
@@ -218,7 +220,7 @@ def _resolve_imported_target(target: str, aliases: dict[str, str]) -> str:
     return imported + (separator + tail if separator else "")
 
 
-def _reachable_call_targets(tree: ast.Module, entrypoint: str) -> set[str]:
+def _reachable_calls(tree: ast.Module, entrypoint: str) -> list[tuple[str, ast.Call]]:
     functions = {
         node.name: node
         for node in tree.body
@@ -228,22 +230,28 @@ def _reachable_call_targets(tree: ast.Module, entrypoint: str) -> set[str]:
     aliases = _import_aliases(tree)
     pending = [entrypoint]
     visited: set[str] = set()
-    reachable: set[str] = set()
+    reachable: list[tuple[str, ast.Call]] = []
     while pending:
         function_name = pending.pop()
         if function_name in visited:
             continue
         visited.add(function_name)
-        for target in _direct_call_targets(functions[function_name]):
+        for call in _direct_calls(functions[function_name]):
+            target = _call_target(call.func)
+            assert target is not None
             if target in functions:
                 pending.append(target)
-                reachable.add(target)
+                reachable.append((target, call))
             else:
-                reachable.add(_resolve_imported_target(target, aliases))
+                reachable.append((_resolve_imported_target(target, aliases), call))
     return reachable
 
 
-def _is_network_call(target: str) -> bool:
+def _reachable_call_targets(tree: ast.Module, entrypoint: str) -> set[str]:
+    return {target for target, _ in _reachable_calls(tree, entrypoint)}
+
+
+def _is_direct_network_call(target: str) -> bool:
     network_roots = (
         "aiohttp",
         "http.client",
@@ -256,6 +264,60 @@ def _is_network_call(target: str) -> bool:
     return any(
         target == root or target.startswith(root + ".") for root in network_roots
     )
+
+
+def _literal_subprocess_tokens(call: ast.Call) -> tuple[str, ...] | None:
+    argument = call.args[0] if call.args else next(
+        (item.value for item in call.keywords if item.arg == "args"), None
+    )
+    if argument is None:
+        return None
+    try:
+        value = ast.literal_eval(argument)
+    except (SyntaxError, ValueError, TypeError):
+        return None
+    if isinstance(value, str):
+        try:
+            return tuple(shlex.split(value))
+        except ValueError:
+            return None
+    if isinstance(value, (list, tuple)) and all(
+        isinstance(item, str) for item in value
+    ):
+        return tuple(value)
+    return None
+
+
+def _is_network_subprocess(call: ast.Call) -> bool:
+    tokens = _literal_subprocess_tokens(call)
+    if not tokens:
+        return False
+    executable = tokens[0].rsplit("/", 1)[-1].lower()
+    if executable in {"curl", "wget", "pip", "pip3"} or executable.startswith(
+        "pip3."
+    ):
+        return True
+    if executable == "gh" and len(tokens) > 1 and tokens[1] == "api":
+        return True
+    if executable == "python" or executable.startswith("python3"):
+        return any(
+            tokens[index : index + 2] == ("-m", "pip")
+            for index in range(1, len(tokens) - 1)
+        )
+    return False
+
+
+def _is_network_behavior(target: str, call: ast.Call) -> bool:
+    if _is_direct_network_call(target):
+        return True
+    subprocess_calls = {
+        "subprocess.Popen",
+        "subprocess.call",
+        "subprocess.check_call",
+        "subprocess.check_output",
+        "subprocess.run",
+    }
+    return target in subprocess_calls and _is_network_subprocess(call)
 
 
 def _assemble_catalog(fixture: dict[str, Any]) -> dict[str, Any]:
@@ -724,6 +786,86 @@ def test_compile_python_coordinate_rejects_malformed_or_drifting_fields(
         compile_coordinate(validated_fields)
 
 
+def test_reachable_network_guard_classifies_literal_subprocess_commands() -> None:
+    cases = [
+        (
+            """
+import subprocess as process
+def helper():
+    return process.run(["/usr/bin/curl", "https://example.invalid"])
+def prepare_candidate_selection():
+    return helper()
+""",
+            True,
+        ),
+        (
+            """
+from subprocess import Popen as launch
+def prepare_candidate_selection():
+    return launch("wget https://example.invalid", shell=True)
+""",
+            True,
+        ),
+        (
+            """
+import subprocess
+def prepare_candidate_selection():
+    return subprocess.check_call(["pip3", "download", "example"])
+""",
+            True,
+        ),
+        (
+            """
+from subprocess import check_output
+def prepare_candidate_selection():
+    return check_output(args=["python3.14", "-I", "-m", "pip", "download"])
+""",
+            True,
+        ),
+        (
+            """
+import subprocess
+def prepare_candidate_selection():
+    return subprocess.call(["gh", "api", "repos/example/project"])
+""",
+            True,
+        ),
+        (
+            """
+import aiohttp as client
+def prepare_candidate_selection():
+    return client.request("GET", "https://example.invalid")
+""",
+            True,
+        ),
+        (
+            """
+import subprocess
+import urllib.parse
+def prepare_candidate_selection():
+    subprocess.run(["git", "status"])
+    return urllib.parse.urlparse("https://example.invalid")
+""",
+            False,
+        ),
+        (
+            """
+import subprocess
+def dead_helper():
+    return subprocess.run(["curl", "https://example.invalid"])
+def prepare_candidate_selection(command):
+    return subprocess.run(command)
+""",
+            False,
+        ),
+    ]
+    for source, expected in cases:
+        calls = _reachable_calls(ast.parse(source), "prepare_candidate_selection")
+        assert any(
+            _is_network_behavior(target, call) for target, call in calls
+        ) is expected
+
+
 def test_catalog_shape_and_assembly_share_python_coordinate_owner() -> None:
     catalog = _assemble_catalog(_fixture())
     assert set(catalog) == CATALOG_FIELDS
@@ -743,14 +885,16 @@ def test_catalog_shape_and_assembly_share_python_coordinate_owner() -> None:
     product_tree = ast.parse(
         (RELEASE_ROOT / "ucm_release" / "products.py").read_text(encoding="utf-8")
     )
-    product_calls = _reachable_call_targets(
+    product_calls = _reachable_calls(
         product_tree, "prepare_candidate_selection"
     )
     assert any(
         target.rsplit(".", 1)[-1] == "compile_python_coordinate"
-        for target in product_calls
+        for target, _ in product_calls
     )
-    assert not any(_is_network_call(target) for target in product_calls)
+    assert not any(
+        _is_network_behavior(target, call) for target, call in product_calls
+    )
     assert "compile_python_coordinate" not in {
         node.name for node in product_tree.body if isinstance(node, ast.FunctionDef)
     }
