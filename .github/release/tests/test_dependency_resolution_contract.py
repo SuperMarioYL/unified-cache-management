@@ -27,9 +27,15 @@ EXPECTED_CP314T_FILENAMES = {
     "pyyaml": "PyYAML-6.0.2-cp314-cp314t-manylinux_2_28_x86_64.whl",
     "wrapt": "wrapt-1.17.2-cp314-cp314t-manylinux_2_28_x86_64.whl",
 }
-COMPATIBLE_CP314T_PACKAGING_FILENAME = (
+COMPATIBLE_CP314T_PACKAGING_2_24_FILENAME = (
+    "packaging-24.2-cp314-cp314t-manylinux_2_24_x86_64.whl"
+)
+COMPATIBLE_CP314T_PACKAGING_2_17_COMPRESSED_FILENAME = (
     "packaging-24.2-cp314-cp314t-"
     "manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+)
+COMPATIBLE_CP314T_PACKAGING_2014_ALIAS_FILENAME = (
+    "packaging-24.2-cp314-cp314t-manylinux2014_x86_64.whl"
 )
 EXPECTED_CP316T_FILENAMES = {
     "packaging": "packaging-24.2-cp316-cp316t-manylinux_2_28_x86_64.whl",
@@ -239,7 +245,7 @@ def _failure_resolution(selection: dict[str, Any], *names: str) -> dict[str, Any
     return result
 
 
-def _older_compatible_packaging_resolution() -> tuple[dict[str, Any], dict[str, Any]]:
+def _older_modern_packaging_resolution() -> tuple[dict[str, Any], dict[str, Any]]:
     selection, _ = _selection()
     responses = _pep691_responses()
     responses["packaging"]["files"] = [
@@ -519,19 +525,19 @@ def test_pep691_extensions_are_ignored_and_requires_python_is_optional() -> None
 def test_dependency_resolution_uses_foreign_target_tag_rank_not_file_order() -> None:
     selection, _ = _selection()
     base = _pep691_responses()
+    ranked_filenames = {
+        EXPECTED_CP314T_FILENAMES["packaging"],
+        COMPATIBLE_CP314T_PACKAGING_2_24_FILENAME,
+        COMPATIBLE_CP314T_PACKAGING_2_17_COMPRESSED_FILENAME,
+        "packaging-24.2-py314-none-manylinux_2_28_x86_64.whl",
+        "packaging-24.2-py3-none-any.whl",
+    }
     ranked = [
         item
         for item in base["packaging"]["files"]
-        if item["filename"].startswith("packaging-24.2-")
-        and item["filename"].endswith(".whl")
+        if item["filename"] in ranked_filenames
     ]
-    assert {item["filename"] for item in ranked} == {
-        "packaging-24.2-cp314-cp314t-manylinux_2_28_x86_64.whl",
-        COMPATIBLE_CP314T_PACKAGING_FILENAME,
-        "packaging-24.2-py314-none-manylinux_2_28_x86_64.whl",
-        "packaging-24.2-py3-none-any.whl",
-        "packaging-24.2-cp314-cp314t-manylinux_2_28_aarch64.whl",
-    }
+    assert {item["filename"] for item in ranked} == ranked_filenames
 
     canonical_resolution: dict[str, Any] | None = None
     for ordered in permutations(ranked):
@@ -554,19 +560,18 @@ def test_dependency_resolution_prefers_highest_compatible_older_manylinux_floor(
 ) -> None:
     selection, _ = _selection()
     base = _pep691_responses()
+    ranked_filenames = {
+        COMPATIBLE_CP314T_PACKAGING_2_24_FILENAME,
+        COMPATIBLE_CP314T_PACKAGING_2_17_COMPRESSED_FILENAME,
+        "packaging-24.2-py314-none-manylinux_2_28_x86_64.whl",
+        "packaging-24.2-py3-none-any.whl",
+    }
     ranked = [
         item
         for item in base["packaging"]["files"]
-        if item["filename"].startswith("packaging-24.2-")
-        and item["filename"].endswith(".whl")
-        and item["filename"] != EXPECTED_CP314T_FILENAMES["packaging"]
+        if item["filename"] in ranked_filenames
     ]
-    assert {item["filename"] for item in ranked} == {
-        COMPATIBLE_CP314T_PACKAGING_FILENAME,
-        "packaging-24.2-py314-none-manylinux_2_28_x86_64.whl",
-        "packaging-24.2-py3-none-any.whl",
-        "packaging-24.2-cp314-cp314t-manylinux_2_28_aarch64.whl",
-    }
+    assert {item["filename"] for item in ranked} == ranked_filenames
 
     canonical_resolution: dict[str, Any] | None = None
     for ordered in permutations(ranked):
@@ -578,10 +583,9 @@ def test_dependency_resolution_prefers_highest_compatible_older_manylinux_floor(
             for item in resolution["requests"][0]["resolved"]
             if item["name"] == "packaging"
         )
-        assert selected["filename"] == COMPATIBLE_CP314T_PACKAGING_FILENAME
+        assert selected["filename"] == COMPATIBLE_CP314T_PACKAGING_2_24_FILENAME
         assert selected["wheel_tags"] == [
-            "cp314-cp314t-manylinux2014_x86_64",
-            "cp314-cp314t-manylinux_2_17_x86_64",
+            "cp314-cp314t-manylinux_2_24_x86_64",
         ]
         if canonical_resolution is None:
             canonical_resolution = resolution
@@ -597,7 +601,9 @@ def test_dependency_resolution_selects_middle_rank_without_exact_native() -> Non
         for item in responses["packaging"]["files"]
         if item["filename"] not in {
             EXPECTED_CP314T_FILENAMES["packaging"],
-            COMPATIBLE_CP314T_PACKAGING_FILENAME,
+            COMPATIBLE_CP314T_PACKAGING_2_24_FILENAME,
+            COMPATIBLE_CP314T_PACKAGING_2_17_COMPRESSED_FILENAME,
+            COMPATIBLE_CP314T_PACKAGING_2014_ALIAS_FILENAME,
         }
     ]
 
@@ -847,7 +853,7 @@ def test_dependency_resolution_grows_for_future_free_threaded_abi() -> None:
 
 def test_dependency_resolution_validator_accepts_older_compatible_manylinux_wheel(
 ) -> None:
-    selection, resolution = _older_compatible_packaging_resolution()
+    selection, resolution = _older_modern_packaging_resolution()
     validate = _public_callable(_dependencies(), "validate_dependency_resolution")
     resolved = next(
         item
@@ -855,7 +861,34 @@ def test_dependency_resolution_validator_accepts_older_compatible_manylinux_whee
         if item["name"] == "packaging"
     )
 
-    assert resolved["filename"] == COMPATIBLE_CP314T_PACKAGING_FILENAME
+    assert resolved["filename"] == COMPATIBLE_CP314T_PACKAGING_2_24_FILENAME
+    assert validate(copy.deepcopy(resolution), _config(), selection) == resolution
+
+
+def test_dependency_resolution_accepts_legacy_manylinux2014_alias_without_modern_tag(
+) -> None:
+    selection, _ = _selection()
+    responses = _pep691_responses()
+    allowed_filenames = {
+        COMPATIBLE_CP314T_PACKAGING_2014_ALIAS_FILENAME,
+        "packaging-24.2-py314-none-manylinux_2_28_x86_64.whl",
+        "packaging-24.2-py3-none-any.whl",
+    }
+    responses["packaging"]["files"] = [
+        item
+        for item in responses["packaging"]["files"]
+        if item["filename"] in allowed_filenames
+    ]
+    resolution = _resolve(selection, responses)
+    validate = _public_callable(_dependencies(), "validate_dependency_resolution")
+    resolved = next(
+        item
+        for item in resolution["requests"][0]["resolved"]
+        if item["name"] == "packaging"
+    )
+
+    assert resolved["filename"] == COMPATIBLE_CP314T_PACKAGING_2014_ALIAS_FILENAME
+    assert resolved["wheel_tags"] == ["cp314-cp314t-manylinux2014_x86_64"]
     assert validate(copy.deepcopy(resolution), _config(), selection) == resolution
 
 
@@ -869,14 +902,14 @@ def test_dependency_resolution_validator_accepts_older_compatible_manylinux_whee
 def test_dependency_resolution_validator_rejects_incompatible_manylinux_platform(
     incompatible_platform: str,
 ) -> None:
-    selection, resolution = _older_compatible_packaging_resolution()
+    selection, resolution = _older_modern_packaging_resolution()
     validate = _public_callable(_dependencies(), "validate_dependency_resolution")
     resolved = next(
         item
         for item in resolution["requests"][0]["resolved"]
         if item["name"] == "packaging"
     )
-    assert resolved["filename"] == COMPATIBLE_CP314T_PACKAGING_FILENAME
+    assert resolved["filename"] == COMPATIBLE_CP314T_PACKAGING_2_24_FILENAME
     resolved["filename"] = (
         f"packaging-24.2-cp314-cp314t-{incompatible_platform}.whl"
     )
