@@ -414,16 +414,10 @@ def test_dependency_resolution_is_closed_exact_and_self_digesting() -> None:
     for field in ("source_sha", "config_sha256", "catalog_sha256", "selection_sha256"):
         assert resolution[field] == selection[field]
     assert resolution["resolution_sha256"] == _canonical_digest(
-        {
-            key: value
-            for key, value in resolution.items()
-            if key != "resolution_sha256"
-        }
+        {key: value for key, value in resolution.items() if key != "resolution_sha256"}
     )
     assert (
-        validate(
-            copy.deepcopy(resolution), _config(), copy.deepcopy(selection)
-        )
+        validate(copy.deepcopy(resolution), _config(), copy.deepcopy(selection))
         == resolution
     )
     assert resolution["requests"] == sorted(
@@ -454,9 +448,9 @@ def test_dependency_resolution_is_closed_exact_and_self_digesting() -> None:
             request["resolved"], key=lambda item: item["requirement_id"]
         )
         assert len(request["resolved"]) == len(request["requirements"])
-        assert {
-            item["requirement_id"] for item in request["resolved"]
-        } == {item["requirement_id"] for item in request["requirements"]}
+        assert {item["requirement_id"] for item in request["resolved"]} == {
+            item["requirement_id"] for item in request["requirements"]
+        }
         for resolved in request["resolved"]:
             requirement = next(
                 item
@@ -476,12 +470,8 @@ def test_dependency_resolution_is_closed_exact_and_self_digesting() -> None:
                 if item["filename"] == resolved["filename"]
             )
             assert resolved["url"] == source_record["url"]
-            assert resolved["sha256"] == (
-                "sha256:" + source_record["hashes"]["sha256"]
-            )
-            assert resolved["requires_python"] == source_record.get(
-                "requires-python"
-            )
+            assert resolved["sha256"] == ("sha256:" + source_record["hashes"]["sha256"])
+            assert resolved["requires_python"] == source_record.get("requires-python")
 
 
 def test_pep691_extensions_are_ignored_and_requires_python_is_optional() -> None:
@@ -507,9 +497,7 @@ def test_pep691_extensions_are_ignored_and_requires_python_is_optional() -> None
 
     assert resolved["filename"] == EXPECTED_CP314T_FILENAMES["wrapt"]
     assert resolved["url"] == selected_file["url"]
-    assert resolved["sha256"] == (
-        "sha256:" + selected_file["hashes"]["sha256"]
-    )
+    assert resolved["sha256"] == ("sha256:" + selected_file["hashes"]["sha256"])
     assert resolved["requires_python"] is None
 
 
@@ -552,8 +540,7 @@ def test_dependency_resolution_selects_middle_rank_without_exact_native() -> Non
     responses["packaging"]["files"] = [
         item
         for item in responses["packaging"]["files"]
-        if item["filename"]
-        != "packaging-24.2-cp314-cp314t-manylinux_2_28_x86_64.whl"
+        if item["filename"] != "packaging-24.2-cp314-cp314t-manylinux_2_28_x86_64.whl"
     ]
 
     resolution = _resolve(selection, responses)
@@ -786,9 +773,9 @@ def test_dependency_resolution_grows_for_future_free_threaded_abi() -> None:
         ].removesuffix("t")
         assert request["status"] == "success"
         assert len(request["resolved"]) == len(request["requirements"])
-        assert {
-            item["requirement_id"] for item in request["resolved"]
-        } == {item["requirement_id"] for item in request["requirements"]}
+        assert {item["requirement_id"] for item in request["resolved"]} == {
+            item["requirement_id"] for item in request["requirements"]
+        }
         expected = (
             EXPECTED_CP316T_FILENAMES
             if request["coordinate"]["python_abi"] == "cp316t"
@@ -971,15 +958,11 @@ def test_dependency_resolution_validator_rejects_resealed_closure_drift(
         resolved = next(
             item for item in request["resolved"] if item["name"] == "packaging"
         )
-        resolved["filename"] = (
-            "packaging-24.2-cp314-cp314t-manylinux_2_28_aarch64.whl"
-        )
+        resolved["filename"] = "packaging-24.2-cp314-cp314t-manylinux_2_28_aarch64.whl"
         resolved["url"] = (
             "https://files.example.invalid/packaging/" + resolved["filename"]
         )
-        resolved["wheel_tags"] = [
-            "cp314-cp314t-manylinux_2_28_aarch64"
-        ]
+        resolved["wheel_tags"] = ["cp314-cp314t-manylinux_2_28_aarch64"]
         _reseal(resolution, "resolution_sha256")
     elif mutation == "resolved-requires-python-incompatible":
         request["resolved"][0]["requires_python"] = "<3.14"
