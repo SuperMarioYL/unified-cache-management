@@ -27,10 +27,6 @@ cli = importlib.import_module("ucm_release.cli")
 core = importlib.import_module("ucm_release.core")
 products = importlib.import_module("ucm_release.products")
 
-OWNED_RECIPE_PATHS = (
-    ".github/release/builders.yaml",
-    ".github/release/docker/Dockerfile.builder",
-)
 CATALOG_FIELDS = {
     "kind",
     "schema_version",
@@ -167,10 +163,10 @@ def _call_target(function: ast.expr) -> str | None:
     return None
 
 
-def _call_targets(function: ast.FunctionDef) -> set[str]:
+def _call_targets(node: ast.AST) -> set[str]:
     return {
         target
-        for call in ast.walk(function)
+        for call in ast.walk(node)
         if isinstance(call, ast.Call)
         for target in [_call_target(call.func)]
         if target is not None
@@ -193,6 +189,13 @@ def _write_repository(root: Path, fixture: dict[str, Any]) -> None:
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(contents.encode("utf-8"))
+
+
+def _authority_recipe_paths(fixture: dict[str, Any]) -> tuple[str, ...]:
+    return tuple(
+        item["recipe_path"]
+        for item in fixture["expected_current_builder_authority"]["recipes"]
+    )
 
 
 def _task4_config() -> dict[str, Any]:
@@ -231,7 +234,10 @@ def _selection(
 
 
 def _selected_runtime_tags(
-    selection: dict[str, Any], catalog: dict[str, Any]
+    selection: dict[str, Any],
+    catalog: dict[str, Any],
+    *,
+    product_id: str | None = None,
 ) -> set[str]:
     selected_ids = {
         item["runtime_id"] for item in selection["discovered_selections"]
@@ -240,6 +246,7 @@ def _selected_runtime_tags(
         item["runtime_tag"]
         for item in catalog["runtime_candidates"]
         if item["runtime_id"] in selected_ids
+        and (product_id is None or item["product_id"] == product_id)
     }
 
 
@@ -359,15 +366,156 @@ def _add_selector_group(fixture: dict[str, Any], dimension: str) -> None:
     fixture["runtime_discovery"]["runtime_candidates"].append(runtime)
 
 
+def _add_ascend_selector_group(
+    fixture: dict[str, Any],
+    *,
+    variant: str,
+    runtimes: tuple[tuple[str, str, str], ...],
+) -> None:
+    authority = fixture["expected_current_builder_authority"]
+    recipe = next(
+        item
+        for item in authority["recipes"]
+        if fixture["repository_files"][item["recipe_path"]].lstrip().startswith(
+            "FROM "
+        )
+    )
+    source_path = f".github/workflows/dockerfiles/Dockerfile.buildwheel.{variant}"
+    fixture["builder_discovery"]["upstream_reads"].append(
+        {
+            "project": "vllm-project/vllm-ascend",
+            "source_kind": "planner-checkout-recipe",
+            "source_path": recipe["recipe_path"],
+            "source_commit": fixture["source_sha"],
+            "fact": "recipe",
+        }
+    )
+    fixture["builder_discovery"]["builders"].append(
+        {
+            "variant": variant,
+            "source_kind": "buildwheel-dockerfile",
+            "source_path": source_path,
+        }
+    )
+
+    for index, (runtime_version, runtime_tag, mooncake_version) in enumerate(
+        runtimes
+    ):
+        seed = f"{variant}:{runtime_version}:{runtime_tag}:{mooncake_version}"
+        digest = "sha256:" + hashlib.sha256(seed.encode()).hexdigest()
+        source_commit = hashlib.sha256(
+            f"commit:{variant}:{runtime_version}".encode()
+        ).hexdigest()[:40]
+        mooncake_source_path = f"docker/Dockerfile.runtime.{variant}.{index}"
+        raw_runtime = {
+            "product_id": "vllm-ascend",
+            "runtime_version": runtime_version,
+            "channel": "rc",
+            "variant": variant,
+            "cpu_architecture": "amd64",
+            "accelerator": "ascend",
+            "accelerator_runtime": "cann-9.0",
+            "mooncake_version": mooncake_version,
+            "mooncake_source_path": mooncake_source_path,
+            "runtime_image_repository": "quay.io/ascend/vllm-ascend",
+            "runtime_image_tag": runtime_tag,
+            "runtime_image_digest": digest,
+            "git_tag": f"v{runtime_version}",
+            "git_commit": source_commit,
+        }
+        runtime_identity = {
+            "product_id": raw_runtime["product_id"],
+            "runtime_repository": raw_runtime["runtime_image_repository"],
+            "runtime_tag": raw_runtime["runtime_image_tag"],
+            "variant": raw_runtime["variant"],
+            "cpu_architecture": raw_runtime["cpu_architecture"],
+        }
+        runtime_id = _canonical_digest(runtime_identity)
+        runtime_image = f'{raw_runtime["runtime_image_repository"]}@{digest}'
+        fixture["runtime_discovery"]["runtime_candidates"].append(raw_runtime)
+        fixture["runtime_discovery"]["upstream_reads"].append(
+            {
+                "project": "vllm-project/vllm-ascend",
+                "source_kind": "runtime-dockerfile-and-annotated-tag",
+                "source_path": mooncake_source_path,
+                "source_commit": source_commit,
+                "fact": "MOONCAKE_TAG",
+            }
+        )
+        fixture["mooncake_probes"]["probes"].append(
+            {
+                "runtime_image_digest": digest,
+                "cpu_architecture": "amd64",
+                "runner": "ubuntu-24.04",
+                "declared_version": mooncake_version,
+                "installed_version": mooncake_version,
+                "headers_path": "/usr/local/include/transfer_engine.h",
+                "libraries_path": "/usr/local/lib",
+            }
+        )
+
+        target_digest = "sha256:" + hashlib.sha256(
+            f"builder:{seed}".encode()
+        ).hexdigest()
+        fact = {
+            "builder_fact_id": "",
+            "project": "vllm-project/vllm-ascend",
+            "accelerator": "ascend",
+            "accelerator_runtime": "cann-9.0",
+            "variant": variant,
+            "cpu_architecture": "amd64",
+            "manylinux": "manylinux_2_34",
+            "source_kind": "buildwheel-dockerfile",
+            "source_path": source_path,
+            "source_image_repository": "quay.io/ascend/manylinux",
+            "source_image_tag": f"9.0-{variant}-manylinux_2_34",
+            "source_image_digest": "sha256:"
+            + hashlib.sha256(f"source:{seed}".encode()).hexdigest(),
+            "recipe_path": recipe["recipe_path"],
+            "recipe_source_commit": recipe["recipe_source_commit"],
+            "recipe_sha256": recipe["recipe_sha256"],
+            "toolchain_sha256": authority["toolchain_sha256"],
+            "target_repository": "ghcr.io/release-org/ucm-builder-vllm-ascend",
+            "target_tag": f"cann9.0-{variant}-current-{index}",
+            "target_builder_digest": target_digest,
+            "mooncake_source_runtime_id": runtime_id,
+            "mooncake_source_runtime_image": runtime_image,
+            "mooncake_version": mooncake_version,
+        }
+        fact_identity = {
+            field: fact[field] for field in capabilities.BUILDER_FACT_IDENTITY_FIELDS
+        }
+        fact["builder_fact_id"] = _canonical_digest(fact_identity)
+        fixture["builder_discovery"]["builder_facts"].append(fact)
+        fixture["python_probes"]["probes"].append(
+            {
+                "builder_fact_id": fact["builder_fact_id"],
+                "builder_image": (
+                    f'{fact["target_repository"]}@{fact["target_builder_digest"]}'
+                ),
+                "target_builder_digest": target_digest,
+                "cpu_architecture": "amd64",
+                "manylinux": "manylinux_2_34",
+                "runner": "ubuntu-24.04",
+                "interpreter_path": "/opt/python/cp314-cp314t/bin/python",
+                "python_version": "3.14",
+                "python_abi": "cp314t",
+                "soabi": "cpython-314t-x86_64-linux-gnu",
+                "wheel_tag": "cp314-cp314t-manylinux_2_34_x86_64",
+            }
+        )
+
+
 def test_task4_a1_fixture_is_raw_separate_and_self_consistent() -> None:
     fixture = _fixture()
     authority = fixture["expected_current_builder_authority"]
+    catalog = _assemble_catalog(fixture)
 
     assert fixture["kind"] == "task4-candidate-selection-raw-fixture"
     assert fixture["source_sha"] == fixture["builder_discovery"]["source_sha"]
     assert fixture["source_sha"] == fixture["runtime_discovery"]["source_sha"]
-    assert tuple(item["recipe_path"] for item in authority["recipes"]) == (
-        OWNED_RECIPE_PATHS
+    assert _authority_recipe_paths(fixture) == tuple(
+        sorted(_authority_recipe_paths(fixture))
     )
     assert authority["authority_sha256"] == _canonical_digest(
         {key: value for key, value in authority.items() if key != "authority_sha256"}
@@ -382,6 +530,24 @@ def test_task4_a1_fixture_is_raw_separate_and_self_consistent() -> None:
             field: fact[field] for field in capabilities.BUILDER_FACT_IDENTITY_FIELDS
         }
         assert fact["builder_fact_id"] == _canonical_digest(identity)
+    assert set(catalog) == CATALOG_FIELDS
+    assert catalog["catalog_sha256"] == _canonical_digest(
+        {key: value for key, value in catalog.items() if key != "catalog_sha256"}
+    )
+    cp314t = [
+        item
+        for item in catalog["builder_capabilities"]
+        if item["python_abi"] == "cp314t"
+    ]
+    assert cp314t
+    cp314t_ids = {item["builder_capability_id"] for item in cp314t}
+    cp314t_bindings = [
+        item
+        for item in catalog["bindings"]
+        if item["builder_capability_id"] in cp314t_ids
+    ]
+    assert cp314t_bindings
+    assert all(item["python_abi"] == "cp314t" for item in cp314t_bindings)
     assert "capability-catalog-discovery.json" not in str(FIXTURE_PATH)
 
 
@@ -477,28 +643,25 @@ def test_catalog_shape_and_assembly_share_python_coordinate_owner() -> None:
     catalog = _assemble_catalog(_fixture())
     assert set(catalog) == CATALOG_FIELDS
 
-    capability_function = _function_node(
-        RELEASE_ROOT / "ucm_release" / "capabilities.py",
-        "assemble_capability_catalog",
-    )
-    product_function = _function_node(
-        RELEASE_ROOT / "ucm_release" / "products.py",
-        "prepare_candidate_selection",
+    capability_tree = ast.parse(
+        (RELEASE_ROOT / "ucm_release" / "capabilities.py").read_text(
+            encoding="utf-8"
+        )
     )
     assert any(
         target.rsplit(".", 1)[-1] == "compile_python_coordinate"
-        for target in _call_targets(capability_function)
-    )
-    assert any(
-        target.rsplit(".", 1)[-1] == "compile_python_coordinate"
-        for target in _call_targets(product_function)
-    )
-    assert not any(
-        target.split(".", 1)[0] in {"requests", "socket", "subprocess", "urllib"}
-        for target in _call_targets(product_function)
+        for target in _call_targets(capability_tree)
     )
     product_tree = ast.parse(
         (RELEASE_ROOT / "ucm_release" / "products.py").read_text(encoding="utf-8")
+    )
+    assert any(
+        target.rsplit(".", 1)[-1] == "compile_python_coordinate"
+        for target in _call_targets(product_tree)
+    )
+    assert not any(
+        target.split(".", 1)[0] in {"requests", "socket", "subprocess", "urllib"}
+        for target in _call_targets(product_tree)
     )
     assert "compile_python_coordinate" not in {
         node.name for node in product_tree.body if isinstance(node, ast.FunctionDef)
@@ -517,8 +680,11 @@ def test_catalog_shape_and_assembly_share_python_coordinate_owner() -> None:
 
 
 def test_builder_recipe_paths_are_one_owner_shared_with_discovery() -> None:
+    expected_paths = _authority_recipe_paths(_fixture())
     paths = getattr(builders, "CURRENT_BUILDER_RECIPE_PATHS", None)
-    assert paths == OWNED_RECIPE_PATHS
+    assert paths is not None
+    assert set(paths) == set(expected_paths)
+    assert tuple(sorted(paths)) == expected_paths
 
     source = RELEASE_ROOT / "ucm_release" / "builders.py"
     for function_name in (
@@ -614,9 +780,13 @@ def test_freeze_current_builder_authority_rejects_missing_or_escaping_sources(
 ) -> None:
     fixture = _fixture()
     _write_repository(tmp_path, fixture)
-    owned = tmp_path / OWNED_RECIPE_PATHS[0]
+    owned = tmp_path / _authority_recipe_paths(fixture)[0]
     if mode == "missing-toolchain":
-        (tmp_path / ".github/release/toolchain.lock.yaml").unlink()
+        recipe_paths = set(_authority_recipe_paths(fixture))
+        toolchain_path = next(
+            item for item in fixture["repository_files"] if item not in recipe_paths
+        )
+        (tmp_path / toolchain_path).unlink()
     else:
         owned.unlink()
     if mode == "escape":
@@ -834,6 +1004,89 @@ def test_selection_uses_version_buckets_then_declared_selector_order(
     selection, catalog, _ = _selection(fixture)
 
     assert _selected_runtime_tags(selection, catalog) == {expected_tag}
+    exclusions = {
+        item["reason_code"] for item in selection["exclusions"]
+    }
+    assert ("runtime-flavor-unsupported" in exclusions) is expects_unsupported
+
+
+@pytest.mark.parametrize(
+    ("variant", "runtimes", "expected_tag", "expects_unsupported"),
+    [
+        pytest.param(
+            "a2",
+            (
+                ("0.22.1rc1", "v0.22.1rc1", "0.3.12"),
+                ("0.22.1rc1", "v0.22.1rc1-a2", "0.3.13"),
+            ),
+            "v0.22.1rc1",
+            False,
+            id="a2-base-before-variant",
+        ),
+        pytest.param(
+            "a3",
+            (("0.22.1rc1", "v0.22.1rc1-a3", "0.3.12"),),
+            "v0.22.1rc1-a3",
+            False,
+            id="a3-variant",
+        ),
+        pytest.param(
+            "a5",
+            (("0.22.1rc1", "v0.22.1rc1-a5", "0.3.12"),),
+            "v0.22.1rc1-a5",
+            False,
+            id="future-a5-variant",
+        ),
+        pytest.param(
+            "a4",
+            (
+                ("0.22.2rc1", "v0.22.2rc1-openeuler", "0.3.13"),
+                ("0.22.1rc1", "v0.22.1rc1-a4", "0.3.12"),
+            ),
+            "v0.22.1rc1-a4",
+            True,
+            id="unsupported-newest-falls-back-older",
+        ),
+    ],
+)
+def test_ascend_selection_uses_catalog_variant_and_ordered_selectors(
+    variant: str,
+    runtimes: tuple[tuple[str, str, str], ...],
+    expected_tag: str,
+    expects_unsupported: bool,
+) -> None:
+    fixture = _fixture()
+    _add_ascend_selector_group(fixture, variant=variant, runtimes=runtimes)
+    selection, catalog, _ = _selection(fixture)
+
+    assert _selected_runtime_tags(
+        selection, catalog, product_id="vllm-ascend"
+    ) == {expected_tag}
+    ascend_runtimes = [
+        item
+        for item in catalog["runtime_candidates"]
+        if item["product_id"] == "vllm-ascend"
+    ]
+    assert {item["runtime_tag"] for item in ascend_runtimes} == {
+        item[1] for item in runtimes
+    }
+    selected_ids = {
+        item["runtime_id"]
+        for item in selection["discovered_selections"]
+        if item["product_id"] == "vllm-ascend"
+    }
+    selected_bindings = [
+        item for item in selection["bindings"] if item["runtime_id"] in selected_ids
+    ]
+    assert selected_bindings
+    assert all(
+        item["mooncake_copy_mode"] == "runtime-copy"
+        for item in selected_bindings
+    )
+    assert all(
+        item["variant"] == variant and item["mooncake_version"] is not None
+        for item in selected_bindings
+    )
     exclusions = {
         item["reason_code"] for item in selection["exclusions"]
     }
