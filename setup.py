@@ -27,6 +27,7 @@ import os
 import platform as host_platform
 import subprocess
 import sys
+import sysconfig
 
 from setuptools import Extension, find_packages, setup
 from setuptools.command.build_ext import build_ext
@@ -273,6 +274,8 @@ class CMakeBuild(build_ext):
             "-DCMAKE_BUILD_TYPE=Release",
             f"-DPYTHON_EXECUTABLE={sys.executable}",
             f"-DPython_EXECUTABLE={sys.executable}",
+            f"-DPython_INCLUDE_DIR={sysconfig.get_path('include')}",
+            f"-DPython_ROOT_DIR={sys.prefix}",
             f"-DCMAKE_INSTALL_PREFIX={install_dir}",
         ]
 

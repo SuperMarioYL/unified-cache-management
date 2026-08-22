@@ -197,3 +197,10 @@ def test_source_version_has_no_environment_bypass() -> None:
         "UCM_BUILD_CPU_ARCH",
     ):
         assert active_name in setup_source
+
+
+def test_native_source_build_pins_python_development_paths() -> None:
+    setup_source = (ROOT / "setup.py").read_text(encoding="utf-8")
+
+    assert "f\"-DPython_INCLUDE_DIR={sysconfig.get_path('include')}\"" in setup_source
+    assert 'f"-DPython_ROOT_DIR={sys.prefix}"' in setup_source
