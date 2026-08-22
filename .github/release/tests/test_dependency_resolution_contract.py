@@ -798,6 +798,8 @@ def test_dependency_resolution_grows_for_future_free_threaded_abi() -> None:
             item["name"]: item["filename"] for item in request["resolved"]
         } == expected
     assert validate(resolution, _config(), selection) == resolution
+
+
 @pytest.mark.parametrize(
     "mutation",
     [
