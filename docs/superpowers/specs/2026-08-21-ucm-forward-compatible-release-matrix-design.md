@@ -133,12 +133,14 @@ publish:
 每个 `upstream_products[]` 还必须声明有序 `runtime_tag_selectors[]`。每个 selector
 是 exact template，字段 allowlist 只有 `{version}`、`{variant.tag_suffix}` 和
 `{runtime.major_minor.compact}`；未知字段、空展开、重复 template 或非 OCI tag 结果是配置
-错误。数组顺序是显式选择优先级，不得排序或按摘要重排。例如：
+错误。`{version}` 是不含前导 `v` 的规范 PEP runtime version；
+`{variant.tag_suffix}` 只能是空字符串或以 `-` 开头的规范 token。数组顺序是显式选择
+优先级，不得排序或按摘要重排。例如：
 
 ```yaml
 runtime_tag_selectors:
-  - "{version}{variant.tag_suffix}"
-  - "{version}-{runtime.major_minor.compact}{variant.tag_suffix}"
+  - "v{version}{variant.tag_suffix}"
+  - "v{version}-cu{runtime.major_minor.compact}{variant.tag_suffix}"
 ```
 
 示例只表达字段职责，最终配置还保留现有上游版本范围、渠道、运行时 patch、Chart、
@@ -305,8 +307,10 @@ Artifact 为止，不实现 trusted rebuild、publication DAG、远端写入或 
 
 `ucm_release plan candidates` 消费 Schema v3 配置、一个已验证 Catalog，以及可选的上一版
 正式 v3 Manifest。Catalog 没有“current”标记。新 discovered selection 按
-`product + runtime_version + accelerator family + variant + cpu_architecture` 分组；Ascend 必须
-先完成真实 Variant 提取，再进入 tag selector。planner 按 PEP 440 runtime version 降序检查，
+`product + runtime_version + binding/Builder accelerator_runtime family + variant + cpu_architecture`
+分组；例如同一 runtime version 的 `cuda-12.9` 与 `cuda-13.0` 必须独立
+选择。Ascend 必须先完成真实 Variant 提取，再进入 tag selector。planner 按 PEP 440
+runtime version 降序检查，
 在同一 version 内严格按该 product 的 `runtime_tag_selectors[]` 顺序求 exact tag：第一个恰好
 匹配一个 runtime candidate 的 selector 胜出；同一 selector 匹配多个候选是硬歧义；全部
 selector 无匹配则记录 `runtime-flavor-unsupported` 并继续同组下一旧版本。禁止用 tag
@@ -340,6 +344,12 @@ kind, schema_version, source_sha, toolchain_sha256
 recipes[{recipe_path, recipe_source_commit, recipe_sha256}]
 authority_sha256
 ```
+
+对 discovered selection，`Candidate Plan.source_sha`、`Capability Catalog.source_sha` 与
+`CurrentBuilderAuthority.source_sha` 必须 exact 相等；任一不等是全局失败，不能混用其他
+run 的 Catalog 或 checkout authority。该 top-level 闭包不把历史 recipe 变成 current：
+baseline revision 仍从同一 Catalog 按 exact ID 重开，并绕过下面的 current recipe/
+toolchain 匹配。
 
 `recipes[]` 按上述三字段规范排序；`authority_sha256` 使用通用 self-digest projection，只
 排除自身。新 discovered selection 只从 `recipe_source_commit + recipe_sha256 +
@@ -408,11 +418,12 @@ Runtime Image 绑定键；family 的 admission key 不含上游 runtime patch ve
 Variant、ABI 或 architecture 会被识别成新能力。`admission_key` 只用于 baseline 状态机，
 不能代替带 UCM version 的精确构建和发布坐标。
 
-同一个 admission key 在 Candidate Plan 中允许至多一个 `candidate_role: baseline` 和
-一个由最新选择器产生的 `candidate_role: successor`；二者以不同 `runtime_id/task_id`
-存在，并由显式 `supersedes` 边连接。若 selection 与 baseline 的 runtime identity 完全
-相同，则去重为一个 `candidate_role: baseline-current` 实例。没有 role/edge 的重复
-admission key 是计划歧义并失败。
+同一个 admission key 的 `admission_requirements[]` 中允许至多一个
+`candidate_role: baseline` 和一个由最新选择器产生的 `candidate_role: successor`；二者
+引用不同 `runtime_id/task_id`，并由显式 `supersedes` 边连接。若 selection 与 baseline
+的 runtime identity 完全相同，则去重为一个 `candidate_role: baseline-current`
+requirement。task records 不复制这些 role。没有 role/edge 的重复 admission key 是计划
+歧义并失败。
 
 Candidate Plan 允许 baseline/successor Wheel build instances 共享一个 publication
 coordinate，但 `builder_revision_id/task_id` 必须不同；Admitted Plan 对每个 publication
@@ -437,16 +448,18 @@ Mooncake、ABI 和 architecture，防止 CANN runtime 与错误 Mooncake 或 Pyt
 - `wheel_tasks[]`：精确坐标、动态 Distribution、Builder digest、manylinux、Python、
   `builder_capability_id`、`builder_revision_id`、source/recipe/toolchain/target digests、
   `python_tag`、exact `interpreter_path`、expected SOABI/wheel tag、native/ELF 规则、冻结
-  依赖、预期 wheel 文件名和 Artifact 名；
+  依赖、`baseline_required`、预期 wheel 文件名和 Artifact 名；
 - `image_tasks[]`：精确坐标、`wheel_task_id`、runtime digest、Mooncake、目标 repository
-  与 member tag、`runtime_id`、`builder_revision_id`、`candidate_role`、预期 OCI 输出和
-  Artifact 名；
-- `family_tasks[]`：动态 family 坐标、member task IDs、每个启用 channel 的目标 index；
+  与 member tag、`runtime_id`、`builder_revision_id`、derived `baseline_required`、预期 OCI
+  输出和 Artifact 名；
+- `family_tasks[]`：动态 family 坐标、member task IDs、derived `baseline_required`、每个
+  启用 channel 的目标 index；
 - `baseline_carry_forward[]`、`discovered_selections[]`、显式 `supersessions[]` 和
   `retirements[]`；
 - `admission_requirements[]`：封闭记录
   `{admission_key, candidate_role, required_task_ids[]}`，其中 task IDs 规范排序且唯一；
-- `chart_task`：唯一的 Chart 输入、版本、文件名和目标 OCI 坐标；
+- `chart_task`：唯一的 Chart 输入、版本、文件名、derived `baseline_required` 和目标 OCI
+  坐标；
 - `expected_build_results[]`、`exclusions[]`、动态 Actions matrices 和资源计数；
 - `candidate_plan_sha256`。
 
@@ -456,6 +469,8 @@ active revision 直接或间接需要的 wheel/image/family/chart task 都是 ba
 wheel 只要服务任一 baseline consumer 就必须标记为 true。该字段不能由任务类型、失败原因
 或是否也被 successor 复用来猜测。Admission 只消费这份显式 requirement graph 决定
 baseline block 与 new quarantine。
+`candidate_role` 只存在于 `admission_requirements[]`；task records 不复制 role，只携带上述
+graph 派生的 `baseline_required`。
 
 计划中的 wheel 文件名由 Distribution、UCM version、ABI 和 architecture 冻结；
 依赖 wheel 也逐项冻结文件名和摘要。`plan select` 只能按 `task_id` 返回恰好一个任务，

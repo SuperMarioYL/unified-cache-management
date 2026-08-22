@@ -77,11 +77,12 @@
 ### Task 4A: Authority、选择和 Candidate graph
 
 - Task 3 的 validated Capability Catalog 是唯一发现输入；新增 CLI：`ucm_release plan candidates` 和 `ucm_release plan select`。
-- Schema v3 为每个 upstream product 增加有序 exact `runtime_tag_selectors`，只允许 `{version}`、`{variant.tag_suffix}`、`{runtime.major_minor.compact}`。按 version 降序、selector 声明顺序选择；同 selector 多匹配硬失败，无匹配形成 `runtime-flavor-unsupported` 后检查旧版本。Ascend 先提取 Variant；baseline exact `runtime_id` 绕过 selector。
-- `builders.py` 从 planner checkout 冻结 `ucm-current-builder-authority`：`source_sha`、`toolchain_sha256`、规范排序的 recipe commit/hash 和 `authority_sha256`。新候选 revision 必须 exact 匹配；零匹配 local exclusion，多匹配硬失败；baseline exact revision 绕过 current authority。
+- Schema v3 为每个 upstream product 增加有序 exact `runtime_tag_selectors`，只允许 `{version}`、`{variant.tag_suffix}`、`{runtime.major_minor.compact}`；`version` 是无前导 `v` 的 PEP runtime version，Variant suffix 是空值或 leading-dash token。模板形如 `v{version}{variant.tag_suffix}`、`v{version}-cu{runtime.major_minor.compact}{variant.tag_suffix}`。
+- 按 product/runtime version/binding accelerator-runtime family/Variant/architecture 分组，再按 version 降序、selector 声明顺序选择；同 selector 多匹配硬失败，无匹配形成 `runtime-flavor-unsupported` 后检查旧版本。Ascend 先提取 Variant；baseline exact `runtime_id` 绕过 selector。
+- `builders.py` 从 planner checkout 冻结 `ucm-current-builder-authority`：`source_sha`、`toolchain_sha256`、规范排序的 recipe commit/hash 和 `authority_sha256`。discovered selection 要求 Candidate/Catalog/authority 三个 `source_sha` exact 相等；新候选 revision 必须 exact 匹配，零匹配 local exclusion，多匹配硬失败。baseline revision 从同一 Catalog 按 exact ID 重开并绕过 current recipe authority。
 - WHL publication/build 坐标、Runtime Image 绑定键和 build instance 坐标按 Spec 计算；Task 4 `binding_id` 只由 `{builder_revision_id, runtime_id}` 的规范 JSON 计算，不修改 Catalog。
 - Wheel task 按完整 build coordinate 唯一生成并允许多个 image 共享，不能按 binding 重复创建。
-- Candidate Plan 冻结 `current_builder_authority_sha256`、`python_tag`、exact interpreter path、expected SOABI/wheel tag，以及 `admission_requirements[]` 的 `{admission_key,candidate_role,required_task_ids[]}`。`baseline_required` 只从该 dependency graph 反向传播。
+- Candidate Plan 冻结 `current_builder_authority_sha256`、`python_tag`、exact interpreter path、expected SOABI/wheel tag，以及 `admission_requirements[]` 的 `{admission_key,candidate_role,required_task_ids[]}`。`candidate_role` 只在 requirements 中；tasks 只携带从 dependency graph 反向传播的 `baseline_required`。
 - CUDA/CANN Distribution 模板继续分别为 `uc-manager-cuda{runtime.compact}` 和 `uc-manager-cann{runtime.compact}-{variant}-mc{mooncake.compact}`；依赖配置只保存版本，计划按动态 ABI/架构冻结文件名、URL 和摘要。
 - 从最近的 Schema v3 Release Manifest 精确重建 baseline，同时保留最新 discovered successor；禁止用 tag、数组、字典或摘要顺序替换选择权威。
 - 先提交 authority/selector/Candidate graph RED，fixture 从真实 Catalog 动态展开并加入新 ABI/runtime/Variant 验证增长，不固定六产品、三个 ABI 或任务数量。
