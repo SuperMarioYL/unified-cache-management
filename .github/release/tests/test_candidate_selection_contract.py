@@ -1306,8 +1306,7 @@ def test_candidate_selection_is_closed_exact_and_cp314t_request() -> None:
     assert validate(copy.deepcopy(selection)) == selection
 
     catalog_capabilities = {
-        item["builder_capability_id"]: item
-        for item in catalog["builder_capabilities"]
+        item["builder_capability_id"]: item for item in catalog["builder_capabilities"]
     }
     for capability in selection["builder_capabilities"]:
         catalog_capability = catalog_capabilities[capability["builder_capability_id"]]
@@ -1323,8 +1322,7 @@ def test_candidate_selection_is_closed_exact_and_cp314t_request() -> None:
         assert capability["builder_revision_ids"] == sorted(
             revision["builder_revision_id"]
             for revision in selection["builder_revisions"]
-            if revision["builder_capability_id"]
-            == capability["builder_capability_id"]
+            if revision["builder_capability_id"] == capability["builder_capability_id"]
         )
 
     catalog_arrays = {
