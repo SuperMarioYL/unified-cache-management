@@ -1,0 +1,105 @@
+{
+  "kind": "task4-dependency-index-fixture",
+  "schema_version": 3,
+  "projects": {
+    "packaging": [
+      {
+        "name": "packaging",
+        "version": "24.2",
+        "filename": "packaging-24.2.tar.gz",
+        "url": "https://files.example.invalid/packaging-24.2.tar.gz",
+        "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "wheel_tags": []
+      },
+      {
+        "name": "packaging",
+        "version": "24.1",
+        "filename": "packaging-24.1-py3-none-any.whl",
+        "url": "https://files.example.invalid/packaging-24.1-py3-none-any.whl",
+        "sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      },
+      {
+        "name": "packaging",
+        "version": "24.2",
+        "filename": "packaging-24.2-cp312-cp312-manylinux_2_28_x86_64.whl",
+        "url": "https://files.example.invalid/packaging-24.2-cp312-cp312-manylinux_2_28_x86_64.whl",
+        "sha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "wheel_tags": [
+          "cp312-cp312-manylinux_2_28_x86_64"
+        ]
+      },
+      {
+        "name": "packaging",
+        "version": "24.2",
+        "filename": "packaging-24.2-py3-none-any.whl",
+        "url": "https://files.example.invalid/packaging-24.2-py3-none-any.whl",
+        "sha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      }
+    ],
+    "pyyaml": [
+      {
+        "name": "pyyaml",
+        "version": "6.0.2",
+        "filename": "PyYAML-6.0.2-py3-none-any.whl",
+        "url": "https://files.example.invalid/PyYAML-6.0.2-py3-none-any.whl",
+        "sha256": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      },
+      {
+        "name": "pyyaml",
+        "version": "6.0.2",
+        "filename": "PyYAML-6.0.2-cp312-cp312-manylinux_2_28_x86_64.whl",
+        "url": "https://files.example.invalid/PyYAML-6.0.2-cp312-cp312-manylinux_2_28_x86_64.whl",
+        "sha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "wheel_tags": [
+          "cp312-cp312-manylinux_2_28_x86_64"
+        ]
+      },
+      {
+        "name": "pyyaml",
+        "version": "6.0.2",
+        "filename": "PyYAML-6.0.2-cp314-cp314t-manylinux_2_28_x86_64.whl",
+        "url": "https://files.example.invalid/PyYAML-6.0.2-cp314-cp314t-manylinux_2_28_x86_64.whl",
+        "sha256": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+        "wheel_tags": [
+          "cp314-cp314t-manylinux_2_28_x86_64"
+        ]
+      }
+    ],
+    "wrapt": [
+      {
+        "name": "wrapt",
+        "version": "1.17.2",
+        "filename": "wrapt-1.17.2-py3-none-any.whl",
+        "url": "https://files.example.invalid/wrapt-1.17.2-py3-none-any.whl",
+        "sha256": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      },
+      {
+        "name": "wrapt",
+        "version": "1.17.2",
+        "filename": "wrapt-1.17.2-cp314-cp314t-manylinux_2_28_x86_64.whl",
+        "url": "https://files.example.invalid/wrapt-1.17.2-cp314-cp314t-manylinux_2_28_x86_64.whl",
+        "sha256": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+        "wheel_tags": [
+          "cp314-cp314t-manylinux_2_28_x86_64"
+        ]
+      }
+    ]
+  },
+  "expected_cp314t": {
+    "packaging": "packaging-24.2-py3-none-any.whl",
+    "pyyaml": "PyYAML-6.0.2-cp314-cp314t-manylinux_2_28_x86_64.whl",
+    "wrapt": "wrapt-1.17.2-cp314-cp314t-manylinux_2_28_x86_64.whl"
+  }
+}
