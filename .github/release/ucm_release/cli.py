@@ -8,7 +8,7 @@ from pathlib import Path
 
 import yaml
 
-from . import builders, capabilities, compact, core, registry, wheel
+from . import builders, capabilities, compact, core, products, registry, wheel
 
 catalog_resolution = registry
 
@@ -243,6 +243,58 @@ def build_parser() -> argparse.ArgumentParser:
     compact_prepare.set_defaults(
         func=lambda a: compact.prepare_wheel_source(a.source_root, a.distribution)
     )
+
+    plan_parser = groups.add_parser("plan")
+    plan_actions = plan_parser.add_subparsers(dest="action", required=True)
+    prepare_candidates = plan_actions.add_parser("prepare-candidates")
+    prepare_candidates.add_argument(
+        "--release", type=Path, default=core.DEFAULT_RELEASE
+    )
+    prepare_candidates.add_argument(
+        "--schema-dir", type=Path, default=core.DEFAULT_SCHEMA_DIR
+    )
+    prepare_candidates.add_argument(
+        "--repository-root", type=Path, default=core.REPO_ROOT
+    )
+    prepare_candidates.add_argument("--capability-catalog", type=Path, required=True)
+    prepare_candidates.add_argument(
+        "--route", choices=("pr", "daily", "release"), required=True
+    )
+    prepare_candidates.add_argument("--source-sha", required=True)
+    prepare_candidates.add_argument("--baseline-manifest", type=Path)
+    prepare_candidates.add_argument("--output", type=Path, required=True)
+
+    def _cmd_prepare_candidates(a):
+        config = core.load_catalog(
+            a.release,
+            a.schema_dir,
+            repository_root=a.repository_root,
+        )
+        catalog = capabilities.validate_capability_catalog(
+            core.load_json(a.capability_catalog)
+        )
+        baseline = (
+            core.load_json(a.baseline_manifest)
+            if a.baseline_manifest is not None
+            else None
+        )
+        authority = builders.freeze_current_builder_authority(
+            source_sha=a.source_sha,
+            repository_root=a.repository_root,
+        )
+        result = products.prepare_candidate_selection(
+            config,
+            catalog,
+            authority,
+            route=a.route,
+            source_sha=a.source_sha,
+            baseline_manifest=baseline,
+        )
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.output, result)
+        return result
+
+    prepare_candidates.set_defaults(func=_cmd_prepare_candidates)
 
     config = groups.add_parser("config")
     config_actions = config.add_subparsers(dest="action", required=True)

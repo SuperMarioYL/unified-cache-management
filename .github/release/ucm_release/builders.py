@@ -19,6 +19,11 @@ from . import capabilities, core
 RELEASE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = RELEASE_ROOT / "builders.yaml"
 DEFAULT_RELEASE = RELEASE_ROOT / "release.yaml"
+CURRENT_BUILDER_RECIPE_PATHS = (
+    ".github/release/builders.yaml",
+    ".github/release/docker/Dockerfile.builder",
+)
+CURRENT_BUILDER_TOOLCHAIN_PATH = ".github/release/toolchain.lock.yaml"
 CATALOG_FIELDS = (
     "project",
     "accelerator",
@@ -936,9 +941,9 @@ def discover_builder_sources(
         source_repository, source_tag = item["source_image"].rsplit(":", 1)
         accelerator = item["accelerator"]
         recipe_path = (
-            ".github/release/docker/Dockerfile.builder"
+            CURRENT_BUILDER_RECIPE_PATHS[1]
             if accelerator == "ascend"
-            else ".github/release/builders.yaml"
+            else CURRENT_BUILDER_RECIPE_PATHS[0]
         )
         recipe = core.REPO_ROOT / recipe_path
         source_path = (
@@ -1127,6 +1132,120 @@ def validate_builder_source_discovery(value: object) -> dict[str, Any]:
             item["toolchain_sha256"], f"Builder sources[{index}] toolchain digest"
         )
     return copy.deepcopy(discovery)
+
+
+def _owned_file_bytes(repository_root: Path, relative_path: str) -> bytes:
+    try:
+        root = repository_root.resolve(strict=True)
+        candidate = repository_root / relative_path
+        resolved = candidate.resolve(strict=True)
+    except OSError as error:
+        raise ValueError(
+            f"Builder authority source is missing: {relative_path}"
+        ) from error
+    if not resolved.is_relative_to(root) or not candidate.is_file():
+        raise ValueError(
+            f"Builder authority source escapes repository: {relative_path}"
+        )
+    return candidate.read_bytes()
+
+
+def validate_current_builder_authority(value: object) -> dict[str, Any]:
+    """Validate one closed current-checkout Builder authority record."""
+    authority = _require_mapping(value, "current Builder authority")
+    expected_fields = {
+        "kind",
+        "schema_version",
+        "source_sha",
+        "toolchain_sha256",
+        "recipes",
+        "authority_sha256",
+    }
+    if set(authority) != expected_fields:
+        raise ValueError("current Builder authority fields must be exact")
+    if authority.get("kind") != "ucm-current-builder-authority":
+        raise ValueError("current Builder authority kind is invalid")
+    if authority.get("schema_version") != 3:
+        raise ValueError("current Builder authority schema_version must be 3")
+    source_sha = _require_commit(
+        authority.get("source_sha"), "current Builder authority source_sha"
+    )
+    _require_digest(
+        authority.get("toolchain_sha256"),
+        "current Builder authority toolchain digest",
+    )
+    raw_recipes = authority.get("recipes")
+    if not isinstance(raw_recipes, list):
+        raise ValueError("current Builder authority recipes must be an array")
+    recipes: list[dict[str, object]] = []
+    for index, raw in enumerate(raw_recipes):
+        recipe = _require_mapping(raw, f"current Builder recipes[{index}]")
+        if set(recipe) != {
+            "recipe_path",
+            "recipe_source_commit",
+            "recipe_sha256",
+        }:
+            raise ValueError("current Builder recipe fields must be exact")
+        path = _require_string(
+            recipe, "recipe_path", f"current Builder recipes[{index}]"
+        )
+        commit = _require_commit(
+            recipe.get("recipe_source_commit"),
+            f"current Builder recipes[{index}] commit",
+        )
+        if commit != source_sha:
+            raise ValueError("current Builder recipe commit differs from source_sha")
+        _require_digest(
+            recipe.get("recipe_sha256"),
+            f"current Builder recipes[{index}] digest",
+        )
+        recipes.append(recipe)
+    expected_paths = tuple(sorted(CURRENT_BUILDER_RECIPE_PATHS))
+    actual_paths = tuple(str(item["recipe_path"]) for item in recipes)
+    if actual_paths != expected_paths:
+        raise ValueError("current Builder recipes are incomplete or noncanonical")
+    authority_digest = _require_digest(
+        authority.get("authority_sha256"), "current Builder authority digest"
+    )
+    projection = copy.deepcopy(authority)
+    projection.pop("authority_sha256")
+    if authority_digest != core.sha256_value(projection):
+        raise ValueError("current Builder authority digest differs from contents")
+    return copy.deepcopy(authority)
+
+
+def freeze_current_builder_authority(
+    *,
+    source_sha: str,
+    repository_root: Path = core.REPO_ROOT,
+) -> dict[str, Any]:
+    """Freeze current recipe/toolchain bytes as the planner authority."""
+    commit = _require_commit(source_sha, "current Builder authority source_sha")
+    recipes = []
+    for recipe_path in CURRENT_BUILDER_RECIPE_PATHS:
+        contents = _owned_file_bytes(repository_root, recipe_path)
+        recipes.append(
+            {
+                "recipe_path": recipe_path,
+                "recipe_source_commit": commit,
+                "recipe_sha256": "sha256:"
+                + hashlib.sha256(contents).hexdigest(),
+            }
+        )
+    recipes.sort(key=lambda item: item["recipe_path"])
+    toolchain = _owned_file_bytes(repository_root, CURRENT_BUILDER_TOOLCHAIN_PATH)
+    authority = {
+        "kind": "ucm-current-builder-authority",
+        "schema_version": 3,
+        "source_sha": commit,
+        "toolchain_sha256": "sha256:" + hashlib.sha256(toolchain).hexdigest(),
+        "recipes": recipes,
+        "authority_sha256": "",
+    }
+    authority["authority_sha256"] = core.sha256_value(
+        {key: item for key, item in authority.items() if key != "authority_sha256"}
+    )
+    return validate_current_builder_authority(authority)
 
 
 def _fact_digest(value: dict[str, object], fields: tuple[str, ...]) -> str:

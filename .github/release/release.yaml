@@ -31,12 +31,14 @@ upstream_products:
   target_repository: ghcr.io/{owner}/vllm-openai
   version_specifier: '>=0.21,<0.22'
   channels: [stable]
+  runtime_tag_selectors: ['v{version}', 'v{version}-cu{runtime.major_minor.compact}']
 - id: vllm-ascend
   runtime_product: vllm-ascend
   repository: quay.io/ascend/vllm-ascend
   target_repository: ghcr.io/{owner}/vllm-ascend
   version_specifier: '>=0.22.1rc1,<0.23'
   channels: [rc]
+  runtime_tag_selectors: ['v{version}', 'v{version}-{variant}']
 compatibility:
   rules:
   - id: cuda-supported

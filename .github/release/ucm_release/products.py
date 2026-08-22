@@ -1,20 +1,29 @@
-"""Product-template compilation and Task 2 build-name projections."""
+"""Product-template compilation and deterministic Candidate selection."""
 
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import re
 import string
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from packaging.utils import canonicalize_name
+from packaging.version import InvalidVersion, Version
 
 from .capabilities import (
+    BINDING_FIELDS,
+    CAPABILITY_FIELDS,
+    REVISION_FIELDS,
+    RUNTIME_FIELDS,
+    compile_python_coordinate,
     compact_accelerator_runtime,
     compact_mooncake_version,
     normalize_variant,
     python_version_from_abi,
+    validate_capability_catalog,
 )
 
 _TEMPLATE_FIELDS = {
@@ -23,6 +32,19 @@ _TEMPLATE_FIELDS = {
 }
 _FAMILY_ACCELERATOR = {"cuda": "cuda", "cann": "ascend"}
 _DISTRIBUTION = re.compile(r"^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$", re.ASCII)
+_OCI_TAG = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$", re.ASCII)
+_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$", re.ASCII)
+_COMMIT = re.compile(r"^[0-9a-f]{40}$", re.ASCII)
+_RUNTIME_SELECTOR_FIELDS = frozenset(
+    {"version", "variant", "runtime.major_minor.compact"}
+)
+_RUNTIME_SELECTOR_TEMPLATES = frozenset(
+    {
+        "v{version}",
+        "v{version}-cu{runtime.major_minor.compact}",
+        "v{version}-{variant}",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +68,86 @@ class CompiledDistributionTemplate:
         ):
             raise ValueError("expanded Distribution is not a canonical PEP 503 name")
         return rendered
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledRuntimeTagSelector:
+    """One validated, ordered exact runtime-tag selector."""
+
+    template: str
+    fields: frozenset[str]
+
+    def render(
+        self,
+        *,
+        version: str,
+        variant: str,
+        runtime_major_minor_compact: str,
+    ) -> str:
+        try:
+            parsed = Version(version)
+        except InvalidVersion as error:
+            raise ValueError("runtime selector version is invalid") from error
+        if str(parsed) != version or version.startswith("v"):
+            raise ValueError("runtime selector version is not canonical")
+        normalized_variant = normalize_variant(variant)
+        if (
+            not isinstance(runtime_major_minor_compact, str)
+            or re.fullmatch(r"[a-z0-9]+", runtime_major_minor_compact) is None
+        ):
+            raise ValueError("runtime selector compact runtime is invalid")
+        values = {
+            "version": version,
+            "variant": normalized_variant,
+            "runtime.major_minor.compact": runtime_major_minor_compact,
+        }
+        rendered = self.template
+        for field in self.fields:
+            rendered = rendered.replace("{" + field + "}", values[field])
+        if _OCI_TAG.fullmatch(rendered) is None:
+            raise ValueError("runtime selector expanded to an invalid OCI tag")
+        return rendered
+
+
+def compile_runtime_tag_selectors(
+    value: object,
+) -> tuple[CompiledRuntimeTagSelector, ...]:
+    """Compile ordered runtime-tag policy without sorting or external reads."""
+    if (
+        not isinstance(value, Sequence)
+        or isinstance(value, (str, bytes))
+        or not value
+    ):
+        raise ValueError("runtime_tag_selectors must be a non-empty sequence")
+    if not all(isinstance(item, str) and item for item in value):
+        raise ValueError("runtime_tag_selectors must contain non-empty strings")
+    if len(value) != len(set(value)):
+        raise ValueError("runtime_tag_selectors contains duplicates")
+    compiled = []
+    for template in value:
+        if template not in _RUNTIME_SELECTOR_TEMPLATES:
+            raise ValueError("runtime tag selector template is unsupported")
+        fields: set[str] = set()
+        try:
+            parsed = tuple(string.Formatter().parse(template))
+        except ValueError as error:
+            raise ValueError("runtime tag selector is malformed") from error
+        for _, field, format_spec, conversion in parsed:
+            if field is None:
+                continue
+            if field not in _RUNTIME_SELECTOR_FIELDS:
+                raise ValueError(f"unknown runtime selector variable {field}")
+            if format_spec or conversion:
+                raise ValueError("runtime selector formatting is not allowed")
+            fields.add(field)
+        selector = CompiledRuntimeTagSelector(template, frozenset(fields))
+        selector.render(
+            version="1.2.3",
+            variant="future5",
+            runtime_major_minor_compact="149",
+        )
+        compiled.append(selector)
+    return tuple(compiled)
 
 
 def compile_distribution_template(
@@ -494,3 +596,670 @@ def derive_build_profiles(config: Mapping[str, Any]) -> list[dict[str, Any]]:
             )
     profiles.sort(key=lambda item: item["id"])
     return profiles
+
+
+_SELECTION_FIELDS = frozenset(
+    {
+        "kind",
+        "schema_version",
+        "route",
+        "source_sha",
+        "ucm_version",
+        "release_tag",
+        "config_sha256",
+        "catalog_sha256",
+        "current_builder_authority_sha256",
+        "baseline_manifest_sha256",
+        "builder_capabilities",
+        "builder_revisions",
+        "runtime_candidates",
+        "bindings",
+        "baseline_selections",
+        "discovered_selections",
+        "exclusions",
+        "blockers",
+        "dependency_requests",
+        "selection_sha256",
+    }
+)
+_DISCOVERED_SELECTION_FIELDS = frozenset(
+    {
+        "product_id",
+        "builder_capability_id",
+        "builder_revision_id",
+        "runtime_id",
+    }
+)
+_EXCLUSION_FIELDS = frozenset(
+    {
+        "reason_code",
+        "product_id",
+        "builder_capability_id",
+        "builder_revision_id",
+        "runtime_id",
+        "evidence",
+    }
+)
+_DEPENDENCY_REQUEST_FIELDS = frozenset({"request_id", "coordinate", "requirements"})
+_REQUEST_COORDINATE_FIELDS = frozenset(
+    {"python_tag", "python_abi", "cpu_architecture", "manylinux"}
+)
+_REQUIREMENT_FIELDS = frozenset({"requirement_id", "scope", "name", "version"})
+
+
+def _canonical_bytes(value: object) -> bytes:
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
+
+
+def _canonical_digest(value: object) -> str:
+    return "sha256:" + hashlib.sha256(_canonical_bytes(value)).hexdigest()
+
+
+def _require_digest(value: object, label: str) -> str:
+    if not isinstance(value, str) or _DIGEST.fullmatch(value) is None:
+        raise ValueError(f"{label} must be a canonical SHA256 digest")
+    return value
+
+
+def _require_commit(value: object, label: str) -> str:
+    if not isinstance(value, str) or _COMMIT.fullmatch(value) is None:
+        raise ValueError(f"{label} must be a canonical Git commit")
+    return value
+
+
+def _validate_authority_for_selection(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != {
+        "kind",
+        "schema_version",
+        "source_sha",
+        "toolchain_sha256",
+        "recipes",
+        "authority_sha256",
+    }:
+        raise ValueError("current Builder authority fields must be exact")
+    if value["kind"] != "ucm-current-builder-authority" or value["schema_version"] != 3:
+        raise ValueError("current Builder authority identity is invalid")
+    source_sha = _require_commit(value["source_sha"], "Builder authority source_sha")
+    _require_digest(value["toolchain_sha256"], "Builder authority toolchain digest")
+    recipes = value["recipes"]
+    if not isinstance(recipes, list) or not recipes:
+        raise ValueError("current Builder authority recipes must be non-empty")
+    paths = []
+    for recipe in recipes:
+        if not isinstance(recipe, dict) or set(recipe) != {
+            "recipe_path",
+            "recipe_source_commit",
+            "recipe_sha256",
+        }:
+            raise ValueError("current Builder authority recipe fields must be exact")
+        path = recipe["recipe_path"]
+        if not isinstance(path, str) or not path:
+            raise ValueError("current Builder authority recipe path is invalid")
+        if (
+            _require_commit(recipe["recipe_source_commit"], "recipe commit")
+            != source_sha
+        ):
+            raise ValueError("current Builder authority recipe commit differs")
+        _require_digest(recipe["recipe_sha256"], "recipe digest")
+        paths.append(path)
+    if paths != sorted(paths) or len(paths) != len(set(paths)):
+        raise ValueError("current Builder authority recipes are noncanonical")
+    digest = _require_digest(value["authority_sha256"], "Builder authority digest")
+    projection = copy.deepcopy(value)
+    projection.pop("authority_sha256")
+    if digest != _canonical_digest(projection):
+        raise ValueError("current Builder authority digest differs from contents")
+    return copy.deepcopy(value)
+
+
+def _dependency_requirements(config: Mapping[str, Any]) -> list[dict[str, str]]:
+    dependencies = config.get("dependencies")
+    if not isinstance(dependencies, Mapping) or set(dependencies) != {
+        "build",
+        "runtime",
+    }:
+        raise ValueError("Candidate dependency policy fields must be exact")
+    requirements = []
+    for scope in ("build", "runtime"):
+        values = dependencies[scope]
+        if not isinstance(values, Mapping):
+            raise ValueError(f"dependencies.{scope} must be an object")
+        for name, version in values.items():
+            if not isinstance(name, str) or not name or not isinstance(version, str):
+                raise ValueError("dependency pin must have string name/version")
+            try:
+                parsed = Version(version)
+            except InvalidVersion as error:
+                raise ValueError("dependency pin is not PEP 440") from error
+            if str(parsed) != version:
+                raise ValueError("dependency pin is not exact canonical PEP 440")
+            identity = {"scope": scope, "name": name, "version": version}
+            requirements.append(
+                {"requirement_id": _canonical_digest(identity), **identity}
+            )
+    return sorted(requirements, key=lambda item: item["requirement_id"])
+
+
+def _dependency_request(
+    capability: Mapping[str, Any], requirements: list[dict[str, str]]
+) -> dict[str, Any]:
+    compiled = compile_python_coordinate(
+        {
+            "python_version": capability["python_version"],
+            "python_abi": capability["python_abi"],
+            "cpu_architecture": capability["cpu_architecture"],
+            "manylinux": capability["manylinux"],
+        }
+    )
+    coordinate = {
+        "python_tag": compiled["python_tag"],
+        "python_abi": capability["python_abi"],
+        "cpu_architecture": capability["cpu_architecture"],
+        "manylinux": capability["manylinux"],
+    }
+    projection = {"coordinate": coordinate, "requirements": requirements}
+    return {"request_id": _canonical_digest(projection), **projection}
+
+
+def _selection_exclusion(
+    *,
+    reason_code: str,
+    product_id: str,
+    evidence: dict[str, Any],
+    builder_capability_id: str | None = None,
+    builder_revision_id: str | None = None,
+    runtime_id: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "reason_code": reason_code,
+        "product_id": product_id,
+        "builder_capability_id": builder_capability_id,
+        "builder_revision_id": builder_revision_id,
+        "runtime_id": runtime_id,
+        "evidence": copy.deepcopy(evidence),
+    }
+
+
+def _exclusion_key(value: Mapping[str, Any]) -> tuple[str, ...]:
+    return (
+        str(value["reason_code"]),
+        str(value["product_id"]),
+        str(value["builder_capability_id"] or ""),
+        str(value["builder_revision_id"] or ""),
+        str(value["runtime_id"] or ""),
+    )
+
+
+def _selector_runtime_token(accelerator_runtime: str) -> str:
+    name, separator, version = accelerator_runtime.partition("-")
+    if separator != "-":
+        raise ValueError("binding accelerator runtime is malformed")
+    try:
+        parsed = Version(version)
+    except InvalidVersion as error:
+        raise ValueError("binding accelerator runtime version is invalid") from error
+    if len(parsed.release) < 2:
+        raise ValueError("binding accelerator runtime lacks major/minor")
+    return compact_accelerator_runtime(
+        f"{name}-{parsed.release[0]}.{parsed.release[1]}"
+    )
+
+
+def prepare_candidate_selection(
+    config: object,
+    catalog: object,
+    current_builder_authority: object,
+    *,
+    route: str,
+    source_sha: str,
+    baseline_manifest: object | None = None,
+) -> dict[str, Any]:
+    """Prepare the deterministic Task 4A1 selection without external reads."""
+    if route not in {"pr", "daily", "release"}:
+        raise ValueError("Candidate selection route is invalid")
+    requested_source_sha = _require_commit(source_sha, "Candidate source_sha")
+    if baseline_manifest is not None:
+        raise ValueError("Task 4A1 does not yet accept a baseline Manifest")
+    if not isinstance(config, Mapping):
+        raise ValueError("Candidate config must be an object")
+    validated_catalog = validate_capability_catalog(copy.deepcopy(catalog))
+    authority = _validate_authority_for_selection(current_builder_authority)
+    if not (
+        requested_source_sha
+        == validated_catalog["source_sha"]
+        == authority["source_sha"]
+    ):
+        raise ValueError("Candidate/Catalog/Builder authority source_sha differ")
+
+    products_by_id: dict[str, Mapping[str, Any]] = {}
+    selectors_by_product: dict[str, tuple[CompiledRuntimeTagSelector, ...]] = {}
+    raw_products = config.get("upstream_products")
+    if not isinstance(raw_products, Sequence) or isinstance(raw_products, (str, bytes)):
+        raise ValueError("upstream_products must be an array")
+    for product in raw_products:
+        if not isinstance(product, Mapping):
+            raise ValueError("upstream product must be an object")
+        product_id = product.get("id")
+        if (
+            not isinstance(product_id, str)
+            or not product_id
+            or product_id in products_by_id
+        ):
+            raise ValueError("upstream product ID is missing or duplicate")
+        products_by_id[product_id] = product
+        selectors_by_product[product_id] = compile_runtime_tag_selectors(
+            product.get("runtime_tag_selectors")
+        )
+
+    capabilities_by_id = {
+        item["builder_capability_id"]: item
+        for item in validated_catalog["builder_capabilities"]
+    }
+    revisions_by_id = {
+        item["builder_revision_id"]: item
+        for item in validated_catalog["builder_revisions"]
+    }
+    runtimes_by_id = {
+        item["runtime_id"]: item for item in validated_catalog["runtime_candidates"]
+    }
+    recipes_by_path = {
+        item["recipe_path"]: item for item in authority["recipes"]
+    }
+    grouped_bindings: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
+    for binding in validated_catalog["bindings"]:
+        capability = capabilities_by_id[binding["builder_capability_id"]]
+        runtime = runtimes_by_id[binding["runtime_id"]]
+        product_id = runtime["product_id"]
+        product = products_by_id.get(product_id)
+        if product is None:
+            raise ValueError("Catalog runtime references an unknown product")
+        if runtime["runtime_repository"] != product.get("repository"):
+            raise ValueError("Catalog runtime repository differs from product config")
+        key = (
+            product_id,
+            capability["accelerator_runtime"],
+            capability["variant"],
+            capability["cpu_architecture"],
+        )
+        grouped_bindings.setdefault(key, []).append(binding)
+
+    selected_capabilities: dict[str, dict[str, Any]] = {}
+    selected_revisions: dict[str, dict[str, Any]] = {}
+    selected_runtimes: dict[str, dict[str, Any]] = {}
+    selected_bindings: dict[tuple[str, str], dict[str, Any]] = {}
+    discovered: list[dict[str, str]] = []
+    exclusions: list[dict[str, Any]] = []
+    for group in sorted(grouped_bindings):
+        product_id, accelerator_runtime, variant, architecture = group
+        bindings = grouped_bindings[group]
+        runtime_ids = sorted({item["runtime_id"] for item in bindings})
+        versions: dict[Version, list[dict[str, Any]]] = {}
+        for runtime_id in runtime_ids:
+            runtime = runtimes_by_id[runtime_id]
+            try:
+                version = Version(runtime["runtime_version"])
+            except InvalidVersion as error:
+                raise ValueError("Catalog runtime_version is invalid") from error
+            if str(version) != runtime["runtime_version"]:
+                raise ValueError("Catalog runtime_version is not canonical")
+            versions.setdefault(version, []).append(runtime)
+        selected_runtime: dict[str, Any] | None = None
+        for version in sorted(versions, reverse=True):
+            candidates = versions[version]
+            for selector in selectors_by_product[product_id]:
+                tag = selector.render(
+                    version=str(version),
+                    variant=variant,
+                    runtime_major_minor_compact=_selector_runtime_token(
+                        accelerator_runtime
+                    ),
+                )
+                matches = [item for item in candidates if item["runtime_tag"] == tag]
+                if len(matches) > 1:
+                    raise ValueError("runtime selector matched multiple candidates")
+                if matches:
+                    selected_runtime = matches[0]
+                    break
+            if selected_runtime is not None:
+                break
+            exclusions.append(
+                _selection_exclusion(
+                    reason_code="runtime-flavor-unsupported",
+                    product_id=product_id,
+                    evidence={
+                        "accelerator_runtime": accelerator_runtime,
+                        "variant": variant,
+                        "cpu_architecture": architecture,
+                        "runtime_version": str(version),
+                        "selectors": [
+                            item.template for item in selectors_by_product[product_id]
+                        ],
+                    },
+                )
+            )
+        if selected_runtime is None:
+            continue
+
+        selected_runtime_id = selected_runtime["runtime_id"]
+        runtime_bindings = [
+            item for item in bindings if item["runtime_id"] == selected_runtime_id
+        ]
+        capability_ids = sorted(
+            {item["builder_capability_id"] for item in runtime_bindings}
+        )
+        for capability_id in capability_ids:
+            capability_bindings = [
+                item
+                for item in runtime_bindings
+                if item["builder_capability_id"] == capability_id
+            ]
+            current = []
+            for binding in capability_bindings:
+                revision = revisions_by_id[binding["builder_revision_id"]]
+                recipe = recipes_by_path.get(revision["recipe_path"])
+                if recipe is None:
+                    continue
+                if (
+                    revision["recipe_source_commit"]
+                    == recipe["recipe_source_commit"]
+                    and revision["recipe_sha256"] == recipe["recipe_sha256"]
+                    and revision["toolchain_sha256"] == authority["toolchain_sha256"]
+                ):
+                    current.append((binding, revision))
+            if len(current) > 1:
+                raise ValueError("multiple current Builder revisions match selection")
+            if not current:
+                exclusions.append(
+                    _selection_exclusion(
+                        reason_code="current-builder-revision-unavailable",
+                        product_id=product_id,
+                        builder_capability_id=capability_id,
+                        runtime_id=selected_runtime_id,
+                        evidence={
+                            "current_builder_authority_sha256": authority[
+                                "authority_sha256"
+                            ],
+                            "recipe_paths": sorted(recipes_by_path),
+                        },
+                    )
+                )
+                continue
+            binding, revision = current[0]
+            selected_capabilities[capability_id] = capabilities_by_id[capability_id]
+            selected_revisions[revision["builder_revision_id"]] = revision
+            selected_runtimes[selected_runtime_id] = selected_runtime
+            selected_bindings[
+                (revision["builder_revision_id"], selected_runtime_id)
+            ] = binding
+            discovered.append(
+                {
+                    "product_id": product_id,
+                    "builder_capability_id": capability_id,
+                    "builder_revision_id": revision["builder_revision_id"],
+                    "runtime_id": selected_runtime_id,
+                }
+            )
+
+    requirements = _dependency_requirements(config)
+    requests_by_id = {}
+    for capability in selected_capabilities.values():
+        request = _dependency_request(capability, requirements)
+        requests_by_id[request["request_id"]] = request
+    discovered.sort(
+        key=lambda item: (
+            item["product_id"],
+            item["builder_capability_id"],
+            item["builder_revision_id"],
+            item["runtime_id"],
+        )
+    )
+    exclusions.sort(key=_exclusion_key)
+    selection = {
+        "kind": "ucm-candidate-selection",
+        "schema_version": 3,
+        "route": route,
+        "source_sha": requested_source_sha,
+        "ucm_version": config.get("ucm_version"),
+        "release_tag": config.get("source", {}).get("release_tag"),
+        "config_sha256": _canonical_digest(config),
+        "catalog_sha256": validated_catalog["catalog_sha256"],
+        "current_builder_authority_sha256": authority["authority_sha256"],
+        "baseline_manifest_sha256": None,
+        "builder_capabilities": sorted(
+            (copy.deepcopy(item) for item in selected_capabilities.values()),
+            key=lambda item: item["builder_capability_id"],
+        ),
+        "builder_revisions": sorted(
+            (copy.deepcopy(item) for item in selected_revisions.values()),
+            key=lambda item: item["builder_revision_id"],
+        ),
+        "runtime_candidates": sorted(
+            (copy.deepcopy(item) for item in selected_runtimes.values()),
+            key=lambda item: item["runtime_id"],
+        ),
+        "bindings": sorted(
+            (copy.deepcopy(item) for item in selected_bindings.values()),
+            key=lambda item: (item["builder_revision_id"], item["runtime_id"]),
+        ),
+        "baseline_selections": [],
+        "discovered_selections": discovered,
+        "exclusions": exclusions,
+        "blockers": [],
+        "dependency_requests": [
+            requests_by_id[key] for key in sorted(requests_by_id)
+        ],
+        "selection_sha256": "",
+    }
+    if not isinstance(selection["ucm_version"], str) or not selection["ucm_version"]:
+        raise ValueError("Candidate config ucm_version is missing")
+    if not isinstance(selection["release_tag"], str) or not selection["release_tag"]:
+        raise ValueError("Candidate config release_tag is missing")
+    selection["selection_sha256"] = _canonical_digest(
+        {key: item for key, item in selection.items() if key != "selection_sha256"}
+    )
+    return validate_candidate_selection(selection)
+
+
+def validate_candidate_selection(value: object) -> dict[str, Any]:
+    """Validate the frozen A1 selection without rerunning selectors."""
+    if not isinstance(value, dict) or set(value) != _SELECTION_FIELDS:
+        raise ValueError("Candidate selection fields must be exact")
+    if value["kind"] != "ucm-candidate-selection" or value["schema_version"] != 3:
+        raise ValueError("Candidate selection identity is invalid")
+    if value["route"] not in {"pr", "daily", "release"}:
+        raise ValueError("Candidate selection route is invalid")
+    _require_commit(value["source_sha"], "Candidate selection source_sha")
+    for field in (
+        "config_sha256",
+        "catalog_sha256",
+        "current_builder_authority_sha256",
+        "selection_sha256",
+    ):
+        _require_digest(value[field], f"Candidate selection {field}")
+    if value["baseline_manifest_sha256"] is not None:
+        raise ValueError("Task 4A1 baseline selection must be null")
+    if value["baseline_selections"] != [] or value["blockers"] != []:
+        raise ValueError("Task 4A1 baseline selections/blockers must be empty")
+
+    array_contracts = (
+        ("builder_capabilities", CAPABILITY_FIELDS, "builder_capability_id"),
+        ("builder_revisions", REVISION_FIELDS, "builder_revision_id"),
+        ("runtime_candidates", RUNTIME_FIELDS, "runtime_id"),
+        ("bindings", BINDING_FIELDS, None),
+    )
+    arrays: dict[str, list[dict[str, Any]]] = {}
+    for field, fields, identity in array_contracts:
+        records = value[field]
+        if not isinstance(records, list) or not all(
+            isinstance(item, dict) and set(item) == fields for item in records
+        ):
+            raise ValueError(f"Candidate selection {field} is not closed")
+        if identity is not None:
+            if records != sorted(records, key=lambda item: item[identity]):
+                raise ValueError(f"Candidate selection {field} is noncanonical")
+            ids = [item[identity] for item in records]
+            if len(ids) != len(set(ids)):
+                raise ValueError(f"Candidate selection {field} contains duplicates")
+        arrays[field] = records
+    if arrays["bindings"] != sorted(
+        arrays["bindings"],
+        key=lambda item: (item["builder_revision_id"], item["runtime_id"]),
+    ):
+        raise ValueError("Candidate selection bindings are noncanonical")
+
+    capability_ids = {
+        item["builder_capability_id"] for item in arrays["builder_capabilities"]
+    }
+    revision_ids = {
+        item["builder_revision_id"] for item in arrays["builder_revisions"]
+    }
+    runtime_ids = {item["runtime_id"] for item in arrays["runtime_candidates"]}
+    binding_coordinates = {
+        (
+            item["builder_capability_id"],
+            item["builder_revision_id"],
+            item["runtime_id"],
+        )
+        for item in arrays["bindings"]
+    }
+    if len(binding_coordinates) != len(arrays["bindings"]):
+        raise ValueError("Candidate selection bindings contain duplicates")
+    selections = value["discovered_selections"]
+    if not isinstance(selections, list) or not all(
+        isinstance(item, dict) and set(item) == _DISCOVERED_SELECTION_FIELDS
+        for item in selections
+    ):
+        raise ValueError("discovered selections are not closed")
+    expected_selection_order = sorted(
+        selections,
+        key=lambda item: (
+            item["product_id"],
+            item["builder_capability_id"],
+            item["builder_revision_id"],
+            item["runtime_id"],
+        ),
+    )
+    if selections != expected_selection_order or len(selections) != len(
+        {tuple(item.values()) for item in selections}
+    ):
+        raise ValueError("discovered selections are duplicate or noncanonical")
+    for item in selections:
+        if (
+            item["builder_capability_id"] not in capability_ids
+            or item["builder_revision_id"] not in revision_ids
+            or item["runtime_id"] not in runtime_ids
+            or (
+                item["builder_capability_id"],
+                item["builder_revision_id"],
+                item["runtime_id"],
+            )
+            not in binding_coordinates
+        ):
+            raise ValueError("discovered selection references are incomplete")
+    selection_coordinates = {
+        (
+            item["builder_capability_id"],
+            item["builder_revision_id"],
+            item["runtime_id"],
+        )
+        for item in selections
+    }
+    if selection_coordinates != binding_coordinates:
+        raise ValueError("discovered selections do not close selected bindings")
+    if capability_ids != {item[0] for item in selection_coordinates}:
+        raise ValueError("selected capabilities are not closed")
+    if revision_ids != {item[1] for item in selection_coordinates}:
+        raise ValueError("selected revisions are not closed")
+    if runtime_ids != {item[2] for item in selection_coordinates}:
+        raise ValueError("selected runtimes are not closed")
+
+    exclusions = value["exclusions"]
+    if not isinstance(exclusions, list) or not all(
+        isinstance(item, dict)
+        and set(item) == _EXCLUSION_FIELDS
+        and isinstance(item["evidence"], dict)
+        for item in exclusions
+    ):
+        raise ValueError("Candidate selection exclusions are not closed")
+    if exclusions != sorted(exclusions, key=_exclusion_key):
+        raise ValueError("Candidate selection exclusions are noncanonical")
+
+    requests = value["dependency_requests"]
+    if not isinstance(requests, list) or requests != sorted(
+        requests, key=lambda item: item.get("request_id", "")
+    ):
+        raise ValueError("dependency requests are noncanonical")
+    request_ids = []
+    request_coordinates = []
+    for request in requests:
+        if not isinstance(request, dict) or set(request) != _DEPENDENCY_REQUEST_FIELDS:
+            raise ValueError("dependency request fields must be exact")
+        coordinate = request["coordinate"]
+        requirements = request["requirements"]
+        if (
+            not isinstance(coordinate, dict)
+            or set(coordinate) != _REQUEST_COORDINATE_FIELDS
+        ):
+            raise ValueError("dependency request coordinate fields must be exact")
+        compiled = compile_python_coordinate(
+            {
+                "python_version": python_version_from_abi(coordinate["python_abi"]),
+                "python_abi": coordinate["python_abi"],
+                "cpu_architecture": coordinate["cpu_architecture"],
+                "manylinux": coordinate["manylinux"],
+            }
+        )
+        if compiled["python_tag"] != coordinate["python_tag"]:
+            raise ValueError("dependency request Python tag differs")
+        if not isinstance(requirements, list) or requirements != sorted(
+            requirements, key=lambda item: item.get("requirement_id", "")
+        ):
+            raise ValueError("dependency requirements are noncanonical")
+        for requirement in requirements:
+            if (
+                not isinstance(requirement, dict)
+                or set(requirement) != _REQUIREMENT_FIELDS
+            ):
+                raise ValueError("dependency requirement fields must be exact")
+            identity = {
+                "scope": requirement["scope"],
+                "name": requirement["name"],
+                "version": requirement["version"],
+            }
+            if requirement["requirement_id"] != _canonical_digest(identity):
+                raise ValueError("dependency requirement ID is not canonical")
+        projection = {"coordinate": coordinate, "requirements": requirements}
+        if request["request_id"] != _canonical_digest(projection):
+            raise ValueError("dependency request ID is not canonical")
+        request_ids.append(request["request_id"])
+        request_coordinates.append(coordinate)
+    if len(request_ids) != len(set(request_ids)):
+        raise ValueError("dependency requests contain duplicates")
+    expected_coordinates = {
+        (
+            "cp" + item["python_version"].replace(".", ""),
+            item["python_abi"],
+            item["cpu_architecture"],
+            item["manylinux"],
+        )
+        for item in arrays["builder_capabilities"]
+    }
+    actual_coordinates = {
+        (
+            item["python_tag"],
+            item["python_abi"],
+            item["cpu_architecture"],
+            item["manylinux"],
+        )
+        for item in request_coordinates
+    }
+    if actual_coordinates != expected_coordinates:
+        raise ValueError("dependency requests do not close selected capabilities")
+    digest = value["selection_sha256"]
+    projection = copy.deepcopy(value)
+    projection.pop("selection_sha256")
+    if digest != _canonical_digest(projection):
+        raise ValueError("Candidate selection digest differs from contents")
+    return copy.deepcopy(value)

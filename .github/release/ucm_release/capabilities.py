@@ -426,6 +426,48 @@ def python_version_from_abi(value: object) -> str:
     return f"{match.group(1)}.{int(match.group(2))}"
 
 
+def compile_python_coordinate(validated_fields: object) -> dict[str, str]:
+    """Compile one closed, validated CPython build coordinate."""
+    fields = _mapping(validated_fields, "Python coordinate fields")
+    expected_fields = {
+        "python_version",
+        "python_abi",
+        "cpu_architecture",
+        "manylinux",
+    }
+    if set(fields) != expected_fields:
+        raise ValueError("Python coordinate input fields must be exact")
+    version = _string(fields["python_version"], "Python coordinate version")
+    abi = _string(fields["python_abi"], "Python coordinate ABI")
+    if python_version_from_abi(abi) != version:
+        raise ValueError("Python coordinate version and ABI differ")
+    python_tag = "cp" + version.replace(".", "")
+    if abi not in {python_tag, python_tag + "t"}:
+        raise ValueError("Python coordinate ABI is not canonical")
+    architecture = _string(
+        fields["cpu_architecture"], "Python coordinate architecture"
+    )
+    platform_architecture = {
+        "amd64": "x86_64",
+        "arm64": "aarch64",
+    }.get(architecture)
+    if platform_architecture is None:
+        raise ValueError("Python coordinate architecture is unsupported")
+    manylinux = _string(fields["manylinux"], "Python coordinate manylinux")
+    if _MANYLINUX.fullmatch(manylinux) is None:
+        raise ValueError("Python coordinate manylinux is invalid")
+    return {
+        "python_tag": python_tag,
+        "interpreter_path": f"/opt/python/{python_tag}-{abi}/bin/python",
+        "expected_soabi": (
+            f"cpython-{abi.removeprefix('cp')}-{platform_architecture}-linux-gnu"
+        ),
+        "expected_wheel_tag": (
+            f"{python_tag}-{abi}-{manylinux}_{platform_architecture}"
+        ),
+    }
+
+
 def _canonical_bytes(value: object) -> bytes:
     return json.dumps(
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
@@ -1398,28 +1440,24 @@ def assemble_capability_catalog(
         version = _string(probe.get("python_version"), "Python probe python_version")
         if python_version_from_abi(abi) != version:
             raise ValueError("Python probe version and ABI differ")
-        python_tag = "cp" + version.replace(".", "")
-        if abi not in {python_tag, python_tag + "t"}:
-            raise ValueError("Python probe ABI is not derived from its version")
+        python_coordinate = compile_python_coordinate(
+            {
+                "python_version": version,
+                "python_abi": abi,
+                "cpu_architecture": architecture,
+                "manylinux": manylinux,
+            }
+        )
         interpreter = _string(
             probe.get("interpreter_path"), "Python probe interpreter_path"
         )
-        interpreter_coordinate = interpreter.split("/")[-3]
-        if interpreter_coordinate != f"{python_tag}-{abi}":
+        if interpreter != python_coordinate["interpreter_path"]:
             raise ValueError("Python probe path coordinate differs from its ABI")
         soabi = _string(probe.get("soabi"), "Python probe SOABI")
         wheel_tag = _string(probe.get("wheel_tag"), "Python probe wheel_tag")
-        platform_architecture = {
-            "amd64": "x86_64",
-            "arm64": "aarch64",
-        }[architecture]
-        expected_soabi = (
-            f"cpython-{abi.removeprefix('cp')}-{platform_architecture}-linux-gnu"
-        )
-        if soabi != expected_soabi:
+        if soabi != python_coordinate["expected_soabi"]:
             raise ValueError("Python probe SOABI differs from its ABI")
-        expected_wheel_tag = f"{python_tag}-{abi}-{manylinux}_{platform_architecture}"
-        if wheel_tag != expected_wheel_tag:
+        if wheel_tag != python_coordinate["expected_wheel_tag"]:
             raise ValueError("Python probe wheel tag is not canonical")
         coordinate = (fact_id, abi)
         if coordinate in probes_by_coordinate:
