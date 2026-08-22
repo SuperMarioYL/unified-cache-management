@@ -1,0 +1,10 @@
+jobs:
+  image_build:
+    strategy:
+      matrix:
+        include:
+          - build_meta: {dockerfile: Dockerfile, suffix: ""}
+          - build_meta: {dockerfile: Dockerfile.openEuler, suffix: openeuler}
+          - build_meta: {dockerfile: Dockerfile.a3, suffix: a3}
+          - build_meta: {dockerfile: Dockerfile.a3.openEuler, suffix: a3-openeuler}
+          - build_meta: {dockerfile: Dockerfile.310p, suffix: 310p}

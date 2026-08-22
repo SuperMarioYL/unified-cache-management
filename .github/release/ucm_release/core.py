@@ -736,6 +736,43 @@ def validate_catalog(
     python_runtime_requirements(catalog)
     profiles = catalog.get("wheel_profiles", [])
     products = catalog.get("upstream_products", [])
+    if not profiles:
+        _require_unique_ids(products, "upstream product")
+        for index, product in enumerate(products):
+            _pep440_specifier(
+                product.get("version_specifier"),
+                f"upstream_products[{index}].version_specifier",
+            )
+            for field in (
+                "source_repository",
+                "runtime_repository",
+                "target_repository",
+                "integration_python_abi",
+            ):
+                if not isinstance(product.get(field), str) or not product[field]:
+                    raise ValueError(
+                        f"upstream_products[{index}].{field} must be non-empty"
+                    )
+        contracts = catalog.get("backend_contracts")
+        if not isinstance(contracts, dict) or not contracts:
+            raise ValueError("backend_contracts must be a non-empty mapping")
+        for backend, contract in contracts.items():
+            if not isinstance(backend, str) or not isinstance(contract, dict):
+                raise ValueError("backend contract entries are malformed")
+            for field in (
+                "platform_arg",
+                "required_native",
+                "forbidden_native",
+                "allowed_dt_needed",
+                "external_required_dependencies",
+            ):
+                if field not in contract:
+                    raise ValueError(f"backend contract {backend!r} missing {field}")
+            if not ({"distribution", "distribution_prefix"} & set(contract)):
+                raise ValueError(
+                    f"backend contract {backend!r} requires a distribution rule"
+                )
+        return
     compatibility = catalog.get("compatibility", {})
     rules = compatibility.get("rules", [])
     recipes = catalog.get("docker_recipes", [])
@@ -1011,9 +1048,10 @@ def validate_repository_recipe_inventory(
             product = products.get(product_id)
             if product is None or product_id != recipe.get("product"):
                 raise ValueError(f'{location} requires an explicit matching upstream product')  # fmt: skip  # noqa: E501
-            if recipe.get("upstream_variant") not in {
-                variant["id"] for variant in product["variants"]
-            }:
+            declared_variants = product.get("variants")
+            if isinstance(declared_variants, list) and recipe.get(
+                "upstream_variant"
+            ) not in {variant["id"] for variant in declared_variants}:
                 raise ValueError(f'{location} requires a declared upstream target variant')  # fmt: skip  # noqa: E501
 
         recipe_path = repository_root / path
@@ -1383,9 +1421,9 @@ def expand_release_plan(
     return result
 
 
-RELEASE_KEYS = frozenset('kind schema_version image_revision source lanes runner_map upstream_products compatibility chart publish wheel_profiles'.split())  # fmt: skip  # noqa: E501
-OPTIONAL_CATALOG_KEYS = frozenset('ucm_version pr_smoke docker_recipes matrix_limits scan_limits python_runtime_dependencies python_build_lock'.split())  # fmt: skip  # noqa: E501
-SUPPLEMENTARY_TOP_LEVEL_KEYS = frozenset({'pr_smoke', 'docker_recipes', 'matrix_limits', 'scan_limits', 'python_runtime_dependencies', 'python_build_lock'})  # fmt: skip  # noqa: E501
+RELEASE_KEYS = frozenset('kind schema_version image_revision source lanes runner_map upstream_products chart publish'.split())  # fmt: skip  # noqa: E501
+OPTIONAL_CATALOG_KEYS = frozenset('ucm_version pr_smoke docker_recipes matrix_limits scan_limits python_runtime_dependencies python_build_lock builder_checks backend_contracts'.split())  # fmt: skip  # noqa: E501
+SUPPLEMENTARY_TOP_LEVEL_KEYS = frozenset({'pr_smoke', 'docker_recipes', 'matrix_limits', 'scan_limits', 'python_runtime_dependencies', 'python_build_lock', 'builder_checks', 'backend_contracts'})  # fmt: skip  # noqa: E501
 LANES = ("feature-candidate", "protected-tag")
 
 
@@ -1407,16 +1445,25 @@ def _validate_cross_config(
 ) -> None:
     validate_catalog(release, repository_root=repository_root)
     publish = compute_publish_plan(release)
-    if publish["pypi"]["dists"] != [
-        "uc-manager-cuda",
-        "uc-manager-cann-a2",
-        "uc-manager-cann-a3",
-    ]:
-        raise ValueError("PyPI channel requires the exact three release distributions")
     if any(publish[channel]["enabled"] for channel in PUBLISH_CHANNELS[:-1]) and not publish["github_release"]["enabled"]:
         raise ValueError("enabled public channels require the GitHub Release Draft barrier")
     if publish["dockerhub"]["enabled"] and not publish["ghcr"]["enabled"]:
         raise ValueError("Docker Hub publication requires GHCR source publication")
+    if "wheel_profiles" not in release:
+        products = {product["id"] for product in release["upstream_products"]}
+        selectors: set[tuple[str, str]] = set()
+        for case in release["chart"]["validation_cases"]:
+            selector = (case["product_id"], case["variant"])
+            if case["product_id"] not in products:
+                raise ValueError(
+                    "Chart validation references an unknown upstream product"
+                )
+            if selector in selectors:
+                raise ValueError(
+                    "Chart validation product/variant selectors must be unique"
+                )
+            selectors.add(selector)
+        return
     profiles = release["wheel_profiles"]
     for profile in profiles:
         architectures = set(profile["cpu_arch"])
@@ -1496,13 +1543,14 @@ def load_catalog(
     chart = load_yaml(repository_root / release["chart"]["source"] / "Chart.yaml")
     if chart.get('name') != release['chart']['name']: raise ValueError('Chart name does not match release.yaml')  # noqa: E701,E501
     _validate_cross_config(release, repository_root=repository_root)
-    validate_repository_recipe_inventory(release, repository_root=repository_root)
+    if "wheel_profiles" in release:
+        validate_repository_recipe_inventory(release, repository_root=repository_root)
     return release
 
 
 PUBLISH_CHANNELS = ("pypi", "ghcr", "dockerhub", "chart_oci", "github_release")
 PUBLISH_CHANNEL_KEYS = {
-    "pypi": frozenset({"enabled", "index", "dists"}),
+    "pypi": frozenset({"enabled", "index"}),
     "ghcr": frozenset({"enabled", "namespace"}),
     "dockerhub": frozenset({"enabled", "namespace"}),
     "chart_oci": frozenset({"enabled", "namespace"}),
@@ -1520,13 +1568,9 @@ def compute_publish_plan(catalog: dict[str, Any]) -> dict[str, dict[str, Any]]:
             raise ValueError(f"publish channel {channel} configuration is malformed")
         if not isinstance(config["enabled"], bool):
             raise ValueError(f"publish channel {channel} enabled must be boolean")
-        for field in PUBLISH_CHANNEL_KEYS[channel] - {"enabled", "dists"}:
+        for field in PUBLISH_CHANNEL_KEYS[channel] - {"enabled"}:
             if not isinstance(config[field], str) or not config[field]:
                 raise ValueError(f"publish channel {channel} {field} must be non-empty")
-        if channel == "pypi":
-            dists = config["dists"]
-            if not isinstance(dists, list) or not dists or len(dists) != len(set(dists)) or any(not isinstance(dist, str) or not dist for dist in dists):
-                raise ValueError("publish channel pypi dists must be a non-empty unique string array")
     return {channel: copy.deepcopy(publish[channel]) for channel in PUBLISH_CHANNELS}
 
 

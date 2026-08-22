@@ -83,7 +83,7 @@ def _require_string(mapping: dict[str, object], key: str, context: str) -> str:
 
 
 def load_config(path: Path = DEFAULT_CONFIG) -> dict[str, object]:
-    """Load and structurally validate the sole builder discovery config."""
+    """Load the adapter-only Builder discovery configuration."""
     config = _require_mapping(_read_yaml(path), str(path))
     if config.get("kind") != "builder-discovery-config":
         raise ValueError(f"{path}: kind must be builder-discovery-config")
@@ -92,60 +92,35 @@ def load_config(path: Path = DEFAULT_CONFIG) -> dict[str, object]:
     projects = config.get("projects")
     if not isinstance(projects, list) or not projects:
         raise ValueError(f"{path}: projects must be a non-empty list")
-    discoveries: set[str] = set()
+    product_ids: set[str] = set()
     for index, raw in enumerate(projects):
         context = f"{path}: projects[{index}]"
         project = _require_mapping(raw, context)
-        _require_string(project, "project", context)
+        product_id = _require_string(project, "product_id", context)
+        if product_id in product_ids:
+            raise ValueError(f"{context}: duplicate product_id {product_id!r}")
+        product_ids.add(product_id)
         discovery = _require_string(project, "discovery", context)
         _require_string(project, "target_repository", context)
-        build_mode = _require_string(project, "build_mode", context)
-        if discovery not in {"vllm-buildkite", "vllm-ascend-dockerfiles"}:
+        if discovery not in {"vllm-buildkite", "vllm-ascend-actions"}:
             raise ValueError(f"{context}: unsupported discovery {discovery!r}")
-        if discovery in discoveries:
-            raise ValueError(f"{context}: duplicate discovery {discovery!r}")
-        discoveries.add(discovery)
         if discovery == "vllm-buildkite":
-            if build_mode != "mirror":
-                raise ValueError(f"{context}: vLLM build_mode must be mirror")
             _require_string(project, "pipeline_path", context)
             _require_string(project, "versions_path", context)
+            _require_string(project, "dockerfile_path", context)
         else:
-            if build_mode != "extend":
-                raise ValueError(f"{context}: vLLM-Ascend build_mode must be extend")
+            _require_string(project, "wheel_workflow_path", context)
+            _require_string(project, "image_workflow_path", context)
             _require_string(project, "dockerfile_directory", context)
             _require_string(project, "dockerfile_prefix", context)
-            arches = project.get("cpu_architectures")
-            if arches != ["amd64", "arm64"]:
-                raise ValueError(f"{context}: cpu_architectures must be amd64, arm64")
             excluded = project.get("exclude_variants")
             if excluded != ["310p"]:
                 raise ValueError(f"{context}: exclude_variants must contain only 310p")
             _require_string(project, "mooncake_version", context)
-    if discoveries != {"vllm-buildkite", "vllm-ascend-dockerfiles"}:
+    if product_ids != {"vllm", "vllm-ascend"}:
         raise ValueError(f"{path}: vLLM and vLLM-Ascend discovery are both required")
-    retained = config.get("retained_builders")
-    if not isinstance(retained, list) or not retained:
-        raise ValueError(f"{path}: retained_builders must be a non-empty list")
-    for index, raw in enumerate(retained):
-        context = f"{path}: retained_builders[{index}]"
-        item = _require_mapping(raw, context)
-        for key in (
-            "project",
-            "accelerator",
-            "accelerator_runtime",
-            "variant",
-            "python_abi",
-            "manylinux",
-            "cpu_arch",
-            "source_image",
-            "target_repository",
-            "build_mode",
-            "mooncake_version",
-        ):
-            _require_string(item, key, context)
-        if item["build_mode"] != "copy":
-            raise ValueError(f"{context}: retained build_mode must be copy")
+    if set(config) != {"kind", "schema_version", "projects"}:
+        raise ValueError(f"{path}: unsupported top-level fields")
     return config
 
 
@@ -622,17 +597,210 @@ def discover_builders(
     }
 
 
+def _source_ref_tag(value: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip(".-")
+    if not normalized or core.OCI_TAG_PATTERN.fullmatch(normalized) is None:
+        raise ValueError(f"source_ref cannot be represented in an OCI tag: {value!r}")
+    return normalized
+
+
+def _generated_target_tag(
+    source_ref: str,
+    build_group: str,
+    python_abi: str,
+    manylinux: str,
+    cpu_arch: str,
+    mooncake_version: str | None,
+) -> str:
+    parts = [
+        _source_ref_tag(source_ref),
+        build_group,
+        python_abi,
+        manylinux.replace("manylinux_", "manylinux"),
+    ]
+    if mooncake_version:
+        parts.append(f"mooncake{mooncake_version}")
+    parts.append(cpu_arch)
+    tag = "-".join(parts)
+    if core.OCI_TAG_PATTERN.fullmatch(tag) is None:
+        raise ValueError(f"generated Builder tag is invalid: {tag!r}")
+    return tag
+
+
+def catalog_from_selection(
+    selection: object,
+    config_path: Path = DEFAULT_CONFIG,
+    *,
+    owner: str | None = None,
+) -> dict[str, object]:
+    """Project one exact upstream selection into Builder synchronization tasks."""
+    from . import upstream
+
+    resolved = upstream.validate_selection(selection)
+    config = load_config(config_path)
+    toolchain = core.load_yaml(RELEASE_ROOT / "toolchain.lock.yaml")
+    family_checks = toolchain.get("builder_checks")
+    if not isinstance(family_checks, dict):
+        raise ValueError("toolchain.lock.yaml: builder_checks must be a mapping")
+    adapters = {
+        str(item["product_id"]): item
+        for item in config["projects"]  # type: ignore[index]
+        if isinstance(item, dict)
+    }
+    resolved_owner = _owner(owner)
+    items: list[dict[str, object]] = []
+    for raw_upstream in resolved["upstreams"]:  # type: ignore[index]
+        upstream_item = _require_mapping(raw_upstream, "upstream selection item")
+        product_id = _require_string(
+            upstream_item, "product_id", "upstream selection item"
+        )
+        adapter = adapters.get(product_id)
+        if adapter is None:
+            raise ValueError(f"{product_id}: missing Builder adapter")
+        target_repository = _expand_owner(
+            _require_string(adapter, "target_repository", f"{product_id} adapter"),
+            resolved_owner,
+        )
+        mooncake_version = (
+            _require_string(adapter, "mooncake_version", f"{product_id} adapter")
+            if product_id == "vllm-ascend"
+            else None
+        )
+        groups = upstream_item.get("build_groups")
+        assert isinstance(groups, list)
+        for raw_group in groups:
+            group = _require_mapping(raw_group, f"{product_id} build group")
+            source_ref = _require_string(
+                upstream_item, "source_ref", "upstream selection item"
+            )
+            build_group = _require_string(group, "build_group", "build group")
+            python_abi = _require_string(group, "python_abi", "build group")
+            manylinux = _require_string(group, "manylinux", "build group")
+            cpu_arch = _require_string(group, "cpu_arch", "build group")
+            item = {
+                "id": _require_string(group, "id", "build group"),
+                "product_id": product_id,
+                "source_repository": _require_string(
+                    upstream_item, "source_repository", "upstream selection item"
+                ),
+                "source_ref": source_ref,
+                "build_group": build_group,
+                "runtime_variant": _require_string(
+                    group, "runtime_variant", "build group"
+                ),
+                "backend": _require_string(group, "backend", "build group"),
+                "accelerator": _require_string(group, "accelerator", "build group"),
+                "accelerator_runtime": _require_string(
+                    group, "accelerator_runtime", "build group"
+                ),
+                "variant": _require_string(group, "variant", "build group"),
+                "soc_version": _require_string(group, "soc_version", "build group"),
+                "python_version": _require_string(
+                    group, "python_version", "build group"
+                ),
+                "python_abi": python_abi,
+                "manylinux": manylinux,
+                "cpu_arch": cpu_arch,
+                "source_image": _require_string(group, "source_image", "build group"),
+                "target_repository": target_repository,
+                "target_tag": _generated_target_tag(
+                    source_ref,
+                    build_group,
+                    python_abi,
+                    manylinux,
+                    cpu_arch,
+                    mooncake_version,
+                ),
+                "build_mode": _require_string(group, "build_mode", "build group"),
+                "mooncake_version": mooncake_version or "",
+                "recipe": copy.deepcopy(group["recipe"]),
+                "checks": {
+                    **copy.deepcopy(
+                        family_checks[
+                            "cuda" if group["accelerator"] == "cuda" else "ascend"
+                        ]
+                    ),
+                    "python_version": group["python_version"],
+                    "python_abi": python_abi,
+                    "accelerator_runtime": group["accelerator_runtime"],
+                },
+            }
+            items.append(item)
+    catalog = {
+        "kind": "ucm-builder-catalog",
+        "schema_version": 2,
+        "builders": sorted(items, key=lambda item: str(item["id"])),
+    }
+    return validate_catalog(catalog)
+
+
 def validate_catalog(catalog: object) -> dict[str, object]:
     mapping = _require_mapping(catalog, "builder catalog")
     if mapping.get("kind") != "ucm-builder-catalog":
         raise ValueError("builder catalog: kind must be ucm-builder-catalog")
-    if mapping.get("schema_version") != 1:
-        raise ValueError("builder catalog: schema_version must be 1")
+    schema_version = mapping.get("schema_version")
+    if schema_version not in {1, 2}:
+        raise ValueError("builder catalog: schema_version must be 1 or 2")
     values = mapping.get("builders")
     if not isinstance(values, list):
         raise ValueError("builder catalog: builders must be a list")
-    for index, item in enumerate(values):
-        _validate_catalog_item(item, f"builder catalog builders[{index}]")
+    if schema_version == 1:
+        for index, item in enumerate(values):
+            _validate_catalog_item(item, f"builder catalog builders[{index}]")
+        return mapping
+    ids: set[str] = set()
+    target_coordinates: set[tuple[str, str]] = set()
+    required = {
+        "id",
+        "product_id",
+        "source_repository",
+        "source_ref",
+        "build_group",
+        "runtime_variant",
+        "backend",
+        "accelerator",
+        "accelerator_runtime",
+        "variant",
+        "soc_version",
+        "python_version",
+        "python_abi",
+        "manylinux",
+        "cpu_arch",
+        "source_image",
+        "target_repository",
+        "target_tag",
+        "build_mode",
+        "mooncake_version",
+        "recipe",
+        "checks",
+    }
+    for index, raw_item in enumerate(values):
+        context = f"builder catalog builders[{index}]"
+        item = _require_mapping(raw_item, context)
+        if set(item) != required:
+            raise ValueError(f"{context}: fields must be exact")
+        item_id = _require_string(item, "id", context)
+        if item_id in ids:
+            raise ValueError(f"duplicate Builder id {item_id!r}")
+        ids.add(item_id)
+        if item.get("cpu_arch") not in {"amd64", "arm64"}:
+            raise ValueError(f"{context}: unsupported cpu_arch")
+        if item.get("build_mode") not in {"mirror", "recipe", "recipe-extend"}:
+            raise ValueError(f"{context}: unsupported build_mode")
+        if not isinstance(item.get("recipe"), dict):
+            raise ValueError(f"{context}: recipe must be a mapping")
+        if not isinstance(item.get("checks"), dict):
+            raise ValueError(f"{context}: checks must be a mapping")
+        _validate_oci_image(str(item.get("source_image")), f"{context} source_image")
+        _validate_oci_repository(
+            str(item.get("target_repository")), f"{context} target_repository"
+        )
+        if core.OCI_TAG_PATTERN.fullmatch(str(item.get("target_tag"))) is None:
+            raise ValueError(f"{context}: target_tag is invalid")
+        coordinate = (str(item["target_repository"]), str(item["target_tag"]))
+        if coordinate in target_coordinates:
+            raise ValueError(f"duplicate Builder target {coordinate!r}")
+        target_coordinates.add(coordinate)
     return mapping
 
 
@@ -653,6 +821,7 @@ def compute_sync_plan(catalog: object, existing_tags: object) -> dict[str, objec
                 f"existing builder tags {repository}: tags must be a string list"
             )
         normalized[repository] = set(raw_tags)
+    sort_fields = ("id",) if validated["schema_version"] == 2 else CATALOG_FIELDS
     missing = sorted(
         (
             item
@@ -660,10 +829,21 @@ def compute_sync_plan(catalog: object, existing_tags: object) -> dict[str, objec
             if item["target_tag"]
             not in normalized.get(item["target_repository"], set())
         ),
-        key=lambda item: tuple(item[field] for field in CATALOG_FIELDS),
+        key=lambda item: tuple(item[field] for field in sort_fields),
     )
     matrix = []
     for item in missing:
+        if validated["schema_version"] == 2:
+            matrix.append(
+                {
+                    **item,
+                    "label": (
+                        f"{item['build_group']} · {item['python_abi']} · "
+                        f"{item['cpu_arch']}"
+                    ),
+                }
+            )
+            continue
         runtime_name, _, runtime_version = item["accelerator_runtime"].partition("-")
         runtime_label = f"{runtime_name.upper()} {runtime_version}"
         variant = "" if item["variant"] == "default" else f" {item['variant'].upper()}"

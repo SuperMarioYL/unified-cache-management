@@ -8,7 +8,7 @@ from pathlib import Path
 
 import yaml
 
-from . import builders, compact, core, registry, wheel
+from . import builders, compact, core, registry, upstream, wheel
 
 catalog_resolution = registry
 
@@ -37,13 +37,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     builders_discover = builders_actions.add_parser("discover")
     builders_discover.add_argument("--config", type=Path, default=builders.DEFAULT_CONFIG)
-    builders_discover.add_argument("--snapshot", "--snapshot-dir", dest="snapshot", type=Path)
     builders_discover.add_argument("--owner")
+    builders_discover.add_argument("--selection", type=Path, required=True)
     builders_discover.add_argument("--output", type=Path, required=True)
 
     def _cmd_builders_discover(a):
-        result = builders.discover_builders(
-            a.config, snapshot_dir=a.snapshot, owner=a.owner
+        result = builders.catalog_from_selection(
+            core.load_json(a.selection), a.config, owner=a.owner
         )
         a.output.parent.mkdir(parents=True, exist_ok=True)
         _write(a.output, result)
@@ -68,20 +68,31 @@ def build_parser() -> argparse.ArgumentParser:
 
     builders_sync_plan.set_defaults(func=_cmd_builders_sync_plan)
 
-    builders_select = builders_actions.add_parser("select")
-    builders_select.add_argument("--catalog", type=Path, required=True)
-    builders_select.add_argument("--release", type=Path, default=builders.DEFAULT_RELEASE)
-    builders_select.add_argument("--output", type=Path, required=True)
+    upstreams_parser = groups.add_parser("upstreams")
+    upstreams_actions = upstreams_parser.add_subparsers(dest="action", required=True)
+    upstreams_resolve = upstreams_actions.add_parser("resolve")
+    upstreams_resolve.add_argument("--release", type=Path, default=core.DEFAULT_RELEASE)
+    upstreams_resolve.add_argument(
+        "--builders", type=Path, default=builders.DEFAULT_CONFIG
+    )
+    upstreams_resolve.add_argument("--tag-fixture", type=Path)
+    upstreams_resolve.add_argument("--snapshot", type=Path)
+    upstreams_resolve.add_argument("--pin-upstream", action="append", default=None)
+    upstreams_resolve.add_argument("--output", type=Path, required=True)
 
-    def _cmd_builders_select(a):
-        result = builders.select_builders(
-            core.load_json(a.catalog), core.load_yaml(a.release)
+    def _cmd_upstreams_resolve(a):
+        result = upstream.resolve_upstreams(
+            core.load_catalog(a.release),
+            builders.load_config(a.builders),
+            tag_fixture=core.load_json(a.tag_fixture) if a.tag_fixture else None,
+            snapshot_dir=a.snapshot,
+            pinned_upstreams=a.pin_upstream,
         )
         a.output.parent.mkdir(parents=True, exist_ok=True)
         _write(a.output, result)
         return result
 
-    builders_select.set_defaults(func=_cmd_builders_select)
+    upstreams_resolve.set_defaults(func=_cmd_upstreams_resolve)
 
     compact_parser = groups.add_parser("compact")
     compact_actions = compact_parser.add_subparsers(dest="action", required=True)
@@ -90,6 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
     compact_plan.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
     compact_plan.add_argument("--schema-dir", type=Path, default=core.DEFAULT_SCHEMA_DIR)
     compact_plan.add_argument("--builder-catalog", type=Path, required=True)
+    compact_plan.add_argument("--upstream-selection", type=Path, required=True)
     compact_plan.add_argument("--route", choices=tuple(sorted(compact.ROUTES)), required=True)
     compact_plan.add_argument("--pin-upstream", action="append", default=None)
     compact_plan.add_argument("--output", type=Path, required=True)
@@ -98,6 +110,7 @@ def build_parser() -> argparse.ArgumentParser:
         result = compact.resolve_plan(
             core.load_catalog(a.catalog, a.schema_dir),
             builder_catalog=core.load_json(a.builder_catalog),
+            upstream_selection=core.load_json(a.upstream_selection),
             route=a.route,
             pinned_upstreams=a.pin_upstream,
         )
@@ -128,11 +141,24 @@ def build_parser() -> argparse.ArgumentParser:
         func=lambda a: compact.prepare_wheel_source(a.source_root, a.distribution)
     )
 
+    compact_record = compact_actions.add_parser("record-wheel-result")
+    compact_record.add_argument("--task", type=Path, required=True)
+    compact_record.add_argument("--wheel", type=Path, required=True)
+    compact_record.add_argument("--output", type=Path, required=True)
+
+    def _cmd_compact_record(a):
+        result = compact.record_wheel_result(core.load_json(a.task), a.wheel)
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.output, result)
+        return result
+
+    compact_record.set_defaults(func=_cmd_compact_record)
+
     config = groups.add_parser("config")
     config_actions = config.add_subparsers(dest="action", required=True)
     validate = config_actions.add_parser("validate")
     _paths(validate)
-    validate.set_defaults(func=lambda a: {'schema_version': 1, 'wheel_profiles': len(core.load_catalog(a.release, a.schema_dir)['wheel_profiles']), 'compatibility_rules': len(core.load_catalog(a.release, a.schema_dir)['compatibility']['rules'])})  # fmt: skip  # noqa: E501
+    validate.set_defaults(func=lambda a: {'schema_version': 3, 'upstream_products': len(core.load_catalog(a.release, a.schema_dir)['upstream_products']), 'backend_contracts': len(core.load_catalog(a.release, a.schema_dir)['backend_contracts'])})  # fmt: skip  # noqa: E501
 
     catalog_parser = groups.add_parser("catalog")
     catalog_actions = catalog_parser.add_subparsers(dest="action", required=True)

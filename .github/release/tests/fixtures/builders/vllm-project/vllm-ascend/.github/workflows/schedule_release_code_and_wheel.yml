@@ -1,0 +1,22 @@
+jobs:
+  build_and_release_wheel:
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - run: docker build -f .github/workflows/dockerfiles/Dockerfile.buildwheel.a2 --build-arg PY_VERSION=${{ matrix.python-version }} .
+  build_and_release_wheel_a3:
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - run: docker build -f .github/workflows/dockerfiles/Dockerfile.buildwheel.a3 --build-arg PY_VERSION=${{ matrix.python-version }} .
+  build_and_release_wheel_310p:
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - run: docker build -f .github/workflows/dockerfiles/Dockerfile.buildwheel.310p --build-arg PY_VERSION=${{ matrix.python-version }} .

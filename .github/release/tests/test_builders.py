@@ -1,11 +1,11 @@
+"""Contracts for upstream-driven selection and Builder synchronization."""
+
 from __future__ import annotations
 
 import copy
 import importlib
 import json
-import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -14,34 +14,32 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 RELEASE_ROOT = ROOT / ".github" / "release"
+FIXTURE = RELEASE_ROOT / "tests" / "fixtures" / "builders"
+TAG_FIXTURE = RELEASE_ROOT / "tests" / "fixtures" / "catalog-registry.json"
 sys.path.insert(0, str(RELEASE_ROOT))
 
 builders = importlib.import_module("ucm_release.builders")
-cli = importlib.import_module("ucm_release.cli")
+compact = importlib.import_module("ucm_release.compact")
 core = importlib.import_module("ucm_release.core")
-FIXTURE = RELEASE_ROOT / "tests" / "fixtures" / "builders"
+upstream = importlib.import_module("ucm_release.upstream")
+cli = importlib.import_module("ucm_release.cli")
 
 
-def _discover(snapshot: Path = FIXTURE) -> dict[str, object]:
-    return builders.discover_builders(
-        RELEASE_ROOT / "builders.yaml",
+def _release() -> dict[str, object]:
+    return core.load_catalog(version_override="0.7.59rc7")
+
+
+def _selection(snapshot: Path = FIXTURE) -> dict[str, object]:
+    return upstream.resolve_upstreams(
+        _release(),
+        builders.load_config(),
+        tag_fixture=core.load_json(TAG_FIXTURE),
         snapshot_dir=snapshot,
-        owner="release-org",
     )
 
 
-def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(RELEASE_ROOT)
-    env["GITHUB_REPOSITORY"] = "release-org/unified-cache-management"
-    return subprocess.run(
-        [sys.executable, "-m", "ucm_release", *args],
-        cwd=ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+def _catalog(snapshot: Path = FIXTURE) -> dict[str, object]:
+    return builders.catalog_from_selection(_selection(snapshot), owner="release-org")
 
 
 @pytest.fixture
@@ -51,554 +49,208 @@ def snapshot(tmp_path: Path) -> Path:
     return destination
 
 
-def test_snapshot_excludes_310p_and_covers_both_architectures() -> None:
-    catalog = _discover()
+def test_selection_discovers_current_16_wheel_groups_and_four_runtimes() -> None:
+    selection = _selection()
 
-    upstream = [item for item in catalog["builders"] if item["build_mode"] != "copy"]
-    assert upstream
-    assert all(item["variant"] != "310p" for item in upstream)
-    assert {item["cpu_arch"] for item in upstream} == {"amd64", "arm64"}
-
-
-def test_owner_is_lowercased_for_explicit_and_inferred_oci_references(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    explicit = builders.discover_builders(
-        RELEASE_ROOT / "builders.yaml",
-        snapshot_dir=FIXTURE,
-        owner="Release-Org",
-    )
-    monkeypatch.setenv("GITHUB_REPOSITORY", "Mixed-Owner/Unified-Cache-Management")
-    inferred = builders.discover_builders(
-        RELEASE_ROOT / "builders.yaml", snapshot_dir=FIXTURE
-    )
-
-    for catalog, owner in ((explicit, "release-org"), (inferred, "mixed-owner")):
-        assert all(
-            item["target_repository"].startswith(f"ghcr.io/{owner}/")
-            for item in catalog["builders"]
-        )
-        assert all(
-            "GHCR.io" not in item["source_image"] for item in catalog["builders"]
-        )
-
-
-def test_builder_config_rejects_duplicate_keys_with_file_context(
-    tmp_path: Path,
-) -> None:
-    config = tmp_path / "builders.yaml"
-    config.write_text(
-        "kind: builder-discovery-config\n"
-        "kind: builder-discovery-config\n"
-        "schema_version: 1\n",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError) as error:
-        builders.load_config(config)
-
-    assert str(config) in str(error.value)
-    assert "duplicate YAML key: kind" in str(error.value)
-
-
-def test_builder_config_rejects_malformed_yaml_with_file_context(
-    tmp_path: Path,
-) -> None:
-    config = tmp_path / "builders.yaml"
-    config.write_text("projects: [\n", encoding="utf-8")
-
-    with pytest.raises(ValueError) as error:
-        builders.load_config(config)
-
-    assert f"{config}: malformed YAML" in str(error.value)
-
-
-@pytest.mark.parametrize("reference", ["target", "source"])
-def test_discovery_rejects_invalid_resulting_oci_references(
-    tmp_path: Path, reference: str
-) -> None:
-    config_value = yaml.safe_load(
-        (RELEASE_ROOT / "builders.yaml").read_text(encoding="utf-8")
-    )
-    if reference == "target":
-        config_value["projects"][0][
-            "target_repository"
-        ] = "GHCR.io/{owner}/ucm-builder-vllm"
-    else:
-        config_value["retained_builders"][0][
-            "source_image"
-        ] = "GHCR.io/{owner}/ucm-builder:tag"
-    config = tmp_path / "builders.yaml"
-    config.write_text(yaml.safe_dump(config_value, sort_keys=False), encoding="utf-8")
-
-    with pytest.raises(ValueError, match=r"invalid OCI repository"):
-        builders.discover_builders(config, snapshot_dir=FIXTURE, owner="release-org")
-
-
-def test_sync_plan_schedules_only_missing_target_tags() -> None:
-    catalog = _discover()
-    first = catalog["builders"][0]
-    existing = {first["target_repository"]: [first["target_tag"]]}
-
-    plan = builders.compute_sync_plan(catalog, existing)
-
-    assert first not in plan["builders"]
-    assert [item["target_tag"] for item in plan["matrix"]["include"]] == [
-        item["target_tag"] for item in plan["builders"]
+    assert {
+        item["family_id"]: (item["runtime_tag"], len(item["build_groups"]))
+        for item in selection["upstreams"]
+    } == {
+        "cuda129": ("v0.21.2-cu129", 2),
+        "cuda130": ("v0.21.2", 2),
+        "cann900-a2": ("v0.22.2rc1", 6),
+        "cann900-a3": ("v0.22.2rc1-a3", 6),
+    }
+    groups = [
+        group for item in selection["upstreams"] for group in item["build_groups"]
     ]
-    assert all(item["id"] == item["target_tag"] for item in plan["matrix"]["include"])
-    assert all(" · " in item["label"] for item in plan["matrix"]["include"])
-    assert len(plan["builders"]) == len(catalog["builders"]) - 1
-    assert "deletions" not in plan
-
-
-def test_selects_exactly_current_six_release_builders() -> None:
-    release = yaml.safe_load(
-        (RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8")
-    )
-
-    selection = builders.select_builders(_discover(), release)
-
-    assert len(selection["builders"]) == 6
-    assert {item["target_tag"] for item in selection["builders"]} == {
-        "cuda13.0-cp312-manylinux2_28-amd64-r1",
-        "cuda13.0-cp312-manylinux2_28-arm64-r1",
-        "cann9.0.0-a2-cp312-manylinux2_34-mooncake0.3.9-amd64-r1",
-        "cann9.0.0-a2-cp312-manylinux2_34-mooncake0.3.9-arm64-r1",
-        "cann9.0.0-a3-cp312-manylinux2_34-mooncake0.3.9-amd64-r1",
-        "cann9.0.0-a3-cp312-manylinux2_34-mooncake0.3.9-arm64-r1",
+    assert len(groups) == 16
+    assert len({group["id"] for group in groups}) == 16
+    assert {
+        group["python_abi"] for group in groups if group["accelerator"] == "ascend"
+    } == {
+        "cp310",
+        "cp311",
+        "cp312",
     }
-    assert all("12.9" not in item["target_tag"] for item in selection["builders"])
-    assert all("9.1.0" not in item["target_tag"] for item in selection["builders"])
-    assert any("12.9" in item["target_tag"] for item in _discover()["builders"])
-    assert any("9.1.0" in item["target_tag"] for item in _discover()["builders"])
+    assert "310p" not in {group["variant"] for group in groups}
 
 
-def _current_selection() -> dict[str, object]:
-    release = yaml.safe_load(
-        (RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8")
-    )
-    return builders.select_builders(_discover(), release)
+def test_vllm_accepts_only_cuda_wheels_from_main_and_additional_groups() -> None:
+    groups = [
+        group
+        for item in _selection()["upstreams"]
+        if item["product_id"] == "vllm"
+        for group in item["build_groups"]
+    ]
+
+    assert {group["build_group"] for group in groups} == {"cuda129", "cuda130"}
+    assert {group["cpu_arch"] for group in groups} == {"amd64", "arm64"}
+    assert {group["python_abi"] for group in groups} == {"cp312"}
+    assert all(group["build_mode"] == "mirror" for group in groups)
 
 
-def test_bind_selection_adds_only_current_six_builder_coordinates() -> None:
-    catalog = core.load_catalog()
-    original = copy.deepcopy(catalog)
+def test_ascend_recipe_uses_workflow_python_and_runner_matrix() -> None:
+    groups = [
+        group
+        for item in _selection()["upstreams"]
+        if item["product_id"] == "vllm-ascend"
+        for group in item["build_groups"]
+    ]
 
-    bound = builders.bind_selection(catalog, _current_selection())
-
-    assert catalog == original
-    roots = {
-        (profile["id"], architecture): requirement["root"]
-        for profile in bound["wheel_profiles"]
-        for architecture, requirement in profile["builders"].items()
+    assert len(groups) == 12
+    assert {group["cpu_arch"] for group in groups} == {"amd64", "arm64"}
+    assert {group["manylinux"] for group in groups} == {"manylinux_2_28"}
+    assert {group["soc_version"] for group in groups} == {
+        "ascend910b1",
+        "ascend910_9391",
     }
-    assert len(roots) == 6
-    assert {root["repository"] for root in roots.values()} == {
+    assert all(group["build_mode"] == "recipe-extend" for group in groups)
+
+
+def test_builder_catalog_carries_source_ref_recipe_and_append_only_identity() -> None:
+    catalog = _catalog()
+
+    assert catalog["schema_version"] == 2
+    assert len(catalog["builders"]) == 16
+    assert all(item["source_ref"].startswith("v") for item in catalog["builders"])
+    assert all(isinstance(item["recipe"], dict) for item in catalog["builders"])
+    assert len({item["target_tag"] for item in catalog["builders"]}) == 16
+    assert all(item["source_ref"] in item["target_tag"] for item in catalog["builders"])
+
+    existing = {
+        item["target_repository"]: [item["target_tag"]]
+        for item in catalog["builders"][:1]
+    }
+    existing["ghcr.io/release-org/retired"] = ["keep-me"]
+    sync = builders.compute_sync_plan(catalog, existing)
+    assert len(sync["builders"]) == 15
+    assert "deletions" not in sync
+
+
+def test_builder_owner_is_normalized() -> None:
+    catalog = builders.catalog_from_selection(_selection(), owner="Release-Org")
+    assert {item["target_repository"] for item in catalog["builders"]} == {
         "ghcr.io/release-org/ucm-builder-vllm",
         "ghcr.io/release-org/ucm-builder-vllm-ascend",
     }
-    assert {root["tag"] for root in roots.values()} == {
-        "cuda13.0-cp312-manylinux2_28-amd64-r1",
-        "cuda13.0-cp312-manylinux2_28-arm64-r1",
-        "cann9.0.0-a2-cp312-manylinux2_34-mooncake0.3.9-amd64-r1",
-        "cann9.0.0-a2-cp312-manylinux2_34-mooncake0.3.9-arm64-r1",
-        "cann9.0.0-a3-cp312-manylinux2_34-mooncake0.3.9-amd64-r1",
-        "cann9.0.0-a3-cp312-manylinux2_34-mooncake0.3.9-arm64-r1",
-    }
-    assert all(set(root) == {"repository", "tag"} for root in roots.values())
 
 
-def test_bind_selection_rejects_missing_and_duplicate_coordinates() -> None:
-    selection = _current_selection()
-    selection["builders"].pop()
-    selection["matrix"]["include"] = selection["builders"]
-    with pytest.raises(ValueError, match="missing builder selection"):
-        builders.bind_selection(core.load_catalog(), selection)
+def test_missing_runtime_variant_fails_before_builder_matrix() -> None:
+    fixture = core.load_json(TAG_FIXTURE)
+    pages = fixture["repositories"]["docker.io/vllm/vllm-openai"]["pages"]
+    for page in pages:
+        page["tags"] = [tag for tag in page["tags"] if tag != "v0.21.2-cu129"]
 
-    selection = _current_selection()
-    selection["builders"].append(copy.deepcopy(selection["builders"][0]))
-    selection["matrix"]["include"] = selection["builders"]
-    with pytest.raises(ValueError, match="duplicate builder selection"):
-        builders.bind_selection(core.load_catalog(), selection)
-
-
-def test_bind_selection_rejects_unknown_profile_and_architecture() -> None:
-    selection = _current_selection()
-    selection["builders"][0]["profile_id"] = "unknown-profile"
-    selection["matrix"]["include"] = selection["builders"]
-    with pytest.raises(ValueError, match="unknown release profile"):
-        builders.bind_selection(core.load_catalog(), selection)
-
-    selection = _current_selection()
-    selection["builders"][0]["cpu_arch"] = "s390x"
-    selection["matrix"]["include"] = selection["builders"]
-    with pytest.raises(ValueError, match="undeclared architecture"):
-        builders.bind_selection(core.load_catalog(), selection)
-
-
-def test_bind_selection_rejects_profile_capability_mismatch() -> None:
-    selection = _current_selection()
-    selected = selection["builders"]
-    cuda_amd64 = next(
-        item
-        for item in selected
-        if item["profile_id"] == "cuda130" and item["cpu_arch"] == "amd64"
-    )
-    cann_a2_amd64 = next(
-        item
-        for item in selected
-        if item["profile_id"] == "cann900-a2" and item["cpu_arch"] == "amd64"
-    )
-    selected.remove(cann_a2_amd64)
-    cuda_amd64["profile_id"] = "cann900-a2"
-    selection["matrix"]["include"] = selected
-
-    with pytest.raises(ValueError, match="does not match release profile"):
-        builders.bind_selection(core.load_catalog(), selection)
-
-
-def test_release_profile_owns_builder_manylinux_selection() -> None:
-    release = yaml.safe_load(
-        (RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8")
-    )
-    assert {
-        profile["id"]: profile["builder_manylinux"]
-        for profile in release["wheel_profiles"]
-    } == {
-        "cuda130": "manylinux_2_28",
-        "cann900-a2": "manylinux_2_34",
-        "cann900-a3": "manylinux_2_34",
-    }
-    catalog = _discover()
-    for item in catalog["builders"]:
-        if item["accelerator_runtime"] == "cann-9.0.0":
-            item["manylinux"] = "manylinux_2_35"
-
-    with pytest.raises(ValueError) as error:
-        builders.select_builders(catalog, release)
-
-    assert "missing builder for requested capability" in str(error.value)
-    assert "manylinux=manylinux_2_34" in str(error.value)
-
-
-def test_310p_is_the_only_excluded_ascend_variant() -> None:
-    catalog = _discover()
-    variants = {item["variant"] for item in catalog["builders"]}
-
-    assert "310p" not in variants
-    assert {"a2", "a3"} <= variants
-
-
-def test_future_nonexcluded_ascend_variant_enters_catalog(snapshot: Path) -> None:
-    directory = snapshot / "vllm-project/vllm-ascend/.github/workflows/dockerfiles"
-    (directory / "Dockerfile.buildwheel.a5").write_text(
-        "ARG PY_VERSION=3.12\n"
-        "FROM quay.io/ascend/manylinux:9.2.0-a5-manylinux_2_34-py${PY_VERSION}\n",
-        encoding="utf-8",
-    )
-
-    added = [
-        item for item in _discover(snapshot)["builders"] if item["variant"] == "a5"
-    ]
-
-    assert {item["cpu_arch"] for item in added} == {"amd64", "arm64"}
-
-
-def test_mocked_live_github_source_matches_snapshot_bytes(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    requested: list[str] = []
-
-    class Response:
-        def __init__(self, payload: bytes):
-            self.payload = payload
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return False
-
-        def read(self) -> bytes:
-            return self.payload
-
-    def urlopen(request):
-        url = request.full_url
-        requested.append(url)
-        for project in ("vllm-project/vllm", "vllm-project/vllm-ascend"):
-            if url == f"https://api.github.com/repos/{project}":
-                return Response(b'{"default_branch":"main"}')
-        contents_prefix = (
-            "https://api.github.com/repos/vllm-project/vllm-ascend/contents/"
-            ".github/workflows/dockerfiles?ref=main"
+    with pytest.raises(ValueError, match="runtime variant 'v0.21.2-cu129'"):
+        upstream.resolve_upstreams(
+            _release(),
+            builders.load_config(),
+            tag_fixture=fixture,
+            snapshot_dir=FIXTURE,
         )
-        if url == contents_prefix:
-            directory = FIXTURE / (
-                "vllm-project/vllm-ascend/.github/workflows/dockerfiles"
-            )
-            payload = [{"name": path.name} for path in sorted(directory.iterdir())]
-            return Response(json.dumps(payload).encode("utf-8"))
-        raw_prefix = "https://raw.githubusercontent.com/"
-        if url.startswith(raw_prefix):
-            relative = url.removeprefix(raw_prefix)
-            project_and_path = relative.replace("/main/", "/", 1)
-            return Response((FIXTURE / project_and_path).read_bytes())
-        raise AssertionError(f"unexpected GitHub URL {url}")
-
-    monkeypatch.setattr(builders.urllib.request, "urlopen", urlopen)
-
-    live = builders.discover_builders(
-        RELEASE_ROOT / "builders.yaml", owner="release-org"
-    )
-    snapshot_catalog = _discover()
-
-    canonical = lambda value: json.dumps(  # noqa: E731
-        value, sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
-    assert canonical(live) == canonical(snapshot_catalog)
-    assert "https://api.github.com/repos/vllm-project/vllm" in requested
-    assert "https://api.github.com/repos/vllm-project/vllm-ascend" in requested
 
 
-def test_duplicate_upstream_tasks_collapse_by_capability(snapshot: Path) -> None:
-    before = [
-        item for item in _discover(snapshot)["builders"] if item["build_mode"] != "copy"
-    ]
+def test_missing_upstream_file_is_contextual(snapshot: Path) -> None:
+    target = snapshot / "vllm-project/vllm/docker/versions.json"
+    target.unlink()
+    with pytest.raises(ValueError, match="snapshot missing"):
+        _selection(snapshot)
+
+
+def test_malformed_vllm_recipe_fails_before_builder_matrix(snapshot: Path) -> None:
     pipeline = snapshot / "vllm-project/vllm/.buildkite/release-pipeline.yaml"
+    value = pipeline.read_text(encoding="utf-8")
     pipeline.write_text(
-        pipeline.read_text(encoding="utf-8")
-        + "\n- id: build-wheel-x86-cuda-13-0\n"
-        + "  commands:\n"
-        + "  - docker build --build-arg BUILD_BASE_IMAGE=pytorch/manylinux2_28-builder:cuda13.0 .\n",
+        value.replace(
+            "--build-arg BUILD_BASE_IMAGE=pytorch/manylinux2_28-builder:cuda12.9-recipe",
+            "--build-arg BUILD_BASE_IMAGE=example/base:latest",
+        ),
         encoding="utf-8",
     )
+    with pytest.raises(ValueError, match="malformed CUDA builder image"):
+        _selection(snapshot)
 
-    after = [
-        item for item in _discover(snapshot)["builders"] if item["build_mode"] != "copy"
+
+def test_new_variant_without_ucm_contract_fails_before_build_tasks() -> None:
+    selection = _selection()
+    future = copy.deepcopy(selection["upstreams"][0])
+    future["family_id"] = "cann920-a5"
+    future["runtime_variant"] = "a5"
+    future["runtime_tag"] = "v0.22.2rc1-a5"
+    future["target_tag"] = str(future["target_tag"]) + "-a5"
+    for group in future["build_groups"]:
+        group["id"] = str(group["id"]).replace("cann900-a2", "cann920-a5")
+        group["build_group"] = "cann920-a5"
+        group["backend"] = "cann-a5"
+        group["variant"] = "a5"
+        group["runtime_variant"] = "a5"
+    selection["upstreams"].append(future)
+    catalog = builders.catalog_from_selection(selection, owner="release-org")
+
+    with pytest.raises(ValueError, match="has no UCM native contract"):
+        compact.resolve_plan(
+            _release(),
+            builder_catalog=catalog,
+            upstream_selection=selection,
+            route="release",
+        )
+
+
+def test_missing_builder_architecture_and_abi_mismatch_fail_plan() -> None:
+    selection = _selection()
+    catalog = _catalog()
+    catalog["builders"] = [
+        item for item in catalog["builders"] if item["id"] != "cuda129-cp312-arm64"
     ]
-    identity_fields = (
-        "project",
-        "accelerator",
-        *builders.CAPABILITY_FIELDS,
-        "target_repository",
+    with pytest.raises(ValueError, match="matching Builder is missing"):
+        compact.resolve_plan(
+            _release(),
+            builder_catalog=catalog,
+            upstream_selection=selection,
+            route="release",
+        )
+
+    catalog = _catalog()
+    item = next(
+        item for item in catalog["builders"] if item["id"] == "cuda129-cp312-arm64"
     )
-    identities = lambda items: {  # noqa: E731
-        tuple(item[field] for field in identity_fields) for item in items
-    }
-
-    assert identities(after) == identities(before)
-    assert len(after) == len(identities(after))
-
-
-def test_vllm_discovery_accepts_opaque_builder_tag_revision(snapshot: Path) -> None:
-    pipeline = snapshot / "vllm-project/vllm/.buildkite/release-pipeline.yaml"
-    source = pipeline.read_text(encoding="utf-8")
-    original = "pytorch/manylinuxaarch64-builder:cuda13.0"
-    revised = original + "-78e737ad29420ffc4800e677c51e2a852caf8359"
-    assert original in source
-    pipeline.write_text(source.replace(original, revised), encoding="utf-8")
-
-    catalog = _discover(snapshot)
-    arm64 = next(
-        item
-        for item in catalog["builders"]
-        if item["accelerator_runtime"] == "cuda-13.0" and item["cpu_arch"] == "arm64"
-    )
-
-    assert arm64["source_image"] == "docker.io/" + revised
-    assert arm64["manylinux"] == "manylinux_2_28"
+    item["python_abi"] = "cp311"
+    with pytest.raises(ValueError, match="Builder python_abi does not match"):
+        compact.resolve_plan(
+            _release(),
+            builder_catalog=catalog,
+            upstream_selection=selection,
+            route="release",
+        )
 
 
-@pytest.mark.parametrize(
-    ("command", "message"),
-    [
-        ("docker build .", "missing BUILD_BASE_IMAGE"),
-        (
-            "docker build --build-arg BUILD_BASE_IMAGE=example/base:latest .",
-            "malformed BUILD_BASE_IMAGE",
-        ),
-    ],
-)
-def test_vllm_build_base_image_errors_include_project_file_and_task(
-    snapshot: Path, command: str, message: str
-) -> None:
-    pipeline = snapshot / "vllm-project/vllm/.buildkite/release-pipeline.yaml"
-    pipeline.write_text(
-        "steps:\n- id: build-wheel-x86-cuda-13-0\n"
-        f"  commands: [{json.dumps(command)}]\n",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError) as error:
-        _discover(snapshot)
-
-    detail = str(error.value)
-    assert "vllm-project/vllm/.buildkite/release-pipeline.yaml" in detail
-    assert "task build-wheel-x86-cuda-13-0" in detail
-    assert message in detail
-
-
-def test_vllm_missing_python_and_missing_matrix_are_contextual(snapshot: Path) -> None:
-    versions = snapshot / "vllm-project/vllm/docker/versions.json"
-    versions.write_text('{"variable":{}}\n', encoding="utf-8")
-    with pytest.raises(
-        ValueError, match=r"vllm-project/vllm/docker/versions.json: missing Python"
-    ):
-        _discover(snapshot)
-
-    versions.write_text(
-        '{"variable":{"PYTHON_VERSION":{"default":"3.12"}}}\n', encoding="utf-8"
-    )
-    pipeline = snapshot / "vllm-project/vllm/.buildkite/release-pipeline.yaml"
-    pipeline.write_text("steps: []\n", encoding="utf-8")
-    with pytest.raises(
-        ValueError,
-        match=r"vllm-project/vllm/.buildkite/release-pipeline.yaml: missing .* matrix",
-    ):
-        _discover(snapshot)
-
-
-def test_malformed_buildkite_yaml_has_project_and_file_context(snapshot: Path) -> None:
-    pipeline = snapshot / "vllm-project/vllm/.buildkite/release-pipeline.yaml"
-    pipeline.write_text("steps: [\n", encoding="utf-8")
-
-    with pytest.raises(ValueError) as error:
-        _discover(snapshot)
-
-    assert "vllm-project/vllm/.buildkite/release-pipeline.yaml: malformed YAML" in str(
-        error.value
-    )
-
-
-@pytest.mark.parametrize(
-    ("content", "message"),
-    [
-        (
-            "ARG PY_VERSION=3.12\nFROM quay.io/ascend/manylinux:${CANN}-a2-manylinux_2_34-py${PY_VERSION}\n",
-            "unresolved ARG CANN in FROM",
-        ),
-        ("ARG PY_VERSION=3.12\nRUN true\n", "missing FROM"),
-        (
-            "FROM quay.io/ascend/manylinux:9.1.0-a2-manylinux_2_34-py3.12\n",
-            "missing ARG PY_VERSION",
-        ),
-    ],
-)
-def test_ascend_arg_and_from_errors_include_project_file(
-    snapshot: Path, content: str, message: str
-) -> None:
-    dockerfile = snapshot / (
-        "vllm-project/vllm-ascend/.github/workflows/dockerfiles/Dockerfile.buildwheel.a2"
-    )
-    dockerfile.write_text(content, encoding="utf-8")
-
-    with pytest.raises(ValueError) as error:
-        _discover(snapshot)
-
-    detail = str(error.value)
+def test_cli_resolves_selection_and_builder_catalog(tmp_path: Path, capsys) -> None:
+    selection_path = tmp_path / "selection.json"
     assert (
-        "vllm-project/vllm-ascend/.github/workflows/dockerfiles/Dockerfile.buildwheel.a2"
-        in detail
+        cli.main(
+            [
+                "upstreams",
+                "resolve",
+                "--tag-fixture",
+                str(TAG_FIXTURE),
+                "--snapshot",
+                str(FIXTURE),
+                "--output",
+                str(selection_path),
+            ]
+        )
+        == 0
     )
-    assert message in detail
-
-
-def test_malformed_ascend_variant_is_not_silently_ignored(snapshot: Path) -> None:
-    directory = snapshot / "vllm-project/vllm-ascend/.github/workflows/dockerfiles"
-    (directory / "Dockerfile.buildwheel.a2_bad").write_text(
-        "ARG PY_VERSION=3.12\n"
-        "FROM quay.io/ascend/manylinux:9.1.0-a2-manylinux_2_34-py${PY_VERSION}\n",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(
-        ValueError, match=r"Dockerfile\.buildwheel\.a2_bad: malformed variant"
-    ):
-        _discover(snapshot)
-
-
-def test_existing_exact_tags_produce_empty_no_delete_plan() -> None:
-    catalog = _discover()
-    existing: dict[str, list[str]] = {}
-    for item in catalog["builders"]:
-        existing.setdefault(item["target_repository"], []).append(item["target_tag"])
-    existing.setdefault("ghcr.io/release-org/retired", []).append("keep-me")
-
-    plan = builders.compute_sync_plan(catalog, existing)
-
-    assert plan["builders"] == []
-    assert plan["matrix"] == {"include": []}
-    assert "deletions" not in plan
-
-
-def test_selection_missing_and_multiple_candidates_hard_fail() -> None:
-    release = yaml.safe_load(
-        (RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8")
-    )
-    catalog = _discover()
-    wanted = next(
-        item
-        for item in catalog["builders"]
-        if item["target_tag"] == "cuda13.0-cp312-manylinux2_28-amd64-r1"
-    )
-    catalog["builders"].remove(wanted)
-    with pytest.raises(ValueError) as missing:
-        builders.select_builders(catalog, release)
-    assert "missing builder for requested capability" in str(missing.value)
-    assert "accelerator_runtime=cuda-13.0" in str(missing.value)
-    assert "nearest candidates" in str(missing.value)
-
-    alternate = dict(wanted)
-    alternate["project"] = "downstream/vllm"
-    alternate["target_repository"] = "ghcr.io/release-org/alternate-vllm-builder"
-    catalog["builders"].append(wanted)
-    catalog["builders"].append(alternate)
-    with pytest.raises(ValueError) as multiple:
-        builders.select_builders(catalog, release)
-    detail = str(multiple.value)
-    assert "multiple (2) builder for requested capability" in detail
-    assert "cpu_arch=amd64" in detail
-    primary_ref = f"{wanted['target_repository']}:{wanted['target_tag']}"
-    alternate_ref = f"{alternate['target_repository']}:{alternate['target_tag']}"
-    assert detail.index(primary_ref) < detail.index("cuda12.9")
-    assert detail.index(alternate_ref) < detail.index("cuda12.9")
-
-
-def test_selection_rejects_duplicate_profile_ids() -> None:
-    release = yaml.safe_load(
-        (RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8")
-    )
-    release["wheel_profiles"].append(dict(release["wheel_profiles"][0]))
-
-    with pytest.raises(ValueError, match=r"duplicate release profile id: cuda130"):
-        builders.select_builders(_discover(), release)
-
-
-def test_selection_rejects_duplicate_profile_architectures() -> None:
-    release = yaml.safe_load(
-        (RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8")
-    )
-    release["wheel_profiles"][0]["cpu_arch"] = ["amd64", "amd64"]
-
-    with pytest.raises(
-        ValueError, match=r"wheel_profiles\[0\]: cpu_arch contains duplicates"
-    ):
-        builders.select_builders(_discover(), release)
-
-
-def test_builders_cli_writes_canonical_json_and_stdout(tmp_path: Path, capsys) -> None:
-    catalog_path = tmp_path / "builder-catalog.json"
-
+    capsys.readouterr()
+    catalog_path = tmp_path / "catalog.json"
     assert (
         cli.main(
             [
                 "builders",
                 "discover",
-                "--config",
-                str(RELEASE_ROOT / "builders.yaml"),
-                "--snapshot",
-                str(FIXTURE),
+                "--selection",
+                str(selection_path),
                 "--owner",
                 "release-org",
                 "--output",
@@ -607,165 +259,13 @@ def test_builders_cli_writes_canonical_json_and_stdout(tmp_path: Path, capsys) -
         )
         == 0
     )
-
-    stdout = capsys.readouterr().out
-    assert stdout == catalog_path.read_text(encoding="utf-8")
-    assert json.loads(stdout)["kind"] == "ucm-builder-catalog"
-
-    existing_path = tmp_path / "existing.json"
-    existing_path.write_text("{}\n", encoding="utf-8")
-    sync_path = tmp_path / "sync-plan.json"
-    assert (
-        cli.main(
-            [
-                "builders",
-                "sync-plan",
-                "--catalog",
-                str(catalog_path),
-                "--existing",
-                str(existing_path),
-                "--output",
-                str(sync_path),
-            ]
-        )
-        == 0
-    )
-    assert capsys.readouterr().out == sync_path.read_text(encoding="utf-8")
-    assert json.loads(sync_path.read_text(encoding="utf-8"))["matrix"]["include"]
-
-    selection_path = tmp_path / "builder-selection.json"
-    assert (
-        cli.main(
-            [
-                "builders",
-                "select",
-                "--catalog",
-                str(catalog_path),
-                "--release",
-                str(RELEASE_ROOT / "release.yaml"),
-                "--output",
-                str(selection_path),
-            ]
-        )
-        == 0
-    )
-    assert capsys.readouterr().out == selection_path.read_text(encoding="utf-8")
-    assert (
-        len(json.loads(selection_path.read_text(encoding="utf-8"))["matrix"]["include"])
-        == 6
-    )
+    assert len(json.loads(catalog_path.read_text())["builders"]) == 16
 
 
-def test_builders_cli_failures_leave_no_partial_output(tmp_path: Path) -> None:
-    bad_config = tmp_path / "builders.yaml"
-    bad_config.write_text(
-        "kind: builder-discovery-config\nkind: builder-discovery-config\n",
-        encoding="utf-8",
-    )
-    discover_output = tmp_path / "discover.json"
-    discover = _run_cli(
-        "builders",
-        "discover",
-        "--config",
-        str(bad_config),
-        "--snapshot",
-        str(FIXTURE),
-        "--output",
-        str(discover_output),
-    )
-    assert discover.returncode == 2
-    assert discover.stdout == ""
-    assert str(bad_config) in discover.stderr
-    assert "duplicate YAML key: kind" in discover.stderr
-    assert not discover_output.exists()
-
-    catalog_path = tmp_path / "catalog.json"
-    catalog_path.write_text(
-        json.dumps(_discover(), sort_keys=True, separators=(",", ":")) + "\n",
-        encoding="utf-8",
-    )
-    bad_release = tmp_path / "release.yaml"
-    bad_release.write_text(
-        "kind: release-config\n"
-        + (RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
-    select_output = tmp_path / "select.json"
-    select = _run_cli(
-        "builders",
-        "select",
-        "--catalog",
-        str(catalog_path),
-        "--release",
-        str(bad_release),
-        "--output",
-        str(select_output),
-    )
-    assert select.returncode == 2
-    assert select.stdout == ""
-    assert str(bad_release) in select.stderr
-    assert "duplicate YAML key: kind" in select.stderr
-    assert not select_output.exists()
-
-
-def test_catalog_resolve_requires_builder_catalog(tmp_path: Path) -> None:
-    result = _run_cli(
-        "catalog",
-        "resolve",
-        "--fixture",
-        str(RELEASE_ROOT / "tests" / "fixtures" / "catalog-registry.json"),
-        "--lane",
-        "feature-candidate",
-        "--source-sha",
-        "0" * 40,
-        "--output",
-        str(tmp_path / "resolved-plan.json"),
-    )
-
-    assert result.returncode == 2
-    assert "--builder-catalog" in result.stderr
-
-
-def test_catalog_resolve_with_builder_catalog_keeps_canonical_output(
-    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    builder_catalog_path = tmp_path / "builder-catalog.json"
-    builder_catalog_path.write_text(
-        json.dumps(_discover(), sort_keys=True, separators=(",", ":")) + "\n",
-        encoding="utf-8",
-    )
-    digest = "sha256:" + "e" * 64
-    monkeypatch.setattr(
-        cli.catalog_resolution,
-        "resolve_builder_root",
-        lambda repository, tag, *, architecture: {
-            "index_digest": digest,
-            "manifest_digest": digest,
-            "config_digest": digest,
-            "operations": [],
-        },
-    )
-    output = tmp_path / "resolved-plan.json"
-
-    assert (
-        cli.main(
-            [
-                "catalog",
-                "resolve",
-                "--builder-catalog",
-                str(builder_catalog_path),
-                "--fixture",
-                str(RELEASE_ROOT / "tests" / "fixtures" / "catalog-registry.json"),
-                "--lane",
-                "feature-candidate",
-                "--source-sha",
-                "0" * 40,
-                "--output",
-                str(output),
-            ]
-        )
-        == 0
-    )
-
-    assert capsys.readouterr().out == output.read_text(encoding="utf-8")
-    assert json.loads(output.read_text(encoding="utf-8"))["counts"]["wheel_tasks"] == 6
+def test_builder_config_contains_no_retained_capability_matrix() -> None:
+    config = yaml.safe_load((RELEASE_ROOT / "builders.yaml").read_text())
+    assert "retained_builders" not in config
+    assert {item["product_id"] for item in config["projects"]} == {
+        "vllm",
+        "vllm-ascend",
+    }
