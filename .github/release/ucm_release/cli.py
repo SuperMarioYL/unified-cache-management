@@ -276,7 +276,8 @@ def build_parser() -> argparse.ArgumentParser:
     assemble_capabilities.add_argument("--output", type=Path, required=True)
 
     def _cmd_assemble_capabilities(a):
-        release = core.load_catalog()
+        # Catalog assembly consumes fact-owned source_sha, not a release tag.
+        release = core.load_catalog(version_override="0.0.0")
         result = capabilities.assemble_capability_catalog(
             builder_discovery=core.load_json(a.builder_facts),
             python_probes=_load_result_records(

@@ -137,12 +137,14 @@ jobs:
     steps:
       - id: probe
         name: Probe declared and installed Mooncake
+        continue-on-error: true
         env:
           RUNTIME_ID: ${{ matrix.runtime_id }}
           RUNTIME_IMAGE: ${{ matrix.runtime_image }}
           RUNTIME_IMAGE_DIGEST: ${{ matrix.runtime_image_digest }}
           RUNTIME_DOCKERFILE: ${{ matrix.runtime_dockerfile }}
           CPU_ARCHITECTURE: ${{ matrix.cpu_architecture }}
+          MOONCAKE_VERSION: ${{ matrix.mooncake_version }}
         run: |
           set -euo pipefail
           mkdir -p out/mooncake-probe
@@ -150,15 +152,10 @@ jobs:
             *@sha256:*) ;;
             *) exit 2 ;;
           esac
-          curl -fsSL "${RUNTIME_DOCKERFILE}" >out/mooncake-probe/runtime.Dockerfile
-          dockerfile="$(cat out/mooncake-probe/runtime.Dockerfile)"
-          declared_version="$(sed -nE 's/^ARG MOONCAKE_TAG=v?([^[:space:]]+).*$/\1/p' <<<"${dockerfile}" | head -1)"
-          test -n "${declared_version}"
-          printf '%s' "${declared_version}" >out/mooncake-probe/declared-version.txt
-          docker run --rm --entrypoint sh "${RUNTIME_IMAGE}" -c \
-            'test -d /usr/local/include/mooncake &&
-             find /usr/local/lib -maxdepth 1 -type f -name "*mooncake*" -print -quit | grep -q . &&
-             (pkg-config --modversion mooncake 2>/dev/null || cat /usr/local/lib/mooncake.version)' \
+          docker run --rm --entrypoint sh "${RUNTIME_IMAGE}" -c 'test -f /usr/local/include/transfer_engine.h &&
+             find /usr/local/lib -maxdepth 1 -type f -name "libtransfer_engine.so*" -print -quit | grep -q . &&
+             installed_tag="$(git -C /vllm-workspace/Mooncake describe --tags --exact-match HEAD)" &&
+             printf "%s" "${installed_tag#v}"' \
             >out/mooncake-probe/installed-version.txt
       - name: Seal Mooncake probe Result
         if: ${{ always() }}
@@ -169,10 +166,11 @@ jobs:
           RUNTIME_IMAGE_DIGEST: ${{ matrix.runtime_image_digest }}
           RUNTIME_DOCKERFILE: ${{ matrix.runtime_dockerfile }}
           CPU_ARCHITECTURE: ${{ matrix.cpu_architecture }}
+          MOONCAKE_VERSION: ${{ matrix.mooncake_version }}
         run: |
           set -euo pipefail
           mkdir -p out/mooncake-probe
-          declared_version="$(cat out/mooncake-probe/declared-version.txt 2>/dev/null || true)"
+          declared_version="${MOONCAKE_VERSION}"
           installed_version="$(cat out/mooncake-probe/installed-version.txt 2>/dev/null || true)"
           probes='[]'; failures='[]'
           if [ "${PROBE_OUTCOME}" = success ]; then
@@ -187,7 +185,7 @@ jobs:
               --arg cpu_architecture "${CPU_ARCHITECTURE}" --arg runner "${RUNNER_NAME}" \
               --arg declared_version "${declared_version}" \
               --arg installed_version "${installed_version}" \
-              '[{runtime_image_digest:$runtime_image_digest,cpu_architecture:$cpu_architecture,runner:$runner,declared_version:$declared_version,installed_version:$installed_version,headers_path:"/usr/local/include/mooncake",libraries_path:"/usr/local/lib"}]')"
+              '[{runtime_image_digest:$runtime_image_digest,cpu_architecture:$cpu_architecture,runner:$runner,declared_version:$declared_version,installed_version:$installed_version,headers_path:"/usr/local/include/transfer_engine.h",libraries_path:"/usr/local/lib"}]')"
           else
             status=failed
             reason_code=mooncake-probe-failed
@@ -292,6 +290,7 @@ jobs:
             --username "${GITHUB_ACTOR}" --password-stdin
       - id: build
         name: Build missing Builder
+        continue-on-error: true
         env:
           BUILD_MODE: ${{ matrix.build_mode }}
           SOURCE_IMAGE: ${{ matrix.source_image_repository }}@${{ matrix.source_image_digest }}
@@ -418,6 +417,7 @@ jobs:
     steps:
       - id: probe
         name: Enumerate all Builder interpreters
+        continue-on-error: true
         env:
           BUILDER_IMAGE: ${{ matrix.builder_image }}
           BUILDER_FACT_ID: ${{ matrix.builder_fact_id }}
@@ -449,16 +449,25 @@ jobs:
           if machine != platform_architecture:
               raise SystemExit("runtime platform architecture mismatch")
           python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-          python_abi = f"cp{sys.version_info.major}{sys.version_info.minor}"
-          path_abi = interpreter_path.split("/")[-3].split("-", 1)[0]
-          if path_abi != python_abi:
+          expected_python_tag = f"cp{sys.version_info.major}{sys.version_info.minor}"
+          coordinate = interpreter_path.split("/")[-3]
+          python_tag, separator, path_abi = coordinate.partition("-")
+          if separator != "-" or python_tag != expected_python_tag:
+              raise SystemExit("interpreter path Python tag mismatch")
+          python_abi = path_abi
+          if python_abi not in {python_tag, python_tag + "t"}:
               raise SystemExit("interpreter path ABI mismatch")
+          soabi = sysconfig.get_config_var("SOABI")
+          expected_soabi = f"cpython-{python_abi.removeprefix('cp')}-{platform_architecture}-linux-gnu"
+          if soabi != expected_soabi:
+              raise SystemExit("interpreter SOABI mismatch")
           platform_tag = f"{manylinux}_{platform_architecture}"
-          wheel_tag = f"{python_abi}-{python_abi}-{platform_tag}"
+          wheel_tag = f"{python_tag}-{python_abi}-{platform_tag}"
           print(json.dumps({
               "interpreter_path": interpreter_path,
               "python_version": python_version,
               "python_abi": python_abi,
+              "soabi": soabi,
               "wheel_tag": wheel_tag,
               "platform_tag": platform_tag,
               "manylinux": manylinux,
@@ -492,7 +501,7 @@ jobs:
               --arg target_builder_digest "${TARGET_BUILDER_DIGEST}" \
               --arg cpu_architecture "${CPU_ARCHITECTURE}" --arg manylinux "${MANYLINUX}" \
               --arg runner "${RUNNER_NAME}" \
-              '[.[] | {interpreter_path,python_version,python_abi,wheel_tag} + {builder_fact_id:$builder_fact_id,builder_image:$builder_image,target_builder_digest:$target_builder_digest,cpu_architecture:$cpu_architecture,manylinux:$manylinux,runner:$runner}]' \
+              '[.[] | {interpreter_path,python_version,python_abi,soabi,wheel_tag} + {builder_fact_id:$builder_fact_id,builder_image:$builder_image,target_builder_digest:$target_builder_digest,cpu_architecture:$cpu_architecture,manylinux:$manylinux,runner:$runner}]' \
               out/python-probe/probes.jsonl)"
             failures='[]'
           else

@@ -198,6 +198,7 @@ PYTHON_PROBE_FIELDS = frozenset(
         "interpreter_path",
         "python_version",
         "python_abi",
+        "soabi",
         "wheel_tag",
     }
 )
@@ -385,12 +386,12 @@ def normalize_variant(value: object) -> str:
 
 
 def python_version_from_abi(value: object) -> str:
-    """Derive the dotted CPython version represented by a cpXY ABI."""
+    """Derive the dotted CPython version represented by a cpXY[t] ABI."""
     if not isinstance(value, str):
         raise ValueError("Python ABI must be a string")
-    match = re.fullmatch(r"cp([0-9])([0-9]{1,2})", value, re.ASCII)
+    match = re.fullmatch(r"cp([0-9])([0-9]{1,2})t?", value, re.ASCII)
     if match is None:
-        raise ValueError("Python ABI must use canonical cpXY form")
+        raise ValueError("Python ABI must use canonical cpXY or cpXYt form")
     return f"{match.group(1)}.{int(match.group(2))}"
 
 
@@ -700,6 +701,7 @@ def discover_runtime_candidates(
                     "runtime_image": normalized["runtime_image"],
                     "runtime_image_digest": record["runtime_image_digest"],
                     "runtime_dockerfile": raw_url,
+                    "mooncake_version": normalized["mooncake_version"],
                     "cpu_architecture": architecture,
                     "runner": (
                         "ubuntu-24.04-arm"
@@ -1365,23 +1367,32 @@ def assemble_capability_catalog(
         version = _string(probe.get("python_version"), "Python probe python_version")
         if python_version_from_abi(abi) != version:
             raise ValueError("Python probe version and ABI differ")
+        python_tag = "cp" + version.replace(".", "")
+        if abi not in {python_tag, python_tag + "t"}:
+            raise ValueError("Python probe ABI is not derived from its version")
         interpreter = _string(
             probe.get("interpreter_path"), "Python probe interpreter_path"
         )
+        interpreter_coordinate = interpreter.split("/")[-3]
+        if interpreter_coordinate != f"{python_tag}-{abi}":
+            raise ValueError("Python probe path coordinate differs from its ABI")
+        soabi = _string(probe.get("soabi"), "Python probe SOABI")
         wheel_tag = _string(probe.get("wheel_tag"), "Python probe wheel_tag")
-        if f"/{abi}-{abi}/bin/python" not in interpreter:
-            raise ValueError("Python probe path and ABI differ")
         platform_architecture = {
             "amd64": "x86_64",
             "arm64": "aarch64",
         }[architecture]
-        expected_wheel_tag = f"{abi}-{abi}-{manylinux}_{platform_architecture}"
+        expected_soabi = (
+            f"cpython-{abi.removeprefix('cp')}-{platform_architecture}-linux-gnu"
+        )
+        if soabi != expected_soabi:
+            raise ValueError("Python probe SOABI differs from its ABI")
+        expected_wheel_tag = f"{python_tag}-{abi}-{manylinux}_{platform_architecture}"
         if wheel_tag != expected_wheel_tag:
             raise ValueError("Python probe wheel tag is not canonical")
-        coordinate = (fact_id, interpreter)
-        previous = probes_by_coordinate.get(coordinate)
-        if previous is not None and previous != probe:
-            raise ValueError("conflicting Python probe for one Builder interpreter")
+        coordinate = (fact_id, abi)
+        if coordinate in probes_by_coordinate:
+            raise ValueError("duplicate Python probe for one Builder ABI")
         probes_by_coordinate[coordinate] = probe
         probes_by_fact.setdefault(fact_id, []).append(probe)
 
