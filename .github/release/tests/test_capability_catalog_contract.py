@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from packaging.version import Version
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RELEASE_ROOT = REPO_ROOT / ".github" / "release"
@@ -348,6 +349,32 @@ def _runtime_id(value: dict[str, Any]) -> str:
             "cpu_architecture": value["cpu_architecture"],
         }
     )
+
+
+def _runtime_is_compatible(
+    capability: dict[str, Any], runtime: dict[str, Any]
+) -> bool:
+    if any(
+        capability[field] != runtime[field]
+        for field in (
+            "accelerator",
+            "variant",
+            "cpu_architecture",
+            "mooncake_version",
+        )
+    ):
+        return False
+    capability_runtime = capability["accelerator_runtime"]
+    runtime_value = runtime["accelerator_runtime"]
+    if capability["accelerator"] != "cuda":
+        return capability_runtime == runtime_value
+    if not (
+        capability_runtime.startswith("cuda-") and runtime_value.startswith("cuda-")
+    ):
+        return False
+    capability_version = Version(capability_runtime.removeprefix("cuda-"))
+    runtime_version = Version(runtime_value.removeprefix("cuda-"))
+    return capability_version.release[:2] == runtime_version.release[:2]
 
 
 def _ascend_target_tag(source: dict[str, Any], runtime: dict[str, Any]) -> str:
@@ -775,9 +802,17 @@ def test_runtime_candidates_remain_multi_version_and_git_source_bound() -> None:
         runtime["runtime_version"]
         for runtime in runtimes
         if runtime["product_id"] == "vllm"
-        and runtime["accelerator_runtime"] == "cuda-12.9"
+        and runtime["accelerator_runtime"] == "cuda-12.9.1"
         and runtime["cpu_architecture"] == "amd64"
     } == {"0.10.0", "0.10.1"}
+    assert {
+        runtime["accelerator_runtime"]
+        for runtime in runtimes
+        if runtime["accelerator"] == "cuda"
+    } == {"cuda-12.8.1", "cuda-12.9.1", "cuda-13.0.2"}
+    assert any(
+        runtime["accelerator_runtime"] == "cann-9.0.0" for runtime in runtimes
+    )
     assert {
         runtime["mooncake_version"]
         for runtime in runtimes
@@ -789,6 +824,85 @@ def test_runtime_candidates_remain_multi_version_and_git_source_bound() -> None:
     assert all(runtime["git_tag"].startswith("v") for runtime in runtimes)
     assert all(len(runtime["git_commit"]) == 40 for runtime in runtimes)
     assert any(runtime["variant"] == "310p" for runtime in runtimes)
+
+
+def test_cuda_patch_runtimes_bind_by_family_without_losing_exact_identity() -> None:
+    validate = _require_public_callable("validate_capability_catalog")
+    catalog = _assemble()
+    assert validate(copy.deepcopy(catalog)) == catalog
+    capabilities_by_id = {
+        item["builder_capability_id"]: item for item in catalog["builder_capabilities"]
+    }
+    runtimes_by_id = {
+        item["runtime_id"]: item for item in catalog["runtime_candidates"]
+    }
+    revisions = {
+        item["builder_revision_id"]: item for item in catalog["builder_revisions"]
+    }
+
+    expected_cuda_pairs = {
+        (revision["builder_revision_id"], runtime["runtime_id"])
+        for revision in revisions.values()
+        for runtime in runtimes_by_id.values()
+        if capabilities_by_id[revision["builder_capability_id"]]["accelerator"]
+        == "cuda"
+        and _runtime_is_compatible(
+            capabilities_by_id[revision["builder_capability_id"]], runtime
+        )
+    }
+    actual_cuda_pairs = {
+        (binding["builder_revision_id"], binding["runtime_id"])
+        for binding in catalog["bindings"]
+        if binding["accelerator"] == "cuda"
+    }
+    cuda_entry_pairs = {
+        (entry["builder_revision_id"], entry["runtime_id"])
+        for entry in catalog["entries"]
+        if entry["accelerator"] == "cuda"
+    }
+    assert expected_cuda_pairs
+    assert actual_cuda_pairs == expected_cuda_pairs
+    assert cuda_entry_pairs == expected_cuda_pairs
+
+    cuda_129_runtime_ids = {
+        runtime["runtime_id"]
+        for runtime in runtimes_by_id.values()
+        if runtime["accelerator_runtime"] == "cuda-12.9.1"
+    }
+    assert len(cuda_129_runtime_ids) == 2
+    cuda_129_capabilities = [
+        capability
+        for capability in capabilities_by_id.values()
+        if capability["accelerator_runtime"] == "cuda-12.9"
+    ]
+    assert cuda_129_capabilities
+    assert all(
+        cuda_129_runtime_ids
+        <= {
+            binding["runtime_id"]
+            for binding in catalog["bindings"]
+            if binding["builder_capability_id"] == capability["builder_capability_id"]
+        }
+        for capability in cuda_129_capabilities
+    )
+
+    for binding in catalog["bindings"]:
+        if binding["accelerator"] != "cuda":
+            continue
+        capability = capabilities_by_id[binding["builder_capability_id"]]
+        runtime = runtimes_by_id[binding["runtime_id"]]
+        assert binding["accelerator_runtime"] == capability["accelerator_runtime"]
+        assert binding["accelerator_runtime"] != runtime["accelerator_runtime"]
+
+    deliberately_unbound = {
+        runtime["runtime_id"]
+        for runtime in runtimes_by_id.values()
+        if runtime["accelerator_runtime"] in {"cuda-12.8.1", "cann-9.0.0"}
+    }
+    assert len(deliberately_unbound) == 2
+    assert deliberately_unbound.isdisjoint(
+        {binding["runtime_id"] for binding in catalog["bindings"]}
+    )
 
 
 def test_mooncake_runtime_copy_is_version_exact_and_mismatch_is_local() -> None:
@@ -887,21 +1001,20 @@ def test_mooncake_runtime_copy_is_version_exact_and_mismatch_is_local() -> None:
         for item in fixture["builder_discovery"]["builder_facts"]
         if item["accelerator_runtime"] == "cuda-12.9"
     )
-    compatible_cuda_runtimes = {
-        item["runtime_id"]
-        for item in catalog["runtime_candidates"]
-        if item["accelerator_runtime"] == "cuda-12.9"
-        and item["variant"] == "default"
-        and item["cpu_architecture"] == "amd64"
-    }
     cuda_revisions = [
         item
         for item in catalog["builder_revisions"]
         if item["target_builder_digest"] == cuda_fact["target_builder_digest"]
     ]
-    assert len(compatible_cuda_runtimes) > 1
     assert cuda_revisions
     for revision in cuda_revisions:
+        capability = capabilities_by_id[revision["builder_capability_id"]]
+        compatible_cuda_runtimes = {
+            runtime["runtime_id"]
+            for runtime in catalog["runtime_candidates"]
+            if _runtime_is_compatible(capability, runtime)
+        }
+        assert len(compatible_cuda_runtimes) > 1
         assert {
             item["runtime_id"]
             for item in catalog["bindings"]
@@ -1204,7 +1317,6 @@ def test_bindings_entries_and_exclusions_are_closed_and_consistent() -> None:
     )
     runtime_compatibility = (
         "accelerator",
-        "accelerator_runtime",
         "variant",
         "cpu_architecture",
         "mooncake_version",
@@ -1230,6 +1342,12 @@ def test_bindings_entries_and_exclusions_are_closed_and_consistent() -> None:
         }
         for field in runtime_compatibility:
             assert binding[field] == runtime[field]
+        assert _runtime_is_compatible(capability, runtime)
+        assert binding["accelerator_runtime"] == capability["accelerator_runtime"]
+        if binding["accelerator"] == "cuda":
+            assert binding["accelerator_runtime"] != runtime["accelerator_runtime"]
+        else:
+            assert binding["accelerator_runtime"] == runtime["accelerator_runtime"]
         assert binding["runtime_image"] == runtime["runtime_image"]
         expected_copy_mode = (
             "none" if binding["accelerator"] == "cuda" else "runtime-copy"
@@ -1523,6 +1641,49 @@ def _binding_field_drift(catalog: dict[str, Any]) -> None:
     binding["accelerator"] = "ascend" if binding["accelerator"] == "cuda" else "cuda"
 
 
+def _binding_runtime_patch_projection(catalog: dict[str, Any]) -> None:
+    runtimes = {
+        runtime["runtime_id"]: runtime for runtime in catalog["runtime_candidates"]
+    }
+    binding = next(
+        item for item in catalog["bindings"] if item["accelerator"] == "cuda"
+    )
+    binding["accelerator_runtime"] = runtimes[binding["runtime_id"]][
+        "accelerator_runtime"
+    ]
+
+
+def _binding_cross_cuda_minor(catalog: dict[str, Any]) -> None:
+    binding = next(
+        item
+        for item in catalog["bindings"]
+        if item["accelerator_runtime"] == "cuda-12.9"
+    )
+    runtime = next(
+        item
+        for item in catalog["runtime_candidates"]
+        if item["accelerator_runtime"] == "cuda-12.8.1"
+    )
+    binding["runtime_id"] = runtime["runtime_id"]
+    binding["runtime_image"] = runtime["runtime_image"]
+
+
+def _binding_cann_patch_mismatch(catalog: dict[str, Any]) -> None:
+    binding = next(
+        item
+        for item in catalog["bindings"]
+        if item["accelerator_runtime"] == "cann-9.0"
+        and item["mooncake_version"] == "0.3.12"
+    )
+    runtime = next(
+        item
+        for item in catalog["runtime_candidates"]
+        if item["accelerator_runtime"] == "cann-9.0.0"
+    )
+    binding["runtime_id"] = runtime["runtime_id"]
+    binding["runtime_image"] = runtime["runtime_image"]
+
+
 def _duplicate_entry_coordinate(catalog: dict[str, Any]) -> None:
     catalog["entries"].append(copy.deepcopy(catalog["entries"][0]))
 
@@ -1618,6 +1779,15 @@ def _noncanonical_nested_revision_ids(catalog: dict[str, Any]) -> None:
         pytest.param(_missing_binding_capability, id="missing-binding-capability"),
         pytest.param(_duplicate_binding_pair, id="duplicate-binding-pair"),
         pytest.param(_binding_field_drift, id="binding-field-drift"),
+        pytest.param(
+            _binding_runtime_patch_projection,
+            id="binding-runtime-patch-projection",
+        ),
+        pytest.param(_binding_cross_cuda_minor, id="binding-cross-cuda-minor"),
+        pytest.param(
+            _binding_cann_patch_mismatch,
+            id="binding-cann-patch-mismatch",
+        ),
         pytest.param(_duplicate_entry_coordinate, id="duplicate-entry-coordinate"),
         pytest.param(_unknown_builder_sync_field, id="unknown-builder-sync-field"),
         pytest.param(_non_append_builder_sync, id="non-append-builder-sync"),
