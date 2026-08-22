@@ -27,6 +27,10 @@ EXPECTED_CP314T_FILENAMES = {
     "pyyaml": "PyYAML-6.0.2-cp314-cp314t-manylinux_2_28_x86_64.whl",
     "wrapt": "wrapt-1.17.2-cp314-cp314t-manylinux_2_28_x86_64.whl",
 }
+COMPATIBLE_CP314T_PACKAGING_FILENAME = (
+    "packaging-24.2-cp314-cp314t-"
+    "manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+)
 EXPECTED_CP316T_FILENAMES = {
     "packaging": "packaging-24.2-cp316-cp316t-manylinux_2_28_x86_64.whl",
     "pyyaml": "PyYAML-6.0.2-cp316-cp316t-manylinux_2_28_x86_64.whl",
@@ -233,6 +237,17 @@ def _failure_resolution(selection: dict[str, Any], *names: str) -> dict[str, Any
     result = _resolve(selection, responses)
     assert result["requests"][0]["status"] == "failure"
     return result
+
+
+def _older_compatible_packaging_resolution() -> tuple[dict[str, Any], dict[str, Any]]:
+    selection, _ = _selection()
+    responses = _pep691_responses()
+    responses["packaging"]["files"] = [
+        item
+        for item in responses["packaging"]["files"]
+        if item["filename"] != EXPECTED_CP314T_FILENAMES["packaging"]
+    ]
+    return selection, _resolve(selection, responses)
 
 
 def test_task4_dependency_fixture_is_raw_pep691_project_json() -> None:
@@ -512,6 +527,7 @@ def test_dependency_resolution_uses_foreign_target_tag_rank_not_file_order() -> 
     ]
     assert {item["filename"] for item in ranked} == {
         "packaging-24.2-cp314-cp314t-manylinux_2_28_x86_64.whl",
+        COMPATIBLE_CP314T_PACKAGING_FILENAME,
         "packaging-24.2-py314-none-manylinux_2_28_x86_64.whl",
         "packaging-24.2-py3-none-any.whl",
         "packaging-24.2-cp314-cp314t-manylinux_2_28_aarch64.whl",
@@ -534,13 +550,55 @@ def test_dependency_resolution_uses_foreign_target_tag_rank_not_file_order() -> 
             assert resolution == canonical_resolution
 
 
+def test_dependency_resolution_prefers_highest_compatible_older_manylinux_floor(
+) -> None:
+    selection, _ = _selection()
+    base = _pep691_responses()
+    ranked = [
+        item
+        for item in base["packaging"]["files"]
+        if item["filename"].startswith("packaging-24.2-")
+        and item["filename"].endswith(".whl")
+        and item["filename"] != EXPECTED_CP314T_FILENAMES["packaging"]
+    ]
+    assert {item["filename"] for item in ranked} == {
+        COMPATIBLE_CP314T_PACKAGING_FILENAME,
+        "packaging-24.2-py314-none-manylinux_2_28_x86_64.whl",
+        "packaging-24.2-py3-none-any.whl",
+        "packaging-24.2-cp314-cp314t-manylinux_2_28_aarch64.whl",
+    }
+
+    canonical_resolution: dict[str, Any] | None = None
+    for ordered in permutations(ranked):
+        responses = copy.deepcopy(base)
+        responses["packaging"]["files"] = list(ordered)
+        resolution = _resolve(selection, responses)
+        selected = next(
+            item
+            for item in resolution["requests"][0]["resolved"]
+            if item["name"] == "packaging"
+        )
+        assert selected["filename"] == COMPATIBLE_CP314T_PACKAGING_FILENAME
+        assert selected["wheel_tags"] == [
+            "cp314-cp314t-manylinux2014_x86_64",
+            "cp314-cp314t-manylinux_2_17_x86_64",
+        ]
+        if canonical_resolution is None:
+            canonical_resolution = resolution
+        else:
+            assert resolution == canonical_resolution
+
+
 def test_dependency_resolution_selects_middle_rank_without_exact_native() -> None:
     selection, _ = _selection()
     responses = _pep691_responses()
     responses["packaging"]["files"] = [
         item
         for item in responses["packaging"]["files"]
-        if item["filename"] != "packaging-24.2-cp314-cp314t-manylinux_2_28_x86_64.whl"
+        if item["filename"] not in {
+            EXPECTED_CP314T_FILENAMES["packaging"],
+            COMPATIBLE_CP314T_PACKAGING_FILENAME,
+        }
     ]
 
     resolution = _resolve(selection, responses)
@@ -785,6 +843,52 @@ def test_dependency_resolution_grows_for_future_free_threaded_abi() -> None:
             item["name"]: item["filename"] for item in request["resolved"]
         } == expected
     assert validate(resolution, _config(), selection) == resolution
+
+
+def test_dependency_resolution_validator_accepts_older_compatible_manylinux_wheel(
+) -> None:
+    selection, resolution = _older_compatible_packaging_resolution()
+    validate = _public_callable(_dependencies(), "validate_dependency_resolution")
+    resolved = next(
+        item
+        for item in resolution["requests"][0]["resolved"]
+        if item["name"] == "packaging"
+    )
+
+    assert resolved["filename"] == COMPATIBLE_CP314T_PACKAGING_FILENAME
+    assert validate(copy.deepcopy(resolution), _config(), selection) == resolution
+
+
+@pytest.mark.parametrize(
+    "incompatible_platform",
+    [
+        "manylinux_2_31_x86_64",
+        "manylinux_2_17_aarch64.manylinux2014_aarch64",
+    ],
+)
+def test_dependency_resolution_validator_rejects_incompatible_manylinux_platform(
+    incompatible_platform: str,
+) -> None:
+    selection, resolution = _older_compatible_packaging_resolution()
+    validate = _public_callable(_dependencies(), "validate_dependency_resolution")
+    resolved = next(
+        item
+        for item in resolution["requests"][0]["resolved"]
+        if item["name"] == "packaging"
+    )
+    assert resolved["filename"] == COMPATIBLE_CP314T_PACKAGING_FILENAME
+    resolved["filename"] = (
+        f"packaging-24.2-cp314-cp314t-{incompatible_platform}.whl"
+    )
+    resolved["url"] = (
+        "https://files.example.invalid/packaging/" + resolved["filename"]
+    )
+    _, _, _, wheel_tags = parse_wheel_filename(resolved["filename"])
+    resolved["wheel_tags"] = sorted(str(tag) for tag in wheel_tags)
+    _reseal(resolution, "resolution_sha256")
+
+    with pytest.raises(ValueError):
+        validate(resolution, _config(), selection)
 
 
 @pytest.mark.parametrize(

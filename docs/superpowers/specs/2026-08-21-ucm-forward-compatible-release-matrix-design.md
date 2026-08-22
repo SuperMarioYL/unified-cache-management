@@ -463,9 +463,14 @@ truth。
 
 Resolution 的 request IDs 与每个 request 内 requirement IDs 必须与 Selection 完全闭包，
 拒绝 missing、duplicate、unexpected、scope/name/version drift、coordinate drift 和不兼容
-wheel tags。resolver 不选择版本，只解析显式 pin；它只接受 standards-based compatible
-binary wheel，并按标准 wheel-tag 兼容度排名，同一最高 rank 多解是硬歧义。禁止 sdist、
-环境 fallback、Catalog/索引数组顺序或文件名顺序成为选择规则。
+wheel tags。对 manylinux native wheel 使用 PEP 600 兼容语义：candidate glibc
+`(major, minor)` tuple 必须小于或等于 request target tuple，architecture 必须 exact 相等；
+同一 interpreter/ABI 兼容层级内优先选择最高 compatible floor，并识别 legacy alias（例如
+`manylinux2014` 等价于 `manylinux_2_17`）及 compressed platform tags。该规则只从 request
+coordinate 推导，不读取 host glibc 或 host `sys_tags`，也不冻结 production Python minor、ABI
+或 manylinux floor 的枚举表。resolver 不选择版本，只解析显式 pin；它只接受
+standards-based compatible binary wheel，并按标准 wheel-tag 兼容度排名，同一最高 rank 多解
+是硬歧义。禁止 sdist、环境 fallback、Catalog/索引数组顺序或文件名顺序成为选择规则。
 
 当前 4A2 输入是 A1 discovered-only Selection：`baseline_manifest_sha256` 为 null，且没有
 baseline selection/request。失败 request 只能为每个受影响 discovered selection 生成
