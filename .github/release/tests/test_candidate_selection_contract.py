@@ -362,6 +362,7 @@ def _selected_evidence_from_catalog(catalog: dict[str, Any]) -> dict[str, Any]:
         for item in catalog["builder_revisions"]
         if item["builder_revision_id"] == binding["builder_revision_id"]
     )
+    capability["builder_revision_ids"] = sorted([revision["builder_revision_id"]])
     runtime = next(
         copy.deepcopy(item)
         for item in catalog["runtime_candidates"]
