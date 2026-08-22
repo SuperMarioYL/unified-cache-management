@@ -333,6 +333,8 @@ def _parse_vllm(
                 f"{context}/{pipeline_path} task {task_id}: no matching default-OS runtime"
             )
         task_args = _command_build_args(task.get("commands"), env)
+        if task_args.get("USE_SCCACHE") == "1":
+            task_args["USE_SCCACHE"] = "0"
         images = {
             found.group(1)
             for command in _strings(task.get("commands"))
