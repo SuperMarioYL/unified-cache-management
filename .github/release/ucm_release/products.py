@@ -676,11 +676,7 @@ def _validate_dependency_identity(
 ) -> dict[str, str]:
     if scope not in {"build", "runtime"}:
         raise ValueError("dependency scope must be build or runtime")
-    if (
-        not isinstance(name, str)
-        or not name
-        or canonicalize_name(name) != name
-    ):
+    if not isinstance(name, str) or not name or canonicalize_name(name) != name:
         raise ValueError("dependency name must be canonical for a public index")
     if not isinstance(version, str):
         raise ValueError("dependency version must be a string")
@@ -798,9 +794,7 @@ def prepare_candidate_selection(
     if not isinstance(config, Mapping):
         raise ValueError("Candidate config must be an object")
     validated_catalog = capabilities.validate_capability_catalog(copy.deepcopy(catalog))
-    authority = builders.validate_current_builder_authority(
-        current_builder_authority
-    )
+    authority = builders.validate_current_builder_authority(current_builder_authority)
     if not (
         requested_source_sha
         == validated_catalog["source_sha"]
@@ -826,9 +820,10 @@ def prepare_candidate_selection(
         products_by_id[product_id] = product
         runtime_product = product.get("runtime_product")
         expected_selectors = _RUNTIME_SELECTORS_BY_PRODUCT.get(runtime_product)
-        if expected_selectors is None or tuple(
-            product.get("runtime_tag_selectors", [])
-        ) != expected_selectors:
+        if (
+            expected_selectors is None
+            or tuple(product.get("runtime_tag_selectors", [])) != expected_selectors
+        ):
             raise ValueError("runtime selector policy differs from runtime product")
         selectors_by_product[product_id] = compile_runtime_tag_selectors(
             product.get("runtime_tag_selectors")
@@ -980,9 +975,21 @@ def prepare_candidate_selection(
                 }
             )
 
+    frozen_capabilities = {}
+    for capability_id, raw_capability in selected_capabilities.items():
+        capability = copy.deepcopy(raw_capability)
+        capability["builder_revision_ids"] = sorted(
+            revision_id
+            for revision_id, revision in selected_revisions.items()
+            if revision["builder_capability_id"] == capability_id
+        )
+        if not capability["builder_revision_ids"]:
+            raise ValueError("selected capability has no selected Builder revision")
+        frozen_capabilities[capability_id] = capability
+
     requirements = _dependency_requirements(config)
     requests_by_id = {}
-    for capability in selected_capabilities.values():
+    for capability in frozen_capabilities.values():
         request = _dependency_request(capability, requirements)
         requests_by_id[request["request_id"]] = request
     discovered.sort(
@@ -1006,7 +1013,7 @@ def prepare_candidate_selection(
         "current_builder_authority_sha256": authority["authority_sha256"],
         "baseline_manifest_sha256": None,
         "builder_capabilities": sorted(
-            (copy.deepcopy(item) for item in selected_capabilities.values()),
+            (copy.deepcopy(item) for item in frozen_capabilities.values()),
             key=lambda item: item["builder_capability_id"],
         ),
         "builder_revisions": sorted(
@@ -1077,8 +1084,7 @@ def validate_candidate_selection(value: object) -> dict[str, Any]:
     revision_ids = {item["builder_revision_id"] for item in arrays["builder_revisions"]}
     runtime_ids = {item["runtime_id"] for item in arrays["runtime_candidates"]}
     runtime_products = {
-        item["runtime_id"]: item["product_id"]
-        for item in arrays["runtime_candidates"]
+        item["runtime_id"]: item["product_id"] for item in arrays["runtime_candidates"]
     }
     binding_coordinates = {
         (

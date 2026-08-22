@@ -1982,7 +1982,7 @@ def validate_selected_capability_evidence(value: object) -> dict[str, Any]:
         revision_ids_by_capability.setdefault(capability_id, []).append(revision_id)
     capabilities = []
     for raw in evidence["builder_capabilities"]:
-        capability = copy.deepcopy(_mapping(raw, "selected Builder capability"))
+        capability = _mapping(raw, "selected Builder capability")
         capability_id = _string(
             capability.get("builder_capability_id"),
             "selected Builder capability ID",
@@ -1990,12 +1990,12 @@ def validate_selected_capability_evidence(value: object) -> dict[str, Any]:
         selected_revision_ids = sorted(
             revision_ids_by_capability.get(capability_id, [])
         )
-        if not selected_revision_ids or not set(selected_revision_ids) <= set(
-            capability.get("builder_revision_ids", [])
+        if (
+            not selected_revision_ids
+            or capability.get("builder_revision_ids") != selected_revision_ids
         ):
             raise ValueError("selected capability revision evidence is incomplete")
-        capability["builder_revision_ids"] = selected_revision_ids
-        capabilities.append(capability)
+        capabilities.append(copy.deepcopy(capability))
     entries = [
         {field: binding[field] for field in ENTRY_FIELDS}
         for binding in evidence["bindings"]
