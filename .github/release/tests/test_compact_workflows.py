@@ -212,6 +212,12 @@ def test_compact_wheel_passes_dynamic_python_and_platform_to_build() -> None:
     assert 'PATH="${python_scripts}:${PATH}"' in dockerfile
 
 
+def test_release_build_keeps_gcc_fmt_false_positive_non_fatal() -> None:
+    cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+    assert 'UCM_RELEASE_BUILD AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"' in cmake
+    assert "-Wno-error=stringop-overflow" in cmake
+
+
 def test_chart_maps_cuda_runtime_families_to_default_values() -> None:
     text = (WORKFLOWS / "_build-chart.yml").read_text(encoding="utf-8")
     assert 'chart_variant="${variant}"' in text
