@@ -11,7 +11,9 @@ from typing import Any
 
 from packaging.utils import canonicalize_name, parse_wheel_filename
 
-from . import builders, runtime as runtime_ops, upstream
+from . import builders
+from . import runtime as runtime_ops
+from . import upstream
 
 ROUTES = frozenset({"pr", "daily", "release"})
 

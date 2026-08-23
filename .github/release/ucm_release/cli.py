@@ -9,7 +9,18 @@ from pathlib import Path
 
 import yaml
 
-from . import builders, compact, core, policy, pr, problems, registry, runtime, upstream, wheel
+from . import (
+    builders,
+    compact,
+    core,
+    policy,
+    pr,
+    problems,
+    registry,
+    runtime,
+    upstream,
+    wheel,
+)
 
 catalog_resolution = registry
 
