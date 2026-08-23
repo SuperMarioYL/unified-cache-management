@@ -335,6 +335,9 @@ def _parse_vllm(
         task_args = _command_build_args(task.get("commands"), env)
         if task_args.get("USE_SCCACHE") == "1":
             task_args["USE_SCCACHE"] = "0"
+        if "max_jobs" in task_args:
+            task_args["max_jobs"] = "2"
+            task_args["nvcc_threads"] = "2"
         images = {
             found.group(1)
             for command in _strings(task.get("commands"))

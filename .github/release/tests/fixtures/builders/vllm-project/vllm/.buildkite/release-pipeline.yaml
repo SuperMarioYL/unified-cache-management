@@ -13,10 +13,10 @@ steps:
   steps:
   - id: build-wheel-x86-cuda-12-9
     commands:
-    - docker build --build-arg USE_SCCACHE=1 --build-arg CUDA_VERSION=12.9.1 --build-arg BUILD_BASE_IMAGE=pytorch/manylinux2_28-builder:cuda12.9-recipe --target build -f docker/Dockerfile .
+    - docker build --build-arg max_jobs=16 --build-arg USE_SCCACHE=1 --build-arg CUDA_VERSION=12.9.1 --build-arg BUILD_BASE_IMAGE=pytorch/manylinux2_28-builder:cuda12.9-recipe --target build -f docker/Dockerfile .
   - id: build-wheel-arm64-cuda-12-9
     commands:
-    - docker build --build-arg USE_SCCACHE=1 --build-arg CUDA_VERSION=12.9.1 --build-arg BUILD_BASE_IMAGE=pytorch/manylinuxaarch64-builder:cuda12.9-recipe --target build -f docker/Dockerfile .
+    - docker build --build-arg max_jobs=16 --build-arg USE_SCCACHE=1 --build-arg CUDA_VERSION=12.9.1 --build-arg BUILD_BASE_IMAGE=pytorch/manylinuxaarch64-builder:cuda12.9-recipe --target build -f docker/Dockerfile .
   - id: build-wheel-x86-cpu
     commands:
     - docker build -f docker/Dockerfile.cpu .

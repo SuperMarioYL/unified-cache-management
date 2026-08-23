@@ -90,6 +90,10 @@ def test_vllm_accepts_only_cuda_wheels_from_main_and_additional_groups() -> None
     assert all(group["build_mode"] == "mirror" for group in groups)
     cuda129 = [group for group in groups if group["build_group"] == "cuda129"]
     assert all(group["recipe"]["build_args"]["USE_SCCACHE"] == "0" for group in cuda129)
+    assert all(group["recipe"]["build_args"]["max_jobs"] == "2" for group in cuda129)
+    assert all(
+        group["recipe"]["build_args"]["nvcc_threads"] == "2" for group in cuda129
+    )
 
 
 def test_ascend_recipe_uses_workflow_python_and_runner_matrix() -> None:
