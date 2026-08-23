@@ -1186,6 +1186,39 @@ def build_receipt(
         collected_problems.append(
             _receipt_problem(raw_failure, len(collected_problems))
         )
+    required_build_stages = {"wheel", "image", "member"}
+    if required_build_stages <= set(stage_results):
+        for stage in sorted(required_build_stages):
+            if stage_results[stage] != "success":
+                collected_problems.append(
+                    {
+                        "stage": stage,
+                        "reason": "required-stage-incomplete",
+                        "detail": (
+                            f"required image build stage finished as "
+                            f"{stage_results[stage]}"
+                        ),
+                    }
+                )
+        has_index = bool(
+            publication
+            and any(
+                bool(item.get("has_index"))
+                for item in publication.get("families", [])  # type: ignore[union-attr]
+                if isinstance(item, dict)
+            )
+        )
+        if has_index and stage_results.get("index") != "success":
+            collected_problems.append(
+                {
+                    "stage": "index",
+                    "reason": "required-stage-incomplete",
+                    "detail": (
+                        "multi-architecture publication requires a successful index "
+                        f"stage, got {stage_results.get('index', 'missing')}"
+                    ),
+                }
+            )
     failed = bool(collected_problems) or any(
         stage["result"] in {"failure", "cancelled"} for stage in stages
     )

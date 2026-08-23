@@ -362,8 +362,7 @@ def test_pr_member_and_index_publication_are_separate_dynamic_matrices() -> None
         == "${{ fromJSON(needs.select-plan.outputs.index_matrix) }}"
     )
     assert "has_indexes == 'true'" in indexes["if"]
-    assert "all" in members["if"]
-    assert "all" in indexes["if"]
+    assert "if" not in members
     index_step = indexes["steps"][-1]["run"]
     assert "matrix.members" not in index_step
     assert "jq -er '.[]'" in index_step

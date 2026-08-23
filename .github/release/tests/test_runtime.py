@@ -568,3 +568,26 @@ def test_receipt_never_claims_publication_when_member_job_failed() -> None:
     assert receipt["runtimes"][0]["member_refs"] == []
     assert receipt["runtimes"][0]["final_refs"] == []
     assert "Published images" not in runtime.render_receipt_markdown(receipt)
+
+
+def test_receipt_rejects_plan_only_image_run_as_false_success() -> None:
+    receipt = runtime.build_receipt(
+        requested_refs=["docker.io/vllm/vllm-openai:nightly"],
+        stage_results={
+            "inspect": "success",
+            "probe": "success",
+            "resolve": "success",
+            "plan": "success",
+            "wheel": "skipped",
+            "image": "skipped",
+            "member": "skipped",
+            "index": "skipped",
+        },
+    )
+
+    assert receipt["status"] == "failure"
+    assert {
+        problem["stage"]
+        for problem in receipt["problems"]
+        if problem["reason"] == "required-stage-incomplete"
+    } == {"wheel", "image", "member"}

@@ -631,7 +631,6 @@ jobs:
   build-wheels:
     name: Wheel · ${{ matrix.label }}
     needs: [permission-check, select-plan]
-    if: contains(fromJSON('["wheel","image","all"]'), needs.permission-check.outputs.subcommand)
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.select-plan.outputs.wheel_matrix) }}
@@ -648,7 +647,6 @@ jobs:
   build-images:
     name: Image · ${{ matrix.label }}
     needs: [permission-check, select-plan, build-wheels]
-    if: contains(fromJSON('["image","all"]'), needs.permission-check.outputs.subcommand)
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.select-plan.outputs.image_matrix) }}
@@ -676,7 +674,6 @@ jobs:
   publish-pr-image-members:
     name: Publish PR member · ${{ matrix.label }}
     needs: [permission-check, select-plan, build-images]
-    if: contains(fromJSON('["image","all"]'), needs.permission-check.outputs.subcommand)
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.select-plan.outputs.image_matrix) }}
@@ -717,7 +714,6 @@ jobs:
     needs: [permission-check, select-plan, publish-pr-image-members]
     if: >-
       ${{
-        contains(fromJSON('["image","all"]'), needs.permission-check.outputs.subcommand) &&
         needs.select-plan.outputs.has_indexes == 'true'
       }}
     strategy:
