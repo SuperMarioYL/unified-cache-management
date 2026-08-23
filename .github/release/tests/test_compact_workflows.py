@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import re
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -73,6 +76,61 @@ def test_release_workflow_has_six_parallel_publication_jobs() -> None:
         "publish-pypi",
         "publish-chart-oci",
     }
+
+
+def test_prepare_draft_executes_wheel_manifest_validation(tmp_path: Path) -> None:
+    jobs = _load("release-ucm.yml")["jobs"]
+    step = next(
+        item
+        for item in jobs["prepare-release-draft"]["steps"]
+        if item.get("name") == "Validate publication artifacts"
+    )
+    match = re.search(
+        r"jq -e --slurpfile results wheel-results\.json '(.*?)' \"\$\{plan\}\"",
+        step["run"],
+        re.DOTALL,
+    )
+    assert match is not None
+    plan = {
+        "wheels": [
+            {
+                "id": "cuda129-cp312-amd64",
+                "dist_name": "uc-manager-cuda-cu129",
+                "wheel_version": "0.7.59rc22",
+                "python_abi": "cp312",
+                "cpu_arch": "amd64",
+            }
+        ],
+        "publish": {"pypi": {"distributions": ["uc-manager-cuda-cu129"]}},
+    }
+    results = [
+        {
+            "task_id": "cuda129-cp312-amd64",
+            "distribution": "uc-manager-cuda-cu129",
+            "version": "0.7.59rc22",
+            "python_abi": "cp312",
+            "cpu_arch": "amd64",
+            "filename": "uc_manager_cuda_cu129-0.7.59rc22-cp312.whl",
+        }
+    ]
+    plan_path = tmp_path / "release-plan.json"
+    results_path = tmp_path / "wheel-results.json"
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+    results_path.write_text(json.dumps(results), encoding="utf-8")
+    subprocess.run(
+        [
+            "jq",
+            "-e",
+            "--slurpfile",
+            "results",
+            str(results_path),
+            match.group(1),
+            str(plan_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
 
 def test_member_and_index_publication_are_unbounded_matrices() -> None:

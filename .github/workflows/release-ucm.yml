@@ -234,14 +234,16 @@ jobs:
           done
           jq -s '.' "${manifests[@]}" >wheel-results.json
           jq -e --slurpfile results wheel-results.json '
+            . as $plan |
             ([.wheels[].id] | sort) == ([$results[0][].task_id] | sort) and
             (([$results[0][].task_id] | length) ==
              ([$results[0][].task_id] | unique | length)) and
             (([$results[0][].filename] | length) ==
              ([$results[0][].filename] | unique | length)) and
             ([.wheels[].dist_name] | unique | sort) == .publish.pypi.distributions and
-            all($results[0][] as $result;
-              any(.wheels[];
+            all($results[0][];
+              . as $result |
+              any($plan.wheels[];
                 .id == $result.task_id and
                 .dist_name == $result.distribution and
                 .wheel_version == $result.version and
