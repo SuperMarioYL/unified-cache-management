@@ -29,6 +29,14 @@ RUN test -n "${MOONCAKE_TAG}" && \
       "${boost_lockfree}" && \
     grep -F 'allocator_traits<allocator_arg>::template rebind_alloc<T>' \
       "${boost_lockfree}" && \
+    boost_queue=/usr/include/boost/lockfree/queue.hpp && \
+    test "$(grep -F -c 'node_allocator::template rebind<U>::other' \
+      "${boost_queue}")" = 2 && \
+    sed -i \
+      's/typename node_allocator::template rebind<U>::other/typename std::allocator_traits<node_allocator>::template rebind_alloc<U>/g' \
+      "${boost_queue}" && \
+    test "$(grep -F -c 'allocator_traits<node_allocator>::template rebind_alloc<U>' \
+      "${boost_queue}")" = 2 && \
     test -f /usr/local/Ascend/ascend-toolkit/set_env.sh && \
     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
     cmake -S . -B build \
