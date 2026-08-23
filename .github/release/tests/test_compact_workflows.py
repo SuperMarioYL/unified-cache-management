@@ -208,6 +208,8 @@ def test_compact_wheel_passes_dynamic_python_and_platform_to_build() -> None:
     assert "ARG UCM_PYTHON_VERSION" in dockerfile
     assert "ARG UCM_PYTHON_ABI" in dockerfile
     assert "PIP_BREAK_SYSTEM_PACKAGES=1" in dockerfile
+    assert 'sysconfig.get_path("scripts")' in dockerfile
+    assert 'PATH="${python_scripts}:${PATH}"' in dockerfile
 
 
 def test_chart_maps_cuda_runtime_families_to_default_values() -> None:
