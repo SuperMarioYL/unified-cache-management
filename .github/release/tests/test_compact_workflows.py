@@ -150,6 +150,8 @@ def test_builder_sync_consumes_selection_and_materializes_recipes() -> None:
     assert "gflags-config.cmake" in dockerfile
     assert "-DBUILD_UNIT_TESTS=OFF" in dockerfile
     assert "-DBUILD_EXAMPLES=OFF" in dockerfile
+    assert "allocator_arg::template rebind<T>::other" in dockerfile
+    assert "allocator_traits<allocator_arg>::template rebind_alloc<T>" in dockerfile
 
     gflags_config = (
         ROOT / ".github" / "release" / "docker" / "gflags-config.cmake"

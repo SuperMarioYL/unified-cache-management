@@ -22,6 +22,13 @@ RUN test -n "${MOONCAKE_TAG}" && \
     mv /vllm-workspace/mooncake_installer.sh /vllm-workspace/Mooncake/ && \
     cd /vllm-workspace/Mooncake && \
     bash mooncake_installer.sh -y && \
+    boost_lockfree=/usr/include/boost/lockfree/detail/parameter.hpp && \
+    grep -F 'allocator_arg::template rebind<T>::other' "${boost_lockfree}" && \
+    sed -i \
+      's/typename allocator_arg::template rebind<T>::other/typename std::allocator_traits<allocator_arg>::template rebind_alloc<T>/' \
+      "${boost_lockfree}" && \
+    grep -F 'allocator_traits<allocator_arg>::template rebind_alloc<T>' \
+      "${boost_lockfree}" && \
     test -f /usr/local/Ascend/ascend-toolkit/set_env.sh && \
     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
     cmake -S . -B build \
