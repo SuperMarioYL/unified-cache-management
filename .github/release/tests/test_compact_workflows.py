@@ -76,6 +76,8 @@ def test_release_workflow_has_six_parallel_publication_jobs() -> None:
         "publish-pypi",
         "publish-chart-oci",
     }
+    for name in ("prepare-release-draft", "finalize-release"):
+        assert jobs[name]["env"]["GH_REPO"] == "${{ github.repository }}"
 
 
 def test_prepare_draft_executes_wheel_manifest_validation(tmp_path: Path) -> None:
