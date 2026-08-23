@@ -148,6 +148,10 @@ if command -v apt-get &> /dev/null; then
 elif command -v yum &> /dev/null; then
     echo "Detected yum. Using Red Hat-based package manager."
     yum makecache
+    zstd_devel_package="libzstd-devel"
+    if yum list --available zstd-devel &> /dev/null; then
+        zstd_devel_package="zstd-devel"
+    fi
     yum install -y \
         gcc \
         gcc-c++ \
@@ -169,13 +173,17 @@ elif command -v yum &> /dev/null; then
         openssl-devel \
         hiredis-devel \
         libunwind-devel \
-        zstd-devel \
+        "${zstd_devel_package}" \
         xxhash-devel \
         python3-devel \
         curl-devel \
-        patchelf
+        patchelf || {
+            echo "Failed to install required Mooncake RPM dependencies" >&2
+            exit 1
+        }
 
     # install yaml-cpp
+    mkdir -p "${REPO_ROOT}/thirdparties"
     cd "${REPO_ROOT}/thirdparties"
     clone_repo_if_not_exists "yaml-cpp" https://github.com/jbeder/yaml-cpp.git
     cd yaml-cpp || exit
