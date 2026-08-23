@@ -168,6 +168,34 @@ def _dockerfile_arg_defaults(text: str) -> dict[str, str]:
     return defaults
 
 
+def materialize_builder_recipe(text: str, stop_before: str) -> str:
+    """Remove one upstream product-build RUN from a Builder Dockerfile."""
+    if not stop_before or "\n" in stop_before or "\x00" in stop_before:
+        raise ValueError("Builder recipe stop marker is invalid")
+    lines = text.splitlines(keepends=True)
+    matches: list[tuple[int, int]] = []
+    index = 0
+    while index < len(lines):
+        start = index
+        logical = lines[index]
+        while logical.rstrip().endswith("\\") and index + 1 < len(lines):
+            index += 1
+            logical += lines[index]
+        end = index + 1
+        if lines[start].lstrip().upper().startswith("RUN ") and stop_before in logical:
+            matches.append((start, end))
+        index = end
+    if len(matches) != 1:
+        raise ValueError(
+            f"Builder recipe marker {stop_before!r} must match exactly one RUN"
+        )
+    start, end = matches[0]
+    materialized = "".join(lines[:start] + lines[end:])
+    if not materialized.endswith("\n"):
+        materialized += "\n"
+    return materialized
+
+
 def _channel(version: Version) -> str:
     return "rc" if version.is_prerelease else "stable"
 
@@ -424,7 +452,7 @@ def _parse_vllm(
                 ),
                 "recipe": {
                     "dockerfile": dockerfile_path,
-                    "target": "build",
+                    "target": "base",
                     "build_args": task_args,
                 },
             }
@@ -653,6 +681,7 @@ def _parse_ascend(
                             "dockerfile": dockerfile_path,
                             "target": "",
                             "build_args": {"PY_VERSION": python_version},
+                            "strip_run_containing": "python3 setup.py bdist_wheel",
                         },
                     }
                 )

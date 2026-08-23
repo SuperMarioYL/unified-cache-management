@@ -94,6 +94,7 @@ def test_vllm_accepts_only_cuda_wheels_from_main_and_additional_groups() -> None
     assert all(
         group["recipe"]["build_args"]["nvcc_threads"] == "2" for group in cuda129
     )
+    assert all(group["recipe"]["target"] == "base" for group in cuda129)
 
 
 def test_ascend_recipe_uses_workflow_python_and_runner_matrix() -> None:
@@ -112,6 +113,36 @@ def test_ascend_recipe_uses_workflow_python_and_runner_matrix() -> None:
         "ascend910_9391",
     }
     assert all(group["build_mode"] == "recipe-extend" for group in groups)
+    assert all(
+        group["recipe"]["strip_run_containing"] == "python3 setup.py bdist_wheel"
+        for group in groups
+    )
+
+
+def test_materialized_ascend_recipe_stops_before_product_wheel() -> None:
+    source = (
+        FIXTURE
+        / "vllm-project/vllm-ascend/.github/workflows/dockerfiles/Dockerfile.buildwheel.a2"
+    ).read_text(encoding="utf-8")
+
+    materialized = upstream.materialize_builder_recipe(
+        source, "python3 setup.py bdist_wheel"
+    )
+
+    assert "pip install -r requirements.txt" in materialized
+    assert "python3 setup.py bdist_wheel" not in materialized
+    assert 'CMD ["/bin/bash"]' in materialized
+
+
+def test_materialized_recipe_rejects_missing_or_ambiguous_marker() -> None:
+    with pytest.raises(ValueError, match="exactly one RUN"):
+        upstream.materialize_builder_recipe("FROM base\nRUN true\n", "bdist_wheel")
+    with pytest.raises(ValueError, match="exactly one RUN"):
+        upstream.materialize_builder_recipe(
+            "FROM base\nRUN python3 setup.py bdist_wheel\n"
+            "RUN python3 setup.py bdist_wheel\n",
+            "python3 setup.py bdist_wheel",
+        )
 
 
 def test_builder_catalog_carries_source_ref_recipe_and_append_only_identity() -> None:

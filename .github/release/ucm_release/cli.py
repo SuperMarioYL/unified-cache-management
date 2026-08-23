@@ -68,6 +68,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     builders_sync_plan.set_defaults(func=_cmd_builders_sync_plan)
 
+    builders_materialize = builders_actions.add_parser("materialize-recipe")
+    builders_materialize.add_argument("--source", type=Path, required=True)
+    builders_materialize.add_argument("--stop-before", required=True)
+    builders_materialize.add_argument("--output", type=Path, required=True)
+
+    def _cmd_builders_materialize(a):
+        value = upstream.materialize_builder_recipe(
+            a.source.read_text(encoding="utf-8"), a.stop_before
+        )
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        a.output.write_text(value, encoding="utf-8")
+        return {"output": str(a.output), "stop_before": a.stop_before}
+
+    builders_materialize.set_defaults(func=_cmd_builders_materialize)
+
     upstreams_parser = groups.add_parser("upstreams")
     upstreams_actions = upstreams_parser.add_subparsers(dest="action", required=True)
     upstreams_resolve = upstreams_actions.add_parser("resolve")

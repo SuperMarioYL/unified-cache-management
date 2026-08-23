@@ -159,6 +159,18 @@ jobs:
             recipe-extend)
               dockerfile="$(jq -er '.dockerfile' <<<"${RECIPE}")"
               recipe_target="$(jq -er '.target' <<<"${RECIPE}")"
+              stop_before="$(jq -r '.strip_run_containing // empty' <<<"${RECIPE}")"
+              if [ -n "${stop_before}" ]; then
+                materialized_dockerfile="${RUNNER_TEMP}/upstream-builder.Dockerfile"
+                PYTHONPATH=.github/release python -m ucm_release \
+                  builders materialize-recipe \
+                  --source "upstream/${dockerfile}" \
+                  --stop-before "${stop_before}" \
+                  --output "${materialized_dockerfile}" >/dev/null
+                dockerfile="${materialized_dockerfile}"
+              else
+                dockerfile="upstream/${dockerfile}"
+              fi
               mapfile -t build_args < <(jq -r \
                 '.build_args | to_entries[] | "--build-arg", "\(.key)=\(.value)"' \
                 <<<"${RECIPE}")
@@ -170,7 +182,7 @@ jobs:
               else
                 docker buildx build --push \
                   --platform "linux/${CPU_ARCH}" \
-                  --file "upstream/${dockerfile}" \
+                  --file "${dockerfile}" \
                   "${target_args[@]}" "${build_args[@]}" \
                   --tag "${upstream_target}" upstream
               fi
