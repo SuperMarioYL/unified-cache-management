@@ -24,7 +24,10 @@ RUN test -n "${MOONCAKE_TAG}" && \
     bash mooncake_installer.sh -y && \
     test -f /usr/local/Ascend/ascend-toolkit/set_env.sh && \
     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
-    cmake -S . -B build -DUSE_ASCEND_DIRECT=ON && \
+    cmake -S . -B build \
+      -DUSE_ASCEND_DIRECT=ON \
+      -DBUILD_UNIT_TESTS=OFF \
+      -DBUILD_EXAMPLES=OFF && \
     cmake --build build --parallel "$(nproc)" && \
     cmake --install build && \
     rm -rf build && \

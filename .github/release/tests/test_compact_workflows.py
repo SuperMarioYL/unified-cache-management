@@ -146,6 +146,8 @@ def test_builder_sync_consumes_selection_and_materializes_recipes() -> None:
         ROOT / ".github" / "release" / "docker" / "Dockerfile.builder"
     ).read_text(encoding="utf-8")
     assert "gflags-config.cmake" in dockerfile
+    assert "-DBUILD_UNIT_TESTS=OFF" in dockerfile
+    assert "-DBUILD_EXAMPLES=OFF" in dockerfile
 
     gflags_config = (
         ROOT / ".github" / "release" / "docker" / "gflags-config.cmake"
