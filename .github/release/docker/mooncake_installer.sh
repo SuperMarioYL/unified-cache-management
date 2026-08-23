@@ -172,6 +172,7 @@ elif command -v yum &> /dev/null; then
         boost-devel \
         openssl-devel \
         hiredis-devel \
+        msgpack-devel \
         libunwind-devel \
         "${zstd_devel_package}" \
         xxhash-devel \

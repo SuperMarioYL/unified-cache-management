@@ -239,7 +239,9 @@ def test_mooncake_installer_supports_old_upstream_curl() -> None:
     assert '"${curl_retry_all_errors[@]}"' in text
     assert "--retry 8 --retry-all-errors" not in text
     assert "zstd-devel" in text
+    assert "libzstd-devel" in text
     assert "xxhash-devel" in text
+    assert "msgpack-devel" in text
 
 
 def test_wheel_build_records_auditwheel_result_manifest() -> None:
