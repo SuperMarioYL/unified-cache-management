@@ -7,9 +7,11 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Iterable
 
 from . import core
@@ -36,6 +38,31 @@ CAPABILITY_FIELDS = (
     "python_abi",
     "manylinux",
     "cpu_arch",
+)
+
+_BUILDER_LABEL_PREFIX = "io.ucm.builder."
+_BUILDER_METADATA_FIELDS = (
+    "id",
+    "product_id",
+    "source_repository",
+    "source_ref",
+    "build_group",
+    "runtime_variant",
+    "backend",
+    "accelerator",
+    "accelerator_runtime",
+    "variant",
+    "soc_version",
+    "python_version",
+    "python_abi",
+    "manylinux",
+    "cpu_arch",
+    "source_image",
+    "source_image_digest",
+    "build_mode",
+    "mooncake_version",
+    "recipe_revision",
+    "sync_mode",
 )
 _IDENTITY_FIELDS = (
     "project",
@@ -597,30 +624,20 @@ def discover_builders(
     }
 
 
-def _source_ref_tag(value: str) -> str:
-    normalized = re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip(".-")
-    if not normalized or core.OCI_TAG_PATTERN.fullmatch(normalized) is None:
-        raise ValueError(f"source_ref cannot be represented in an OCI tag: {value!r}")
-    return normalized
-
-
 def _generated_target_tag(
-    source_ref: str,
     build_group: str,
     python_abi: str,
     manylinux: str,
     cpu_arch: str,
-    mooncake_version: str | None,
+    recipe_revision: str,
 ) -> str:
     parts = [
-        _source_ref_tag(source_ref),
         build_group,
         python_abi,
         manylinux.replace("manylinux_", "manylinux"),
+        cpu_arch,
+        f"r{recipe_revision}",
     ]
-    if mooncake_version:
-        parts.append(f"mooncake{mooncake_version}")
-    parts.append(cpu_arch)
     tag = "-".join(parts)
     if core.OCI_TAG_PATTERN.fullmatch(tag) is None:
         raise ValueError(f"generated Builder tag is invalid: {tag!r}")
@@ -629,103 +646,76 @@ def _generated_target_tag(
 
 def catalog_from_selection(
     selection: object,
-    config_path: Path = DEFAULT_CONFIG,
+    config_path: Path | None = None,
     *,
     owner: str | None = None,
+    formal_policy: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Project one exact upstream selection into Builder synchronization tasks."""
-    from . import upstream
+    from . import policy, upstream
 
     resolved = upstream.validate_selection(selection)
-    config = load_config(config_path)
-    toolchain = core.load_yaml(RELEASE_ROOT / "toolchain.lock.yaml")
-    family_checks = toolchain.get("builder_checks")
-    if not isinstance(family_checks, dict):
-        raise ValueError("toolchain.lock.yaml: builder_checks must be a mapping")
-    adapters = {
-        str(item["product_id"]): item
-        for item in config["projects"]  # type: ignore[index]
-        if isinstance(item, dict)
-    }
     resolved_owner = _owner(owner)
-    items: list[dict[str, object]] = []
-    for raw_upstream in resolved["upstreams"]:  # type: ignore[index]
-        upstream_item = _require_mapping(raw_upstream, "upstream selection item")
-        product_id = _require_string(
-            upstream_item, "product_id", "upstream selection item"
+    if formal_policy is None:
+        bundle = policy.load(
+            platforms_path=(
+                config_path
+                if config_path is not None and config_path.name == "platforms.yaml"
+                else None
+            )
         )
-        adapter = adapters.get(product_id)
-        if adapter is None:
-            raise ValueError(f"{product_id}: missing Builder adapter")
+        platform_policy = bundle["platforms"]
+    else:
+        platform_policy = _require_mapping(formal_policy, "formal platform policy")
+        if "platforms" in platform_policy:
+            platform_policy = _require_mapping(
+                platform_policy["platforms"], "formal platform policy.platforms"
+            )
+    families = _require_mapping(
+        platform_policy.get("builder_families"), "builder_families"
+    )
+    backend_policies = _require_mapping(
+        platform_policy.get("backends"), "platform backends"
+    )
+    items: list[dict[str, object]] = []
+    for raw_group in resolved["wheel_builds"]:  # type: ignore[index]
+        group = _require_mapping(raw_group, "Wheel build")
+        _require_string(group, "product_id", "Wheel build")
+        family_id = "cuda" if group.get("accelerator") == "cuda" else "ascend"
+        family = _require_mapping(
+            families.get(family_id), f"builder family {family_id}"
+        )
         target_repository = _expand_owner(
-            _require_string(adapter, "target_repository", f"{product_id} adapter"),
+            _require_string(family, "target_repository", f"builder family {family_id}"),
             resolved_owner,
         )
-        mooncake_version = (
-            _require_string(adapter, "mooncake_version", f"{product_id} adapter")
-            if product_id == "vllm-ascend"
-            else None
+        build_group = _require_string(group, "build_group", "Wheel build")
+        python_abi = _require_string(group, "python_abi", "Wheel build")
+        manylinux = _require_string(group, "manylinux", "Wheel build")
+        cpu_arch = _require_string(group, "cpu_arch", "Wheel build")
+        recipe_revision = _require_string(group, "recipe_revision", "Wheel build")
+        raw_backend_policy = backend_policies.get(str(group["backend"]))
+        backend_policy = (
+            _require_mapping(raw_backend_policy, f"platform backend {group['backend']}")
+            if raw_backend_policy is not None
+            else {"status": "blocked"}
         )
-        groups = upstream_item.get("build_groups")
-        assert isinstance(groups, list)
-        for raw_group in groups:
-            group = _require_mapping(raw_group, f"{product_id} build group")
-            source_ref = _require_string(
-                upstream_item, "source_ref", "upstream selection item"
-            )
-            build_group = _require_string(group, "build_group", "build group")
-            python_abi = _require_string(group, "python_abi", "build group")
-            manylinux = _require_string(group, "manylinux", "build group")
-            cpu_arch = _require_string(group, "cpu_arch", "build group")
-            item = {
-                "id": _require_string(group, "id", "build group"),
-                "product_id": product_id,
-                "source_repository": _require_string(
-                    upstream_item, "source_repository", "upstream selection item"
-                ),
-                "source_ref": source_ref,
-                "build_group": build_group,
-                "runtime_variant": _require_string(
-                    group, "runtime_variant", "build group"
-                ),
-                "backend": _require_string(group, "backend", "build group"),
-                "accelerator": _require_string(group, "accelerator", "build group"),
-                "accelerator_runtime": _require_string(
-                    group, "accelerator_runtime", "build group"
-                ),
-                "variant": _require_string(group, "variant", "build group"),
-                "soc_version": _require_string(group, "soc_version", "build group"),
-                "python_version": _require_string(
-                    group, "python_version", "build group"
-                ),
+        item = {
+            **copy.deepcopy(group),
+            "target_repository": target_repository,
+            "target_tag": _generated_target_tag(
+                build_group, python_abi, manylinux, cpu_arch, recipe_revision
+            ),
+            "checks": {
+                "commands": copy.deepcopy(family["required_commands"]),
+                "mooncake": family_id == "ascend",
+                "blocking": backend_policy.get("status") == "supported",
+                "python_version": group["python_version"],
                 "python_abi": python_abi,
-                "manylinux": manylinux,
-                "cpu_arch": cpu_arch,
-                "source_image": _require_string(group, "source_image", "build group"),
-                "target_repository": target_repository,
-                "target_tag": _generated_target_tag(
-                    source_ref,
-                    build_group,
-                    python_abi,
-                    manylinux,
-                    cpu_arch,
-                    mooncake_version,
-                ),
-                "build_mode": _require_string(group, "build_mode", "build group"),
-                "mooncake_version": mooncake_version or "",
-                "recipe": copy.deepcopy(group["recipe"]),
-                "checks": {
-                    **copy.deepcopy(
-                        family_checks[
-                            "cuda" if group["accelerator"] == "cuda" else "ascend"
-                        ]
-                    ),
-                    "python_version": group["python_version"],
-                    "python_abi": python_abi,
-                    "accelerator_runtime": group["accelerator_runtime"],
-                },
-            }
-            items.append(item)
+                "accelerator_runtime": group["accelerator_runtime"],
+            },
+        }
+        items.append(item)
     catalog = {
         "kind": "ucm-builder-catalog",
         "schema_version": 2,
@@ -767,10 +757,13 @@ def validate_catalog(catalog: object) -> dict[str, object]:
         "manylinux",
         "cpu_arch",
         "source_image",
+        "source_image_digest",
         "target_repository",
         "target_tag",
         "build_mode",
         "mooncake_version",
+        "recipe_revision",
+        "sync_mode",
         "recipe",
         "checks",
     }
@@ -787,11 +780,20 @@ def validate_catalog(catalog: object) -> dict[str, object]:
             raise ValueError(f"{context}: unsupported cpu_arch")
         if item.get("build_mode") not in {"mirror", "recipe", "recipe-extend"}:
             raise ValueError(f"{context}: unsupported build_mode")
+        if item.get("sync_mode") not in {"exact", "registry-only"}:
+            raise ValueError(f"{context}: unsupported sync_mode")
         if not isinstance(item.get("recipe"), dict):
             raise ValueError(f"{context}: recipe must be a mapping")
         if not isinstance(item.get("checks"), dict):
             raise ValueError(f"{context}: checks must be a mapping")
         _validate_oci_image(str(item.get("source_image")), f"{context} source_image")
+        if (
+            re.fullmatch(r"sha256:[0-9a-f]{64}", str(item.get("source_image_digest")))
+            is None
+        ):
+            raise ValueError(f"{context}: source_image_digest is invalid")
+        if re.fullmatch(r"[0-9a-f]{12}", str(item.get("recipe_revision"))) is None:
+            raise ValueError(f"{context}: recipe_revision is invalid")
         _validate_oci_repository(
             str(item.get("target_repository")), f"{context} target_repository"
         )
@@ -831,6 +833,18 @@ def compute_sync_plan(catalog: object, existing_tags: object) -> dict[str, objec
         ),
         key=lambda item: tuple(item[field] for field in sort_fields),
     )
+    registry_only_missing = [
+        item for item in missing if item.get("sync_mode") == "registry-only"
+    ]
+    if registry_only_missing:
+        coordinates = sorted(
+            f"{item['target_repository']}:{item['target_tag']}"
+            for item in registry_only_missing
+        )
+        raise ValueError(
+            "Registry-only Builders disappeared after capability matching: "
+            f"{coordinates}"
+        )
     matrix = []
     for item in missing:
         if validated["schema_version"] == 2:
@@ -860,6 +874,185 @@ def compute_sync_plan(catalog: object, existing_tags: object) -> dict[str, objec
         "builders": missing,
         "matrix": {"include": matrix},
     }
+
+
+def builder_labels(builder: Mapping[str, object]) -> dict[str, str]:
+    """Project one catalog entry into OCI labels used by PR inventory scans."""
+    item = _require_mapping(dict(builder), "Builder label source")
+    missing = [field for field in _BUILDER_METADATA_FIELDS if field not in item]
+    if missing:
+        raise ValueError(f"Builder label source is missing {missing}")
+    labels = {
+        f"{_BUILDER_LABEL_PREFIX}schema": "1",
+        f"{_BUILDER_LABEL_PREFIX}checked": "true",
+        f"{_BUILDER_LABEL_PREFIX}target_tag": _require_string(
+            item, "target_tag", "Builder label source"
+        ),
+    }
+    for field in _BUILDER_METADATA_FIELDS:
+        value = item[field]
+        if not isinstance(value, str) or (not value and field != "mooncake_version"):
+            raise ValueError(f"Builder label field {field} must be a non-empty string")
+        labels[f"{_BUILDER_LABEL_PREFIX}{field}"] = value
+    return labels
+
+
+def registry_builder_record(
+    repository: str, tag: str, config: object
+) -> dict[str, object] | None:
+    """Read one checked final Builder record from its OCI config labels."""
+    if core.OCI_REPOSITORY_PATTERN.fullmatch(repository) is None:
+        raise ValueError(f"invalid Builder repository {repository!r}")
+    if core.OCI_TAG_PATTERN.fullmatch(tag) is None:
+        raise ValueError(f"invalid Builder tag {tag!r}")
+    document = _require_mapping(config, f"Builder config {repository}:{tag}")
+    nested = document.get("config", {})
+    nested = _require_mapping(nested, f"Builder config {repository}:{tag}.config")
+    raw_labels = nested.get("Labels") or {}
+    labels = _require_mapping(
+        raw_labels, f"Builder config {repository}:{tag}.config.Labels"
+    )
+    if labels.get(f"{_BUILDER_LABEL_PREFIX}schema") != "1":
+        return None
+    if labels.get(f"{_BUILDER_LABEL_PREFIX}checked") != "true":
+        return None
+    if labels.get(f"{_BUILDER_LABEL_PREFIX}target_tag") != tag:
+        return None
+    metadata: dict[str, object] = {}
+    for field in _BUILDER_METADATA_FIELDS:
+        value = labels.get(f"{_BUILDER_LABEL_PREFIX}{field}")
+        if not isinstance(value, str) or (not value and field != "mooncake_version"):
+            raise ValueError(f"Builder {repository}:{tag} label {field} is missing")
+        metadata[field] = value
+    created = labels.get(f"{_BUILDER_LABEL_PREFIX}created", document.get("created"))
+    if not isinstance(created, str) or not created:
+        raise ValueError(f"Builder {repository}:{tag} created timestamp is missing")
+    return {
+        **metadata,
+        "target_repository": repository,
+        "target_tag": tag,
+        "created": created,
+        "checked": True,
+        "recipe": {},
+        "checks": {},
+    }
+
+
+def _crane_output(operation: str, reference: str) -> str:
+    completed = subprocess.run(
+        ["crane", operation, reference], text=True, capture_output=True, check=False
+    )
+    if completed.returncode != 0:
+        raise ValueError(
+            f"crane {operation} failed for {reference}: "
+            f"{completed.stderr.strip() or completed.returncode}"
+        )
+    return completed.stdout
+
+
+def _live_builder_config(reference: str) -> object:
+    try:
+        manifest = json.loads(_crane_output("manifest", reference))
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Builder manifest is malformed for {reference}") from error
+    descriptors = manifest.get("manifests") if isinstance(manifest, dict) else None
+    if not isinstance(descriptors, list):
+        return json.loads(_crane_output("config", reference))
+    repository = reference.rpartition(":")[0]
+    configs = []
+    for descriptor in descriptors:
+        if not isinstance(descriptor, dict):
+            continue
+        platform = descriptor.get("platform")
+        digest = descriptor.get("digest")
+        if (
+            isinstance(platform, dict)
+            and platform.get("os") == "linux"
+            and platform.get("architecture") in {"amd64", "arm64"}
+            and isinstance(digest, str)
+        ):
+            configs.append(
+                json.loads(_crane_output("config", f"{repository}@{digest}"))
+            )
+    if len(configs) != 1:
+        raise ValueError(f"Builder {reference} must contain exactly one Linux member")
+    return configs[0]
+
+
+def scan_registry_builders(
+    formal_policy: Mapping[str, object],
+    *,
+    tag_loader=None,
+    config_loader=None,
+) -> dict[str, object]:
+    """Scan only labelled, functionally promoted final Builder tags."""
+    policy_mapping = _require_mapping(dict(formal_policy), "formal policy")
+    if "platforms" in policy_mapping:
+        policy_mapping = _require_mapping(
+            policy_mapping["platforms"], "formal policy.platforms"
+        )
+    families = _require_mapping(
+        policy_mapping.get("builder_families"), "builder_families"
+    )
+    repositories = sorted(
+        {
+            _require_string(
+                _require_mapping(item, "builder family"),
+                "target_repository",
+                "builder family",
+            )
+            for item in families.values()
+        }
+    )
+    load_tags = tag_loader or (
+        lambda repository: _crane_output("ls", repository).splitlines()
+    )
+    load_config = config_loader or _live_builder_config
+    records: list[dict[str, object]] = []
+    for repository in repositories:
+        for tag in sorted(set(str(item) for item in load_tags(repository))):
+            if re.search(r"-r[0-9a-f]{12}$", tag) is None:
+                continue
+            record = registry_builder_record(
+                repository, tag, load_config(f"{repository}:{tag}")
+            )
+            if record is not None:
+                records.append(record)
+    return {
+        "kind": "ucm-builder-registry",
+        "schema_version": 1,
+        "builders": sorted(
+            records,
+            key=lambda item: (
+                str(item["id"]),
+                str(item["created"]),
+                str(item["target_tag"]),
+            ),
+        ),
+    }
+
+
+def catalog_from_registry_records(
+    records: Iterable[Mapping[str, object]]
+) -> dict[str, object]:
+    """Reopen selected Registry records as the compact Builder Catalog."""
+    items: list[dict[str, object]] = []
+    for raw in records:
+        record = dict(raw)
+        items.append(
+            {
+                key: copy.deepcopy(value)
+                for key, value in record.items()
+                if key not in {"created", "checked"}
+            }
+        )
+    return validate_catalog(
+        {
+            "kind": "ucm-builder-catalog",
+            "schema_version": 2,
+            "builders": sorted(items, key=lambda item: str(item["id"])),
+        }
+    )
 
 
 def _capability_text(capability: dict[str, str]) -> str:

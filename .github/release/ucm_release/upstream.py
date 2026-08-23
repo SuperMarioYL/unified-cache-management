@@ -1,4 +1,4 @@
-"""Resolve upstream runtime tags and their authoritative wheel build recipes."""
+"""Resolve formal upstream source tags, Wheel recipes, and runtime families."""
 
 from __future__ import annotations
 
@@ -12,15 +12,66 @@ import urllib.parse
 import urllib.request
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
-from packaging.specifiers import SpecifierSet
 from packaging.version import InvalidVersion, Version
 
 from . import core
 
 SELECTION_KIND = "ucm-upstream-selection"
-SELECTION_SCHEMA_VERSION = 1
+SELECTION_SCHEMA_VERSION = 2
+RELEASE_ROOT = Path(__file__).resolve().parents[1]
+SUPPORTED_ARCHITECTURES = ("amd64", "arm64")
+
+_WHEEL_BUILD_FIELDS = {
+    "id",
+    "product_id",
+    "source_repository",
+    "source_ref",
+    "build_group",
+    "backend",
+    "accelerator",
+    "accelerator_runtime",
+    "variant",
+    "soc_version",
+    "runtime_variant",
+    "python_version",
+    "python_abi",
+    "manylinux",
+    "cpu_arch",
+    "source_image",
+    "source_image_digest",
+    "build_mode",
+    "mooncake_version",
+    "recipe_revision",
+    "sync_mode",
+    "recipe",
+}
+_RUNTIME_FIELDS = {
+    "id",
+    "product_id",
+    "source_repository",
+    "source_ref",
+    "runtime_repository",
+    "runtime_tag",
+    "runtime_variant",
+    "backend",
+    "accelerator_runtime",
+    "variant",
+    "soc_version",
+    "python_version",
+    "python_abi",
+    "os_id",
+    "os_version",
+    "architectures",
+    "member_references",
+    "wheel_build_ids",
+    "version",
+    "channel",
+    "target_repository",
+    "target_tag",
+}
+_PROBLEM_FIELDS = {"backend", "capability", "reason", "source", "runtime"}
 
 
 def _mapping(value: object, context: str) -> dict[str, Any]:
@@ -92,10 +143,7 @@ class _GitHubSource:
     def list(self, directory: str, prefix: str) -> list[str]:
         source_path = urllib.parse.quote(directory, safe="/")
         ref = urllib.parse.quote(self.source_ref, safe="")
-        url = (
-            f"https://api.github.com/repos/{self.repository}/contents/{source_path}"
-            f"?ref={ref}"
-        )
+        url = f"https://api.github.com/repos/{self.repository}/contents/{source_path}?ref={ref}"
         try:
             value = json.loads(self._request(url))
         except json.JSONDecodeError as error:
@@ -111,12 +159,23 @@ class _GitHubSource:
         )
 
 
-def _source(
-    repository: str, source_ref: str, snapshot_dir: Path | None
-) -> _SnapshotSource | _GitHubSource:
+def _source(repository: str, source_ref: str, snapshot_dir: Path | None):
     if snapshot_dir is not None:
         return _SnapshotSource(snapshot_dir, repository)
     return _GitHubSource(repository, source_ref)
+
+
+def _github_commit(repository: str, source_ref: str) -> str:
+    ref = urllib.parse.quote(source_ref, safe="")
+    url = f"https://api.github.com/repos/{repository}/commits/{ref}"
+    try:
+        value = json.loads(_GitHubSource._request(url))
+    except json.JSONDecodeError as error:
+        raise ValueError(f"GitHub commit response is invalid JSON for {url}") from error
+    commit = value.get("sha") if isinstance(value, dict) else None
+    if not isinstance(commit, str) or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        raise ValueError(f"{repository}@{source_ref}: cannot resolve source commit")
+    return commit
 
 
 def _walk_tasks(value: object) -> Iterable[dict[str, object]]:
@@ -158,8 +217,6 @@ def _dockerfile_arg_defaults(text: str) -> dict[str, str]:
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
-        if line.upper().startswith("FROM "):
-            break
         match = re.fullmatch(
             r"ARG\s+([A-Za-z_][A-Za-z0-9_]*)(?:=(.*))?", line, re.IGNORECASE
         )
@@ -191,9 +248,7 @@ def materialize_builder_recipe(text: str, stop_before: str) -> str:
         )
     start, end = matches[0]
     materialized = "".join(lines[:start] + lines[end:])
-    if not materialized.endswith("\n"):
-        materialized += "\n"
-    return materialized
+    return materialized if materialized.endswith("\n") else materialized + "\n"
 
 
 def _channel(version: Version) -> str:
@@ -212,226 +267,172 @@ def _parse_base_tag(tag: str) -> tuple[Version, str] | None:
 def _select_source_tag(
     product: Mapping[str, object], tags: list[str]
 ) -> tuple[str, str]:
-    specifier = SpecifierSet(_string(product, "version_specifier", "upstream product"))
-    channels = product.get("channels")
-    if not isinstance(channels, list) or not channels:
-        raise ValueError("upstream product channels must be a non-empty list")
-    candidates: list[tuple[Version, str]] = []
-    for tag in tags:
-        parsed = _parse_base_tag(tag)
-        if parsed is None:
-            continue
-        version, source_ref = parsed
-        if version in specifier and _channel(version) in channels:
-            candidates.append((version, source_ref))
-    if not candidates:
+    minimum = Version(_string(product, "minimum_version", "upstream product"))
+    if product.get("channel_policy") != "stable-preferred-rc-fallback":
         raise ValueError(
-            f"{product['id']}: no upstream tag matches {specifier} and {channels}"
+            f"{product.get('id')}: channel_policy must be stable-preferred-rc-fallback"
         )
-    version, source_ref = max(candidates, key=lambda item: (item[0], item[1]))
+    candidates = [
+        parsed
+        for tag in tags
+        if (parsed := _parse_base_tag(tag)) is not None and parsed[0] >= minimum
+    ]
+    stable = [item for item in candidates if not item[0].is_prerelease]
+    selected = stable or [item for item in candidates if item[0].is_prerelease]
+    if not selected:
+        raise ValueError(
+            f"{product['id']}: no stable or RC upstream tag meets minimum {minimum}"
+        )
+    version, source_ref = max(selected, key=lambda item: (item[0], item[1]))
     return str(version), source_ref
 
 
 def _live_tag_lists(release: Mapping[str, object]) -> dict[str, list[str]]:
-    limit = int(release["scan_limits"]["max_tags_per_repository"])  # type: ignore[index]
     result: dict[str, list[str]] = {}
-    for raw_product in release["upstream_products"]:  # type: ignore[index]
+    for raw_product in release["products"]:  # type: ignore[index]
         product = _mapping(raw_product, "upstream product")
         repository = _string(product, "runtime_repository", "upstream product")
         completed = subprocess.run(
-            ["crane", "ls", repository],
-            text=True,
-            capture_output=True,
-            check=False,
+            ["crane", "ls", repository], text=True, capture_output=True, check=False
         )
         if completed.returncode != 0:
             raise ValueError(
                 f"cannot list upstream tags for {repository}: "
                 f"{completed.stderr.strip() or completed.returncode}"
             )
-        tags = sorted(set(completed.stdout.splitlines()))
-        if len(tags) > limit:
-            raise ValueError(f"upstream tag limit {limit} exceeded for {repository}")
-        result[repository] = tags
+        result[repository] = sorted(set(completed.stdout.splitlines()))
     return result
 
 
 _BUILD_ARG = re.compile(r"--build-arg\s+([A-Za-z_][A-Za-z0-9_]*)=([^\s\\]+)")
-_SHELL_VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_SHELL_VARIABLE = re.compile(
+    r"\$(?:\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)\}|(?P<plain>[A-Za-z_][A-Za-z0-9_]*))"
+)
 
 
 def _command_build_args(
     commands: object, variables: Mapping[str, str] | None = None
 ) -> dict[str, str]:
     known = variables or {}
-    args: dict[str, str] = {}
+    arguments: dict[str, str] = {}
     for command in _strings(commands):
         for match in _BUILD_ARG.finditer(command):
             raw_value = match.group(2).strip("'\"")
 
             def replace(variable: re.Match[str]) -> str:
-                name = variable.group(1)
+                name = str(variable.group("braced") or variable.group("plain"))
                 if name not in known:
                     raise ValueError(f"unresolved build argument variable {name}")
                 return known[name]
 
-            args[match.group(1)] = _SHELL_VARIABLE.sub(replace, raw_value)
-    return args
+            arguments[match.group(1)] = _SHELL_VARIABLE.sub(replace, raw_value)
+    return arguments
 
 
-def _vllm_runtime_suffixes(
-    pipeline: object, context: str, variables: Mapping[str, str]
-) -> dict[str, str]:
-    suffixes: dict[str, str] = {}
-    for task in _walk_tasks(pipeline):
-        task_id = str(task["id"])
-        if not task_id.startswith("build-release-image-") or "ubuntu2404" in task_id:
-            continue
-        commands = "\n".join(_strings(task.get("commands")))
-        args = _command_build_args(task.get("commands"), variables)
-        cuda = args.get("CUDA_VERSION")
-        if not cuda:
-            continue
-        match = re.match(r"(\d+\.\d+)", cuda)
-        if match is None:
-            raise ValueError(f"{context} task {task_id}: malformed CUDA_VERSION")
-        runtime = match.group(1)
-        suffix_match = re.search(
-            r"\$BUILDKITE_COMMIT(?:-\$\(uname -m\))?(-cu\d+)", commands
-        )
-        suffix = suffix_match.group(1) if suffix_match else ""
-        previous = suffixes.setdefault(runtime, suffix)
-        if previous != suffix:
-            raise ValueError(
-                f"{context}: conflicting runtime suffixes for CUDA {runtime}"
-            )
-    if not suffixes:
-        raise ValueError(f"{context}: missing default-OS CUDA release image tasks")
-    return suffixes
+def _substitute(value: str, variables: Mapping[str, str], context: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        name = str(match.group("braced") or match.group("plain"))
+        if name not in variables:
+            raise ValueError(f"{context}: unresolved variable {name}")
+        return variables[name]
+
+    result = value
+    for _ in range(len(variables) + 1):
+        replaced = _SHELL_VARIABLE.sub(replace, result)
+        if replaced == result:
+            return replaced
+        result = replaced
+    if _SHELL_VARIABLE.search(result):
+        raise ValueError(f"{context}: unresolved variable in {value!r}")
+    return result
+
+
+def _manylinux_from_vllm_image(
+    source_image: str, runtime: str, cpu_arch: str, context: str
+) -> str:
+    match = re.fullmatch(
+        r"docker\.io/pytorch/manylinux(?:(?P<arm>aarch64)|(?P<major>\d+)_(?P<minor>\d+))-builder:cuda(?P<runtime>\d+\.\d+)(?:-[A-Za-z0-9_][A-Za-z0-9_.-]*)?",
+        source_image,
+    )
+    if match is None or match.group("runtime") != runtime:
+        raise ValueError(f"{context}: malformed CUDA Builder image {source_image!r}")
+    image_arch = "arm64" if match.group("arm") else "amd64"
+    if image_arch != cpu_arch:
+        raise ValueError(f"{context}: Builder architecture mismatch")
+    return (
+        "manylinux_2_28"
+        if image_arch == "arm64"
+        else f"manylinux_{match.group('major')}_{match.group('minor')}"
+    )
+
+
+def _vllm_runtime_suffix(commands: object) -> str:
+    matches: set[str] = set()
+    pattern = re.compile(
+        r"\$BUILDKITE_COMMIT(?:-\$\(uname -m\))?((?:-[A-Za-z0-9_.]+)*)"
+    )
+    for command in _strings(commands):
+        matches.update(found.group(1) for found in pattern.finditer(command))
+    if not matches:
+        raise ValueError("vLLM runtime task has no published BUILDKITE_COMMIT tag")
+    return max(matches, key=lambda value: (len(value), value))
 
 
 def _parse_vllm(
-    product: Mapping[str, object], adapter: Mapping[str, object], source: object
-) -> list[dict[str, object]]:
-    pipeline_path = _string(adapter, "pipeline_path", "vLLM adapter")
-    versions_path = _string(adapter, "versions_path", "vLLM adapter")
-    dockerfile_path = _string(adapter, "dockerfile_path", "vLLM adapter")
+    product: Mapping[str, object], source: object
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    pipeline_path = ".buildkite/release-pipeline.yaml"
+    versions_path = "docker/versions.json"
+    dockerfile_path = "docker/Dockerfile"
     context = f"{product['source_repository']}@{product['source_ref']}"
     try:
         versions = _mapping(json.loads(source.read(versions_path)), versions_path)  # type: ignore[attr-defined]
     except json.JSONDecodeError as error:
         raise ValueError(f"{context}/{versions_path}: malformed JSON") from error
     variables = _mapping(versions.get("variable"), versions_path)
-    python_record = _mapping(variables.get("PYTHON_VERSION"), versions_path)
-    python_version = _string(python_record, "default", versions_path)
+    defaults = {
+        str(key): str(record["default"])
+        for key, record in variables.items()
+        if isinstance(record, dict) and isinstance(record.get("default"), str)
+    }
+    dockerfile = source.read(dockerfile_path)  # type: ignore[attr-defined]
+    defaults.update(_dockerfile_arg_defaults(dockerfile))
+    python_version = defaults.get("PYTHON_VERSION", "")
     python_abi = _python_abi(python_version, versions_path)
-    pipeline = core.load_yaml_value(
-        source.read(pipeline_path), context=f"{context}/{pipeline_path}"  # type: ignore[attr-defined]
-    )
+    pipeline = core.load_yaml_value(source.read(pipeline_path), context=f"{context}/{pipeline_path}")  # type: ignore[attr-defined]
     pipeline_mapping = _mapping(pipeline, f"{context}/{pipeline_path}")
-    pipeline_env = pipeline_mapping.get("env", {})
-    env = (
-        {str(key): str(value) for key, value in pipeline_env.items()}
-        if isinstance(pipeline_env, dict)
+    raw_env = pipeline_mapping.get("env", {})
+    environment = (
+        {str(key): str(value) for key, value in raw_env.items()}
+        if isinstance(raw_env, dict)
         else {}
     )
-    defaults = {
-        str(key): str(value["default"])
-        for key, value in variables.items()
-        if isinstance(value, dict) and isinstance(value.get("default"), str)
-    }
-    defaults.update(_dockerfile_arg_defaults(source.read(dockerfile_path)))  # type: ignore[attr-defined]
-    if "BUILD_BASE_IMAGE" not in defaults or "BUILD_OS" not in defaults:
-        raise ValueError(
-            f"{context}/{versions_path}: BUILD_BASE_IMAGE and BUILD_OS defaults are required"
-        )
-    suffixes = _vllm_runtime_suffixes(pipeline, f"{context}/{pipeline_path}", env)
-    task_pattern = re.compile(r"build-wheel-(x86|arm64)-cuda-(\d+)-(\d+)")
-    image_pattern = re.compile(r"(?:^|\s)BUILD_BASE_IMAGE=(?:['\"])?([^\s'\"\\]+)")
-    groups: list[dict[str, object]] = []
+
+    wheel_builds: list[dict[str, object]] = []
+    wheel_pattern = re.compile(r"build-wheel-(x86|arm64)-cuda-(\d+)-(\d+)")
     for task in _walk_tasks(pipeline):
         task_id = str(task["id"])
-        match = task_pattern.fullmatch(task_id)
+        match = wheel_pattern.fullmatch(task_id)
         if match is None:
             continue
+        cpu_arch = "arm64" if match.group(1) == "arm64" else "amd64"
         runtime = f"{match.group(2)}.{match.group(3)}"
-        suffix = suffixes.get(runtime)
-        if suffix is None:
-            raise ValueError(
-                f"{context}/{pipeline_path} task {task_id}: no matching default-OS runtime"
-            )
-        task_args = _command_build_args(task.get("commands"), env)
+        task_args = _command_build_args(task.get("commands"), environment)
         if task_args.get("USE_SCCACHE") == "1":
             task_args["USE_SCCACHE"] = "0"
         if "max_jobs" in task_args:
             task_args["max_jobs"] = "2"
             task_args["nvcc_threads"] = "2"
-        images = {
-            found.group(1)
-            for command in _strings(task.get("commands"))
-            for found in image_pattern.finditer(command)
-        }
-        if len(images) > 1:
+        effective = {**defaults, **environment, **task_args}
+        raw_image = task_args.get("BUILD_BASE_IMAGE", defaults.get("BUILD_BASE_IMAGE"))
+        if not raw_image:
             raise ValueError(
-                f"{context}/{pipeline_path} task {task_id}: BUILD_BASE_IMAGE must resolve once"
+                f"{context}/{pipeline_path} task {task_id}: no Builder image"
             )
-        effective = {**defaults, **env, **task_args}
-        source_image_value = (
-            next(iter(images))
-            if images
-            else _SHELL_VARIABLE.sub(
-                lambda variable: effective[variable.group(1)],
-                defaults["BUILD_BASE_IMAGE"],
-            )
-        )
-        source_image = _normalize_image(source_image_value)
-        image_match = re.fullmatch(
-            r"docker\.io/pytorch/manylinux(?:(?P<arm>aarch64)|(?P<major>\d+)_(?P<minor>\d+))-builder:cuda(?P<runtime>\d+\.\d+)(?:-[A-Za-z0-9_][A-Za-z0-9_.-]*)?",
-            source_image,
-        )
-        cuda_image_match = re.fullmatch(
-            r"docker\.io/nvidia/cuda:(?P<runtime>\d+\.\d+)(?:\.\d+)?-devel-ubuntu\d+\.\d+",
-            source_image,
-        )
-        if image_match is None and cuda_image_match is None:
-            raise ValueError(
-                f"{context}/{pipeline_path} task {task_id}: malformed CUDA builder image"
-            )
-        build_os = task_args.get("BUILD_OS", defaults["BUILD_OS"])
-        if image_match is not None and image_match.group("runtime") != runtime:
-            raise ValueError(
-                f"{context}/{pipeline_path} task {task_id}: malformed CUDA builder image"
-            )
-        if (
-            cuda_image_match is not None
-            and cuda_image_match.group("runtime") != runtime
-        ):
-            raise ValueError(
-                f"{context}/{pipeline_path} task {task_id}: CUDA base image does not match task"
-            )
-        cpu_arch = "arm64" if match.group(1) == "arm64" else "amd64"
-        image_arch = (
-            "arm64" if image_match is not None and image_match.group("arm") else "amd64"
-        )
-        if image_match is not None and image_arch != cpu_arch:
-            raise ValueError(
-                f"{context}/{pipeline_path} task {task_id}: builder architecture mismatch"
-            )
-        if build_os == "manylinux":
-            if image_match is None:
-                raise ValueError(
-                    f"{context}/{pipeline_path} task {task_id}: manylinux build has no manylinux Builder image"
-                )
-            manylinux = (
-                "manylinux_2_28"
-                if image_match.group("arm")
-                else f"manylinux_{image_match.group('major')}_{image_match.group('minor')}"
-            )
-        else:
-            manylinux = "linux"
-        runtime_variant = suffix.removeprefix("-") or f"cu{runtime.replace('.', '')}"
+        source_image = _normalize_image(_substitute(raw_image, effective, task_id))
+        manylinux = _manylinux_from_vllm_image(source_image, runtime, cpu_arch, task_id)
         build_group = f"cuda{runtime.replace('.', '')}"
-        groups.append(
+        wheel_builds.append(
             {
                 "id": f"{build_group}-{python_abi}-{cpu_arch}",
                 "build_group": build_group,
@@ -440,124 +441,82 @@ def _parse_vllm(
                 "accelerator_runtime": f"cuda-{runtime}",
                 "variant": "default",
                 "soc_version": "na",
-                "runtime_variant": runtime_variant,
-                "runtime_suffix": suffix,
+                "runtime_variant": f"cu{runtime.replace('.', '')}",
                 "python_version": python_version,
                 "python_abi": python_abi,
                 "manylinux": manylinux,
                 "cpu_arch": cpu_arch,
                 "source_image": source_image,
-                "build_mode": (
-                    "mirror" if images and build_os == "manylinux" else "recipe"
-                ),
+                "build_mode": "mirror",
+                "mooncake_version": "",
                 "recipe": {
                     "dockerfile": dockerfile_path,
                     "target": "base",
                     "build_args": task_args,
                 },
+                "_recipe_source": dockerfile,
             }
         )
-    if not groups:
-        raise ValueError(f"{context}/{pipeline_path}: no CUDA wheel tasks found")
-    return groups
 
-
-_VARIABLE = re.compile(
-    r"\$(?:\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)\}|(?P<plain>[A-Za-z_][A-Za-z0-9_]*))"
-)
-
-
-def _substitute(value: str, variables: Mapping[str, str], context: str) -> str:
-    def replace(match: re.Match[str]) -> str:
-        name = match.group("braced") or match.group("plain")
-        replacement = variables.get(str(name))
-        if replacement is None:
-            raise ValueError(f"{context}: unresolved ARG {name} in FROM")
-        return replacement
-
-    return _VARIABLE.sub(replace, value)
-
-
-def _ascend_dockerfile(
-    text: str, python_version: str, context: str
-) -> tuple[str, str, str, str]:
-    variables: dict[str, str] = {"PY_VERSION": python_version}
-    from_value: str | None = None
-    soc_version = ""
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
+    runtime_groups: dict[tuple[str, str], dict[str, object]] = {}
+    runtime_pattern = re.compile(r"build-release-image-(x86|arm64)(?:-.+)?")
+    for task in _walk_tasks(pipeline):
+        task_id = str(task["id"])
+        match = runtime_pattern.fullmatch(task_id)
+        if match is None:
             continue
-        arg = re.fullmatch(
-            r"ARG\s+([A-Za-z_][A-Za-z0-9_]*)(?:=(.*))?", line, re.IGNORECASE
+        task_args = _command_build_args(task.get("commands"), environment)
+        cuda = task_args.get("CUDA_VERSION")
+        if not cuda:
+            continue
+        runtime_match = re.match(r"(\d+\.\d+)", cuda)
+        if runtime_match is None:
+            raise ValueError(f"{task_id}: malformed CUDA")
+        runtime = runtime_match.group(1)
+        effective = {**defaults, **environment, **task_args}
+        os_version = task_args.get("UBUNTU_VERSION", "")
+        raw_base = task_args.get(
+            "BUILD_BASE_IMAGE", defaults.get("BUILD_BASE_IMAGE", "")
         )
-        if arg:
-            value = arg.group(2)
-            if value is not None and arg.group(1) != "PY_VERSION":
-                variables[arg.group(1)] = value.strip().strip("'\"")
-            if arg.group(1) == "SOC_VERSION" and value is not None:
-                soc_version = value.strip().strip("'\"")
-            continue
-        match = re.fullmatch(r"FROM\s+(.+)", line, re.IGNORECASE)
-        if match and from_value is None:
-            from_value = match.group(1)
-    if from_value is None:
-        raise ValueError(f"{context}: missing FROM")
-    substituted = _substitute(from_value, variables, context)
-    try:
-        tokens = shlex.split(substituted)
-    except ValueError as error:
-        raise ValueError(f"{context}: malformed FROM") from error
-    images = [token for token in tokens if not token.startswith("--")]
-    if not images:
-        raise ValueError(f"{context}: missing image in FROM")
-    image = _normalize_image(images[0])
-    match = re.fullmatch(
-        r"quay\.io/ascend/manylinux:(?P<runtime>\d+\.\d+\.\d+)-(?P<soc>.+)-manylinux_(?P<major>\d+)_(?P<minor>\d+)-py(?P<python>\d+\.\d+)",
-        image,
-    )
-    if match is None or match.group("python") != python_version:
-        raise ValueError(f"{context}: malformed manylinux image {image!r}")
-    resolved_soc = soc_version or match.group("soc")
-    return (
-        image,
-        match.group("runtime"),
-        f"manylinux_{match.group('major')}_{match.group('minor')}",
-        resolved_soc,
-    )
-
-
-def _ascend_runtime_suffixes(workflow: object, context: str) -> dict[str, str]:
-    jobs = _mapping(_mapping(workflow, context).get("jobs"), context)
-    image_build = _mapping(jobs.get("image_build"), context)
-    strategy = _mapping(image_build.get("strategy"), context)
-    matrix = _mapping(strategy.get("matrix"), context)
-    includes = matrix.get("include")
-    nested_build_meta = False
-    if not isinstance(includes, list) and isinstance(matrix.get("build_meta"), list):
-        includes = matrix["build_meta"]
-        nested_build_meta = True
-    if not isinstance(includes, list):
-        raise ValueError(f"{context}: missing image build include matrix")
-    suffixes: dict[str, str] = {}
-    for raw in includes:
-        record = _mapping(raw, context)
-        build_meta = (
-            record if nested_build_meta else _mapping(record.get("build_meta"), context)
+        base = _substitute(raw_base, effective, task_id) if raw_base else ""
+        if not os_version:
+            os_match = re.search(r"ubuntu(\d{2})\.(\d{2})", base)
+            if os_match:
+                os_version = f"{os_match.group(1)}.{os_match.group(2)}"
+        if not os_version:
+            os_version = "24.04" if "ubuntu2404" in task_id else "22.04"
+        suffix = _vllm_runtime_suffix(task.get("commands"))
+        key = (runtime, os_version)
+        record = runtime_groups.setdefault(
+            key, {"suffix": suffix, "architectures": set()}
         )
-        dockerfile = _string(build_meta, "dockerfile", context)
-        suffix = build_meta.get("suffix", "")
-        if not isinstance(suffix, str):
-            raise ValueError(f"{context}: image suffix must be a string")
-        if "openEuler" in dockerfile or "310p" in dockerfile:
-            continue
-        if dockerfile == "Dockerfile":
-            suffixes["a2"] = suffix
-        elif dockerfile == "Dockerfile.a3":
-            suffixes["a3"] = suffix
-    if set(suffixes) != {"a2", "a3"}:
-        raise ValueError(f"{context}: default A2/A3 runtime variants are required")
-    return suffixes
+        if record["suffix"] != suffix:
+            raise ValueError(f"{context}: conflicting runtime suffix for {key}")
+        record["architectures"].add("arm64" if match.group(1) == "arm64" else "amd64")  # type: ignore[union-attr]
+
+    if not wheel_builds or not runtime_groups:
+        raise ValueError(f"{context}: vLLM Wheel or runtime matrix is empty")
+    runtimes: list[dict[str, object]] = []
+    for (runtime, os_version), record in sorted(runtime_groups.items()):
+        runtime_variant = f"cu{runtime.replace('.', '')}"
+        os_token = f"ubuntu{os_version.replace('.', '')}"
+        runtimes.append(
+            {
+                "id": f"{runtime_variant}-{os_token}",
+                "runtime_variant": runtime_variant,
+                "backend": "cuda",
+                "accelerator_runtime": f"cuda-{runtime}",
+                "variant": "default",
+                "soc_version": "na",
+                "python_version": python_version,
+                "python_abi": python_abi,
+                "os_id": "ubuntu",
+                "os_version": os_version,
+                "runtime_suffix": str(record["suffix"]),
+                "declared_architectures": sorted(record["architectures"]),  # type: ignore[arg-type]
+            }
+        )
+    return wheel_builds, runtimes
 
 
 def _ascend_wheel_matrix(
@@ -568,9 +527,7 @@ def _ascend_wheel_matrix(
     for raw_job in jobs.values():
         job = _mapping(raw_job, context)
         strategy = job.get("strategy")
-        if not isinstance(strategy, dict):
-            continue
-        matrix = strategy.get("matrix")
+        matrix = strategy.get("matrix") if isinstance(strategy, dict) else None
         if not isinstance(matrix, dict):
             continue
         python_versions = matrix.get("python-version")
@@ -589,15 +546,13 @@ def _ascend_wheel_matrix(
             )
         )
         match = re.search(r"Dockerfile\.buildwheel\.([a-z0-9-]+)", commands)
-        if match is None:
-            continue
-        variant = match.group(1)
-        result[variant] = {
-            "python_versions": [str(item) for item in python_versions],
-            "operating_systems": [str(item) for item in operating_systems],
-        }
+        if match is not None:
+            result[match.group(1)] = {
+                "python_versions": [str(item) for item in python_versions],
+                "operating_systems": [str(item) for item in operating_systems],
+            }
     if not result:
-        raise ValueError(f"{context}: missing wheel job matrices")
+        raise ValueError(f"{context}: missing Wheel job matrices")
     return result
 
 
@@ -607,58 +562,168 @@ def _runner_arch(operating_system: str, context: str) -> str:
         return mapping[operating_system]
     except KeyError as error:
         raise ValueError(
-            f"{context}: unsupported default runner {operating_system!r}"
+            f"{context}: unsupported Wheel runner {operating_system!r}"
         ) from error
 
 
+def _first_from(text: str, variables: Mapping[str, str], context: str) -> str:
+    from_value = next(
+        (
+            line.strip()[5:].strip()
+            for line in text.splitlines()
+            if line.strip().upper().startswith("FROM ")
+        ),
+        None,
+    )
+    if from_value is None:
+        raise ValueError(f"{context}: missing FROM")
+    tokens = shlex.split(_substitute(from_value, variables, context))
+    images = [token for token in tokens if not token.startswith("--")]
+    if not images:
+        raise ValueError(f"{context}: missing image in FROM")
+    return _normalize_image(images[0])
+
+
+def _ascend_builder_dockerfile(
+    text: str, python_version: str, context: str
+) -> tuple[str, str, str, str]:
+    variables = _dockerfile_arg_defaults(text)
+    variables["PY_VERSION"] = python_version
+    source_image = _first_from(text, variables, context)
+    match = re.fullmatch(
+        r"quay\.io/ascend/manylinux:(?P<runtime>\d+\.\d+\.\d+)-(?P<soc>.+)-manylinux_(?P<major>\d+)_(?P<minor>\d+)-py(?P<python>\d+\.\d+)",
+        source_image,
+    )
+    if match is None or match.group("python") != python_version:
+        raise ValueError(f"{context}: malformed manylinux image {source_image!r}")
+    return (
+        source_image,
+        match.group("runtime"),
+        f"manylinux_{match.group('major')}_{match.group('minor')}",
+        variables.get("SOC_VERSION", match.group("soc")).strip("'\""),
+    )
+
+
+def _ascend_runtime_matrix(workflow: object, context: str) -> list[dict[str, str]]:
+    jobs = _mapping(_mapping(workflow, context).get("jobs"), context)
+    image_build = _mapping(jobs.get("image_build"), context)
+    strategy = _mapping(image_build.get("strategy"), context)
+    matrix = _mapping(strategy.get("matrix"), context)
+    values = matrix.get("include")
+    nested = False
+    if not isinstance(values, list) and isinstance(matrix.get("build_meta"), list):
+        values = matrix["build_meta"]
+        nested = True
+    if not isinstance(values, list):
+        raise ValueError(f"{context}: missing runtime matrix")
+    result: list[dict[str, str]] = []
+    for raw in values:
+        record = _mapping(raw, context)
+        metadata = record if nested else _mapping(record.get("build_meta"), context)
+        dockerfile = _string(metadata, "dockerfile", context)
+        suffix = metadata.get("suffix", "")
+        if not isinstance(suffix, str):
+            raise ValueError(f"{context}: runtime suffix must be a string")
+        if "310p" not in dockerfile.lower():
+            result.append({"dockerfile": dockerfile, "suffix": suffix})
+    return result
+
+
+def _ascend_runtime_dockerfile(text: str, context: str) -> dict[str, str]:
+    variables = _dockerfile_arg_defaults(text)
+    image = _first_from(text, variables, context)
+    match = re.fullmatch(
+        r"quay\.io/ascend/cann:(?P<runtime>\d+\.\d+\.\d+)-(?P<soc>.+)-(?P<os>ubuntu|openeuler)(?P<version>\d+\.\d+)-py(?P<python>\d+\.\d+)",
+        image,
+    )
+    if match is None:
+        raise ValueError(f"{context}: malformed runtime base image {image!r}")
+    return {
+        "accelerator_runtime": f"cann-{match.group('runtime')}",
+        "soc_version": variables.get("SOC_VERSION", match.group("soc")).strip("'\""),
+        "python_version": match.group("python"),
+        "python_abi": _python_abi(match.group("python"), context),
+        "os_id": match.group("os"),
+        "os_version": match.group("version"),
+        "mooncake_version": variables.get("MOONCAKE_TAG", "").removeprefix("v"),
+    }
+
+
 def _parse_ascend(
-    product: Mapping[str, object], adapter: Mapping[str, object], source: object
-) -> list[dict[str, object]]:
-    wheel_workflow_path = _string(adapter, "wheel_workflow_path", "Ascend adapter")
-    image_workflow_path = _string(adapter, "image_workflow_path", "Ascend adapter")
-    directory = _string(adapter, "dockerfile_directory", "Ascend adapter")
-    prefix = _string(adapter, "dockerfile_prefix", "Ascend adapter")
-    excluded = adapter.get("exclude_variants")
-    if excluded != ["310p"]:
-        raise ValueError("Ascend adapter must exclude only 310p")
+    product: Mapping[str, object], source: object
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    wheel_path = ".github/workflows/schedule_release_code_and_wheel.yml"
+    image_path = ".github/workflows/schedule_image_build_and_push.yaml"
+    directory = ".github/workflows/dockerfiles"
+    prefix = "Dockerfile.buildwheel."
     context = f"{product['source_repository']}@{product['source_ref']}"
-    wheel_workflow = core.load_yaml_value(
-        source.read(wheel_workflow_path), context=f"{context}/{wheel_workflow_path}"  # type: ignore[attr-defined]
-    )
-    image_workflow = core.load_yaml_value(
-        source.read(image_workflow_path), context=f"{context}/{image_workflow_path}"  # type: ignore[attr-defined]
-    )
-    matrix = _ascend_wheel_matrix(wheel_workflow, f"{context}/{wheel_workflow_path}")
-    suffixes = _ascend_runtime_suffixes(
-        image_workflow, f"{context}/{image_workflow_path}"
-    )
-    filenames = source.list(directory, prefix)  # type: ignore[attr-defined]
-    groups: list[dict[str, object]] = []
-    for filename in filenames:
-        variant = filename.removeprefix(prefix)
-        if variant in excluded:
-            continue
-        if re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", variant) is None:
-            raise ValueError(f"{context}/{directory}/{filename}: malformed variant")
-        job_matrix = matrix.get(variant)
-        runtime_suffix = suffixes.get(variant)
-        if job_matrix is None or runtime_suffix is None:
+    wheel_workflow = core.load_yaml_value(source.read(wheel_path), context=f"{context}/{wheel_path}")  # type: ignore[attr-defined]
+    image_workflow = core.load_yaml_value(source.read(image_path), context=f"{context}/{image_path}")  # type: ignore[attr-defined]
+    wheel_matrix = _ascend_wheel_matrix(wheel_workflow, f"{context}/{wheel_path}")
+    runtime_matrix = _ascend_runtime_matrix(image_workflow, f"{context}/{image_path}")
+
+    runtimes: list[dict[str, object]] = []
+    mooncake_by_variant: dict[str, set[str]] = {}
+    for record in runtime_matrix:
+        dockerfile = record["dockerfile"]
+        filename = Path(dockerfile).name
+        hardware_name = (
+            filename[: -len(".openEuler")]
+            if filename.lower().endswith(".openeuler")
+            else filename
+        )
+        if hardware_name == "Dockerfile":
+            variant = "a2"
+        elif hardware_name.startswith("Dockerfile."):
+            variant = hardware_name.removeprefix("Dockerfile.").lower()
+        else:
             raise ValueError(
-                f"{context}: variant {variant!r} has no wheel/runtime workflow support"
+                f"{context}: unsupported runtime Dockerfile {dockerfile!r}"
             )
+        parsed = _ascend_runtime_dockerfile(source.read(dockerfile), f"{context}/{dockerfile}")  # type: ignore[attr-defined]
+        mooncake_by_variant.setdefault(variant, set()).add(parsed["mooncake_version"])
+        runtime_version = parsed["accelerator_runtime"].removeprefix("cann-")
+        build_group = f"cann{runtime_version.replace('.', '')}-{variant}"
+        os_token = f"{parsed['os_id']}{parsed['os_version'].replace('.', '')}"
+        runtimes.append(
+            {
+                "id": f"{build_group}-{os_token}",
+                "runtime_variant": variant,
+                "backend": f"cann-{variant}",
+                "variant": variant,
+                "runtime_suffix": f"-{record['suffix']}" if record["suffix"] else "",
+                "declared_architectures": list(SUPPORTED_ARCHITECTURES),
+                **{
+                    key: value
+                    for key, value in parsed.items()
+                    if key != "mooncake_version"
+                },
+            }
+        )
+
+    wheel_builds: list[dict[str, object]] = []
+    for filename in source.list(directory, prefix):  # type: ignore[attr-defined]
+        variant = filename.removeprefix(prefix)
+        if variant == "310p":
+            continue
+        matrix = wheel_matrix.get(variant)
+        if matrix is None:
+            raise ValueError(f"{context}: {variant} has no Wheel workflow matrix")
+        mooncake_versions = mooncake_by_variant.get(variant, set())
+        if len(mooncake_versions) != 1:
+            raise ValueError(f"{context}: {variant} Mooncake version is not unique")
+        mooncake_version = next(iter(mooncake_versions))
         dockerfile_path = f"{directory}/{filename}"
         dockerfile = source.read(dockerfile_path)  # type: ignore[attr-defined]
-        for python_version in job_matrix["python_versions"]:
-            source_image, runtime, manylinux, soc_version = _ascend_dockerfile(
-                dockerfile,
-                python_version,
-                f"{context}/{dockerfile_path}",
+        for python_version in matrix["python_versions"]:
+            source_image, runtime, manylinux, soc_version = _ascend_builder_dockerfile(
+                dockerfile, python_version, f"{context}/{dockerfile_path}"
             )
             python_abi = _python_abi(python_version, dockerfile_path)
             build_group = f"cann{runtime.replace('.', '')}-{variant}"
-            for operating_system in job_matrix["operating_systems"]:
-                cpu_arch = _runner_arch(operating_system, wheel_workflow_path)
-                groups.append(
+            for operating_system in matrix["operating_systems"]:
+                cpu_arch = _runner_arch(operating_system, wheel_path)
+                wheel_builds.append(
                     {
                         "id": f"{build_group}-{python_abi}-{cpu_arch}",
                         "build_group": build_group,
@@ -668,42 +733,78 @@ def _parse_ascend(
                         "variant": variant,
                         "soc_version": soc_version,
                         "runtime_variant": variant,
-                        "runtime_suffix": (
-                            f"-{runtime_suffix}" if runtime_suffix else ""
-                        ),
                         "python_version": python_version,
                         "python_abi": python_abi,
                         "manylinux": manylinux,
                         "cpu_arch": cpu_arch,
                         "source_image": source_image,
                         "build_mode": "recipe-extend",
+                        "mooncake_version": mooncake_version,
                         "recipe": {
                             "dockerfile": dockerfile_path,
                             "target": "",
                             "build_args": {"PY_VERSION": python_version},
                             "strip_run_containing": "python3 setup.py bdist_wheel",
                         },
+                        "_recipe_source": materialize_builder_recipe(
+                            dockerfile, "python3 setup.py bdist_wheel"
+                        ),
                     }
                 )
-    if not groups:
-        raise ValueError(f"{context}: no supported Ascend wheel groups found")
-    return groups
+    if not wheel_builds or not runtimes:
+        raise ValueError(f"{context}: Ascend Wheel or runtime matrix is empty")
+    return wheel_builds, runtimes
 
 
-def _adapter_by_product(
-    builder_config: Mapping[str, object]
-) -> dict[str, dict[str, object]]:
-    projects = builder_config.get("projects")
-    if not isinstance(projects, list):
-        raise ValueError("builder config projects must be a list")
-    result: dict[str, dict[str, object]] = {}
-    for raw in projects:
-        project = _mapping(raw, "builder adapter")
-        product_id = _string(project, "product_id", "builder adapter")
-        if product_id in result:
-            raise ValueError(f"duplicate builder adapter for {product_id}")
-        result[product_id] = project
-    return result
+def _crane(operation: str, reference: str) -> str:
+    completed = subprocess.run(
+        ["crane", operation, reference], text=True, capture_output=True, check=False
+    )
+    if completed.returncode != 0:
+        raise ValueError(
+            f"crane {operation} failed for {reference}: "
+            f"{completed.stderr.strip() or completed.returncode}"
+        )
+    return completed.stdout
+
+
+def _manifest_members(reference: str) -> dict[str, str]:
+    try:
+        manifest = json.loads(_crane("manifest", reference))
+    except json.JSONDecodeError as error:
+        raise ValueError(f"runtime manifest is invalid JSON for {reference}") from error
+    repository = reference.rpartition(":")[0]
+    members = {
+        str(item.get("platform", {}).get("architecture")): (
+            f"{repository}@{item['digest']}"
+        )
+        for item in manifest.get("manifests", [])
+        if isinstance(item, dict)
+        and isinstance(item.get("platform"), dict)
+        and item["platform"].get("os") == "linux"
+        and isinstance(item.get("digest"), str)
+    }
+    if not members:
+        try:
+            config = json.loads(_crane("config", reference))
+        except json.JSONDecodeError as error:
+            raise ValueError(
+                f"runtime config is invalid JSON for {reference}"
+            ) from error
+        if config.get("os", "linux") == "linux" and isinstance(
+            config.get("architecture"), str
+        ):
+            digest = _crane("digest", reference).strip()
+            members[config["architecture"]] = f"{repository}@{digest}"
+    aliases = {"x86_64": "amd64", "aarch64": "arm64"}
+    return {aliases.get(key, key): value for key, value in sorted(members.items())}
+
+
+def _fixture_values(fixture: Mapping[str, object] | None, key: str) -> dict[str, Any]:
+    if fixture is None:
+        return {}
+    value = fixture.get(key, {})
+    return _mapping(value, f"tag fixture {key}") if isinstance(value, dict) else {}
 
 
 def _tag_lists_from_fixture(fixture: Mapping[str, object]) -> dict[str, list[str]]:
@@ -712,32 +813,227 @@ def _tag_lists_from_fixture(fixture: Mapping[str, object]) -> dict[str, list[str
     for repository, raw in repositories.items():
         payload = _mapping(raw, f"tag fixture {repository}")
         tags: set[str] = set()
-        pages = payload.get("pages", [])
-        if isinstance(pages, list):
-            for raw_page in pages:
-                page = _mapping(raw_page, f"tag fixture {repository} page")
-                values = page.get("tags", [])
-                if isinstance(values, list):
-                    tags.update(str(item) for item in values)
-        snapshots = payload.get("snapshots", {})
-        if isinstance(snapshots, dict):
-            tags.update(str(item) for item in snapshots)
+        for raw_page in payload.get("pages", []):
+            page = _mapping(raw_page, f"tag fixture {repository} page")
+            tags.update(str(item) for item in page.get("tags", []))
         result[repository] = sorted(tags)
     return result
 
 
+def _extension_material(accelerator: str) -> dict[str, str]:
+    paths = (
+        (RELEASE_ROOT / "docker" / "Dockerfile.builder-mirror",)
+        if accelerator == "cuda"
+        else (
+            RELEASE_ROOT / "docker" / "Dockerfile.builder",
+            RELEASE_ROOT / "docker" / "mooncake_installer.sh",
+            RELEASE_ROOT / "docker" / "gflags-config.cmake",
+        )
+    )
+    return {
+        path.relative_to(RELEASE_ROOT).as_posix(): path.read_text(encoding="utf-8")
+        for path in paths
+    }
+
+
+def _finalize_wheel_builds(
+    raw_builds: list[dict[str, object]],
+    *,
+    product: Mapping[str, object],
+    digest_for: Callable[[str], str],
+    builder_families: Mapping[str, object],
+) -> list[dict[str, object]]:
+    result: list[dict[str, object]] = []
+    for raw in raw_builds:
+        build = copy.deepcopy(raw)
+        recipe_source = str(build.pop("_recipe_source"))
+        source_image = str(build["source_image"])
+        source_digest = digest_for(source_image)
+        if re.fullmatch(r"sha256:[0-9a-f]{64}", source_digest) is None:
+            raise ValueError(f"invalid source image digest for {source_image}")
+        recipe = _mapping(build["recipe"], "Wheel recipe")
+        family_id = "cuda" if build["accelerator"] == "cuda" else "ascend"
+        builder_family = _mapping(
+            builder_families.get(family_id), f"Builder family {family_id}"
+        )
+        revision_input = {
+            "source_ref": product["source_ref"],
+            "source_commit": product.get("source_commit", product["source_ref"]),
+            "materialized_dockerfile": recipe_source,
+            "target": recipe.get("target", ""),
+            "build_args": recipe.get("build_args", {}),
+            "source_image": source_image,
+            "source_image_digest": source_digest,
+            "ucm_extension": _extension_material(str(build["accelerator"])),
+            "builder_policy": builder_family,
+            "mooncake_version": build["mooncake_version"],
+        }
+        revision = core.sha256_value(revision_input).removeprefix("sha256:")[:12]
+        result.append(
+            {
+                **build,
+                "product_id": product["id"],
+                "source_repository": product["source_repository"],
+                "source_ref": product["source_ref"],
+                "source_image_digest": source_digest,
+                "recipe_revision": revision,
+                "sync_mode": "exact",
+            }
+        )
+    return result
+
+
+def _link_runtime_wheels(
+    runtime: dict[str, object], wheel_builds: list[dict[str, object]]
+) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for architecture in runtime["architectures"]:  # type: ignore[union-attr]
+        matches = [
+            item
+            for item in wheel_builds
+            if item["backend"] == runtime["backend"]
+            and item["accelerator_runtime"] == runtime["accelerator_runtime"]
+            and item["soc_version"] == runtime["soc_version"]
+            and item["python_abi"] == runtime["python_abi"]
+            and item["cpu_arch"] == architecture
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                f"{runtime['id']}: {architecture} must resolve exactly one Wheel build"
+            )
+        result[str(architecture)] = str(matches[0]["id"])
+    return result
+
+
+def _blocked_problem(
+    backend: str, runtime: Mapping[str, object], reason: str
+) -> dict[str, object]:
+    capability = "/".join(
+        str(runtime[key])
+        for key in (
+            "accelerator_runtime",
+            "soc_version",
+            "python_abi",
+            "os_id",
+            "os_version",
+        )
+    )
+    return {
+        "backend": backend,
+        "capability": capability,
+        "reason": reason,
+        "source": {
+            "repository": runtime["source_repository"],
+            "ref": runtime["source_ref"],
+        },
+        "runtime": {
+            "repository": runtime["runtime_repository"],
+            "tag": runtime["runtime_tag"],
+        },
+    }
+
+
+def resolve_revision_wheel_builds(
+    release: Mapping[str, object],
+    *,
+    product_id: str,
+    source_ref: str,
+    probes: Iterable[Mapping[str, object]],
+    snapshot_dir: Path | None = None,
+    image_digest_resolver: Callable[[str], str] | None = None,
+) -> list[dict[str, object]]:
+    """Resolve exact-source Builder recipes needed by inspected PR members."""
+    product = next(
+        (
+            copy.deepcopy(_mapping(item, "upstream product"))
+            for item in release.get("products", [])  # type: ignore[arg-type]
+            if isinstance(item, dict) and item.get("id") == product_id
+        ),
+        None,
+    )
+    if product is None:
+        raise ValueError(f"unknown upstream product {product_id!r}")
+    if not source_ref:
+        raise ValueError("exact-source Builder resolution requires a source revision")
+    product["source_ref"] = source_ref
+    source_repository = _string(product, "source_repository", product_id)
+    source = _source(source_repository, source_ref, snapshot_dir)
+    if product_id == "vllm":
+        raw_builds, _ = _parse_vllm(product, source)
+    elif product_id == "vllm-ascend":
+        raw_builds, _ = _parse_ascend(product, source)
+    else:
+        raise ValueError(f"unsupported upstream product {product_id!r}")
+    digest_for = image_digest_resolver or (
+        lambda reference: _crane("digest", reference).strip()
+    )
+    product["source_commit"] = source_ref
+    builds = _finalize_wheel_builds(
+        raw_builds,
+        product=product,
+        digest_for=digest_for,
+        builder_families=_mapping(release.get("builder_families"), "Builder families"),
+    )
+    selected: dict[str, dict[str, object]] = {}
+    for probe in probes:
+        capability = {
+            field: str(probe[field])
+            for field in (
+                "backend",
+                "accelerator_runtime",
+                "soc_version",
+                "python_abi",
+                "cpu_arch",
+            )
+        }
+        glibc_match = re.fullmatch(r"(\d+)\.(\d+)", str(probe["glibc_version"]))
+        if glibc_match is None:
+            raise ValueError("runtime probe glibc_version must be major.minor")
+        runtime_floor = (int(glibc_match.group(1)), int(glibc_match.group(2)))
+        candidates = []
+        for build in builds:
+            if not all(
+                str(build[field]) == value for field, value in capability.items()
+            ):
+                continue
+            floor_match = re.fullmatch(
+                r"manylinux_(\d+)_(\d+)", str(build["manylinux"])
+            )
+            if floor_match is None:
+                continue
+            floor = (int(floor_match.group(1)), int(floor_match.group(2)))
+            if floor <= runtime_floor:
+                candidates.append((floor, build))
+        if not candidates:
+            detail = ", ".join(f"{key}={value}" for key, value in capability.items())
+            raise ValueError(f"no exact-source Wheel recipe for {detail}")
+        highest = max(floor for floor, _ in candidates)
+        matches = [build for floor, build in candidates if floor == highest]
+        if len(matches) != 1:
+            raise ValueError("exact-source Wheel recipe is ambiguous")
+        selected[str(matches[0]["id"])] = matches[0]
+    return sorted(selected.values(), key=lambda item: str(item["id"]))
+
+
 def resolve_upstreams(
     release: Mapping[str, object],
-    builder_config: Mapping[str, object],
+    _legacy_builder_config: Mapping[str, object] | None = None,
     *,
     tag_lists: Mapping[str, list[str]] | None = None,
     tag_fixture: Mapping[str, object] | None = None,
     snapshot_dir: Path | None = None,
     pinned_upstreams: list[str] | None = None,
+    image_digest_resolver: Callable[[str], str] | None = None,
+    architecture_resolver: Callable[[str], list[str]] | None = None,
+    source_commit_resolver: Callable[[str, str], str] | None = None,
 ) -> dict[str, object]:
-    """Select each upstream once, then parse recipes at that exact Git tag."""
+    """Resolve formal policy into independent Wheel, runtime, and problem sets."""
+    if pinned_upstreams:
+        raise ValueError("opaque pinned runtime tags require runtime inspection")
     if tag_lists is not None and tag_fixture is not None:
         raise ValueError("tag_lists and tag_fixture are mutually exclusive")
+    if "products" not in release:
+        raise ValueError("formal upstream resolution requires release policy schema 4")
     resolved_tags = (
         dict(tag_lists)
         if tag_lists is not None
@@ -747,157 +1043,249 @@ def resolve_upstreams(
             else _live_tag_lists(release)
         )
     )
-    adapters = _adapter_by_product(builder_config)
-    pinned_by_repository: dict[str, set[str]] = {}
-    for reference in pinned_upstreams or []:
-        repository, separator, tag = reference.rpartition(":")
-        if not separator or not repository or not tag:
-            raise ValueError(f"unsupported pinned upstream {reference!r}")
-        pinned_by_repository.setdefault(repository, set()).add(tag)
-    image_suffix = f"-ucm-{core._oci_tag_version(str(release['ucm_version']))}-r{release.get('image_revision', 1)}"
-    upstreams: list[dict[str, object]] = []
-    for raw_product in release["upstream_products"]:  # type: ignore[index]
+    digest_fixture = _fixture_values(tag_fixture, "source_image_digests")
+    architecture_fixture = _fixture_values(tag_fixture, "runtime_architectures")
+    commit_fixture = _fixture_values(tag_fixture, "source_commits")
+    digest_cache: dict[str, str] = {}
+
+    def digest_for(reference: str) -> str:
+        if reference not in digest_cache:
+            value = digest_fixture.get(reference)
+            digest_cache[reference] = (
+                str(value)
+                if value is not None
+                else (
+                    image_digest_resolver(reference)
+                    if image_digest_resolver is not None
+                    else _crane("digest", reference).strip()
+                )
+            )
+        return digest_cache[reference]
+
+    def members_for(reference: str) -> dict[str, str]:
+        value = architecture_fixture.get(reference)
+        if isinstance(value, list):
+            return {str(item): reference for item in sorted(value)}
+        if architecture_resolver is not None:
+            return {
+                str(item): reference
+                for item in sorted(architecture_resolver(reference))
+            }
+        return _manifest_members(reference)
+
+    image_suffix = f"-ucm-{core._oci_tag_version(str(release['ucm_version']))}-r1"
+    expected_architectures = sorted(str(key) for key in release["runners"])  # type: ignore[index]
+    backends = _mapping(release.get("backends"), "platform backends")
+    wheel_builds: list[dict[str, object]] = []
+    runtimes: list[dict[str, object]] = []
+    problems: list[dict[str, object]] = []
+
+    for raw_product in release["products"]:  # type: ignore[index]
         product = copy.deepcopy(_mapping(raw_product, "upstream product"))
         product_id = _string(product, "id", "upstream product")
-        adapter = adapters.get(product_id)
-        if adapter is None:
-            raise ValueError(f"{product_id}: missing builder adapter")
         runtime_repository = _string(product, "runtime_repository", product_id)
-        pinned_tags = pinned_by_repository.get(runtime_repository)
-        if pinned_upstreams and not pinned_tags:
-            continue
-        if pinned_tags:
-            source_refs = {
-                re.sub(
-                    r"-(?:cu\d+|a\d+)$",
-                    "",
-                    tag,
-                )
-                for tag in pinned_tags
-            }
-            if len(source_refs) != 1:
-                raise ValueError(
-                    f"{product_id}: pinned runtime variants must share one source Tag"
-                )
-            source_ref = next(iter(source_refs))
-            parsed = _parse_base_tag(source_ref)
-            if parsed is None:
-                raise ValueError(f"{product_id}: pinned Tag is not a semantic version")
-            version = str(parsed[0])
-            missing_pins = pinned_tags - set(resolved_tags.get(runtime_repository, []))
-            if missing_pins:
-                raise ValueError(
-                    f"{product_id}: pinned runtime tags are not published: {sorted(missing_pins)}"
-                )
-        else:
-            version, source_ref = _select_source_tag(
-                product, resolved_tags.get(runtime_repository, [])
-            )
+        version, source_ref = _select_source_tag(
+            product, resolved_tags.get(runtime_repository, [])
+        )
         product["source_ref"] = source_ref
         source_repository = _string(product, "source_repository", product_id)
-        source = _source(source_repository, source_ref, snapshot_dir)
-        discovery = _string(adapter, "discovery", f"{product_id} adapter")
-        groups = (
-            _parse_vllm(product, adapter, source)
-            if discovery == "vllm-buildkite"
+        fixture_commit = commit_fixture.get(f"{source_repository}@{source_ref}")
+        product["source_commit"] = (
+            str(fixture_commit)
+            if fixture_commit is not None
             else (
-                _parse_ascend(product, adapter, source)
-                if discovery == "vllm-ascend-actions"
-                else None
+                source_commit_resolver(source_repository, source_ref)
+                if source_commit_resolver is not None
+                else (
+                    source_ref
+                    if snapshot_dir is not None
+                    else _github_commit(source_repository, source_ref)
+                )
             )
         )
-        if groups is None:
-            raise ValueError(f"{product_id}: unsupported discovery {discovery!r}")
-        by_family: dict[str, list[dict[str, object]]] = {}
-        for group in groups:
-            by_family.setdefault(str(group["build_group"]), []).append(group)
-        runtime_tags = set(resolved_tags.get(runtime_repository, []))
-        for family_id, family_groups in sorted(by_family.items()):
-            runtime_suffixes = {str(item["runtime_suffix"]) for item in family_groups}
-            if len(runtime_suffixes) != 1:
-                raise ValueError(f"{family_id}: runtime suffix must be unique")
-            runtime_suffix = next(iter(runtime_suffixes))
+        source = _source(source_repository, source_ref, snapshot_dir)
+        if product_id == "vllm":
+            raw_builds, raw_runtimes = _parse_vllm(product, source)
+        elif product_id == "vllm-ascend":
+            raw_builds, raw_runtimes = _parse_ascend(product, source)
+        else:
+            raise ValueError(f"unsupported upstream product {product_id!r}")
+        product_builds = _finalize_wheel_builds(
+            raw_builds,
+            product=product,
+            digest_for=digest_for,
+            builder_families=_mapping(
+                release.get("builder_families"), "Builder families"
+            ),
+        )
+        wheel_builds.extend(product_builds)
+
+        for raw_runtime in raw_runtimes:
+            runtime = copy.deepcopy(raw_runtime)
+            runtime_suffix = str(runtime.pop("runtime_suffix"))
+            declared_architectures = sorted(runtime.pop("declared_architectures"))
             runtime_tag = source_ref + runtime_suffix
-            if pinned_tags and runtime_tag not in pinned_tags:
-                continue
-            if runtime_tag not in runtime_tags:
-                raise ValueError(
-                    f"{product_id}: runtime variant {runtime_tag!r} is not published"
-                )
-            upstreams.append(
-                {
-                    "product_id": product_id,
-                    "source_repository": source_repository,
-                    "source_ref": source_ref,
-                    "runtime_repository": runtime_repository,
-                    "runtime_tag": runtime_tag,
-                    "runtime_variant": str(family_groups[0]["runtime_variant"]),
-                    "version": version,
-                    "channel": _channel(Version(version)),
-                    "family_id": family_id,
-                    "target_repository": _string(
-                        product, "target_repository", product_id
-                    ),
-                    "target_tag": (
-                        f"{source_ref}-{family_groups[0]['runtime_variant']}"
-                        if product_id == "vllm"
-                        else runtime_tag
-                    )
-                    + image_suffix,
-                    "integration_python_abi": _string(
-                        product, "integration_python_abi", product_id
-                    ),
-                    "build_groups": sorted(
-                        family_groups, key=lambda item: str(item["id"])
-                    ),
+            runtime_ref = f"{runtime_repository}:{runtime_tag}"
+            backend = str(runtime["backend"])
+            raw_backend_policy = backends.get(backend)
+            backend_policy = (
+                _mapping(raw_backend_policy, f"backend {backend}")
+                if raw_backend_policy is not None
+                else {
+                    "status": "blocked",
+                    "reason": f"{backend} has no UCM native backend policy",
                 }
             )
-    unknown_pin_repositories = set(pinned_by_repository) - {
-        str(item["runtime_repository"])
-        for item in release["upstream_products"]  # type: ignore[index]
-    }
-    if unknown_pin_repositories:
-        raise ValueError(
-            f"unsupported pinned upstream repositories: {sorted(unknown_pin_repositories)}"
-        )
+            status = backend_policy.get("status")
+            reason = str(backend_policy.get("reason", ""))
+            published = runtime_tag in set(resolved_tags.get(runtime_repository, []))
+            actual_members = members_for(runtime_ref) if published else {}
+            actual_architectures = sorted(actual_members)
+            complete = (
+                declared_architectures == expected_architectures
+                and actual_architectures == expected_architectures
+            )
+            completed_runtime = {
+                **runtime,
+                "product_id": product_id,
+                "source_repository": source_repository,
+                "source_ref": source_ref,
+                "runtime_repository": runtime_repository,
+                "runtime_tag": runtime_tag,
+                "architectures": actual_architectures,
+                "member_references": actual_members,
+                "version": version,
+                "channel": _channel(Version(version)),
+                "target_repository": product["target_repository"],
+                "target_tag": runtime_tag + image_suffix,
+            }
+            if status == "supported" and (not published or not complete):
+                detail = (
+                    "is not published"
+                    if not published
+                    else f"architectures={actual_architectures}, expected={expected_architectures}"
+                )
+                raise ValueError(f"{runtime_ref}: formal runtime {detail}")
+            if not published or not complete:
+                problems.append(
+                    _blocked_problem(
+                        backend,
+                        completed_runtime,
+                        "; ".join(filter(None, (reason, "runtime is incomplete"))),
+                    )
+                )
+                continue
+            completed_runtime["wheel_build_ids"] = _link_runtime_wheels(
+                completed_runtime, product_builds
+            )
+            runtimes.append(completed_runtime)
+            if status == "blocked":
+                problems.append(_blocked_problem(backend, completed_runtime, reason))
+
     selection = {
         "kind": SELECTION_KIND,
         "schema_version": SELECTION_SCHEMA_VERSION,
-        "upstreams": sorted(upstreams, key=lambda item: str(item["family_id"])),
+        "wheel_builds": sorted(wheel_builds, key=lambda item: str(item["id"])),
+        "runtimes": sorted(runtimes, key=lambda item: str(item["id"])),
+        "problems": sorted(
+            problems,
+            key=lambda item: (
+                str(item["backend"]),
+                str(item["runtime"]["repository"]),
+                str(item["runtime"]["tag"]),  # type: ignore[index]
+            ),
+        ),
     }
     return validate_selection(selection)
 
 
 def validate_selection(value: object) -> dict[str, object]:
     selection = _mapping(value, "upstream selection")
+    expected = {"kind", "schema_version", "wheel_builds", "runtimes", "problems"}
+    if set(selection) != expected:
+        raise ValueError("upstream selection fields must be exact")
     if selection.get("kind") != SELECTION_KIND:
         raise ValueError(f"upstream selection kind must be {SELECTION_KIND}")
     if selection.get("schema_version") != SELECTION_SCHEMA_VERSION:
-        raise ValueError("upstream selection schema_version must be 1")
-    upstreams = selection.get("upstreams")
-    if not isinstance(upstreams, list) or not upstreams:
-        raise ValueError("upstream selection must contain upstreams")
-    family_ids: set[str] = set()
-    group_ids: set[str] = set()
-    for raw in upstreams:
-        item = _mapping(raw, "upstream selection item")
-        family_id = _string(item, "family_id", "upstream selection item")
-        if family_id in family_ids:
-            raise ValueError(f"duplicate upstream family {family_id}")
-        family_ids.add(family_id)
-        groups = item.get("build_groups")
-        if not isinstance(groups, list) or not groups:
-            raise ValueError(f"{family_id}: build_groups must be non-empty")
-        for raw_group in groups:
-            group = _mapping(raw_group, f"{family_id} build group")
-            group_id = _string(group, "id", f"{family_id} build group")
-            if group_id in group_ids:
-                raise ValueError(f"duplicate upstream build group {group_id}")
-            group_ids.add(group_id)
-            if group.get("cpu_arch") not in {"amd64", "arm64"}:
-                raise ValueError(f"{group_id}: unsupported cpu_arch")
-            if re.fullmatch(r"cp\d+", str(group.get("python_abi"))) is None:
-                raise ValueError(f"{group_id}: malformed python_abi")
-            if not isinstance(group.get("recipe"), dict):
-                raise ValueError(f"{group_id}: recipe must be a mapping")
+        raise ValueError("upstream selection schema_version must be 2")
+    builds = selection.get("wheel_builds")
+    runtimes = selection.get("runtimes")
+    problems = selection.get("problems")
+    if not isinstance(builds, list) or not builds:
+        raise ValueError("upstream selection wheel_builds must be non-empty")
+    if not isinstance(runtimes, list) or not runtimes:
+        raise ValueError("upstream selection runtimes must be non-empty")
+    if not isinstance(problems, list):
+        raise ValueError("upstream selection problems must be a list")
+    build_ids: set[str] = set()
+    for index, raw in enumerate(builds):
+        build = _mapping(raw, f"wheel_builds[{index}]")
+        if set(build) != _WHEEL_BUILD_FIELDS:
+            raise ValueError(f"wheel_builds[{index}] fields must be exact")
+        build_id = _string(build, "id", f"wheel_builds[{index}]")
+        if build_id in build_ids:
+            raise ValueError(f"duplicate Wheel build {build_id}")
+        build_ids.add(build_id)
+        if build.get("cpu_arch") not in SUPPORTED_ARCHITECTURES:
+            raise ValueError(f"{build_id}: unsupported cpu_arch")
+        if re.fullmatch(r"cp\d+", str(build.get("python_abi"))) is None:
+            raise ValueError(f"{build_id}: malformed python_abi")
+        if re.fullmatch(r"[0-9a-f]{12}", str(build.get("recipe_revision"))) is None:
+            raise ValueError(f"{build_id}: malformed recipe_revision")
+        if not isinstance(build.get("recipe"), dict):
+            raise ValueError(f"{build_id}: recipe must be a mapping")
+    runtime_ids: set[str] = set()
+    for index, raw in enumerate(runtimes):
+        runtime = _mapping(raw, f"runtimes[{index}]")
+        if set(runtime) != _RUNTIME_FIELDS:
+            raise ValueError(f"runtimes[{index}] fields must be exact")
+        runtime_id = _string(runtime, "id", f"runtimes[{index}]")
+        if runtime_id in runtime_ids:
+            raise ValueError(f"duplicate runtime {runtime_id}")
+        runtime_ids.add(runtime_id)
+        architectures = runtime.get("architectures")
+        wheel_ids = runtime.get("wheel_build_ids")
+        member_references = runtime.get("member_references")
+        if (
+            not isinstance(architectures, list)
+            or not architectures
+            or not set(architectures) <= set(SUPPORTED_ARCHITECTURES)
+        ):
+            raise ValueError(f"{runtime_id}: invalid architectures")
+        if not isinstance(wheel_ids, dict) or set(wheel_ids) != set(architectures):
+            raise ValueError(f"{runtime_id}: wheel_build_ids must match architectures")
+        if (
+            not isinstance(member_references, dict)
+            or set(member_references) != set(architectures)
+            or not all(
+                isinstance(reference, str) and reference
+                for reference in member_references.values()
+            )
+        ):
+            raise ValueError(
+                f"{runtime_id}: member_references must match architectures"
+            )
+        unknown = set(str(item) for item in wheel_ids.values()) - build_ids
+        if unknown:
+            raise ValueError(f"{runtime_id}: unknown Wheel builds {sorted(unknown)}")
+    seen_problems: set[bytes] = set()
+    for index, raw in enumerate(problems):
+        problem = _mapping(raw, f"problems[{index}]")
+        if set(problem) != _PROBLEM_FIELDS:
+            raise ValueError(f"problems[{index}] fields must be exact")
+        for nested_key, nested_fields in (
+            ("source", {"repository", "ref"}),
+            ("runtime", {"repository", "tag"}),
+        ):
+            nested = _mapping(
+                problem.get(nested_key), f"problems[{index}].{nested_key}"
+            )
+            if set(nested) != nested_fields or not all(
+                isinstance(value, str) and value for value in nested.values()
+            ):
+                raise ValueError(f"problems[{index}].{nested_key} is malformed")
+        identity = core.canonical_bytes(problem)
+        if identity in seen_problems:
+            raise ValueError(f"duplicate upstream problem at index {index}")
+        seen_problems.add(identity)
     return selection

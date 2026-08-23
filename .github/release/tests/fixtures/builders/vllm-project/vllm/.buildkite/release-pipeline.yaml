@@ -44,5 +44,17 @@ steps:
     - docker push public.example/vllm:$BUILDKITE_COMMIT-$(uname -m)-cu129
   - id: build-release-image-x86-ubuntu2404
     commands:
-    - docker build --build-arg CUDA_VERSION=13.0.2 --target vllm-openai -f docker/Dockerfile .
+    - docker build --build-arg CUDA_VERSION=13.0.2 --build-arg UBUNTU_VERSION=24.04 --target vllm-openai -f docker/Dockerfile .
     - docker push public.example/vllm:$BUILDKITE_COMMIT-$(uname -m)-ubuntu2404
+  - id: build-release-image-arm64-ubuntu2404
+    commands:
+    - docker build --build-arg CUDA_VERSION=13.0.2 --build-arg UBUNTU_VERSION=24.04 --target vllm-openai -f docker/Dockerfile .
+    - docker push public.example/vllm:$BUILDKITE_COMMIT-$(uname -m)-ubuntu2404
+  - id: build-release-image-x86-cuda-12-9-ubuntu2404
+    commands:
+    - docker build --build-arg CUDA_VERSION=12.9.1 --build-arg UBUNTU_VERSION=24.04 --target vllm-openai -f docker/Dockerfile .
+    - docker push public.example/vllm:$BUILDKITE_COMMIT-$(uname -m)-cu129-ubuntu2404
+  - id: build-release-image-arm64-cuda-12-9-ubuntu2404
+    commands:
+    - docker build --build-arg CUDA_VERSION=12.9.1 --build-arg UBUNTU_VERSION=24.04 --target vllm-openai -f docker/Dockerfile .
+    - docker push public.example/vllm:$BUILDKITE_COMMIT-$(uname -m)-cu129-ubuntu2404

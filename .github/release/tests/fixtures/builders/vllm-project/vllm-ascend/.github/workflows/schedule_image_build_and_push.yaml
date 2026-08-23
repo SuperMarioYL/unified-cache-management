@@ -7,4 +7,6 @@ jobs:
           - build_meta: {dockerfile: Dockerfile.openEuler, suffix: openeuler}
           - build_meta: {dockerfile: Dockerfile.a3, suffix: a3}
           - build_meta: {dockerfile: Dockerfile.a3.openEuler, suffix: a3-openeuler}
+          - build_meta: {dockerfile: Dockerfile.a5, suffix: a5}
+          - build_meta: {dockerfile: Dockerfile.a5.openEuler, suffix: a5-openeuler}
           - build_meta: {dockerfile: Dockerfile.310p, suffix: 310p}
