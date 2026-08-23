@@ -209,6 +209,13 @@ def test_compact_wheel_passes_dynamic_python_and_platform_to_build() -> None:
     assert "ARG UCM_PYTHON_ABI" in dockerfile
 
 
+def test_chart_maps_cuda_runtime_families_to_default_values() -> None:
+    text = (WORKFLOWS / "_build-chart.yml").read_text(encoding="utf-8")
+    assert 'chart_variant="${variant}"' in text
+    assert '[ "${product}" = vllm ] && chart_variant=default' in text
+    assert '--arg variant "${chart_variant}"' in text
+
+
 def test_ucm_build_bot_uses_generated_group_ids() -> None:
     text = (WORKFLOWS / "ucm-build-bot.yml").read_text(encoding="utf-8")
     hint = (WORKFLOWS / "ucm-build-hint.yml").read_text(encoding="utf-8")

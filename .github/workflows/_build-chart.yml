@@ -62,10 +62,12 @@ jobs:
           mkdir -p out/rendered out/chart
           helm lint "${source}"
           while IFS=$'\t' read -r product variant repository tag; do
-            values="$(jq -r --arg product "${product}" --arg variant "${variant}" \
+            chart_variant="${variant}"
+            [ "${product}" = vllm ] && chart_variant=default
+            values="$(jq -r --arg product "${product}" --arg variant "${chart_variant}" \
               '.chart.validation_cases[] | select(.product_id == $product and .variant == $variant) | .values' \
               "${plan}")"
-            expected="$(jq -r --arg product "${product}" --arg variant "${variant}" \
+            expected="$(jq -r --arg product "${product}" --arg variant "${chart_variant}" \
               '.chart.validation_cases[] | select(.product_id == $product and .variant == $variant) | .expected_resource' \
               "${plan}")"
             test -n "${values}"
