@@ -1,38 +1,42 @@
-kind: release-config
-schema_version: 3
-image_revision: 1
-source: {staging_repository: 'ghcr.io/{owner}/ucm-release-staging', default_branch: develop, protected_environment: release-production}
-lanes: [feature-candidate, protected-tag]
-runner_map: {amd64: ubuntu-24.04, arm64: ubuntu-24.04-arm}
+kind: ucm-release-policy
+schema_version: 4
+
+runners:
+  amd64: ubuntu-24.04
+  arm64: ubuntu-24.04-arm
+
+products:
+  - id: vllm
+    source_repository: vllm-project/vllm
+    runtime_repository: docker.io/vllm/vllm-openai
+    target_repository: ghcr.io/{owner}/vllm-openai
+    minimum_version: "0.21.0"
+    channel_policy: stable-preferred-rc-fallback
+
+  - id: vllm-ascend
+    source_repository: vllm-project/vllm-ascend
+    runtime_repository: quay.io/ascend/vllm-ascend
+    target_repository: ghcr.io/{owner}/vllm-ascend
+    minimum_version: "0.22.1rc1"
+    channel_policy: stable-preferred-rc-fallback
+
 publish:
   pypi:
     enabled: false
     index: https://upload.pypi.org/legacy/
-  ghcr: {enabled: true, namespace: 'ghcr.io/{owner}'}
-  dockerhub: {enabled: false, namespace: 'docker.io/{owner}'}
-  chart_oci: {enabled: true, namespace: 'ghcr.io/{owner}/charts'}
-  github_release: {enabled: true}
-upstream_products:
-- id: vllm
-  runtime_product: vllm
-  source_repository: vllm-project/vllm
-  runtime_repository: docker.io/vllm/vllm-openai
-  target_repository: ghcr.io/{owner}/vllm-openai
-  version_specifier: '>=0.21,<0.22'
-  channels: [stable]
-  integration_python_abi: cp312
-- id: vllm-ascend
-  runtime_product: vllm-ascend
-  source_repository: vllm-project/vllm-ascend
-  runtime_repository: quay.io/ascend/vllm-ascend
-  target_repository: ghcr.io/{owner}/vllm-ascend
-  version_specifier: '>=0.22.1rc1,<0.23'
-  channels: [rc]
-  integration_python_abi: cp312
+  ghcr:
+    enabled: true
+  dockerhub:
+    enabled: false
+    namespace: docker.io/{owner}
+  chart_oci:
+    enabled: true
+    namespace: ghcr.io/{owner}/charts
+  github_release:
+    enabled: true
+
 chart:
   source: charts/ucm
-  name: unified-cache-pd
-  validation_cases:
-  - {name: cuda, values: charts/ucm/models/cuda/values-qwen3-0p6b-1e1.yaml, product_id: vllm, variant: default, expected_resource: nvidia.com/gpu}
-  - {name: a2, values: charts/ucm/models/ascend/values-qwen3-0p6b-1e1.yaml, product_id: vllm-ascend, variant: a2, expected_resource: huawei.com/Ascend910}
-  - {name: a3, values: charts/ucm/models/ascend/values-qwen3-0p6b-1e1.yaml, product_id: vllm-ascend, variant: a3, expected_resource: huawei.com/Ascend910}
+  smoke_values:
+    vllm: charts/ucm/models/cuda/values-qwen3-0p6b-1e1.yaml
+    vllm-ascend: charts/ucm/models/ascend/values-qwen3-0p6b-1e1.yaml

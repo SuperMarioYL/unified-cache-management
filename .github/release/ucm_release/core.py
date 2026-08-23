@@ -543,6 +543,18 @@ def _exact_runtime_requirement(value: object) -> tuple[str, str, str]:
 
 
 def python_runtime_requirements(catalog: dict[str, Any]) -> list[str]:
+    direct_requirements = catalog.get("wheel_runtime_requirements")
+    if direct_requirements is not None:
+        if (
+            not isinstance(direct_requirements, list)
+            or not direct_requirements
+            or not all(isinstance(item, str) for item in direct_requirements)
+        ):
+            raise ValueError("Wheel runtime requirements must be a non-empty string list")
+        resolved = [_exact_runtime_requirement(item)[2] for item in direct_requirements]
+        if len(set(resolved)) != len(resolved):
+            raise ValueError("Wheel runtime requirements contain duplicate packages")
+        return sorted(resolved)
     declarations = catalog.get("python_runtime_dependencies")
     if not declarations:
         return []
@@ -621,6 +633,24 @@ def runtime_dependency_records(
 def build_tool_dependency_records(
     catalog: dict[str, Any], python_abi: str, architecture: str
 ) -> list[dict[str, str]]:
+    direct_requirements = catalog.get("wheel_build_requirements")
+    if direct_requirements is not None:
+        if (
+            not isinstance(direct_requirements, list)
+            or not direct_requirements
+            or not all(isinstance(item, str) for item in direct_requirements)
+        ):
+            raise ValueError("Wheel build requirements must be a non-empty string list")
+        records = []
+        for item in direct_requirements:
+            name, version, requirement = _exact_runtime_requirement(item)
+            records.append(
+                {"name": name, "version": version, "requirement": requirement}
+            )
+        records.sort(key=lambda item: item["name"])
+        if len({record["name"] for record in records}) != len(records):
+            raise ValueError("Wheel build requirements contain duplicate packages")
+        return records
     build_lock = catalog.get("python_build_lock")
     packages = build_lock.get("packages") if isinstance(build_lock, dict) else None
     if not isinstance(packages, dict) or not 1 <= len(packages) <= 64:
@@ -1422,7 +1452,7 @@ def expand_release_plan(
 
 
 RELEASE_KEYS = frozenset('kind schema_version image_revision source lanes runner_map upstream_products chart publish'.split())  # fmt: skip  # noqa: E501
-OPTIONAL_CATALOG_KEYS = frozenset('ucm_version pr_smoke docker_recipes matrix_limits scan_limits python_runtime_dependencies python_build_lock builder_checks backend_contracts'.split())  # fmt: skip  # noqa: E501
+OPTIONAL_CATALOG_KEYS = frozenset('ucm_version pr_smoke docker_recipes matrix_limits scan_limits python_runtime_dependencies python_build_lock wheel_build_requirements wheel_runtime_requirements builder_checks backend_contracts'.split())  # fmt: skip  # noqa: E501
 SUPPLEMENTARY_TOP_LEVEL_KEYS = frozenset({'pr_smoke', 'docker_recipes', 'matrix_limits', 'scan_limits', 'python_runtime_dependencies', 'python_build_lock', 'builder_checks', 'backend_contracts'})  # fmt: skip  # noqa: E501
 LANES = ("feature-candidate", "protected-tag")
 
@@ -1485,10 +1515,20 @@ def _validate_cross_config(
 
 
 def _load_supplementary_configs(
-    release_path: Path, repository_root: Path
+    release_path: Path,
+    repository_root: Path,
+    *,
+    include_legacy_formal_authorities: bool = True,
 ) -> dict[str, Any]:
     merged: dict[str, Any] = {}
-    candidates = (DEFAULT_RELEASE.parents[1] / 'docker-recipes.yaml', DEFAULT_RELEASE.parent / 'toolchain.lock.yaml', DEFAULT_RELEASE.parent / 'native-contract.yaml')  # fmt: skip  # noqa: E501
+    candidates = [DEFAULT_RELEASE.parents[1] / "docker-recipes.yaml"]
+    if include_legacy_formal_authorities:
+        candidates.extend(
+            (
+                DEFAULT_RELEASE.parent / "toolchain.lock.yaml",
+                DEFAULT_RELEASE.parent / "native-contract.yaml",
+            )
+        )
     for path in candidates:
         if path.is_file(): merged.update(load_yaml(path))  # noqa: E701
     return merged
@@ -1504,7 +1544,29 @@ def load_catalog(
 ) -> dict[str, Any]:
     config_schema = load_json(schema_dir / "config.schema.json")
     release = load_yaml(release_path)
-    supplementary = _load_supplementary_configs(release_path, repository_root)
+    is_v4_policy = (
+        release.get("kind") == "ucm-release-policy"
+        and release.get("schema_version") == 4
+    )
+    if is_v4_policy:
+        from . import policy as release_policy
+
+        formal_policy = release_policy.load(
+            release_path, schema_path=schema_dir / "config.schema.json"
+        )
+        chart_source = formal_policy["release"]["chart"]["source"]
+        chart_document = load_yaml(repository_root / chart_source / "Chart.yaml")
+        chart_name = chart_document.get("name")
+        if not isinstance(chart_name, str) or not chart_name:
+            raise ValueError("Chart.yaml name must be a non-empty string")
+        release = release_policy.compatibility_projection(
+            formal_policy, chart_name=chart_name
+        )
+    supplementary = _load_supplementary_configs(
+        release_path,
+        repository_root,
+        include_legacy_formal_authorities=not is_v4_policy,
+    )
     profile_ids = {p["id"] for p in release.get("wheel_profiles", [])}
     for key, value in supplementary.items():
         if key == "builders" and isinstance(value, dict):

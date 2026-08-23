@@ -16,6 +16,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / ".github" / "release"))
 PACKAGE_DIR = REPO_ROOT / ".github" / "release" / "ucm_release"
+RELEASE_ROOT = REPO_ROOT / ".github" / "release"
 LEGACY_RELEASE_ROOTS = (
     REPO_ROOT / "release",
     REPO_ROOT / "scripts" / "release",
@@ -115,54 +116,177 @@ def test_forbidden_content_scan_covers_the_new_release_tree(tmp_path: Path) -> N
     assert wrapt_paths == [".github/release/ucm_release/wrapt_bundle.py"]
 
 
-def test_release_config_has_no_static_wheel_or_compatibility_matrix() -> None:
-    release = yaml.safe_load(
-        (REPO_ROOT / ".github" / "release" / "release.yaml").read_text(encoding="utf-8")
-    )
+def _release_policy() -> dict[str, object]:
+    return yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8"))
 
-    assert release["schema_version"] == 3
-    assert "wheel_profiles" not in release
-    assert "compatibility" not in release
-    assert all("variants" not in item for item in release["upstream_products"])
+
+def _platform_policy() -> dict[str, object]:
+    return yaml.safe_load((RELEASE_ROOT / "platforms.yaml").read_text(encoding="utf-8"))
+
+
+def test_release_policy_matches_the_schema_v4_maintenance_surface() -> None:
+    assert _release_policy() == {
+        "kind": "ucm-release-policy",
+        "schema_version": 4,
+        "runners": {"amd64": "ubuntu-24.04", "arm64": "ubuntu-24.04-arm"},
+        "products": [
+            {
+                "id": "vllm",
+                "source_repository": "vllm-project/vllm",
+                "runtime_repository": "docker.io/vllm/vllm-openai",
+                "target_repository": "ghcr.io/{owner}/vllm-openai",
+                "minimum_version": "0.21.0",
+                "channel_policy": "stable-preferred-rc-fallback",
+            },
+            {
+                "id": "vllm-ascend",
+                "source_repository": "vllm-project/vllm-ascend",
+                "runtime_repository": "quay.io/ascend/vllm-ascend",
+                "target_repository": "ghcr.io/{owner}/vllm-ascend",
+                "minimum_version": "0.22.1rc1",
+                "channel_policy": "stable-preferred-rc-fallback",
+            },
+        ],
+        "publish": {
+            "pypi": {
+                "enabled": False,
+                "index": "https://upload.pypi.org/legacy/",
+            },
+            "ghcr": {"enabled": True},
+            "dockerhub": {
+                "enabled": False,
+                "namespace": "docker.io/{owner}",
+            },
+            "chart_oci": {
+                "enabled": True,
+                "namespace": "ghcr.io/{owner}/charts",
+            },
+            "github_release": {"enabled": True},
+        },
+        "chart": {
+            "source": "charts/ucm",
+            "smoke_values": {
+                "vllm": "charts/ucm/models/cuda/values-qwen3-0p6b-1e1.yaml",
+                "vllm-ascend": "charts/ucm/models/ascend/values-qwen3-0p6b-1e1.yaml",
+            },
+        },
+    }
+
+
+def test_platform_policy_matches_supported_and_blocked_backends() -> None:
+    assert _platform_policy() == {
+        "kind": "ucm-platform-policy",
+        "schema_version": 1,
+        "excluded_upstream_variants": {"vllm-ascend": ["310p"]},
+        "builder_families": {
+            "cuda": {
+                "target_repository": "ghcr.io/{owner}/ucm-builder-vllm",
+                "required_commands": ["gcc", "g++", "make", "git", "nvcc"],
+            },
+            "ascend": {
+                "target_repository": "ghcr.io/{owner}/ucm-builder-vllm-ascend",
+                "required_commands": ["gcc", "g++", "make", "git", "cmake"],
+                "extensions": {"mooncake": {"version_source": "upstream-runtime"}},
+            },
+        },
+        "backends": {
+            "cuda": {
+                "status": "supported",
+                "platform": "cuda",
+                "distribution_template": "uc-manager-cuda-{runtime_variant}",
+            },
+            "cann-a2": {
+                "status": "supported",
+                "platform": "ascend",
+                "distribution": "uc-manager-cann-a2",
+            },
+            "cann-a3": {
+                "status": "supported",
+                "platform": "ascend-a3",
+                "distribution": "uc-manager-cann-a3",
+            },
+            "cann-a5": {
+                "status": "blocked",
+                "platform": "ascend-a5",
+                "distribution": "uc-manager-cann-a5",
+                "reason": "A5 requires a dedicated UCM native implementation",
+            },
+        },
+    }
+
+
+def test_formal_policy_loads_exact_requirements_without_legacy_authorities() -> None:
+    policy = importlib.import_module("ucm_release.policy")
+
+    loaded = policy.load()
+
+    assert set(loaded) == {"release", "platforms", "requirements"}
+    assert loaded["requirements"] == {
+        "wheel_build": [
+            "build==1.3.0",
+            "cmake==3.31.6",
+            "packaging==24.2",
+            "pyproject-hooks==1.2.0",
+            "pyyaml==6.0.2",
+            "setuptools==75.8.2",
+            "wheel==0.45.1",
+        ],
+        "wheel_runtime": ["wrapt==1.17.2"],
+    }
+    serialized = repr(loaded)
+    for legacy_key in (
+        "python_build_lock",
+        "python_runtime_dependencies",
+        "required_native",
+        "forbidden_native",
+        "allowed_dt_needed",
+    ):
+        assert legacy_key not in serialized
+
+
+def test_core_projects_v4_for_legacy_recipe_consumers() -> None:
+    core = importlib.import_module("ucm_release.core")
+
+    catalog = core.load_catalog(version_override="0.7.59rc7")
+
+    assert catalog["kind"] == "release-config"
+    assert catalog["schema_version"] == 3
+    assert catalog["runner_map"] == _release_policy()["runners"]
+    assert catalog["wheel_build_requirements"] == [
+        "build==1.3.0",
+        "cmake==3.31.6",
+        "packaging==24.2",
+        "pyproject-hooks==1.2.0",
+        "pyyaml==6.0.2",
+        "setuptools==75.8.2",
+        "wheel==0.45.1",
+    ]
+    assert core.python_runtime_requirements(catalog) == ["wrapt==1.17.2"]
+    assert [
+        record["requirement"]
+        for record in core.build_tool_dependency_records(catalog, "cp312", "amd64")
+    ] == catalog["wheel_build_requirements"]
+    assert "python_build_lock" not in catalog
+    assert "python_runtime_dependencies" not in catalog
+    assert len(catalog["docker_recipes"]) == 18
+    assert catalog["backend_contracts"]["cann-a5"]["status"] == "blocked"
     assert all(
-        "required_cpu_architectures" not in item
-        for item in release["upstream_products"]
+        not contract["required_native"]
+        and not contract["forbidden_native"]
+        and not contract["allowed_dt_needed"]
+        for contract in catalog["backend_contracts"].values()
     )
-    assert set(release["runner_map"]) == {"amd64", "arm64"}
-
-
-def test_toolchain_lock_owns_three_abis_and_family_level_checks() -> None:
-    toolchain = yaml.safe_load(
-        (REPO_ROOT / ".github" / "release" / "toolchain.lock.yaml").read_text(
-            encoding="utf-8"
-        )
-    )
-
-    assert "builders" not in toolchain
-    assert set(toolchain["builder_checks"]) == {"cuda", "ascend"}
-    assert set(toolchain["python_build_lock"]["pyyaml"]["artifacts"]) == {
-        "cp310",
-        "cp311",
-        "cp312",
-    }
-    assert set(toolchain["python_runtime_dependencies"][0]["wheel_artifacts"]) == {
-        "cp310",
-        "cp311",
-        "cp312",
-    }
 
 
 def test_release_yaml_is_the_exact_publication_authority() -> None:
-    release = yaml.safe_load(
-        (REPO_ROOT / ".github" / "release" / "release.yaml").read_text(encoding="utf-8")
-    )
+    release = _release_policy()
 
     assert release["publish"] == {
         "pypi": {
             "enabled": False,
             "index": "https://upload.pypi.org/legacy/",
         },
-        "ghcr": {"enabled": True, "namespace": "ghcr.io/{owner}"},
+        "ghcr": {"enabled": True},
         "dockerhub": {"enabled": False, "namespace": "docker.io/{owner}"},
         "chart_oci": {
             "enabled": True,
@@ -170,12 +294,15 @@ def test_release_yaml_is_the_exact_publication_authority() -> None:
         },
         "github_release": {"enabled": True},
     }
-    assert set(release["source"]) == {
-        "staging_repository",
-        "default_branch",
-        "protected_environment",
+    assert set(release) == {
+        "kind",
+        "schema_version",
+        "runners",
+        "products",
+        "publish",
+        "chart",
     }
-    assert set(release["chart"]) == {"source", "name", "validation_cases"}
+    assert set(release["chart"]) == {"source", "smoke_values"}
 
 
 def test_publish_plan_is_the_normalized_config_without_runtime_layers() -> None:
@@ -253,3 +380,13 @@ def test_publish_channel_shapes_are_exact(
 
     with pytest.raises(ValueError, match="Additional properties are not allowed"):
         core.load_catalog(path)
+
+
+def test_catalog_validate_cli_uses_v4_policy_contract(capsys) -> None:
+    cli = importlib.import_module("ucm_release.cli")
+
+    assert cli.main(["catalog", "validate"]) == 0
+
+    output = capsys.readouterr().out
+    assert '"products":2' in output
+    assert '"backends":4' in output
