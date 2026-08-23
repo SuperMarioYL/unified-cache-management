@@ -334,6 +334,9 @@ def test_ucm_build_bot_uses_probe_pipeline_without_hardcoded_capabilities() -> N
         "sync-pr-builders",
     }
     assert jobs["probe-runtimes"]["strategy"]["fail-fast"] is False
+    assert "always()" in jobs["build-wheels"]["if"]
+    assert "select-plan.result == 'success'" in jobs["build-wheels"]["if"]
+    assert "build-wheels.result == 'success'" in jobs["build-images"]["if"]
     text = (WORKFLOWS / "ucm-build-bot.yml").read_text(encoding="utf-8")
     hint = (WORKFLOWS / "ucm-build-hint.yml").read_text(encoding="utf-8")
     assert "runtime inspect" in text
@@ -362,7 +365,8 @@ def test_pr_member_and_index_publication_are_separate_dynamic_matrices() -> None
         == "${{ fromJSON(needs.select-plan.outputs.index_matrix) }}"
     )
     assert "has_indexes == 'true'" in indexes["if"]
-    assert "if" not in members
+    assert "always()" in members["if"]
+    assert "build-images.result == 'success'" in members["if"]
     index_step = indexes["steps"][-1]["run"]
     assert "matrix.members" not in index_step
     assert "jq -er '.[]'" in index_step

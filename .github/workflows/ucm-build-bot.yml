@@ -631,6 +631,7 @@ jobs:
   build-wheels:
     name: Wheel · ${{ matrix.label }}
     needs: [permission-check, select-plan]
+    if: ${{ always() && needs.select-plan.result == 'success' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.select-plan.outputs.wheel_matrix) }}
@@ -647,6 +648,11 @@ jobs:
   build-images:
     name: Image · ${{ matrix.label }}
     needs: [permission-check, select-plan, build-wheels]
+    if: >-
+      ${{
+        always() && needs.select-plan.result == 'success' &&
+        needs.build-wheels.result == 'success'
+      }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.select-plan.outputs.image_matrix) }}
@@ -663,7 +669,11 @@ jobs:
   package-chart:
     name: Chart · Helm package
     needs: [select-plan]
-    if: needs.select-plan.outputs.chart_enabled == 'true'
+    if: >-
+      ${{
+        always() && needs.select-plan.result == 'success' &&
+        needs.select-plan.outputs.chart_enabled == 'true'
+      }}
     permissions:
       contents: read
     uses: ./.github/workflows/_build-chart.yml
@@ -674,6 +684,11 @@ jobs:
   publish-pr-image-members:
     name: Publish PR member · ${{ matrix.label }}
     needs: [permission-check, select-plan, build-images]
+    if: >-
+      ${{
+        always() && needs.select-plan.result == 'success' &&
+        needs.build-images.result == 'success'
+      }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.select-plan.outputs.image_matrix) }}
@@ -714,7 +729,8 @@ jobs:
     needs: [permission-check, select-plan, publish-pr-image-members]
     if: >-
       ${{
-        needs.select-plan.outputs.has_indexes == 'true'
+        always() && needs.select-plan.outputs.has_indexes == 'true' &&
+        needs.publish-pr-image-members.result == 'success'
       }}
     strategy:
       fail-fast: false
