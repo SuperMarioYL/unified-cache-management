@@ -44,6 +44,8 @@ RUN test -n "${MOONCAKE_TAG}" && \
       -DBUILD_EXAMPLES=OFF && \
     cmake --build build --parallel "$(nproc)" && \
     cmake --install build && \
+    install -Dm0644 mooncake-transfer-engine/include/cuda_alike.h \
+      /usr/local/include/cuda_alike.h && \
     rm -rf build && \
     yum clean all && \
     rm -rf /var/cache/yum && \
