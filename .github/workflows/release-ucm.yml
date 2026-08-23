@@ -58,14 +58,20 @@ jobs:
           mkdir -p out/upstreams
           PYTHONPATH=.github/release python -m ucm_release upstreams resolve \
             --output out/upstreams/upstream-selection.json >/dev/null
-          artifact="ucm-upstream-selection-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          PYTHONPATH=.github/release python -m ucm_release problems render \
+            --selection out/upstreams/upstream-selection.json \
+            --summary out/upstreams/problems-summary.md \
+            --issue out/upstreams/problems-issue.json \
+            --action out/upstreams/problems-action.json >/dev/null
+          cat out/upstreams/problems-summary.md >>"${GITHUB_STEP_SUMMARY}"
+          artifact="ucm-upstream-selection-run-${GITHUB_RUN_ID}"
           echo "upstream_selection_artifact=${artifact}" >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@v4.6.2
         with:
           name: ${{ steps.resolve.outputs.upstream_selection_artifact }}
           path: out/upstreams/upstream-selection.json
           if-no-files-found: error
-          overwrite: false
+          overwrite: true
           retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}
 
   sync-builders:
@@ -140,14 +146,15 @@ jobs:
                ([.wheels[].wheel_version] | all(. == $version))' \
               out/plan/release-plan.json >/dev/null
           fi
-          artifact="ucm-release-plan-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          artifact="ucm-release-plan-run-${GITHUB_RUN_ID}"
           {
             echo "route=${route}"
             echo "plan_artifact=${artifact}"
             echo "wheel_matrix=$(jq -c '.wheel_matrix' out/plan/release-plan.json)"
             echo "image_matrix=$(jq -c '.image_matrix' out/plan/release-plan.json)"
             echo "image_index_matrix=$(jq -c \
-              '{include:[.families[]|{id,label,target_repository,target_tag}]}' \
+              '{include:[.families[]|select(.create_index)| \
+                {id,label,target_repository,target_tag,members:[.members[].reference]}]}' \
               out/plan/release-plan.json)"
           } >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@v4.6.2
@@ -155,7 +162,7 @@ jobs:
           name: ${{ steps.plan.outputs.plan_artifact }}
           path: out/plan/release-plan.json
           if-no-files-found: error
-          overwrite: false
+          overwrite: true
           retention-days: ${{ steps.plan.outputs.route == 'release' && 90 || 7 }}
 
   build-wheels:
@@ -217,11 +224,11 @@ jobs:
           path: input/plan
       - uses: actions/download-artifact@v4.3.0
         with:
-          pattern: ucm-wheel-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          pattern: ucm-wheel-*-run-${{ github.run_id }}
           path: input/wheels
       - uses: actions/download-artifact@v4.3.0
         with:
-          name: ucm-chart-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: ucm-chart-run-${{ github.run_id }}
           path: input/chart
       - name: Validate publication artifacts
         run: |
@@ -301,7 +308,7 @@ jobs:
           path: input/plan
       - uses: actions/download-artifact@v4.3.0
         with:
-          name: ucm-image-${{ matrix.id }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: ucm-image-${{ matrix.id }}-run-${{ github.run_id }}
           path: input/image
       - name: Install skopeo
         run: |
@@ -362,16 +369,18 @@ jobs:
         env:
           TARGET_REPOSITORY: ${{ matrix.target_repository }}
           TARGET_TAG: ${{ matrix.target_tag }}
+          MEMBERS: ${{ toJSON(matrix.members) }}
         run: |
           set -euo pipefail
           plan=input/plan/release-plan.json
+          mapfile -t ghcr_members < <(jq -er '.[]' <<<"${MEMBERS}")
+          test "${#ghcr_members[@]}" -gt 1
           if [ "$(jq -r '.publish.ghcr.enabled' "${plan}")" = true ]; then
             printf '%s' "${GH_TOKEN}" | docker login ghcr.io \
               --username "${GITHUB_ACTOR}" --password-stdin
             docker buildx imagetools create \
               --tag "${TARGET_REPOSITORY}:${TARGET_TAG}" \
-              "${TARGET_REPOSITORY}:${TARGET_TAG}-amd64" \
-              "${TARGET_REPOSITORY}:${TARGET_TAG}-arm64"
+              "${ghcr_members[@]}"
             docker buildx imagetools inspect \
               "${TARGET_REPOSITORY}:${TARGET_TAG}" >/dev/null
           fi
@@ -381,10 +390,11 @@ jobs:
               --username "${DOCKERHUB_USERNAME}" --password-stdin
             namespace="$(jq -r '.publish.dockerhub.namespace' "${plan}")"
             repository="${namespace}/$(basename "${TARGET_REPOSITORY}")"
+            mapfile -t dockerhub_members < <(jq -er --arg repository "${repository}" \
+              '.[] | ($repository + ":" + (split(":")[-1]))' <<<"${MEMBERS}")
             docker buildx imagetools create \
               --tag "${repository}:${TARGET_TAG}" \
-              "${repository}:${TARGET_TAG}-amd64" \
-              "${repository}:${TARGET_TAG}-arm64"
+              "${dockerhub_members[@]}"
             docker buildx imagetools inspect "${repository}:${TARGET_TAG}" >/dev/null
           fi
 
@@ -409,7 +419,7 @@ jobs:
           path: input/plan
       - uses: actions/download-artifact@v4.3.0
         with:
-          pattern: ucm-wheel-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          pattern: ucm-wheel-*-run-${{ github.run_id }}
           path: input/wheels
       - name: Publish Wheels
         run: |
@@ -447,7 +457,7 @@ jobs:
           path: input/plan
       - uses: actions/download-artifact@v4.3.0
         with:
-          name: ucm-chart-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: ucm-chart-run-${{ github.run_id }}
           path: input/chart
       - name: Publish Chart package
         run: |
@@ -486,11 +496,11 @@ jobs:
           path: input/plan
       - uses: actions/download-artifact@v4.3.0
         with:
-          pattern: ucm-wheel-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          pattern: ucm-wheel-*-run-${{ github.run_id }}
           path: input/wheels
       - uses: actions/download-artifact@v4.3.0
         with:
-          name: ucm-chart-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: ucm-chart-run-${{ github.run_id }}
           path: input/chart
       - name: Upload assets and publish GitHub Release
         run: |

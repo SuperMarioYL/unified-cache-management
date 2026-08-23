@@ -62,14 +62,10 @@ jobs:
           mkdir -p out/rendered out/chart
           helm lint "${source}"
           while IFS=$'\t' read -r product variant repository tag; do
-            chart_variant="${variant}"
-            [ "${product}" = vllm ] && chart_variant=default
-            values="$(jq -r --arg product "${product}" --arg variant "${chart_variant}" \
-              '.chart.validation_cases[] | select(.product_id == $product and .variant == $variant) | .values' \
-              "${plan}")"
-            expected="$(jq -r --arg product "${product}" --arg variant "${chart_variant}" \
-              '.chart.validation_cases[] | select(.product_id == $product and .variant == $variant) | .expected_resource' \
-              "${plan}")"
+            values="$(jq -er --arg product "${product}" \
+              '.chart.smoke_values[$product]' "${plan}")"
+            expected=huawei.com/Ascend910
+            [ "${product}" = vllm ] && expected=nvidia.com/gpu
             test -n "${values}"
             helm template "ucm-${variant}" "${source}" --values "${values}" \
               --set-string "images.engine.repository=${repository}" \
@@ -83,12 +79,12 @@ jobs:
             --app-version "${app_version}" \
             --destination out/chart
           test "$(find out/chart -maxdepth 1 -type f -name '*.tgz' | wc -l | tr -d ' ')" = 1
-          echo "chart_artifact=ucm-chart-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}" \
+          echo "chart_artifact=ucm-chart-run-${GITHUB_RUN_ID}" \
             >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@v4.6.2
         with:
           name: ${{ steps.package.outputs.chart_artifact }}
           path: out/chart/*.tgz
           if-no-files-found: error
-          overwrite: false
+          overwrite: true
           retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}

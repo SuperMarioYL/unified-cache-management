@@ -68,7 +68,7 @@ jobs:
             --distribution "$(jq -r '.dist_name' out/wheel-task.json)" >/dev/null
           jq -r '.build_requirements[]' out/wheel-task.json \
             >.ucm-compact/build-requirements.txt
-          artifact="ucm-wheel-${WHEEL_ID}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          artifact="ucm-wheel-${WHEEL_ID}-run-${GITHUB_RUN_ID}"
           echo "wheel_artifact=${artifact}" >>"${GITHUB_OUTPUT}"
       - uses: jlumbroso/free-disk-space@v1.3.1
         with:
@@ -113,5 +113,5 @@ jobs:
           name: ${{ steps.task.outputs.wheel_artifact }}
           path: out/wheel/
           if-no-files-found: error
-          overwrite: false
+          overwrite: true
           retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}

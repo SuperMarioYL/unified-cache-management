@@ -189,7 +189,7 @@ def test_builder_sync_consumes_selection_and_materializes_recipes() -> None:
     workflow = _load("sync-builders.yml")
     assert set(workflow["on"]) == {"workflow_call"}
     assert set(workflow["on"]["workflow_call"]["inputs"]) == {
-        "upstream_selection_artifact"
+        "upstream_selection_artifact",
     }
     text = (WORKFLOWS / "sync-builders.yml").read_text(encoding="utf-8")
     assert "--selection input/upstreams/upstream-selection.json" in text
@@ -202,6 +202,14 @@ def test_builder_sync_consumes_selection_and_materializes_recipes() -> None:
     assert 'imagetools inspect "${upstream_target}"' in text
     assert "Upstream recipe stage already exists" in text
     assert "REQUIRE_MOONCAKE" in text
+    assert (
+        workflow["jobs"]["build-missing"]["continue-on-error"]
+        == "${{ matrix.checks.blocking != true }}"
+    )
+    assert "builders labels" in text
+    assert "candidate-${GITHUB_RUN_ID}" in text
+    assert 'imagetools create --tag "${target}" "${candidate}"' in text
+    assert "Dockerfile.builder-mirror" in text
     assert workflow["jobs"]["build-missing"]["timeout-minutes"] == 180
 
     dockerfile = (
@@ -279,18 +287,180 @@ def test_release_build_keeps_gcc_fmt_false_positive_non_fatal() -> None:
     assert "-Wno-error=stringop-overflow" in cmake
 
 
-def test_chart_maps_cuda_runtime_families_to_default_values() -> None:
+def test_chart_consumes_product_smoke_values_from_v4_policy() -> None:
     text = (WORKFLOWS / "_build-chart.yml").read_text(encoding="utf-8")
-    assert 'chart_variant="${variant}"' in text
-    assert '[ "${product}" = vllm ] && chart_variant=default' in text
-    assert '--arg variant "${chart_variant}"' in text
+    assert ".chart.smoke_values[$product]" in text
+    assert "huawei.com/Ascend910" in text
+    assert "nvidia.com/gpu" in text
+    assert "validation_cases" not in text
 
 
-def test_ucm_build_bot_uses_generated_group_ids() -> None:
+def test_ucm_build_bot_uses_probe_pipeline_without_hardcoded_capabilities() -> None:
+    workflow = _load("ucm-build-bot.yml")
+    assert set(workflow["on"]) == {"issue_comment", "workflow_dispatch"}
+    assert set(workflow["on"]["workflow_dispatch"]["inputs"]) == {
+        "pr_number",
+        "subcommand",
+        "image_refs",
+        "profile",
+    }
+    jobs = workflow["jobs"]
+    assert set(
+        jobs["inspect-runtimes"]["needs"]
+        if isinstance(jobs["inspect-runtimes"]["needs"], list)
+        else [jobs["inspect-runtimes"]["needs"]]
+    ) == {"permission-check"}
+    assert set(jobs["probe-runtimes"]["needs"]) == {
+        "permission-check",
+        "inspect-runtimes",
+    }
+    assert set(jobs["resolve-pr-runtimes"]["needs"]) == {
+        "permission-check",
+        "inspect-runtimes",
+        "probe-runtimes",
+    }
+    assert set(jobs["sync-pr-builders"]["needs"]) == {
+        "permission-check",
+        "resolve-pr-runtimes",
+    }
+    assert set(jobs["plan-image"]["needs"]) == {
+        "permission-check",
+        "resolve-pr-runtimes",
+        "sync-pr-builders",
+    }
+    assert jobs["probe-runtimes"]["strategy"]["fail-fast"] is False
     text = (WORKFLOWS / "ucm-build-bot.yml").read_text(encoding="utf-8")
     hint = (WORKFLOWS / "ucm-build-hint.yml").read_text(encoding="utf-8")
-    for group in ("cuda129", "cuda130", "cann900-a2", "cann900-a3"):
-        assert group in text
-        assert group in hint
+    assert "runtime inspect" in text
+    assert "runtime aggregate" in text
+    assert "builders scan-registry" in text
+    assert "runtime resolve" in text
+    assert "opaque" in hint
+    assert "pep440" not in hint.lower()
+    assert "cann900" not in text + hint
     assert "--upstream-selection" in text
     assert "profile_id==$profile" in text
+
+
+def test_pr_member_and_index_publication_are_separate_dynamic_matrices() -> None:
+    jobs = _load("ucm-build-bot.yml")["jobs"]
+    members = jobs["publish-pr-image-members"]
+    indexes = jobs["publish-pr-image-indexes"]
+    assert members["strategy"]["fail-fast"] is False
+    assert indexes["strategy"]["fail-fast"] is False
+    assert (
+        members["strategy"]["matrix"]
+        == "${{ fromJSON(needs.select-plan.outputs.image_matrix) }}"
+    )
+    assert (
+        indexes["strategy"]["matrix"]
+        == "${{ fromJSON(needs.select-plan.outputs.index_matrix) }}"
+    )
+    assert "has_indexes == 'true'" in indexes["if"]
+    assert "all" in members["if"]
+    assert "all" in indexes["if"]
+    index_step = indexes["steps"][-1]["run"]
+    assert "matrix.members" not in index_step
+    assert "jq -er '.[]'" in index_step
+    assert '"${members[@]}"' in index_step
+    assert "-amd64" not in index_step
+    assert "-arm64" not in index_step
+
+
+def test_pr_receipt_is_always_posted_and_has_no_package_write_permission() -> None:
+    receipt = _load("ucm-build-bot.yml")["jobs"]["post-build-receipt"]
+    assert "always()" in receipt["if"]
+    assert receipt["permissions"] == {
+        "actions": "read",
+        "contents": "read",
+        "pull-requests": "write",
+    }
+    text = yaml.safe_dump(receipt)
+    assert "runtime receipt" in text
+    assert "pr-resolution.json" in text
+
+
+def test_bot_control_plane_is_trusted_while_builds_use_pr_source() -> None:
+    jobs = _load("ucm-build-bot.yml")["jobs"]
+    for name in (
+        "resolve-formal",
+        "inspect-runtimes",
+        "probe-runtimes",
+        "resolve-pr-runtimes",
+        "plan-formal",
+        "plan-image",
+        "post-build-receipt",
+    ):
+        checkouts = [
+            step
+            for step in jobs[name]["steps"]
+            if step.get("uses") == "actions/checkout@v4.2.2"
+        ]
+        assert checkouts
+        assert all("ref" not in step.get("with", {}) for step in checkouts)
+    assert (
+        jobs["build-wheels"]["with"]["source_ref"]
+        == "${{ needs.select-plan.outputs.source_ref }}"
+    )
+    assert (
+        jobs["build-images"]["with"]["source_ref"]
+        == "${{ needs.select-plan.outputs.source_ref }}"
+    )
+
+
+def test_bot_all_retags_and_publishes_without_formal_tag_collision() -> None:
+    jobs = _load("ucm-build-bot.yml")["jobs"]
+    plan_text = yaml.safe_dump(jobs["plan-formal"])
+    assert "compact retag-pr" in plan_text
+    assert "index_matrix=${indexes}" in plan_text
+    assert "publish-pr-image-members" in jobs
+    assert "publish-pr-image-indexes" in jobs
+
+
+def test_runtime_probe_frees_disk_and_uploads_failure_evidence() -> None:
+    probe = _load("ucm-build-bot.yml")["jobs"]["probe-runtimes"]
+    uses = [step.get("uses") for step in probe["steps"]]
+    assert "jlumbroso/free-disk-space@v1.3.1" in uses
+    upload = next(
+        step
+        for step in probe["steps"]
+        if step.get("uses") == "actions/upload-artifact@v4.6.2"
+    )
+    assert "always()" in upload["if"]
+    assert upload["with"]["path"] == "out/"
+    image_build = (WORKFLOWS / "_build-image.yml").read_text(encoding="utf-8")
+    assert ".runtime.image_reference" in image_build
+    assert '.runtime.repository + ":" + .runtime.tag' not in image_build
+
+
+def test_cross_job_artifact_names_survive_failed_job_reruns() -> None:
+    names = (
+        "release-ucm.yml",
+        "sync-builders.yml",
+        "_build-wheel.yml",
+        "_build-image.yml",
+        "_build-chart.yml",
+        "ucm-build-bot.yml",
+    )
+    text = "\n".join((WORKFLOWS / name).read_text(encoding="utf-8") for name in names)
+    assert "github.run_attempt" not in text
+    assert "GITHUB_RUN_ATTEMPT" in text  # candidate Builder tags remain retry-scoped.
+
+
+def test_a5_issue_is_isolated_to_formal_tag_workflow() -> None:
+    issue = _load("release-capability-issue.yml")
+    assert issue["on"] == {"push": {"tags": ["v*"]}}
+    assert issue["permissions"] == {
+        "actions": "read",
+        "contents": "read",
+        "issues": "write",
+    }
+    assert issue["concurrency"]["cancel-in-progress"] is True
+    assert "issues" not in _load("release-ucm.yml")["permissions"]
+    assert "issues" not in _load("ucm-build-bot.yml")["permissions"]
+    text = (WORKFLOWS / "release-capability-issue.yml").read_text(encoding="utf-8")
+    assert "problems render" in text
+    assert "ucm-upstream-selection-run-${run_id}" in text
+    assert "upstreams resolve" not in text
+    assert "gh issue create" in text
+    assert "gh issue close" in text

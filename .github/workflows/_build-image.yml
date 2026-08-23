@@ -61,8 +61,8 @@ jobs:
             --plan input/plan/release-plan.json --kind image --id "${IMAGE_ID}" \
             --output out/image-task.json >/dev/null
           wheel_id="$(jq -r '.wheel_id' out/image-task.json)"
-          wheel_artifact="ucm-wheel-${wheel_id}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
-          image_artifact="ucm-image-${IMAGE_ID}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          wheel_artifact="ucm-wheel-${wheel_id}-run-${GITHUB_RUN_ID}"
+          image_artifact="ucm-image-${IMAGE_ID}-run-${GITHUB_RUN_ID}"
           {
             echo "wheel_artifact=${wheel_artifact}"
             echo "image_artifact=${image_artifact}"
@@ -88,7 +88,7 @@ jobs:
           test -n "${wheel}"
           cp .github/release/docker/Dockerfile.runtime context/Dockerfile
           cp "${wheel}" "context/$(basename "${wheel}")"
-          base="$(jq -r '.runtime.repository + ":" + .runtime.tag' out/image-task.json)"
+          base="$(jq -er '.runtime.image_reference' out/image-task.json)"
           docker buildx build \
             --platform "$(jq -r '.platform' out/image-task.json)" \
             --file context/Dockerfile \
@@ -98,6 +98,30 @@ jobs:
             --output type=oci,dest=out/image.oci.tar \
             --progress plain context
           test -s out/image.oci.tar
+      - name: Verify runtime Python, OS, and UCM import
+        env:
+          IMAGE_ID: ${{ inputs.image_id }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes skopeo
+          local_tag="ucm-runtime-check:${IMAGE_ID}"
+          skopeo copy "oci-archive:out/image.oci.tar" "docker-daemon:${local_tag}"
+          docker run --rm --entrypoint sh \
+            -e EXPECTED_PYTHON="$(jq -r '.runtime.python_version' out/image-task.json)" \
+            -e EXPECTED_OS_ID="$(jq -r '.runtime.os_id' out/image-task.json)" \
+            -e EXPECTED_OS_VERSION="$(jq -r '.runtime.os_version' out/image-task.json)" \
+            "${local_tag}" -c '
+              set -eu
+              actual_python="$(python3 -c \
+                "import sys; print(\"%d.%d\" % sys.version_info[:2])")"
+              test "${actual_python}" = "${EXPECTED_PYTHON}"
+              . /etc/os-release
+              test "$(printf %s "${ID}" | tr "[:upper:]" "[:lower:]")" = \
+                "$(printf %s "${EXPECTED_OS_ID}" | tr "[:upper:]" "[:lower:]")"
+              test "${VERSION_ID}" = "${EXPECTED_OS_VERSION}"
+              python3 -c "import ucm"
+            '
       - if: ${{ inputs.upload_oci }}
         uses: actions/upload-artifact@v4.6.2
         with:
@@ -105,5 +129,5 @@ jobs:
           path: out/image.oci.tar
           if-no-files-found: error
           compression-level: 0
-          overwrite: false
+          overwrite: true
           retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}

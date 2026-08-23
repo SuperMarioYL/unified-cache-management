@@ -3,13 +3,39 @@ name: UCM Build Bot
 on:
   issue_comment:
     types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Test PR number whose head source is built
+        type: number
+        required: true
+      subcommand:
+        description: /ucm-build subcommand
+        type: choice
+        options: [wheel, image, chart, all]
+        required: true
+      image_refs:
+        description: Newline-separated repository:tag references for image
+        type: string
+        required: false
+        default: ""
+      profile:
+        description: Optional generated Wheel group
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
 jobs:
   permission-check:
-    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/ucm-build')
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (github.event.issue.pull_request &&
+         startsWith(github.event.comment.body, '/ucm-build'))
+      }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -28,20 +54,30 @@ jobs:
         name: Parse command
         env:
           COMMENT_BODY: ${{ github.event.comment.body }}
+          DISPATCH_SUBCOMMAND: ${{ inputs.subcommand }}
+          DISPATCH_IMAGE_REFS: ${{ inputs.image_refs }}
+          DISPATCH_PROFILE: ${{ inputs.profile }}
         run: |
           set -euo pipefail
-          read -r -a words <<<"${COMMENT_BODY}"
-          subcommand="${words[1]:-help}"
-          case "${subcommand}" in help|wheel|image|chart|all) ;; *) exit 2 ;; esac
-          profile=""
           refs=()
-          for word in "${words[@]:2}"; do
-            case "${word}" in
-              profile=*) profile="${word#profile=}" ;;
-              *:*) refs+=("${word}") ;;
-              *) echo "unsupported /ucm-build argument: ${word}" >&2; exit 2 ;;
-            esac
-          done
+          if [ "${GITHUB_EVENT_NAME}" = workflow_dispatch ]; then
+            subcommand="${DISPATCH_SUBCOMMAND}"
+            profile="${DISPATCH_PROFILE}"
+            while IFS= read -r ref; do [ -z "${ref}" ] || refs+=("${ref}"); done \
+              <<<"${DISPATCH_IMAGE_REFS}"
+          else
+            read -r -a words <<<"${COMMENT_BODY}"
+            subcommand="${words[1]:-help}"
+            profile=""
+            for word in "${words[@]:2}"; do
+              case "${word}" in
+                profile=*) profile="${word#profile=}" ;;
+                *:*) refs+=("${word}") ;;
+                *) echo "unsupported /ucm-build argument: ${word}" >&2; exit 2 ;;
+              esac
+            done
+          fi
+          case "${subcommand}" in help|wheel|image|chart|all) ;; *) exit 2 ;; esac
           if [ "${subcommand}" = image ] && [ "${#refs[@]}" -eq 0 ]; then
             echo "/ucm-build image requires at least one repository:tag" >&2
             exit 2
@@ -67,12 +103,12 @@ jobs:
 
           | Command | Result |
           | --- | --- |
-          | `/ucm-build wheel [profile=cuda129|cuda130|cann900-a2|cann900-a3]` | Independent wheel artifacts |
-          | `/ucm-build image <repository:tag> [...]` | Wheels, OCI images and PR-tagged GHCR indexes |
+          | `/ucm-build wheel [profile=<generated-group>]` | Independent Wheel artifacts |
+          | `/ucm-build image <repository:tag> [...]` | Any published, capability-resolvable runtime tag |
           | `/ucm-build chart` | Linted and packaged Helm Chart |
-          | `/ucm-build all` | Complete wheel, image and Chart matrices |
+          | `/ucm-build all` | Complete formal Wheel, image, and Chart matrices |
 
-          PR image tags use `pr-<number>-<author>-run-<run-id>` and are removed by the PR cleanup workflow.
+          Runtime tags are opaque. The repository must be configured, the image must expose a supported Linux architecture and runtime capability, and a compatible Builder must be resolvable.
           EOF
           gh pr comment "${{ github.event.issue.number }}" --body-file help.md
       - id: permission
@@ -80,10 +116,12 @@ jobs:
         if: steps.parse.outputs.subcommand != 'help'
         env:
           GH_TOKEN: ${{ github.token }}
+          COMMENTER: ${{ github.event.comment.user.login }}
         run: |
           set -euo pipefail
+          actor="${COMMENTER:-${GITHUB_ACTOR}}"
           permission="$(gh api \
-            "repos/${GITHUB_REPOSITORY}/collaborators/${{ github.event.comment.user.login }}/permission" \
+            "repos/${GITHUB_REPOSITORY}/collaborators/${actor}/permission" \
             --jq '.permission')"
           case "${permission}" in
             admin|maintain|write) echo "allowed=true" >>"${GITHUB_OUTPUT}" ;;
@@ -94,27 +132,31 @@ jobs:
         if: steps.parse.outputs.subcommand != 'help'
         env:
           GH_TOKEN: ${{ github.token }}
+          DISPATCH_PR_NUMBER: ${{ inputs.pr_number }}
         run: |
           set -euo pipefail
-          pr="$(gh api "${{ github.event.issue.pull_request.url }}")"
+          if [ "${GITHUB_EVENT_NAME}" = workflow_dispatch ]; then
+            pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${DISPATCH_PR_NUMBER}")"
+          else
+            pr="$(gh api "${{ github.event.issue.pull_request.url }}")"
+          fi
           {
             echo "source-ref=$(jq -r '.head.sha' <<<"${pr}")"
             echo "number=$(jq -r '.number' <<<"${pr}")"
             echo "author=$(jq -r '.user.login' <<<"${pr}")"
           } >>"${GITHUB_OUTPUT}"
 
-  resolve-upstreams:
-    name: Resolve upstream Tags
+  resolve-formal:
+    name: Resolve formal upstreams
     needs: permission-check
-    if: needs.permission-check.outputs.allowed == 'true'
+    if: needs.permission-check.outputs.allowed == 'true' && needs.permission-check.outputs.subcommand != 'image'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
-      upstream_selection_artifact: ${{ steps.resolve.outputs.upstream_selection_artifact }}
+      selection_artifact: ${{ steps.resolve.outputs.selection_artifact }}
     steps:
       - uses: actions/checkout@v4.2.2
         with:
-          ref: ${{ needs.permission-check.outputs.source-ref }}
           persist-credentials: false
       - uses: actions/setup-python@v5.6.0
         with:
@@ -122,7 +164,7 @@ jobs:
       - run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
-      - name: Install crane for runtime discovery
+      - name: Install crane
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/crane"
@@ -131,54 +173,276 @@ jobs:
             | tar -xz -C "${RUNNER_TEMP}/crane" crane
           echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
       - id: resolve
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          PYTHONPATH=.github/release python -m ucm_release upstreams resolve \
+            --output out/upstream-selection.json >/dev/null
+          artifact="ucm-upstream-selection-run-${GITHUB_RUN_ID}"
+          echo "selection_artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ steps.resolve.outputs.selection_artifact }}
+          path: out/upstream-selection.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  inspect-runtimes:
+    name: Inspect runtime manifests
+    needs: permission-check
+    if: needs.permission-check.outputs.allowed == 'true' && needs.permission-check.outputs.subcommand == 'image'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      inspection_artifact: ${{ steps.inspect.outputs.inspection_artifact }}
+      probe_matrix: ${{ steps.inspect.outputs.probe_matrix }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - name: Install crane
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 \
+            https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
+            | tar -xz -C "${RUNNER_TEMP}/crane" crane
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - id: inspect
         env:
-          SUBCOMMAND: ${{ needs.permission-check.outputs.subcommand }}
           IMAGE_REFS: ${{ needs.permission-check.outputs.image-refs }}
         run: |
           set -euo pipefail
-          mkdir -p out/upstreams
-          args=(--output out/upstreams/upstream-selection.json)
-          if [ "${SUBCOMMAND}" = image ]; then
-            while IFS= read -r ref; do
-              [ -n "${ref}" ] && args+=(--pin-upstream "${ref}")
-            done <<<"${IMAGE_REFS}"
-          fi
-          PYTHONPATH=.github/release python -m ucm_release upstreams resolve \
-            "${args[@]}" >/dev/null
-          artifact="ucm-upstream-selection-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
-          echo "upstream_selection_artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+          mkdir -p out
+          artifact="ucm-runtime-inspection-run-${GITHUB_RUN_ID}"
+          echo "inspection_artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+          write_inspection_failure() {
+            status=$?
+            jq -n \
+              --arg detail "runtime manifest inspection failed; inspect this job log" \
+              '{stage:"inspect",reason:"runtime-inspection-failed",detail:$detail}' \
+              >out/runtime-inspection-failure.json
+            exit "${status}"
+          }
+          trap write_inspection_failure ERR
+          printf '%s\n' "${IMAGE_REFS}" | sed '/^$/d' >out/runtime-refs.txt
+          PYTHONPATH=.github/release python -m ucm_release runtime inspect \
+            --references-file out/runtime-refs.txt \
+            --output out/runtime-inspection.json >/dev/null
+          echo "probe_matrix=$(jq -c '.probe_matrix' out/runtime-inspection.json)" \
+            >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@v4.6.2
+        if: ${{ always() }}
+        with:
+          name: ${{ steps.inspect.outputs.inspection_artifact }}
+          path: out/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  probe-runtimes:
+    name: Probe · ${{ matrix.runtime_ref }} · ${{ matrix.cpu_arch }}
+    needs: [permission-check, inspect-runtimes]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.inspect-runtimes.outputs.probe_matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: false
+      - id: probe
+        name: Read runtime capability
+        env:
+          PROBE_ID: ${{ matrix.probe_id }}
+          IMAGE_REFERENCE: ${{ matrix.image_reference }}
+          PLATFORM: ${{ matrix.platform }}
+          ACCELERATOR: ${{ matrix.accelerator }}
+          RUNTIME_REF: ${{ matrix.runtime_ref }}
+          OCI_SOURCE: ${{ matrix.oci_source }}
+          OCI_REVISION: ${{ matrix.oci_revision }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          write_probe_failure() {
+            status=$?
+            jq -n --arg probe_id "${PROBE_ID}" \
+              --arg runtime_ref "${RUNTIME_REF}" \
+              --arg detail "runtime capability probe failed; inspect this matrix job log" \
+              '{stage:"probe",reason:"runtime-probe-failed",detail:$detail,
+                probe_id:$probe_id,runtime_ref:$runtime_ref}' \
+              >out/runtime-probe-failure.json
+            exit "${status}"
+          }
+          trap write_probe_failure ERR
+          docker pull --platform "${PLATFORM}" "${IMAGE_REFERENCE}"
+          facts="$(docker run --rm --platform "${PLATFORM}" --entrypoint sh \
+            -e EXPECTED_ACCELERATOR="${ACCELERATOR}" "${IMAGE_REFERENCE}" -c '
+              set -eu
+              python_bin="$(command -v python3 || command -v python)"
+              python_version="$(${python_bin} -c \
+                "import sys; print(\"%d.%d\" % sys.version_info[:2])")"
+              . /etc/os-release
+              glibc_version="$(ldd --version 2>&1 | head -n 1)"
+              cuda_version="${CUDA_VERSION:-}"
+              cann_version="${CANN_VERSION:-${ASCEND_TOOLKIT_HOME:-${ASCEND_HOME_PATH:-}}}"
+              if [ "${EXPECTED_ACCELERATOR}" = cuda ] && [ -z "${cuda_version}" ]; then
+                cuda_version="$(nvcc --version 2>/dev/null | tail -n 1 || true)"
+              fi
+              if [ "${EXPECTED_ACCELERATOR}" = ascend ] && [ -z "${cann_version}" ]; then
+                version_file="$(find /usr/local/Ascend -type f \
+                  \( -name version.info -o -name version.cfg \) -print -quit 2>/dev/null || true)"
+                [ -z "${version_file}" ] || cann_version="$(head -n 1 "${version_file}")"
+              fi
+              printf "%s\037%s\037%s\037%s\037%s\037%s\037%s" \
+                "${python_version}" "${ID}" "${VERSION_ID}" "${glibc_version}" \
+                "${cuda_version}" "${cann_version}" "${SOC_VERSION:-na}"
+            ')"
+          IFS=$'\x1f' read -r python_version os_id os_version glibc_version \
+            cuda_version cann_version soc_version <<<"${facts}"
+          jq -n \
+            --arg probe_id "${PROBE_ID}" \
+            --arg python_version "${python_version}" \
+            --arg os_id "${os_id}" \
+            --arg os_version "${os_version}" \
+            --arg glibc_version "${glibc_version}" \
+            --arg cuda_version "${cuda_version}" \
+            --arg cann_version "${cann_version}" \
+            --arg soc_version "${soc_version}" \
+            --arg oci_source "${OCI_SOURCE}" \
+            --arg oci_revision "${OCI_REVISION}" \
+            '{probe_id:$probe_id,python_version:$python_version,os_id:$os_id,
+              os_version:$os_version,glibc_version:$glibc_version,
+              cuda_version:$cuda_version,cann_version:$cann_version,
+              soc_version:$soc_version,oci_source:$oci_source,
+              oci_revision:$oci_revision}' >out/runtime-probe-raw.json
+      - uses: actions/upload-artifact@v4.6.2
+        if: ${{ always() && steps.probe.outcome != 'skipped' }}
+        with:
+          name: ucm-runtime-probe-${{ matrix.probe_id }}-run-${{ github.run_id }}
+          path: out/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  resolve-pr-runtimes:
+    name: Aggregate probes and resolve Builders
+    needs: [permission-check, inspect-runtimes, probe-runtimes]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      selection_artifact: ${{ steps.resolve.outputs.selection_artifact }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - name: Install crane
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 \
+            https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
+            | tar -xz -C "${RUNNER_TEMP}/crane" crane
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.inspect-runtimes.outputs.inspection_artifact }}
+          path: input/inspection
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          pattern: ucm-runtime-probe-*-run-${{ github.run_id }}
+          path: input/probes
+      - name: Authenticate to GHCR
+        run: |
+          printf '%s' "${{ github.token }}" | docker login ghcr.io \
+            --username "${GITHUB_ACTOR}" --password-stdin
+      - id: resolve
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          PYTHONPATH=.github/release python -m ucm_release runtime aggregate \
+            --inspection input/inspection/runtime-inspection.json \
+            --probe-dir input/probes --output out/runtime-probe.json >/dev/null
+          PYTHONPATH=.github/release python -m ucm_release builders scan-registry \
+            --output out/builder-registry.json >/dev/null
+          PYTHONPATH=.github/release python -m ucm_release runtime resolve \
+            --probe out/runtime-probe.json \
+            --builder-registry out/builder-registry.json \
+            --pr-number "${{ needs.permission-check.outputs.pr-number }}" \
+            --author "${{ needs.permission-check.outputs.pr-author }}" \
+            --run-id "${GITHUB_RUN_ID}" --output-dir out >/dev/null
+          artifact="ucm-pr-runtime-resolution-run-${GITHUB_RUN_ID}"
+          echo "selection_artifact=${artifact}" >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@v4.6.2
         with:
-          name: ${{ steps.resolve.outputs.upstream_selection_artifact }}
-          path: out/upstreams/upstream-selection.json
+          name: ${{ steps.resolve.outputs.selection_artifact }}
+          path: out/
           if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+      - name: Require a compatible Builder resolution
+        run: jq -e '.ok == true' out/pr-resolution.json >/dev/null
 
-  sync-builders:
-    needs: [permission-check, resolve-upstreams]
-    if: needs.permission-check.outputs.allowed == 'true'
+  sync-formal-builders:
+    needs: [permission-check, resolve-formal]
+    if: needs.permission-check.outputs.allowed == 'true' && needs.permission-check.outputs.subcommand != 'image'
     permissions:
       contents: read
       packages: write
     uses: ./.github/workflows/sync-builders.yml
     with:
-      upstream_selection_artifact: ${{ needs.resolve-upstreams.outputs.upstream_selection_artifact }}
+      upstream_selection_artifact: ${{ needs.resolve-formal.outputs.selection_artifact }}
 
-  plan:
-    name: Plan requested build
-    needs: [permission-check, resolve-upstreams, sync-builders]
-    if: needs.permission-check.outputs.allowed == 'true'
+  sync-pr-builders:
+    needs: [permission-check, resolve-pr-runtimes]
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/sync-builders.yml
+    with:
+      upstream_selection_artifact: ${{ needs.resolve-pr-runtimes.outputs.selection_artifact }}
+
+  plan-formal:
+    name: Plan formal requested build
+    needs: [permission-check, resolve-formal, sync-formal-builders]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
-      source_ref: ${{ needs.permission-check.outputs.source-ref }}
       plan_artifact: ${{ steps.plan.outputs.plan_artifact }}
       wheel_matrix: ${{ steps.filter.outputs.wheel_matrix }}
       image_matrix: ${{ steps.filter.outputs.image_matrix }}
+      index_matrix: ${{ steps.filter.outputs.index_matrix }}
+      has_indexes: ${{ steps.filter.outputs.has_indexes }}
       chart_enabled: ${{ steps.filter.outputs.chart_enabled }}
     steps:
       - uses: actions/checkout@v4.2.2
         with:
-          ref: ${{ needs.permission-check.outputs.source-ref }}
           fetch-depth: 0
           fetch-tags: true
           persist-credentials: false
@@ -190,46 +454,40 @@ jobs:
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
       - uses: actions/download-artifact@v4.3.0
         with:
-          name: ${{ needs.sync-builders.outputs.builder_catalog_artifact }}
-          path: input/builders
+          name: ${{ needs.resolve-formal.outputs.selection_artifact }}
+          path: input/selection
       - uses: actions/download-artifact@v4.3.0
         with:
-          name: ${{ needs.resolve-upstreams.outputs.upstream_selection_artifact }}
-          path: input/upstreams
+          name: ${{ needs.sync-formal-builders.outputs.builder_catalog_artifact }}
+          path: input/builders
       - id: plan
-        name: Resolve compact plan
         env:
           SUBCOMMAND: ${{ needs.permission-check.outputs.subcommand }}
-          IMAGE_REFS: ${{ needs.permission-check.outputs.image-refs }}
         run: |
           set -euo pipefail
-          mkdir -p out/plan
-          args=(--upstream-selection input/upstreams/upstream-selection.json \
+          mkdir -p out
+          PYTHONPATH=.github/release python -m ucm_release compact plan \
+            --upstream-selection input/selection/upstream-selection.json \
             --builder-catalog input/builders/builder-catalog.json --route pr \
-            --output out/plan/release-plan.json)
-          if [ "${SUBCOMMAND}" = image ]; then
-            while IFS= read -r ref; do
-              [ -n "${ref}" ] && args+=(--pin-upstream "${ref}")
-            done <<<"${IMAGE_REFS}"
+            --output out/release-plan.json >/dev/null
+          if [ "${SUBCOMMAND}" = all ]; then
+            PYTHONPATH=.github/release python -m ucm_release compact retag-pr \
+              --plan out/release-plan.json \
+              --pr-number "${{ needs.permission-check.outputs.pr-number }}" \
+              --author "${{ needs.permission-check.outputs.pr-author }}" \
+              --run-id "${GITHUB_RUN_ID}" \
+              --output out/release-plan.next.json >/dev/null
+            mv out/release-plan.next.json out/release-plan.json
           fi
-          PYTHONPATH=.github/release python -m ucm_release compact plan "${args[@]}" >/dev/null
-          echo "plan_artifact=ucm-release-plan-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}" \
+          echo "plan_artifact=ucm-release-plan-run-${GITHUB_RUN_ID}" \
             >>"${GITHUB_OUTPUT}"
-      - uses: actions/upload-artifact@v4.6.2
-        with:
-          name: ${{ steps.plan.outputs.plan_artifact }}
-          path: out/plan/release-plan.json
-          if-no-files-found: error
-          overwrite: false
-          retention-days: 7
       - id: filter
-        name: Select requested matrices
         env:
           SUBCOMMAND: ${{ needs.permission-check.outputs.subcommand }}
           PROFILE: ${{ needs.permission-check.outputs.profile }}
         run: |
           set -euo pipefail
-          plan=out/plan/release-plan.json
+          plan=out/release-plan.json
           case "${SUBCOMMAND}" in
             wheel)
               if [ -n "${PROFILE}" ]; then
@@ -240,13 +498,6 @@ jobs:
                 wheels="$(jq -c '.wheel_matrix' "${plan}")"
               fi
               images='{"include":[]}' chart=false
-              ;;
-            image)
-              images="$(jq -c '.image_matrix' "${plan}")"
-              needed="$(jq -c '[.images[].wheel_id]' "${plan}")"
-              wheels="$(jq -c --argjson ids "${needed}" \
-                '{include:[.wheels[]|select(.id|IN($ids[]))|{id,label,runner}]}' "${plan}")"
-              chart=false
               ;;
             chart)
               wheels='{"include":[]}' images='{"include":[]}' chart=true
@@ -260,150 +511,350 @@ jobs:
           {
             echo "wheel_matrix=${wheels}"
             echo "image_matrix=${images}"
+            if [ "${SUBCOMMAND}" = all ]; then
+              indexes="$(jq -c '{include:[.families[]|select(.create_index)|
+                {id,label,target_repository,target_tag,members:[.members[].reference]}]}' \
+                "${plan}")"
+              echo "index_matrix=${indexes}"
+              echo "has_indexes=$(jq -r '.include | length > 0' <<<"${indexes}")"
+            else
+              echo 'index_matrix={"include":[]}'
+              echo "has_indexes=false"
+            fi
             echo "chart_enabled=${chart}"
+          } >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ steps.plan.outputs.plan_artifact }}
+          path: out/release-plan.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  plan-image:
+    name: Plan inspected runtime build
+    needs: [permission-check, resolve-pr-runtimes, sync-pr-builders]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      plan_artifact: ${{ steps.plan.outputs.plan_artifact }}
+      wheel_matrix: ${{ steps.plan.outputs.wheel_matrix }}
+      image_matrix: ${{ steps.plan.outputs.image_matrix }}
+      index_matrix: ${{ steps.plan.outputs.index_matrix }}
+      has_indexes: ${{ steps.plan.outputs.has_indexes }}
+      chart_enabled: ${{ steps.plan.outputs.chart_enabled }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.resolve-pr-runtimes.outputs.selection_artifact }}
+          path: input/selection
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.sync-pr-builders.outputs.builder_catalog_artifact }}
+          path: input/builders
+      - id: plan
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          PYTHONPATH=.github/release python -m ucm_release compact plan \
+            --upstream-selection input/selection/upstream-selection.json \
+            --builder-catalog input/builders/builder-catalog.json --route pr \
+            --output out/release-plan.json >/dev/null
+          index_matrix="$(jq -c \
+            '{include:[.families[]|select(.create_index)|
+              {id,label,target_repository,target_tag,members:[.members[].reference]}]}' \
+            out/release-plan.json)"
+          artifact="ucm-release-plan-run-${GITHUB_RUN_ID}"
+          {
+            echo "plan_artifact=${artifact}"
+            echo "wheel_matrix=$(jq -c '.wheel_matrix' out/release-plan.json)"
+            echo "image_matrix=$(jq -c '.image_matrix' out/release-plan.json)"
+            echo "index_matrix=${index_matrix}"
+            echo "has_indexes=$(jq -r '.include | length > 0' <<<"${index_matrix}")"
+            echo "chart_enabled=false"
+          } >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ steps.plan.outputs.plan_artifact }}
+          path: out/release-plan.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  select-plan:
+    name: Select requested plan
+    needs: [permission-check, plan-formal, plan-image]
+    if: >-
+      ${{
+        always() && needs.permission-check.outputs.allowed == 'true' &&
+        (needs.plan-formal.result == 'success' || needs.plan-image.result == 'success')
+      }}
+    runs-on: ubuntu-24.04
+    outputs:
+      source_ref: ${{ needs.permission-check.outputs.source-ref }}
+      plan_artifact: ${{ steps.select.outputs.plan_artifact }}
+      wheel_matrix: ${{ steps.select.outputs.wheel_matrix }}
+      image_matrix: ${{ steps.select.outputs.image_matrix }}
+      index_matrix: ${{ steps.select.outputs.index_matrix }}
+      has_indexes: ${{ steps.select.outputs.has_indexes }}
+      chart_enabled: ${{ steps.select.outputs.chart_enabled }}
+    steps:
+      - id: select
+        env:
+          PLAN_ARTIFACT: ${{ needs.plan-image.outputs.plan_artifact || needs.plan-formal.outputs.plan_artifact }}
+          WHEEL_MATRIX: ${{ needs.plan-image.outputs.wheel_matrix || needs.plan-formal.outputs.wheel_matrix }}
+          IMAGE_MATRIX: ${{ needs.plan-image.outputs.image_matrix || needs.plan-formal.outputs.image_matrix }}
+          INDEX_MATRIX: ${{ needs.plan-image.outputs.index_matrix || needs.plan-formal.outputs.index_matrix }}
+          HAS_INDEXES: ${{ needs.plan-image.outputs.has_indexes || needs.plan-formal.outputs.has_indexes }}
+          CHART_ENABLED: ${{ needs.plan-image.outputs.chart_enabled || needs.plan-formal.outputs.chart_enabled }}
+        run: |
+          set -euo pipefail
+          test -n "${PLAN_ARTIFACT}"
+          {
+            echo "plan_artifact=${PLAN_ARTIFACT}"
+            echo "wheel_matrix=${WHEEL_MATRIX}"
+            echo "image_matrix=${IMAGE_MATRIX}"
+            echo "index_matrix=${INDEX_MATRIX}"
+            echo "has_indexes=${HAS_INDEXES}"
+            echo "chart_enabled=${CHART_ENABLED}"
           } >>"${GITHUB_OUTPUT}"
 
   build-wheels:
     name: Wheel · ${{ matrix.label }}
-    needs: [permission-check, plan]
+    needs: [permission-check, select-plan]
     if: contains(fromJSON('["wheel","image","all"]'), needs.permission-check.outputs.subcommand)
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.wheel_matrix) }}
+      matrix: ${{ fromJSON(needs.select-plan.outputs.wheel_matrix) }}
     permissions:
       contents: read
       packages: read
     uses: ./.github/workflows/_build-wheel.yml
     with:
-      source_ref: ${{ needs.plan.outputs.source_ref }}
+      source_ref: ${{ needs.select-plan.outputs.source_ref }}
       wheel_id: ${{ matrix.id }}
       runner: ${{ matrix.runner }}
-      plan_artifact: ${{ needs.plan.outputs.plan_artifact }}
+      plan_artifact: ${{ needs.select-plan.outputs.plan_artifact }}
 
   build-images:
     name: Image · ${{ matrix.label }}
-    needs: [permission-check, plan, build-wheels]
+    needs: [permission-check, select-plan, build-wheels]
     if: contains(fromJSON('["image","all"]'), needs.permission-check.outputs.subcommand)
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.image_matrix) }}
+      matrix: ${{ fromJSON(needs.select-plan.outputs.image_matrix) }}
     permissions:
       contents: read
     uses: ./.github/workflows/_build-image.yml
     with:
-      source_ref: ${{ needs.plan.outputs.source_ref }}
+      source_ref: ${{ needs.select-plan.outputs.source_ref }}
       image_id: ${{ matrix.id }}
       runner: ${{ matrix.runner }}
-      plan_artifact: ${{ needs.plan.outputs.plan_artifact }}
+      plan_artifact: ${{ needs.select-plan.outputs.plan_artifact }}
       upload_oci: true
 
   package-chart:
     name: Chart · Helm package
-    needs: [permission-check, plan]
-    if: needs.plan.outputs.chart_enabled == 'true'
+    needs: [select-plan]
+    if: needs.select-plan.outputs.chart_enabled == 'true'
     permissions:
       contents: read
     uses: ./.github/workflows/_build-chart.yml
     with:
-      source_ref: ${{ needs.plan.outputs.source_ref }}
-      plan_artifact: ${{ needs.plan.outputs.plan_artifact }}
+      source_ref: ${{ needs.select-plan.outputs.source_ref }}
+      plan_artifact: ${{ needs.select-plan.outputs.plan_artifact }}
 
-  publish-trusted:
-    name: Publish PR build receipt
-    needs: [permission-check, plan, build-wheels, build-images, package-chart]
-    if: >-
-      ${{
-        always() && needs.permission-check.result == 'success' &&
-        (needs.build-wheels.result == 'success' ||
-         needs.build-images.result == 'success' ||
-         needs.package-chart.result == 'success')
-      }}
+  publish-pr-image-members:
+    name: Publish PR member · ${{ matrix.label }}
+    needs: [permission-check, select-plan, build-images]
+    if: contains(fromJSON('["image","all"]'), needs.permission-check.outputs.subcommand)
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select-plan.outputs.image_matrix) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 45
     permissions:
       actions: read
       contents: read
       packages: write
-      pull-requests: write
-    env:
-      GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: docker/setup-buildx-action@v3.11.1
       - uses: actions/download-artifact@v4.3.0
         with:
-          name: ${{ needs.plan.outputs.plan_artifact }}
+          name: ${{ needs.select-plan.outputs.plan_artifact }}
           path: input/plan
-      - if: needs.build-images.result == 'success'
-        uses: actions/download-artifact@v4.3.0
+      - uses: actions/download-artifact@v4.3.0
         with:
-          pattern: ucm-image-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: input/images
-      - if: needs.build-images.result == 'success'
-        name: Publish PR-tagged images
-        id: images
+          name: ucm-image-${{ matrix.id }}-run-${{ github.run_id }}
+          path: input/image
+      - name: Publish architecture member
         env:
-          PR_NUMBER: ${{ needs.permission-check.outputs.pr-number }}
-          PR_AUTHOR: ${{ needs.permission-check.outputs.pr-author }}
+          IMAGE_ID: ${{ matrix.id }}
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install --yes skopeo
-          printf '%s' "${GH_TOKEN}" | docker login ghcr.io \
+          printf '%s' "${{ github.token }}" | docker login ghcr.io \
             --username "${GITHUB_ACTOR}" --password-stdin
-          owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
-          author="$(printf '%s' "${PR_AUTHOR}" | tr '[:upper:]' '[:lower:]')"
-          plan=input/plan/release-plan.json
-          : >published-tags.txt
-          while IFS=$'\t' read -r id product variant arch version; do
-            directory="input/images/ucm-image-${id}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
-            archive="${directory}/image.oci.tar"
-            test -s "${archive}"
-            suffix=""; [ "${variant}" != default ] && suffix="-${variant}"
-            base="v${version}-pr-${PR_NUMBER}-${author}-run-${GITHUB_RUN_ID}${suffix}"
-            repository="ghcr.io/${owner}/${product}"
-            skopeo copy "oci-archive:${archive}" "docker://${repository}:${base}-${arch}"
-          done < <(jq -r '.images[] | [.id,.runtime.product_id,.runtime.variant,.cpu_arch,.runtime.version] | @tsv' "${plan}")
-          while IFS=$'\t' read -r product variant version; do
-            suffix=""; [ "${variant}" != default ] && suffix="-${variant}"
-            base="v${version}-pr-${PR_NUMBER}-${author}-run-${GITHUB_RUN_ID}${suffix}"
-            repository="ghcr.io/${owner}/${product}"
-            docker buildx imagetools create --tag "${repository}:${base}" \
-              "${repository}:${base}-amd64" "${repository}:${base}-arm64"
-            docker buildx imagetools inspect "${repository}:${base}" >/dev/null
-            echo "${repository}:${base}" >>published-tags.txt
-          done < <(jq -r '.families[] | [.product_id,.variant,.runtime.version] | @tsv' "${plan}")
-          {
-            echo "tags<<EOF"
-            cat published-tags.txt
-            echo "EOF"
-          } >>"${GITHUB_OUTPUT}"
-      - name: Post build receipt
+          image="$(jq -e --arg id "${IMAGE_ID}" \
+            '.images[] | select(.id == $id)' input/plan/release-plan.json)"
+          repository="$(jq -r '.target_repository' <<<"${image}")"
+          tag="$(jq -r '.target_tag' <<<"${image}")"
+          arch="$(jq -r '.cpu_arch' <<<"${image}")"
+          skopeo copy "oci-archive:input/image/image.oci.tar" \
+            "docker://${repository}:${tag}-${arch}"
+
+  publish-pr-image-indexes:
+    name: Publish PR index · ${{ matrix.label }}
+    needs: [permission-check, select-plan, publish-pr-image-members]
+    if: >-
+      ${{
+        contains(fromJSON('["image","all"]'), needs.permission-check.outputs.subcommand) &&
+        needs.select-plan.outputs.has_indexes == 'true'
+      }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select-plan.outputs.index_matrix) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v3.11.1
+      - name: Publish dynamic multi-architecture index
         env:
-          PR_NUMBER: ${{ needs.permission-check.outputs.pr-number }}
-          SUBCOMMAND: ${{ needs.permission-check.outputs.subcommand }}
-          WHEEL_RESULT: ${{ needs.build-wheels.result }}
-          IMAGE_RESULT: ${{ needs.build-images.result }}
-          CHART_RESULT: ${{ needs.package-chart.result }}
-          IMAGE_TAGS: ${{ steps.images.outputs.tags }}
+          TARGET_REPOSITORY: ${{ matrix.target_repository }}
+          TARGET_TAG: ${{ matrix.target_tag }}
+          MEMBERS: ${{ toJSON(matrix.members) }}
         run: |
           set -euo pipefail
-          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          printf '%s' "${{ github.token }}" | docker login ghcr.io \
+            --username "${GITHUB_ACTOR}" --password-stdin
+          mapfile -t members < <(jq -er '.[]' <<<"${MEMBERS}")
+          test "${#members[@]}" -gt 1
+          docker buildx imagetools create \
+            --tag "${TARGET_REPOSITORY}:${TARGET_TAG}" "${members[@]}"
+          docker buildx imagetools inspect "${TARGET_REPOSITORY}:${TARGET_TAG}" >/dev/null
+
+  post-build-receipt:
+    name: Post build receipt
+    needs:
+      - permission-check
+      - inspect-runtimes
+      - probe-runtimes
+      - resolve-pr-runtimes
+      - select-plan
+      - build-wheels
+      - build-images
+      - package-chart
+      - publish-pr-image-members
+      - publish-pr-image-indexes
+    if: ${{ always() && needs.permission-check.outputs.allowed == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        if: needs.permission-check.outputs.subcommand == 'image'
+        with:
+          python-version: "3.12"
+      - if: needs.permission-check.outputs.subcommand == 'image'
+        run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - if: needs.inspect-runtimes.result == 'success' || needs.inspect-runtimes.result == 'failure'
+        continue-on-error: true
+        uses: actions/download-artifact@v4.3.0
+        with:
+          name: ucm-runtime-inspection-run-${{ github.run_id }}
+          path: input/inspection
+      - if: >-
+          ${{
+            needs.permission-check.outputs.subcommand == 'image' &&
+            (needs.probe-runtimes.result == 'success' ||
+             needs.probe-runtimes.result == 'failure')
+          }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4.3.0
+        with:
+          pattern: ucm-runtime-probe-*-run-${{ github.run_id }}
+          path: input/probes
+      - if: needs.resolve-pr-runtimes.result == 'success' || needs.resolve-pr-runtimes.result == 'failure'
+        continue-on-error: true
+        uses: actions/download-artifact@v4.3.0
+        with:
+          name: ucm-pr-runtime-resolution-run-${{ github.run_id }}
+          path: input/resolution
+      - if: needs.select-plan.result == 'success'
+        uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.select-plan.outputs.plan_artifact }}
+          path: input/plan
+      - name: Render image receipt
+        if: needs.permission-check.outputs.subcommand == 'image'
+        env:
+          IMAGE_REFS: ${{ needs.permission-check.outputs.image-refs }}
+        run: |
+          set -euo pipefail
+          mkdir -p out input
+          printf '%s\n' "${IMAGE_REFS}" | sed '/^$/d' >out/runtime-refs.txt
+          PYTHONPATH=.github/release python -m ucm_release runtime receipt \
+            --references-file out/runtime-refs.txt \
+            --stage "inspect=${{ needs.inspect-runtimes.result }}" \
+            --stage "probe=${{ needs.probe-runtimes.result }}" \
+            --stage "resolve=${{ needs.resolve-pr-runtimes.result }}" \
+            --stage "plan=${{ needs.select-plan.result }}" \
+            --stage "wheel=${{ needs.build-wheels.result }}" \
+            --stage "image=${{ needs.build-images.result }}" \
+            --stage "member=${{ needs.publish-pr-image-members.result }}" \
+            --stage "index=${{ needs.publish-pr-image-indexes.result }}" \
+            --inspection input/inspection/runtime-inspection.json \
+            --probe input/resolution/runtime-probe.json \
+            --resolution input/resolution/pr-resolution.json \
+            --publication input/resolution/publication.json \
+            --failure-dir input \
+            --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --output out/receipt.json --markdown out/receipt.md >/dev/null
+      - name: Render non-image receipt
+        if: needs.permission-check.outputs.subcommand != 'image'
+        env:
+          SUBCOMMAND: ${{ needs.permission-check.outputs.subcommand }}
+        run: |
+          mkdir -p out
           {
             echo "## \`/ucm-build ${SUBCOMMAND}\` build receipt"
             echo
             echo "| Product | Result |"
             echo "| --- | --- |"
-            echo "| wheel | \`${WHEEL_RESULT}\` |"
-            echo "| image | \`${IMAGE_RESULT}\` |"
-            echo "| chart | \`${CHART_RESULT}\` |"
-            if [ -n "${IMAGE_TAGS}" ]; then
+            echo "| Wheel | \`${{ needs.build-wheels.result }}\` |"
+            echo "| Image | \`${{ needs.build-images.result }}\` |"
+            echo "| Chart | \`${{ needs.package-chart.result }}\` |"
+            if [ "${SUBCOMMAND}" = all ] && \
+               [ "${{ needs.publish-pr-image-members.result }}" = success ] && \
+               [ "${{ needs.publish-pr-image-indexes.result }}" = success ]; then
               echo
               echo "### Images"
-              echo '```bash'
-              while IFS= read -r tag; do [ -n "${tag}" ] && echo "docker pull ${tag}"; done <<<"${IMAGE_TAGS}"
-              echo '```'
+              jq -r '.families[].published_reference | "- `docker pull \(.)`"' \
+                input/plan/release-plan.json
             fi
             echo
-            echo "Artifacts: ${run_url}"
-          } >receipt.md
-          gh pr comment "${PR_NUMBER}" --body-file receipt.md
+            echo "Artifacts: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } >out/receipt.md
+      - run: gh pr comment "${{ needs.permission-check.outputs.pr-number }}" --body-file out/receipt.md

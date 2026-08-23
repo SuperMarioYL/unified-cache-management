@@ -76,7 +76,7 @@ jobs:
             --existing out/existing-tags.json \
             --output out/builder-sync-plan.json >/dev/null
           count="$(jq '.builders | length' out/builder-sync-plan.json)"
-          artifact="ucm-builder-catalog-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          artifact="ucm-builder-catalog-run-${GITHUB_RUN_ID}"
           {
             echo "builder_catalog_artifact=${artifact}"
             echo "matrix=$(jq -c '.matrix' out/builder-sync-plan.json)"
@@ -91,7 +91,7 @@ jobs:
           name: ${{ steps.plan.outputs.builder_catalog_artifact }}
           path: out/builder-catalog.json
           if-no-files-found: error
-          overwrite: false
+          overwrite: true
           retention-days: 7
 
   build-missing:
@@ -101,6 +101,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    continue-on-error: ${{ matrix.checks.blocking != true }}
     runs-on: ${{ matrix.cpu_arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 180
     steps:
@@ -126,21 +127,45 @@ jobs:
         env:
           BUILD_MODE: ${{ matrix.build_mode }}
           SOURCE_IMAGE: ${{ matrix.source_image }}
+          SOURCE_IMAGE_DIGEST: ${{ matrix.source_image_digest }}
           TARGET_REPOSITORY: ${{ matrix.target_repository }}
           TARGET_TAG: ${{ matrix.target_tag }}
           CPU_ARCH: ${{ matrix.cpu_arch }}
           MOONCAKE_VERSION: ${{ matrix.mooncake_version }}
           RECIPE: ${{ toJSON(matrix.recipe) }}
           CHECKS: ${{ toJSON(matrix.checks) }}
+          BUILDER_JSON: ${{ toJSON(matrix) }}
         run: |
           set -euo pipefail
           target="${TARGET_REPOSITORY}:${TARGET_TAG}"
+          actual_source_digest="$(docker buildx imagetools inspect "${SOURCE_IMAGE}" \
+            --format '{{json .Manifest}}' | jq -er '.digest // .Digest')"
+          test "${actual_source_digest}" = "${SOURCE_IMAGE_DIGEST}"
+          source_repository="${SOURCE_IMAGE%:*}"
+          pinned_source="${source_repository}@${SOURCE_IMAGE_DIGEST}"
           if docker buildx imagetools inspect "${target}" >/dev/null 2>&1; then
             echo "Builder already exists: ${target}"
+            candidate="${target}"
           else
+            mkdir -p out
+            jq -c 'del(.label)' <<<"${BUILDER_JSON}" >out/builder.json
+            PYTHONPATH=.github/release python -m ucm_release builders labels \
+              --builder out/builder.json --output out/builder-labels.json >/dev/null
+            jq --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              '. + {"io.ucm.builder.created": $created}' \
+              out/builder-labels.json >out/builder-labels.next.json
+            mv out/builder-labels.next.json out/builder-labels.json
+            mapfile -t label_args < <(jq -r \
+              'to_entries[] | "--label", "\(.key)=\(.value)"' \
+              out/builder-labels.json)
+            candidate="${target}-candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
             case "${BUILD_MODE}" in
             mirror)
-              docker buildx imagetools create --tag "${target}" "${SOURCE_IMAGE}"
+              docker buildx build --push \
+                --platform "linux/${CPU_ARCH}" \
+                --file .github/release/docker/Dockerfile.builder-mirror \
+                --build-arg "BASE_IMAGE=${pinned_source}" \
+                "${label_args[@]}" --tag "${candidate}" .
               ;;
             recipe)
               dockerfile="$(jq -er '.dockerfile' <<<"${RECIPE}")"
@@ -154,7 +179,7 @@ jobs:
                 --platform "linux/${CPU_ARCH}" \
                 --file "upstream/${dockerfile}" \
                 "${target_args[@]}" "${build_args[@]}" \
-                --tag "${target}" upstream
+                "${label_args[@]}" --tag "${candidate}" upstream
               ;;
             recipe-extend)
               dockerfile="$(jq -er '.dockerfile' <<<"${RECIPE}")"
@@ -196,7 +221,7 @@ jobs:
                 --file .github/release/docker/Dockerfile.builder \
                 --build-arg "CANN_BASE=${upstream_target}" \
                 --build-arg "MOONCAKE_TAG=v${MOONCAKE_VERSION}" \
-                --tag "${target}" context
+                "${label_args[@]}" --tag "${candidate}" context
               ;;
             *)
               echo "unsupported Builder mode: ${BUILD_MODE}" >&2
@@ -204,7 +229,7 @@ jobs:
               ;;
             esac
           fi
-          docker buildx imagetools inspect "${target}" >/dev/null
+          docker buildx imagetools inspect "${candidate}" >/dev/null
           commands="$(jq -r '.commands | join(" ")' <<<"${CHECKS}")"
           docker run --rm \
             -e EXPECTED_PYTHON="$(jq -r '.python_version' <<<"${CHECKS}")" \
@@ -212,7 +237,7 @@ jobs:
             -e EXPECTED_RUNTIME="$(jq -r '.accelerator_runtime' <<<"${CHECKS}")" \
             -e REQUIRED_COMMANDS="${commands}" \
             -e REQUIRE_MOONCAKE="$(jq -r '.mooncake' <<<"${CHECKS}")" \
-            "${target}" bash -c '
+            "${candidate}" bash -c '
               set -euo pipefail
               candidate="/opt/python/${EXPECTED_ABI}-${EXPECTED_ABI}/bin/python"
               if [ ! -x "${candidate}" ]; then candidate="$(command -v python3)"; fi
@@ -225,3 +250,7 @@ jobs:
                 find /usr/local -name libmooncake_store.so -print -quit | grep -q .
               fi
             '
+          if [ "${candidate}" != "${target}" ]; then
+            docker buildx imagetools create --tag "${target}" "${candidate}"
+          fi
+          docker buildx imagetools inspect "${target}" >/dev/null

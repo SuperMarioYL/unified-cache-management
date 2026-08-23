@@ -32,13 +32,13 @@ jobs:
 
           | 命令 / Command | 构建 / Builds | 推 GHCR? / Push? |
           | --- | --- | --- |
-          | `/ucm-build wheel [profile=<name>]` | UCM wheel — profile: `cuda129`/`cuda130`/`cann900-a2`/`cann900-a3`(省略=全部)/ UCM wheel — profile: `cuda129`/`cuda130`/`cann900-a2`/`cann900-a3` (omit for all) | 否 / no(仅 artifact / artifact only) |
-          | `/ucm-build image <repo:tag> [<repo:tag>...]` | 钉住上游的 wheel + 镜像,自动推送 / wheels + images for the pinned upstreams, auto-push | 是 / yes |
+          | `/ucm-build wheel [profile=<generated-group>]` | UCM Wheel；省略 profile 构建当前正式矩阵 / omit profile for the current formal matrix | 否 / no(仅 artifact / artifact only) |
+          | `/ucm-build image <repo:tag> [<repo:tag>...]` | 探测任意已发布且能力可解析的 runtime tag，再构建 Wheel + 镜像 / inspect any published capability-resolvable runtime tag, then build Wheel + image | 是 / yes |
           | `/ucm-build chart` | chart(lint + template + package)/ chart (lint + template + package) | 否 / no(仅 artifact / artifact only) |
-          | `/ucm-build all` | 全部(wheel + image + chart)/ everything (wheel + image + chart) | 是(镜像)/ yes (images) |
+          | `/ucm-build all` | 全部正式矩阵(wheel + image + chart)/ complete formal matrices | 否 / no(仅 artifact / artifact only) |
 
-          - 镜像 tag / Image tag: `ghcr.io/<owner>/<family>:v<upstream-ver>-pr-<n>-<author>-<sha8>`(ascend 带 `-a2`/`-a3` 变体 / ascend variants carry `-a2`/`-a3`)。
-          - 钉住的上游仓库 / Pinned repos: `docker.io/vllm/vllm-openai`(cuda)/ `quay.io/ascend/vllm-ascend`(a2/a3)。变体由检查镜像 `SOC_VERSION` 自动检测 / variant auto-detected by inspecting the image;任意 pep440 tag 都行(含超 specifier 版本)/ any pep440 tag works (incl. out-of-specifier)。
+          - 镜像 tag / Image tag: `ghcr.io/<owner>/<family>:pr-<n>-<author>-run-<run-id>-<runtime-tag>`；member 追加 `-amd64`/`-arm64`，双架构才创建 index / members add the architecture suffix; only multi-arch inputs get an index。
+          - 允许的上游仓库 / Allowed repos: `docker.io/vllm/vllm-openai` / `quay.io/ascend/vllm-ascend`。Tag 按 opaque string 处理；镜像必须可探测 Python、OS/glibc、CUDA/CANN、SOC 且有兼容 Builder / tags are opaque; runtime capability and a compatible Builder are required。
           - `/ucm-build help`(或光敲 `/ucm-build`)重显本消息 / re-shows this message.
           EOF
           gh pr comment "${PR_NUMBER}" --repo "${{ github.repository }}" --body-file hint.md

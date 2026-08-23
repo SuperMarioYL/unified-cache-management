@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 
 import yaml
 
-from . import builders, compact, core, registry, upstream, wheel
+from . import builders, compact, core, policy, pr, problems, registry, runtime, upstream, wheel
 
 catalog_resolution = registry
 
@@ -28,6 +29,27 @@ def _write(path: Path, value: object) -> None:
     path.write_bytes(core.canonical_bytes(value) + b"\n")
 
 
+def _crane_output(operation: str, reference: str) -> str:
+    completed = subprocess.run(
+        ["crane", operation, reference], text=True, capture_output=True, check=False
+    )
+    if completed.returncode != 0:
+        raise ValueError(
+            f"crane {operation} failed for {reference}: "
+            f"{completed.stderr.strip() or completed.returncode}"
+        )
+    return completed.stdout
+
+
+def _crane_json(operation: str, reference: str) -> object:
+    try:
+        return json.loads(_crane_output(operation, reference))
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            f"crane {operation} returned malformed JSON for {reference}"
+        ) from error
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m ucm_release")
     groups = parser.add_subparsers(dest="group", required=True)
@@ -36,14 +58,18 @@ def build_parser() -> argparse.ArgumentParser:
     builders_actions = builders_parser.add_subparsers(dest="action", required=True)
 
     builders_discover = builders_actions.add_parser("discover")
-    builders_discover.add_argument("--config", type=Path, default=builders.DEFAULT_CONFIG)
+    builders_discover.add_argument("--config", type=Path, default=policy.DEFAULT_PLATFORMS)
     builders_discover.add_argument("--owner")
     builders_discover.add_argument("--selection", type=Path, required=True)
     builders_discover.add_argument("--output", type=Path, required=True)
 
     def _cmd_builders_discover(a):
+        formal = policy.resolve(platforms_path=a.config)
         result = builders.catalog_from_selection(
-            core.load_json(a.selection), a.config, owner=a.owner
+            core.load_json(a.selection),
+            a.config,
+            owner=a.owner,
+            formal_policy=formal,
         )
         a.output.parent.mkdir(parents=True, exist_ok=True)
         _write(a.output, result)
@@ -83,13 +109,34 @@ def build_parser() -> argparse.ArgumentParser:
 
     builders_materialize.set_defaults(func=_cmd_builders_materialize)
 
+    builders_labels = builders_actions.add_parser("labels")
+    builders_labels.add_argument("--builder", type=Path, required=True)
+    builders_labels.add_argument("--output", type=Path, required=True)
+
+    def _cmd_builders_labels(a):
+        result = builders.builder_labels(core.load_json(a.builder))
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.output, result)
+        return result
+
+    builders_labels.set_defaults(func=_cmd_builders_labels)
+
+    builders_scan = builders_actions.add_parser("scan-registry")
+    builders_scan.add_argument("--output", type=Path, required=True)
+
+    def _cmd_builders_scan(a):
+        result = builders.scan_registry_builders(policy.resolve())
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.output, result)
+        return result
+
+    builders_scan.set_defaults(func=_cmd_builders_scan)
+
     upstreams_parser = groups.add_parser("upstreams")
     upstreams_actions = upstreams_parser.add_subparsers(dest="action", required=True)
     upstreams_resolve = upstreams_actions.add_parser("resolve")
     upstreams_resolve.add_argument("--release", type=Path, default=core.DEFAULT_RELEASE)
-    upstreams_resolve.add_argument(
-        "--builders", type=Path, default=builders.DEFAULT_CONFIG
-    )
+    upstreams_resolve.add_argument("--builders", type=Path, help=argparse.SUPPRESS)
     upstreams_resolve.add_argument("--tag-fixture", type=Path)
     upstreams_resolve.add_argument("--snapshot", type=Path)
     upstreams_resolve.add_argument("--pin-upstream", action="append", default=None)
@@ -97,8 +144,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     def _cmd_upstreams_resolve(a):
         result = upstream.resolve_upstreams(
-            core.load_catalog(a.release),
-            builders.load_config(a.builders),
+            policy.resolve(a.release),
             tag_fixture=core.load_json(a.tag_fixture) if a.tag_fixture else None,
             snapshot_dir=a.snapshot,
             pinned_upstreams=a.pin_upstream,
@@ -123,7 +169,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     def _cmd_compact_plan(a):
         result = compact.resolve_plan(
-            core.load_catalog(a.catalog, a.schema_dir),
+            policy.resolve(a.catalog),
             builder_catalog=core.load_json(a.builder_catalog),
             upstream_selection=core.load_json(a.upstream_selection),
             route=a.route,
@@ -134,6 +180,26 @@ def build_parser() -> argparse.ArgumentParser:
         return result
 
     compact_plan.set_defaults(func=_cmd_compact_plan)
+
+    compact_retag = compact_actions.add_parser("retag-pr")
+    compact_retag.add_argument("--plan", type=Path, required=True)
+    compact_retag.add_argument("--pr-number", required=True)
+    compact_retag.add_argument("--author", required=True)
+    compact_retag.add_argument("--run-id", required=True)
+    compact_retag.add_argument("--output", type=Path, required=True)
+
+    def _cmd_compact_retag(a):
+        result = compact.retag_pr_plan(
+            core.load_json(a.plan),
+            pr_number=a.pr_number,
+            author=a.author,
+            run_id=a.run_id,
+        )
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.output, result)
+        return result
+
+    compact_retag.set_defaults(func=_cmd_compact_retag)
 
     compact_select = compact_actions.add_parser("select")
     compact_select.add_argument("--plan", type=Path, required=True)
@@ -169,11 +235,184 @@ def build_parser() -> argparse.ArgumentParser:
 
     compact_record.set_defaults(func=_cmd_compact_record)
 
+    runtime_parser = groups.add_parser("runtime")
+    runtime_actions = runtime_parser.add_subparsers(dest="action", required=True)
+
+    runtime_inspect = runtime_actions.add_parser("inspect")
+    runtime_inspect.add_argument("--reference", action="append", default=[])
+    runtime_inspect.add_argument("--references-file", type=Path)
+    runtime_inspect.add_argument("--output", type=Path, required=True)
+
+    def _cmd_runtime_inspect(a):
+        references = list(a.reference)
+        if a.references_file is not None:
+            references.extend(
+                line.strip()
+                for line in a.references_file.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            )
+        formal = policy.resolve()
+        result = runtime.inspect_runtime_references(
+            references,
+            products=formal["products"],
+            runners=formal["runners"],
+            manifest_loader=lambda reference: _crane_json("manifest", reference),
+            config_loader=lambda reference: _crane_json("config", reference),
+            digest_loader=lambda reference: _crane_output("digest", reference).strip(),
+        )
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.output, result)
+        return result
+
+    runtime_inspect.set_defaults(func=_cmd_runtime_inspect)
+
+    runtime_aggregate = runtime_actions.add_parser("aggregate")
+    runtime_aggregate.add_argument("--inspection", type=Path, required=True)
+    runtime_aggregate.add_argument("--probe-dir", type=Path, required=True)
+    runtime_aggregate.add_argument("--output", type=Path, required=True)
+
+    def _cmd_runtime_aggregate(a):
+        probe_paths = sorted(a.probe_dir.rglob("runtime-probe-raw.json"))
+        if not probe_paths:
+            raise ValueError("runtime probe directory contains no raw probe results")
+        result = runtime.aggregate_runtime_probes(
+            core.load_json(a.inspection),
+            [core.load_json(path) for path in probe_paths],
+        )
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.output, result)
+        return result
+
+    runtime_aggregate.set_defaults(func=_cmd_runtime_aggregate)
+
+    runtime_resolve = runtime_actions.add_parser("resolve")
+    runtime_resolve.add_argument("--probe", type=Path, required=True)
+    runtime_resolve.add_argument("--builder-registry", type=Path, required=True)
+    runtime_resolve.add_argument("--pr-number", required=True)
+    runtime_resolve.add_argument("--author", required=True)
+    runtime_resolve.add_argument("--run-id", required=True)
+    runtime_resolve.add_argument("--output-dir", type=Path, required=True)
+
+    def _cmd_runtime_resolve(a):
+        result = pr.resolve_pr_request(
+            policy.resolve(),
+            core.load_json(a.probe),
+            core.load_json(a.builder_registry),
+            pr_number=a.pr_number,
+            author=a.author,
+            run_id=a.run_id,
+        )
+        a.output_dir.mkdir(parents=True, exist_ok=True)
+        _write(a.output_dir / "pr-resolution.json", result)
+        if result["ok"]:
+            _write(a.output_dir / "upstream-selection.json", result["selection"])
+            _write(a.output_dir / "builder-catalog.json", result["builder_catalog"])
+            _write(a.output_dir / "publication.json", result["publication"])
+        return result
+
+    runtime_resolve.set_defaults(func=_cmd_runtime_resolve)
+
+    runtime_receipt = runtime_actions.add_parser("receipt")
+    runtime_receipt.add_argument("--reference", action="append", default=[])
+    runtime_receipt.add_argument("--references-file", type=Path)
+    runtime_receipt.add_argument("--stage", action="append", default=[])
+    runtime_receipt.add_argument("--inspection", type=Path)
+    runtime_receipt.add_argument("--probe", type=Path)
+    runtime_receipt.add_argument("--resolution", type=Path)
+    runtime_receipt.add_argument("--publication", type=Path)
+    runtime_receipt.add_argument("--failure-dir", type=Path)
+    runtime_receipt.add_argument("--run-url", default="")
+    runtime_receipt.add_argument("--output", type=Path, required=True)
+    runtime_receipt.add_argument("--markdown", type=Path)
+
+    def _cmd_runtime_receipt(a):
+        references = list(a.reference)
+        if a.references_file is not None and a.references_file.is_file():
+            references.extend(
+                line.strip()
+                for line in a.references_file.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            )
+        stage_results = {}
+        for raw_stage in a.stage:
+            name, separator, result = raw_stage.partition("=")
+            if not separator:
+                raise ValueError("receipt stage must use name=result")
+            stage_results[name] = result
+        resolution = (
+            core.load_json(a.resolution)
+            if a.resolution is not None and a.resolution.is_file()
+            else None
+        )
+        builder_matches = resolution.get("builder_matches") if resolution else None
+        failures = [] if builder_matches is not None else resolution.get("problems", []) if resolution else []
+        external_failures = []
+        if a.failure_dir is not None and a.failure_dir.is_dir():
+            external_failures = [
+                core.load_json(path)
+                for path in sorted(a.failure_dir.rglob("*-failure.json"))
+            ]
+        result = runtime.build_receipt(
+            requested_refs=references,
+            stage_results=stage_results,
+            inspection=(
+                core.load_json(a.inspection)
+                if a.inspection is not None and a.inspection.is_file()
+                else None
+            ),
+            runtime_probe=(
+                core.load_json(a.probe)
+                if a.probe is not None and a.probe.is_file()
+                else None
+            ),
+            builder_matches=builder_matches,
+            publication=(
+                core.load_json(a.publication)
+                if a.publication is not None and a.publication.is_file()
+                else None
+            ),
+            failures=[*failures, *external_failures],
+            run_url=a.run_url,
+        )
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.output, result)
+        if a.markdown is not None:
+            a.markdown.parent.mkdir(parents=True, exist_ok=True)
+            a.markdown.write_text(
+                runtime.render_receipt_markdown(result), encoding="utf-8"
+            )
+        return result
+
+    runtime_receipt.set_defaults(func=_cmd_runtime_receipt)
+
+    problems_parser = groups.add_parser("problems")
+    problems_actions = problems_parser.add_subparsers(dest="action", required=True)
+    problems_render = problems_actions.add_parser("render")
+    problems_render.add_argument("--selection", type=Path, required=True)
+    problems_render.add_argument("--summary", type=Path, required=True)
+    problems_render.add_argument("--issue", type=Path, required=True)
+    problems_render.add_argument("--action", type=Path, required=True)
+
+    def _cmd_problems_render(a):
+        selection = upstream.validate_selection(core.load_json(a.selection))
+        values = selection["problems"]
+        summary = problems.render_actions_summary(values)
+        issue = problems.render_rolling_issue(values)
+        action = {"action": problems.decide_rolling_issue_action(values)}
+        for path in (a.summary, a.issue, a.action):
+            path.parent.mkdir(parents=True, exist_ok=True)
+        a.summary.write_text(summary, encoding="utf-8")
+        _write(a.issue, issue)
+        _write(a.action, action)
+        return {**action, "problem_count": len(values)}
+
+    problems_render.set_defaults(func=_cmd_problems_render)
+
     config = groups.add_parser("config")
     config_actions = config.add_subparsers(dest="action", required=True)
     validate = config_actions.add_parser("validate")
     _paths(validate)
-    validate.set_defaults(func=lambda a: {'schema_version': 3, 'upstream_products': len(core.load_catalog(a.release, a.schema_dir)['upstream_products']), 'backend_contracts': len(core.load_catalog(a.release, a.schema_dir)['backend_contracts'])})  # fmt: skip  # noqa: E501
+    validate.set_defaults(func=lambda a: {'schema_version': 4, 'products': len(policy.load(a.release)['release']['products']), 'backends': len(policy.load(a.release)['platforms']['backends'])})  # fmt: skip  # noqa: E501
 
     catalog_parser = groups.add_parser("catalog")
     catalog_actions = catalog_parser.add_subparsers(dest="action", required=True)
@@ -181,7 +420,31 @@ def build_parser() -> argparse.ArgumentParser:
     catalog_validate.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
     catalog_validate.add_argument('--schema-dir', type=Path, default=core.DEFAULT_SCHEMA_DIR)  # fmt: skip  # noqa: E501
     catalog_validate.add_argument('--repository-root', type=Path, default=core.REPO_ROOT)  # fmt: skip  # noqa: E501
-    catalog_validate.set_defaults(func=lambda a: {'kind': 'ucm-catalog-validation', 'schema_version': 1, 'config_sha256': core.sha256_value((lambda r: (catalog_resolution.validate_catalog_tag_grammar(r), r)[1])(core.load_catalog(a.catalog, a.schema_dir, repository_root=a.repository_root))), 'upstream_products': len(core.load_catalog(a.catalog, a.schema_dir, repository_root=a.repository_root)['upstream_products']), 'compatibility_rules': len(core.load_catalog(a.catalog, a.schema_dir, repository_root=a.repository_root)['compatibility']['rules'])})  # fmt: skip  # noqa: E501
+
+    def _cmd_catalog_validate(a):
+        raw = core.load_yaml(a.catalog)
+        if raw.get("kind") == "ucm-release-policy":
+            formal = policy.resolve(a.catalog, repository_root=a.repository_root)
+            return {
+                "kind": "ucm-catalog-validation",
+                "schema_version": 1,
+                "config_sha256": core.sha256_value(formal),
+                "products": len(formal["products"]),
+                "backends": len(formal["backends"]),
+            }
+        catalog = core.load_catalog(
+            a.catalog, a.schema_dir, repository_root=a.repository_root
+        )
+        catalog_resolution.validate_catalog_tag_grammar(catalog)
+        return {
+            "kind": "ucm-catalog-validation",
+            "schema_version": 1,
+            "config_sha256": core.sha256_value(catalog),
+            "upstream_products": len(catalog["upstream_products"]),
+            "compatibility_rules": len(catalog["compatibility"]["rules"]),
+        }
+
+    catalog_validate.set_defaults(func=_cmd_catalog_validate)
 
     catalog_resolve = catalog_actions.add_parser("resolve")
     catalog_resolve.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
