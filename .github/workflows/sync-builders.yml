@@ -177,6 +177,8 @@ jobs:
               mkdir -p context/tools
               cp .github/release/docker/mooncake_installer.sh \
                 context/tools/mooncake_installer.sh
+              cp .github/release/docker/gflags-config.cmake \
+                context/tools/gflags-config.cmake
               docker buildx build --push \
                 --platform "linux/${CPU_ARCH}" \
                 --file .github/release/docker/Dockerfile.builder \

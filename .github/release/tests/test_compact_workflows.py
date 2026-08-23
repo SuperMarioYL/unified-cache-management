@@ -145,7 +145,13 @@ def test_builder_sync_consumes_selection_and_materializes_recipes() -> None:
     dockerfile = (
         ROOT / ".github" / "release" / "docker" / "Dockerfile.builder"
     ).read_text(encoding="utf-8")
-    assert "-DGFLAGS_USE_TARGET_NAMESPACE=TRUE" in dockerfile
+    assert "gflags-config.cmake" in dockerfile
+
+    gflags_config = (
+        ROOT / ".github" / "release" / "docker" / "gflags-config.cmake"
+    ).read_text(encoding="utf-8")
+    assert "add_library(gflags::gflags UNKNOWN IMPORTED)" in gflags_config
+    assert 'IMPORTED_LOCATION "${GFLAGS_LIBRARY}"' in gflags_config
 
 
 def test_mooncake_installer_supports_old_upstream_curl() -> None:

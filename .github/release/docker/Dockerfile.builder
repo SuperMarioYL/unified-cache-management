@@ -9,6 +9,7 @@ ARG MOONCAKE_TAG
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
 COPY tools/mooncake_installer.sh /vllm-workspace/mooncake_installer.sh
+COPY tools/gflags-config.cmake /usr/local/lib64/cmake/gflags/gflags-config.cmake
 
 # Official Ascend manylinux builders are yum based. Bootstrap only what is
 # needed to fetch Mooncake; the existing installer owns the Mooncake and UCM
@@ -23,9 +24,7 @@ RUN test -n "${MOONCAKE_TAG}" && \
     bash mooncake_installer.sh -y && \
     test -f /usr/local/Ascend/ascend-toolkit/set_env.sh && \
     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
-    cmake -S . -B build \
-      -DUSE_ASCEND_DIRECT=ON \
-      -DGFLAGS_USE_TARGET_NAMESPACE=TRUE && \
+    cmake -S . -B build -DUSE_ASCEND_DIRECT=ON && \
     cmake --build build --parallel "$(nproc)" && \
     cmake --install build && \
     rm -rf build && \
