@@ -23,20 +23,19 @@ RUN test -n "${MOONCAKE_TAG}" && \
     cd /vllm-workspace/Mooncake && \
     bash mooncake_installer.sh -y && \
     boost_lockfree=/usr/include/boost/lockfree/detail/parameter.hpp && \
-    grep -F 'allocator_arg::template rebind<T>::other' "${boost_lockfree}" && \
-    sed -i \
-      's/typename allocator_arg::template rebind<T>::other/typename std::allocator_traits<allocator_arg>::template rebind_alloc<T>/' \
-      "${boost_lockfree}" && \
-    grep -F 'allocator_traits<allocator_arg>::template rebind_alloc<T>' \
-      "${boost_lockfree}" && \
+    if grep -Fq 'allocator_arg::template rebind<T>::other' "${boost_lockfree}"; then \
+      sed -i \
+        's/typename allocator_arg::template rebind<T>::other/typename std::allocator_traits<allocator_arg>::template rebind_alloc<T>/' \
+        "${boost_lockfree}"; \
+    fi && \
+    ! grep -Fq 'allocator_arg::template rebind<T>::other' "${boost_lockfree}" && \
     boost_queue=/usr/include/boost/lockfree/queue.hpp && \
-    test "$(grep -F -c 'node_allocator::template rebind<U>::other' \
-      "${boost_queue}")" = 2 && \
-    sed -i \
-      's/typename node_allocator::template rebind<U>::other/typename std::allocator_traits<node_allocator>::template rebind_alloc<U>/g' \
-      "${boost_queue}" && \
-    test "$(grep -F -c 'allocator_traits<node_allocator>::template rebind_alloc<U>' \
-      "${boost_queue}")" = 2 && \
+    if grep -Fq 'node_allocator::template rebind<U>::other' "${boost_queue}"; then \
+      sed -i \
+        's/typename node_allocator::template rebind<U>::other/typename std::allocator_traits<node_allocator>::template rebind_alloc<U>/g' \
+        "${boost_queue}"; \
+    fi && \
+    ! grep -Fq 'node_allocator::template rebind<U>::other' "${boost_queue}" && \
     test -f /usr/local/Ascend/ascend-toolkit/set_env.sh && \
     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
     cmake -S . -B build \
