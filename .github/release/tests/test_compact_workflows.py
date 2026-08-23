@@ -155,6 +155,17 @@ def test_member_and_index_publication_are_unbounded_matrices() -> None:
     assert "while IFS=$'\\t' read -r image_id" not in text
 
 
+def test_release_index_matrix_generation_fails_closed() -> None:
+    jobs = _load("release-ucm.yml")["jobs"]
+    plan_script = next(
+        step["run"] for step in jobs["plan"]["steps"] if step.get("id") == "plan"
+    )
+
+    assert 'index_matrix="$(jq -ce' in plan_script
+    assert 'echo "image_index_matrix=${index_matrix}"' in plan_script
+    assert "image_index_matrix=$(jq" not in plan_script
+
+
 def test_finalize_is_the_only_job_that_publicizes_release() -> None:
     jobs = _load("release-ucm.yml")["jobs"]
     publicizers = []

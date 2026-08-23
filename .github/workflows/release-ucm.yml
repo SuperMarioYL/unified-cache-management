@@ -147,15 +147,16 @@ jobs:
               out/plan/release-plan.json >/dev/null
           fi
           artifact="ucm-release-plan-run-${GITHUB_RUN_ID}"
+          index_matrix="$(jq -ce \
+            '{include:[.families[]|select(.create_index)|
+              {id,label,target_repository,target_tag,members:[.members[].reference]}]}' \
+            out/plan/release-plan.json)"
           {
             echo "route=${route}"
             echo "plan_artifact=${artifact}"
             echo "wheel_matrix=$(jq -c '.wheel_matrix' out/plan/release-plan.json)"
             echo "image_matrix=$(jq -c '.image_matrix' out/plan/release-plan.json)"
-            echo "image_index_matrix=$(jq -c \
-              '{include:[.families[]|select(.create_index)| \
-                {id,label,target_repository,target_tag,members:[.members[].reference]}]}' \
-              out/plan/release-plan.json)"
+            echo "image_index_matrix=${index_matrix}"
           } >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@v4.6.2
         with:
