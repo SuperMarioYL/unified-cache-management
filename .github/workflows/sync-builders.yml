@@ -102,7 +102,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     runs-on: ${{ matrix.cpu_arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4.2.2
         with:

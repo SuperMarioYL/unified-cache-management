@@ -140,6 +140,12 @@ def test_builder_sync_consumes_selection_and_materializes_recipes() -> None:
     assert 'imagetools inspect "${upstream_target}"' in text
     assert "Upstream recipe stage already exists" in text
     assert "REQUIRE_MOONCAKE" in text
+    assert workflow["jobs"]["build-missing"]["timeout-minutes"] == 180
+
+    dockerfile = (
+        ROOT / ".github" / "release" / "docker" / "Dockerfile.builder"
+    ).read_text(encoding="utf-8")
+    assert "-DGFLAGS_USE_TARGET_NAMESPACE=TRUE" in dockerfile
 
 
 def test_mooncake_installer_supports_old_upstream_curl() -> None:
