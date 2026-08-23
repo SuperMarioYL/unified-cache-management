@@ -168,6 +168,9 @@ elif command -v yum &> /dev/null; then
         boost-devel \
         openssl-devel \
         hiredis-devel \
+        libunwind-devel \
+        zstd-devel \
+        xxhash-devel \
         python3-devel \
         curl-devel \
         patchelf
