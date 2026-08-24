@@ -1,4 +1,4 @@
-name: Build and publish UCM
+name: UCM Tag Release · Draft and Formal
 
 on:
   push:
@@ -277,7 +277,7 @@ jobs:
       retention_days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}
 
   resolve-upstreams:
-    name: Aggregate Runtime probes and resolve Builders
+    name: Resolve Runtime capabilities and Builders
     needs: [select-runtime-candidates, inspect-runtimes, probe-runtimes]
     if: >-
       ${{
@@ -356,7 +356,7 @@ jobs:
           retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}
 
   sync-builders:
-    name: Sync builders
+    name: Prepare immutable Wheel Builders
     needs: resolve-upstreams
     permissions:
       contents: read
@@ -366,7 +366,7 @@ jobs:
       runtime_selection_artifact: ${{ needs.resolve-upstreams.outputs.runtime_selection_artifact }}
 
   plan:
-    name: Plan release
+    name: Plan Wheels, Images, and Chart
     needs: [resolve-upstreams, sync-builders]
     runs-on: ubuntu-24.04
     timeout-minutes: 15

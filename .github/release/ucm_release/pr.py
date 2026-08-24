@@ -22,7 +22,6 @@ def _build_from_registry_record(record: Mapping[str, object]) -> dict[str, objec
         for key, value in record.items()
         if key not in excluded
     }
-    result["sync_mode"] = "registry-only"
     return result
 
 

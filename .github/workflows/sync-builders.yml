@@ -261,9 +261,31 @@ jobs:
           PYTHONPATH=.github/release python -m ucm_release builders finalize \
             --catalog input/builders/builder-catalog.json \
             --observations out/observations.json \
-            --output out/builder-catalog.json >/dev/null
+            --output out/builder-catalog.json >/dev/null \
+            2> >(tee out/builder-finalize-error.log >&2)
           artifact="ucm-builder-catalog-run-${GITHUB_RUN_ID}"
           echo "builder_catalog_artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+      - name: Record Builder finalization failure
+        if: ${{ failure() && steps.finalize.outcome == 'failure' }}
+        run: |
+          set -euo pipefail
+          test -s out/builder-finalize-error.log || \
+            printf '%s\n' "Builder catalog finalization failed" \
+              >out/builder-finalize-error.log
+          jq -n --rawfile detail out/builder-finalize-error.log \
+            '{stage:"builder-finalize",
+              reason:"builder-catalog-finalization-failed",detail:$detail}' \
+            >out/builder-finalize-failure.json
+      - uses: actions/upload-artifact@v4.6.2
+        if: ${{ failure() && steps.finalize.outcome == 'failure' }}
+        with:
+          name: ucm-builder-finalize-failure-run-${{ github.run_id }}
+          path: |
+            out/builder-finalize-error.log
+            out/builder-finalize-failure.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
       - uses: actions/upload-artifact@v4.6.2
         with:
           name: ${{ steps.finalize.outputs.builder_catalog_artifact }}

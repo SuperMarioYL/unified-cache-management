@@ -1,4 +1,4 @@
-name: 'Pull Request Gate'
+name: UCM PR Gate · Lint, Unit, and Repository Docker
 
 on:
   pull_request:

@@ -1,4 +1,4 @@
-name: UCM Build Bot
+name: UCM PR Build Robot · Wheel, Image, and Chart
 
 on:
   issue_comment:
@@ -30,6 +30,7 @@ permissions:
 
 jobs:
   permission-check:
+    name: Robot · Parse command and authorize PR
     if: >-
       ${{
         github.event_name == 'workflow_dispatch' ||
@@ -147,7 +148,7 @@ jobs:
           } >>"${GITHUB_OUTPUT}"
 
   inspect-formal-runtimes:
-    name: Inspect formal runtime manifests
+    name: Robot · Inspect configured Runtime range
     needs: permission-check
     if: needs.permission-check.outputs.allowed == 'true' && needs.permission-check.outputs.subcommand != 'image'
     runs-on: ubuntu-24.04
@@ -231,7 +232,7 @@ jobs:
       retention_days: 7
 
   resolve-formal:
-    name: Resolve formal Registry selection
+    name: Robot · Resolve configured Runtime range
     needs: [permission-check, inspect-formal-runtimes, probe-formal-runtimes]
     if: >-
       ${{
@@ -298,7 +299,7 @@ jobs:
           retention-days: 7
 
   inspect-runtimes:
-    name: Inspect runtime manifests
+    name: Robot · Inspect requested Runtime
     needs: permission-check
     if: needs.permission-check.outputs.allowed == 'true' && needs.permission-check.outputs.subcommand == 'image'
     runs-on: ubuntu-24.04
@@ -382,7 +383,7 @@ jobs:
       retention_days: 7
 
   resolve-pr-runtimes:
-    name: Aggregate probes and resolve Builders
+    name: Robot · Resolve requested Runtime and Builders
     needs: [permission-check, inspect-runtimes, probe-runtimes]
     if: >-
       ${{
@@ -468,6 +469,7 @@ jobs:
       runtime_selection_artifact: ${{ needs.resolve-formal.outputs.selection_artifact }}
 
   sync-pr-builders:
+    name: Robot · Prepare requested Wheel Builders
     needs: [permission-check, resolve-pr-runtimes]
     permissions:
       contents: read
@@ -580,7 +582,7 @@ jobs:
           retention-days: 7
 
   plan-image:
-    name: Plan inspected runtime build
+    name: Robot · Plan requested Wheel and Image
     needs: [permission-check, resolve-pr-runtimes, sync-pr-builders]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -808,12 +810,13 @@ jobs:
           docker buildx imagetools inspect "${TARGET_REPOSITORY}:${TARGET_TAG}" >/dev/null
 
   post-build-receipt:
-    name: Post build receipt
+    name: Robot · Post PR build receipt
     needs:
       - permission-check
       - inspect-runtimes
       - probe-runtimes
       - resolve-pr-runtimes
+      - sync-pr-builders
       - select-plan
       - build-wheels
       - build-images
@@ -865,6 +868,12 @@ jobs:
         with:
           name: ucm-pr-runtime-resolution-run-${{ github.run_id }}
           path: input/resolution
+      - if: needs.sync-pr-builders.result == 'failure'
+        continue-on-error: true
+        uses: actions/download-artifact@v4.3.0
+        with:
+          name: ucm-builder-finalize-failure-run-${{ github.run_id }}
+          path: input/builder-failure
       - if: needs.select-plan.result == 'success'
         uses: actions/download-artifact@v4.3.0
         with:
@@ -883,6 +892,7 @@ jobs:
             --stage "inspect=${{ needs.inspect-runtimes.result }}" \
             --stage "probe=${{ needs.probe-runtimes.result }}" \
             --stage "resolve=${{ needs.resolve-pr-runtimes.result }}" \
+            --stage "builder=${{ needs.sync-pr-builders.result }}" \
             --stage "plan=${{ needs.select-plan.result }}" \
             --stage "wheel=${{ needs.build-wheels.result }}" \
             --stage "image=${{ needs.build-images.result }}" \

@@ -90,7 +90,7 @@ def _all_keys(value: object) -> set[str]:
     return set()
 
 
-def test_checked_registry_builder_is_reused_without_source_resolution() -> None:
+def test_checked_registry_builder_reuse_preserves_immutable_identity() -> None:
     formal, _fixture, _selection, catalog = _inputs()
     result = pr.resolve_pr_request(
         formal,
@@ -103,7 +103,7 @@ def test_checked_registry_builder_is_reused_without_source_resolution() -> None:
 
     assert result["ok"] is True
     build = result["selection"]["wheel_builds"][0]
-    assert build["sync_mode"] == "registry-only"
+    assert build["sync_mode"] == "mirror"
     assert result["selection"]["runtimes"][0]["channel"] == "pinned"
     assert not {
         "source_repository",

@@ -17,6 +17,16 @@ def _load(name: str) -> dict[str, object]:
     return value
 
 
+def test_user_facing_workflow_names_explain_the_three_build_lanes() -> None:
+    assert _load("pull-request.yml")["name"] == (
+        "UCM PR Gate · Lint, Unit, and Repository Docker"
+    )
+    assert _load("release-ucm.yml")["name"] == ("UCM Tag Release · Draft and Formal")
+    assert _load("ucm-build-bot.yml")["name"] == (
+        "UCM PR Build Robot · Wheel, Image, and Chart"
+    )
+
+
 def test_release_workflow_uses_crane_with_native_fallback_before_plan() -> None:
     jobs = _load("release-ucm.yml")["jobs"]
     assert jobs["open-release"]["needs"] == "classify-tag"
@@ -259,6 +269,9 @@ def test_builder_sync_consumes_selection_and_uses_digest_pinned_mirror_only() ->
     assert 'test "${SOC_VERSION}" = "${EXPECTED_SOC}"' in text
     assert "Dockerfile.builder-mirror" in text
     assert '--build-arg "BASE_IMAGE=${pinned_source}"' in text
+    assert "builder-finalize-error.log" in text
+    assert "builder-finalize-failure.json" in text
+    assert "ucm-builder-finalize-failure-run-${{ github.run_id }}" in text
     assert "matrix.source_repository" not in text
     for forbidden in (
         "source_ref",
@@ -482,6 +495,10 @@ def test_pr_receipt_is_always_posted_and_has_no_package_write_permission() -> No
     text = yaml.safe_dump(receipt)
     assert "runtime receipt" in text
     assert "pr-resolution.json" in text
+    assert "sync-pr-builders" in receipt["needs"]
+    assert "ucm-builder-finalize-failure-run-${{ github.run_id }}" in text
+    workflow_text = (WORKFLOWS / "ucm-build-bot.yml").read_text(encoding="utf-8")
+    assert "builder=${{ needs.sync-pr-builders.result }}" in workflow_text
 
 
 def test_bot_control_plane_is_trusted_while_builds_use_pr_source() -> None:
