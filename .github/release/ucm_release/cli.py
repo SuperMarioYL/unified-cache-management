@@ -332,8 +332,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     def _cmd_runtime_aggregate(a):
         probe_paths = sorted(a.probe_dir.rglob("runtime-probe-raw.json"))
-        if not probe_paths:
-            raise ValueError("runtime probe directory contains no raw probe results")
         result = runtime.aggregate_runtime_probes(
             core.load_json(a.inspection),
             [core.load_json(path) for path in probe_paths],

@@ -213,6 +213,7 @@ jobs:
     outputs:
       inspection_artifact: ${{ steps.inspect.outputs.inspection_artifact }}
       probe_matrix: ${{ steps.inspect.outputs.probe_matrix }}
+      has_probe_fallback: ${{ steps.inspect.outputs.has_probe_fallback }}
     steps:
       - uses: actions/checkout@v4.2.2
         with:
@@ -248,6 +249,7 @@ jobs:
           {
             echo "inspection_artifact=${artifact}"
             echo "probe_matrix=$(jq -c '.probe_matrix' out/inspection/runtime-inspection.json)"
+            echo "has_probe_fallback=$(jq -r '.probe_matrix.include | length > 0' out/inspection/runtime-inspection.json)"
           } >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@v4.6.2
         with:
@@ -258,8 +260,9 @@ jobs:
           retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}
 
   probe-runtimes:
-    name: Probe · ${{ matrix.runtime_ref }} · ${{ matrix.cpu_arch }}
+    name: Fallback probe · ${{ matrix.runtime_ref }} · ${{ matrix.cpu_arch }}
     needs: inspect-runtimes
+    if: needs.inspect-runtimes.outputs.has_probe_fallback == 'true'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.inspect-runtimes.outputs.probe_matrix) }}
@@ -276,6 +279,14 @@ jobs:
   resolve-upstreams:
     name: Aggregate Runtime probes and resolve Builders
     needs: [select-runtime-candidates, inspect-runtimes, probe-runtimes]
+    if: >-
+      ${{
+        always() &&
+        needs.select-runtime-candidates.result == 'success' &&
+        needs.inspect-runtimes.result == 'success' &&
+        (needs.probe-runtimes.result == 'success' ||
+         needs.probe-runtimes.result == 'skipped')
+      }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
@@ -307,6 +318,7 @@ jobs:
           name: ${{ needs.inspect-runtimes.outputs.inspection_artifact }}
           path: input/inspection
       - uses: actions/download-artifact@v4.3.0
+        if: needs.probe-runtimes.result == 'success'
         with:
           pattern: ucm-runtime-probe-*-run-${{ github.run_id }}
           path: input/probes
@@ -318,7 +330,7 @@ jobs:
           if [[ "${GITHUB_EVENT_NAME}" == push && "${GITHUB_REF_TYPE}" == tag ]]; then
             python scripts/materialize_version.py --tag "${GITHUB_REF_NAME}" >/dev/null
           fi
-          mkdir -p out/upstreams
+          mkdir -p out/upstreams input/probes
           PYTHONPATH=.github/release python -m ucm_release runtime aggregate \
             --inspection input/inspection/runtime-inspection.json \
             --probe-dir input/probes \
@@ -507,6 +519,7 @@ jobs:
             "Builder synchronization: ${BUILDER_OUTCOME}" \
             "Release plan: ${PLAN_OUTCOME}" >"${notes}"
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+            -f "tag_name=${tag}" \
             -f "body=$(<"${notes}")" >/dev/null
 
   build-wheels:
@@ -597,6 +610,7 @@ jobs:
             "Wheel outcome: ${WHEEL_OUTCOME}" \
             "Chart outcome: ${CHART_OUTCOME}" >"${notes}"
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+            -f "tag_name=${tag}" \
             -f "body=$(<"${notes}")" >/dev/null
           exit 1
       - uses: actions/checkout@v4.2.2
@@ -650,6 +664,7 @@ jobs:
             input/wheels/*/*.whl input/chart/*.tgz \
             out/release/SHA256SUMS out/release/release-manifest.json
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+            -f "tag_name=${tag}" \
             -f "body=$(<out/release/release-notes.md)" >/dev/null
       - name: Mark artifact publication failure
         if: ${{ failure() }}
@@ -670,6 +685,7 @@ jobs:
             "Wheel or Chart validation/upload failed. Retry the failed job to " \
             "complete the staged assets." >"${notes}"
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+            -f "tag_name=${tag}" \
             -f "body=$(<"${notes}")" >/dev/null
 
   publish-image-members:
@@ -1022,6 +1038,7 @@ jobs:
           release_id="$(jq -er '.[0].id' <<<"${releases}")"
           gh release upload "${tag}" --clobber "${manifest}"
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+            -f "tag_name=${tag}" \
             -f "body=$(<out/release/release-notes.md)" >/dev/null
       - name: Require complete image publication
         run: >-
@@ -1046,4 +1063,5 @@ jobs:
             "Wheels and Chart remain available, but image receipt validation or " \
             "Release update failed." >"${notes}"
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+            -f "tag_name=${tag}" \
             -f "body=$(<"${notes}")" >/dev/null

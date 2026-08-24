@@ -59,7 +59,7 @@
   },
   "runtime_probe": {
     "kind": "ucm-runtime-probe",
-    "schema_version": 1,
+    "schema_version": 2,
     "probes": [
       {
         "probe_id": "runtime-001-amd64",

@@ -1,8 +1,9 @@
 """Registry-owned runtime selection and raw Builder capability resolution.
 
 Published OCI objects are the formal source of truth: runtime tags decide which
-versions exist, platform member probes decide the Wheel capability, and raw
-Builder member digests decide Builder identity.  Upstream Git is not read.
+versions exist, member configs (or targeted native fallback) decide the Wheel
+capability, and raw Builder member digests decide Builder identity. Upstream
+Git is not read.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from typing import Any
 from packaging.version import InvalidVersion, Version
 
 from . import core
+from . import runtime as runtime_contract
 
 SELECTION_KIND = "ucm-runtime-selection"
 SELECTION_SCHEMA_VERSION = 3
@@ -491,13 +493,6 @@ def _manylinux_floor(value: str) -> tuple[int, int]:
     return int(match.group(1)), int(match.group(2))
 
 
-def _glibc_pair(value: object, context: str) -> tuple[int, int]:
-    match = re.fullmatch(r"([0-9]+)\.([0-9]+)", str(value))
-    if match is None:
-        raise ValueError(f"{context}: glibc_version must be major.minor")
-    return int(match.group(1)), int(match.group(2))
-
-
 def _source_repositories(family: Mapping[str, object], context: str) -> dict[str, str]:
     values = _mapping(
         family.get("source_repositories"), f"{context}.source_repositories"
@@ -777,7 +772,6 @@ def _build_for_probe(
     architecture = _string(probe, "cpu_arch", "runtime probe")
     runtime_value = _string(probe, "accelerator_runtime", "runtime probe")
     python_abi = _string(probe, "python_abi", "runtime probe")
-    runtime_glibc = _glibc_pair(probe.get("glibc_version"), "runtime probe")
     matches = [
         dict(candidate)
         for candidate in candidates
@@ -786,8 +780,14 @@ def _build_for_probe(
         and candidate["variant"] == variant
         and candidate["cpu_arch"] == architecture
         and candidate["python_abi"] in {"*", python_abi}
-        and _manylinux_floor(candidate["manylinux"]) <= runtime_glibc
     ]
+    if matches:
+        lowest_floor = min(_manylinux_floor(item["manylinux"]) for item in matches)
+        matches = [
+            item
+            for item in matches
+            if _manylinux_floor(item["manylinux"]) == lowest_floor
+        ]
     if len(matches) != 1:
         detail = [
             f"{item['source_image']}@{item['source_image_digest']} "
@@ -883,7 +883,8 @@ def _runtime_probe_document(value: object) -> list[dict[str, Any]]:
     document = _mapping(value, "runtime probe")
     if (
         document.get("kind") != "ucm-runtime-probe"
-        or document.get("schema_version") != 1
+        or document.get("schema_version")
+        != runtime_contract.RUNTIME_PROBE_SCHEMA_VERSION
     ):
         raise ValueError("runtime probe has an unsupported contract")
     values = document.get("probes")
@@ -1038,7 +1039,7 @@ def resolve_upstreams(
                 "python_abi": _string(first, "python_abi", reference),
                 "os_id": _string(first, "os_id", reference),
                 "os_version": _string(first, "os_version", reference),
-                "glibc_version": _string(first, "glibc_version", reference),
+                "glibc_version": first.get("glibc_version"),
                 "architectures": architectures,
                 "member_references": member_references,
                 "wheel_build_ids": wheel_ids,

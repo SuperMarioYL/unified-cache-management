@@ -66,11 +66,16 @@ def _index(*architectures: str) -> dict[str, object]:
 
 def _config(
     architecture: str,
+    *,
+    env: tuple[str, ...] = (),
+    history: tuple[str, ...] = (),
+    labels: dict[str, str] | None = None,
 ) -> dict[str, object]:
     return {
         "os": "linux",
         "architecture": architecture,
-        "config": {},
+        "config": {"Env": list(env), "Labels": labels or {}},
+        "history": [{"created_by": command} for command in history],
     }
 
 
@@ -188,6 +193,132 @@ def test_inspection_treats_tags_as_opaque_and_filters_actual_platforms() -> None
         "ubuntu-24.04-arm",
     ]
     assert all(item["runtime_digest"] == "sha256:" + "9" * 64 for item in include)
+    assert inspection["schema_version"] == 2
+    assert len(inspection["members"]) == 2
+    assert all(item["fallback_required"] is True for item in include)
+
+
+def test_crane_config_facts_avoid_native_fallback() -> None:
+    reference = "docker.io/vllm/vllm-openai:v0.27.1-ubuntu2404"
+    config = _config(
+        "amd64",
+        env=("CUDA_VERSION=13.0.2",),
+        history=("RUN |2 CUDA_VERSION=13.0.2 PYTHON_VERSION=3.12 /bin/sh -c true",),
+    )
+    inspection = runtime.inspect_runtime_references(
+        [reference],
+        products=PRODUCTS,
+        runners=RUNNERS,
+        manifest_loader=lambda _reference: _index("amd64"),
+        config_loader=lambda _reference: config,
+        digest_loader=lambda _reference: "sha256:" + "9" * 64,
+    )
+
+    assert inspection["probe_matrix"] == {"include": []}
+    member = inspection["members"][0]
+    assert member["fallback_required"] is False
+    assert member["config_facts"] == {
+        "python_version": "3.12",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "cuda_version": "cuda-13.0",
+        "cann_version": "",
+        "soc_version": "na",
+    }
+    probe = runtime.aggregate_runtime_probes(inspection, [])["probes"][0]
+    assert probe["capability_source"] == "crane-config"
+    assert probe["accelerator_runtime"] == "cuda-13.0"
+    assert probe["python_abi"] == "cp312"
+    assert probe["glibc_version"] is None
+
+
+def test_missing_crane_fact_schedules_only_that_member_for_fallback() -> None:
+    reference = "quay.io/ascend/vllm-ascend:v0.23.0"
+    complete = _config(
+        "amd64",
+        env=(
+            "PATH=/usr/local/python3.12.13/bin:/usr/bin",
+            "CANN_VERSION=9.1.0",
+            "SOC_VERSION=ascend910b1",
+        ),
+        labels={"org.opencontainers.image.version": "22.04"},
+    )
+    missing_soc = _config(
+        "arm64",
+        env=(
+            "PATH=/usr/local/python3.12.13/bin:/usr/bin",
+            "ASCEND_TOOLKIT_HOME=/usr/local/Ascend/cann-9.1.0",
+        ),
+        labels={"org.opencontainers.image.version": "22.04"},
+    )
+    configs = {
+        f"quay.io/ascend/vllm-ascend@{DIGESTS['amd64']}": complete,
+        f"quay.io/ascend/vllm-ascend@{DIGESTS['arm64']}": missing_soc,
+    }
+    inspection = runtime.inspect_runtime_references(
+        [reference],
+        products=PRODUCTS,
+        runners=RUNNERS,
+        manifest_loader=lambda _reference: _index("amd64", "arm64"),
+        config_loader=lambda member: configs[member],
+        digest_loader=lambda _reference: "sha256:" + "9" * 64,
+    )
+
+    fallback = inspection["probe_matrix"]["include"]
+    assert [item["cpu_arch"] for item in fallback] == ["arm64"]
+    assert fallback[0]["missing_required_fields"] == ["soc_version"]
+
+
+def test_openeuler_tag_is_an_os_hint_not_a_wheel_capability() -> None:
+    config = _config(
+        "arm64",
+        env=(
+            "PATH=/usr/local/python3.12.13/bin:/usr/bin",
+            "CANN_VERSION=9.1.0",
+            "SOC_VERSION=ascend910b1",
+        ),
+    )
+    inspection = runtime.inspect_runtime_references(
+        ["quay.io/ascend/vllm-ascend:v0.23.0-openeuler"],
+        products=PRODUCTS,
+        runners=RUNNERS,
+        manifest_loader=lambda _reference: _index("arm64"),
+        config_loader=lambda _reference: config,
+        digest_loader=lambda _reference: "sha256:" + "9" * 64,
+    )
+
+    assert inspection["probe_matrix"] == {"include": []}
+    facts = inspection["members"][0]["config_facts"]
+    assert facts["os_id"] == "openeuler"
+    assert facts["os_version"] == "unreported"
+    probe = runtime.aggregate_runtime_probes(inspection, [])["probes"][0]
+    assert probe["backend"] == "cann-a2"
+    assert probe["python_abi"] == "cp312"
+
+
+def test_conflicting_crane_facts_schedule_native_fallback() -> None:
+    config = _config(
+        "amd64",
+        env=("CUDA_VERSION=12.9.1",),
+        history=("RUN |2 CUDA_VERSION=13.0.2 PYTHON_VERSION=3.12 /bin/sh -c true",),
+    )
+    inspection = runtime.inspect_runtime_references(
+        ["docker.io/vllm/vllm-openai:nightly"],
+        products=PRODUCTS,
+        runners=RUNNERS,
+        manifest_loader=lambda _reference: _index("amd64"),
+        config_loader=lambda _reference: config,
+        digest_loader=lambda _reference: "sha256:" + "9" * 64,
+    )
+
+    fallback = inspection["probe_matrix"]["include"]
+    assert len(fallback) == 1
+    assert fallback[0]["missing_required_fields"] == ["cuda_version"]
+    assert fallback[0]["metadata_conflicts"] == [
+        "runtime config docker.io/vllm/vllm-openai@sha256:"
+        + "1" * 64
+        + ".cuda_version metadata conflicts: ['cuda-12.9', 'cuda-13.0']"
+    ]
 
 
 def test_inspection_accepts_one_single_manifest_architecture_without_index() -> None:
@@ -257,12 +388,12 @@ def test_inspection_pins_parent_digest_before_loading_manifest() -> None:
         )
 
 
-def test_probe_aggregation_normalizes_cuda_python_os_glibc_and_labels() -> None:
+def test_probe_aggregation_normalizes_native_fallback_and_labels() -> None:
     inspection, probe = _aggregate_cuda(("amd64",))
 
     assert probe == {
         "kind": "ucm-runtime-probe",
-        "schema_version": 1,
+        "schema_version": 2,
         "probes": [
             {
                 "probe_id": "runtime-001-amd64",
@@ -286,7 +417,8 @@ def test_probe_aggregation_normalizes_cuda_python_os_glibc_and_labels() -> None:
                 "python_abi": "cp312",
                 "os_id": "ubuntu",
                 "os_version": "24.04",
-                "glibc_version": "2.39",
+                "glibc_version": None,
+                "capability_source": "runtime-pull",
             }
         ],
     }
@@ -330,7 +462,7 @@ def test_probe_aggregation_requires_exact_expected_member_set() -> None:
         runtime.aggregate_runtime_probes(inspection, _raw_cuda_probes(inspection)[:1])
 
 
-def test_builder_match_uses_highest_compatible_floor_then_newest_checked() -> None:
+def test_builder_match_uses_lowest_floor_then_newest_checked() -> None:
     _, probe = _aggregate_cuda(("amd64",))
     probe["probes"][0]["glibc_version"] = "2.35"
     builders = [
@@ -372,11 +504,11 @@ def test_builder_match_uses_highest_compatible_floor_then_newest_checked() -> No
     assert selected["ok"] is True
     assert selected["problems"] == []
     assert selected["matches"][0]["builder"] == {
-        "id": "floor28-new",
+        "id": "floor17-new",
         "repository": "ghcr.io/release-org/ucm-builder-vllm",
-        "tag": "floor28-new",
-        "manylinux": "manylinux_2_28",
-        "created": "2026-08-23T11:00:00Z",
+        "tag": "floor17-new",
+        "manylinux": "manylinux_2_17",
+        "created": "2026-08-23T12:00:00Z",
     }
 
 
@@ -397,7 +529,7 @@ def test_builder_match_reports_complete_missing_capability() -> None:
         "python_abi": "cp312",
         "cpu_arch": "arm64",
     }
-    assert "runtime_glibc=2.39" in problem["detail"]
+    assert "no checked Builder" in problem["detail"]
     assert "cpu_arch=arm64" in problem["detail"]
 
 

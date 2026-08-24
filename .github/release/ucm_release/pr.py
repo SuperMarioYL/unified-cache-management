@@ -92,7 +92,7 @@ def resolve_pr_request(
     probe_document = _mapping(runtime_probe, "runtime probe")
     if (
         probe_document.get("kind") != "ucm-runtime-probe"
-        or probe_document.get("schema_version") != 1
+        or probe_document.get("schema_version") != runtime.RUNTIME_PROBE_SCHEMA_VERSION
     ):
         raise ValueError("runtime probe has an unsupported contract")
     raw_probes = probe_document.get("probes")
@@ -150,7 +150,11 @@ def resolve_pr_request(
         }
 
     checked = runtime.match_runtime_builders(
-        {"kind": "ucm-runtime-probe", "schema_version": 1, "probes": supported},
+        {
+            "kind": "ucm-runtime-probe",
+            "schema_version": runtime.RUNTIME_PROBE_SCHEMA_VERSION,
+            "probes": supported,
+        },
         records,
     )
     existing_matches = list(checked["matches"])

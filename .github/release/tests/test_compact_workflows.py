@@ -17,13 +17,19 @@ def _load(name: str) -> dict[str, object]:
     return value
 
 
-def test_release_workflow_probes_registry_runtimes_before_builders_and_plan() -> None:
+def test_release_workflow_uses_crane_with_native_fallback_before_plan() -> None:
     jobs = _load("release-ucm.yml")["jobs"]
     assert jobs["open-release"]["needs"] == "classify-tag"
     assert "needs" not in jobs["select-runtime-candidates"]
     assert jobs["inspect-runtimes"]["needs"] == "select-runtime-candidates"
     assert jobs["probe-runtimes"]["needs"] == "inspect-runtimes"
     assert jobs["probe-runtimes"]["uses"] == "./.github/workflows/_probe-runtime.yml"
+    assert "has_probe_fallback == 'true'" in jobs["probe-runtimes"]["if"]
+    assert "probe-runtimes.result == 'skipped'" in jobs["resolve-upstreams"]["if"]
+    assert (
+        jobs["inspect-runtimes"]["outputs"]["has_probe_fallback"]
+        == "${{ steps.inspect.outputs.has_probe_fallback }}"
+    )
     assert set(jobs["resolve-upstreams"]["needs"]) == {
         "select-runtime-candidates",
         "inspect-runtimes",
@@ -152,6 +158,11 @@ def test_formal_and_draft_tags_open_before_builds_with_exact_api_lookup() -> Non
     assert "--git-tag" in plan_run
     assert ".git_tag == $tag" in plan_run
     assert ".release_tag = $tag" not in plan_run
+
+
+def test_every_release_patch_preserves_the_exact_tag_name() -> None:
+    text = (WORKFLOWS / "release-ucm.yml").read_text(encoding="utf-8")
+    assert text.count("gh api --method PATCH") == text.count('-f "tag_name=${tag}"')
 
 
 def test_member_and_index_publication_are_unbounded_matrices() -> None:
@@ -366,6 +377,8 @@ def test_ucm_build_bot_uses_probe_pipeline_without_hardcoded_capabilities() -> N
         "probe-formal-runtimes",
     }
     assert jobs["probe-formal-runtimes"]["strategy"]["fail-fast"] is False
+    assert "has_probe_fallback == 'true'" in jobs["probe-formal-runtimes"]["if"]
+    assert "probe-formal-runtimes.result == 'skipped'" in jobs["resolve-formal"]["if"]
     assert set(
         jobs["inspect-runtimes"]["needs"]
         if isinstance(jobs["inspect-runtimes"]["needs"], list)
@@ -390,6 +403,8 @@ def test_ucm_build_bot_uses_probe_pipeline_without_hardcoded_capabilities() -> N
         "sync-pr-builders",
     }
     assert jobs["probe-runtimes"]["strategy"]["fail-fast"] is False
+    assert "has_probe_fallback == 'true'" in jobs["probe-runtimes"]["if"]
+    assert "probe-runtimes.result == 'skipped'" in jobs["resolve-pr-runtimes"]["if"]
     assert "always()" in jobs["build-wheels"]["if"]
     assert "select-plan.result == 'success'" in jobs["build-wheels"]["if"]
     assert "build-wheels.result == 'success'" in jobs["build-images"]["if"]
@@ -493,7 +508,7 @@ def test_bot_all_retags_and_publishes_without_formal_tag_collision() -> None:
     assert "publish-pr-image-indexes" in jobs
 
 
-def test_runtime_probe_frees_disk_and_uploads_failure_evidence() -> None:
+def test_runtime_fallback_probe_pulls_only_when_crane_facts_are_missing() -> None:
     probe = _load("_probe-runtime.yml")["jobs"]["probe"]
     uses = [step.get("uses") for step in probe["steps"]]
     assert "jlumbroso/free-disk-space@v1.3.1" in uses
@@ -504,9 +519,56 @@ def test_runtime_probe_frees_disk_and_uploads_failure_evidence() -> None:
     )
     assert "always()" in upload["if"]
     assert upload["with"]["path"] == "out/"
+    text = (WORKFLOWS / "_probe-runtime.yml").read_text(encoding="utf-8")
+    assert 'docker pull --platform "${PLATFORM}" "${IMAGE_REFERENCE}"' in text
+    assert "has_numeric_version" in text
+    assert 'grep -Eq "[0-9]+\\.[0-9]+"' in text
+    assert '! has_numeric_version "${cuda_version}"' in text
+    assert '! has_numeric_version "${cann_version}"' in text
+    assert "nvcc --version" in text
+    assert "version.info" in text
+    for workflow_name in ("release-ucm.yml", "ucm-build-bot.yml"):
+        workflow_text = (WORKFLOWS / workflow_name).read_text(encoding="utf-8")
+        assert "has_probe_fallback" in workflow_text
+        assert "probe_matrix.include | length > 0" in workflow_text
     image_build = (WORKFLOWS / "_build-image.yml").read_text(encoding="utf-8")
     assert ".runtime.image_reference" in image_build
     assert '.runtime.repository + ":" + .runtime.tag' not in image_build
+
+
+def test_runtime_image_checks_wheel_glibc_floor_and_native_linkage() -> None:
+    workflow = _load("_build-image.yml")
+    steps = workflow["jobs"]["build"]["steps"]
+    verify_index, verify = next(
+        (index, step)
+        for index, step in enumerate(steps)
+        if step.get("name")
+        == "Verify runtime glibc, native linkage, Python, OS, and UCM import"
+    )
+    upload_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("uses") == "actions/upload-artifact@v4.6.2"
+    )
+    run = verify["run"]
+    assert verify_index < upload_index
+    assert "input/wheel/wheel-result.json" in run
+    assert ".glibc_floor" in run
+    assert "EXPECTED_WHEEL_GLIBC_FLOOR" in run
+    assert "ldd --version" in run
+    assert "parse(sys.argv[1]) >= parse(sys.argv[2])" in run
+    assert 'python3 -c "import ucm"' in run
+    assert "ucm-native-libraries.txt" in run
+    assert '-name "*.so"' in run
+    assert 'grep -Fq "not found"' in run
+    assert 'EXPECTED_OS_ID}" != linux' in run
+    assert 'EXPECTED_OS_VERSION}" != unreported' in run
+
+    dockerfile = (
+        ROOT / ".github" / "release" / "docker" / "Dockerfile.runtime"
+    ).read_text(encoding="utf-8")
+    assert "python3 -m pip install" in dockerfile
+    assert "python3 -c 'import ucm'" in dockerfile
 
 
 def test_cross_job_artifact_names_survive_failed_job_reruns() -> None:

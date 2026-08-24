@@ -1,9 +1,9 @@
 """Pure authority for ``/ucm-build image`` runtime inspection and projection.
 
-The workflow owns transport (``crane``, Docker, artifacts, and PR comments).
-This module owns the data contracts and decisions between those operations so
-the arbitrary-runtime-tag path can be tested without a registry or container
-runtime.
+The workflow owns transport (``crane``, Docker fallback, artifacts, and PR
+comments). This module owns config-fact extraction and the data contracts
+between those operations so the arbitrary-runtime-tag path can be tested
+without a registry or container runtime.
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ __all__ = [
 ]
 
 SUPPORTED_ARCHITECTURES = ("amd64", "arm64")
+RUNTIME_PROBE_SCHEMA_VERSION = 2
 OCI_INDEX_MEDIA_TYPES = frozenset(
     {
         "application/vnd.oci.image.index.v1+json",
@@ -52,6 +53,7 @@ _ASCEND_BACKEND_BY_SOC = {
     "ascend910_9391": "cann-a3",
     "ascend950dt_9582": "cann-a5",
 }
+_UNREPORTED = "unreported"
 
 JsonLoader = Callable[[str], object]
 
@@ -186,7 +188,7 @@ def _load_platform_config(
     *,
     config_loader: JsonLoader,
     expected_platform: tuple[str, str] | None,
-) -> tuple[str, str]:
+) -> tuple[str, str, dict[str, Any]]:
     context = f"runtime config {reference}"
     config = _json_mapping(config_loader(reference), context)
     operating_system, architecture = _config_platform(config, context)
@@ -202,7 +204,164 @@ def _load_platform_config(
             f"{context}: config platform {operating_system}/{architecture} differs "
             f"from manifest {expected_platform[0]}/{expected_platform[1]}"
         )
-    return operating_system, architecture
+    return operating_system, architecture, config
+
+
+def _config_env(config: Mapping[str, object], context: str) -> dict[str, str]:
+    raw_config = config.get("config")
+    if raw_config is None:
+        return {}
+    values = _mapping(raw_config, f"{context}.config").get("Env", [])
+    if values is None:
+        return {}
+    if not isinstance(values, list) or not all(
+        isinstance(item, str) for item in values
+    ):
+        raise ValueError(f"{context}.config.Env must be a string list")
+    result: dict[str, str] = {}
+    for entry in values:
+        key, separator, value = entry.partition("=")
+        if separator and key:
+            result[key] = value
+    return result
+
+
+def _history_assignments(config: Mapping[str, object], key: str) -> list[str]:
+    history = config.get("history", [])
+    if not isinstance(history, list):
+        return []
+    pattern = re.compile(rf"(?:^|[\s|]){re.escape(key)}=([^\s]+)")
+    values: list[str] = []
+    for item in history:
+        if not isinstance(item, Mapping):
+            continue
+        command = item.get("created_by")
+        if not isinstance(command, str):
+            continue
+        values.extend(
+            match.group(1).strip("'\"") for match in pattern.finditer(command)
+        )
+    return values
+
+
+def _consistent_version(
+    values: Sequence[str], normalizer: Callable[[object], str], context: str
+) -> tuple[str | None, str | None]:
+    normalized: set[str] = set()
+    for value in values:
+        try:
+            normalized.add(normalizer(value))
+        except ValueError:
+            continue
+    if not normalized:
+        return None, None
+    if len(normalized) != 1:
+        return None, f"{context} metadata conflicts: {sorted(normalized)}"
+    return normalized.pop(), None
+
+
+def _python_from_config(
+    config: Mapping[str, object], env: Mapping[str, str], context: str
+) -> tuple[str | None, str | None, str | None]:
+    sources: list[tuple[str, str]] = []
+    if env.get("PYTHON_VERSION"):
+        sources.append(("env:PYTHON_VERSION", env["PYTHON_VERSION"]))
+    for key in ("PATH", "LD_LIBRARY_PATH", "PYTHONPATH"):
+        value = env.get(key, "")
+        for match in re.finditer(r"/(?:python|Python)(\d+\.\d+(?:\.\d+)?)", value):
+            sources.append((f"env:{key}", match.group(1)))
+        for match in re.finditer(r"/cp(\d)(\d{2})-cp\d{3}(?:/|$)", value):
+            sources.append((f"env:{key}", f"{match.group(1)}.{int(match.group(2))}"))
+    sources.extend(
+        ("history:PYTHON_VERSION", value)
+        for value in _history_assignments(config, "PYTHON_VERSION")
+    )
+    version, conflict = _consistent_version(
+        [value for _, value in sources],
+        lambda value: _python_coordinates(value, context)[0],
+        context,
+    )
+    source = ",".join(sorted({name for name, _ in sources})) if version else None
+    return version, source, conflict
+
+
+def _runtime_from_config(
+    config: Mapping[str, object],
+    env: Mapping[str, str],
+    accelerator: str,
+    context: str,
+) -> tuple[str | None, str | None, str | None]:
+    if accelerator == "cuda":
+        sources = []
+        if env.get("CUDA_VERSION"):
+            sources.append(("env:CUDA_VERSION", env["CUDA_VERSION"]))
+        sources.extend(
+            ("history:CUDA_VERSION", value)
+            for value in _history_assignments(config, "CUDA_VERSION")
+        )
+    else:
+        sources = []
+        for name in ("CANN_VERSION", "ASCEND_TOOLKIT_HOME", "ASCEND_HOME_PATH"):
+            if env.get(name):
+                sources.append((f"env:{name}", env[name]))
+        for name in ("PATH", "LD_LIBRARY_PATH", "PYTHONPATH"):
+            value = env.get(name, "")
+            for match in re.finditer(r"/cann[-_/]?(\d+\.\d+(?:\.\d+)?)", value):
+                sources.append((f"env:{name}", match.group(1)))
+        sources.extend(
+            ("history:CANN_VERSION", value)
+            for value in _history_assignments(config, "CANN_VERSION")
+        )
+    version, conflict = _consistent_version(
+        [value for _, value in sources],
+        lambda value: _runtime_version(value, accelerator, context),
+        context,
+    )
+    source = ",".join(sorted({name for name, _ in sources})) if version else None
+    return version, source, conflict
+
+
+def _config_facts(
+    config: Mapping[str, object], *, tag: str, accelerator: str, context: str
+) -> tuple[dict[str, str], dict[str, str], list[str], list[str]]:
+    env = _config_env(config, context)
+    python_version, python_source, python_conflict = _python_from_config(
+        config, env, f"{context}.python_version"
+    )
+    runtime_version, runtime_source, runtime_conflict = _runtime_from_config(
+        config, env, accelerator, f"{context}.{accelerator}_version"
+    )
+    os_id = "openeuler" if "openeuler" in tag.casefold() else "linux"
+    facts = {
+        "python_version": python_version or "",
+        "os_id": os_id,
+        "os_version": _UNREPORTED,
+        "cuda_version": (
+            runtime_version if accelerator == "cuda" and runtime_version else ""
+        ),
+        "cann_version": (
+            runtime_version if accelerator == "ascend" and runtime_version else ""
+        ),
+        "soc_version": (
+            "na" if accelerator == "cuda" else env.get("SOC_VERSION", "").casefold()
+        ),
+    }
+    sources = {"os": "tag:openeuler" if os_id == "openeuler" else "oci"}
+    if python_source:
+        sources["python_version"] = python_source
+    runtime_field = "cuda_version" if accelerator == "cuda" else "cann_version"
+    if runtime_source:
+        sources[runtime_field] = runtime_source
+    if accelerator == "ascend" and facts["soc_version"]:
+        sources["soc_version"] = "env:SOC_VERSION"
+    required = ["python_version", runtime_field]
+    if accelerator == "ascend":
+        required.append("soc_version")
+    missing = [field for field in required if not facts[field]]
+    conflicts = [
+        value for value in (python_conflict, runtime_conflict) if value is not None
+    ]
+    return facts, sources, missing, conflicts
 
 
 def _inspect_members(
@@ -253,7 +412,7 @@ def _inspect_members(
                     f"runtime manifest {reference}: linux/{architecture} has invalid digest"
                 )
             member_reference = f"{repository}@{digest}"
-            _load_platform_config(
+            _, _, config = _load_platform_config(
                 member_reference,
                 config_loader=config_loader,
                 expected_platform=(operating_system, architecture),
@@ -263,11 +422,12 @@ def _inspect_members(
                     "cpu_arch": architecture,
                     "platform": f"linux/{architecture}",
                     "image_reference": member_reference,
+                    "config": config,
                 }
             )
             observed.add(architecture)
     elif media_type in OCI_MANIFEST_MEDIA_TYPES:
-        operating_system, architecture = _load_platform_config(
+        operating_system, architecture, config = _load_platform_config(
             reference, config_loader=config_loader, expected_platform=None
         )
         if operating_system == "linux" and architecture in SUPPORTED_ARCHITECTURES:
@@ -284,6 +444,7 @@ def _inspect_members(
                     "cpu_arch": architecture,
                     "platform": f"linux/{architecture}",
                     "image_reference": image_reference,
+                    "config": config,
                 }
             )
     else:
@@ -307,7 +468,7 @@ def inspect_runtime_references(
     config_loader: JsonLoader,
     digest_loader: Callable[[str], str] | None = None,
 ) -> dict[str, Any]:
-    """Validate opaque refs and project actual image members into a probe matrix."""
+    """Inspect immutable member configs and schedule native fallback only when needed."""
 
     if not isinstance(references, Sequence) or isinstance(references, (str, bytes)):
         raise ValueError("runtime references must be a sequence")
@@ -317,7 +478,8 @@ def inspect_runtime_references(
     runner_values = dict(runners)
     seen_references: set[str] = set()
     runtimes: list[dict[str, Any]] = []
-    probes: list[dict[str, Any]] = []
+    all_members: list[dict[str, Any]] = []
+    fallbacks: list[dict[str, Any]] = []
     for index, raw_reference in enumerate(references, start=1):
         repository, tag = parse_runtime_reference(raw_reference)
         reference = f"{repository}:{tag}"
@@ -340,7 +502,7 @@ def inspect_runtime_references(
         ):
             raise ValueError(f"runtime {reference}: resolved digest is invalid")
         pinned_reference = f"{repository}@{runtime_digest}"
-        members = _inspect_members(
+        image_members = _inspect_members(
             pinned_reference,
             repository,
             manifest_loader=manifest_loader,
@@ -349,32 +511,45 @@ def inspect_runtime_references(
         )
         request_id = f"runtime-{index:03d}"
         probe_ids: list[str] = []
-        for member in members:
+        for member in image_members:
             architecture = member["cpu_arch"]
             runner = runner_values.get(architecture)
             if not isinstance(runner, str) or not runner:
                 raise ValueError(f"no runner configured for linux/{architecture}")
             probe_id = f"{request_id}-{architecture}"
             probe_ids.append(probe_id)
-            probes.append(
-                {
-                    "probe_id": probe_id,
-                    "request_id": request_id,
-                    "product_id": policy["product_id"],
-                    "runtime_ref": reference,
-                    "repository": repository,
-                    "tag": tag,
-                    "target_repository": policy["target_repository"],
-                    "accelerator": policy["accelerator"],
-                    "backend": policy["backend"],
-                    "backend_by_soc": copy.deepcopy(policy["backend_by_soc"]),
-                    "cpu_arch": architecture,
-                    "platform": member["platform"],
-                    "runner": runner,
-                    "image_reference": member["image_reference"],
-                    "runtime_digest": runtime_digest,
-                }
+            context = f"runtime config {member['image_reference']}"
+            facts, fact_sources, missing, conflicts = _config_facts(
+                _mapping(member.get("config"), context),
+                tag=tag,
+                accelerator=str(policy["accelerator"]),
+                context=context,
             )
+            request = {
+                "probe_id": probe_id,
+                "request_id": request_id,
+                "product_id": policy["product_id"],
+                "runtime_ref": reference,
+                "repository": repository,
+                "tag": tag,
+                "target_repository": policy["target_repository"],
+                "accelerator": policy["accelerator"],
+                "backend": policy["backend"],
+                "backend_by_soc": copy.deepcopy(policy["backend_by_soc"]),
+                "cpu_arch": architecture,
+                "platform": member["platform"],
+                "runner": runner,
+                "image_reference": member["image_reference"],
+                "runtime_digest": runtime_digest,
+                "config_facts": facts,
+                "fact_sources": fact_sources,
+                "missing_required_fields": missing,
+                "metadata_conflicts": conflicts,
+                "fallback_required": bool(missing or conflicts),
+            }
+            all_members.append(request)
+            if request["fallback_required"]:
+                fallbacks.append(copy.deepcopy(request))
         runtimes.append(
             {
                 "request_id": request_id,
@@ -384,15 +559,16 @@ def inspect_runtime_references(
                 "tag": tag,
                 "target_repository": policy["target_repository"],
                 "runtime_digest": runtime_digest,
-                "architectures": [member["cpu_arch"] for member in members],
+                "architectures": [member["cpu_arch"] for member in image_members],
                 "probe_ids": probe_ids,
             }
         )
     return {
         "kind": "ucm-runtime-inspection",
-        "schema_version": 1,
+        "schema_version": 2,
         "runtimes": runtimes,
-        "probe_matrix": {"include": probes},
+        "members": all_members,
+        "probe_matrix": {"include": fallbacks},
     }
 
 
@@ -415,11 +591,6 @@ def _python_coordinates(value: object, context: str) -> tuple[str, str]:
     return version, f"cp{int(match.group(1))}{int(match.group(2))}"
 
 
-def _glibc_version(value: object, context: str) -> str:
-    match = _version_match(value, context)
-    return f"{int(match.group(1))}.{int(match.group(2))}"
-
-
 def _runtime_version(value: object, accelerator: str, context: str) -> str:
     match = _version_match(value, context)
     major, minor, patch = match.groups()
@@ -437,25 +608,27 @@ def _unquote(value: object, context: str) -> str:
 def aggregate_runtime_probes(
     inspection: Mapping[str, object], raw_probes: Sequence[Mapping[str, object]]
 ) -> dict[str, Any]:
-    """Normalize one raw probe result for every inspected architecture member."""
+    """Merge Crane config facts with native fallback results."""
 
     inspected = _mapping(inspection, "runtime inspection")
     if (
         inspected.get("kind") != "ucm-runtime-inspection"
-        or inspected.get("schema_version") != 1
+        or inspected.get("schema_version") != 2
     ):
         raise ValueError("runtime inspection has an unsupported contract")
-    matrix = _mapping(inspected.get("probe_matrix"), "runtime inspection probe_matrix")
-    requests = matrix.get("include")
+    requests = inspected.get("members")
     if not isinstance(requests, list) or not requests:
-        raise ValueError("runtime inspection probe matrix must not be empty")
+        raise ValueError("runtime inspection members must not be empty")
     expected: dict[str, dict[str, Any]] = {}
+    fallback_ids: set[str] = set()
     for raw_request in requests:
         request = _mapping(raw_request, "runtime probe request")
         probe_id = _string(request, "probe_id", "runtime probe request")
         if probe_id in expected:
             raise ValueError(f"duplicate runtime probe request {probe_id!r}")
         expected[probe_id] = request
+        if request.get("fallback_required") is True:
+            fallback_ids.add(probe_id)
 
     actual: dict[str, dict[str, Any]] = {}
     for raw_probe in raw_probes:
@@ -464,8 +637,8 @@ def aggregate_runtime_probes(
         if probe_id in actual:
             raise ValueError(f"duplicate raw runtime probe {probe_id!r}")
         actual[probe_id] = probe
-    missing = sorted(set(expected) - set(actual))
-    extra = sorted(set(actual) - set(expected))
+    missing = sorted(fallback_ids - set(actual))
+    extra = sorted(set(actual) - fallback_ids)
     if missing or extra:
         raise ValueError(
             f"runtime probe set differs from inspection: missing={missing}, extra={extra}"
@@ -475,7 +648,14 @@ def aggregate_runtime_probes(
     for raw_request in requests:
         request = _mapping(raw_request, "runtime probe request")
         probe_id = str(request["probe_id"])
-        raw = actual[probe_id]
+        fallback = request.get("fallback_required") is True
+        raw = (
+            actual[probe_id]
+            if fallback
+            else _mapping(
+                request.get("config_facts"), f"runtime config facts {probe_id}"
+            )
+        )
         context = f"runtime probe {probe_id}"
         python_version, python_abi = _python_coordinates(
             raw.get("python_version"), f"{context}.python_version"
@@ -484,7 +664,6 @@ def aggregate_runtime_probes(
         if re.fullmatch(r"[a-z0-9][a-z0-9._-]*", os_id) is None:
             raise ValueError(f"{context}.os_id is invalid")
         os_version = _unquote(raw.get("os_version"), f"{context}.os_version")
-        glibc = _glibc_version(raw.get("glibc_version"), f"{context}.glibc_version")
         accelerator = str(request["accelerator"])
         if accelerator == "cuda":
             runtime = _runtime_version(
@@ -532,12 +711,13 @@ def aggregate_runtime_probes(
                 "python_abi": python_abi,
                 "os_id": os_id,
                 "os_version": os_version,
-                "glibc_version": glibc,
+                "glibc_version": None,
+                "capability_source": "runtime-pull" if fallback else "crane-config",
             }
         )
     return {
         "kind": "ucm-runtime-probe",
-        "schema_version": 1,
+        "schema_version": RUNTIME_PROBE_SCHEMA_VERSION,
         "probes": normalized,
     }
 
@@ -548,13 +728,6 @@ def _manylinux_floor(value: object, context: str) -> tuple[int, int]:
     match = _MANYLINUX.fullmatch(value)
     if match is None:
         raise ValueError(f"{context} must be manylinux_<major>_<minor>")
-    return int(match.group(1)), int(match.group(2))
-
-
-def _numeric_pair(value: str, context: str) -> tuple[int, int]:
-    match = re.fullmatch(r"(\d+)\.(\d+)", value)
-    if match is None:
-        raise ValueError(f"{context} must be major.minor")
     return int(match.group(1)), int(match.group(2))
 
 
@@ -652,7 +825,7 @@ def match_runtime_builders(
     document = _mapping(runtime_probe, "runtime probe")
     if (
         document.get("kind") != "ucm-runtime-probe"
-        or document.get("schema_version") != 1
+        or document.get("schema_version") != RUNTIME_PROBE_SCHEMA_VERSION
     ):
         raise ValueError("runtime probe has an unsupported contract")
     probes = document.get("probes")
@@ -671,9 +844,6 @@ def match_runtime_builders(
         probe = _mapping(raw_probe, "runtime probe item")
         probe_id = _string(probe, "probe_id", "runtime probe item")
         capability = _capability(probe)
-        runtime_glibc = _numeric_pair(
-            str(probe["glibc_version"]), f"runtime probe {probe_id}.glibc_version"
-        )
         exact = [
             builder
             for builder in available
@@ -693,10 +863,7 @@ def match_runtime_builders(
             )
         ]
         checked = [builder for builder in exact if builder["checked"]]
-        compatible = [
-            builder for builder in checked if builder["_floor"] <= runtime_glibc
-        ]
-        if not compatible:
+        if not checked:
             requested = ", ".join(
                 f"{key}={capability[key]}"
                 for key in (
@@ -709,8 +876,7 @@ def match_runtime_builders(
             )
             floors = sorted({str(builder["manylinux"]) for builder in checked})
             detail = (
-                f"no compatible Builder for {requested}, runtime_glibc="
-                f"{probe['glibc_version']}; exact_candidates={len(exact)}, "
+                f"no checked Builder for {requested}; exact_candidates={len(exact)}, "
                 f"checked_candidates={len(checked)}, checked_manylinux={floors}"
             )
             problems.append(
@@ -721,7 +887,6 @@ def match_runtime_builders(
                     "request_id": probe["request_id"],
                     "runtime_ref": probe["runtime_ref"],
                     "capability": capability,
-                    "runtime_glibc": probe["glibc_version"],
                     "exact_candidates": len(exact),
                     "checked_candidates": len(checked),
                     "checked_manylinux": floors,
@@ -729,9 +894,9 @@ def match_runtime_builders(
                 }
             )
             continue
-        highest_floor = max(builder["_floor"] for builder in compatible)
+        lowest_floor = min(builder["_floor"] for builder in checked)
         floor_candidates = [
-            builder for builder in compatible if builder["_floor"] == highest_floor
+            builder for builder in checked if builder["_floor"] == lowest_floor
         ]
         newest_created = max(builder["_created"] for builder in floor_candidates)
         newest = [
@@ -822,7 +987,10 @@ def project_pr_publication(
 
     probe_document = _mapping(runtime_probe, "runtime probe")
     match_document = _mapping(builder_matches, "runtime Builder matches")
-    if probe_document.get("kind") != "ucm-runtime-probe":
+    if (
+        probe_document.get("kind") != "ucm-runtime-probe"
+        or probe_document.get("schema_version") != RUNTIME_PROBE_SCHEMA_VERSION
+    ):
         raise ValueError("runtime probe has an unsupported contract")
     if match_document.get("kind") != "ucm-runtime-builder-matches":
         raise ValueError("runtime Builder matches have an unsupported contract")

@@ -26,17 +26,26 @@ eligible; 310P is filtered and A5 is reported as blocked.
 ```text
 Runtime Registry Tags
   -> version selection
-  -> manifest/member inspection
-  -> per-member capability probe
+  -> manifest/member + Crane config inspection
+  -> native fallback probe only for missing capability fields
   -> compatible raw Builder Registry match
   -> digest-pinned label-only Builder mirror
   -> Wheel union
   -> runtime images and Chart
 ```
 
-Runtime probes provide the actual CUDA/CANN version, SOC/backend, Python ABI,
-OS, glibc, and CPU architecture. Every runtime member resolves exactly one
+Crane reads each immutable member manifest/config to obtain CUDA/CANN,
+SOC/backend, Python ABI, and CPU architecture without downloading
+image layers. Only a member missing Python, CUDA/CANN, or SOC metadata is pulled
+and probed on its native architecture. Runtime glibc does not gate planning:
+the Wheel's actual GLIBC floor comes from `auditwheel`, then the final
+install-only Runtime image verifies its glibc floor, native linkage, and
+`import ucm` before publication. Every runtime member resolves exactly one
 Wheel ID. Zero or ambiguous matches fail instead of guessing.
+
+The explicit `-openeuler` Runtime Tag suffix is retained as an OS hint for
+Release mapping and final-image validation. OS hints never participate in the
+Builder or Wheel capability key.
 
 CUDA raw Builders come from the configured PyTorch manylinux repositories.
 Ascend raw Builders come from `quay.io/ascend/manylinux`. Both use
@@ -106,7 +115,8 @@ Wheel.
 An ordinary PR selects one latest Stable vLLM-Ascend A2 Ubuntu runtime, falling
 back to RC and release-nightly. Its actual architecture members determine the
 Wheel and image tasks. Explicit `/ucm-build image <repository:tag>` accepts one
-runtime reference, probes it, and publishes PR-scoped GHCR tags. `/ucm-build
+runtime reference, inspects its OCI config, pulls only metadata-incomplete
+members for fallback probing, and publishes PR-scoped GHCR tags. `/ucm-build
 all` retains the complete formal matrix behavior.
 
 ## Artifact names

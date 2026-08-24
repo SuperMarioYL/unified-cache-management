@@ -191,6 +191,23 @@ def test_runtime_members_use_explicit_cp312_wheel_ids() -> None:
     assert {item["runtime"]["os_id"] for item in plan["images"]} == {"ubuntu"}
 
 
+def test_plan_defers_runtime_glibc_until_final_image_validation() -> None:
+    formal, selection, catalog = _inputs()
+    selection = copy.deepcopy(selection)
+    for runtime in selection["runtimes"]:
+        runtime["glibc_version"] = None
+
+    plan = compact.resolve_plan(
+        formal,
+        runtime_selection=selection,
+        builder_catalog=catalog,
+        route="release",
+    )
+
+    assert plan["images"]
+    assert all(item["runtime"]["glibc_version"] is None for item in plan["images"])
+
+
 def test_plan_projects_runtime_referenced_distributions_from_platform_policy() -> None:
     plan = _plan()
 

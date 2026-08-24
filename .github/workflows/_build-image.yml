@@ -98,7 +98,7 @@ jobs:
             --output type=oci,dest=out/image.oci.tar \
             --progress plain context
           test -s out/image.oci.tar
-      - name: Verify runtime Python, OS, and UCM import
+      - name: Verify runtime glibc, native linkage, Python, OS, and UCM import
         env:
           IMAGE_ID: ${{ inputs.image_id }}
         run: |
@@ -106,21 +106,58 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes skopeo
           local_tag="ucm-runtime-check:${IMAGE_ID}"
+          wheel_glibc_floor="$(jq -er '.glibc_floor | select(type == "string")' \
+            input/wheel/wheel-result.json)"
           skopeo copy "oci-archive:out/image.oci.tar" "docker-daemon:${local_tag}"
           docker run --rm --entrypoint sh \
             -e EXPECTED_PYTHON="$(jq -r '.runtime.python_version' out/image-task.json)" \
             -e EXPECTED_OS_ID="$(jq -r '.runtime.os_id' out/image-task.json)" \
             -e EXPECTED_OS_VERSION="$(jq -r '.runtime.os_version' out/image-task.json)" \
+            -e EXPECTED_WHEEL_GLIBC_FLOOR="${wheel_glibc_floor}" \
             "${local_tag}" -c '
               set -eu
+              ldd_line="$(ldd --version 2>&1 | head -n 1)"
+              actual_glibc="$(printf "%s\n" "${ldd_line}" |
+                grep -oE "[0-9]+(\.[0-9]+)+" | head -n 1)"
+              wheel_glibc_floor="${EXPECTED_WHEEL_GLIBC_FLOOR#GLIBC_}"
+              test -n "${actual_glibc}"
+              test -n "${wheel_glibc_floor}"
+              printf "Runtime glibc: actual=%s wheel-floor=%s\n" \
+                "${actual_glibc}" "${EXPECTED_WHEEL_GLIBC_FLOOR}"
+              python3 -c "import sys; parse=lambda value: tuple(map(int, value.split(\".\"))); sys.exit(0 if parse(sys.argv[1]) >= parse(sys.argv[2]) else 1)" \
+                "${actual_glibc}" "${wheel_glibc_floor}"
               actual_python="$(python3 -c \
                 "import sys; print(\"%d.%d\" % sys.version_info[:2])")"
               test "${actual_python}" = "${EXPECTED_PYTHON}"
               . /etc/os-release
-              test "$(printf %s "${ID}" | tr "[:upper:]" "[:lower:]")" = \
-                "$(printf %s "${EXPECTED_OS_ID}" | tr "[:upper:]" "[:lower:]")"
-              test "${VERSION_ID}" = "${EXPECTED_OS_VERSION}"
+              if [ "${EXPECTED_OS_ID}" != linux ] && \
+                 [ "${EXPECTED_OS_ID}" != unreported ]; then
+                test "$(printf %s "${ID}" | tr "[:upper:]" "[:lower:]")" = \
+                  "$(printf %s "${EXPECTED_OS_ID}" | tr "[:upper:]" "[:lower:]")"
+              fi
+              if [ "${EXPECTED_OS_VERSION}" != unreported ]; then
+                test "${VERSION_ID}" = "${EXPECTED_OS_VERSION}"
+              fi
+              printf "Runtime OS: actual=%s:%s planned=%s:%s\n" \
+                "${ID}" "${VERSION_ID}" "${EXPECTED_OS_ID}" "${EXPECTED_OS_VERSION}"
               python3 -c "import ucm"
+              ucm_root="$(python3 -c \
+                "from pathlib import Path; import ucm; print(Path(ucm.__file__).resolve().parent)")"
+              native_libraries=/tmp/ucm-native-libraries.txt
+              find "${ucm_root}" -type f \
+                \( -name "*.so" -o -name "*.so.*" \) -print >"${native_libraries}"
+              test -s "${native_libraries}"
+              while IFS= read -r library; do
+                ldd_output="$(ldd "${library}" 2>&1)" || {
+                  printf "ldd failed for %s:\n%s\n" "${library}" "${ldd_output}" >&2
+                  exit 1
+                }
+                printf "Native linkage for %s:\n%s\n" "${library}" "${ldd_output}"
+                if printf "%s\n" "${ldd_output}" | grep -Fq "not found"; then
+                  printf "Unresolved native dependency in %s\n" "${library}" >&2
+                  exit 1
+                fi
+              done <"${native_libraries}"
             '
       - if: ${{ inputs.upload_oci }}
         uses: actions/upload-artifact@v4.6.2

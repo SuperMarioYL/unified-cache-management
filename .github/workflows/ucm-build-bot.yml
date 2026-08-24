@@ -156,6 +156,7 @@ jobs:
       candidates_artifact: ${{ steps.inspect.outputs.candidates_artifact }}
       inspection_artifact: ${{ steps.inspect.outputs.inspection_artifact }}
       probe_matrix: ${{ steps.inspect.outputs.probe_matrix }}
+      has_probe_fallback: ${{ steps.inspect.outputs.has_probe_fallback }}
     steps:
       - uses: actions/checkout@v4.2.2
         with:
@@ -190,6 +191,7 @@ jobs:
             echo "candidates_artifact=ucm-formal-runtime-candidates-run-${GITHUB_RUN_ID}"
             echo "inspection_artifact=ucm-formal-runtime-inspection-run-${GITHUB_RUN_ID}"
             echo "probe_matrix=$(jq -c '.probe_matrix' out/runtime-inspection.json)"
+            echo "has_probe_fallback=$(jq -r '.probe_matrix.include | length > 0' out/runtime-inspection.json)"
           } >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@v4.6.2
         with:
@@ -212,7 +214,8 @@ jobs:
     if: >-
       ${{
         needs.permission-check.outputs.allowed == 'true' &&
-        needs.permission-check.outputs.subcommand != 'image'
+        needs.permission-check.outputs.subcommand != 'image' &&
+        needs.inspect-formal-runtimes.outputs.has_probe_fallback == 'true'
       }}
     strategy:
       fail-fast: false
@@ -232,8 +235,11 @@ jobs:
     needs: [permission-check, inspect-formal-runtimes, probe-formal-runtimes]
     if: >-
       ${{
-        needs.permission-check.outputs.allowed == 'true' &&
-        needs.permission-check.outputs.subcommand != 'image'
+        always() && needs.permission-check.outputs.allowed == 'true' &&
+        needs.permission-check.outputs.subcommand != 'image' &&
+        needs.inspect-formal-runtimes.result == 'success' &&
+        (needs.probe-formal-runtimes.result == 'success' ||
+         needs.probe-formal-runtimes.result == 'skipped')
       }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -266,13 +272,14 @@ jobs:
           name: ${{ needs.inspect-formal-runtimes.outputs.inspection_artifact }}
           path: input/inspection
       - uses: actions/download-artifact@v4.3.0
+        if: needs.probe-formal-runtimes.result == 'success'
         with:
           pattern: ucm-runtime-probe-*-run-${{ github.run_id }}
           path: input/probes
       - id: resolve
         run: |
           set -euo pipefail
-          mkdir -p out
+          mkdir -p out input/probes
           PYTHONPATH=.github/release python -m ucm_release runtime aggregate \
             --inspection input/inspection/runtime-inspection.json \
             --probe-dir input/probes --output out/runtime-probe.json >/dev/null
@@ -299,6 +306,7 @@ jobs:
     outputs:
       inspection_artifact: ${{ steps.inspect.outputs.inspection_artifact }}
       probe_matrix: ${{ steps.inspect.outputs.probe_matrix }}
+      has_probe_fallback: ${{ steps.inspect.outputs.has_probe_fallback }}
     steps:
       - uses: actions/checkout@v4.2.2
         with:
@@ -340,6 +348,8 @@ jobs:
             --output out/runtime-inspection.json >/dev/null
           echo "probe_matrix=$(jq -c '.probe_matrix' out/runtime-inspection.json)" \
             >>"${GITHUB_OUTPUT}"
+          echo "has_probe_fallback=$(jq -r '.probe_matrix.include | length > 0' out/runtime-inspection.json)" \
+            >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@v4.6.2
         if: ${{ always() }}
         with:
@@ -350,8 +360,9 @@ jobs:
           retention-days: 7
 
   probe-runtimes:
-    name: Probe · ${{ matrix.runtime_ref }} · ${{ matrix.cpu_arch }}
+    name: Fallback probe · ${{ matrix.runtime_ref }} · ${{ matrix.cpu_arch }}
     needs: [permission-check, inspect-runtimes]
+    if: needs.inspect-runtimes.outputs.has_probe_fallback == 'true'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.inspect-runtimes.outputs.probe_matrix) }}
@@ -368,6 +379,14 @@ jobs:
   resolve-pr-runtimes:
     name: Aggregate probes and resolve Builders
     needs: [permission-check, inspect-runtimes, probe-runtimes]
+    if: >-
+      ${{
+        always() && needs.permission-check.outputs.allowed == 'true' &&
+        needs.permission-check.outputs.subcommand == 'image' &&
+        needs.inspect-runtimes.result == 'success' &&
+        (needs.probe-runtimes.result == 'success' ||
+         needs.probe-runtimes.result == 'skipped')
+      }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -398,6 +417,7 @@ jobs:
           name: ${{ needs.inspect-runtimes.outputs.inspection_artifact }}
           path: input/inspection
       - uses: actions/download-artifact@v4.3.0
+        if: needs.probe-runtimes.result == 'success'
         with:
           pattern: ucm-runtime-probe-*-run-${{ github.run_id }}
           path: input/probes
@@ -408,7 +428,7 @@ jobs:
       - id: resolve
         run: |
           set -euo pipefail
-          mkdir -p out
+          mkdir -p out input/probes
           PYTHONPATH=.github/release python -m ucm_release runtime aggregate \
             --inspection input/inspection/runtime-inspection.json \
             --probe-dir input/probes --output out/runtime-probe.json >/dev/null

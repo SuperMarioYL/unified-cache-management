@@ -282,7 +282,7 @@ def test_single_platform_raw_builder_rejects_wrong_architecture() -> None:
         )
 
 
-def test_ambiguous_compatible_raw_builder_is_rejected() -> None:
+def test_raw_builder_selection_prefers_lowest_manylinux_floor() -> None:
     fixture = _fixture()
     repository = "quay.io/ascend/manylinux"
     tag = "9.0.0-910b-manylinux_2_34-py3.12"
@@ -291,8 +291,27 @@ def test_ambiguous_compatible_raw_builder_is_rejected() -> None:
         "amd64": "sha256:" + "f" * 64
     }
 
-    with pytest.raises(ValueError, match="expected one compatible raw Builder"):
-        _selection(fixture)
+    selection = _selection(fixture)
+    build = next(
+        item
+        for item in selection["wheel_builds"]
+        if item["backend"] == "cann-a2" and item["cpu_arch"] == "amd64"
+    )
+    assert build["manylinux"] == "manylinux_2_28"
+    assert build["source_image"].endswith("9.0.0-910b-manylinux_2_28-py3.12")
+
+
+def test_runtime_glibc_is_not_required_for_wheel_or_builder_planning() -> None:
+    fixture = _fixture()
+    for probe in fixture["runtime_probe"]["probes"]:
+        probe["glibc_version"] = None
+
+    selection = _selection(fixture)
+    catalog = _catalog(selection)
+
+    assert selection["wheel_builds"]
+    assert all(runtime["glibc_version"] is None for runtime in selection["runtimes"])
+    assert catalog["builders"]
 
 
 def test_catalog_is_mirror_only_and_checks_ascend_variant_files() -> None:

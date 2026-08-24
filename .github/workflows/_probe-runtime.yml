@@ -77,12 +77,22 @@ jobs:
               glibc_version="$(ldd --version 2>&1 | head -n 1)"
               cuda_version="${CUDA_VERSION:-}"
               cann_version="${CANN_VERSION:-${ASCEND_TOOLKIT_HOME:-${ASCEND_HOME_PATH:-}}}"
-              if [ "${EXPECTED_ACCELERATOR}" = cuda ] && [ -z "${cuda_version}" ]; then
+              has_numeric_version() {
+                printf "%s\n" "$1" | grep -Eq "[0-9]+\.[0-9]+"
+              }
+              if [ "${EXPECTED_ACCELERATOR}" = cuda ] && \
+                 ! has_numeric_version "${cuda_version}"; then
                 cuda_version="$(nvcc --version 2>/dev/null | tail -n 1 || true)"
               fi
-              if [ "${EXPECTED_ACCELERATOR}" = ascend ] && [ -z "${cann_version}" ]; then
-                version_file="$(find /usr/local/Ascend -type f \
+              if [ "${EXPECTED_ACCELERATOR}" = ascend ] && \
+                 ! has_numeric_version "${cann_version}"; then
+                cann_root="${ASCEND_TOOLKIT_HOME:-${ASCEND_HOME_PATH:-/usr/local/Ascend}}"
+                version_file="$(find -L "${cann_root}" -type f \
                   \( -name version.info -o -name version.cfg \) -print -quit 2>/dev/null || true)"
+                if [ -z "${version_file}" ] && [ "${cann_root}" != /usr/local/Ascend ]; then
+                  version_file="$(find /usr/local/Ascend -type f \
+                    \( -name version.info -o -name version.cfg \) -print -quit 2>/dev/null || true)"
+                fi
                 [ -z "${version_file}" ] || cann_version="$(head -n 1 "${version_file}")"
               fi
               printf "%s\037%s\037%s\037%s\037%s\037%s\037%s" \

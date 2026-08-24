@@ -47,7 +47,7 @@ def _cuda_probe(*, dual_arch: bool = False) -> dict[str, object]:
     ]
     return {
         "kind": "ucm-runtime-probe",
-        "schema_version": 1,
+        "schema_version": 2,
         "probes": probes if dual_arch else probes[:1],
     }
 
@@ -229,7 +229,7 @@ def test_image_command_rejects_multiple_runtime_requests() -> None:
     with pytest.raises(ValueError, match="exactly one Runtime image"):
         pr.resolve_pr_request(
             formal,
-            {"kind": "ucm-runtime-probe", "schema_version": 1, "probes": probes},
+            {"kind": "ucm-runtime-probe", "schema_version": 2, "probes": probes},
             {
                 "kind": "ucm-builder-registry",
                 "schema_version": 1,
