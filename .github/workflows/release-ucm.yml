@@ -547,8 +547,34 @@ jobs:
       plan_artifact: ${{ needs.plan.outputs.plan_artifact }}
 
   build-images:
-    name: Image · ${{ matrix.label }}
+    name: Tag Image · ${{ matrix.label }}
+    needs: [plan, build-wheels, publish-release-artifacts]
+    if: >-
+      ${{
+        github.event_name == 'push' && github.ref_type == 'tag' &&
+        needs.plan.result == 'success' && needs.build-wheels.result == 'success' &&
+        needs.publish-release-artifacts.result == 'success'
+      }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.image_matrix) }}
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/_build-release-image.yml
+    with:
+      image_id: ${{ matrix.id }}
+      runner: ${{ matrix.runner }}
+      plan_artifact: ${{ needs.plan.outputs.plan_artifact }}
+
+  build-validation-images:
+    name: Validation Image · ${{ matrix.label }}
     needs: [plan, build-wheels]
+    if: >-
+      ${{
+        always() && !(github.event_name == 'push' && github.ref_type == 'tag') &&
+        needs.plan.result == 'success' && needs.build-wheels.result == 'success'
+      }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.image_matrix) }}
@@ -559,7 +585,7 @@ jobs:
       image_id: ${{ matrix.id }}
       runner: ${{ matrix.runner }}
       plan_artifact: ${{ needs.plan.outputs.plan_artifact }}
-      upload_oci: ${{ needs.plan.outputs.route == 'release' || inputs.deliver_full_oci == true }}
+      upload_oci: ${{ inputs.deliver_full_oci == true }}
 
   publish-release-artifacts:
     name: Release · Publish Wheels and Chart
@@ -689,7 +715,7 @@ jobs:
             -f "body=$(<"${notes}")" >/dev/null
 
   publish-image-members:
-    name: Publish member · ${{ matrix.label }}
+    name: Verify directly published GHCR members
     needs: [plan, build-images, publish-release-artifacts]
     if: >-
       ${{
@@ -697,20 +723,12 @@ jobs:
         needs.build-images.result == 'success' &&
         needs.publish-release-artifacts.result == 'success'
       }}
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.image_matrix) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     environment: release-production
     permissions:
       actions: read
       contents: read
-      packages: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
       - uses: actions/download-artifact@v4.3.0
         with:
@@ -718,82 +736,34 @@ jobs:
           path: input/plan
       - uses: actions/download-artifact@v4.3.0
         with:
-          name: ucm-image-${{ matrix.id }}-run-${{ github.run_id }}
-          path: input/image
-      - name: Install skopeo
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes skopeo
-      - name: Publish architecture member
-        env:
-          IMAGE_ID: ${{ matrix.id }}
+          pattern: ucm-image-member-receipt-*-run-${{ github.run_id }}
+          path: input/receipts
+          merge-multiple: true
+      - name: Require one published GHCR receipt per planned image
         run: |
           set -euo pipefail
           plan=input/plan/release-plan.json
-          image="$(jq -e --arg id "${IMAGE_ID}" '.images[] | select(.id == $id)' "${plan}")"
-          mkdir -p out/receipts
-          receipt="out/receipts/member-${IMAGE_ID}.json"
-          targets='[]'
-          jq -n --arg id "${IMAGE_ID}" \
-            '{kind:"ucm-image-member-receipt",schema_version:1,id:$id,
-              status:"failed",targets:[]}' >"${receipt}"
-          archive=input/image/image.oci.tar
-          test -s "${archive}"
-          arch="$(jq -r '.cpu_arch' <<<"${image}")"
-          family_id="$(jq -r '.family_id' <<<"${image}")"
-          target_repository="$(jq -r '.target_repository' <<<"${image}")"
-          target_tag="$(jq -r '.target_tag' <<<"${image}")"
-          create_index="$(jq -er --arg id "${family_id}" \
-            '.families[] | select(.id == $id) | .create_index' "${plan}")"
-          published_tag="${target_tag}"
-          if [ "${create_index}" = true ]; then
-            published_tag="${target_tag}-${arch}"
-          fi
-          if [ "$(jq -r '.publish.ghcr.enabled' "${plan}")" = true ]; then
-            printf '%s' "${GH_TOKEN}" | docker login ghcr.io \
-              --username "${GITHUB_ACTOR}" --password-stdin
-            skopeo copy "oci-archive:${archive}" \
-              "docker://${target_repository}:${published_tag}"
-            reference="${target_repository}:${published_tag}"
-            digest="$(skopeo inspect --format '{{.Digest}}' "docker://${reference}")"
-            targets="$(jq -c --arg channel ghcr --arg reference "${reference}" \
-              --arg digest "${digest}" \
-              '. + [{channel:$channel,reference:$reference,digest:$digest}]' \
-              <<<"${targets}")"
-            jq -n --arg id "${IMAGE_ID}" --argjson targets "${targets}" \
-              '{kind:"ucm-image-member-receipt",schema_version:1,id:$id,
-                status:"failed",targets:$targets}' >"${receipt}"
-          fi
-          if [ "$(jq -r '.publish.dockerhub.enabled' "${plan}")" = true ] && \
-             [ "$(jq -r '.release_kind // "none"' "${plan}")" != draft ]; then
-            test -n "${DOCKERHUB_USERNAME}" && test -n "${DOCKERHUB_TOKEN}"
-            printf '%s' "${DOCKERHUB_TOKEN}" | docker login docker.io \
-              --username "${DOCKERHUB_USERNAME}" --password-stdin
-            namespace="$(jq -r '.publish.dockerhub.namespace' "${plan}")"
-            repository="${namespace}/$(basename "${target_repository}")"
-            skopeo copy "oci-archive:${archive}" \
-              "docker://${repository}:${published_tag}"
-            reference="${repository}:${published_tag}"
-            digest="$(skopeo inspect --format '{{.Digest}}' "docker://${reference}")"
-            targets="$(jq -c --arg channel dockerhub --arg reference "${reference}" \
-              --arg digest "${digest}" \
-              '. + [{channel:$channel,reference:$reference,digest:$digest}]' \
-              <<<"${targets}")"
-            jq -n --arg id "${IMAGE_ID}" --argjson targets "${targets}" \
-              '{kind:"ucm-image-member-receipt",schema_version:1,id:$id,
-                status:"failed",targets:$targets}' >"${receipt}"
-          fi
-          jq -n --arg id "${IMAGE_ID}" --argjson targets "${targets}" \
-            '{kind:"ucm-image-member-receipt",schema_version:1,id:$id,
-              status:"published",targets:$targets}' >"${receipt}"
-      - uses: actions/upload-artifact@v4.6.2
-        if: ${{ always() }}
-        with:
-          name: ucm-image-member-receipt-${{ matrix.id }}-run-${{ github.run_id }}
-          path: out/receipts/
-          if-no-files-found: warn
-          overwrite: true
-          retention-days: 90
+          mapfile -t receipts < <(find input/receipts -type f \
+            -name 'member-*.json' -print | sort)
+          test "${#receipts[@]}" = "$(jq '.images | length' "${plan}")"
+          jq -e -s --slurpfile plan "${plan}" '
+            ([ $plan[0].families[].members[] |
+               {key:.image_id,value:.reference} ] | from_entries) as $expected |
+            (map(.id) | sort | unique) == ($expected | keys | sort) and
+            all(. as $receipt |
+                ($receipt | keys | sort) ==
+                  ["id","kind","schema_version","status","targets"] and
+                $receipt.kind == "ucm-image-member-receipt" and
+                $receipt.schema_version == 1 and
+                $receipt.status == "published" and
+                ($receipt.targets | length) == 1 and
+                ($receipt.targets[0] | keys | sort) ==
+                  ["channel","digest","reference"] and
+                $receipt.targets[0].channel == "ghcr" and
+                $receipt.targets[0].reference == $expected[$receipt.id] and
+                ($receipt.targets[0].digest |
+                  test("^sha256:[0-9a-f]{64}$")))
+          ' "${receipts[@]}" >/dev/null
 
   publish-image-indexes:
     name: Publish index · ${{ matrix.label }}

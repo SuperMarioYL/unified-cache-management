@@ -130,9 +130,14 @@ Artifacts are scoped by run and overwritten by failed-job reruns:
 - `ucm-release-plan-run-<run>`;
 - `ucm-wheel-<wheel-id>-run-<run>`;
 - `ucm-chart-run-<run>`;
-- `ucm-image-<image-id>-run-<run>`;
+- `ucm-image-<image-id>-run-<run>` for PR Robot trust-boundary handoff only;
 - image member/index receipt artifacts;
 - `ucm-release-stage-run-<run>`.
+
+Trusted Tag builds keep the verified OCI archive on the native build runner,
+copy it directly to GHCR, and upload only the small member receipt. They do not
+retain multi-gigabyte OCI archives as Actions artifacts. PR Robot builds keep
+the separate read-only build to trusted publisher artifact boundary.
 
 ## Verification
 

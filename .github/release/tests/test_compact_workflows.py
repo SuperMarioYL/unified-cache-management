@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -96,6 +98,12 @@ def test_release_workflow_has_staged_publication_jobs() -> None:
         "build-images",
         "publish-release-artifacts",
     }
+    assert set(jobs["build-images"]["needs"]) == {
+        "plan",
+        "build-wheels",
+        "publish-release-artifacts",
+    }
+    assert "publish-release-artifacts.result == 'success'" in jobs["build-images"]["if"]
     assert set(jobs["publish-image-indexes"]["needs"]) == {
         "plan",
         "publish-image-members",
@@ -191,18 +199,15 @@ def test_every_release_patch_preserves_the_exact_tag_name() -> None:
     assert text.count("gh api --method PATCH") == text.count('-f "tag_name=${tag}"')
 
 
-def test_member_and_index_publication_are_unbounded_matrices() -> None:
+def test_direct_member_receipt_barrier_and_index_matrix_are_unbounded() -> None:
     jobs = _load("release-ucm.yml")["jobs"]
     members = jobs["publish-image-members"]
     indexes = jobs["publish-image-indexes"]
-    assert members["strategy"]["fail-fast"] is False
+    assert "strategy" not in members
+    assert "ucm-image-member-receipt-*" in yaml.safe_dump(members)
+    assert "one published GHCR receipt per planned image" in yaml.safe_dump(members)
     assert indexes["strategy"]["fail-fast"] is False
-    assert "max-parallel" not in members["strategy"]
     assert "max-parallel" not in indexes["strategy"]
-    assert (
-        members["strategy"]["matrix"]
-        == "${{ fromJSON(needs.plan.outputs.image_matrix) }}"
-    )
     assert (
         indexes["strategy"]["matrix"]
         == "${{ fromJSON(needs.plan.outputs.image_index_matrix) }}"
@@ -210,6 +215,73 @@ def test_member_and_index_publication_are_unbounded_matrices() -> None:
     assert indexes["if"] == "${{ needs.plan.outputs.has_image_indexes == 'true' }}"
     text = (WORKFLOWS / "release-ucm.yml").read_text(encoding="utf-8")
     assert "while IFS=$'\\t' read -r image_id" not in text
+
+
+def test_member_receipt_barrier_rejects_the_wrong_ghcr_reference(
+    tmp_path: Path,
+) -> None:
+    steps = _load("release-ucm.yml")["jobs"]["publish-image-members"]["steps"]
+    run = next(
+        step["run"]
+        for step in steps
+        if step.get("name") == "Require one published GHCR receipt per planned image"
+    )
+    jq_filter = run.split('jq -e -s --slurpfile plan "${plan}" \'', 1)[1].split(
+        '\n\' "${receipts[@]}"',
+        1,
+    )[0]
+    plan = {
+        "images": [{"id": "image-amd64"}],
+        "families": [
+            {
+                "members": [
+                    {
+                        "image_id": "image-amd64",
+                        "reference": "ghcr.io/release-org/runtime:member-amd64",
+                    }
+                ]
+            }
+        ],
+    }
+    receipt = {
+        "kind": "ucm-image-member-receipt",
+        "schema_version": 1,
+        "id": "image-amd64",
+        "status": "published",
+        "targets": [
+            {
+                "channel": "ghcr",
+                "reference": "ghcr.io/release-org/runtime:member-amd64",
+                "digest": "sha256:" + "1" * 64,
+            }
+        ],
+    }
+    plan_path = tmp_path / "plan.json"
+    receipt_path = tmp_path / "receipt.json"
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+    def validate(value: dict[str, object]) -> subprocess.CompletedProcess[str]:
+        receipt_path.write_text(json.dumps(value), encoding="utf-8")
+        return subprocess.run(
+            [
+                "jq",
+                "-e",
+                "-s",
+                "--slurpfile",
+                "plan",
+                str(plan_path),
+                jq_filter,
+                str(receipt_path),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    assert validate(receipt).returncode == 0
+    wrong = json.loads(json.dumps(receipt))
+    wrong["targets"][0]["reference"] = "ghcr.io/attacker/wrong:tag"
+    assert validate(wrong).returncode != 0
 
 
 def test_release_index_matrix_generation_fails_closed() -> None:
@@ -251,7 +323,8 @@ def test_remote_writers_use_environment_and_minimum_permissions() -> None:
     assert "packages" not in jobs["publish-pypi"]["permissions"]
     assert "release_kind != 'draft'" in jobs["publish-pypi"]["if"]
     assert jobs["publish-chart-oci"]["permissions"]["packages"] == "write"
-    assert jobs["publish-image-members"]["permissions"]["packages"] == "write"
+    assert "packages" not in jobs["publish-image-members"]["permissions"]
+    assert jobs["build-images"]["permissions"]["packages"] == "write"
 
 
 def test_builder_sync_consumes_selection_and_uses_digest_pinned_mirror_only() -> None:
@@ -349,6 +422,7 @@ def test_reusable_builds_keep_functional_inputs() -> None:
             "upload_oci",
             "source_ref",
         },
+        "_build-release-image.yml": {"image_id", "runner", "plan_artifact"},
         "_build-chart.yml": {"plan_artifact", "source_ref"},
     }
     for filename, inputs in expected.items():
@@ -614,6 +688,32 @@ def test_runtime_image_checks_wheel_glibc_floor_and_import() -> None:
     assert "python3 -c 'import ucm'" in dockerfile
 
 
+def test_trusted_tag_image_publishes_directly_without_oci_artifact() -> None:
+    workflow = _load("_build-release-image.yml")
+    assert set(workflow["on"]["workflow_call"]["inputs"]) == {
+        "image_id",
+        "runner",
+        "plan_artifact",
+    }
+    job = workflow["jobs"]["publish"]
+    assert job["environment"] == "release-production"
+    assert workflow["permissions"] == {"contents": "read", "packages": "write"}
+    text = (WORKFLOWS / "_build-release-image.yml").read_text(encoding="utf-8")
+    assert "source_ref" not in text
+    assert 'test "${GITHUB_EVENT_NAME}" = push' in text
+    assert 'test "${GITHUB_REF_TYPE}" = tag' in text
+    assert 'skopeo copy "oci-archive:out/image.oci.tar"' in text
+    assert "ucm-image-member-receipt-${{ inputs.image_id }}" in text
+    assert "path: out/image.oci.tar" not in text
+    release = _load("release-ucm.yml")["jobs"]
+    assert release["build-images"]["uses"] == (
+        "./.github/workflows/_build-release-image.yml"
+    )
+    assert release["build-validation-images"]["uses"] == (
+        "./.github/workflows/_build-image.yml"
+    )
+
+
 def test_cross_job_artifact_names_survive_failed_job_reruns() -> None:
     names = (
         "release-ucm.yml",
@@ -621,6 +721,7 @@ def test_cross_job_artifact_names_survive_failed_job_reruns() -> None:
         "sync-builders.yml",
         "_build-wheel.yml",
         "_build-image.yml",
+        "_build-release-image.yml",
         "_build-chart.yml",
         "ucm-build-bot.yml",
     )
