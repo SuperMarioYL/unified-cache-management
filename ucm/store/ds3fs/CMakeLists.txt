@@ -1,3 +1,8 @@
+if(UCM_RELEASE_BUILD AND UCM_RELEASE_DS3FS_POLICY STREQUAL "FORBIDDEN")
+    message(STATUS "ds3fsstore: forbidden by the native release profile")
+    return()
+endif()
+
 find_path(HF3FS_USRBIO_INCLUDE_DIR NAMES hf3fs_usrbio.h PATHS /usr/local/3fs/src/lib/api NO_DEFAULT_PATH)
 find_library(HF3FS_USRBIO_LIBRARY NAMES hf3fs_api_shared PATHS /usr/local/3fs/src/lib/rs/hf3fs-usrbio-sys/lib NO_DEFAULT_PATH)
 

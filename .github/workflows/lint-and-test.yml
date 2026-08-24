@@ -77,7 +77,7 @@ jobs:
         echo "::add-matcher::.github/workflows/matchers/mypy.json"
 
     - name: Run pre-commit checks on all files
-      uses: pre-commit/action@v3.0.1
+      uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd
       env:
         SHELLCHECK_OPTS: "--exclude=SC2046,SC2006,SC2086"
       with:

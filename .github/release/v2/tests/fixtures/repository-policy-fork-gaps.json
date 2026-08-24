@@ -1,0 +1,20 @@
+{
+  "kind": "repository-policy-snapshot",
+  "schema_version": 2,
+  "mode": "read-only",
+  "repository": "SuperMarioYL/unified-cache-management",
+  "default_branch": "develop",
+  "branches": [{"name": "develop", "protected": false}],
+  "rulesets": [{"name": "rc-only", "target": "tag", "enforcement": "active", "tag_pattern": "v0.5.0rc1"}],
+  "environments": [{"name": "release-production", "required_reviewers": 0, "deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}],
+  "workflows": [
+    {"name": "develop-release-dry-run.yml", "permissions": {"contents": "read"}},
+    {"name": "draft-environment-dry-run.yml", "permissions": {"contents": "read"}},
+    {"name": "nightly-release-dry-run.yml", "permissions": {"contents": "read"}},
+    {"name": "pr-release-dry-run.yml", "permissions": {"contents": "read"}},
+    {"name": "release-cleanup-dry-run.yml", "permissions": {"contents": "read"}},
+    {"name": "release-control-dry-run.yml", "permissions": {"contents": "read"}},
+    {"name": "release-lifecycle-dry-run.yml", "permissions": {"contents": "read"}},
+    {"name": "repository-policy-audit-dry-run.yml", "permissions": {"contents": "read"}}
+  ]
+}

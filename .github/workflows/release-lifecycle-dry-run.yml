@@ -1,0 +1,68 @@
+name: Protected release lifecycle dry-run v2
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: Protected release stage to preview
+        required: true
+        type: choice
+        options:
+          - rc
+          - stable
+          - hotfix
+      source_sha:
+        description: Exact lowercase 40-character source SHA to model
+        required: true
+        type: string
+      intent_json:
+        description: Exact release intent JSON bound to stage and source SHA
+        required: true
+        type: string
+      inventory_json:
+        description: Offline read-only release inventory JSON
+        required: true
+        type: string
+      promotion_json:
+        description: Offline promotion evidence JSON for Stable or Hotfix
+        required: false
+        default: ""
+        type: string
+      promotion_source_lifecycle_plan_json:
+        description: Reopened RC or Stable source lifecycle plan JSON
+        required: false
+        default: ""
+        type: string
+      promotion_source_manifest_json:
+        description: Reopened source artifact manifest JSON
+        required: false
+        default: ""
+        type: string
+      known_issues_json:
+        description: JSON string array of known issues
+        required: false
+        default: "[]"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: protected-release-lifecycle-dry-run-${{ inputs.stage }}-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+jobs:
+  invoke-trusted-main-controller:
+    permissions:
+      contents: read
+    uses: SuperMarioYL/unified-cache-management/.github/workflows/release-control-dry-run.yml@main
+    with:
+      operation: protected-lifecycle
+      stage: ${{ inputs.stage }}
+      source_sha: ${{ inputs.source_sha }}
+      intent_json: ${{ inputs.intent_json }}
+      inventory_json: ${{ inputs.inventory_json }}
+      promotion_json: ${{ inputs.promotion_json }}
+      promotion_source_lifecycle_plan_json: ${{ inputs.promotion_source_lifecycle_plan_json }}
+      promotion_source_manifest_json: ${{ inputs.promotion_source_manifest_json }}
+      known_issues_json: ${{ inputs.known_issues_json }}

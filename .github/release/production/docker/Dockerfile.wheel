@@ -1,0 +1,166 @@
+# syntax=docker/dockerfile:1.12.1@sha256:93bfd3b68c109427185cd78b4779fc82b484b0b7618e36d0f104d4d801e66d25
+# check=skip=SecretsUsedInArgOrEnv
+ARG UCM_BUILDER_IMAGE=registry.invalid/ucm/builder@sha256:0000000000000000000000000000000000000000000000000000000000000000
+ARG UCM_BUILD_CONFIG=wheel-build.json
+
+FROM ${UCM_BUILDER_IMAGE} AS production-wheel-build
+
+ARG UCM_BUILDER_IMAGE
+ARG UCM_BUILD_CONFIG
+ARG BUILD_VERSION
+ARG BUILD_FILENAME
+ARG BUILD_SHA256
+ARG PYPROJECT_HOOKS_VERSION
+ARG PYPROJECT_HOOKS_FILENAME
+ARG PYPROJECT_HOOKS_SHA256
+ARG PACKAGING_VERSION
+ARG PACKAGING_FILENAME
+ARG PACKAGING_SHA256
+ARG SETUPTOOLS_VERSION
+ARG SETUPTOOLS_FILENAME
+ARG SETUPTOOLS_SHA256
+ARG WHEEL_VERSION
+ARG WHEEL_FILENAME
+ARG WHEEL_SHA256
+ARG PYYAML_VERSION
+ARG PYYAML_FILENAME
+ARG PYYAML_SHA256
+ARG CMAKE_VERSION
+ARG CMAKE_FILENAME
+ARG CMAKE_SHA256
+
+SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
+ENV TZ=UTC PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_DEFAULT_TIMEOUT=30 PIP_RETRIES=2 \
+    PYTHONDONTWRITEBYTECODE=1
+# Ascend builders resolve Mooncake from /usr/local/lib. Preserve any inherited
+# builder search path while prepending that reviewed location.
+ARG LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH="/usr/local/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+
+COPY ${UCM_BUILD_CONFIG} /tmp/wheel-build.json
+COPY trusted-control/ucm_release /tmp/release-control/ucm_release
+RUN bootstrap_python=""; \
+    if command -v python3 >/dev/null; then \
+      bootstrap_python="$(command -v python3)"; \
+    elif command -v python >/dev/null; then \
+      bootstrap_python="$(command -v python)"; \
+    else \
+      bootstrap_python="$(find -L /opt/python -path '*/bin/python' -type f -perm -111 2>/dev/null | sort | head -n 1 || true)"; \
+    fi; \
+    test -n "${bootstrap_python}"; \
+    python_version="$(${bootstrap_python} -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["python"]["version"])')"; \
+    python_abi="$(${bootstrap_python} -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["python"]["abi"])')"; \
+    python_candidate="/opt/python/${python_abi}-${python_abi}/bin/python"; \
+    if [[ -x "${python_candidate}" ]]; then \
+      selected_python="${python_candidate}"; \
+    elif command -v "python${python_version}" >/dev/null; then \
+      selected_python="$(command -v "python${python_version}")"; \
+    elif [[ "$(${bootstrap_python} -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" == "${python_version}" ]]; then \
+      selected_python="${bootstrap_python}"; \
+    else \
+      echo "immutable builder lacks ${python_abi}" >&2; exit 1; \
+    fi; \
+    ln -s "${selected_python}" /usr/local/bin/ucm-python
+
+RUN <<EOF
+test "${UCM_BUILDER_IMAGE}" != "${UCM_BUILDER_IMAGE%@sha256:*}"
+mkdir -p /wheelhouse
+ucm-python -m pip download --dest /wheelhouse --no-deps --only-binary=:all: \
+  "build==${BUILD_VERSION}" \
+  "pyproject-hooks==${PYPROJECT_HOOKS_VERSION}" \
+  "packaging==${PACKAGING_VERSION}" \
+  "setuptools==${SETUPTOOLS_VERSION}" \
+  "wheel==${WHEEL_VERSION}" \
+  "PyYAML==${PYYAML_VERSION}" \
+  "cmake==${CMAKE_VERSION}"
+check_wheel() {
+  local filename="$1" expected="${2#sha256:}" actual
+  test -f "/wheelhouse/${filename}"
+  actual="$(sha256sum "/wheelhouse/${filename}" | cut -d' ' -f1)"
+  test "${actual}" = "${expected}"
+}
+check_wheel "${BUILD_FILENAME}" "${BUILD_SHA256}"
+check_wheel "${PYPROJECT_HOOKS_FILENAME}" "${PYPROJECT_HOOKS_SHA256}"
+check_wheel "${PACKAGING_FILENAME}" "${PACKAGING_SHA256}"
+check_wheel "${SETUPTOOLS_FILENAME}" "${SETUPTOOLS_SHA256}"
+check_wheel "${WHEEL_FILENAME}" "${WHEEL_SHA256}"
+check_wheel "${PYYAML_FILENAME}" "${PYYAML_SHA256}"
+check_wheel "${CMAKE_FILENAME}" "${CMAKE_SHA256}"
+cat > /tmp/requirements.lock <<LOCK
+build==${BUILD_VERSION} --hash=${BUILD_SHA256}
+pyproject-hooks==${PYPROJECT_HOOKS_VERSION} --hash=${PYPROJECT_HOOKS_SHA256}
+packaging==${PACKAGING_VERSION} --hash=${PACKAGING_SHA256}
+setuptools==${SETUPTOOLS_VERSION} --hash=${SETUPTOOLS_SHA256}
+wheel==${WHEEL_VERSION} --hash=${WHEEL_SHA256}
+PyYAML==${PYYAML_VERSION} --hash=${PYYAML_SHA256}
+cmake==${CMAKE_VERSION} --hash=${CMAKE_SHA256}
+LOCK
+ucm-python -m pip install --no-index --find-links=/wheelhouse --require-hashes \
+  --only-binary=:all: -r /tmp/requirements.lock
+EOF
+
+WORKDIR /workspace/ucm
+COPY ucm-source.tar /tmp/ucm-source.tar
+COPY source-commit.payload /tmp/source-commit.payload
+COPY source-context.json /tmp/source-context.json
+
+RUN ucm-python - <<'PY'
+import hashlib
+import json
+import subprocess
+import tarfile
+from pathlib import Path
+
+config = json.loads(Path('/tmp/wheel-build.json').read_bytes())
+authority = config['authority']
+context = json.loads(Path('/tmp/source-context.json').read_bytes())
+archive = Path('/tmp/ucm-source.tar').read_bytes()
+commit = Path('/tmp/source-commit.payload').read_bytes()
+if authority['schema_version'] != 2:
+    raise SystemExit('production authority must use schema v2')
+if context['source_sha'] != authority['source_sha']:
+    raise SystemExit('source context SHA differs from authority')
+if context['source_tree'] != authority['source_tree']:
+    raise SystemExit('source tree differs from authority')
+if 'sha256:' + hashlib.sha256(archive).hexdigest() != authority['source_archive_sha256']:
+    raise SystemExit('source archive digest differs from authority')
+actual_commit = subprocess.check_output(
+    ['git', 'hash-object', '-t', 'commit', '--stdin'], input=commit, text=False
+).decode().strip()
+if actual_commit != authority['source_sha']:
+    raise SystemExit('source commit payload differs from authority')
+with tarfile.open('/tmp/ucm-source.tar', mode='r:') as source:
+    source.extractall('/workspace/ucm', filter='data')
+PY
+RUN rm -rf /workspace/ucm/.github/release/ucm_release; \
+    mkdir -p /workspace/ucm/.github/release; \
+    cp -a /tmp/release-control/ucm_release /workspace/ucm/.github/release/ucm_release
+RUN expected_arch="$(ucm-python -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["authority"]["cpu_arch"])')"; \
+    case "${expected_arch}:$(uname -m)" in \
+      amd64:x86_64|arm64:aarch64) ;; \
+      *) echo "configured architecture does not match native builder" >&2; exit 1 ;; \
+    esac; \
+    build_platform="$(ucm-python -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["platform"])')"; \
+    case "${build_platform}" in \
+      cuda) test -f /usr/local/cuda/include/cuda.h ;; \
+      ascend|ascend-a3) \
+        test -f /usr/local/Ascend/ascend-toolkit/latest/include/acl/acl.h; \
+        test -f /usr/local/Ascend/ascend-toolkit/latest/lib64/libascendcl.so; \
+        test -f /usr/local/include/transfer_engine.h; \
+        test -f /usr/local/lib/libmooncake_store.so \
+        ;; \
+      *) echo "unsupported configured build platform" >&2; exit 1 ;; \
+    esac
+RUN PYTHONPATH=/workspace/ucm/.github/release \
+    ucm-python -m ucm_release wheel prepare-source \
+      --build-config /tmp/wheel-build.json \
+      --source-root /workspace/ucm
+
+RUN source_date_epoch="$(ucm-python -c 'import json; print(json.load(open("/tmp/wheel-build.json"))["authority"]["source_date_epoch"])')"; \
+    PATH="$(ucm-python -c 'import sysconfig; print(sysconfig.get_path("scripts"))'):${PATH}" \
+    SOURCE_DATE_EPOCH="${source_date_epoch}" \
+    UCM_BUILD_CONFIG=/tmp/wheel-build.json \
+    ucm-python -m build --no-isolation --wheel --outdir /out
+
+FROM scratch AS production-wheel
+COPY --from=production-wheel-build /out /
