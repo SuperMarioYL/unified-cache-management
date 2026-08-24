@@ -50,6 +50,19 @@ def test_release_workflow_uses_crane_with_native_fallback_before_plan() -> None:
     assert "'{include:[.families[]" in plan_text
 
 
+def test_pr_gate_keeps_ucm_artifact_builds_in_the_robot_lane() -> None:
+    jobs = _load("pull-request.yml")["jobs"]
+    assert set(jobs) == {
+        "pre-check",
+        "lint-and-unit-tests",
+        "repository-recipe-plan",
+        "repository-docker-smoke",
+    }
+    text = (WORKFLOWS / "pull-request.yml").read_text(encoding="utf-8")
+    assert "release-catalog-smoke" not in text
+    assert "./.github/workflows/release-ucm.yml" not in text
+
+
 def test_release_workflow_has_staged_publication_jobs() -> None:
     jobs = _load("release-ucm.yml")["jobs"]
     publish_jobs = [

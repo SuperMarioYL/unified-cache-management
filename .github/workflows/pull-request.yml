@@ -93,19 +93,6 @@ jobs:
       contents: read
     uses: ./.github/workflows/lint-and-test.yml
 
-  release-catalog-smoke:
-    needs: [pre-check]
-    # GitHub validates the reusable workflow's maximum permissions before
-    # evaluating lane-specific job conditions. The PR lane itself never runs
-    # the formal-tag publication jobs.
-    permissions:
-      actions: read
-      contents: write
-      packages: write
-    uses: ./.github/workflows/release-ucm.yml
-    with:
-      deliver_full_oci: false
-
   repository-recipe-plan:
     needs: [pre-check]
     timeout-minutes: 10
