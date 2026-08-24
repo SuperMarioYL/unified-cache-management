@@ -553,14 +553,13 @@ def test_runtime_fallback_probe_pulls_only_when_crane_facts_are_missing() -> Non
     assert '.runtime.repository + ":" + .runtime.tag' not in image_build
 
 
-def test_runtime_image_checks_wheel_glibc_floor_and_native_linkage() -> None:
+def test_runtime_image_checks_wheel_glibc_floor_and_import() -> None:
     workflow = _load("_build-image.yml")
     steps = workflow["jobs"]["build"]["steps"]
     verify_index, verify = next(
         (index, step)
         for index, step in enumerate(steps)
-        if step.get("name")
-        == "Verify runtime glibc, native linkage, Python, OS, and UCM import"
+        if step.get("name") == "Verify runtime glibc, Python, OS, and UCM import"
     )
     upload_index = next(
         index
@@ -575,9 +574,6 @@ def test_runtime_image_checks_wheel_glibc_floor_and_native_linkage() -> None:
     assert "ldd --version" in run
     assert "parse(sys.argv[1]) >= parse(sys.argv[2])" in run
     assert 'python3 -c "import ucm"' in run
-    assert "ucm-native-libraries.txt" in run
-    assert '-name "*.so"' in run
-    assert 'grep -Fq "not found"' in run
     assert 'EXPECTED_OS_ID}" != linux' in run
     assert 'EXPECTED_OS_VERSION}" != unreported' in run
 

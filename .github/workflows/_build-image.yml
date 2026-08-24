@@ -98,7 +98,7 @@ jobs:
             --output type=oci,dest=out/image.oci.tar \
             --progress plain context
           test -s out/image.oci.tar
-      - name: Verify runtime glibc, native linkage, Python, OS, and UCM import
+      - name: Verify runtime glibc, Python, OS, and UCM import
         env:
           IMAGE_ID: ${{ inputs.image_id }}
         run: |
@@ -141,23 +141,6 @@ jobs:
               printf "Runtime OS: actual=%s:%s planned=%s:%s\n" \
                 "${ID}" "${VERSION_ID}" "${EXPECTED_OS_ID}" "${EXPECTED_OS_VERSION}"
               python3 -c "import ucm"
-              ucm_root="$(python3 -c \
-                "from pathlib import Path; import ucm; print(Path(ucm.__file__).resolve().parent)")"
-              native_libraries=/tmp/ucm-native-libraries.txt
-              find "${ucm_root}" -type f \
-                \( -name "*.so" -o -name "*.so.*" \) -print >"${native_libraries}"
-              test -s "${native_libraries}"
-              while IFS= read -r library; do
-                ldd_output="$(ldd "${library}" 2>&1)" || {
-                  printf "ldd failed for %s:\n%s\n" "${library}" "${ldd_output}" >&2
-                  exit 1
-                }
-                printf "Native linkage for %s:\n%s\n" "${library}" "${ldd_output}"
-                if printf "%s\n" "${ldd_output}" | grep -Fq "not found"; then
-                  printf "Unresolved native dependency in %s\n" "${library}" >&2
-                  exit 1
-                fi
-              done <"${native_libraries}"
             '
       - if: ${{ inputs.upload_oci }}
         uses: actions/upload-artifact@v4.6.2

@@ -39,8 +39,8 @@ SOC/backend, Python ABI, and CPU architecture without downloading
 image layers. Only a member missing Python, CUDA/CANN, or SOC metadata is pulled
 and probed on its native architecture. Runtime glibc does not gate planning:
 the Wheel's actual GLIBC floor comes from `auditwheel`, then the final
-install-only Runtime image verifies its glibc floor, native linkage, and
-`import ucm` before publication. Every runtime member resolves exactly one
+install-only Runtime image verifies its glibc floor, installs the Wheel, and
+runs `import ucm` before publication. Every runtime member resolves exactly one
 Wheel ID. Zero or ambiguous matches fail instead of guessing.
 
 The explicit `-openeuler` Runtime Tag suffix is retained as an OS hint for
