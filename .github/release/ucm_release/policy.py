@@ -1,8 +1,8 @@
-"""Human-maintained formal Release and platform policy.
+"""Human-maintained schema-v5 Release and platform policy.
 
-The v4 policy deliberately ignores the legacy Builder, native-contract, and
-toolchain lock files.  ``compatibility_projection`` keeps older ``core``
-consumers working while the formal resolver and planner migrate to this model.
+The two policy files and their exact requirement lists are the formal build
+authorities. ``compatibility_projection`` keeps repository recipe consumers on
+the same policy without duplicating Release configuration.
 """
 
 from __future__ import annotations
@@ -31,9 +31,9 @@ _COMPATIBILITY_SOURCE = {
 }
 _COMPATIBILITY_LANES = ["feature-candidate", "protected-tag"]
 _MATRIX_LIMITS = {
-    "max_wheel_tasks": 64,
-    "max_image_tasks": 128,
-    "max_family_tasks": 64,
+    "max_wheel_tasks": 128,
+    "max_image_tasks": 256,
+    "max_family_tasks": 128,
 }
 _SCAN_LIMITS = {"max_tags_per_repository": 1024, "max_selected_upstreams": 64}
 
@@ -95,13 +95,23 @@ def _validate_release_semantics(release: dict[str, Any]) -> None:
     for product in products:
         try:
             minimum = Version(product["minimum_version"])
+            maximum = (
+                Version(product["maximum_version"])
+                if "maximum_version" in product
+                else None
+            )
         except InvalidVersion as error:
             raise ValueError(
-                f"release product {product['id']}: minimum_version is invalid"
+                f"release product {product['id']}: version window is invalid"
             ) from error
-        if minimum.local is not None or minimum.dev is not None:
+        for name, value in (("minimum_version", minimum), ("maximum_version", maximum)):
+            if value is not None and (value.local is not None or value.dev is not None):
+                raise ValueError(
+                    f"release product {product['id']}: {name} must be a formal version"
+                )
+        if maximum is not None and maximum < minimum:
             raise ValueError(
-                f"release product {product['id']}: minimum_version must be a formal version"
+                f"release product {product['id']}: maximum_version must be >= minimum_version"
             )
     publish = release["publish"]
     if (
@@ -126,10 +136,6 @@ def _validate_platform_semantics(platforms: dict[str, Any]) -> None:
             raise ValueError(
                 f"platform backend {backend!r} requires exactly one distribution rule"
             )
-        if backend == "cuda" and not has_template:
-            raise ValueError("CUDA backend requires distribution_template")
-        if backend != "cuda" and not has_distribution:
-            raise ValueError(f"platform backend {backend!r} requires distribution")
         if config["status"] == "blocked" and "reason" not in config:
             raise ValueError(f"blocked platform backend {backend!r} requires a reason")
         if config["status"] == "supported" and "reason" in config:
@@ -146,7 +152,7 @@ def load(
     build_requirements_path: Path | None = None,
     runtime_requirements_path: Path | None = None,
 ) -> dict[str, Any]:
-    """Load only the schema-v4 formal policy and its direct authorities."""
+    """Load only the schema-v5 formal policy and its direct authorities."""
     resolved_platforms = _companion_path(
         release_path, platforms_path, DEFAULT_PLATFORMS
     )
@@ -271,27 +277,30 @@ def _backend_contracts(platforms: dict[str, Any]) -> dict[str, dict[str, Any]]:
 def compatibility_projection(
     policy: dict[str, Any], *, chart_name: str
 ) -> dict[str, Any]:
-    """Project v4 policy into the transitional schema-v3 catalog interface."""
+    """Project v5 policy into the transitional schema-v3 catalog interface."""
     release = policy["release"]
     platforms = policy["platforms"]
     smoke_values = release["chart"]["smoke_values"]
     upstream_products = []
     for product in release["products"]:
-        upstream_products.append(
-            {
-                "id": product["id"],
-                "runtime_product": product["id"],
-                "source_repository": product["source_repository"],
-                "runtime_repository": product["runtime_repository"],
-                "target_repository": product["target_repository"],
-                "minimum_version": product["minimum_version"],
-                "channel_policy": product["channel_policy"],
-                "version_specifier": f">={product['minimum_version']}",
-                "channels": ["stable", "rc"],
-                # Transitional only. Formal runtime Python comes from upstream parsing.
-                "integration_python_abi": "cp312",
-            }
-        )
+        version_specifier = f">={product['minimum_version']}"
+        if "maximum_version" in product:
+            version_specifier += f",<={product['maximum_version']}"
+        projected = {
+            "id": product["id"],
+            "runtime_product": product["id"],
+            "runtime_repository": product["runtime_repository"],
+            "target_repository": product["target_repository"],
+            "minimum_version": product["minimum_version"],
+            "channel_policy": product["channel_policy"],
+            "version_specifier": version_specifier,
+            "channels": ["stable", "rc", "nightly"],
+            # Transitional only. Formal runtime Python comes from OCI probing.
+            "integration_python_abi": "cp312",
+        }
+        if "maximum_version" in product:
+            projected["maximum_version"] = product["maximum_version"]
+        upstream_products.append(projected)
     publish = copy.deepcopy(release["publish"])
     publish["ghcr"]["namespace"] = "ghcr.io/{owner}"
     builder_families = platforms["builder_families"]
@@ -344,13 +353,14 @@ def compatibility_projection(
                 "commands": copy.deepcopy(
                     builder_families["cuda"]["required_commands"]
                 ),
-                "mooncake": False,
             },
             "ascend": {
                 "commands": copy.deepcopy(
                     builder_families["ascend"]["required_commands"]
                 ),
-                "mooncake": True,
+                "required_files": copy.deepcopy(
+                    builder_families["ascend"]["required_files"]
+                ),
             },
         },
         "backend_contracts": _backend_contracts(platforms),

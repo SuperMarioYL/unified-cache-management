@@ -6,19 +6,14 @@ import copy
 import json
 import os
 import re
-import shlex
 import subprocess
-import urllib.parse
-import urllib.request
+import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Iterable
 
 from . import core
 
-RELEASE_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_CONFIG = RELEASE_ROOT / "builders.yaml"
-DEFAULT_RELEASE = RELEASE_ROOT / "release.yaml"
 CATALOG_FIELDS = (
     "project",
     "accelerator",
@@ -44,8 +39,6 @@ _BUILDER_LABEL_PREFIX = "io.ucm.builder."
 _BUILDER_METADATA_FIELDS = (
     "id",
     "product_id",
-    "source_repository",
-    "source_ref",
     "build_group",
     "runtime_variant",
     "backend",
@@ -60,20 +53,9 @@ _BUILDER_METADATA_FIELDS = (
     "source_image",
     "source_image_digest",
     "build_mode",
-    "mooncake_version",
     "recipe_revision",
     "sync_mode",
 )
-_IDENTITY_FIELDS = (
-    "project",
-    "accelerator",
-    *CAPABILITY_FIELDS,
-    "target_repository",
-)
-
-
-def _read_yaml(path: Path) -> object:
-    return core.load_yaml(path)
 
 
 def _owner(explicit: str | None) -> str:
@@ -109,143 +91,6 @@ def _require_string(mapping: dict[str, object], key: str, context: str) -> str:
     return value
 
 
-def load_config(path: Path = DEFAULT_CONFIG) -> dict[str, object]:
-    """Load the adapter-only Builder discovery configuration."""
-    config = _require_mapping(_read_yaml(path), str(path))
-    if config.get("kind") != "builder-discovery-config":
-        raise ValueError(f"{path}: kind must be builder-discovery-config")
-    if config.get("schema_version") != 1:
-        raise ValueError(f"{path}: schema_version must be 1")
-    projects = config.get("projects")
-    if not isinstance(projects, list) or not projects:
-        raise ValueError(f"{path}: projects must be a non-empty list")
-    product_ids: set[str] = set()
-    for index, raw in enumerate(projects):
-        context = f"{path}: projects[{index}]"
-        project = _require_mapping(raw, context)
-        product_id = _require_string(project, "product_id", context)
-        if product_id in product_ids:
-            raise ValueError(f"{context}: duplicate product_id {product_id!r}")
-        product_ids.add(product_id)
-        discovery = _require_string(project, "discovery", context)
-        _require_string(project, "target_repository", context)
-        if discovery not in {"vllm-buildkite", "vllm-ascend-actions"}:
-            raise ValueError(f"{context}: unsupported discovery {discovery!r}")
-        if discovery == "vllm-buildkite":
-            _require_string(project, "pipeline_path", context)
-            _require_string(project, "versions_path", context)
-            _require_string(project, "dockerfile_path", context)
-        else:
-            _require_string(project, "wheel_workflow_path", context)
-            _require_string(project, "image_workflow_path", context)
-            _require_string(project, "dockerfile_directory", context)
-            _require_string(project, "dockerfile_prefix", context)
-            excluded = project.get("exclude_variants")
-            if excluded != ["310p"]:
-                raise ValueError(f"{context}: exclude_variants must contain only 310p")
-            _require_string(project, "mooncake_version", context)
-    if product_ids != {"vllm", "vllm-ascend"}:
-        raise ValueError(f"{path}: vLLM and vLLM-Ascend discovery are both required")
-    if set(config) != {"kind", "schema_version", "projects"}:
-        raise ValueError(f"{path}: unsupported top-level fields")
-    return config
-
-
-class _SnapshotSource:
-    def __init__(self, root: Path, project: str):
-        self.root = root / project
-
-    def read(self, path: str) -> str:
-        source = self.root / path
-        if not source.is_file():
-            raise ValueError(f"snapshot missing {source}")
-        return source.read_text(encoding="utf-8")
-
-    def list(self, directory: str, prefix: str) -> list[str]:
-        root = self.root / directory
-        if not root.is_dir():
-            raise ValueError(f"snapshot missing {root}")
-        return sorted(
-            path.name for path in root.iterdir() if path.name.startswith(prefix)
-        )
-
-
-class _GitHubSource:
-    def __init__(self, project: str):
-        self.project = project
-        metadata = self._json(f"https://api.github.com/repos/{project}")
-        branch = metadata.get("default_branch")
-        if not isinstance(branch, str) or not branch:
-            raise ValueError(f"{project}: GitHub response has no default_branch")
-        self.branch = branch
-
-    @staticmethod
-    def _request(url: str) -> bytes:
-        headers = {
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "ucm-builder-discovery",
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
-        token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        with urllib.request.urlopen(
-            urllib.request.Request(url, headers=headers)
-        ) as response:
-            return response.read()
-
-    @classmethod
-    def _json(cls, url: str) -> dict[str, object]:
-        try:
-            value = json.loads(cls._request(url))
-        except (OSError, json.JSONDecodeError) as error:
-            raise ValueError(f"GitHub request failed for {url}: {error}") from error
-        return _require_mapping(value, url)
-
-    def read(self, path: str) -> str:
-        quoted_branch = urllib.parse.quote(self.branch, safe="")
-        quoted_path = urllib.parse.quote(path, safe="/")
-        url = f"https://raw.githubusercontent.com/{self.project}/{quoted_branch}/{quoted_path}"
-        try:
-            return self._request(url).decode("utf-8")
-        except (OSError, UnicodeDecodeError) as error:
-            raise ValueError(
-                f"{self.project}/{path}: GitHub raw read failed: {error}"
-            ) from error
-
-    def list(self, directory: str, prefix: str) -> list[str]:
-        quoted = urllib.parse.quote(directory, safe="/")
-        url = (
-            f"https://api.github.com/repos/{self.project}/contents/{quoted}"
-            f"?ref={urllib.parse.quote(self.branch, safe='')}"
-        )
-        try:
-            value = json.loads(self._request(url))
-        except (OSError, json.JSONDecodeError) as error:
-            raise ValueError(
-                f"{self.project}/{directory}: GitHub listing failed: {error}"
-            ) from error
-        if not isinstance(value, list):
-            raise ValueError(
-                f"{self.project}/{directory}: GitHub listing is not a list"
-            )
-        return sorted(
-            item["name"]
-            for item in value
-            if isinstance(item, dict)
-            and isinstance(item.get("name"), str)
-            and item["name"].startswith(prefix)
-        )
-
-
-def _normalize_image(image: str) -> str:
-    image = image.strip()
-    first = image.split("/", 1)[0]
-    if "." not in first and ":" not in first and first != "localhost":
-        return f"docker.io/{image}"
-    return image
-
-
 def _validate_oci_repository(value: str, context: str) -> None:
     if core.OCI_REPOSITORY_PATTERN.fullmatch(value) is None:
         raise ValueError(f"{context}: invalid OCI repository {value!r}")
@@ -259,37 +104,6 @@ def _validate_oci_image(value: str, context: str) -> None:
     _validate_oci_repository(repository, context)
     if core.OCI_TAG_PATTERN.fullmatch(tag) is None:
         raise ValueError(f"{context}: invalid OCI tag {tag!r}")
-
-
-def _python_abi(version: str, context: str) -> str:
-    match = re.fullmatch(r"(\d+)\.(\d+)(?:\.\d+)?", version.strip())
-    if match is None:
-        raise ValueError(f"{context}: malformed Python version {version!r}")
-    return f"cp{match.group(1)}{match.group(2)}"
-
-
-def _target_tag(item: dict[str, str], mooncake_version: str | None = None) -> str:
-    runtime = (
-        item["accelerator_runtime"].replace("cuda-", "cuda").replace("cann-", "cann")
-    )
-    manylinux = item["manylinux"].replace("manylinux_", "manylinux")
-    parts = [runtime]
-    if item["accelerator"] == "ascend":
-        parts.append(item["variant"])
-    parts.extend([item["python_abi"], manylinux])
-    if mooncake_version is not None:
-        parts.append(f"mooncake{mooncake_version}")
-    parts.extend([item["cpu_arch"], "r1"])
-    return "-".join(parts)
-
-
-def _catalog_item(
-    values: dict[str, str], mooncake_version: str | None = None
-) -> dict[str, str]:
-    item = dict(values)
-    item["target_tag"] = _target_tag(item, mooncake_version)
-    _validate_catalog_item(item, "builder")
-    return {key: item[key] for key in CATALOG_FIELDS}
 
 
 def _validate_catalog_item(item: object, context: str) -> dict[str, str]:
@@ -327,303 +141,6 @@ def _validate_catalog_item(item: object, context: str) -> dict[str, str]:
     return mapping  # type: ignore[return-value]
 
 
-def _walk_tasks(value: object) -> Iterable[dict[str, object]]:
-    if isinstance(value, dict):
-        if isinstance(value.get("id"), str):
-            yield value
-        for nested in value.values():
-            yield from _walk_tasks(nested)
-    elif isinstance(value, list):
-        for nested in value:
-            yield from _walk_tasks(nested)
-
-
-def _strings(value: object) -> Iterable[str]:
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, list):
-        for nested in value:
-            yield from _strings(nested)
-
-
-def _discover_vllm(
-    project: dict[str, object], source: object, owner: str
-) -> list[dict[str, str]]:
-    project_name = str(project["project"])
-    pipeline_path = str(project["pipeline_path"])
-    versions_path = str(project["versions_path"])
-    context = f"{project_name}/{versions_path}"
-    try:
-        versions = _require_mapping(json.loads(source.read(versions_path)), context)  # type: ignore[attr-defined]
-        variables = _require_mapping(versions.get("variable"), context)
-        python_authority = variables.get("PYTHON_VERSION")
-        python = (
-            python_authority.get("default")
-            if isinstance(python_authority, dict)
-            else None
-        )
-    except json.JSONDecodeError as error:
-        raise ValueError(f"{context}: malformed JSON: {error}") from error
-    if not isinstance(python, str) or not python:
-        raise ValueError(
-            f"{context}: missing Python version at variable.PYTHON_VERSION.default"
-        )
-    python_abi = _python_abi(python, context)
-    pipeline_context = f"{project_name}/{pipeline_path}"
-    pipeline = core.load_yaml_value(  # type: ignore[attr-defined]
-        source.read(pipeline_path), context=pipeline_context
-    )
-    if pipeline is None:
-        raise ValueError(f"{pipeline_context}: document is empty")
-    items: list[dict[str, str]] = []
-    task_pattern = re.compile(r"build-wheel-(x86|arm64)-cuda-(\d+)-(\d+)")
-    image_pattern = re.compile(r"(?:^|\s)BUILD_BASE_IMAGE=(?:['\"])?([^\s'\"\\]+)")
-    for task in _walk_tasks(pipeline):
-        task_id = str(task["id"])
-        match = task_pattern.fullmatch(task_id)
-        if match is None:
-            continue
-        task_context = f"{pipeline_context} task {task_id}"
-        images = {
-            found.group(1)
-            for command in _strings(task.get("commands"))
-            for found in image_pattern.finditer(command)
-        }
-        if not images:
-            raise ValueError(f"{task_context}: missing BUILD_BASE_IMAGE")
-        if len(images) != 1:
-            raise ValueError(
-                f"{task_context}: BUILD_BASE_IMAGE must be unique, found {sorted(images)}"
-            )
-        source_image = _normalize_image(next(iter(images)))
-        image_match = re.fullmatch(
-            r"docker\.io/pytorch/manylinux(?:(?P<arm>aarch64)|(?P<major>\d+)_(?P<minor>\d+))-builder:cuda(?P<runtime>\d+\.\d+)(?:-[A-Za-z0-9_][A-Za-z0-9_.-]*)?",
-            source_image,
-        )
-        if image_match is None:
-            raise ValueError(
-                f"{task_context}: malformed BUILD_BASE_IMAGE {source_image!r}"
-            )
-        cpu_arch = "arm64" if match.group(1) == "arm64" else "amd64"
-        image_arch = "arm64" if image_match.group("arm") else "amd64"
-        if image_arch != cpu_arch:
-            raise ValueError(
-                f"{task_context}: BUILD_BASE_IMAGE architecture is {image_arch}, expected {cpu_arch}"
-            )
-        requested_runtime = f"{match.group(2)}.{match.group(3)}"
-        if image_match.group("runtime") != requested_runtime:
-            raise ValueError(
-                f"{task_context}: BUILD_BASE_IMAGE CUDA {image_match.group('runtime')} "
-                f"does not match task CUDA {requested_runtime}"
-            )
-        manylinux = (
-            "manylinux_2_28"
-            if image_match.group("arm")
-            else f"manylinux_{image_match.group('major')}_{image_match.group('minor')}"
-        )
-        items.append(
-            _catalog_item(
-                {
-                    "project": project_name,
-                    "accelerator": "cuda",
-                    "accelerator_runtime": f"cuda-{requested_runtime}",
-                    "variant": "default",
-                    "python_abi": python_abi,
-                    "manylinux": manylinux,
-                    "cpu_arch": cpu_arch,
-                    "source_image": source_image,
-                    "target_repository": _expand_owner(
-                        str(project["target_repository"]), owner
-                    ),
-                    "build_mode": str(project["build_mode"]),
-                }
-            )
-        )
-    if not items:
-        raise ValueError(f"{pipeline_context}: missing build-wheel-*-cuda-* matrix")
-    return items
-
-
-_VARIABLE = re.compile(
-    r"\$(?:\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)\}|(?P<plain>[A-Za-z_][A-Za-z0-9_]*))"
-)
-
-
-def _substitute(value: str, variables: dict[str, str], context: str) -> str:
-    def replace(match: re.Match[str]) -> str:
-        name = match.group("braced") or match.group("plain")
-        replacement = variables.get(name)
-        if replacement is None:
-            raise ValueError(f"{context}: unresolved ARG {name} in FROM")
-        return replacement
-
-    result = value
-    for _ in range(len(variables) + 1):
-        replaced = _VARIABLE.sub(replace, result)
-        if replaced == result:
-            return replaced
-        result = replaced
-    if _VARIABLE.search(result):
-        raise ValueError(f"{context}: unresolved ARG in FROM {result!r}")
-    return result
-
-
-def _parse_ascend_dockerfile(text: str, context: str) -> tuple[str, str, str]:
-    variables: dict[str, str] = {}
-    from_value: str | None = None
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        arg_match = re.match(
-            r"ARG\s+([A-Za-z_][A-Za-z0-9_]*)(?:=(.*))?$", line, re.IGNORECASE
-        )
-        if arg_match and from_value is None:
-            if arg_match.group(2) is not None:
-                variables[arg_match.group(1)] = arg_match.group(2).strip().strip("'\"")
-            continue
-        from_match = re.match(r"FROM\s+(.+)$", line, re.IGNORECASE)
-        if from_match:
-            from_value = from_match.group(1).strip()
-            break
-    if from_value is None:
-        raise ValueError(f"{context}: missing FROM")
-    python = variables.get("PY_VERSION")
-    if not python:
-        raise ValueError(f"{context}: missing ARG PY_VERSION")
-    substituted = _substitute(from_value, variables, context)
-    try:
-        tokens = shlex.split(substituted)
-    except ValueError as error:
-        raise ValueError(f"{context}: malformed FROM: {error}") from error
-    images = [token for token in tokens if not token.startswith("--")]
-    if not images:
-        raise ValueError(f"{context}: missing image in FROM")
-    source_image = _normalize_image(images[0])
-    match = re.fullmatch(
-        r"quay\.io/ascend/manylinux:(?P<runtime>\d+\.\d+\.\d+)-.+-manylinux_(?P<major>\d+)_(?P<minor>\d+)-py(?P<python>\d+\.\d+)",
-        source_image,
-    )
-    if match is None:
-        raise ValueError(f"{context}: malformed FROM image {source_image!r}")
-    if match.group("python") != python:
-        raise ValueError(
-            f"{context}: FROM Python {match.group('python')} does not match ARG PY_VERSION {python}"
-        )
-    return (
-        source_image,
-        match.group("runtime"),
-        f"manylinux_{match.group('major')}_{match.group('minor')}",
-    )
-
-
-def _discover_ascend(
-    project: dict[str, object], source: object, owner: str
-) -> list[dict[str, str]]:
-    project_name = str(project["project"])
-    directory = str(project["dockerfile_directory"])
-    prefix = str(project["dockerfile_prefix"])
-    excluded = set(project["exclude_variants"])  # type: ignore[arg-type]
-    filenames = source.list(directory, prefix)  # type: ignore[attr-defined]
-    if not filenames:
-        raise ValueError(f"{project_name}/{directory}: missing {prefix}* matrix")
-    items: list[dict[str, str]] = []
-    for filename in filenames:
-        context = f"{project_name}/{directory}/{filename}"
-        variant = filename.removeprefix(prefix)
-        if re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", variant) is None:
-            raise ValueError(f"{context}: malformed variant {variant!r}")
-        if variant in excluded:
-            continue
-        source_image, runtime, manylinux = _parse_ascend_dockerfile(source.read(f"{directory}/{filename}"), context)  # type: ignore[attr-defined]
-        python_match = re.search(r"-py(\d+\.\d+)$", source_image)
-        assert python_match is not None
-        for cpu_arch in project["cpu_architectures"]:  # type: ignore[union-attr]
-            items.append(
-                _catalog_item(
-                    {
-                        "project": project_name,
-                        "accelerator": "ascend",
-                        "accelerator_runtime": f"cann-{runtime}",
-                        "variant": variant,
-                        "python_abi": _python_abi(python_match.group(1), context),
-                        "manylinux": manylinux,
-                        "cpu_arch": str(cpu_arch),
-                        "source_image": source_image,
-                        "target_repository": _expand_owner(
-                            str(project["target_repository"]), owner
-                        ),
-                        "build_mode": str(project["build_mode"]),
-                    },
-                    str(project["mooncake_version"]),
-                )
-            )
-    return items
-
-
-def _retained_items(config: dict[str, object], owner: str) -> list[dict[str, str]]:
-    items: list[dict[str, str]] = []
-    for raw in config["retained_builders"]:  # type: ignore[union-attr]
-        retained = dict(raw)
-        mooncake = str(retained.pop("mooncake_version"))
-        retained["source_image"] = _expand_owner(str(retained["source_image"]), owner)
-        retained["target_repository"] = _expand_owner(
-            str(retained["target_repository"]), owner
-        )
-        items.append(
-            _catalog_item(
-                {key: str(value) for key, value in retained.items()}, mooncake
-            )
-        )
-    return items
-
-
-def _deduplicate(items: Iterable[dict[str, str]]) -> list[dict[str, str]]:
-    unique: dict[tuple[str, ...], dict[str, str]] = {}
-    for item in items:
-        identity = tuple(item[field] for field in _IDENTITY_FIELDS)
-        previous = unique.get(identity)
-        if previous is not None and previous != item:
-            raise ValueError(
-                "conflicting builders for capability "
-                + ", ".join(f"{field}={item[field]}" for field in _IDENTITY_FIELDS)
-            )
-        unique[identity] = item
-    return sorted(
-        unique.values(), key=lambda item: tuple(item[field] for field in CATALOG_FIELDS)
-    )
-
-
-def discover_builders(
-    config_path: Path = DEFAULT_CONFIG,
-    *,
-    snapshot_dir: Path | None = None,
-    owner: str | None = None,
-) -> dict[str, object]:
-    """Discover current upstream builders and append explicit retained builders."""
-    config = load_config(config_path)
-    resolved_owner = _owner(owner)
-    discovered: list[dict[str, str]] = []
-    for raw in config["projects"]:  # type: ignore[union-attr]
-        project = _require_mapping(raw, str(config_path))
-        project_name = str(project["project"])
-        source = (
-            _SnapshotSource(snapshot_dir, project_name)
-            if snapshot_dir is not None
-            else _GitHubSource(project_name)
-        )
-        if project["discovery"] == "vllm-buildkite":
-            discovered.extend(_discover_vllm(project, source, resolved_owner))
-        else:
-            discovered.extend(_discover_ascend(project, source, resolved_owner))
-    discovered.extend(_retained_items(config, resolved_owner))
-    return {
-        "kind": "ucm-builder-catalog",
-        "schema_version": 1,
-        "builders": _deduplicate(discovered),
-    }
-
-
 def _generated_target_tag(
     build_group: str,
     python_abi: str,
@@ -651,7 +168,7 @@ def catalog_from_selection(
     owner: str | None = None,
     formal_policy: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    """Project one exact upstream selection into Builder synchronization tasks."""
+    """Project one exact Runtime selection into Builder synchronization tasks."""
     from . import policy, upstream
 
     resolved = upstream.validate_selection(selection)
@@ -708,17 +225,21 @@ def catalog_from_selection(
             ),
             "checks": {
                 "commands": copy.deepcopy(family["required_commands"]),
-                "mooncake": family_id == "ascend",
                 "blocking": backend_policy.get("status") == "supported",
                 "python_version": group["python_version"],
                 "python_abi": python_abi,
                 "accelerator_runtime": group["accelerator_runtime"],
+                "soc_version": group["soc_version"],
+                "variant": group["variant"],
+                "required_files": upstream._required_files(  # noqa: SLF001
+                    family, str(group["variant"])
+                ),
             },
         }
         items.append(item)
     catalog = {
         "kind": "ucm-builder-catalog",
-        "schema_version": 2,
+        "schema_version": 3,
         "builders": sorted(items, key=lambda item: str(item["id"])),
     }
     return validate_catalog(catalog)
@@ -729,8 +250,8 @@ def validate_catalog(catalog: object) -> dict[str, object]:
     if mapping.get("kind") != "ucm-builder-catalog":
         raise ValueError("builder catalog: kind must be ucm-builder-catalog")
     schema_version = mapping.get("schema_version")
-    if schema_version not in {1, 2}:
-        raise ValueError("builder catalog: schema_version must be 1 or 2")
+    if schema_version not in {1, 3, 4}:
+        raise ValueError("builder catalog: schema_version must be 1, 3, or 4")
     values = mapping.get("builders")
     if not isinstance(values, list):
         raise ValueError("builder catalog: builders must be a list")
@@ -743,8 +264,6 @@ def validate_catalog(catalog: object) -> dict[str, object]:
     required = {
         "id",
         "product_id",
-        "source_repository",
-        "source_ref",
         "build_group",
         "runtime_variant",
         "backend",
@@ -761,12 +280,12 @@ def validate_catalog(catalog: object) -> dict[str, object]:
         "target_repository",
         "target_tag",
         "build_mode",
-        "mooncake_version",
         "recipe_revision",
         "sync_mode",
-        "recipe",
         "checks",
     }
+    if schema_version == 4:
+        required.add("target_digest")
     for index, raw_item in enumerate(values):
         context = f"builder catalog builders[{index}]"
         item = _require_mapping(raw_item, context)
@@ -778,12 +297,10 @@ def validate_catalog(catalog: object) -> dict[str, object]:
         ids.add(item_id)
         if item.get("cpu_arch") not in {"amd64", "arm64"}:
             raise ValueError(f"{context}: unsupported cpu_arch")
-        if item.get("build_mode") not in {"mirror", "recipe", "recipe-extend"}:
-            raise ValueError(f"{context}: unsupported build_mode")
-        if item.get("sync_mode") not in {"exact", "registry-only"}:
+        if item.get("build_mode") != "mirror":
+            raise ValueError(f"{context}: build_mode must be mirror")
+        if item.get("sync_mode") not in {"mirror", "registry-only"}:
             raise ValueError(f"{context}: unsupported sync_mode")
-        if not isinstance(item.get("recipe"), dict):
-            raise ValueError(f"{context}: recipe must be a mapping")
         if not isinstance(item.get("checks"), dict):
             raise ValueError(f"{context}: checks must be a mapping")
         _validate_oci_image(str(item.get("source_image")), f"{context} source_image")
@@ -794,6 +311,12 @@ def validate_catalog(catalog: object) -> dict[str, object]:
             raise ValueError(f"{context}: source_image_digest is invalid")
         if re.fullmatch(r"[0-9a-f]{12}", str(item.get("recipe_revision"))) is None:
             raise ValueError(f"{context}: recipe_revision is invalid")
+        if (
+            schema_version == 4
+            and re.fullmatch(r"sha256:[0-9a-f]{64}", str(item.get("target_digest")))
+            is None
+        ):
+            raise ValueError(f"{context}: target_digest is invalid")
         _validate_oci_repository(
             str(item.get("target_repository")), f"{context} target_repository"
         )
@@ -806,9 +329,62 @@ def validate_catalog(catalog: object) -> dict[str, object]:
     return mapping
 
 
+def finalize_catalog(catalog: object, observations: object) -> dict[str, object]:
+    """Bind checked OCI labels and immutable target digests to a desired catalog."""
+
+    desired = validate_catalog(catalog)
+    if desired.get("schema_version") != 3:
+        raise ValueError("Builder finalization requires desired Catalog schema 3")
+    observed = _require_mapping(observations, "Builder observations")
+    desired_by_id = {
+        str(item["id"]): item for item in desired["builders"]  # type: ignore[index]
+    }
+    if set(observed) != set(desired_by_id):
+        raise ValueError("Builder observations must cover the desired Catalog exactly")
+
+    finalized: list[dict[str, object]] = []
+    for builder_id in sorted(desired_by_id):
+        expected = desired_by_id[builder_id]
+        observation = _require_mapping(
+            observed[builder_id], f"Builder observation {builder_id}"
+        )
+        if set(observation) != {"target_digest", "config"}:
+            raise ValueError(f"Builder observation {builder_id} fields must be exact")
+        digest = observation["target_digest"]
+        if (
+            not isinstance(digest, str)
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None
+        ):
+            raise ValueError(f"Builder observation {builder_id} digest is invalid")
+        record = registry_builder_record(
+            str(expected["target_repository"]),
+            str(expected["target_tag"]),
+            observation["config"],
+        )
+        if record is None:
+            raise ValueError(
+                f"Builder observation {builder_id} is not checked schema 2"
+            )
+        for field in _BUILDER_METADATA_FIELDS:
+            if record.get(field) != expected.get(field):
+                raise ValueError(
+                    f"Builder observation {builder_id} label {field} differs"
+                )
+        finalized.append({**copy.deepcopy(expected), "target_digest": digest})
+    return validate_catalog(
+        {
+            "kind": "ucm-builder-catalog",
+            "schema_version": 4,
+            "builders": finalized,
+        }
+    )
+
+
 def compute_sync_plan(catalog: object, existing_tags: object) -> dict[str, object]:
     """Return only catalog entries whose exact target tag is absent."""
     validated = validate_catalog(catalog)
+    if validated.get("schema_version") not in {1, 3}:
+        raise ValueError("Builder sync planning requires an unfinalized Catalog")
     existing = _require_mapping(existing_tags, "existing builder tags")
     normalized: dict[str, set[str]] = {}
     for repository, raw_tags in existing.items():
@@ -823,7 +399,7 @@ def compute_sync_plan(catalog: object, existing_tags: object) -> dict[str, objec
                 f"existing builder tags {repository}: tags must be a string list"
             )
         normalized[repository] = set(raw_tags)
-    sort_fields = ("id",) if validated["schema_version"] == 2 else CATALOG_FIELDS
+    sort_fields = ("id",) if validated["schema_version"] == 3 else CATALOG_FIELDS
     missing = sorted(
         (
             item
@@ -846,8 +422,11 @@ def compute_sync_plan(catalog: object, existing_tags: object) -> dict[str, objec
             f"{coordinates}"
         )
     matrix = []
-    for item in missing:
-        if validated["schema_version"] == 2:
+    matrix_source = (
+        validated["builders"] if validated["schema_version"] == 3 else missing
+    )
+    for item in matrix_source:  # type: ignore[union-attr]
+        if validated["schema_version"] == 3:
             matrix.append(
                 {
                     **item,
@@ -883,7 +462,7 @@ def builder_labels(builder: Mapping[str, object]) -> dict[str, str]:
     if missing:
         raise ValueError(f"Builder label source is missing {missing}")
     labels = {
-        f"{_BUILDER_LABEL_PREFIX}schema": "1",
+        f"{_BUILDER_LABEL_PREFIX}schema": "2",
         f"{_BUILDER_LABEL_PREFIX}checked": "true",
         f"{_BUILDER_LABEL_PREFIX}target_tag": _require_string(
             item, "target_tag", "Builder label source"
@@ -891,7 +470,7 @@ def builder_labels(builder: Mapping[str, object]) -> dict[str, str]:
     }
     for field in _BUILDER_METADATA_FIELDS:
         value = item[field]
-        if not isinstance(value, str) or (not value and field != "mooncake_version"):
+        if not isinstance(value, str) or not value:
             raise ValueError(f"Builder label field {field} must be a non-empty string")
         labels[f"{_BUILDER_LABEL_PREFIX}{field}"] = value
     return labels
@@ -912,7 +491,7 @@ def registry_builder_record(
     labels = _require_mapping(
         raw_labels, f"Builder config {repository}:{tag}.config.Labels"
     )
-    if labels.get(f"{_BUILDER_LABEL_PREFIX}schema") != "1":
+    if labels.get(f"{_BUILDER_LABEL_PREFIX}schema") != "2":
         return None
     if labels.get(f"{_BUILDER_LABEL_PREFIX}checked") != "true":
         return None
@@ -921,7 +500,7 @@ def registry_builder_record(
     metadata: dict[str, object] = {}
     for field in _BUILDER_METADATA_FIELDS:
         value = labels.get(f"{_BUILDER_LABEL_PREFIX}{field}")
-        if not isinstance(value, str) or (not value and field != "mooncake_version"):
+        if not isinstance(value, str) or not value:
             raise ValueError(f"Builder {repository}:{tag} label {field} is missing")
         metadata[field] = value
     created = labels.get(f"{_BUILDER_LABEL_PREFIX}created", document.get("created"))
@@ -933,21 +512,37 @@ def registry_builder_record(
         "target_tag": tag,
         "created": created,
         "checked": True,
-        "recipe": {},
         "checks": {},
     }
 
 
 def _crane_output(operation: str, reference: str) -> str:
-    completed = subprocess.run(
-        ["crane", operation, reference], text=True, capture_output=True, check=False
+    completed = None
+    last_error = ""
+    for attempt in range(1, 4):
+        try:
+            completed = subprocess.run(
+                ["crane", operation, reference],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=60,
+            )
+        except subprocess.TimeoutExpired:
+            completed = None
+            last_error = "timed out after 60 seconds"
+        if completed is None:
+            if attempt < 3:
+                time.sleep(2**attempt)
+            continue
+        if completed.returncode == 0:
+            return completed.stdout
+        last_error = completed.stderr.strip() or str(completed.returncode)
+        if attempt < 3:
+            time.sleep(2**attempt)
+    raise ValueError(
+        f"crane {operation} failed for {reference}: {last_error or 'unknown error'}"
     )
-    if completed.returncode != 0:
-        raise ValueError(
-            f"crane {operation} failed for {reference}: "
-            f"{completed.stderr.strip() or completed.returncode}"
-        )
-    return completed.stdout
 
 
 def _live_builder_config(reference: str) -> object:
@@ -1049,7 +644,7 @@ def catalog_from_registry_records(
     return validate_catalog(
         {
             "kind": "ucm-builder-catalog",
-            "schema_version": 2,
+            "schema_version": 3,
             "builders": sorted(items, key=lambda item: str(item["id"])),
         }
     )

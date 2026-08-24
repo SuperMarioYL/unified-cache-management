@@ -20,7 +20,6 @@ PRODUCTS = [
         "id": "vllm",
         "runtime_repository": "docker.io/vllm/vllm-openai",
         "target_repository": "ghcr.io/release-org/vllm-openai",
-        "source_repository": "vllm-project/vllm",
         "accelerator": "cuda",
         "backend": "cuda",
     },
@@ -28,7 +27,6 @@ PRODUCTS = [
         "id": "vllm-ascend",
         "runtime_repository": "quay.io/ascend/vllm-ascend",
         "target_repository": "ghcr.io/release-org/vllm-ascend",
-        "source_repository": "vllm-project/vllm-ascend",
         "accelerator": "ascend",
         "backend_by_soc": {
             "ascend910b1": "cann-a2",
@@ -68,20 +66,11 @@ def _index(*architectures: str) -> dict[str, object]:
 
 def _config(
     architecture: str,
-    *,
-    source: str = "https://github.com/vllm-project/vllm",
-    revision: str = "a" * 40,
 ) -> dict[str, object]:
     return {
         "os": "linux",
         "architecture": architecture,
-        "config": {
-            "Labels": {
-                "org.opencontainers.image.source": source,
-                "org.opencontainers.image.revision": revision,
-                "ai.vllm.build.commit": revision[:12],
-            }
-        },
+        "config": {},
     }
 
 
@@ -102,6 +91,7 @@ def _inspect(
         runners=RUNNERS,
         manifest_loader=lambda _reference: manifest,
         config_loader=lambda member: configs[member],
+        digest_loader=lambda _reference: "sha256:" + "9" * 64,
     )
 
 
@@ -115,7 +105,6 @@ def _raw_cuda_probes(inspection: dict[str, object]) -> list[dict[str, object]]:
             "glibc_version": "ldd (Ubuntu GLIBC 2.39) 2.39",
             "cuda_version": "CUDA Version 12.9.1",
             "soc_version": "",
-            "oci_revision": "a" * 40,
         }
         for item in inspection["probe_matrix"]["include"]
     ]
@@ -176,6 +165,7 @@ def test_inspection_treats_tags_as_opaque_and_filters_actual_platforms() -> None
         runners=RUNNERS,
         manifest_loader=lambda _reference: _index("windows", "arm64", "amd64"),
         config_loader=lambda member: configs[member],
+        digest_loader=lambda _reference: "sha256:" + "9" * 64,
     )
 
     assert inspection["runtimes"] == [
@@ -186,6 +176,7 @@ def test_inspection_treats_tags_as_opaque_and_filters_actual_platforms() -> None
             "repository": repository,
             "tag": "v0.21.0-cu129-ubuntu2404",
             "target_repository": "ghcr.io/release-org/vllm-openai",
+            "runtime_digest": "sha256:" + "9" * 64,
             "architectures": ["amd64", "arm64"],
             "probe_ids": ["runtime-001-amd64", "runtime-001-arm64"],
         }
@@ -196,7 +187,7 @@ def test_inspection_treats_tags_as_opaque_and_filters_actual_platforms() -> None
         "ubuntu-24.04",
         "ubuntu-24.04-arm",
     ]
-    assert all(item["oci_revision"] == "a" * 40 for item in include)
+    assert all(item["runtime_digest"] == "sha256:" + "9" * 64 for item in include)
 
 
 def test_inspection_accepts_one_single_manifest_architecture_without_index() -> None:
@@ -233,6 +224,28 @@ def test_inspection_rejects_unconfigured_repository_and_duplicate_arch() -> None
             config_loader=lambda _reference: _config("amd64"),
         )
 
+
+def test_inspection_pins_parent_digest_before_loading_manifest() -> None:
+    parent_digest = "sha256:" + "b" * 64
+    seen: list[str] = []
+
+    def manifest_loader(reference: str) -> object:
+        seen.append(reference)
+        assert reference == f"docker.io/vllm/vllm-openai@{parent_digest}"
+        return _index("amd64")
+
+    inspection = runtime.inspect_runtime_references(
+        ["docker.io/vllm/vllm-openai:nightly"],
+        products=PRODUCTS,
+        runners=RUNNERS,
+        manifest_loader=manifest_loader,
+        config_loader=lambda _reference: _config("amd64"),
+        digest_loader=lambda _reference: parent_digest,
+    )
+
+    assert seen == [f"docker.io/vllm/vllm-openai@{parent_digest}"]
+    assert inspection["runtimes"][0]["runtime_digest"] == parent_digest
+
     with pytest.raises(ValueError, match="duplicate linux/amd64"):
         runtime.inspect_runtime_references(
             ["docker.io/vllm/vllm-openai:nightly"],
@@ -240,6 +253,7 @@ def test_inspection_rejects_unconfigured_repository_and_duplicate_arch() -> None
             runners=RUNNERS,
             manifest_loader=lambda _reference: _index("amd64", "amd64"),
             config_loader=lambda _reference: _config("amd64"),
+            digest_loader=lambda _reference: "sha256:" + "f" * 64,
         )
 
 
@@ -258,7 +272,7 @@ def test_probe_aggregation_normalizes_cuda_python_os_glibc_and_labels() -> None:
                 "repository": "docker.io/vllm/vllm-openai",
                 "tag": "cu129-nightly-deadbeef",
                 "target_repository": "ghcr.io/release-org/vllm-openai",
-                "configured_source_repository": "vllm-project/vllm",
+                "runtime_digest": "sha256:" + "9" * 64,
                 "cpu_arch": "amd64",
                 "platform": "linux/amd64",
                 "runner": "ubuntu-24.04",
@@ -273,9 +287,6 @@ def test_probe_aggregation_normalizes_cuda_python_os_glibc_and_labels() -> None:
                 "os_id": "ubuntu",
                 "os_version": "24.04",
                 "glibc_version": "2.39",
-                "oci_labels": inspection["probe_matrix"]["include"][0]["oci_labels"],
-                "oci_source": "https://github.com/vllm-project/vllm",
-                "oci_revision": "a" * 40,
             }
         ],
     }
@@ -289,11 +300,8 @@ def test_probe_aggregation_maps_ascend_soc_to_backend() -> None:
         products=PRODUCTS,
         runners=RUNNERS,
         manifest_loader=lambda _reference: _index("arm64"),
-        config_loader=lambda _reference: _config(
-            "arm64",
-            source="https://github.com/vllm-project/vllm-ascend",
-            revision="b" * 40,
-        ),
+        config_loader=lambda _reference: _config("arm64"),
+        digest_loader=lambda _reference: "sha256:" + "8" * 64,
     )
     raw = {
         "probe_id": "runtime-001-arm64",
@@ -303,8 +311,6 @@ def test_probe_aggregation_maps_ascend_soc_to_backend() -> None:
         "glibc_version": "2.38",
         "cann_version": "CANN 9.0.0",
         "soc_version": "ASCEND910_9391",
-        "oci_source": "https://github.com/vllm-project/vllm-ascend",
-        "oci_revision": "b" * 40,
     }
 
     probe = runtime.aggregate_runtime_probes(inspection, [raw])["probes"][0]
@@ -408,6 +414,7 @@ def test_multiple_opaque_tags_with_the_same_capability_reuse_one_wheel() -> None
         runners=RUNNERS,
         manifest_loader=lambda _reference: _index("amd64"),
         config_loader=lambda reference: {member_reference: _config("amd64")}[reference],
+        digest_loader=lambda _reference: "sha256:" + "9" * 64,
     )
     probe = runtime.aggregate_runtime_probes(inspection, _raw_cuda_probes(inspection))
 
@@ -432,7 +439,7 @@ def test_publication_projects_single_member_without_index() -> None:
 
     members = publication["member_matrix"]["include"]
     assert len(members) == 1
-    assert members[0]["target_tag"] == "pr-42-release-author-run-998877-nightly-arm64"
+    assert members[0]["target_tag"] == "pr-42-release-author-run-998877-nightly"
     assert publication["index_matrix"]["include"] == []
     assert publication["families"][0]["has_index"] is False
     assert publication["families"][0]["final_refs"] == [members[0]["target_ref"]]
@@ -476,7 +483,7 @@ def test_pr_tag_sanitizes_and_truncates_with_run_identity() -> None:
     assert first != second
 
 
-def test_receipt_carries_source_capability_wheel_and_final_tag_mapping() -> None:
+def test_receipt_carries_capability_wheel_and_final_tag_mapping() -> None:
     inspection, probe = _aggregate_cuda(("amd64",), tag="nightly")
     matches = _matches(probe)
     publication = runtime.project_pr_publication(

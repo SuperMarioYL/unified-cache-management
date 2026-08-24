@@ -24,10 +24,6 @@ def _problem(
         "backend": "cann-a5",
         "capability": capability,
         "reason": reason,
-        "source": {
-            "repository": "vllm-project/vllm-ascend",
-            "ref": "v0.23.0",
-        },
         "runtime": {
             "repository": "quay.io/ascend/vllm-ascend",
             "tag": runtime_tag,
@@ -48,7 +44,7 @@ def test_validate_preserves_structure_and_sorts_without_mutating_input() -> None
     ]
     assert validated[0] == earlier
     assert validated[0] is not earlier
-    assert validated[0]["source"] is not earlier["source"]
+    assert validated[0]["runtime"] is not earlier["runtime"]
     assert raw == [later, earlier]
 
 
@@ -58,10 +54,6 @@ def test_validate_preserves_structure_and_sorts_without_mutating_input() -> None
         ({}, "must be a list"),
         ([{"backend": "cann-a5"}], "invalid keys"),
         ([{**_problem(), "extra": "value"}], "invalid keys"),
-        (
-            [{**_problem(), "source": {"repository": "owner/repo"}}],
-            "source has invalid keys",
-        ),
         (
             [{**_problem(), "runtime": {"repository": "repo", "tag": "tag"}}],
             "runtime.repository is malformed",
@@ -108,16 +100,14 @@ def test_actions_summary_is_deterministic_and_empty_state_is_explicit() -> None:
         "\n"
         "2 blocked upstream capability problems detected.\n"
         "\n"
-        "| Backend | Capability | Reason | Source | Runtime |\n"
-        "| --- | --- | --- | --- | --- |\n"
+        "| Backend | Capability | Reason | Runtime |\n"
+        "| --- | --- | --- | --- |\n"
         "| <code>cann-a5</code> | CANN 9.2 / A5 / cp312 / amd64 / Ubuntu 22.04 | "
         "A5 requires a dedicated UCM native implementation | "
-        "<code>vllm-project/vllm-ascend@v0.23.0</code> | "
         "<code>quay.io/ascend/vllm-ascend:"
         "nightly-releases-v0.23.0-a5-openeuler</code> |\n"
         "| <code>cann-a5</code> | CANN 9.2 / A5 / cp312 / arm64 / Ubuntu 22.04 | "
         "A5 requires a dedicated UCM native implementation | "
-        "<code>vllm-project/vllm-ascend@v0.23.0</code> | "
         "<code>quay.io/ascend/vllm-ascend:"
         "nightly-releases-v0.23.0-a5-openeuler</code> |\n"
     )

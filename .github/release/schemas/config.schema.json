@@ -347,16 +347,16 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "id", "source_repository", "runtime_repository", "target_repository",
+        "id", "runtime_repository", "target_repository",
         "minimum_version", "channel_policy"
       ],
       "properties": {
         "id": {"enum": ["vllm", "vllm-ascend"]},
-        "source_repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
         "runtime_repository": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$"},
         "target_repository": {"type": "string", "pattern": "^ghcr\\.io/(\\{owner\\}|[a-z0-9][a-z0-9-]{0,38})/[a-zA-Z0-9_.-]+$"},
         "minimum_version": {"type": "string", "minLength": 1},
-        "channel_policy": {"const": "stable-preferred-rc-fallback"}
+        "maximum_version": {"type": "string", "minLength": 1},
+        "channel_policy": {"const": "latest-stable-or-rc-or-nightly-per-minor"}
       }
     },
     "releasePolicyPublish": {
@@ -382,7 +382,7 @@
       "required": ["kind", "schema_version", "runners", "products", "publish", "chart"],
       "properties": {
         "kind": {"const": "ucm-release-policy"},
-        "schema_version": {"const": 4},
+        "schema_version": {"const": 5},
         "runners": {
           "type": "object",
           "additionalProperties": false,
@@ -456,30 +456,42 @@
             "cuda": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["target_repository", "required_commands"],
+              "required": ["target_repository", "source_repositories", "manylinux", "required_commands"],
               "properties": {
                 "target_repository": {"type": "string", "pattern": "^ghcr\\.io/(\\{owner\\}|[a-z0-9][a-z0-9-]{0,38})/[a-zA-Z0-9_.-]+$"},
+                "source_repositories": {
+                  "type": "object", "additionalProperties": false,
+                  "required": ["amd64", "arm64"],
+                  "properties": {
+                    "amd64": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$"},
+                    "arm64": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$"}
+                  }
+                },
+                "manylinux": {"type": "string", "pattern": "^manylinux_[0-9]+_[0-9]+$"},
                 "required_commands": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
               }
             },
             "ascend": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["target_repository", "required_commands", "extensions"],
+              "required": ["target_repository", "source_repositories", "required_commands", "required_files", "variant_required_files"],
               "properties": {
                 "target_repository": {"type": "string", "pattern": "^ghcr\\.io/(\\{owner\\}|[a-z0-9][a-z0-9-]{0,38})/[a-zA-Z0-9_.-]+$"},
-                "required_commands": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-                "extensions": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": ["mooncake"],
+                "source_repositories": {
+                  "type": "object", "additionalProperties": false,
+                  "required": ["amd64", "arm64"],
                   "properties": {
-                    "mooncake": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "required": ["version_source"],
-                      "properties": {"version_source": {"const": "upstream-runtime"}}
-                    }
+                    "amd64": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$"},
+                    "arm64": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$"}
+                  }
+                },
+                "required_commands": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+                "required_files": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+                "variant_required_files": {
+                  "type": "object", "additionalProperties": false,
+                  "required": ["a3"],
+                  "properties": {
+                    "a3": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
                   }
                 }
               }
@@ -680,18 +692,18 @@
     "upstreamProduct": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "runtime_product", "source_repository", "runtime_repository", "target_repository", "version_specifier", "channels", "integration_python_abi"],
+      "required": ["id", "runtime_product", "runtime_repository", "target_repository", "version_specifier", "channels", "integration_python_abi"],
       "properties": {
         "id": {"type": "string", "minLength": 1},
         "runtime_product": {"enum": ["vllm", "vllm-ascend"]},
-        "source_repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
         "runtime_repository": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$"},
         "target_repository": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$"},
         "target_tag_suffix": {"type": "string", "pattern": "^-[A-Za-z0-9_.-]+$"},
         "minimum_version": {"type": "string", "minLength": 1},
-        "channel_policy": {"const": "stable-preferred-rc-fallback"},
+        "maximum_version": {"type": "string", "minLength": 1},
+        "channel_policy": {"const": "latest-stable-or-rc-or-nightly-per-minor"},
         "version_specifier": {"type": "string", "minLength": 1},
-        "channels": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["stable", "rc"]}},
+        "channels": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["stable", "rc", "nightly"]}},
         "integration_python_abi": {"type": "string", "pattern": "^cp[0-9]+$"}
       }
     },

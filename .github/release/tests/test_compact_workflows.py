@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import re
-import subprocess
 from pathlib import Path
 
 import yaml
@@ -20,41 +17,52 @@ def _load(name: str) -> dict[str, object]:
     return value
 
 
-def test_release_workflow_resolves_upstreams_before_builders_and_plan() -> None:
+def test_release_workflow_probes_registry_runtimes_before_builders_and_plan() -> None:
     jobs = _load("release-ucm.yml")["jobs"]
-    assert list(jobs)[:3] == ["resolve-upstreams", "sync-builders", "plan"]
+    assert jobs["open-release"]["needs"] == "classify-tag"
+    assert "needs" not in jobs["select-runtime-candidates"]
+    assert jobs["inspect-runtimes"]["needs"] == "select-runtime-candidates"
+    assert jobs["probe-runtimes"]["needs"] == "inspect-runtimes"
+    assert jobs["probe-runtimes"]["uses"] == "./.github/workflows/_probe-runtime.yml"
+    assert set(jobs["resolve-upstreams"]["needs"]) == {
+        "select-runtime-candidates",
+        "inspect-runtimes",
+        "probe-runtimes",
+    }
     assert jobs["sync-builders"]["needs"] == "resolve-upstreams"
     assert set(jobs["plan"]["needs"]) == {"resolve-upstreams", "sync-builders"}
     assert (
-        jobs["sync-builders"]["with"]["upstream_selection_artifact"]
-        == "${{ needs.resolve-upstreams.outputs.upstream_selection_artifact }}"
+        jobs["sync-builders"]["with"]["runtime_selection_artifact"]
+        == "${{ needs.resolve-upstreams.outputs.runtime_selection_artifact }}"
     )
     plan_text = yaml.safe_dump(jobs["plan"])
-    assert "--upstream-selection" in plan_text
+    assert "--runtime-selection" in plan_text
     assert "image_index_matrix" in plan_text
     assert "'{include:[.families[]" in plan_text
 
 
-def test_release_workflow_has_six_parallel_publication_jobs() -> None:
+def test_release_workflow_has_staged_publication_jobs() -> None:
     jobs = _load("release-ucm.yml")["jobs"]
     publish_jobs = [
-        "prepare-release-draft",
+        "open-release",
+        "publish-release-artifacts",
         "publish-image-members",
         "publish-image-indexes",
         "publish-pypi",
         "publish-chart-oci",
-        "finalize-release",
+        "update-release-images",
     ]
     assert all(name in jobs for name in publish_jobs)
-    assert set(jobs["prepare-release-draft"]["needs"]) == {
+    assert set(jobs["publish-release-artifacts"]["needs"]) == {
         "plan",
+        "open-release",
         "build-wheels",
         "package-chart",
-        "build-images",
     }
     assert set(jobs["publish-image-members"]["needs"]) == {
         "plan",
-        "prepare-release-draft",
+        "build-images",
+        "publish-release-artifacts",
     }
     assert set(jobs["publish-image-indexes"]["needs"]) == {
         "plan",
@@ -62,77 +70,84 @@ def test_release_workflow_has_six_parallel_publication_jobs() -> None:
     }
     assert set(jobs["publish-pypi"]["needs"]) == {
         "plan",
-        "prepare-release-draft",
+        "publish-release-artifacts",
     }
     assert set(jobs["publish-chart-oci"]["needs"]) == {
         "plan",
-        "prepare-release-draft",
+        "publish-release-artifacts",
     }
-    assert set(jobs["finalize-release"]["needs"]) == {
+    assert set(jobs["update-release-images"]["needs"]) == {
         "plan",
-        "prepare-release-draft",
+        "open-release",
+        "publish-release-artifacts",
+        "build-images",
         "publish-image-members",
         "publish-image-indexes",
-        "publish-pypi",
-        "publish-chart-oci",
     }
-    for name in ("prepare-release-draft", "finalize-release"):
+    for name in (
+        "open-release",
+        "publish-release-artifacts",
+        "update-release-images",
+    ):
         assert jobs[name]["env"]["GH_REPO"] == "${{ github.repository }}"
 
 
-def test_prepare_draft_executes_wheel_manifest_validation(tmp_path: Path) -> None:
+def test_artifact_stage_generates_and_uploads_manifest_and_checksums() -> None:
     jobs = _load("release-ucm.yml")["jobs"]
-    step = next(
-        item
-        for item in jobs["prepare-release-draft"]["steps"]
-        if item.get("name") == "Validate publication artifacts"
+    text = yaml.safe_dump(jobs["publish-release-artifacts"])
+    assert "release.py artifacts" in text
+    assert "release-manifest.json" in text
+    assert "SHA256SUMS" in text
+    assert "ucm-release-stage-run-${{ github.run_id }}" in text
+    assert "build-images" not in jobs["publish-release-artifacts"]["needs"]
+    failure_step = jobs["publish-release-artifacts"]["steps"][-1]
+    assert failure_step["if"] == "${{ failure() }}"
+    assert "artifacts-failed" in failure_step["run"]
+
+
+def test_opened_release_reports_pre_plan_failures() -> None:
+    job = _load("release-ucm.yml")["jobs"]["report-planning-failure"]
+
+    assert "always()" in job["if"]
+    assert "needs.plan.result != 'success'" in job["if"]
+    assert job["env"]["GH_REPO"] == "${{ github.repository }}"
+    assert "artifacts-failed" in job["steps"][0]["run"]
+
+
+def test_image_failure_notes_are_not_overwritten_by_the_fallback() -> None:
+    steps = _load("release-ucm.yml")["jobs"]["update-release-images"]["steps"]
+    update = next(step for step in steps if step.get("id") == "update-release")
+    require = next(
+        step
+        for step in steps
+        if step.get("name") == "Require complete image publication"
     )
-    match = re.search(
-        r"jq -e --slurpfile results wheel-results\.json '(.*?)' \"\$\{plan\}\"",
-        step["run"],
-        re.DOTALL,
+    fallback = steps[-1]
+
+    assert "release.status" not in update["run"]
+    assert "release.status" in require["run"]
+    assert "steps.update-release.outcome != 'success'" in fallback["if"]
+
+
+def test_formal_and_draft_tags_open_before_builds_with_exact_api_lookup() -> None:
+    workflow = _load("release-ucm.yml")
+    assert workflow["on"]["push"]["tags"] == ["v*", "draft/v*"]
+    jobs = workflow["jobs"]
+    open_text = yaml.safe_dump(jobs["open-release"])
+    open_run = jobs["open-release"]["steps"][0]["run"]
+    assert jobs["open-release"]["needs"] == "classify-tag"
+    assert "--verify-tag" in open_text
+    assert "--paginate --slurp" in open_text
+    assert "select(.tag_name == $tag)" in open_run
+    assert "draft=false" in open_text
+    assert "build-wheels" not in open_text
+    assert "draft/v*" in yaml.safe_dump(jobs["plan"])
+    plan_run = next(
+        step["run"] for step in jobs["plan"]["steps"] if step.get("id") == "plan"
     )
-    assert match is not None
-    plan = {
-        "wheels": [
-            {
-                "id": "cuda129-cp312-amd64",
-                "dist_name": "uc-manager-cuda-cu129",
-                "wheel_version": "0.7.59rc22",
-                "python_abi": "cp312",
-                "cpu_arch": "amd64",
-            }
-        ],
-        "publish": {"pypi": {"distributions": ["uc-manager-cuda-cu129"]}},
-    }
-    results = [
-        {
-            "task_id": "cuda129-cp312-amd64",
-            "distribution": "uc-manager-cuda-cu129",
-            "version": "0.7.59rc22",
-            "python_abi": "cp312",
-            "cpu_arch": "amd64",
-            "filename": "uc_manager_cuda_cu129-0.7.59rc22-cp312.whl",
-        }
-    ]
-    plan_path = tmp_path / "release-plan.json"
-    results_path = tmp_path / "wheel-results.json"
-    plan_path.write_text(json.dumps(plan), encoding="utf-8")
-    results_path.write_text(json.dumps(results), encoding="utf-8")
-    subprocess.run(
-        [
-            "jq",
-            "-e",
-            "--slurpfile",
-            "results",
-            str(results_path),
-            match.group(1),
-            str(plan_path),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    assert "--git-tag" in plan_run
+    assert ".git_tag == $tag" in plan_run
+    assert ".release_tag = $tag" not in plan_run
 
 
 def test_member_and_index_publication_are_unbounded_matrices() -> None:
@@ -151,6 +166,7 @@ def test_member_and_index_publication_are_unbounded_matrices() -> None:
         indexes["strategy"]["matrix"]
         == "${{ fromJSON(needs.plan.outputs.image_index_matrix) }}"
     )
+    assert indexes["if"] == "${{ needs.plan.outputs.has_image_indexes == 'true' }}"
     text = (WORKFLOWS / "release-ucm.yml").read_text(encoding="utf-8")
     assert "while IFS=$'\\t' read -r image_id" not in text
 
@@ -163,103 +179,117 @@ def test_release_index_matrix_generation_fails_closed() -> None:
 
     assert 'index_matrix="$(jq -ce' in plan_script
     assert 'echo "image_index_matrix=${index_matrix}"' in plan_script
+    assert 'echo "has_image_indexes=$(jq -r' in plan_script
     assert "image_index_matrix=$(jq" not in plan_script
 
 
-def test_finalize_is_the_only_job_that_publicizes_release() -> None:
+def test_open_release_is_the_only_job_that_publicizes_release() -> None:
     jobs = _load("release-ucm.yml")["jobs"]
     publicizers = []
     for name, job in jobs.items():
         if "draft=false" in yaml.safe_dump(job):
             publicizers.append(name)
-    assert publicizers == ["finalize-release"]
-    final_run = jobs["finalize-release"]["steps"][-1]["run"].rstrip()
-    assert final_run.endswith(
-        'gh release edit "${tag}" --draft=false --prerelease=true'
-    )
+    assert publicizers == ["open-release"]
+    assert "release-open" in yaml.safe_dump(jobs["open-release"])
+    assert "release.py finalize" in yaml.safe_dump(jobs["update-release-images"])
 
 
 def test_remote_writers_use_environment_and_minimum_permissions() -> None:
     jobs = _load("release-ucm.yml")["jobs"]
     for name in (
-        "prepare-release-draft",
+        "open-release",
+        "publish-release-artifacts",
         "publish-image-members",
         "publish-image-indexes",
         "publish-pypi",
         "publish-chart-oci",
-        "finalize-release",
+        "update-release-images",
     ):
         assert jobs[name]["environment"] == "release-production"
         assert jobs[name]["permissions"]["contents"] in {"read", "write"}
     assert "packages" not in jobs["publish-pypi"]["permissions"]
+    assert "release_kind != 'draft'" in jobs["publish-pypi"]["if"]
     assert jobs["publish-chart-oci"]["permissions"]["packages"] == "write"
     assert jobs["publish-image-members"]["permissions"]["packages"] == "write"
 
 
-def test_builder_sync_consumes_selection_and_materializes_recipes() -> None:
+def test_builder_sync_consumes_selection_and_uses_digest_pinned_mirror_only() -> None:
     workflow = _load("sync-builders.yml")
     assert set(workflow["on"]) == {"workflow_call"}
     assert set(workflow["on"]["workflow_call"]["inputs"]) == {
-        "upstream_selection_artifact",
+        "runtime_selection_artifact",
     }
     text = (WORKFLOWS / "sync-builders.yml").read_text(encoding="utf-8")
-    assert "--selection input/upstreams/upstream-selection.json" in text
-    assert "matrix.source_repository" in text
-    assert "matrix.source_ref" in text
-    assert "matrix.build_mode != 'mirror'" in text
-    assert "recipe-extend" in text
-    assert "builders materialize-recipe" in text
-    assert "strip_run_containing" in text
-    assert 'imagetools inspect "${upstream_target}"' in text
-    assert "Upstream recipe stage already exists" in text
-    assert "REQUIRE_MOONCAKE" in text
+    assert "--selection input/upstreams/runtime-selection.json" in text
+    assert "matrix.source_image" in text
+    assert "matrix.source_image_digest" in text
+    assert 'pinned_source="${source_repository}@${SOURCE_IMAGE_DIGEST}"' in text
+    assert 'test "cann-${actual_cann}" = "${EXPECTED_RUNTIME}"' in text
+    assert 'test "${SOC_VERSION}" = "${EXPECTED_SOC}"' in text
+    assert "Dockerfile.builder-mirror" in text
+    assert '--build-arg "BASE_IMAGE=${pinned_source}"' in text
+    assert "matrix.source_repository" not in text
+    for forbidden in (
+        "source_ref",
+        "source_commit",
+        "recipe-extend",
+        "materialize-recipe",
+        "REQUIRE_MOONCAKE",
+        "MOONCAKE_TAG",
+    ):
+        assert forbidden not in text
     assert (
         workflow["jobs"]["build-missing"]["continue-on-error"]
         == "${{ matrix.checks.blocking != true }}"
     )
     assert "builders labels" in text
+    assert "builders finalize" in text
+    assert 'target_digest="$(docker buildx imagetools inspect "${target}"' in text
+    assert 'verified_target="${TARGET_REPOSITORY}@${target_digest}"' in text
+    assert '"${verified_target}" bash -c' in text
+    assert "docker image inspect" in text
+    assert "ucm-builder-verification-${{ matrix.id }}" in text
     assert "candidate-${GITHUB_RUN_ID}" in text
     assert 'imagetools create --tag "${target}" "${candidate}"' in text
-    assert "Dockerfile.builder-mirror" in text
     assert workflow["jobs"]["build-missing"]["timeout-minutes"] == 180
+    assert set(workflow["jobs"]["finalize"]["needs"]) == {
+        "prepare",
+        "build-missing",
+    }
 
-    dockerfile = (
-        ROOT / ".github" / "release" / "docker" / "Dockerfile.builder"
-    ).read_text(encoding="utf-8")
-    assert "gflags-config.cmake" in dockerfile
-    assert "-DBUILD_UNIT_TESTS=OFF" in dockerfile
-    assert "-DBUILD_EXAMPLES=OFF" in dockerfile
-    assert "allocator_arg::template rebind<T>::other" in dockerfile
-    assert "allocator_traits<allocator_arg>::template rebind_alloc<T>" in dockerfile
-    assert "node_allocator::template rebind<U>::other" in dockerfile
-    assert "allocator_traits<node_allocator>::template rebind_alloc<U>" in dockerfile
-    assert "mooncake-transfer-engine/include/cuda_alike.h" in dockerfile
-
-    gflags_config = (
-        ROOT / ".github" / "release" / "docker" / "gflags-config.cmake"
-    ).read_text(encoding="utf-8")
-    assert "add_library(gflags::gflags UNKNOWN IMPORTED)" in gflags_config
-    assert 'IMPORTED_LOCATION "${GFLAGS_LIBRARY}"' in gflags_config
+    release_docker = ROOT / ".github" / "release" / "docker"
+    for retired in (
+        "Dockerfile.builder",
+        "gflags-config.cmake",
+        "mooncake_installer.sh",
+    ):
+        assert not (release_docker / retired).exists()
 
 
-def test_mooncake_installer_supports_old_upstream_curl() -> None:
-    text = (
-        ROOT / ".github" / "release" / "docker" / "mooncake_installer.sh"
-    ).read_text(encoding="utf-8")
-    assert "curl --help all" in text
-    assert "curl_retry_all_errors=(--retry-all-errors)" in text
-    assert '"${curl_retry_all_errors[@]}"' in text
-    assert "--retry 8 --retry-all-errors" not in text
-    assert "zstd-devel" in text
-    assert "libzstd-devel" in text
-    assert "xxhash-devel" in text
-    assert "msgpack-devel" in text
+def test_runtime_probe_is_one_shared_reusable_workflow() -> None:
+    workflow = _load("_probe-runtime.yml")
+
+    assert set(workflow["on"]) == {"workflow_call"}
+    assert set(workflow["on"]["workflow_call"]["inputs"]) == {
+        "probe_id",
+        "runtime_ref",
+        "image_reference",
+        "platform",
+        "accelerator",
+        "runner",
+        "retention_days",
+    }
+    text = (WORKFLOWS / "_probe-runtime.yml").read_text(encoding="utf-8")
+    assert "runtime-probe-raw.json" in text
+    assert "ucm-runtime-probe-${{ inputs.probe_id }}" in text
 
 
 def test_wheel_build_records_auditwheel_result_manifest() -> None:
     text = (WORKFLOWS / "_build-wheel.yml").read_text(encoding="utf-8")
+    assert '.builder.repository + "@" + .builder.digest' in text
     assert "auditwheel==" in text
-    assert "python -m auditwheel show" in text
+    assert "python -m auditwheel -v show" in text
+    assert 'show "${wheel}" 2>&1' in text
     assert "compact record-wheel-result" in text
     assert "out/wheel/wheel-result.json" in text
 
@@ -317,10 +347,21 @@ def test_ucm_build_bot_uses_probe_pipeline_without_hardcoded_capabilities() -> N
     assert set(workflow["on"]["workflow_dispatch"]["inputs"]) == {
         "pr_number",
         "subcommand",
-        "image_refs",
+        "image_ref",
         "profile",
     }
     jobs = workflow["jobs"]
+    assert jobs["inspect-formal-runtimes"]["needs"] == "permission-check"
+    assert set(jobs["probe-formal-runtimes"]["needs"]) == {
+        "permission-check",
+        "inspect-formal-runtimes",
+    }
+    assert set(jobs["resolve-formal"]["needs"]) == {
+        "permission-check",
+        "inspect-formal-runtimes",
+        "probe-formal-runtimes",
+    }
+    assert jobs["probe-formal-runtimes"]["strategy"]["fail-fast"] is False
     assert set(
         jobs["inspect-runtimes"]["needs"]
         if isinstance(jobs["inspect-runtimes"]["needs"], list)
@@ -352,12 +393,15 @@ def test_ucm_build_bot_uses_probe_pipeline_without_hardcoded_capabilities() -> N
     hint = (WORKFLOWS / "ucm-build-hint.yml").read_text(encoding="utf-8")
     assert "runtime inspect" in text
     assert "runtime aggregate" in text
+    assert "--pr-default" in (WORKFLOWS / "release-ucm.yml").read_text(encoding="utf-8")
     assert "builders scan-registry" in text
     assert "runtime resolve" in text
+    assert "upstreams candidates" in text
+    assert text.count("./.github/workflows/_probe-runtime.yml") == 2
     assert "opaque" in hint
     assert "pep440" not in hint.lower()
     assert "cann900" not in text + hint
-    assert "--upstream-selection" in text
+    assert "--runtime-selection" in text
     assert "profile_id==$profile" in text
 
 
@@ -378,6 +422,11 @@ def test_pr_member_and_index_publication_are_separate_dynamic_matrices() -> None
     assert "has_indexes == 'true'" in indexes["if"]
     assert "always()" in members["if"]
     assert "build-images.result == 'success'" in members["if"]
+    member_step = members["steps"][-1]["run"]
+    assert ".families[]" in member_step
+    assert ".members[]" in member_step
+    assert '"docker://${target_ref}"' in member_step
+    assert "${tag}-${arch}" not in member_step
     index_step = indexes["steps"][-1]["run"]
     assert "matrix.members" not in index_step
     assert "jq -er '.[]'" in index_step
@@ -402,9 +451,9 @@ def test_pr_receipt_is_always_posted_and_has_no_package_write_permission() -> No
 def test_bot_control_plane_is_trusted_while_builds_use_pr_source() -> None:
     jobs = _load("ucm-build-bot.yml")["jobs"]
     for name in (
+        "inspect-formal-runtimes",
         "resolve-formal",
         "inspect-runtimes",
-        "probe-runtimes",
         "resolve-pr-runtimes",
         "plan-formal",
         "plan-image",
@@ -417,6 +466,10 @@ def test_bot_control_plane_is_trusted_while_builds_use_pr_source() -> None:
         ]
         assert checkouts
         assert all("ref" not in step.get("with", {}) for step in checkouts)
+    assert jobs["probe-runtimes"]["uses"] == "./.github/workflows/_probe-runtime.yml"
+    assert jobs["probe-formal-runtimes"]["uses"] == (
+        "./.github/workflows/_probe-runtime.yml"
+    )
     assert (
         jobs["build-wheels"]["with"]["source_ref"]
         == "${{ needs.select-plan.outputs.source_ref }}"
@@ -437,7 +490,7 @@ def test_bot_all_retags_and_publishes_without_formal_tag_collision() -> None:
 
 
 def test_runtime_probe_frees_disk_and_uploads_failure_evidence() -> None:
-    probe = _load("ucm-build-bot.yml")["jobs"]["probe-runtimes"]
+    probe = _load("_probe-runtime.yml")["jobs"]["probe"]
     uses = [step.get("uses") for step in probe["steps"]]
     assert "jlumbroso/free-disk-space@v1.3.1" in uses
     upload = next(
@@ -455,6 +508,7 @@ def test_runtime_probe_frees_disk_and_uploads_failure_evidence() -> None:
 def test_cross_job_artifact_names_survive_failed_job_reruns() -> None:
     names = (
         "release-ucm.yml",
+        "_probe-runtime.yml",
         "sync-builders.yml",
         "_build-wheel.yml",
         "_build-image.yml",
@@ -479,7 +533,7 @@ def test_a5_issue_is_isolated_to_formal_tag_workflow() -> None:
     assert "issues" not in _load("ucm-build-bot.yml")["permissions"]
     text = (WORKFLOWS / "release-capability-issue.yml").read_text(encoding="utf-8")
     assert "problems render" in text
-    assert "ucm-upstream-selection-run-${run_id}" in text
+    assert "ucm-runtime-selection-run-${run_id}" in text
     assert "upstreams resolve" not in text
     assert "gh issue create" in text
     assert "gh issue close" in text

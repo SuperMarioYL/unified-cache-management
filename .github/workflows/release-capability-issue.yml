@@ -33,7 +33,7 @@ jobs:
       - run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: PyYAML==6.0.2 packaging==24.2
-      - name: Download the formal run's exact upstream selection
+      - name: Download the formal run's exact Runtime selection
         run: |
           set -euo pipefail
           mkdir -p out
@@ -47,7 +47,7 @@ jobs:
               '[.workflow_runs[] | select(.head_sha == $sha and .head_branch == $ref)] |
                sort_by(.created_at) | last | .id // empty' <<<"${runs}")"
             if [ -n "${run_id}" ]; then
-              artifact="ucm-upstream-selection-run-${run_id}"
+              artifact="ucm-runtime-selection-run-${run_id}"
               if gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts" \
                 --jq '.artifacts[].name' | grep -Fxq "${artifact}"; then
                 found=true
@@ -58,12 +58,12 @@ jobs:
           done
           test "${found}" = true
           gh run download "${run_id}" --name "${artifact}" --dir out
-          test -s out/upstream-selection.json
+          test -s out/runtime-selection.json
       - name: Render formal capability problems
         run: |
           set -euo pipefail
           PYTHONPATH=.github/release python -m ucm_release problems render \
-            --selection out/upstream-selection.json \
+            --selection out/runtime-selection.json \
             --summary out/problems-summary.md \
             --issue out/problems-issue.json \
             --action out/problems-action.json >/dev/null

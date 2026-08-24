@@ -5,6 +5,7 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import yaml
@@ -41,15 +42,32 @@ def _write(path: Path, value: object) -> None:
 
 
 def _crane_output(operation: str, reference: str) -> str:
-    completed = subprocess.run(
-        ["crane", operation, reference], text=True, capture_output=True, check=False
+    completed = None
+    last_error = ""
+    for attempt in range(1, 4):
+        try:
+            completed = subprocess.run(
+                ["crane", operation, reference],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=60,
+            )
+        except subprocess.TimeoutExpired:
+            completed = None
+            last_error = "timed out after 60 seconds"
+        if completed is None:
+            if attempt < 3:
+                time.sleep(2**attempt)
+            continue
+        if completed.returncode == 0:
+            return completed.stdout
+        last_error = completed.stderr.strip() or str(completed.returncode)
+        if attempt < 3:
+            time.sleep(2**attempt)
+    raise ValueError(
+        f"crane {operation} failed for {reference}: {last_error or 'unknown error'}"
     )
-    if completed.returncode != 0:
-        raise ValueError(
-            f"crane {operation} failed for {reference}: "
-            f"{completed.stderr.strip() or completed.returncode}"
-        )
-    return completed.stdout
 
 
 def _crane_json(operation: str, reference: str) -> object:
@@ -105,21 +123,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     builders_sync_plan.set_defaults(func=_cmd_builders_sync_plan)
 
-    builders_materialize = builders_actions.add_parser("materialize-recipe")
-    builders_materialize.add_argument("--source", type=Path, required=True)
-    builders_materialize.add_argument("--stop-before", required=True)
-    builders_materialize.add_argument("--output", type=Path, required=True)
-
-    def _cmd_builders_materialize(a):
-        value = upstream.materialize_builder_recipe(
-            a.source.read_text(encoding="utf-8"), a.stop_before
-        )
-        a.output.parent.mkdir(parents=True, exist_ok=True)
-        a.output.write_text(value, encoding="utf-8")
-        return {"output": str(a.output), "stop_before": a.stop_before}
-
-    builders_materialize.set_defaults(func=_cmd_builders_materialize)
-
     builders_labels = builders_actions.add_parser("labels")
     builders_labels.add_argument("--builder", type=Path, required=True)
     builders_labels.add_argument("--output", type=Path, required=True)
@@ -131,6 +134,21 @@ def build_parser() -> argparse.ArgumentParser:
         return result
 
     builders_labels.set_defaults(func=_cmd_builders_labels)
+
+    builders_finalize = builders_actions.add_parser("finalize")
+    builders_finalize.add_argument("--catalog", type=Path, required=True)
+    builders_finalize.add_argument("--observations", type=Path, required=True)
+    builders_finalize.add_argument("--output", type=Path, required=True)
+
+    def _cmd_builders_finalize(a):
+        result = builders.finalize_catalog(
+            core.load_json(a.catalog), core.load_json(a.observations)
+        )
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.output, result)
+        return result
+
+    builders_finalize.set_defaults(func=_cmd_builders_finalize)
 
     builders_scan = builders_actions.add_parser("scan-registry")
     builders_scan.add_argument("--output", type=Path, required=True)
@@ -145,20 +163,38 @@ def build_parser() -> argparse.ArgumentParser:
 
     upstreams_parser = groups.add_parser("upstreams")
     upstreams_actions = upstreams_parser.add_subparsers(dest="action", required=True)
+
+    upstreams_candidates = upstreams_actions.add_parser("candidates")
+    upstreams_candidates.add_argument("--release", type=Path, default=core.DEFAULT_RELEASE)
+    upstreams_candidates.add_argument("--tag-fixture", type=Path)
+    upstreams_candidates.add_argument("--pr-default", action="store_true")
+    upstreams_candidates.add_argument("--output", type=Path, required=True)
+
+    def _cmd_upstreams_candidates(a):
+        result = upstream.resolve_runtime_candidates(
+            policy.resolve(a.release),
+            tag_fixture=core.load_json(a.tag_fixture) if a.tag_fixture else None,
+            pr_default=a.pr_default,
+        )
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        _write(a.output, result)
+        return result
+
+    upstreams_candidates.set_defaults(func=_cmd_upstreams_candidates)
+
     upstreams_resolve = upstreams_actions.add_parser("resolve")
     upstreams_resolve.add_argument("--release", type=Path, default=core.DEFAULT_RELEASE)
-    upstreams_resolve.add_argument("--builders", type=Path, help=argparse.SUPPRESS)
+    upstreams_resolve.add_argument("--candidates", type=Path, required=True)
+    upstreams_resolve.add_argument("--runtime-probe", type=Path, required=True)
     upstreams_resolve.add_argument("--tag-fixture", type=Path)
-    upstreams_resolve.add_argument("--snapshot", type=Path)
-    upstreams_resolve.add_argument("--pin-upstream", action="append", default=None)
     upstreams_resolve.add_argument("--output", type=Path, required=True)
 
     def _cmd_upstreams_resolve(a):
         result = upstream.resolve_upstreams(
             policy.resolve(a.release),
+            candidates=core.load_json(a.candidates),
+            runtime_probe=core.load_json(a.runtime_probe),
             tag_fixture=core.load_json(a.tag_fixture) if a.tag_fixture else None,
-            snapshot_dir=a.snapshot,
-            pinned_upstreams=a.pin_upstream,
         )
         a.output.parent.mkdir(parents=True, exist_ok=True)
         _write(a.output, result)
@@ -173,18 +209,30 @@ def build_parser() -> argparse.ArgumentParser:
     compact_plan.add_argument("--catalog", type=Path, default=core.DEFAULT_RELEASE)
     compact_plan.add_argument("--schema-dir", type=Path, default=core.DEFAULT_SCHEMA_DIR)
     compact_plan.add_argument("--builder-catalog", type=Path, required=True)
-    compact_plan.add_argument("--upstream-selection", type=Path, required=True)
+    compact_plan.add_argument("--runtime-selection", type=Path, required=True)
     compact_plan.add_argument("--route", choices=tuple(sorted(compact.ROUTES)), required=True)
     compact_plan.add_argument("--pin-upstream", action="append", default=None)
+    compact_plan.add_argument("--git-tag")
+    compact_plan.add_argument(
+        "--release-kind", choices=("none", "publish", "draft")
+    )
+    compact_plan.add_argument("--is-prerelease", choices=("true", "false"))
+    compact_plan.add_argument("--chart-version")
     compact_plan.add_argument("--output", type=Path, required=True)
 
     def _cmd_compact_plan(a):
         result = compact.resolve_plan(
             policy.resolve(a.catalog),
             builder_catalog=core.load_json(a.builder_catalog),
-            upstream_selection=core.load_json(a.upstream_selection),
+            runtime_selection=core.load_json(a.runtime_selection),
             route=a.route,
             pinned_upstreams=a.pin_upstream,
+            git_tag=a.git_tag,
+            release_kind=a.release_kind,
+            is_prerelease=(
+                None if a.is_prerelease is None else a.is_prerelease == "true"
+            ),
+            chart_version=a.chart_version,
         )
         a.output.parent.mkdir(parents=True, exist_ok=True)
         _write(a.output, result)
@@ -316,7 +364,7 @@ def build_parser() -> argparse.ArgumentParser:
         a.output_dir.mkdir(parents=True, exist_ok=True)
         _write(a.output_dir / "pr-resolution.json", result)
         if result["ok"]:
-            _write(a.output_dir / "upstream-selection.json", result["selection"])
+            _write(a.output_dir / "runtime-selection.json", result["selection"])
             _write(a.output_dir / "builder-catalog.json", result["builder_catalog"])
             _write(a.output_dir / "publication.json", result["publication"])
         return result
@@ -423,7 +471,7 @@ def build_parser() -> argparse.ArgumentParser:
     config_actions = config.add_subparsers(dest="action", required=True)
     validate = config_actions.add_parser("validate")
     _paths(validate)
-    validate.set_defaults(func=lambda a: {'schema_version': 4, 'products': len(policy.load(a.release)['release']['products']), 'backends': len(policy.load(a.release)['platforms']['backends'])})  # fmt: skip  # noqa: E501
+    validate.set_defaults(func=lambda a: {'schema_version': 5, 'products': len(policy.load(a.release)['release']['products']), 'backends': len(policy.load(a.release)['platforms']['backends'])})  # fmt: skip  # noqa: E501
 
     catalog_parser = groups.add_parser("catalog")
     catalog_actions = catalog_parser.add_subparsers(dest="action", required=True)

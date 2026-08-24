@@ -22,6 +22,11 @@ LEGACY_RELEASE_ROOTS = (
     REPO_ROOT / "scripts" / "release",
     REPO_ROOT / "docker" / "release",
 )
+LEGACY_POLICY_FILES = (
+    RELEASE_ROOT / "builders.yaml",
+    RELEASE_ROOT / "native-contract.yaml",
+    RELEASE_ROOT / "toolchain.lock.yaml",
+)
 
 
 def _source_files(path: Path, *, excluded_parts: set[str] | None = None) -> list[Path]:
@@ -78,6 +83,16 @@ def test_release_tree_rejects_legacy_release_artifacts() -> None:
     if present_legacy_roots:
         violations.append(f"legacy release roots remain: {present_legacy_roots}")
 
+    present_legacy_policy_files = [
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in LEGACY_POLICY_FILES
+        if path.exists()
+    ]
+    if present_legacy_policy_files:
+        violations.append(
+            f"legacy release policy files remain: {present_legacy_policy_files}"
+        )
+
     opt_release_references, standalone_wrapt_paths = _forbidden_release_content_paths(
         REPO_ROOT
     )
@@ -124,27 +139,25 @@ def _platform_policy() -> dict[str, object]:
     return yaml.safe_load((RELEASE_ROOT / "platforms.yaml").read_text(encoding="utf-8"))
 
 
-def test_release_policy_matches_the_schema_v4_maintenance_surface() -> None:
+def test_release_policy_matches_the_schema_v5_registry_surface() -> None:
     assert _release_policy() == {
         "kind": "ucm-release-policy",
-        "schema_version": 4,
+        "schema_version": 5,
         "runners": {"amd64": "ubuntu-24.04", "arm64": "ubuntu-24.04-arm"},
         "products": [
             {
                 "id": "vllm",
-                "source_repository": "vllm-project/vllm",
                 "runtime_repository": "docker.io/vllm/vllm-openai",
                 "target_repository": "ghcr.io/{owner}/vllm-openai",
-                "minimum_version": "0.21.0",
-                "channel_policy": "stable-preferred-rc-fallback",
+                "minimum_version": "0.22.0",
+                "channel_policy": "latest-stable-or-rc-or-nightly-per-minor",
             },
             {
                 "id": "vllm-ascend",
-                "source_repository": "vllm-project/vllm-ascend",
                 "runtime_repository": "quay.io/ascend/vllm-ascend",
                 "target_repository": "ghcr.io/{owner}/vllm-ascend",
-                "minimum_version": "0.22.1rc1",
-                "channel_policy": "stable-preferred-rc-fallback",
+                "minimum_version": "0.22.0",
+                "channel_policy": "latest-stable-or-rc-or-nightly-per-minor",
             },
         ],
         "publish": {
@@ -181,12 +194,22 @@ def test_platform_policy_matches_supported_and_blocked_backends() -> None:
         "builder_families": {
             "cuda": {
                 "target_repository": "ghcr.io/{owner}/ucm-builder-vllm",
+                "source_repositories": {
+                    "amd64": "docker.io/pytorch/manylinux2_28-builder",
+                    "arm64": "docker.io/pytorch/manylinuxaarch64-builder",
+                },
+                "manylinux": "manylinux_2_28",
                 "required_commands": ["gcc", "g++", "make", "git", "nvcc"],
             },
             "ascend": {
                 "target_repository": "ghcr.io/{owner}/ucm-builder-vllm-ascend",
+                "source_repositories": {
+                    "amd64": "quay.io/ascend/manylinux",
+                    "arm64": "quay.io/ascend/manylinux",
+                },
                 "required_commands": ["gcc", "g++", "make", "git", "cmake"],
-                "extensions": {"mooncake": {"version_source": "upstream-runtime"}},
+                "required_files": ["acl.h"],
+                "variant_required_files": {"a3": ["libruntime.so"]},
             },
         },
         "backends": {
@@ -198,17 +221,17 @@ def test_platform_policy_matches_supported_and_blocked_backends() -> None:
             "cann-a2": {
                 "status": "supported",
                 "platform": "ascend",
-                "distribution": "uc-manager-cann-a2",
+                "distribution_template": "uc-manager-{runtime_variant}",
             },
             "cann-a3": {
                 "status": "supported",
                 "platform": "ascend-a3",
-                "distribution": "uc-manager-cann-a3",
+                "distribution_template": "uc-manager-{runtime_variant}",
             },
             "cann-a5": {
                 "status": "blocked",
                 "platform": "ascend-a5",
-                "distribution": "uc-manager-cann-a5",
+                "distribution_template": "uc-manager-{runtime_variant}",
                 "reason": "A5 requires a dedicated UCM native implementation",
             },
         },
@@ -244,7 +267,54 @@ def test_formal_policy_loads_exact_requirements_without_legacy_authorities() -> 
         assert legacy_key not in serialized
 
 
-def test_core_projects_v4_for_legacy_recipe_consumers() -> None:
+def test_optional_maximum_version_is_inclusive_and_has_one_projection(
+    tmp_path: Path,
+) -> None:
+    policy = importlib.import_module("ucm_release.policy")
+    release = _release_policy()
+    release["products"][0]["maximum_version"] = "0.26.0"
+    path = tmp_path / "release.yaml"
+    path.write_text(yaml.safe_dump(release, sort_keys=False), encoding="utf-8")
+
+    loaded = policy.load(path)
+    projection = policy.compatibility_projection(loaded, chart_name="ucm")
+
+    assert loaded["release"]["products"][0]["maximum_version"] == "0.26.0"
+    assert projection["upstream_products"][0]["version_specifier"] == (
+        ">=0.22.0,<=0.26.0"
+    )
+
+
+def test_maximum_version_cannot_precede_minimum(tmp_path: Path) -> None:
+    policy = importlib.import_module("ucm_release.policy")
+    release = _release_policy()
+    release["products"][0]["maximum_version"] = "0.21.9"
+    path = tmp_path / "release.yaml"
+    path.write_text(yaml.safe_dump(release, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="maximum_version must be >= minimum_version"):
+        policy.load(path)
+
+
+def test_builder_discovery_defaults_to_the_platform_policy() -> None:
+    cli = importlib.import_module("ucm_release.cli")
+    policy = importlib.import_module("ucm_release.policy")
+
+    args = cli.build_parser().parse_args(
+        [
+            "builders",
+            "discover",
+            "--selection",
+            "selection.json",
+            "--output",
+            "catalog.json",
+        ]
+    )
+
+    assert args.config == policy.DEFAULT_PLATFORMS
+
+
+def test_core_projects_v5_for_legacy_recipe_consumers() -> None:
     core = importlib.import_module("ucm_release.core")
 
     catalog = core.load_catalog(version_override="0.7.59rc7")
@@ -382,7 +452,7 @@ def test_publish_channel_shapes_are_exact(
         core.load_catalog(path)
 
 
-def test_catalog_validate_cli_uses_v4_policy_contract(capsys) -> None:
+def test_catalog_validate_cli_uses_v5_policy_contract(capsys) -> None:
     cli = importlib.import_module("ucm_release.cli")
 
     assert cli.main(["catalog", "validate"]) == 0
@@ -390,3 +460,20 @@ def test_catalog_validate_cli_uses_v4_policy_contract(capsys) -> None:
     output = capsys.readouterr().out
     assert '"products":2' in output
     assert '"backends":4' in output
+
+
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [
+        ("0.7.62", "0.7.62"),
+        ("0.7.62rc1", "0.7.62-rc.1"),
+        ("0.7.62.dev0", "0.7.62-draft.0"),
+        ("0.7.62.dev4", "0.7.62-draft.4"),
+    ],
+)
+def test_chart_version_preserves_formal_and_draft_coordinates(
+    version: str, expected: str
+) -> None:
+    core = importlib.import_module("ucm_release.core")
+
+    assert core.derive_chart_version(version) == expected

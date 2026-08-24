@@ -3,14 +3,14 @@ name: Synchronize project builder pool
 on:
   workflow_call:
     inputs:
-      upstream_selection_artifact:
-        description: Exact upstream selection for this release run
+      runtime_selection_artifact:
+        description: Exact Runtime selection for this release run
         type: string
         required: true
     outputs:
       builder_catalog_artifact:
         description: Discovered Builder catalog for this run
-        value: ${{ jobs.prepare.outputs.builder_catalog_artifact }}
+        value: ${{ jobs.finalize.outputs.builder_catalog_artifact }}
 
 permissions:
   contents: read
@@ -26,8 +26,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
-      builder_catalog_artifact: ${{ steps.plan.outputs.builder_catalog_artifact }}
-      has_missing: ${{ steps.plan.outputs.has_missing }}
+      prepared_catalog_artifact: ${{ steps.plan.outputs.prepared_catalog_artifact }}
+      has_builders: ${{ steps.plan.outputs.has_builders }}
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4.2.2
@@ -42,7 +42,7 @@ jobs:
       - uses: docker/setup-buildx-action@v3.11.1
       - uses: actions/download-artifact@v4.3.0
         with:
-          name: ${{ inputs.upstream_selection_artifact }}
+          name: ${{ inputs.runtime_selection_artifact }}
           path: input/upstreams
       - name: Authenticate to GHCR
         env:
@@ -57,7 +57,7 @@ jobs:
           set -euo pipefail
           mkdir -p out
           PYTHONPATH=.github/release python -m ucm_release builders discover \
-            --selection input/upstreams/upstream-selection.json \
+            --selection input/upstreams/runtime-selection.json \
             --output out/builder-catalog.json >/dev/null
           printf '{}\n' >out/existing-tags.json
           while IFS=$'\t' read -r repository tag; do
@@ -75,29 +75,29 @@ jobs:
             --catalog out/builder-catalog.json \
             --existing out/existing-tags.json \
             --output out/builder-sync-plan.json >/dev/null
-          count="$(jq '.builders | length' out/builder-sync-plan.json)"
-          artifact="ucm-builder-catalog-run-${GITHUB_RUN_ID}"
+          count="$(jq '.matrix.include | length' out/builder-sync-plan.json)"
+          artifact="ucm-builder-catalog-prepared-run-${GITHUB_RUN_ID}"
           {
-            echo "builder_catalog_artifact=${artifact}"
+            echo "prepared_catalog_artifact=${artifact}"
             echo "matrix=$(jq -c '.matrix' out/builder-sync-plan.json)"
             if [ "${count}" -gt 0 ]; then
-              echo "has_missing=true"
+              echo "has_builders=true"
             else
-              echo "has_missing=false"
+              echo "has_builders=false"
             fi
           } >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@v4.6.2
         with:
-          name: ${{ steps.plan.outputs.builder_catalog_artifact }}
+          name: ${{ steps.plan.outputs.prepared_catalog_artifact }}
           path: out/builder-catalog.json
           if-no-files-found: error
           overwrite: true
           retention-days: 7
 
   build-missing:
-    name: Builder · ${{ matrix.label }}
+    name: Build/verify Builder · ${{ matrix.label }}
     needs: prepare
-    if: ${{ needs.prepare.outputs.has_missing == 'true' }}
+    if: ${{ needs.prepare.outputs.has_builders == 'true' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
@@ -107,13 +107,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2
         with:
-          persist-credentials: false
-      - if: ${{ matrix.build_mode != 'mirror' }}
-        uses: actions/checkout@v4.2.2
-        with:
-          repository: ${{ matrix.source_repository }}
-          ref: ${{ matrix.source_ref }}
-          path: upstream
           persist-credentials: false
       - uses: docker/setup-buildx-action@v3.11.1
       - name: Authenticate to GHCR
@@ -125,24 +118,19 @@ jobs:
             --username "${GITHUB_ACTOR}" --password-stdin
       - name: Build missing Builder
         env:
-          BUILD_MODE: ${{ matrix.build_mode }}
           SOURCE_IMAGE: ${{ matrix.source_image }}
           SOURCE_IMAGE_DIGEST: ${{ matrix.source_image_digest }}
           TARGET_REPOSITORY: ${{ matrix.target_repository }}
           TARGET_TAG: ${{ matrix.target_tag }}
           CPU_ARCH: ${{ matrix.cpu_arch }}
-          MOONCAKE_VERSION: ${{ matrix.mooncake_version }}
-          RECIPE: ${{ toJSON(matrix.recipe) }}
           CHECKS: ${{ toJSON(matrix.checks) }}
           BUILDER_JSON: ${{ toJSON(matrix) }}
         run: |
           set -euo pipefail
           target="${TARGET_REPOSITORY}:${TARGET_TAG}"
-          actual_source_digest="$(docker buildx imagetools inspect "${SOURCE_IMAGE}" \
-            --format '{{json .Manifest}}' | jq -er '.digest // .Digest')"
-          test "${actual_source_digest}" = "${SOURCE_IMAGE_DIGEST}"
           source_repository="${SOURCE_IMAGE%:*}"
           pinned_source="${source_repository}@${SOURCE_IMAGE_DIGEST}"
+          docker buildx imagetools inspect "${pinned_source}" >/dev/null
           if docker buildx imagetools inspect "${target}" >/dev/null 2>&1; then
             echo "Builder already exists: ${target}"
             candidate="${target}"
@@ -159,85 +147,31 @@ jobs:
               'to_entries[] | "--label", "\(.key)=\(.value)"' \
               out/builder-labels.json)
             candidate="${target}-candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-            case "${BUILD_MODE}" in
-            mirror)
-              docker buildx build --push \
-                --platform "linux/${CPU_ARCH}" \
-                --file .github/release/docker/Dockerfile.builder-mirror \
-                --build-arg "BASE_IMAGE=${pinned_source}" \
-                "${label_args[@]}" --tag "${candidate}" .
-              ;;
-            recipe)
-              dockerfile="$(jq -er '.dockerfile' <<<"${RECIPE}")"
-              recipe_target="$(jq -er '.target' <<<"${RECIPE}")"
-              mapfile -t build_args < <(jq -r \
-                '.build_args | to_entries[] | "--build-arg", "\(.key)=\(.value)"' \
-                <<<"${RECIPE}")
-              target_args=()
-              [ -n "${recipe_target}" ] && target_args=(--target "${recipe_target}")
-              docker buildx build --push \
-                --platform "linux/${CPU_ARCH}" \
-                --file "upstream/${dockerfile}" \
-                "${target_args[@]}" "${build_args[@]}" \
-                "${label_args[@]}" --tag "${candidate}" upstream
-              ;;
-            recipe-extend)
-              dockerfile="$(jq -er '.dockerfile' <<<"${RECIPE}")"
-              recipe_target="$(jq -er '.target' <<<"${RECIPE}")"
-              stop_before="$(jq -r '.strip_run_containing // empty' <<<"${RECIPE}")"
-              if [ -n "${stop_before}" ]; then
-                materialized_dockerfile="${RUNNER_TEMP}/upstream-builder.Dockerfile"
-                PYTHONPATH=.github/release python -m ucm_release \
-                  builders materialize-recipe \
-                  --source "upstream/${dockerfile}" \
-                  --stop-before "${stop_before}" \
-                  --output "${materialized_dockerfile}" >/dev/null
-                dockerfile="${materialized_dockerfile}"
-              else
-                dockerfile="upstream/${dockerfile}"
-              fi
-              mapfile -t build_args < <(jq -r \
-                '.build_args | to_entries[] | "--build-arg", "\(.key)=\(.value)"' \
-                <<<"${RECIPE}")
-              target_args=()
-              [ -n "${recipe_target}" ] && target_args=(--target "${recipe_target}")
-              upstream_target="${target}-upstream"
-              if docker buildx imagetools inspect "${upstream_target}" >/dev/null 2>&1; then
-                echo "Upstream recipe stage already exists: ${upstream_target}"
-              else
-                docker buildx build --push \
-                  --platform "linux/${CPU_ARCH}" \
-                  --file "${dockerfile}" \
-                  "${target_args[@]}" "${build_args[@]}" \
-                  --tag "${upstream_target}" upstream
-              fi
-              mkdir -p context/tools
-              cp .github/release/docker/mooncake_installer.sh \
-                context/tools/mooncake_installer.sh
-              cp .github/release/docker/gflags-config.cmake \
-                context/tools/gflags-config.cmake
-              docker buildx build --push \
-                --platform "linux/${CPU_ARCH}" \
-                --file .github/release/docker/Dockerfile.builder \
-                --build-arg "CANN_BASE=${upstream_target}" \
-                --build-arg "MOONCAKE_TAG=v${MOONCAKE_VERSION}" \
-                "${label_args[@]}" --tag "${candidate}" context
-              ;;
-            *)
-              echo "unsupported Builder mode: ${BUILD_MODE}" >&2
-              exit 2
-              ;;
-            esac
+            docker buildx build --push \
+              --platform "linux/${CPU_ARCH}" \
+              --file .github/release/docker/Dockerfile.builder-mirror \
+              --build-arg "BASE_IMAGE=${pinned_source}" \
+              "${label_args[@]}" --tag "${candidate}" .
           fi
           docker buildx imagetools inspect "${candidate}" >/dev/null
+          if [ "${candidate}" != "${target}" ]; then
+            docker buildx imagetools create --tag "${target}" "${candidate}"
+          fi
+          target_digest="$(docker buildx imagetools inspect "${target}" \
+            --format '{{json .Manifest}}' | jq -er '.digest // .Digest')"
+          verified_target="${TARGET_REPOSITORY}@${target_digest}"
+          docker buildx imagetools inspect "${verified_target}" >/dev/null
           commands="$(jq -r '.commands | join(" ")' <<<"${CHECKS}")"
+          required_files="$(jq -r '.required_files | join(" ")' <<<"${CHECKS}")"
           docker run --rm \
             -e EXPECTED_PYTHON="$(jq -r '.python_version' <<<"${CHECKS}")" \
             -e EXPECTED_ABI="$(jq -r '.python_abi' <<<"${CHECKS}")" \
             -e EXPECTED_RUNTIME="$(jq -r '.accelerator_runtime' <<<"${CHECKS}")" \
+            -e EXPECTED_SOC="$(jq -r '.soc_version' <<<"${CHECKS}")" \
+            -e EXPECTED_VARIANT="$(jq -r '.variant' <<<"${CHECKS}")" \
             -e REQUIRED_COMMANDS="${commands}" \
-            -e REQUIRE_MOONCAKE="$(jq -r '.mooncake' <<<"${CHECKS}")" \
-            "${candidate}" bash -c '
+            -e REQUIRED_FILES="${required_files}" \
+            "${verified_target}" bash -c '
               set -euo pipefail
               candidate="/opt/python/${EXPECTED_ABI}-${EXPECTED_ABI}/bin/python"
               if [ ! -x "${candidate}" ]; then candidate="$(command -v python3)"; fi
@@ -246,11 +180,94 @@ jobs:
               if [[ "${EXPECTED_RUNTIME}" == cuda-* ]]; then
                 nvcc --version | grep -F "release ${EXPECTED_RUNTIME#cuda-}"
               fi
-              if [ "${REQUIRE_MOONCAKE}" = true ]; then
-                find /usr/local -name libmooncake_store.so -print -quit | grep -q .
+              if [[ "${EXPECTED_RUNTIME}" == cann-* ]]; then
+                actual_cann="${CANN_VERSION:-${ASCEND_TOOLKIT_HOME:-${ASCEND_HOME_PATH:-}}}"
+                if [ -z "${actual_cann}" ]; then
+                  version_file="$(find /usr/local/Ascend -type f \
+                    \( -name version.info -o -name version.cfg \) \
+                    -print -quit 2>/dev/null || true)"
+                  [ -z "${version_file}" ] || actual_cann="$(head -n 1 "${version_file}")"
+                fi
+                actual_cann="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' \
+                  <<<"${actual_cann}" | head -n 1)"
+                test "cann-${actual_cann}" = "${EXPECTED_RUNTIME}"
+                if [ -n "${SOC_VERSION:-}" ]; then
+                  test "${SOC_VERSION}" = "${EXPECTED_SOC}"
+                fi
+                test -n "${EXPECTED_VARIANT}"
+                for file_name in ${REQUIRED_FILES}; do
+                  find /usr/local/Ascend -name "${file_name}" -print -quit \
+                    | grep -q .
+                done
               fi
             '
-          if [ "${candidate}" != "${target}" ]; then
-            docker buildx imagetools create --tag "${target}" "${candidate}"
-          fi
-          docker buildx imagetools inspect "${target}" >/dev/null
+          mkdir -p out/verification
+          docker image inspect --format '{{json .}}' "${verified_target}" \
+            >out/verified-config.json
+          jq -n --arg id "${{ matrix.id }}" --arg digest "${target_digest}" \
+            --slurpfile image out/verified-config.json \
+            '{id:$id,target_digest:$digest,
+              config:{created:$image[0].Created,
+                      config:{Labels:($image[0].Config.Labels // {})}}}' \
+            >"out/verification/${{ matrix.id }}.json"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ucm-builder-verification-${{ matrix.id }}-run-${{ github.run_id }}
+          path: out/verification/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  finalize:
+    name: Finalize immutable Builder catalog
+    needs: [prepare, build-missing]
+    if: >-
+      ${{
+        always() && needs.prepare.result == 'success' &&
+        (needs.build-missing.result == 'success' ||
+         needs.build-missing.result == 'skipped')
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      builder_catalog_artifact: ${{ steps.finalize.outputs.builder_catalog_artifact }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.prepare.outputs.prepared_catalog_artifact }}
+          path: input/builders
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          pattern: ucm-builder-verification-*-run-${{ github.run_id }}
+          path: input/observations
+          merge-multiple: true
+      - id: finalize
+        name: Verify labels and pin target digests
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          jq -s 'map({key:.id,
+            value:{target_digest:.target_digest,config:.config}}) | from_entries' \
+            input/observations/*.json >out/observations.json
+          PYTHONPATH=.github/release python -m ucm_release builders finalize \
+            --catalog input/builders/builder-catalog.json \
+            --observations out/observations.json \
+            --output out/builder-catalog.json >/dev/null
+          artifact="ucm-builder-catalog-run-${GITHUB_RUN_ID}"
+          echo "builder_catalog_artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ steps.finalize.outputs.builder_catalog_artifact }}
+          path: out/builder-catalog.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7

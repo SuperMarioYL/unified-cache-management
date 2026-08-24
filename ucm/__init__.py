@@ -22,9 +22,18 @@
 # SOFTWARE.
 #
 
+import re
+
 from ucm.integration.vllm.patch.logger_patch import patch_logger as patch_logger
 
-_UCM_BACKEND_DISTS = ("uc-manager-cuda", "uc-manager-cann-a2", "uc-manager-cann-a3")
+_UCM_BACKEND_DIST = re.compile(
+    r"uc-manager-(?:cuda(?:-[a-z0-9]+)*|cann(?:[0-9]+)?-a[0-9]+(?:-[a-z0-9]+)*)"
+)
+
+
+def _is_backend_distribution(name: str) -> bool:
+    normalized = name.lower().replace("_", "-")
+    return _UCM_BACKEND_DIST.fullmatch(normalized) is not None
 
 
 def _guard_single_backend() -> None:
@@ -36,7 +45,7 @@ def _guard_single_backend() -> None:
             name
             for dist in distributions()
             if (name := (dist.metadata["Name"] or "").lower().replace("_", "-"))
-            in _UCM_BACKEND_DISTS
+            and _is_backend_distribution(name)
         }
     )
     if len(found) > 1:

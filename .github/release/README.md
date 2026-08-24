@@ -1,97 +1,139 @@
-# Compact UCM release automation
+# UCM Registry-driven release automation
 
-The active release lane prioritizes the functional path from an event to
-build artifacts and published tags. The root `version.ini` is the UCM version
-source for wheels, the Chart, image suffixes, and the GitHub Release tag. PR,
-`develop` daily, and formal `v*` runs share one plan and the same wheel, Chart,
-and image build jobs. PR, daily, and manual branch builds use the checked-in
-file unchanged. A formal `v*` run materializes the Tag version into each
-independent wheel and Chart checkout before planning or building. Only formal
-`v*` runs execute publication.
+The active pipeline builds UCM Wheels, runtime images, and the Helm Chart from
+actual published runtime images. It never reads vLLM or vLLM-Ascend source
+branches to decide versions or Builder capabilities.
 
-## Workflow shape
+## Maintained policy
+
+The human-maintained release authorities are:
+
+- `release.yaml`: runtime repositories, inclusive version windows, runners,
+  publication channels, and Chart smoke inputs;
+- `platforms.yaml`: raw Builder registries, excluded variants, Builder checks,
+  and supported or blocked UCM backends;
+- `requirements/wheel-build.txt` and `requirements/wheel-runtime.txt`: exact
+  Python dependencies.
+
+`minimum_version` is required per product. `maximum_version` is optional and,
+when present, inclusive. Registry Tags are grouped by major/minor. Each line
+selects its highest Stable version, otherwise its highest formal RC, otherwise
+its release-nightly version. All real variants of that selected version remain
+eligible; 310P is filtered and A5 is reported as blocked.
+
+## Registry-only flow
 
 ```text
-Resolve upstream Tags -> Sync builders -> Plan -> Wheel[] -> Image[]
-                                         \-> Chart -----------/
-All builds -> Draft -> Members[] -> Indexes[] -----\
-                    \-> PyPI -----------------------+-> Finalize prerelease
-                    \-> Chart OCI -----------------/
+Runtime Registry Tags
+  -> version selection
+  -> manifest/member inspection
+  -> per-member capability probe
+  -> compatible raw Builder Registry match
+  -> digest-pinned label-only Builder mirror
+  -> Wheel union
+  -> runtime images and Chart
 ```
 
-`resolve-upstreams` chooses each runtime version once and parses its exact Git
-Tag. `sync-builders` and `plan` consume the same `upstream-selection.json`, so
-Builder discovery cannot drift from the runtime matrix. `plan` emits the
-stable `wheels`, `images`, `families`, `wheel_matrix`, and `image_matrix`
-contract. The image-index matrix is derived from `families` only as an Actions
-output.
+Runtime probes provide the actual CUDA/CANN version, SOC/backend, Python ABI,
+OS, glibc, and CPU architecture. Every runtime member resolves exactly one
+Wheel ID. Zero or ambiguous matches fail instead of guessing.
 
-Builder synchronization itself has two jobs: `prepare` and a dynamic
-`build-missing` matrix. Ascend 310P definitions are filtered by
-`builders.yaml`; newly discovered default-OS variants enter automatically and
-must have a UCM backend contract before build matrices start. Registry
-publication is append-only: old Builder tags remain but are no longer selected.
+CUDA raw Builders come from the configured PyTorch manylinux repositories.
+Ascend raw Builders come from `quay.io/ascend/manylinux`. Both use
+`docker/Dockerfile.builder-mirror`; the mirror adds labels but installs no
+software. Builder identity is based on the raw platform member digest and
+checked capability, not a vLLM version or Git ref. The official pipeline does
+not download, build, or identify Mooncake.
 
-## Task and artifact names
+Every existing or newly built mirror is re-probed on its native architecture,
+its OCI labels are compared with the desired catalog, and its final manifest
+digest is recorded. Wheel builds consume `repository@digest`, never a mutable
+Builder Tag.
 
-Task IDs are stable coordinates rather than content hashes:
+## Tag and Release modes
 
-- wheel: `<group>-<python-abi>-<arch>`, for example
-  `cann900-a2-cp310-arm64`;
-- image: `<group>-<arch>`, for example `cuda129-amd64`;
-- family: `cuda129`, `cuda130`, `cann900-a2`, or `cann900-a3`.
+The workflow accepts:
 
-The Actions UI displays capability labels such as
-`Wheel · CUDA 13.0 · cp312 · amd64` and
-`Image · vLLM Ascend · CANN 9.0 A2 · arm64`.
+| Git Tag | Wheel version | Chart version | GitHub Release |
+| --- | --- | --- | --- |
+| `vX.Y.Z` | `X.Y.Z` | `X.Y.Z` | public Release |
+| `vX.Y.ZrcN` | `X.Y.ZrcN` | `X.Y.Z-rc.N` | public prerelease |
+| `draft/vX.Y.Z` | `X.Y.Z.dev0` | `X.Y.Z-draft.0` | Draft |
+| `draft/vX.Y.Z-N` | `X.Y.Z.devN` | `X.Y.Z-draft.N` | Draft |
 
-Each Wheel artifact contains the Wheel plus `wheel-result.json`. The result
-records the actual filename and platform tags checked by `auditwheel`; release
-publication never guesses the filename from configuration.
+For a formal `v*` Tag, the Release is created or reused and made public
+immediately. A manually pre-opened public Release is valid. A Draft Tag always
+remains Draft. Exact Releases API lookup requires one Release for the Tag;
+duplicate Release records fail closed.
 
-Artifacts are scoped by run and attempt:
+Publication then updates the same Release in stages:
 
-- `ucm-release-plan-run-<run>-attempt-<attempt>`;
-- `ucm-wheel-<wheel-id>-run-<run>-attempt-<attempt>`;
-- `ucm-chart-run-<run>-attempt-<attempt>`;
-- `ucm-image-<image-id>-run-<run>-attempt-<attempt>` when OCI upload is enabled.
+1. `release-open`: no artifacts are required yet;
+2. `artifacts-ready`: all Wheels, the Chart, `SHA256SUMS`, and the staged
+   `release-manifest.json` are uploaded;
+3. `complete` or `images-failed`: Registry member/index receipts add the final
+   image references and digests.
 
-PR and daily image builds validate the install-only image locally and normally
-discard the OCI archive. Formal Tags and explicit `/ucm-build image` requests
-upload the archive for publication.
+If image publication fails, already published Wheels and Chart remain usable
+and the public Release is marked `images-failed`. OCI archives are not uploaded
+to GitHub Release. Draft builds use `.devN` GHCR and Chart coordinates and never
+publish to PyPI or Docker Hub.
 
-## Publication
+## Wheel contract
 
-`release.yaml` remains the single switchboard for PyPI, GHCR, Docker Hub,
-Chart OCI, and GitHub Release. After every build succeeds, publication runs as:
+Internal and OCI architectures use `amd64` and `arm64`; Wheel tags use
+`x86_64` and `aarch64`. Official files currently use the honest generic tags:
 
-1. create or reuse a GitHub Draft;
-2. publish architecture image members in an unbounded matrix;
-3. publish all family indexes after every member succeeds;
-4. publish PyPI and Chart OCI independently in parallel with image publication;
-5. upload Wheel and Chart assets, then publish the GitHub prerelease from the
-   sole `finalize-release` job.
+```text
+linux_x86_64
+linux_aarch64
+```
 
-The active lane uses mutable `repository:tag` references. It does not persist
-or compare source, plan, task, artifact, or OCI digests. A failed publication
-may leave partial Registry, Chart, or PyPI objects, but the GitHub Draft remains
-private until every publication branch succeeds. Hashes required internally by
-wheel and OCI file formats remain implementation details and are not
-release-plan fields.
+They must not be renamed to `manylinux_*` without a successful portability
+repair. Each Wheel artifact contains:
 
-GitHub's automatically generated Tag source archives retain the checked-in
-`version.ini` from the tagged commit. Published wheels, images, and the Chart
-come from the same Tag checkout after the runner has materialized `version.ini`
-from the Tag. The GitHub Release notes state this distinction explicitly.
+- the Wheel;
+- `wheel-result.json` schema 2;
+- `auditwheel-show.txt`.
 
-## Local verification
+The result verifies the filename against WHEEL metadata, records platform Tags,
+GLIBC symbols/floor, external libraries, and embeds the audit report digest.
+The staged Release validates the standalone report again before uploading the
+Wheel.
+
+## PR behavior
+
+An ordinary PR selects one latest Stable vLLM-Ascend A2 Ubuntu runtime, falling
+back to RC and release-nightly. Its actual architecture members determine the
+Wheel and image tasks. Explicit `/ucm-build image <repository:tag>` accepts one
+runtime reference, probes it, and publishes PR-scoped GHCR tags. `/ucm-build
+all` retains the complete formal matrix behavior.
+
+## Artifact names
+
+Artifacts are scoped by run and overwritten by failed-job reruns:
+
+- `ucm-runtime-candidates-run-<run>`;
+- `ucm-runtime-inspection-run-<run>`;
+- `ucm-runtime-selection-run-<run>`;
+- `ucm-builder-catalog-run-<run>`;
+- `ucm-release-plan-run-<run>`;
+- `ucm-wheel-<wheel-id>-run-<run>`;
+- `ucm-chart-run-<run>`;
+- `ucm-image-<image-id>-run-<run>`;
+- image member/index receipt artifacts;
+- `ucm-release-stage-run-<run>`.
+
+## Verification
 
 ```bash
 python -m pytest -q .github/release/tests
-ruff check .github/release
-black --check .github/release
+ruff check .github/release scripts/materialize_version.py ucm/__init__.py
+black --check .github/release scripts/materialize_version.py ucm/__init__.py
 pre-commit run actionlint --all-files --hook-stage manual
 git diff --check
 ```
 
-The compact main lane is the repository's only release implementation.
+Local checks are preflight only. Forward-compatible matrix and staged Release
+acceptance must be demonstrated by GitHub Actions on `feature/cicd_v4`, with
+run URL/SHA/job/artifact evidence and Registry/Release readback.

@@ -14,8 +14,8 @@ on:
         type: choice
         options: [wheel, image, chart, all]
         required: true
-      image_refs:
-        description: Newline-separated repository:tag references for image
+      image_ref:
+        description: One repository:tag reference for image
         type: string
         required: false
         default: ""
@@ -48,14 +48,14 @@ jobs:
       allowed: ${{ steps.permission.outputs.allowed }}
       subcommand: ${{ steps.parse.outputs.subcommand }}
       profile: ${{ steps.parse.outputs.profile }}
-      image-refs: ${{ steps.parse.outputs.image-refs }}
+      image-ref: ${{ steps.parse.outputs.image-ref }}
     steps:
       - id: parse
         name: Parse command
         env:
           COMMENT_BODY: ${{ github.event.comment.body }}
           DISPATCH_SUBCOMMAND: ${{ inputs.subcommand }}
-          DISPATCH_IMAGE_REFS: ${{ inputs.image_refs }}
+          DISPATCH_IMAGE_REF: ${{ inputs.image_ref }}
           DISPATCH_PROFILE: ${{ inputs.profile }}
         run: |
           set -euo pipefail
@@ -63,8 +63,7 @@ jobs:
           if [ "${GITHUB_EVENT_NAME}" = workflow_dispatch ]; then
             subcommand="${DISPATCH_SUBCOMMAND}"
             profile="${DISPATCH_PROFILE}"
-            while IFS= read -r ref; do [ -z "${ref}" ] || refs+=("${ref}"); done \
-              <<<"${DISPATCH_IMAGE_REFS}"
+            [ -z "${DISPATCH_IMAGE_REF}" ] || refs+=("${DISPATCH_IMAGE_REF}")
           else
             read -r -a words <<<"${COMMENT_BODY}"
             subcommand="${words[1]:-help}"
@@ -78,8 +77,11 @@ jobs:
             done
           fi
           case "${subcommand}" in help|wheel|image|chart|all) ;; *) exit 2 ;; esac
-          if [ "${subcommand}" = image ] && [ "${#refs[@]}" -eq 0 ]; then
-            echo "/ucm-build image requires at least one repository:tag" >&2
+          if [ "${subcommand}" = image ] && [ "${#refs[@]}" -ne 1 ]; then
+            echo "/ucm-build image requires exactly one repository:tag" >&2
+            exit 2
+          elif [ "${subcommand}" != image ] && [ "${#refs[@]}" -ne 0 ]; then
+            echo "runtime image reference is only valid for /ucm-build image" >&2
             exit 2
           fi
           if [ -n "${profile}" ] && [ "${subcommand}" != wheel ] && [ "${subcommand}" != all ]; then
@@ -89,9 +91,7 @@ jobs:
           {
             echo "subcommand=${subcommand}"
             echo "profile=${profile}"
-            echo "image-refs<<EOF"
-            printf '%s\n' "${refs[@]}"
-            echo "EOF"
+            echo "image-ref=${refs[0]:-}"
           } >>"${GITHUB_OUTPUT}"
       - name: Post help
         if: steps.parse.outputs.subcommand == 'help'
@@ -104,7 +104,7 @@ jobs:
           | Command | Result |
           | --- | --- |
           | `/ucm-build wheel [profile=<generated-group>]` | Independent Wheel artifacts |
-          | `/ucm-build image <repository:tag> [...]` | Any published, capability-resolvable runtime tag |
+          | `/ucm-build image <repository:tag>` | One published, capability-resolvable runtime tag |
           | `/ucm-build chart` | Linted and packaged Helm Chart |
           | `/ucm-build all` | Complete formal Wheel, image, and Chart matrices |
 
@@ -146,12 +146,97 @@ jobs:
             echo "author=$(jq -r '.user.login' <<<"${pr}")"
           } >>"${GITHUB_OUTPUT}"
 
-  resolve-formal:
-    name: Resolve formal upstreams
+  inspect-formal-runtimes:
+    name: Inspect formal runtime manifests
     needs: permission-check
     if: needs.permission-check.outputs.allowed == 'true' && needs.permission-check.outputs.subcommand != 'image'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      candidates_artifact: ${{ steps.inspect.outputs.candidates_artifact }}
+      inspection_artifact: ${{ steps.inspect.outputs.inspection_artifact }}
+      probe_matrix: ${{ steps.inspect.outputs.probe_matrix }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - name: Install crane
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 \
+            https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
+            | tar -xz -C "${RUNNER_TEMP}/crane" crane
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - id: inspect
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          PYTHONPATH=.github/release python -m ucm_release upstreams candidates \
+            --output out/runtime-candidates.json >/dev/null
+          jq -er '.references[]' out/runtime-candidates.json >out/runtime-refs.txt
+          PYTHONPATH=.github/release python -m ucm_release runtime inspect \
+            --references-file out/runtime-refs.txt \
+            --output out/runtime-inspection.json >/dev/null
+          {
+            echo "candidates_artifact=ucm-formal-runtime-candidates-run-${GITHUB_RUN_ID}"
+            echo "inspection_artifact=ucm-formal-runtime-inspection-run-${GITHUB_RUN_ID}"
+            echo "probe_matrix=$(jq -c '.probe_matrix' out/runtime-inspection.json)"
+          } >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ steps.inspect.outputs.candidates_artifact }}
+          path: out/runtime-candidates.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ steps.inspect.outputs.inspection_artifact }}
+          path: out/runtime-inspection.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  probe-formal-runtimes:
+    name: Probe formal · ${{ matrix.runtime_ref }} · ${{ matrix.cpu_arch }}
+    needs: [permission-check, inspect-formal-runtimes]
+    if: >-
+      ${{
+        needs.permission-check.outputs.allowed == 'true' &&
+        needs.permission-check.outputs.subcommand != 'image'
+      }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.inspect-formal-runtimes.outputs.probe_matrix) }}
+    uses: ./.github/workflows/_probe-runtime.yml
+    with:
+      probe_id: ${{ matrix.probe_id }}
+      runtime_ref: ${{ matrix.runtime_ref }}
+      image_reference: ${{ matrix.image_reference }}
+      platform: ${{ matrix.platform }}
+      accelerator: ${{ matrix.accelerator }}
+      runner: ${{ matrix.runner }}
+      retention_days: 7
+
+  resolve-formal:
+    name: Resolve formal Registry selection
+    needs: [permission-check, inspect-formal-runtimes, probe-formal-runtimes]
+    if: >-
+      ${{
+        needs.permission-check.outputs.allowed == 'true' &&
+        needs.permission-check.outputs.subcommand != 'image'
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     outputs:
       selection_artifact: ${{ steps.resolve.outputs.selection_artifact }}
     steps:
@@ -172,18 +257,35 @@ jobs:
             https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
             | tar -xz -C "${RUNNER_TEMP}/crane" crane
           echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.inspect-formal-runtimes.outputs.candidates_artifact }}
+          path: input/candidates
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.inspect-formal-runtimes.outputs.inspection_artifact }}
+          path: input/inspection
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          pattern: ucm-runtime-probe-*-run-${{ github.run_id }}
+          path: input/probes
       - id: resolve
         run: |
           set -euo pipefail
           mkdir -p out
+          PYTHONPATH=.github/release python -m ucm_release runtime aggregate \
+            --inspection input/inspection/runtime-inspection.json \
+            --probe-dir input/probes --output out/runtime-probe.json >/dev/null
           PYTHONPATH=.github/release python -m ucm_release upstreams resolve \
-            --output out/upstream-selection.json >/dev/null
-          artifact="ucm-upstream-selection-run-${GITHUB_RUN_ID}"
+            --candidates input/candidates/runtime-candidates.json \
+            --runtime-probe out/runtime-probe.json \
+            --output out/runtime-selection.json >/dev/null
+          artifact="ucm-runtime-selection-run-${GITHUB_RUN_ID}"
           echo "selection_artifact=${artifact}" >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@v4.6.2
         with:
           name: ${{ steps.resolve.outputs.selection_artifact }}
-          path: out/upstream-selection.json
+          path: out/runtime-selection.json
           if-no-files-found: error
           overwrite: true
           retention-days: 7
@@ -217,7 +319,7 @@ jobs:
           echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
       - id: inspect
         env:
-          IMAGE_REFS: ${{ needs.permission-check.outputs.image-refs }}
+          IMAGE_REF: ${{ needs.permission-check.outputs.image-ref }}
         run: |
           set -euo pipefail
           mkdir -p out
@@ -232,7 +334,7 @@ jobs:
             exit "${status}"
           }
           trap write_inspection_failure ERR
-          printf '%s\n' "${IMAGE_REFS}" | sed '/^$/d' >out/runtime-refs.txt
+          printf '%s\n' "${IMAGE_REF}" >out/runtime-refs.txt
           PYTHONPATH=.github/release python -m ucm_release runtime inspect \
             --references-file out/runtime-refs.txt \
             --output out/runtime-inspection.json >/dev/null
@@ -253,94 +355,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.inspect-runtimes.outputs.probe_matrix) }}
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4.2.2
-        with:
-          persist-credentials: false
-      - uses: jlumbroso/free-disk-space@v1.3.1
-        with:
-          tool-cache: true
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: false
-          docker-images: true
-          swap-storage: false
-      - id: probe
-        name: Read runtime capability
-        env:
-          PROBE_ID: ${{ matrix.probe_id }}
-          IMAGE_REFERENCE: ${{ matrix.image_reference }}
-          PLATFORM: ${{ matrix.platform }}
-          ACCELERATOR: ${{ matrix.accelerator }}
-          RUNTIME_REF: ${{ matrix.runtime_ref }}
-          OCI_SOURCE: ${{ matrix.oci_source }}
-          OCI_REVISION: ${{ matrix.oci_revision }}
-        run: |
-          set -euo pipefail
-          mkdir -p out
-          write_probe_failure() {
-            status=$?
-            jq -n --arg probe_id "${PROBE_ID}" \
-              --arg runtime_ref "${RUNTIME_REF}" \
-              --arg detail "runtime capability probe failed; inspect this matrix job log" \
-              '{stage:"probe",reason:"runtime-probe-failed",detail:$detail,
-                probe_id:$probe_id,runtime_ref:$runtime_ref}' \
-              >out/runtime-probe-failure.json
-            exit "${status}"
-          }
-          trap write_probe_failure ERR
-          docker pull --platform "${PLATFORM}" "${IMAGE_REFERENCE}"
-          facts="$(docker run --rm --platform "${PLATFORM}" --entrypoint sh \
-            -e EXPECTED_ACCELERATOR="${ACCELERATOR}" "${IMAGE_REFERENCE}" -c '
-              set -eu
-              python_bin="$(command -v python3 || command -v python)"
-              python_version="$(${python_bin} -c \
-                "import sys; print(\"%d.%d\" % sys.version_info[:2])")"
-              . /etc/os-release
-              glibc_version="$(ldd --version 2>&1 | head -n 1)"
-              cuda_version="${CUDA_VERSION:-}"
-              cann_version="${CANN_VERSION:-${ASCEND_TOOLKIT_HOME:-${ASCEND_HOME_PATH:-}}}"
-              if [ "${EXPECTED_ACCELERATOR}" = cuda ] && [ -z "${cuda_version}" ]; then
-                cuda_version="$(nvcc --version 2>/dev/null | tail -n 1 || true)"
-              fi
-              if [ "${EXPECTED_ACCELERATOR}" = ascend ] && [ -z "${cann_version}" ]; then
-                version_file="$(find /usr/local/Ascend -type f \
-                  \( -name version.info -o -name version.cfg \) -print -quit 2>/dev/null || true)"
-                [ -z "${version_file}" ] || cann_version="$(head -n 1 "${version_file}")"
-              fi
-              printf "%s\037%s\037%s\037%s\037%s\037%s\037%s" \
-                "${python_version}" "${ID}" "${VERSION_ID}" "${glibc_version}" \
-                "${cuda_version}" "${cann_version}" "${SOC_VERSION:-na}"
-            ')"
-          IFS=$'\x1f' read -r python_version os_id os_version glibc_version \
-            cuda_version cann_version soc_version <<<"${facts}"
-          jq -n \
-            --arg probe_id "${PROBE_ID}" \
-            --arg python_version "${python_version}" \
-            --arg os_id "${os_id}" \
-            --arg os_version "${os_version}" \
-            --arg glibc_version "${glibc_version}" \
-            --arg cuda_version "${cuda_version}" \
-            --arg cann_version "${cann_version}" \
-            --arg soc_version "${soc_version}" \
-            --arg oci_source "${OCI_SOURCE}" \
-            --arg oci_revision "${OCI_REVISION}" \
-            '{probe_id:$probe_id,python_version:$python_version,os_id:$os_id,
-              os_version:$os_version,glibc_version:$glibc_version,
-              cuda_version:$cuda_version,cann_version:$cann_version,
-              soc_version:$soc_version,oci_source:$oci_source,
-              oci_revision:$oci_revision}' >out/runtime-probe-raw.json
-      - uses: actions/upload-artifact@v4.6.2
-        if: ${{ always() && steps.probe.outcome != 'skipped' }}
-        with:
-          name: ucm-runtime-probe-${{ matrix.probe_id }}-run-${{ github.run_id }}
-          path: out/
-          if-no-files-found: error
-          overwrite: true
-          retention-days: 7
+    uses: ./.github/workflows/_probe-runtime.yml
+    with:
+      probe_id: ${{ matrix.probe_id }}
+      runtime_ref: ${{ matrix.runtime_ref }}
+      image_reference: ${{ matrix.image_reference }}
+      platform: ${{ matrix.platform }}
+      accelerator: ${{ matrix.accelerator }}
+      runner: ${{ matrix.runner }}
+      retention_days: 7
 
   resolve-pr-runtimes:
     name: Aggregate probes and resolve Builders
@@ -417,7 +440,7 @@ jobs:
       packages: write
     uses: ./.github/workflows/sync-builders.yml
     with:
-      upstream_selection_artifact: ${{ needs.resolve-formal.outputs.selection_artifact }}
+      runtime_selection_artifact: ${{ needs.resolve-formal.outputs.selection_artifact }}
 
   sync-pr-builders:
     needs: [permission-check, resolve-pr-runtimes]
@@ -426,7 +449,7 @@ jobs:
       packages: write
     uses: ./.github/workflows/sync-builders.yml
     with:
-      upstream_selection_artifact: ${{ needs.resolve-pr-runtimes.outputs.selection_artifact }}
+      runtime_selection_artifact: ${{ needs.resolve-pr-runtimes.outputs.selection_artifact }}
 
   plan-formal:
     name: Plan formal requested build
@@ -467,7 +490,7 @@ jobs:
           set -euo pipefail
           mkdir -p out
           PYTHONPATH=.github/release python -m ucm_release compact plan \
-            --upstream-selection input/selection/upstream-selection.json \
+            --runtime-selection input/selection/runtime-selection.json \
             --builder-catalog input/builders/builder-catalog.json --route pr \
             --output out/release-plan.json >/dev/null
           if [ "${SUBCOMMAND}" = all ]; then
@@ -566,7 +589,7 @@ jobs:
           set -euo pipefail
           mkdir -p out
           PYTHONPATH=.github/release python -m ucm_release compact plan \
-            --upstream-selection input/selection/upstream-selection.json \
+            --runtime-selection input/selection/runtime-selection.json \
             --builder-catalog input/builders/builder-catalog.json --route pr \
             --output out/release-plan.json >/dev/null
           index_matrix="$(jq -c \
@@ -718,11 +741,13 @@ jobs:
             --username "${GITHUB_ACTOR}" --password-stdin
           image="$(jq -e --arg id "${IMAGE_ID}" \
             '.images[] | select(.id == $id)' input/plan/release-plan.json)"
-          repository="$(jq -r '.target_repository' <<<"${image}")"
-          tag="$(jq -r '.target_tag' <<<"${image}")"
-          arch="$(jq -r '.cpu_arch' <<<"${image}")"
+          family_id="$(jq -r '.family_id' <<<"${image}")"
+          target_ref="$(jq -er --arg family "${family_id}" --arg image "${IMAGE_ID}" \
+            '.families[] | select(.id == $family) | .members[] |
+             select(.image_id == $image) | .reference' \
+            input/plan/release-plan.json)"
           skopeo copy "oci-archive:input/image/image.oci.tar" \
-            "docker://${repository}:${tag}-${arch}"
+            "docker://${target_ref}"
 
   publish-pr-image-indexes:
     name: Publish PR index · ${{ matrix.label }}
@@ -822,11 +847,11 @@ jobs:
       - name: Render image receipt
         if: needs.permission-check.outputs.subcommand == 'image'
         env:
-          IMAGE_REFS: ${{ needs.permission-check.outputs.image-refs }}
+          IMAGE_REF: ${{ needs.permission-check.outputs.image-ref }}
         run: |
           set -euo pipefail
           mkdir -p out input
-          printf '%s\n' "${IMAGE_REFS}" | sed '/^$/d' >out/runtime-refs.txt
+          printf '%s\n' "${IMAGE_REF}" >out/runtime-refs.txt
           PYTHONPATH=.github/release python -m ucm_release runtime receipt \
             --references-file out/runtime-refs.txt \
             --stage "inspect=${{ needs.inspect-runtimes.result }}" \

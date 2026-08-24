@@ -228,6 +228,13 @@ def _oci_tag_version(version: str) -> str:
 
 
 def derive_chart_version(version: str) -> str:
+    parsed = _pep440_version(version, "UCM release version")
+    if parsed.dev is not None:
+        if parsed.pre is not None or parsed.post is not None or parsed.local is not None:
+            raise ValueError(
+                f"unsupported UCM draft version for Chart SemVer: {version}"
+            )
+        return f"{parsed.base_version}-draft.{parsed.dev}"
     public = _pep440_public(version)
     match = re.fullmatch(r"([0-9]+\.[0-9]+\.[0-9]+)rc([0-9]+)", public)
     if match is None:
@@ -774,7 +781,6 @@ def validate_catalog(
                 f"upstream_products[{index}].version_specifier",
             )
             for field in (
-                "source_repository",
                 "runtime_repository",
                 "target_repository",
                 "integration_python_abi",
@@ -1453,7 +1459,7 @@ def expand_release_plan(
 
 RELEASE_KEYS = frozenset('kind schema_version image_revision source lanes runner_map upstream_products chart publish'.split())  # fmt: skip  # noqa: E501
 OPTIONAL_CATALOG_KEYS = frozenset('ucm_version pr_smoke docker_recipes matrix_limits scan_limits python_runtime_dependencies python_build_lock wheel_build_requirements wheel_runtime_requirements builder_checks backend_contracts'.split())  # fmt: skip  # noqa: E501
-SUPPLEMENTARY_TOP_LEVEL_KEYS = frozenset({'pr_smoke', 'docker_recipes', 'matrix_limits', 'scan_limits', 'python_runtime_dependencies', 'python_build_lock', 'builder_checks', 'backend_contracts'})  # fmt: skip  # noqa: E501
+REPOSITORY_RECIPE_KEYS = frozenset({"pr_smoke", "docker_recipes"})
 LANES = ("feature-candidate", "protected-tag")
 
 
@@ -1514,24 +1520,9 @@ def _validate_cross_config(
         chart_selectors.add(selector)
 
 
-def _load_supplementary_configs(
-    release_path: Path,
-    repository_root: Path,
-    *,
-    include_legacy_formal_authorities: bool = True,
-) -> dict[str, Any]:
-    merged: dict[str, Any] = {}
-    candidates = [DEFAULT_RELEASE.parents[1] / "docker-recipes.yaml"]
-    if include_legacy_formal_authorities:
-        candidates.extend(
-            (
-                DEFAULT_RELEASE.parent / "toolchain.lock.yaml",
-                DEFAULT_RELEASE.parent / "native-contract.yaml",
-            )
-        )
-    for path in candidates:
-        if path.is_file(): merged.update(load_yaml(path))  # noqa: E701
-    return merged
+def _load_repository_recipes() -> dict[str, Any]:
+    path = DEFAULT_RELEASE.parents[1] / "docker-recipes.yaml"
+    return load_yaml(path) if path.is_file() else {}
 
 
 def load_catalog(
@@ -1546,7 +1537,7 @@ def load_catalog(
     release = load_yaml(release_path)
     is_v4_policy = (
         release.get("kind") == "ucm-release-policy"
-        and release.get("schema_version") == 4
+        and release.get("schema_version") == 5
     )
     if is_v4_policy:
         from . import policy as release_policy
@@ -1562,27 +1553,9 @@ def load_catalog(
         release = release_policy.compatibility_projection(
             formal_policy, chart_name=chart_name
         )
-    supplementary = _load_supplementary_configs(
-        release_path,
-        repository_root,
-        include_legacy_formal_authorities=not is_v4_policy,
-    )
-    profile_ids = {p["id"] for p in release.get("wheel_profiles", [])}
+    supplementary = _load_repository_recipes()
     for key, value in supplementary.items():
-        if key == "builders" and isinstance(value, dict):
-            for profile in release.get("wheel_profiles", []):
-                pid = profile["id"]
-                if pid in value and 'builders' not in profile: profile['builders'] = value[pid]  # noqa: E701,E501
-        elif key in profile_ids and isinstance(value, dict):
-            for profile in release.get("wheel_profiles", []):
-                if profile["id"] == key:
-                    for field in (
-                        "required_native",
-                        "forbidden_native",
-                        "allowed_dt_needed",
-                    ):
-                        if field in value and field not in profile: profile[field] = value[field]  # noqa: E701,E501
-        if key not in release and key in SUPPLEMENTARY_TOP_LEVEL_KEYS: release[key] = value  # noqa: E701,E501
+        if key not in release and key in REPOSITORY_RECIPE_KEYS: release[key] = value  # noqa: E701,E501
     resolved_repository = resolve_repository(repository, repository_root=repository_root)  # fmt: skip  # noqa: E501
     release = resolve_owner_templates(release, repository=resolved_repository)
     validate_schema(release, config_schema)

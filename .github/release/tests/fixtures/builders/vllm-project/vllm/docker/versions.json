@@ -1,1 +1,0 @@
-{"variable":{"PYTHON_VERSION":{"default":"3.12"},"BUILD_BASE_IMAGE":{"default":"nvidia/cuda:${CUDA_VERSION}-devel-ubuntu22.04"},"BUILD_OS":{"default":"manylinux"},"CUDA_VERSION":{"default":"13.0.2"}}}

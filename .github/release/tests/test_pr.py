@@ -1,4 +1,4 @@
-"""PR probe aggregation into the shared formal selection contract."""
+"""Single-image PR resolution through Registry mirror Builders."""
 
 from __future__ import annotations
 
@@ -10,311 +10,232 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
 RELEASE_ROOT = ROOT / ".github" / "release"
-FIXTURE = RELEASE_ROOT / "tests" / "fixtures" / "builders"
 TAG_FIXTURE = RELEASE_ROOT / "tests" / "fixtures" / "catalog-registry.json"
 sys.path.insert(0, str(RELEASE_ROOT))
 
 builders = importlib.import_module("ucm_release.builders")
+compact = importlib.import_module("ucm_release.compact")
 core = importlib.import_module("ucm_release.core")
 policy = importlib.import_module("ucm_release.policy")
 pr = importlib.import_module("ucm_release.pr")
 upstream = importlib.import_module("ucm_release.upstream")
 
 
-def _formal_inputs():
+def _inputs():
     formal = policy.resolve(
         repository="release-org/unified-cache-management",
         version_override="0.7.60rc1",
     )
+    fixture = core.load_json(TAG_FIXTURE)
     selection = upstream.resolve_upstreams(
         formal,
-        tag_fixture=core.load_json(TAG_FIXTURE),
-        snapshot_dir=FIXTURE,
+        candidates=upstream.resolve_runtime_candidates(formal, tag_fixture=fixture),
+        runtime_probe=fixture["runtime_probe"],
+        tag_fixture=fixture,
     )
     catalog = builders.catalog_from_selection(
         selection, owner="release-org", formal_policy=formal
     )
-    return formal, selection, catalog
+    return formal, fixture, selection, catalog
 
 
-def _probe(*, revision: str = "", tag: str = "nightly-weird") -> dict[str, object]:
+def _cuda_probe(*, dual_arch: bool = False) -> dict[str, object]:
+    probes = [
+        item
+        for item in _inputs()[1]["runtime_probe"]["probes"]
+        if item["product_id"] == "vllm"
+    ]
     return {
         "kind": "ucm-runtime-probe",
         "schema_version": 1,
-        "probes": [
+        "probes": probes if dual_arch else probes[:1],
+    }
+
+
+def _inventory(catalog: dict[str, object], ids: set[str]) -> dict[str, object]:
+    return {
+        "kind": "ucm-builder-registry",
+        "schema_version": 1,
+        "builders": [
             {
-                "probe_id": "runtime-001-amd64",
-                "request_id": "runtime-001",
-                "product_id": "vllm",
-                "runtime_ref": f"docker.io/vllm/vllm-openai:{tag}",
-                "repository": "docker.io/vllm/vllm-openai",
-                "tag": tag,
-                "target_repository": "ghcr.io/release-org/vllm-openai",
-                "configured_source_repository": "vllm-project/vllm",
-                "cpu_arch": "amd64",
-                "platform": "linux/amd64",
-                "runner": "ubuntu-24.04",
-                "image_reference": "docker.io/vllm/vllm-openai@sha256:" + "1" * 64,
-                "backend": "cuda",
-                "accelerator_runtime": "cuda-12.9",
-                "soc_version": "na",
-                "python_version": "3.12",
-                "python_abi": "cp312",
-                "os_id": "ubuntu",
-                "os_version": "24.04",
-                "glibc_version": "2.39",
-                "oci_labels": {},
-                "oci_source": "https://github.com/vllm-project/vllm",
-                "oci_revision": revision,
+                **item,
+                "created": "2026-08-24T00:00:00Z",
+                "checked": True,
             }
+            for item in catalog["builders"]
+            if item["id"] in ids
         ],
     }
 
 
-def _registry_record(selection, catalog):
-    build = next(
-        item
-        for item in selection["wheel_builds"]
-        if item["id"] == "cuda129-cp312-amd64"
-    )
-    builder = next(
-        item for item in catalog["builders"] if item["id"] == "cuda129-cp312-amd64"
-    )
-    return {
-        **build,
-        "target_repository": builder["target_repository"],
-        "target_tag": builder["target_tag"],
-        "checks": builder["checks"],
-        "created": "2026-08-23T12:00:00Z",
-        "checked": True,
+def _finalized_catalog(catalog: dict[str, object]) -> dict[str, object]:
+    observations = {
+        item["id"]: {
+            "target_digest": f"sha256:{index + 1:064x}",
+            "config": {
+                "created": "2026-08-24T00:00:00Z",
+                "config": {"Labels": builders.builder_labels(item)},
+            },
+        }
+        for index, item in enumerate(catalog["builders"])
     }
+    return builders.finalize_catalog(catalog, observations)
 
 
-def test_no_revision_uses_checked_registry_builder_and_opaque_tag() -> None:
-    formal, selection, catalog = _formal_inputs()
-    inventory = {
-        "kind": "ucm-builder-registry",
-        "schema_version": 1,
-        "builders": [_registry_record(selection, catalog)],
-    }
+def _all_keys(value: object) -> set[str]:
+    if isinstance(value, dict):
+        return set(value) | {key for item in value.values() for key in _all_keys(item)}
+    if isinstance(value, list):
+        return {key for item in value for key in _all_keys(item)}
+    return set()
 
+
+def test_checked_registry_builder_is_reused_without_source_resolution() -> None:
+    formal, _fixture, _selection, catalog = _inputs()
     result = pr.resolve_pr_request(
         formal,
-        _probe(),
-        inventory,
-        pr_number=42,
-        author="Release-Author",
-        run_id=998877,
+        _cuda_probe(),
+        _inventory(catalog, {"cu129-cp312-amd64"}),
+        pr_number=30,
+        author="SuperMarioYL",
+        run_id=100,
     )
 
     assert result["ok"] is True
-    selected = result["selection"]
-    assert [item["id"] for item in selected["wheel_builds"]] == ["cuda129-cp312-amd64"]
-    runtime = selected["runtimes"][0]
-    assert runtime["runtime_tag"] == "nightly-weird"
-    assert runtime["channel"] == "pinned"
-    assert runtime["architectures"] == ["amd64"]
-    assert runtime["member_references"]["amd64"].startswith(
-        "docker.io/vllm/vllm-openai@sha256:"
+    build = result["selection"]["wheel_builds"][0]
+    assert build["sync_mode"] == "registry-only"
+    assert result["selection"]["runtimes"][0]["channel"] == "pinned"
+    assert not {
+        "source_repository",
+        "source_ref",
+        "source_commit",
+        "mooncake_version",
+    } & _all_keys(result)
+
+
+def test_missing_registry_builder_resolves_one_raw_mirror_for_sync() -> None:
+    formal, _fixture, selection, _catalog = _inputs()
+    raw = next(
+        item for item in selection["wheel_builds"] if item["id"] == "cu129-cp312-amd64"
     )
-    assert runtime["target_tag"].startswith(
-        "pr-42-release-author-run-998877-nightly-weird"
-    )
-    assert result["publication"]["families"][0]["has_index"] is False
-    assert selected["wheel_builds"][0]["sync_mode"] == "registry-only"
-    with pytest.raises(ValueError, match="Registry-only Builders disappeared"):
-        builders.compute_sync_plan(result["builder_catalog"], {})
-
-
-def test_revision_prefers_exact_recipe_and_can_sync_missing_builder() -> None:
-    formal, selection, _catalog = _formal_inputs()
-    exact = next(
-        item
-        for item in selection["wheel_builds"]
-        if item["id"] == "cuda129-cp312-amd64"
-    )
-    exact = dict(exact)
-    exact["source_ref"] = "a" * 40
-    calls = []
-
-    def resolve(product_id, revision, probes):
-        calls.append((product_id, revision, len(probes)))
-        return [exact]
-
     result = pr.resolve_pr_request(
         formal,
-        _probe(revision="a" * 40, tag="cu129-nightly-a"),
+        _cuda_probe(),
         {"kind": "ucm-builder-registry", "schema_version": 1, "builders": []},
-        pr_number=7,
-        author="builder",
-        run_id=123,
-        exact_build_resolver=resolve,
+        pr_number=30,
+        author="SuperMarioYL",
+        run_id=101,
+        raw_build_resolver=lambda _probes: [raw],
     )
 
     assert result["ok"] is True
-    assert calls == [("vllm", "a" * 40, 1)]
-    assert result["selection"]["wheel_builds"][0]["source_ref"] == "a" * 40
-    assert result["builder_catalog"]["builders"][0]["target_tag"].endswith(
-        "-r" + exact["recipe_revision"]
-    )
+    assert result["selection"]["wheel_builds"] == [raw]
+    assert result["builder_catalog"]["builders"][0]["sync_mode"] == "mirror"
+    sync = builders.compute_sync_plan(result["builder_catalog"], {})
+    assert len(sync["builders"]) == 1
 
 
-def test_revision_failure_never_silently_falls_back_to_registry() -> None:
-    formal, selection, catalog = _formal_inputs()
-    inventory = {
-        "kind": "ucm-builder-registry",
-        "schema_version": 1,
-        "builders": [_registry_record(selection, catalog)],
-    }
-
+def test_dual_arch_tag_expands_both_members_and_one_index() -> None:
+    formal, _fixture, _selection, catalog = _inputs()
     result = pr.resolve_pr_request(
         formal,
-        _probe(revision="b" * 40),
-        inventory,
-        pr_number=1,
-        author="builder",
-        run_id=2,
-        exact_build_resolver=lambda *_args: (_ for _ in ()).throw(
-            ValueError("upstream Workflow changed")
+        _cuda_probe(dual_arch=True),
+        _inventory(
+            catalog,
+            {"cu129-cp312-amd64", "cu129-cp312-arm64"},
         ),
+        pr_number=30,
+        author="SuperMarioYL",
+        run_id=102,
     )
 
-    assert result["ok"] is False
-    assert result["problems"][0]["stage"] == "exact-source"
-    assert result["problems"][0]["reason"] == "unresolvable-exact-recipe"
-    assert "upstream Workflow changed" in result["problems"][0]["detail"]
+    assert result["ok"] is True
+    assert len(result["publication"]["member_matrix"]["include"]) == 2
+    assert len(result["publication"]["index_matrix"]["include"]) == 1
+    assert set(result["selection"]["runtimes"][0]["wheel_build_ids"]) == {
+        "amd64",
+        "arm64",
+    }
 
 
-def test_multiple_exact_tags_with_same_capability_reuse_one_wheel() -> None:
-    formal, selection, _catalog = _formal_inputs()
-    base = _probe(revision="a" * 40, tag="nightly-a")["probes"][0]
-    second = dict(base)
-    second.update(
+def test_single_arch_publication_and_compact_plan_share_the_bare_tag() -> None:
+    formal, _fixture, _selection, catalog = _inputs()
+    result = pr.resolve_pr_request(
+        formal,
+        _cuda_probe(),
+        _inventory(catalog, {"cu129-cp312-amd64"}),
+        pr_number=30,
+        author="SuperMarioYL",
+        run_id=105,
+    )
+    plan = compact.resolve_plan(
+        formal,
+        runtime_selection=result["selection"],
+        builder_catalog=_finalized_catalog(result["builder_catalog"]),
+        route="pr",
+    )
+
+    expected = plan["families"][0]["published_reference"]
+    assert result["publication"]["families"][0]["final_refs"] == [expected]
+    assert result["publication"]["member_matrix"]["include"][0]["target_ref"] == (
+        expected
+    )
+
+
+def test_blocked_a5_stops_before_raw_builder_resolution() -> None:
+    formal, _fixture, _selection, _catalog = _inputs()
+    probe = _cuda_probe()
+    item = probe["probes"][0]
+    item.update(
         {
-            "probe_id": "runtime-002-amd64",
-            "request_id": "runtime-002",
-            "runtime_ref": "docker.io/vllm/vllm-openai:nightly-b",
-            "tag": "nightly-b",
-            "oci_revision": "b" * 40,
+            "product_id": "vllm-ascend",
+            "runtime_ref": "quay.io/ascend/vllm-ascend:v0.26.0rc-a5",
+            "repository": "quay.io/ascend/vllm-ascend",
+            "tag": "v0.26.0rc-a5",
+            "target_repository": "ghcr.io/release-org/vllm-ascend",
+            "backend": "cann-a5",
+            "accelerator_runtime": "cann-9.1.0",
+            "soc_version": "ascend950dt_9582",
         }
     )
-    probe = {"kind": "ucm-runtime-probe", "schema_version": 1, "probes": [base, second]}
-    template = next(
-        item
-        for item in selection["wheel_builds"]
-        if item["id"] == "cuda129-cp312-amd64"
-    )
+    called = False
 
-    def resolve(_product_id, revision, _probes):
-        item = dict(template)
-        item["source_ref"] = revision
-        item["recipe_revision"] = revision[0] * 12
-        return [item]
+    def raw_resolver(_probes):
+        nonlocal called
+        called = True
+        return []
 
     result = pr.resolve_pr_request(
         formal,
         probe,
         {"kind": "ucm-builder-registry", "schema_version": 1, "builders": []},
-        pr_number=4,
-        author="builder",
-        run_id=5,
-        exact_build_resolver=resolve,
-    )
-
-    assert result["ok"] is True
-    assert len(result["selection"]["wheel_builds"]) == 1
-    assert len(result["selection"]["runtimes"]) == 2
-    assert {
-        runtime["wheel_build_ids"]["amd64"]
-        for runtime in result["selection"]["runtimes"]
-    } == {"cuda129-cp312-amd64"}
-
-
-def test_blocked_a5_reports_platform_reason_before_builder_matching() -> None:
-    formal, _selection, _catalog = _formal_inputs()
-    probe = _probe()["probes"][0]
-    probe.update(
-        {
-            "product_id": "vllm-ascend",
-            "runtime_ref": "quay.io/ascend/vllm-ascend:nightly-a5",
-            "repository": "quay.io/ascend/vllm-ascend",
-            "tag": "nightly-a5",
-            "target_repository": "ghcr.io/release-org/vllm-ascend",
-            "configured_source_repository": "vllm-project/vllm-ascend",
-            "backend": "cann-a5",
-            "accelerator_runtime": "cann-9.1.0",
-            "soc_version": "ascend950dt_9582",
-            "oci_source": "",
-        }
-    )
-
-    result = pr.resolve_pr_request(
-        formal,
-        {"kind": "ucm-runtime-probe", "schema_version": 1, "probes": [probe]},
-        {"kind": "ucm-builder-registry", "schema_version": 1, "builders": []},
-        pr_number=1,
-        author="builder",
-        run_id=2,
+        pr_number=30,
+        author="SuperMarioYL",
+        run_id=103,
+        raw_build_resolver=raw_resolver,
     )
 
     assert result["ok"] is False
-    assert result["problems"][0]["stage"] == "platform-policy"
     assert result["problems"][0]["reason"] == "blocked-backend"
-    assert "dedicated UCM native implementation" in result["problems"][0]["detail"]
+    assert called is False
 
 
-def test_no_revision_dual_arch_can_use_builders_from_different_source_refs() -> None:
-    formal, selection, catalog = _formal_inputs()
-    amd64 = _registry_record(selection, catalog)
-    arm_build = next(
-        item
-        for item in selection["wheel_builds"]
-        if item["id"] == "cuda129-cp312-arm64"
-    )
-    arm_builder = next(
-        item for item in catalog["builders"] if item["id"] == "cuda129-cp312-arm64"
-    )
-    arm64 = {
-        **arm_build,
-        "source_ref": "different-compatible-revision",
-        "target_repository": arm_builder["target_repository"],
-        "target_tag": arm_builder["target_tag"],
-        "checks": arm_builder["checks"],
-        "created": "2026-08-23T13:00:00Z",
-        "checked": True,
-    }
-    first = _probe()["probes"][0]
-    second = dict(first)
-    second.update(
-        {
-            "probe_id": "runtime-001-arm64",
-            "cpu_arch": "arm64",
-            "platform": "linux/arm64",
-            "runner": "ubuntu-24.04-arm",
-            "image_reference": "docker.io/vllm/vllm-openai@sha256:" + "2" * 64,
-        }
-    )
-    result = pr.resolve_pr_request(
-        formal,
-        {
-            "kind": "ucm-runtime-probe",
-            "schema_version": 1,
-            "probes": [first, second],
-        },
-        {
-            "kind": "ucm-builder-registry",
-            "schema_version": 1,
-            "builders": [amd64, arm64],
-        },
-        pr_number=3,
-        author="builder",
-        run_id=4,
+def test_image_command_rejects_multiple_runtime_requests() -> None:
+    formal, fixture, _selection, _catalog = _inputs()
+    probes = (
+        fixture["runtime_probe"]["probes"][:1] + fixture["runtime_probe"]["probes"][2:3]
     )
 
-    assert result["ok"] is True
-    selected_runtime = result["selection"]["runtimes"][0]
-    assert selected_runtime["source_ref"] == "registry-capability"
-    assert selected_runtime["wheel_build_ids"] == {
-        "amd64": "cuda129-cp312-amd64",
-        "arm64": "cuda129-cp312-arm64",
-    }
+    with pytest.raises(ValueError, match="exactly one Runtime image"):
+        pr.resolve_pr_request(
+            formal,
+            {"kind": "ucm-runtime-probe", "schema_version": 1, "probes": probes},
+            {
+                "kind": "ucm-builder-registry",
+                "schema_version": 1,
+                "builders": [],
+            },
+            pr_number=30,
+            author="SuperMarioYL",
+            run_id=104,
+        )

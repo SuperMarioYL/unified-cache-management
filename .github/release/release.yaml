@@ -1,5 +1,5 @@
 kind: ucm-release-policy
-schema_version: 4
+schema_version: 5
 
 runners:
   amd64: ubuntu-24.04
@@ -7,18 +7,16 @@ runners:
 
 products:
   - id: vllm
-    source_repository: vllm-project/vllm
     runtime_repository: docker.io/vllm/vllm-openai
     target_repository: ghcr.io/{owner}/vllm-openai
-    minimum_version: "0.21.0"
-    channel_policy: stable-preferred-rc-fallback
+    minimum_version: "0.22.0"
+    channel_policy: latest-stable-or-rc-or-nightly-per-minor
 
   - id: vllm-ascend
-    source_repository: vllm-project/vllm-ascend
     runtime_repository: quay.io/ascend/vllm-ascend
     target_repository: ghcr.io/{owner}/vllm-ascend
-    minimum_version: "0.22.1rc1"
-    channel_policy: stable-preferred-rc-fallback
+    minimum_version: "0.22.0"
+    channel_policy: latest-stable-or-rc-or-nightly-per-minor
 
 publish:
   pypi:

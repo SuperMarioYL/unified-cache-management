@@ -1,19 +1,16 @@
-"""Formal upstream selection and functional Builder identity contracts."""
+"""Registry-only runtime selection and mirror Builder contracts."""
 
 from __future__ import annotations
 
 import copy
 import importlib
-import shutil
 import sys
 from pathlib import Path
 
 import pytest
-import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 RELEASE_ROOT = ROOT / ".github" / "release"
-FIXTURE = RELEASE_ROOT / "tests" / "fixtures" / "builders"
 TAG_FIXTURE = RELEASE_ROOT / "tests" / "fixtures" / "catalog-registry.json"
 sys.path.insert(0, str(RELEASE_ROOT))
 
@@ -34,13 +31,13 @@ def _fixture() -> dict[str, object]:
     return core.load_json(TAG_FIXTURE)
 
 
-def _selection(
-    snapshot: Path = FIXTURE, tag_fixture: dict[str, object] | None = None
-) -> dict[str, object]:
+def _selection(fixture: dict[str, object] | None = None) -> dict[str, object]:
+    registry = fixture or _fixture()
     return upstream.resolve_upstreams(
         _policy(),
-        tag_fixture=tag_fixture or _fixture(),
-        snapshot_dir=snapshot,
+        candidates=upstream.resolve_runtime_candidates(_policy(), tag_fixture=registry),
+        runtime_probe=registry["runtime_probe"],
+        tag_fixture=registry,
     )
 
 
@@ -50,321 +47,380 @@ def _catalog(selection: dict[str, object] | None = None) -> dict[str, object]:
     )
 
 
-@pytest.fixture
-def snapshot(tmp_path: Path) -> Path:
-    destination = tmp_path / "builders"
-    shutil.copytree(FIXTURE, destination)
-    return destination
+def _all_keys(value: object) -> set[str]:
+    if isinstance(value, dict):
+        return set(value) | {key for item in value.values() for key in _all_keys(item)}
+    if isinstance(value, list):
+        return {key for item in value for key in _all_keys(item)}
+    return set()
 
 
-def test_formal_selection_separates_22_wheel_builds_10_runtimes_and_problems() -> None:
-    selection = _selection()
-
-    assert len(selection["wheel_builds"]) == 22
-    assert len(selection["runtimes"]) == 10
-    assert len(selection["problems"]) == 2
-    assert {item["backend"] for item in selection["problems"]} == {"cann-a5"}
-    assert {item["variant"] for item in selection["wheel_builds"]} == {
-        "default",
-        "a2",
-        "a3",
-        "a5",
+def test_registry_tag_selection_is_per_minor_and_uses_inclusive_window() -> None:
+    product = {
+        "id": "vllm-ascend",
+        "minimum_version": "0.22.0",
+        "maximum_version": "0.26.0",
+        "channel_policy": "latest-stable-or-rc-or-nightly-per-minor",
     }
-    assert "310p" not in {item["variant"] for item in selection["wheel_builds"]}
+    selected = upstream._select_runtime_tags(  # noqa: SLF001
+        product,
+        [
+            "v0.21.0",
+            "v0.22.1rc1",
+            "v0.22.1rc1-a3",
+            "v0.23.0rc1",
+            "v0.23.0",
+            "v0.23.0-a3",
+            "nightly-releases-v0.24.0rc",
+            "nightly-releases-v0.24.0rc-a3",
+            "v0.25.0rc1",
+            "nightly-releases-v0.25.1rc",
+            "nightly-releases-v0.26.0rc",
+            "v0.26.1rc1",
+        ],
+    )
+
+    assert {(item["version"], item["channel"]) for item in selected} == {
+        ("0.22.1rc1", "rc"),
+        ("0.23.0", "stable"),
+        ("0.24.0rc0", "nightly"),
+        ("0.25.0rc1", "rc"),
+        ("0.26.0rc0", "nightly"),
+    }
+    assert all(not item["runtime_tag"].startswith("releases/") for item in selected)
 
 
-def test_stable_is_preferred_over_newer_rc_without_minor_ceiling() -> None:
+def test_candidates_are_real_registry_tags_and_filter_arch_310p_and_a5() -> None:
+    candidates = upstream.resolve_runtime_candidates(_policy(), tag_fixture=_fixture())
+
+    assert candidates["references"] == [
+        "docker.io/vllm/vllm-openai:v0.22.1-cu129",
+        "quay.io/ascend/vllm-ascend:v0.22.1rc1",
+        "quay.io/ascend/vllm-ascend:v0.22.1rc1-a3",
+    ]
+    assert all("aarch64" not in reference for reference in candidates["references"])
+    assert all("310p" not in reference for reference in candidates["references"])
+    assert candidates["problems"] == [
+        {
+            "backend": "cann-a5",
+            "capability": "Ascend A5 runtime",
+            "reason": "A5 requires a dedicated UCM native implementation",
+            "runtime": {
+                "repository": "quay.io/ascend/vllm-ascend",
+                "tag": "v0.22.1rc1-a5",
+            },
+        }
+    ]
+
+
+def test_excluded_variant_policy_is_the_runtime_filter_authority() -> None:
+    release = _policy()
+    release["excluded_upstream_variants"]["vllm-ascend"] = ["310p", "a3"]
+
+    candidates = upstream.resolve_runtime_candidates(release, tag_fixture=_fixture())
+
+    assert all("-a3" not in reference for reference in candidates["references"])
+    assert all("-310p" not in reference for reference in candidates["references"])
+
+
+def test_pr_default_selects_one_latest_ascend_a2_ubuntu_runtime() -> None:
+    release = _policy()
+    tags = {
+        "docker.io/vllm/vllm-openai": ["v0.22.1", "v0.27.1"],
+        "quay.io/ascend/vllm-ascend": [
+            "v0.22.1rc1",
+            "v0.23.0",
+            "v0.23.0-a3",
+            "v0.23.0-openeuler",
+            "nightly-releases-v0.26.0rc",
+        ],
+    }
+
+    candidates = upstream.resolve_runtime_candidates(
+        release,
+        tag_loader=lambda repository: tags[repository],
+        pr_default=True,
+    )
+
+    assert candidates["references"] == ["quay.io/ascend/vllm-ascend:v0.23.0"]
+    assert candidates["problems"] == []
+
+
+def test_selection_is_source_free_and_wheels_are_the_runtime_union() -> None:
     selection = _selection()
-    sources = {
-        item["product_id"]: (item["source_ref"], item["channel"])
+
+    assert selection["schema_version"] == 3
+    assert len(selection["runtimes"]) == 3
+    assert {item["id"] for item in selection["wheel_builds"]} == {
+        "cu129-cp312-amd64",
+        "cu129-cp312-arm64",
+        "cann900-a2-cp312-amd64",
+        "cann900-a3-cp312-arm64",
+    }
+    assert not {
+        "source_repository",
+        "source_ref",
+        "source_commit",
+        "mooncake_version",
+        "recipe",
+    } & _all_keys(selection)
+    assert all(item["build_mode"] == "mirror" for item in selection["wheel_builds"])
+    assert all(
+        "@sha256:" in reference
         for item in selection["runtimes"]
-    }
+        for reference in item["member_references"].values()
+    )
 
-    assert sources == {
-        "vllm": ("v0.27.1", "stable"),
-        "vllm-ascend": ("v0.23.0", "stable"),
-    }
 
+def test_each_runtime_member_has_one_exact_wheel_link() -> None:
+    selection = _selection()
+    builds = {item["id"]: item for item in selection["wheel_builds"]}
+
+    for runtime in selection["runtimes"]:
+        assert set(runtime["architectures"]) == set(runtime["wheel_build_ids"])
+        for architecture, wheel_id in runtime["wheel_build_ids"].items():
+            build = builds[wheel_id]
+            assert build["backend"] == runtime["backend"]
+            assert build["accelerator_runtime"] == runtime["accelerator_runtime"]
+            assert build["python_abi"] == runtime["python_abi"]
+            assert build["cpu_arch"] == architecture
+
+
+def test_raw_member_digest_changes_only_its_mirror_identity() -> None:
+    before = _selection()
     fixture = _fixture()
-    vllm_tags = fixture["repositories"]["docker.io/vllm/vllm-openai"]["pages"][0][
-        "tags"
-    ]
-    fixture["repositories"]["docker.io/vllm/vllm-openai"]["pages"][0]["tags"] = [
-        tag for tag in vllm_tags if tag not in {"v0.21.0", "v0.27.1"}
-    ]
-    fixture["runtime_architectures"]["docker.io/vllm/vllm-openai:v0.28.0rc2"] = [
-        "amd64",
+    reference = "docker.io/pytorch/manylinux2_28-builder:cuda12.9"
+    fixture["source_image_members"][reference]["amd64"] = "sha256:" + "e" * 64
+    after = _selection(fixture)
+    baseline = {item["id"]: item for item in before["wheel_builds"]}
+    changed = {item["id"]: item for item in after["wheel_builds"]}
+
+    assert (
+        baseline["cu129-cp312-amd64"]["recipe_revision"]
+        != changed["cu129-cp312-amd64"]["recipe_revision"]
+    )
+    assert (
+        baseline["cu129-cp312-arm64"]["recipe_revision"]
+        == changed["cu129-cp312-arm64"]["recipe_revision"]
+    )
+
+
+def test_required_file_contract_changes_the_matching_mirror_identity() -> None:
+    release = _policy()
+    fixture = _fixture()
+    before = upstream.resolve_upstreams(
+        release,
+        candidates=upstream.resolve_runtime_candidates(release, tag_fixture=fixture),
+        runtime_probe=fixture["runtime_probe"],
+        tag_fixture=fixture,
+    )
+    changed_policy = copy.deepcopy(release)
+    changed_policy["builder_families"]["ascend"]["variant_required_files"]["a3"].append(
+        "new-runtime-contract.so"
+    )
+    after = upstream.resolve_upstreams(
+        changed_policy,
+        candidates=upstream.resolve_runtime_candidates(
+            changed_policy, tag_fixture=fixture
+        ),
+        runtime_probe=fixture["runtime_probe"],
+        tag_fixture=fixture,
+    )
+    baseline = {item["id"]: item for item in before["wheel_builds"]}
+    changed = {item["id"]: item for item in after["wheel_builds"]}
+
+    assert (
+        baseline["cann900-a3-cp312-arm64"]["recipe_revision"]
+        != changed["cann900-a3-cp312-arm64"]["recipe_revision"]
+    )
+    assert (
+        baseline["cann900-a2-cp312-amd64"]["recipe_revision"]
+        == changed["cann900-a2-cp312-amd64"]["recipe_revision"]
+    )
+
+
+def test_single_platform_raw_builder_uses_its_verified_manifest_digest() -> None:
+    digest = "sha256:" + "d" * 64
+    pinned = "docker.io/pytorch/manylinuxaarch64-builder@" + digest
+    seen: list[str] = []
+
+    def manifest(reference: str) -> object:
+        seen.append(reference)
+        return {"mediaType": "application/vnd.docker.distribution.manifest.v2+json"}
+
+    def config(reference: str) -> object:
+        seen.append(reference)
+        return {"os": "linux", "architecture": "arm64"}
+
+    resolved = upstream._manifest_member_digest(  # noqa: SLF001
+        "docker.io/pytorch/manylinuxaarch64-builder:cuda12.9",
         "arm64",
-    ]
-    for suffix in ("-cu129", "-ubuntu2404", "-cu129-ubuntu2404"):
-        fixture["repositories"]["docker.io/vllm/vllm-openai"]["pages"][0][
-            "tags"
-        ].append("v0.28.0rc2" + suffix)
-        fixture["runtime_architectures"][
-            "docker.io/vllm/vllm-openai:v0.28.0rc2" + suffix
-        ] = ["amd64", "arm64"]
-    fallback = _selection(tag_fixture=fixture)
-    vllm = next(item for item in fallback["runtimes"] if item["product_id"] == "vllm")
-    assert (vllm["source_ref"], vllm["channel"]) == ("v0.28.0rc2", "rc")
-
-
-def test_runtime_matrix_keeps_all_os_variants_and_exact_wheel_links() -> None:
-    selection = _selection()
-    runtimes = {item["id"]: item for item in selection["runtimes"]}
-
-    assert set(runtimes) == {
-        "cu129-ubuntu2204",
-        "cu129-ubuntu2404",
-        "cu130-ubuntu2204",
-        "cu130-ubuntu2404",
-        "cann910-a2-ubuntu2204",
-        "cann910-a2-openeuler2403",
-        "cann910-a3-ubuntu2204",
-        "cann910-a3-openeuler2403",
-        "cann910-a5-ubuntu2204",
-        "cann910-a5-openeuler2403",
-    }
-    assert all(
-        item["architectures"] == ["amd64", "arm64"] for item in runtimes.values()
-    )
-    assert (
-        runtimes["cu129-ubuntu2204"]["wheel_build_ids"]
-        == runtimes["cu129-ubuntu2404"]["wheel_build_ids"]
-    )
-    assert (
-        runtimes["cann910-a3-ubuntu2204"]["wheel_build_ids"]
-        == runtimes["cann910-a3-openeuler2403"]["wheel_build_ids"]
+        tag_fixture=None,
+        manifest_loader=manifest,
+        config_loader=config,
+        digest_loader=lambda _reference: digest,
     )
 
-
-def test_mooncake_and_builder_revision_come_from_selected_source() -> None:
-    selection = _selection()
-    ascend = [
-        item for item in selection["wheel_builds"] if item["accelerator"] == "ascend"
-    ]
-    assert {item["mooncake_version"] for item in ascend} == {"0.3.11.post1"}
-    assert all(len(item["recipe_revision"]) == 12 for item in selection["wheel_builds"])
-
-    catalog = _catalog(selection)
-    assert len(catalog["builders"]) == 22
-    assert all(
-        item["target_tag"].endswith("-r" + item["recipe_revision"])
-        for item in catalog["builders"]
-    )
-    assert all("v0.23.0" not in item["target_tag"] for item in catalog["builders"])
+    assert resolved == digest
+    assert seen == [pinned, pinned]
 
 
-def test_recipe_revision_changes_with_materialized_recipe(snapshot: Path) -> None:
-    baseline = _selection(snapshot)
-    path = (
-        snapshot
-        / "vllm-project/vllm-ascend/.github/workflows/dockerfiles/Dockerfile.buildwheel.a2"
-    )
-    path.write_text(path.read_text(encoding="utf-8") + "\n# functional revision\n")
-    changed = _selection(snapshot)
-
-    baseline_revisions = {
-        item["id"]: item["recipe_revision"] for item in baseline["wheel_builds"]
-    }
-    changed_revisions = {
-        item["id"]: item["recipe_revision"] for item in changed["wheel_builds"]
-    }
-    assert (
-        changed_revisions["cann910-a2-cp312-amd64"]
-        != baseline_revisions["cann910-a2-cp312-amd64"]
-    )
-    assert (
-        changed_revisions["cann910-a3-cp312-amd64"]
-        == baseline_revisions["cann910-a3-cp312-amd64"]
-    )
+def test_single_platform_raw_builder_rejects_wrong_architecture() -> None:
+    with pytest.raises(ValueError, match="is not linux/arm64"):
+        upstream._manifest_member_digest(  # noqa: SLF001
+            "docker.io/pytorch/manylinuxaarch64-builder:cuda12.9",
+            "arm64",
+            tag_fixture=None,
+            manifest_loader=lambda _reference: {
+                "mediaType": "application/vnd.oci.image.manifest.v1+json"
+            },
+            config_loader=lambda _reference: {
+                "os": "linux",
+                "architecture": "amd64",
+            },
+            digest_loader=lambda _reference: "sha256:" + "e" * 64,
+        )
 
 
-def test_recipe_revision_changes_with_source_image_content() -> None:
+def test_ambiguous_compatible_raw_builder_is_rejected() -> None:
     fixture = _fixture()
-    baseline = _selection(tag_fixture=copy.deepcopy(fixture))
-    image = "docker.io/pytorch/manylinux2_28-builder:cuda13.0-recipe"
-    fixture["source_image_digests"][image] = "sha256:" + "e" * 64
-    changed = _selection(tag_fixture=fixture)
-    before = {item["id"]: item for item in baseline["wheel_builds"]}
-    after = {item["id"]: item for item in changed["wheel_builds"]}
-
-    assert (
-        after["cuda130-cp312-amd64"]["recipe_revision"]
-        != before["cuda130-cp312-amd64"]["recipe_revision"]
-    )
-    assert (
-        after["cuda130-cp312-arm64"]["recipe_revision"]
-        == before["cuda130-cp312-arm64"]["recipe_revision"]
-    )
-
-
-def test_recipe_revision_changes_when_a_source_tag_moves_commit() -> None:
-    first = upstream.resolve_upstreams(
-        _policy(),
-        tag_fixture=_fixture(),
-        snapshot_dir=FIXTURE,
-        source_commit_resolver=lambda _repository, _ref: "a" * 40,
-    )
-    second = upstream.resolve_upstreams(
-        _policy(),
-        tag_fixture=_fixture(),
-        snapshot_dir=FIXTURE,
-        source_commit_resolver=lambda _repository, _ref: "b" * 40,
-    )
-    first_revisions = {
-        item["id"]: item["recipe_revision"] for item in first["wheel_builds"]
+    repository = "quay.io/ascend/manylinux"
+    tag = "9.0.0-910b-manylinux_2_34-py3.12"
+    fixture["repositories"][repository]["pages"][0]["tags"].append(tag)
+    fixture["source_image_members"][f"{repository}:{tag}"] = {
+        "amd64": "sha256:" + "f" * 64
     }
-    second_revisions = {
-        item["id"]: item["recipe_revision"] for item in second["wheel_builds"]
-    }
-    assert all(
-        first_revisions[item] != second_revisions[item] for item in first_revisions
-    )
+
+    with pytest.raises(ValueError, match="expected one compatible raw Builder"):
+        _selection(fixture)
 
 
-def test_sync_is_append_only_and_checks_all_22_targets() -> None:
+def test_catalog_is_mirror_only_and_checks_ascend_variant_files() -> None:
+    catalog = _catalog()
+    by_backend = {item["backend"]: item for item in catalog["builders"]}
+
+    assert catalog["schema_version"] == 3
+    assert all(item["build_mode"] == "mirror" for item in catalog["builders"])
+    assert by_backend["cann-a2"]["checks"]["required_files"] == ["acl.h"]
+    assert by_backend["cann-a3"]["checks"]["required_files"] == [
+        "acl.h",
+        "libruntime.so",
+    ]
+    assert by_backend["cann-a2"]["checks"]["soc_version"] == "ascend910b1"
+    assert by_backend["cann-a3"]["checks"]["variant"] == "a3"
+    assert "mooncake" not in repr(catalog).lower()
+
+
+def test_sync_is_append_only_and_registry_records_reopen_exactly() -> None:
     catalog = _catalog()
     first = catalog["builders"][0]
     existing = {first["target_repository"]: [first["target_tag"]]}
-    existing["ghcr.io/release-org/retired"] = ["keep-me"]
-
     sync = builders.compute_sync_plan(catalog, existing)
 
-    assert len(sync["builders"]) == 21
+    assert len(sync["builders"]) == len(catalog["builders"]) - 1
+    assert len(sync["matrix"]["include"]) == len(catalog["builders"])
     assert "deletions" not in sync
-    assert all(item["checks"]["commands"] for item in sync["builders"])
-    assert {
-        item["backend"]: item["checks"]["blocking"] for item in catalog["builders"]
-    }["cann-a5"] is False
+    assert all(item["build_mode"] == "mirror" for item in sync["builders"])
+
+    labels = builders.builder_labels(first)
+    record = builders.registry_builder_record(
+        first["target_repository"],
+        first["target_tag"],
+        {
+            "created": "2026-08-24T00:00:00Z",
+            "config": {"Labels": labels},
+        },
+    )
+    reopened = builders.catalog_from_registry_records([record])
+    assert reopened["schema_version"] == 3
+    assert (
+        reopened["builders"][0]["source_image_digest"] == first["source_image_digest"]
+    )
 
 
-def test_builder_registry_inventory_accepts_only_promoted_final_tags() -> None:
-    formal = _policy()
+def test_final_catalog_binds_checked_labels_and_target_digests() -> None:
+    catalog = _catalog()
+    observations = {
+        item["id"]: {
+            "target_digest": f"sha256:{index + 1:064x}",
+            "config": {
+                "created": "2026-08-24T00:00:00Z",
+                "config": {"Labels": builders.builder_labels(item)},
+            },
+        }
+        for index, item in enumerate(catalog["builders"])
+    }
+
+    finalized = builders.finalize_catalog(catalog, observations)
+
+    assert finalized["schema_version"] == 4
+    assert all(
+        item["target_digest"].startswith("sha256:") for item in finalized["builders"]
+    )
+    with pytest.raises(ValueError, match="unfinalized Catalog"):
+        builders.compute_sync_plan(finalized, {})
+
+
+def test_final_catalog_rejects_stale_builder_labels() -> None:
+    catalog = _catalog()
+    item = catalog["builders"][0]
+    labels = builders.builder_labels(item)
+    labels["io.ucm.builder.source_image_digest"] = "sha256:" + "f" * 64
+    observations = {
+        current["id"]: {
+            "target_digest": f"sha256:{index + 1:064x}",
+            "config": {
+                "created": "2026-08-24T00:00:00Z",
+                "config": {
+                    "Labels": (
+                        labels
+                        if current["id"] == item["id"]
+                        else builders.builder_labels(current)
+                    )
+                },
+            },
+        }
+        for index, current in enumerate(catalog["builders"])
+    }
+
+    with pytest.raises(ValueError, match="label source_image_digest differs"):
+        builders.finalize_catalog(catalog, observations)
+
+
+def test_old_source_recipe_builder_labels_are_not_selected() -> None:
     builder = _catalog()["builders"][0]
     labels = builders.builder_labels(builder)
-    final_tag = builder["target_tag"]
-    candidate_tag = final_tag + "-candidate-10"
+    labels["io.ucm.builder.schema"] = "1"
 
-    def load_tags(repository):
-        return (
-            ["legacy-r1", candidate_tag, final_tag]
-            if repository == builder["target_repository"]
-            else []
-        )
-
-    def load_config(reference):
-        return {
-            "created": "2026-08-23T12:00:00Z",
-            "config": {"Labels": labels},
-        }
-
-    inventory = builders.scan_registry_builders(
-        formal, tag_loader=load_tags, config_loader=load_config
-    )
-
-    assert len(inventory["builders"]) == 1
-    record = inventory["builders"][0]
-    assert record["id"] == builder["id"]
-    assert record["target_tag"] == final_tag
-    assert record["checked"] is True
-    reopened = builders.catalog_from_registry_records([record])
-    assert reopened["builders"][0]["target_tag"] == final_tag
-
-
-def test_supported_runtime_requires_complete_formal_architectures() -> None:
-    fixture = _fixture()
-    reference = "docker.io/vllm/vllm-openai:v0.27.1-cu129"
-    fixture["runtime_architectures"][reference] = ["amd64"]
-
-    with pytest.raises(ValueError, match="formal runtime architectures"):
-        _selection(tag_fixture=fixture)
-
-
-def test_pinned_tags_are_owned_by_runtime_inspection_not_formal_resolver() -> None:
-    with pytest.raises(ValueError, match="runtime inspection"):
-        upstream.resolve_upstreams(
-            _policy(),
-            tag_fixture=_fixture(),
-            snapshot_dir=FIXTURE,
-            pinned_upstreams=["docker.io/vllm/vllm-openai:nightly-deadbeef"],
-        )
-
-
-def test_new_ascend_variant_is_synced_and_isolated_without_native_policy(
-    snapshot: Path,
-) -> None:
-    repository = snapshot / "vllm-project/vllm-ascend"
-    wheel_dockerfile = (
-        repository / ".github/workflows/dockerfiles/Dockerfile.buildwheel.a4"
-    )
-    wheel_dockerfile.write_text(
-        "ARG PY_VERSION=3.12\n"
-        "FROM quay.io/ascend/manylinux:9.1.0-960-manylinux_2_34-py${PY_VERSION}\n"
-        'ARG SOC_VERSION="ascend960_test"\n'
-        "RUN python3 -m pip install -r requirements.txt\n"
-        "RUN python3 setup.py bdist_wheel\n",
-        encoding="utf-8",
-    )
-    wheel_workflow_path = (
-        repository / ".github/workflows/schedule_release_code_and_wheel.yml"
-    )
-    wheel_workflow = yaml.safe_load(wheel_workflow_path.read_text(encoding="utf-8"))
-    wheel_workflow["jobs"]["build_and_release_wheel_a4"] = {
-        "strategy": {
-            "matrix": {
-                "os": ["ubuntu-24.04", "ubuntu-24.04-arm"],
-                "python-version": ["3.10", "3.11", "3.12"],
-            }
-        },
-        "steps": [
+    assert (
+        builders.registry_builder_record(
+            builder["target_repository"],
+            builder["target_tag"],
             {
-                "run": (
-                    "docker build -f .github/workflows/dockerfiles/"
-                    "Dockerfile.buildwheel.a4 --build-arg PY_VERSION=${{ "
-                    "matrix.python-version }} ."
-                )
-            }
-        ],
-    }
-    wheel_workflow_path.write_text(
-        yaml.safe_dump(wheel_workflow, sort_keys=False), encoding="utf-8"
+                "created": "2026-08-24T00:00:00Z",
+                "config": {"Labels": labels},
+            },
+        )
+        is None
     )
-    image_workflow_path = (
-        repository / ".github/workflows/schedule_image_build_and_push.yaml"
-    )
-    image_workflow = yaml.safe_load(image_workflow_path.read_text(encoding="utf-8"))
-    image_workflow["jobs"]["image_build"]["strategy"]["matrix"]["include"].append(
-        {"build_meta": {"dockerfile": "Dockerfile.a4", "suffix": "a4"}}
-    )
-    image_workflow_path.write_text(
-        yaml.safe_dump(image_workflow, sort_keys=False), encoding="utf-8"
-    )
-    (repository / "Dockerfile.a4").write_text(
-        "FROM quay.io/ascend/cann:9.1.0-960-ubuntu22.04-py3.12\n"
-        "ARG MOONCAKE_TAG=0.3.11.post1\n"
-        'ARG SOC_VERSION="ascend960_test"\n',
-        encoding="utf-8",
-    )
-    fixture = _fixture()
-    fixture["repositories"]["quay.io/ascend/vllm-ascend"]["pages"][0]["tags"].append(
-        "v0.23.0-a4"
-    )
-    fixture["runtime_architectures"]["quay.io/ascend/vllm-ascend:v0.23.0-a4"] = [
-        "amd64",
-        "arm64",
-    ]
-    for index, python_version in enumerate(("3.10", "3.11", "3.12"), start=1):
-        fixture["source_image_digests"][
-            "quay.io/ascend/manylinux:9.1.0-960-manylinux_2_34-py" + python_version
-        ] = ("sha256:" + str(index) * 64)
 
-    selection = _selection(snapshot, fixture)
-    a4_builds = [item for item in selection["wheel_builds"] if item["variant"] == "a4"]
-    assert len(a4_builds) == 6
-    assert any(problem["backend"] == "cann-a4" for problem in selection["problems"])
-    catalog = _catalog(selection)
-    assert all(
-        item["checks"]["blocking"] is False
-        for item in catalog["builders"]
-        if item["backend"] == "cann-a4"
+
+def test_legacy_source_arguments_cannot_change_registry_output() -> None:
+    fixture = _fixture()
+    candidates = upstream.resolve_runtime_candidates(_policy(), tag_fixture=fixture)
+    baseline = upstream.resolve_upstreams(
+        _policy(),
+        candidates=candidates,
+        runtime_probe=fixture["runtime_probe"],
+        tag_fixture=fixture,
     )
+    ignored = upstream.resolve_upstreams(
+        _policy(),
+        candidates=candidates,
+        runtime_probe=fixture["runtime_probe"],
+        tag_fixture=fixture,
+        snapshot_dir=Path("/does/not/exist"),
+        source_commit_resolver=lambda *_args: "f" * 40,
+    )
+
+    assert ignored == baseline

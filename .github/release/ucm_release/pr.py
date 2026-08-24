@@ -1,9 +1,8 @@
-"""Aggregate probed PR runtimes into the shared selection and Builder catalog."""
+"""Resolve one probed PR Runtime through checked or raw mirror Builders."""
 
 from __future__ import annotations
 
 import copy
-import re
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
@@ -11,23 +10,9 @@ from . import builders, runtime, upstream
 
 
 def _mapping(value: object, context: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
+    if not isinstance(value, Mapping):
         raise ValueError(f"{context}: expected a mapping")
-    return value
-
-
-def _source_repository(value: str, configured: str) -> str:
-    normalized = value.strip().removesuffix(".git")
-    match = re.fullmatch(r"https?://github\.com/([^/]+/[^/]+)", normalized)
-    if match is not None:
-        normalized = match.group(1)
-    if not normalized:
-        return configured
-    if normalized != configured:
-        raise ValueError(
-            f"OCI source {normalized!r} differs from configured source {configured!r}"
-        )
-    return normalized
+    return dict(value)
 
 
 def _build_from_registry_record(record: Mapping[str, object]) -> dict[str, object]:
@@ -47,7 +32,9 @@ def _runtime_variant(probe: Mapping[str, object]) -> tuple[str, str]:
         version = str(probe["accelerator_runtime"]).removeprefix("cuda-")
         return f"cu{version.replace('.', '')}", "default"
     if backend.startswith("cann-"):
-        return backend.removeprefix("cann-"), backend.removeprefix("cann-")
+        variant = backend.removeprefix("cann-")
+        version = str(probe["accelerator_runtime"]).removeprefix("cann-")
+        return f"cann{version.replace('.', '')}-{variant}", variant
     raise ValueError(f"unsupported probed backend {backend!r}")
 
 
@@ -64,6 +51,30 @@ def _failure(
     }
 
 
+def _match_for_build(
+    probe: Mapping[str, object], build: Mapping[str, object]
+) -> dict[str, object]:
+    return {
+        "probe_id": probe["probe_id"],
+        "request_id": probe["request_id"],
+        "runtime_ref": probe["runtime_ref"],
+        "cpu_arch": probe["cpu_arch"],
+        "wheel_id": build["id"],
+        "capability": {
+            key: probe[key]
+            for key in (
+                "backend",
+                "accelerator_runtime",
+                "soc_version",
+                "python_version",
+                "python_abi",
+                "cpu_arch",
+            )
+        },
+        "builder": {"id": build["id"]},
+    }
+
+
 def resolve_pr_request(
     formal_policy: Mapping[str, object],
     runtime_probe: Mapping[str, object],
@@ -72,21 +83,29 @@ def resolve_pr_request(
     pr_number: int | str,
     author: str,
     run_id: int | str,
-    exact_build_resolver: (
-        Callable[[str, str, Sequence[Mapping[str, object]]], list[dict[str, object]]]
-        | None
+    raw_build_resolver: (
+        Callable[[Sequence[Mapping[str, object]]], list[dict[str, object]]] | None
     ) = None,
 ) -> dict[str, object]:
-    """Prefer exact source recipes, otherwise match checked Registry Builders."""
+    """Resolve a single opaque Runtime tag without consulting upstream source."""
+
     probe_document = _mapping(runtime_probe, "runtime probe")
     if (
         probe_document.get("kind") != "ucm-runtime-probe"
         or probe_document.get("schema_version") != 1
     ):
         raise ValueError("runtime probe has an unsupported contract")
-    probes = probe_document.get("probes")
-    if not isinstance(probes, list) or not probes:
+    raw_probes = probe_document.get("probes")
+    if not isinstance(raw_probes, list) or not raw_probes:
         raise ValueError("runtime probe must contain probes")
+    probes = [
+        _mapping(item, f"runtime probes[{index}]")
+        for index, item in enumerate(raw_probes)
+    ]
+    request_ids = {str(probe.get("request_id")) for probe in probes}
+    if len(request_ids) != 1:
+        raise ValueError("/ucm-build image accepts exactly one Runtime image")
+
     inventory = _mapping(registry_inventory, "Builder Registry inventory")
     if inventory.get("kind") != "ucm-builder-registry":
         raise ValueError("Builder Registry inventory has an unsupported contract")
@@ -94,14 +113,12 @@ def resolve_pr_request(
     if not isinstance(records, list):
         raise ValueError("Builder Registry inventory builders must be a list")
 
-    exact_groups: dict[tuple[str, str], list[dict[str, object]]] = {}
-    fallback_probes: list[dict[str, object]] = []
-    failures: list[dict[str, object]] = []
     backend_policies = _mapping(
         formal_policy.get("backends"), "formal backend policies"
     )
-    for raw_probe in probes:
-        probe = _mapping(raw_probe, "runtime probe item")
+    supported: list[dict[str, object]] = []
+    failures: list[dict[str, object]] = []
+    for probe in probes:
         backend = str(probe["backend"])
         backend_policy = _mapping(
             backend_policies.get(backend), f"formal backend policy {backend}"
@@ -115,123 +132,57 @@ def resolve_pr_request(
                     probe=probe,
                 )
             )
-            continue
-        revision = str(probe.get("oci_revision", ""))
-        if not revision:
-            fallback_probes.append(probe)
-            continue
-        configured = str(probe.get("configured_source_repository", ""))
-        try:
-            _source_repository(str(probe.get("oci_source", "")), configured)
-        except ValueError as error:
-            failures.append(
-                _failure(
-                    stage="exact-source",
-                    reason="source-repository-mismatch",
-                    detail=str(error),
-                    probe=probe,
-                )
-            )
-            continue
-        exact_groups.setdefault((str(probe["product_id"]), revision), []).append(probe)
+        else:
+            supported.append(probe)
+    if failures:
+        return {
+            "kind": "ucm-pr-resolution",
+            "schema_version": 2,
+            "ok": False,
+            "builder_matches": {
+                "kind": "ucm-runtime-builder-matches",
+                "schema_version": 1,
+                "ok": False,
+                "matches": [],
+                "problems": failures,
+            },
+            "problems": failures,
+        }
 
-    exact_builds: dict[str, dict[str, object]] = {}
-    exact_matches: list[dict[str, object]] = []
-    for (product_id, revision), group in exact_groups.items():
+    checked = runtime.match_runtime_builders(
+        {"kind": "ucm-runtime-probe", "schema_version": 1, "probes": supported},
+        records,
+    )
+    existing_matches = list(checked["matches"])
+    existing_probe_ids = {str(item["probe_id"]) for item in existing_matches}
+    unresolved = [
+        probe for probe in supported if str(probe["probe_id"]) not in existing_probe_ids
+    ]
+
+    raw_builds: list[dict[str, object]] = []
+    raw_matches: list[dict[str, object]] = []
+    for probe in unresolved:
         try:
             resolved = (
-                exact_build_resolver(product_id, revision, group)
-                if exact_build_resolver is not None
-                else upstream.resolve_revision_wheel_builds(
-                    formal_policy,
-                    product_id=product_id,
-                    source_ref=revision,
-                    probes=group,
-                )
+                raw_build_resolver([probe])
+                if raw_build_resolver is not None
+                else upstream.resolve_probe_builds(formal_policy, [probe])
             )
+            if len(resolved) != 1:
+                raise ValueError(f"expected one raw Builder, resolved {len(resolved)}")
+            build = resolved[0]
+            raw_builds.append(build)
+            raw_matches.append(_match_for_build(probe, build))
         except (OSError, ValueError, KeyError, TypeError) as error:
-            failures.extend(
+            failures.append(
                 _failure(
-                    stage="exact-source",
-                    reason="unresolvable-exact-recipe",
+                    stage="builder-match",
+                    reason="missing-compatible-builder",
                     detail=str(error),
                     probe=probe,
                 )
-                for probe in group
             )
-            continue
-        by_capability = {
-            (
-                str(item["backend"]),
-                str(item["accelerator_runtime"]),
-                str(item["soc_version"]),
-                str(item["python_abi"]),
-                str(item["cpu_arch"]),
-            ): item
-            for item in resolved
-        }
-        for probe in group:
-            key = (
-                str(probe["backend"]),
-                str(probe["accelerator_runtime"]),
-                str(probe["soc_version"]),
-                str(probe["python_abi"]),
-                str(probe["cpu_arch"]),
-            )
-            build = by_capability.get(key)
-            if build is None:
-                failures.append(
-                    _failure(
-                        stage="exact-source",
-                        reason="missing-exact-capability",
-                        detail=f"exact source has no Wheel build for {key}",
-                        probe=probe,
-                    )
-                )
-                continue
-            existing = exact_builds.get(str(build["id"]))
-            selected_build = existing or build
-            exact_builds[str(build["id"])] = selected_build
-            exact_matches.append(
-                {
-                    "probe_id": probe["probe_id"],
-                    "request_id": probe["request_id"],
-                    "runtime_ref": probe["runtime_ref"],
-                    "cpu_arch": probe["cpu_arch"],
-                    "wheel_id": selected_build["id"],
-                    "capability": {
-                        key: probe[key]
-                        for key in (
-                            "backend",
-                            "accelerator_runtime",
-                            "soc_version",
-                            "python_version",
-                            "python_abi",
-                            "cpu_arch",
-                        )
-                    },
-                    "builder": {"id": selected_build["id"]},
-                }
-            )
-
-    fallback_document = {
-        "kind": "ucm-runtime-probe",
-        "schema_version": 1,
-        "probes": fallback_probes,
-    }
-    fallback_matches = (
-        runtime.match_runtime_builders(fallback_document, records)
-        if fallback_probes
-        else {
-            "kind": "ucm-runtime-builder-matches",
-            "schema_version": 1,
-            "ok": True,
-            "matches": [],
-            "problems": [],
-        }
-    )
-    failures.extend(copy.deepcopy(fallback_matches["problems"]))
-    all_matches = exact_matches + copy.deepcopy(fallback_matches["matches"])
+    all_matches = existing_matches + raw_matches
     match_document = {
         "kind": "ucm-runtime-builder-matches",
         "schema_version": 1,
@@ -242,7 +193,7 @@ def resolve_pr_request(
     if failures:
         return {
             "kind": "ucm-pr-resolution",
-            "schema_version": 1,
+            "schema_version": 2,
             "ok": False,
             "builder_matches": match_document,
             "problems": failures,
@@ -255,79 +206,77 @@ def resolve_pr_request(
         author=author,
         run_id=run_id,
     )
-    fallback_records = {
+    existing_builds = {
         str(match["wheel_id"]): _build_from_registry_record(match["builder_record"])
-        for match in fallback_matches["matches"]
+        for match in existing_matches
     }
-    wheel_builds = {**fallback_records, **exact_builds}
+    build_map = {
+        **existing_builds,
+        **{str(build["id"]): build for build in raw_builds},
+    }
     match_by_probe = {str(item["probe_id"]): item for item in all_matches}
-    family_by_request = {str(item["id"]): item for item in publication["families"]}
-    grouped: dict[str, list[dict[str, object]]] = {}
-    for probe in probes:
-        grouped.setdefault(str(probe["request_id"]), []).append(probe)
-    runtimes: list[dict[str, object]] = []
-    for request_id, group in grouped.items():
-        first = group[0]
-        family = family_by_request[request_id]
-        source_refs = {
-            str(item.get("oci_revision", ""))
-            for item in group
-            if str(item.get("oci_revision", ""))
-        }
-        if len(source_refs) > 1:
-            raise ValueError(
-                f"{request_id}: runtime members have different source refs"
-            )
-        source_ref = next(iter(source_refs)) if source_refs else "registry-capability"
-        source_repository = _source_repository(
-            str(first.get("oci_source", "")),
-            str(first.get("configured_source_repository", "")),
-        )
-        runtime_variant, variant = _runtime_variant(first)
-        architectures = [str(item["cpu_arch"]) for item in group]
-        member_references = {
-            str(item["cpu_arch"]): str(item["image_reference"]) for item in group
-        }
-        wheel_build_ids = {
-            str(item["cpu_arch"]): str(
-                match_by_probe[str(item["probe_id"])]["wheel_id"]
-            )
-            for item in group
-        }
-        runtimes.append(
-            {
-                "id": request_id,
-                "product_id": first["product_id"],
-                "source_repository": source_repository,
-                "source_ref": source_ref,
-                "runtime_repository": first["repository"],
-                "runtime_tag": first["tag"],
-                "runtime_variant": runtime_variant,
-                "backend": first["backend"],
-                "accelerator_runtime": first["accelerator_runtime"],
-                "variant": variant,
-                "soc_version": first["soc_version"],
-                "python_version": first["python_version"],
-                "python_abi": first["python_abi"],
-                "os_id": first["os_id"],
-                "os_version": first["os_version"],
-                "architectures": architectures,
-                "member_references": member_references,
-                "wheel_build_ids": wheel_build_ids,
-                "version": str(first["tag"]),
-                "channel": "pinned",
-                "target_repository": family["target_repository"],
-                "target_tag": family["target_tag"],
-            }
-        )
+    family = publication["families"][0]
+    first = supported[0]
+    runtime_variant, variant = _runtime_variant(first)
+    invariant_fields = (
+        "product_id",
+        "repository",
+        "tag",
+        "runtime_digest",
+        "backend",
+        "accelerator_runtime",
+        "soc_version",
+        "python_version",
+        "python_abi",
+        "os_id",
+        "os_version",
+        "glibc_version",
+    )
+    for field in invariant_fields:
+        if len({str(probe.get(field, "")) for probe in supported}) != 1:
+            raise ValueError(f"PR Runtime members disagree on {field}")
+    architectures = sorted(str(probe["cpu_arch"]) for probe in supported)
     selection = upstream.validate_selection(
         {
             "kind": upstream.SELECTION_KIND,
             "schema_version": upstream.SELECTION_SCHEMA_VERSION,
             "wheel_builds": sorted(
-                wheel_builds.values(), key=lambda item: str(item["id"])
+                build_map.values(), key=lambda item: str(item["id"])
             ),
-            "runtimes": sorted(runtimes, key=lambda item: str(item["id"])),
+            "runtimes": [
+                {
+                    "id": str(first["request_id"]),
+                    "product_id": first["product_id"],
+                    "runtime_repository": first["repository"],
+                    "runtime_tag": first["tag"],
+                    "runtime_digest": first["runtime_digest"],
+                    "runtime_variant": runtime_variant,
+                    "backend": first["backend"],
+                    "accelerator_runtime": first["accelerator_runtime"],
+                    "variant": variant,
+                    "soc_version": first["soc_version"],
+                    "python_version": first["python_version"],
+                    "python_abi": first["python_abi"],
+                    "os_id": first["os_id"],
+                    "os_version": first["os_version"],
+                    "glibc_version": first["glibc_version"],
+                    "architectures": architectures,
+                    "member_references": {
+                        str(probe["cpu_arch"]): str(probe["image_reference"])
+                        for probe in supported
+                    },
+                    "wheel_build_ids": {
+                        str(probe["cpu_arch"]): str(
+                            match_by_probe[str(probe["probe_id"])]["wheel_id"]
+                        )
+                        for probe in supported
+                    },
+                    "version": str(first["tag"]),
+                    "channel": "pinned",
+                    "target_repository": family["target_repository"],
+                    "target_tag": family["target_tag"],
+                }
+            ],
             "problems": [],
         }
     )
@@ -337,7 +286,7 @@ def resolve_pr_request(
         formal_policy=formal_policy,
     )
     catalog_by_id = {str(item["id"]): item for item in builder_catalog["builders"]}
-    for match in fallback_matches["matches"]:
+    for match in existing_matches:
         selected = catalog_by_id[str(match["wheel_id"])]
         record = match["builder_record"]
         if (
@@ -347,7 +296,7 @@ def resolve_pr_request(
             raise ValueError("matched Registry Builder coordinate is not reproducible")
     return {
         "kind": "ucm-pr-resolution",
-        "schema_version": 1,
+        "schema_version": 2,
         "ok": True,
         "selection": selection,
         "builder_catalog": builder_catalog,

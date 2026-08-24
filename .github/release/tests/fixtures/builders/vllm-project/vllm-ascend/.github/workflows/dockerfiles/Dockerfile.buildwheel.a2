@@ -1,7 +1,0 @@
-ARG PY_VERSION=3.12
-FROM quay.io/ascend/manylinux:9.1.0-910b-manylinux_2_34-py${PY_VERSION}
-ARG SOC_VERSION="ascend910b1"
-RUN python3 -m pip install -r requirements.txt
-RUN cd /workspace/vllm-ascend && \
-    python3 setup.py bdist_wheel
-CMD ["/bin/bash"]

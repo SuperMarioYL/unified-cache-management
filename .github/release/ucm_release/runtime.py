@@ -47,9 +47,6 @@ _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 _PYTHON_VERSION = re.compile(r"(?<![0-9])(\d+)\.(\d+)(?:\.\d+)?")
 _NUMERIC_VERSION = re.compile(r"(?<![0-9])(\d+)\.(\d+)(?:\.(\d+))?")
 _MANYLINUX = re.compile(r"manylinux_?(\d+)_(\d+)")
-_OCI_SOURCE_LABEL = "org.opencontainers.image.source"
-_OCI_REVISION_LABEL = "org.opencontainers.image.revision"
-_VLLM_REVISION_LABEL = "ai.vllm.build.commit"
 _ASCEND_BACKEND_BY_SOC = {
     "ascend910b1": "cann-a2",
     "ascend910_9391": "cann-a3",
@@ -165,14 +162,10 @@ def _policy_by_repository(
                 normalized_backend_by_soc[soc.strip().casefold()] = soc_backend.strip()
             backend = ""
 
-        source_repository = product.get("source_repository", "")
-        if not isinstance(source_repository, str):
-            raise ValueError(f"{context}: source_repository must be a string")
         result[repository] = {
             "product_id": product_id,
             "runtime_repository": repository,
             "target_repository": target_repository,
-            "configured_source_repository": source_repository,
             "accelerator": accelerator,
             "backend": str(backend),
             "backend_by_soc": normalized_backend_by_soc,
@@ -188,55 +181,12 @@ def _config_platform(config: Mapping[str, object], context: str) -> tuple[str, s
     return operating_system, architecture
 
 
-def _config_labels(config: Mapping[str, object], context: str) -> dict[str, str]:
-    nested = config.get("config", {})
-    nested_mapping = _mapping(nested, f"{context}.config")
-    raw_labels = nested_mapping.get("Labels") or {}
-    labels = _mapping(raw_labels, f"{context}.config.Labels")
-    result: dict[str, str] = {}
-    for key in (_OCI_SOURCE_LABEL, _OCI_REVISION_LABEL, _VLLM_REVISION_LABEL):
-        value = labels.get(key)
-        if value is None:
-            continue
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError(f"{context}: OCI label {key!r} must be a string")
-        result[key] = value.strip()
-    return result
-
-
-def _compatible_revision(first: str, second: str, context: str) -> str:
-    if first == second:
-        return first
-    if first.startswith(second):
-        return first
-    if second.startswith(first):
-        return second
-    raise ValueError(f"{context}: conflicting OCI source revision labels")
-
-
-def _source_coordinates(labels: Mapping[str, str], context: str) -> tuple[str, str]:
-    source = labels.get(_OCI_SOURCE_LABEL, "")
-    revisions = [
-        labels[key]
-        for key in (_OCI_REVISION_LABEL, _VLLM_REVISION_LABEL)
-        if key in labels
-    ]
-    revision = ""
-    for candidate in revisions:
-        revision = (
-            candidate
-            if not revision
-            else _compatible_revision(revision, candidate, context)
-        )
-    return source, revision
-
-
 def _load_platform_config(
     reference: str,
     *,
     config_loader: JsonLoader,
     expected_platform: tuple[str, str] | None,
-) -> tuple[str, str, dict[str, str]]:
+) -> tuple[str, str]:
     context = f"runtime config {reference}"
     config = _json_mapping(config_loader(reference), context)
     operating_system, architecture = _config_platform(config, context)
@@ -252,7 +202,7 @@ def _load_platform_config(
             f"{context}: config platform {operating_system}/{architecture} differs "
             f"from manifest {expected_platform[0]}/{expected_platform[1]}"
         )
-    return operating_system, architecture, _config_labels(config, context)
+    return operating_system, architecture
 
 
 def _inspect_members(
@@ -303,7 +253,7 @@ def _inspect_members(
                     f"runtime manifest {reference}: linux/{architecture} has invalid digest"
                 )
             member_reference = f"{repository}@{digest}"
-            _, _, labels = _load_platform_config(
+            _load_platform_config(
                 member_reference,
                 config_loader=config_loader,
                 expected_platform=(operating_system, architecture),
@@ -313,12 +263,11 @@ def _inspect_members(
                     "cpu_arch": architecture,
                     "platform": f"linux/{architecture}",
                     "image_reference": member_reference,
-                    "oci_labels": labels,
                 }
             )
             observed.add(architecture)
     elif media_type in OCI_MANIFEST_MEDIA_TYPES:
-        operating_system, architecture, labels = _load_platform_config(
+        operating_system, architecture = _load_platform_config(
             reference, config_loader=config_loader, expected_platform=None
         )
         if operating_system == "linux" and architecture in SUPPORTED_ARCHITECTURES:
@@ -335,7 +284,6 @@ def _inspect_members(
                     "cpu_arch": architecture,
                     "platform": f"linux/{architecture}",
                     "image_reference": image_reference,
-                    "oci_labels": labels,
                 }
             )
     else:
@@ -381,12 +329,23 @@ def inspect_runtime_references(
             raise ValueError(
                 f"runtime repository {repository!r} is not configured in products policy"
             )
+        if digest_loader is None:
+            raise ValueError(
+                f"runtime {reference}: digest_loader is required for immutable selection"
+            )
+        runtime_digest = digest_loader(reference)
+        if (
+            not isinstance(runtime_digest, str)
+            or _DIGEST.fullmatch(runtime_digest) is None
+        ):
+            raise ValueError(f"runtime {reference}: resolved digest is invalid")
+        pinned_reference = f"{repository}@{runtime_digest}"
         members = _inspect_members(
-            reference,
+            pinned_reference,
             repository,
             manifest_loader=manifest_loader,
             config_loader=config_loader,
-            digest_loader=digest_loader,
+            digest_loader=None,
         )
         request_id = f"runtime-{index:03d}"
         probe_ids: list[str] = []
@@ -395,10 +354,6 @@ def inspect_runtime_references(
             runner = runner_values.get(architecture)
             if not isinstance(runner, str) or not runner:
                 raise ValueError(f"no runner configured for linux/{architecture}")
-            labels = member["oci_labels"]
-            source, revision = _source_coordinates(
-                labels, f"runtime {reference} linux/{architecture}"
-            )
             probe_id = f"{request_id}-{architecture}"
             probe_ids.append(probe_id)
             probes.append(
@@ -410,9 +365,6 @@ def inspect_runtime_references(
                     "repository": repository,
                     "tag": tag,
                     "target_repository": policy["target_repository"],
-                    "configured_source_repository": policy[
-                        "configured_source_repository"
-                    ],
                     "accelerator": policy["accelerator"],
                     "backend": policy["backend"],
                     "backend_by_soc": copy.deepcopy(policy["backend_by_soc"]),
@@ -420,9 +372,7 @@ def inspect_runtime_references(
                     "platform": member["platform"],
                     "runner": runner,
                     "image_reference": member["image_reference"],
-                    "oci_labels": copy.deepcopy(labels),
-                    "oci_source": source,
-                    "oci_revision": revision,
+                    "runtime_digest": runtime_digest,
                 }
             )
         runtimes.append(
@@ -433,6 +383,7 @@ def inspect_runtime_references(
                 "repository": repository,
                 "tag": tag,
                 "target_repository": policy["target_repository"],
+                "runtime_digest": runtime_digest,
                 "architectures": [member["cpu_arch"] for member in members],
                 "probe_ids": probe_ids,
             }
@@ -474,64 +425,13 @@ def _runtime_version(value: object, accelerator: str, context: str) -> str:
     major, minor, patch = match.groups()
     if accelerator == "cuda":
         return f"cuda-{int(major)}.{int(minor)}"
-    suffix = f".{int(patch)}" if patch is not None else ""
-    return f"cann-{int(major)}.{int(minor)}{suffix}"
+    return f"cann-{int(major)}.{int(minor)}.{int(patch or 0)}"
 
 
 def _unquote(value: object, context: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{context} must be a non-empty string")
     return value.strip().strip("'\"")
-
-
-def _raw_probe_labels(raw: Mapping[str, object], context: str) -> dict[str, str]:
-    result: dict[str, str] = {}
-    raw_labels = raw.get("oci_labels", {})
-    labels = _mapping(raw_labels, f"{context}.oci_labels")
-    for key in (_OCI_SOURCE_LABEL, _OCI_REVISION_LABEL, _VLLM_REVISION_LABEL):
-        value = labels.get(key)
-        if value is None:
-            continue
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError(f"{context}: OCI label {key!r} must be a string")
-        result[key] = value.strip()
-    direct = {
-        _OCI_SOURCE_LABEL: raw.get("oci_source"),
-        _OCI_REVISION_LABEL: raw.get("oci_revision"),
-    }
-    for key, value in direct.items():
-        if value in (None, ""):
-            continue
-        if not isinstance(value, str):
-            raise ValueError(f"{context}: {key} must be a string")
-        previous = result.get(key)
-        if previous is not None and previous != value:
-            raise ValueError(f"{context}: conflicting {key} values")
-        result[key] = value
-    return result
-
-
-def _merge_source_coordinates(
-    expected_labels: Mapping[str, str],
-    actual_labels: Mapping[str, str],
-    context: str,
-) -> tuple[dict[str, str], str, str]:
-    labels = dict(expected_labels)
-    for key, value in actual_labels.items():
-        previous = labels.get(key)
-        if previous is None:
-            labels[key] = value
-        elif key in {_OCI_REVISION_LABEL, _VLLM_REVISION_LABEL}:
-            labels[key] = _compatible_revision(previous, value, context)
-        elif previous != value:
-            raise ValueError(f"{context}: OCI label {key!r} changed after inspection")
-    source, revision = _source_coordinates(labels, context)
-    expected_source, expected_revision = _source_coordinates(expected_labels, context)
-    if expected_source and source != expected_source:
-        raise ValueError(f"{context}: OCI source changed after inspection")
-    if expected_revision and revision:
-        revision = _compatible_revision(expected_revision, revision, context)
-    return labels, source, revision
 
 
 def aggregate_runtime_probes(
@@ -611,12 +511,6 @@ def aggregate_runtime_probes(
                 raise ValueError(
                     f"{context}: SOC_VERSION {soc_version!r} has no configured backend"
                 )
-        expected_labels = _mapping(
-            request.get("oci_labels", {}), f"{context}.expected_labels"
-        )
-        labels, source, revision = _merge_source_coordinates(
-            expected_labels, _raw_probe_labels(raw, context), context
-        )
         normalized.append(
             {
                 "probe_id": probe_id,
@@ -626,7 +520,7 @@ def aggregate_runtime_probes(
                 "repository": request["repository"],
                 "tag": request["tag"],
                 "target_repository": request["target_repository"],
-                "configured_source_repository": request["configured_source_repository"],
+                "runtime_digest": request["runtime_digest"],
                 "cpu_arch": request["cpu_arch"],
                 "platform": request["platform"],
                 "runner": request["runner"],
@@ -639,9 +533,6 @@ def aggregate_runtime_probes(
                 "os_id": os_id,
                 "os_version": os_version,
                 "glibc_version": glibc,
-                "oci_labels": labels,
-                "oci_source": source,
-                "oci_revision": revision,
             }
         )
     return {
@@ -992,13 +883,14 @@ def project_pr_publication(
         member_ids: list[str] = []
         member_refs: list[str] = []
         wheel_ids: set[str] = set()
+        has_index = len(probes) > 1
         for probe in probes:
             probe_id = str(probe["probe_id"])
             match = matches.get(probe_id)
             if match is None:
                 raise ValueError(f"runtime probe {probe_id!r} has no Builder match")
             architecture = str(probe["cpu_arch"])
-            member_tag = f"{base_tag}-{architecture}"
+            member_tag = f"{base_tag}-{architecture}" if has_index else base_tag
             member_ref = f"{target_repository}:{member_tag}"
             member_ids.append(probe_id)
             member_refs.append(member_ref)
@@ -1016,7 +908,6 @@ def project_pr_publication(
                     "target_ref": member_ref,
                 }
             )
-        has_index = len(member_refs) > 1
         index_ref = f"{target_repository}:{base_tag}" if has_index else ""
         family = {
             "id": request_id,

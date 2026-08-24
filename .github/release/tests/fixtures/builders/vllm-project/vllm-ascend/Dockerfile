@@ -1,4 +1,0 @@
-FROM quay.io/ascend/cann:9.1.0-910b-ubuntu22.04-py3.12
-ARG MOONCAKE_TAG=0.3.11.post1
-ARG SOC_VERSION="ascend910b1"
-ENV SOC_VERSION=${SOC_VERSION}

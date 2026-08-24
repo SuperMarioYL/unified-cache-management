@@ -33,7 +33,7 @@ jobs:
           | 命令 / Command | 构建 / Builds | 推 GHCR? / Push? |
           | --- | --- | --- |
           | `/ucm-build wheel [profile=<generated-group>]` | UCM Wheel；省略 profile 构建当前正式矩阵 / omit profile for the current formal matrix | 否 / no(仅 artifact / artifact only) |
-          | `/ucm-build image <repo:tag> [<repo:tag>...]` | 探测任意已发布且能力可解析的 runtime tag，再构建 Wheel + 镜像 / inspect any published capability-resolvable runtime tag, then build Wheel + image | 是 / yes |
+          | `/ucm-build image <repo:tag>` | 探测一个已发布且能力可解析的 runtime tag，再构建 Wheel + 镜像 / inspect one published capability-resolvable runtime tag, then build Wheel + image | 是 / yes |
           | `/ucm-build chart` | chart(lint + template + package)/ chart (lint + template + package) | 否 / no(仅 artifact / artifact only) |
           | `/ucm-build all` | 全部正式矩阵(wheel + image + chart)/ complete formal matrices | 否 / no(仅 artifact / artifact only) |
 

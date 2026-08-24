@@ -12,17 +12,11 @@ __all__ = [
     "ROLLING_ISSUE_MARKER",
     "ROLLING_ISSUE_TITLE",
     "RuntimeReference",
-    "SourceReference",
     "decide_rolling_issue_action",
     "render_actions_summary",
     "render_rolling_issue",
     "validate_formal_problems",
 ]
-
-
-class SourceReference(TypedDict):
-    repository: str
-    ref: str
 
 
 class RuntimeReference(TypedDict):
@@ -34,7 +28,6 @@ class FormalProblem(TypedDict):
     backend: str
     capability: str
     reason: str
-    source: SourceReference
     runtime: RuntimeReference
 
 
@@ -43,11 +36,9 @@ IssueAction = Literal["open_or_update", "close"]
 ROLLING_ISSUE_TITLE = "UCM release: blocked upstream capabilities"
 ROLLING_ISSUE_MARKER = "<!-- ucm-release:blocked-upstream-capabilities -->"
 
-_PROBLEM_KEYS = {"backend", "capability", "reason", "source", "runtime"}
-_SOURCE_KEYS = {"repository", "ref"}
+_PROBLEM_KEYS = {"backend", "capability", "reason", "runtime"}
 _RUNTIME_KEYS = {"repository", "tag"}
 _BACKEND_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-_SOURCE_REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+$")
 _RUNTIME_REPOSITORY_PATTERN = re.compile(
     r"^[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]+)?"
     r"(?:/[a-z0-9]+(?:(?:[._]|-+)[a-z0-9]+)*)+$"
@@ -82,8 +73,6 @@ def _problem_sort_key(problem: FormalProblem) -> tuple[str, ...]:
     return (
         problem["backend"],
         problem["capability"],
-        problem["source"]["repository"],
-        problem["source"]["ref"],
         problem["runtime"]["repository"],
         problem["runtime"]["tag"],
         problem["reason"],
@@ -101,7 +90,6 @@ def validate_formal_problems(value: object) -> list[FormalProblem]:
     for index, raw_problem in enumerate(value):
         context = f"formal problems[{index}]"
         problem = _exact_mapping(raw_problem, _PROBLEM_KEYS, context)
-        source = _exact_mapping(problem["source"], _SOURCE_KEYS, f"{context}.source")
         runtime = _exact_mapping(
             problem["runtime"], _RUNTIME_KEYS, f"{context}.runtime"
         )
@@ -109,8 +97,6 @@ def validate_formal_problems(value: object) -> list[FormalProblem]:
         backend = _text(problem["backend"], f"{context}.backend")
         capability = _text(problem["capability"], f"{context}.capability")
         reason = _text(problem["reason"], f"{context}.reason")
-        source_repository = _text(source["repository"], f"{context}.source.repository")
-        source_ref = _text(source["ref"], f"{context}.source.ref")
         runtime_repository = _text(
             runtime["repository"], f"{context}.runtime.repository"
         )
@@ -118,8 +104,6 @@ def validate_formal_problems(value: object) -> list[FormalProblem]:
 
         if _BACKEND_PATTERN.fullmatch(backend) is None:
             raise ValueError(f"{context}.backend is malformed")
-        if _SOURCE_REPOSITORY_PATTERN.fullmatch(source_repository) is None:
-            raise ValueError(f"{context}.source.repository is malformed")
         if _RUNTIME_REPOSITORY_PATTERN.fullmatch(runtime_repository) is None:
             raise ValueError(f"{context}.runtime.repository is malformed")
         if _OCI_TAG_PATTERN.fullmatch(runtime_tag) is None:
@@ -129,7 +113,6 @@ def validate_formal_problems(value: object) -> list[FormalProblem]:
             "backend": backend,
             "capability": capability,
             "reason": reason,
-            "source": {"repository": source_repository, "ref": source_ref},
             "runtime": {"repository": runtime_repository, "tag": runtime_tag},
         }
         identity = _problem_sort_key(item)
@@ -151,11 +134,10 @@ def _code(value: str) -> str:
 
 def _table(problems: list[FormalProblem]) -> str:
     lines = [
-        "| Backend | Capability | Reason | Source | Runtime |",
-        "| --- | --- | --- | --- | --- |",
+        "| Backend | Capability | Reason | Runtime |",
+        "| --- | --- | --- | --- |",
     ]
     for problem in problems:
-        source = f"{problem['source']['repository']}@{problem['source']['ref']}"
         runtime = f"{problem['runtime']['repository']}:{problem['runtime']['tag']}"
         lines.append(
             "| "
@@ -164,7 +146,6 @@ def _table(problems: list[FormalProblem]) -> str:
                     _code(problem["backend"]),
                     _cell(problem["capability"]),
                     _cell(problem["reason"]),
-                    _code(source),
                     _code(runtime),
                 )
             )
@@ -208,7 +189,7 @@ def render_rolling_issue(value: object) -> dict[str, str]:
     else:
         lines.extend(("No blocked upstream capabilities remain.", ""))
     lines.append(
-        "The generated content above reflects the latest formal upstream selection."
+        "The generated content above reflects the latest formal Runtime selection."
     )
     return {
         "title": ROLLING_ISSUE_TITLE,

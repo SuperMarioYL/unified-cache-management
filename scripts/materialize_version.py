@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import tempfile
@@ -20,7 +21,7 @@ FORMAL_TAG = re.compile(
 )
 DRAFT_TAG = re.compile(
     r"draft/v(?P<base>(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\."
-    r"(?:0|[1-9][0-9]*))-(?P<number>[1-9][0-9]*)",
+    r"(?:0|[1-9][0-9]*))(?:-(?P<number>[1-9][0-9]*))?",
     re.ASCII,
 )
 
@@ -40,14 +41,47 @@ def canonical_version(value: str) -> str:
 
 
 def version_from_tag(tag: str) -> str:
-    """Translate a formal or legacy draft release tag to its wheel version."""
+    """Translate a formal or draft release tag to its Wheel version."""
     draft = DRAFT_TAG.fullmatch(tag)
     if draft is not None:
-        return canonical_version(f"{draft.group('base')}.dev{draft.group('number')}")
+        number = draft.group("number") or "0"
+        return canonical_version(f"{draft.group('base')}.dev{number}")
     formal = FORMAL_TAG.fullmatch(tag)
     if formal is not None:
         return canonical_version(formal.group("version"))
     raise ValueError(f"unsupported UCM release tag: {tag!r}")
+
+
+def classify_tag(tag: str) -> dict[str, object]:
+    """Return the immutable artifact coordinates and GitHub Release mode for *tag*."""
+    version = version_from_tag(tag)
+    draft = DRAFT_TAG.fullmatch(tag)
+    if draft is not None:
+        number = int(draft.group("number") or "0")
+        return {
+            "git_tag": tag,
+            "release_kind": "draft",
+            "version": version,
+            "chart_version": f"{draft.group('base')}-draft.{number}",
+            "image_version": version,
+            "is_prerelease": True,
+        }
+
+    parsed = Version(version)
+    chart_version = parsed.base_version
+    if parsed.pre is not None:
+        label, number = parsed.pre
+        if label != "rc":
+            raise ValueError(f"unsupported formal prerelease tag: {tag!r}")
+        chart_version = f"{parsed.base_version}-rc.{number}"
+    return {
+        "git_tag": tag,
+        "release_kind": "publish",
+        "version": version,
+        "chart_version": chart_version,
+        "image_version": version,
+        "is_prerelease": parsed.is_prerelease,
+    }
 
 
 def materialize_version(version: str, output: Path = DEFAULT_OUTPUT) -> str:
@@ -80,8 +114,13 @@ def materialize_version(version: str, output: Path = DEFAULT_OUTPUT) -> str:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("--tag", help="formal v* or legacy draft/v* tag")
+    source.add_argument("--tag", help="formal v* or draft/v* tag")
     source.add_argument("--version", help="canonical PEP 440 version")
+    parser.add_argument(
+        "--classify",
+        action="store_true",
+        help="print Tag classification as JSON without writing version.ini",
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     return parser
 
@@ -89,6 +128,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     arguments = build_parser().parse_args()
     try:
+        if arguments.classify:
+            if arguments.tag is None:
+                raise ValueError("--classify requires --tag")
+            print(json.dumps(classify_tag(arguments.tag), sort_keys=True))
+            return 0
         version = (
             version_from_tag(arguments.tag)
             if arguments.tag is not None
