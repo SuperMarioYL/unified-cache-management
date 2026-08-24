@@ -142,6 +142,7 @@ def test_formal_and_draft_tags_open_before_builds_with_exact_api_lookup() -> Non
     assert "wait_for_release" in open_run
     assert "for attempt in $(seq 1 15)" in open_run
     assert "sleep 2" in open_run
+    assert open_run.count('-f "tag_name=${tag}"') == 2
     assert "draft=false" in open_text
     assert "build-wheels" not in open_text
     assert "draft/v*" in yaml.safe_dump(jobs["plan"])

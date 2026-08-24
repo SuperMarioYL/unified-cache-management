@@ -134,10 +134,12 @@ jobs:
             jq -e '.[0].draft == true' <<<"${releases}" >/dev/null
             gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
               -F draft=true -F prerelease=true \
+              -f "tag_name=${tag}" \
               -f "name=${tag}" -f "body=$(<"${notes}")" >/dev/null
           else
             gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
               -F draft=false -F "prerelease=${IS_PRERELEASE}" \
+              -f "tag_name=${tag}" \
               -f "name=${tag}" -f "body=$(<"${notes}")" >/dev/null
           fi
           releases="$(lookup_release)"
