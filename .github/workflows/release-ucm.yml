@@ -92,6 +92,25 @@ jobs:
               | jq -ce --arg tag "${tag}" \
                 '[.[][] | select(.tag_name == $tag)]'
           }
+          wait_for_release() {
+            local releases count attempt
+            for attempt in $(seq 1 15); do
+              releases="$(lookup_release)"
+              count="$(jq 'length' <<<"${releases}")"
+              if [ "${count}" -gt 1 ]; then
+                echo "Tag ${tag} resolves to ${count} Releases; refusing ambiguity" >&2
+                return 2
+              fi
+              if [ "${count}" -eq 1 ]; then
+                printf '%s\n' "${releases}"
+                return 0
+              fi
+              echo "Waiting for Tag ${tag} Release to become visible (${attempt}/15)" >&2
+              sleep 2
+            done
+            echo "Tag ${tag} Release was not visible after 30 seconds" >&2
+            return 1
+          }
           releases="$(lookup_release)"
           count="$(jq 'length' <<<"${releases}")"
           if [ "${count}" -gt 1 ]; then
@@ -106,7 +125,7 @@ jobs:
               args+=(--prerelease)
             fi
             gh release create "${args[@]}"
-            releases="$(lookup_release)"
+            releases="$(wait_for_release)"
           fi
 
           test "$(jq 'length' <<<"${releases}")" = 1
