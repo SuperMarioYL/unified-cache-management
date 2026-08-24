@@ -1,4 +1,4 @@
-name: Probe one Runtime member
+name: Resolve one Runtime member capability
 
 on:
   workflow_call:
@@ -21,6 +21,9 @@ on:
       runner:
         type: string
         required: true
+      enabled:
+        type: boolean
+        required: true
       retention_days:
         type: number
         required: false
@@ -36,6 +39,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: jlumbroso/free-disk-space@v1.3.1
+        if: ${{ inputs.enabled }}
         with:
           tool-cache: true
           android: true
@@ -46,6 +50,7 @@ jobs:
           swap-storage: false
       - id: probe
         name: Read Runtime capability
+        if: ${{ inputs.enabled }}
         env:
           PROBE_ID: ${{ inputs.probe_id }}
           IMAGE_REFERENCE: ${{ inputs.image_reference }}
@@ -114,8 +119,11 @@ jobs:
               os_version:$os_version,glibc_version:$glibc_version,
               cuda_version:$cuda_version,cann_version:$cann_version,
               soc_version:$soc_version}' >out/runtime-probe-raw.json
+      - name: Accept complete Crane config facts
+        if: ${{ !inputs.enabled }}
+        run: echo "Crane config supplied all required capability fields"
       - uses: actions/upload-artifact@v4.6.2
-        if: ${{ always() && steps.probe.outcome != 'skipped' }}
+        if: ${{ inputs.enabled && always() && steps.probe.outcome != 'skipped' }}
         with:
           name: ucm-runtime-probe-${{ inputs.probe_id }}-run-${{ github.run_id }}
           path: out/

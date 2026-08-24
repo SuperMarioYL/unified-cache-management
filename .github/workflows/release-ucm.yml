@@ -248,7 +248,7 @@ jobs:
           artifact="ucm-runtime-inspection-run-${GITHUB_RUN_ID}"
           {
             echo "inspection_artifact=${artifact}"
-            echo "probe_matrix=$(jq -c '.probe_matrix' out/inspection/runtime-inspection.json)"
+            echo "probe_matrix=$(jq -c 'if (.probe_matrix.include | length) > 0 then .probe_matrix else {include:[.members[0]]} end' out/inspection/runtime-inspection.json)"
             echo "has_probe_fallback=$(jq -r '.probe_matrix.include | length > 0' out/inspection/runtime-inspection.json)"
           } >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@v4.6.2
@@ -260,9 +260,8 @@ jobs:
           retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}
 
   probe-runtimes:
-    name: Fallback probe · ${{ matrix.runtime_ref }} · ${{ matrix.cpu_arch }}
+    name: Capability check · ${{ matrix.runtime_ref }} · ${{ matrix.cpu_arch }}
     needs: inspect-runtimes
-    if: needs.inspect-runtimes.outputs.has_probe_fallback == 'true'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.inspect-runtimes.outputs.probe_matrix) }}
@@ -274,6 +273,7 @@ jobs:
       platform: ${{ matrix.platform }}
       accelerator: ${{ matrix.accelerator }}
       runner: ${{ matrix.runner }}
+      enabled: ${{ matrix.fallback_required }}
       retention_days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 90 || 7 }}
 
   resolve-upstreams:
@@ -318,7 +318,7 @@ jobs:
           name: ${{ needs.inspect-runtimes.outputs.inspection_artifact }}
           path: input/inspection
       - uses: actions/download-artifact@v4.3.0
-        if: needs.probe-runtimes.result == 'success'
+        if: needs.inspect-runtimes.outputs.has_probe_fallback == 'true'
         with:
           pattern: ucm-runtime-probe-*-run-${{ github.run_id }}
           path: input/probes
