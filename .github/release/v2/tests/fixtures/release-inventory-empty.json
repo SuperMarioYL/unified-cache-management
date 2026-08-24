@@ -1,6 +1,0 @@
-{
-  "kind": "release-inventory",
-  "schema_version": 2,
-  "mode": "read-only",
-  "targets": []
-}

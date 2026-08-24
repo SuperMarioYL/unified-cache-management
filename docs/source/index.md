@@ -48,7 +48,6 @@ Paper list:
 :maxdepth: 1
 getting-started/quickstart_vllm
 getting-started/quickstart_vllm_ascend
-getting-started/docker-recipes.generated
 getting-started/quickstart_sglang
 getting-started/kv_cache_calculator
 getting-started/troubleshooting

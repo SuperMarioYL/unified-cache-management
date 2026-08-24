@@ -23,7 +23,6 @@
 #
 
 import atexit
-import json
 import os
 import platform as host_platform
 import subprocess
@@ -181,14 +180,14 @@ def print_platform_warning():
         RESET = "\033[0m"
 
         warning_msg = f"""
-{RED}{"=" * 80}
+{RED}{'=' * 80}
 {BOLD}⚠️  WARNING: PLATFORM environment variable is not set! ⚠️{RESET}
-{RED}{"=" * 80}{RESET}
+{RED}{'=' * 80}{RESET}
 {YELLOW}Please set PLATFORM to one of: cuda, ascend, ascend-a3, musa, maca{RESET}
 Example:
   {BOLD}export PLATFORM=cuda{RESET}    # For CUDA platform
 {YELLOW}In CI scenarios only, you don't need to specify PLATFORM. If it's not a CI scenario, please uninstall and then reinstall with PLATFORM specified.{RESET}
-{RED}{"=" * 80}{RESET}
+{RED}{'=' * 80}{RESET}
 """
         # Use write and flush to ensure output even without -v flag
         sys.stderr.write(warning_msg)

@@ -4,7 +4,7 @@ set(ZLIB_BUILD_EXAMPLES OFF CACHE INTERNAL "" FORCE)
 
 if(DOWNLOAD_DEPENDENCE)
     set(DEP_ZLIB_NAME zlib)
-    set(DEP_ZLIB_TAG 51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf)
+    set(DEP_ZLIB_TAG v1.3.1)
     set(DEP_ZLIB_GIT_URLS
         https://github.com/madler/zlib.git
         https://gitcode.com/gh_mirrors/zl/zlib.git
@@ -13,7 +13,7 @@ if(DOWNLOAD_DEPENDENCE)
     find_reachable_git_url(REACHABLE_URL DEP_ZLIB_GIT_URLS)
     include(FetchContent)
     message(STATUS "Fetching ${DEP_ZLIB_NAME}(${DEP_ZLIB_TAG}) from ${REACHABLE_URL}")
-    FetchContent_Declare(${DEP_ZLIB_NAME} GIT_REPOSITORY ${REACHABLE_URL} GIT_TAG ${DEP_ZLIB_TAG})
+    FetchContent_Declare(${DEP_ZLIB_NAME} GIT_REPOSITORY ${REACHABLE_URL} GIT_TAG ${DEP_ZLIB_TAG} GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(${DEP_ZLIB_NAME})
 
     target_compile_options(zlibstatic PRIVATE -fPIC)

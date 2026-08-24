@@ -25,14 +25,16 @@ if [ ! -d ${PACKAGE_DIR} ]; then
 fi
 export PLATFORM="cuda"
 
-if ! VERSION=$(cd "${KVCACHE_PROJECT_ROOT}" && python3 setup.py --version); then
-    echo "Failed to derive the build version from source tags."
+VERSION_FILE="${PROJECT_ROOT}/version.ini"
+if [ ! -f "${VERSION_FILE}" ]; then
+    VERSION_FILE="${KVCACHE_PROJECT_ROOT}/version.ini"
+fi
+if [ ! -f "${VERSION_FILE}" ]; then
+    echo "version.ini does not exist."
     exit 1
 fi
-if [ -z "${VERSION}" ]; then
-    echo "Failed to derive the build version from source tags."
-    exit 1
-fi
+. ${VERSION_FILE}
+VERSION=$VLLM_UC_VERSION
 echo "Build version=$VERSION"
 
 function check_build_install()
@@ -82,6 +84,7 @@ function delete_redundant_files() {
 function collect_artifacts()
 {
     cd ${PACKAGE_DIR}
+    cp ${VERSION_FILE} .
     mkdir -p deploy/script
     cp "${KVCACHE_PROJECT_ROOT}/install.sh" .
     cp -r "${KVCACHE_PROJECT_ROOT}/docker" .
@@ -99,9 +102,7 @@ function package_all()
     collect_artifacts
     if [ "${SKIP_TAR}" != "1" ]; then
         cd ${PACKAGE_DIR}
-        printf 'VLLM_UC_VERSION=%s\n' "${VERSION}" > version.ini
-        PACKAGE_PLATFORM_UPPER=$(printf '%s' "${PACKAGE_PLATFORM}" | tr '[:lower:]' '[:upper:]')
-        tar -czvf "AI-Storage-Kit_${VERSION}_${PACKAGE_PLATFORM_UPPER}_${ARCH}_${BUILD_TYPE}.tar.gz" *
+        tar -czvf "AI-Storage-Kit_${VERSION}_${PACKAGE_PLATFORM^^}_${ARCH}_${BUILD_TYPE}.tar.gz" *
         delete_redundant_files
     fi
 }
