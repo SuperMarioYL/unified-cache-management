@@ -1072,7 +1072,7 @@ jobs:
             'import json, sys; from ucm_release import policy; print(json.dumps(policy.resolve(release_type=sys.argv[1])["release_profile"]))' \
             "${RELEASE_TYPE}")"
           max_count="$(jq -er '.max_count' <<<"${profile}")"
-          pypi_enabled="$(jq -er '.publish.pypi' <<<"${profile}")"
+          pypi_enabled="$(jq -r '.publish.pypi' <<<"${profile}")"
           if [ "${max_count}" != -1 ] && [ "${pypi_enabled}" = false ]; then
             mkdir -p "${RUNNER_TEMP}/crane"
             curl -fsSL --retry 3 \
