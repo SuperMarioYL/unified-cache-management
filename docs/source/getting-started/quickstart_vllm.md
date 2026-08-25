@@ -34,15 +34,9 @@ docker run --rm \
 git clone --depth 1 --branch <branch_or_tag_name> https://github.com/ModelEngine-Group/unified-cache-management.git
 cd unified-cache-management
 ```
-Check the `docker/` directory for available Dockerfile versions (e.g. `v0.20.2`, `v0.18.0`, `v0.17.0`, `v0.11.0`), then build with the desired version:
+Choose an explicitly registered vLLM/CUDA source-build recipe from the [catalog-generated repository recipe table](docker-recipes.generated.md). The table is generated from `.github/release/release.yaml`; status and lanes state whether a recipe is current PR coverage, manual-only, nightly, or specialized.
 ```bash
-# Replace <vllm_version> with the version you need (e.g. v0.20.2)
-docker build -t ucm-vllm:latest -f ./docker/Dockerfile.ucm-vllm-cuda-<vllm_version> ./
-```
-
-For vLLM(v0.11.0) with sparse attention support:
-```bash
-docker build -t ucm-vllm-sparse:latest -f ./docker/Dockerfile.ucm-vllm-cuda-v0.11.0 ./
+docker build -t ucm-vllm:latest -f <repository_recipe_path> ./
 ```
 
 The Dockerfile automatically invokes the build script (`scripts/build_cuda.sh`) to compile the wheel and installs from the built package.
@@ -52,9 +46,8 @@ The Dockerfile automatically invokes the build script (`scripts/build_cuda.sh`) 
 If you have a pre-built tar package (e.g. from CI), extract it and build the image in `package` mode:
 ```bash
 mkdir -p /tmp/ucm-pkg && tar xzf AI-Storage-Kit_*.tar.gz -C /tmp/ucm-pkg
-# Replace <vllm_version> with the version you need (e.g. v0.20.2)
 docker build --build-arg INSTALL_MODE=package \
-  -t ucm-vllm:latest -f /tmp/ucm-pkg/docker/Dockerfile.ucm-vllm-cuda-<vllm_version> /tmp/ucm-pkg
+  -t ucm-vllm:latest -f /tmp/ucm-pkg/<repository_recipe_path> /tmp/ucm-pkg
 ```
 
 

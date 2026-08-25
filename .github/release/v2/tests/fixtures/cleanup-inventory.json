@@ -1,0 +1,19 @@
+{
+  "kind": "cleanup-inventory",
+  "schema_version": 2,
+  "mode": "read-only",
+  "objects": [
+    {"id": "pr-boundary", "kind": "artifact", "channel": "pr", "coordinate": "artifacts/pr-boundary.whl", "identity": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "created_at": "2026-08-05T00:00:00Z", "state": "temporary"},
+    {"id": "develop-boundary", "kind": "artifact", "channel": "develop", "coordinate": "artifacts/develop-boundary.whl", "identity": "1111111111111111111111111111111111111111111111111111111111111111", "created_at": "2026-07-29T00:00:00Z", "state": "temporary"},
+    {"id": "develop-old", "kind": "artifact", "channel": "develop", "coordinate": "artifacts/develop-old.whl", "identity": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "created_at": "2026-07-28T23:59:59Z", "state": "temporary"},
+    {"id": "nightly-live", "kind": "image", "channel": "nightly", "coordinate": "ghcr.io/example/ucm:nightly", "identity": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "created_at": "2026-07-20T00:00:00Z", "state": "temporary"},
+    {"id": "draft-old", "kind": "chart", "channel": "draft", "coordinate": "charts/draft-old.tgz", "identity": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "created_at": "2026-07-12T00:00:00Z", "state": "temporary"},
+    {"id": "draft-boundary", "kind": "chart", "channel": "draft", "coordinate": "charts/draft-boundary.tgz", "identity": "3333333333333333333333333333333333333333333333333333333333333333", "created_at": "2026-07-13T00:00:00Z", "state": "temporary"},
+    {"id": "stable-live", "kind": "artifact", "channel": "stable", "coordinate": "artifacts/stable.whl", "identity": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "created_at": "2026-01-01T00:00:00Z", "state": "protected"}
+  ],
+  "references": [
+    {"id": "nightly-active", "object_id": "nightly-live", "identity": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "source": "shared-object", "active": true},
+    {"id": "stable-active", "object_id": "stable-live", "identity": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "source": "active-release", "active": true}
+  ],
+  "failures": []
+}

@@ -1,0 +1,68 @@
+# syntax=docker/dockerfile:1.12.1@sha256:93bfd3b68c109427185cd78b4779fc82b484b0b7618e36d0f104d4d801e66d25
+ARG BASE_IMAGE=registry.invalid/ucm/runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+FROM ${BASE_IMAGE} AS production-runtime
+
+ARG SOURCE_DATE_EPOCH
+ARG UCM_DISTRIBUTION
+ARG UCM_WHEEL
+ARG PACKAGING_WHEEL
+ARG WRAPT_WHEEL
+ARG UCM_SOURCE_SHA
+ARG UCM_IMAGE_TAG
+ARG UCM_SPEC_ID
+ARG UCM_TASK_SHA256
+ARG UCM_WHEEL_SHA256
+ARG UCM_RECIPE_SHA256
+
+LABEL org.opencontainers.image.revision="${UCM_SOURCE_SHA}" \
+      org.opencontainers.image.version="${UCM_IMAGE_TAG}" \
+      io.ucm.release.spec-id="${UCM_SPEC_ID}" \
+      io.ucm.release.task-sha256="${UCM_TASK_SHA256}" \
+      io.ucm.release.wheel-sha256="${UCM_WHEEL_SHA256}" \
+      io.ucm.release.recipe-sha256="${UCM_RECIPE_SHA256}"
+
+COPY ${UCM_WHEEL} /wheelhouse/${UCM_WHEEL}
+COPY ${PACKAGING_WHEEL} /wheelhouse/${PACKAGING_WHEEL}
+COPY ${WRAPT_WHEEL} /wheelhouse/${WRAPT_WHEEL}
+COPY requirements.lock /wheelhouse/requirements.lock
+
+RUN python3 -m pip uninstall --yes \
+      uc-manager uc-manager-cuda uc-manager-cann-a2 uc-manager-cann-a3 \
+      uc-manager-cuda130 uc-manager-cann900-a2-mc039 \
+      uc-manager-cann900-a3-mc039 wrapt || true; \
+    python3 -m pip install \
+      --no-index --find-links=/wheelhouse --require-hashes --only-binary=:all: \
+      --no-cache-dir --disable-pip-version-check \
+      -r /wheelhouse/requirements.lock; \
+    python3 -m pip check; \
+    UCM_EXPECTED_DISTRIBUTION="${UCM_DISTRIBUTION}" \
+    UCM_EXPECTED_SOURCE_SHA="${UCM_SOURCE_SHA}" \
+    python3 - <<'PY'
+import importlib
+import importlib.metadata
+import os
+
+distribution = os.environ['UCM_EXPECTED_DISTRIBUTION']
+installed = importlib.metadata.distribution(distribution)
+if installed.metadata['Name'] != distribution:
+    raise SystemExit('installed production distribution differs')
+for forbidden in {
+    'uc-manager',
+    'uc-manager-cuda',
+    'uc-manager-cann-a2',
+    'uc-manager-cann-a3',
+    'uc-manager-cuda130',
+    'uc-manager-cann900-a2-mc039',
+    'uc-manager-cann900-a3-mc039',
+} - {distribution}:
+    try:
+        importlib.metadata.distribution(forbidden)
+    except importlib.metadata.PackageNotFoundError:
+        pass
+    else:
+        raise SystemExit(f'coexisting UCM provider is forbidden: {forbidden}')
+importlib.import_module('ucm')
+importlib.import_module('wrapt')
+PY
+RUN rm -rf /wheelhouse

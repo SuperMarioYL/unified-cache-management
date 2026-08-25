@@ -4,6 +4,47 @@ on:
   push:
     branches: [ "**" ] # ** matches all branches, while * matches only top-level branches without '/'
 
+permissions:
+  contents: read
+
 jobs:
   lint-and-unit-tests:
+    permissions:
+      contents: read
     uses: ./.github/workflows/lint-and-test.yml
+
+  hosted-check-summary:
+    if: always()
+    needs: [lint-and-unit-tests]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Report hosted baseline results
+        env:
+          WORKFLOW_RESULT: ${{ needs.lint-and-unit-tests.result }}
+          SOURCE_SHA: ${{ needs.lint-and-unit-tests.outputs.source_sha }}
+          COMPACT_TEST_COUNT: ${{ needs.lint-and-unit-tests.outputs.compact_test_count }}
+          COMPACT_TEST_RESULT: ${{ needs.lint-and-unit-tests.outputs.compact_test_result }}
+          PRODUCTION_TEST_COUNT: ${{ needs.lint-and-unit-tests.outputs.production_test_count }}
+          PRODUCTION_TEST_RESULT: ${{ needs.lint-and-unit-tests.outputs.production_test_result }}
+          ACTIONLINT_RESULT: ${{ needs.lint-and-unit-tests.outputs.actionlint_result }}
+          DIFF_CHECK_RESULT: ${{ needs.lint-and-unit-tests.outputs.diff_check_result }}
+          FAILURE_STAGES: ${{ needs.lint-and-unit-tests.outputs.failure_stages }}
+        run: |
+          set -euo pipefail
+          failure_stages="${FAILURE_STAGES:-not-reported}"
+          if [ "${WORKFLOW_RESULT}" != "success" ] && [ "${failure_stages}" = "none" ]; then
+            failure_stages="reusable-workflow"
+          fi
+          {
+            echo "## Push hosted baseline"
+            echo
+            echo "- Source SHA: \`${SOURCE_SHA:-${GITHUB_SHA}}\`"
+            echo "- Compact release tests: ${COMPACT_TEST_COUNT:-0} (${COMPACT_TEST_RESULT:-not-run})"
+            echo "- Production release tests: ${PRODUCTION_TEST_COUNT:-0} (${PRODUCTION_TEST_RESULT:-not-run})"
+            echo "- actionlint: ${ACTIONLINT_RESULT:-not-run}"
+            echo "- git diff --check: ${DIFF_CHECK_RESULT:-not-run}"
+            echo "- Failure stages: ${failure_stages}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+          test "${WORKFLOW_RESULT}" = "success"

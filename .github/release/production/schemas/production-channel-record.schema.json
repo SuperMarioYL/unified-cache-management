@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/unified-cache-management/schemas/production-channel-record.schema.json",
+  "title": "UCM production channel record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "channel", "status", "stage", "reference", "visibility", "decision", "authenticated_readback", "anonymous_readback", "operations", "sha256"],
+  "properties": {
+    "kind": {"const": "ucm-production-channel-record"},
+    "schema_version": {"const": 1},
+    "channel": {"enum": ["ghcr-member", "ghcr-index", "chart-oci", "github-release", "pypi", "docker-hub"]},
+    "status": {"enum": ["complete", "visibility-configuration-required", "blocked"]},
+    "stage": {"enum": ["draft", "rc", "stable", "hotfix"]},
+    "reference": {"type": "string", "minLength": 1},
+    "visibility": {"enum": ["private", "public"]},
+    "decision": {"enum": ["create", "reuse", "blocked"]},
+    "spec_id": {"enum": ["cuda130-amd64", "cuda130-arm64", "cann900-a2-amd64", "cann900-a2-arm64", "cann900-a3-amd64", "cann900-a3-arm64"]},
+    "profile_id": {"enum": ["cuda130", "cann900-a2", "cann900-a3"]},
+    "repository": {
+      "type": "string",
+      "anyOf": [
+        {"pattern": "^ghcr\\.io/[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+$"},
+        {"pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$"}
+      ]
+    },
+    "platform": {"enum": ["linux/amd64", "linux/arm64"]},
+    "source_sha": {"$ref": "#/$defs/commit"},
+    "manifest_digest": {"$ref": "#/$defs/digest"},
+    "manifest_size": {"type": "integer", "minimum": 1},
+    "config_digest": {"$ref": "#/$defs/digest"},
+    "config_size": {"type": "integer", "minimum": 1},
+    "layers": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+    "annotations": {"type": "object"},
+    "index_digest": {"$ref": "#/$defs/digest"},
+    "members": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "object"}},
+    "index_descriptors": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "object"}},
+    "name": {"const": "unified-cache-pd"},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-rc\\.[1-9][0-9]*)?$"},
+    "file_sha256": {"$ref": "#/$defs/digest"},
+    "layer_digest": {"$ref": "#/$defs/digest"},
+    "release_id": {"type": "integer", "minimum": 1},
+    "release_state": {"enum": ["draft", "prerelease", "release"]},
+    "tag_name": {"type": "string", "minLength": 1},
+    "candidate_sha256": {"$ref": "#/$defs/sha256"},
+    "environment_status": {"enum": ["passed", "waived-for-preview"]},
+    "asset_count": {"const": 7},
+    "assets": {"type": "array", "minItems": 7, "maxItems": 7, "items": {"type": "object"}},
+    "distribution": {"enum": ["uc-manager-cuda130", "uc-manager-cann900-a2-mc039", "uc-manager-cann900-a3-mc039"]},
+    "filename": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+\\.whl$"},
+    "source_reference": {"type": "string", "pattern": "^ghcr\\.io/.+@sha256:[0-9a-f]{64}$"},
+    "authenticated_readback": {"type": "object"},
+    "anonymous_readback": {"type": "object"},
+    "operations": {"type": "array", "items": {"type": "object"}},
+    "sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"channel": {"const": "ghcr-member"}}, "required": ["channel"]},
+      "then": {
+        "required": ["spec_id", "repository", "platform", "source_sha", "manifest_digest", "manifest_size", "config_digest", "config_size", "layers", "annotations"],
+        "properties": {"repository": {"pattern": "^ghcr\\.io/"}}
+      }
+    },
+    {
+      "if": {"properties": {"channel": {"const": "ghcr-index"}}, "required": ["channel"]},
+      "then": {
+        "required": ["profile_id", "repository", "source_sha", "index_digest", "members", "index_descriptors"],
+        "properties": {"repository": {"pattern": "^ghcr\\.io/"}}
+      }
+    },
+    {
+      "if": {"properties": {"channel": {"const": "chart-oci"}}, "required": ["channel"]},
+      "then": {"required": ["name", "version", "file_sha256"]}
+    },
+    {
+      "if": {"properties": {"channel": {"const": "github-release"}}, "required": ["channel"]},
+      "then": {
+        "required": ["repository", "release_id", "release_state", "tag_name", "source_sha", "candidate_sha256", "environment_status", "asset_count", "assets"],
+        "properties": {"repository": {"pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$"}}
+      }
+    },
+    {
+      "if": {"properties": {"channel": {"const": "pypi"}}, "required": ["channel"]},
+      "then": {"required": ["distribution", "version", "filename", "file_sha256"]}
+    },
+    {
+      "if": {"properties": {"channel": {"const": "docker-hub"}}, "required": ["channel"]},
+      "then": {"required": ["profile_id", "source_reference", "manifest_digest"]}
+    }
+  ],
+  "$defs": {
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

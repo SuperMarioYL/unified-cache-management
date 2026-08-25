@@ -1,0 +1,97 @@
+{
+  "kind": "registry-discovery-fixture",
+  "schema_version": 1,
+  "repositories": {
+    "docker.io/vllm/vllm-openai": {
+      "pages": [
+        {
+          "tags": ["v0.21.0", "v0.21.1", "v0.21.2", "v0.20.9", "latest"],
+          "next_page": "page-2"
+        },
+        {
+          "tags": ["v0.21.0-nightly", "v0.21.0.dev1", "v0.21.0"],
+          "next_page": null
+        }
+      ],
+      "snapshots": {
+        "v0.21.2": {
+          "schema_version": 1,
+          "kind": "upstream-registry-snapshot",
+          "repository": "docker.io/vllm/vllm-openai",
+          "upstream_tag": "v0.21.2",
+          "index_digest": "sha256:a230095847e93bd4df9888b33dab956fa9504537b828a23657d2b26fed57b5c9",
+          "platforms": [
+            {
+              "os": "linux",
+              "architecture": "amd64",
+              "manifest_digest": "sha256:4ac9b7c6dabc3ec762c0edef4e9245abe98373844da91cc53ee42e5c58280c5b",
+              "config_digest": "sha256:2497255b1272ba3ae9581acd51349f840038f228d0709cd9f6a142d39008d290"
+            },
+            {
+              "os": "linux",
+              "architecture": "arm64",
+              "manifest_digest": "sha256:4f63b83537c4cbd82822403965f395877054dc3b69612e7044ecd649a9badb02",
+              "config_digest": "sha256:f023269abe06db3a1a7cd9e170a0f5bd2b333a19ef9cb99ed8df97a70345bc25"
+            }
+          ]
+        }
+      }
+    },
+    "quay.io/ascend/vllm-ascend": {
+      "pages": [
+        {
+          "tags": ["v0.22.1rc1", "v0.22.1rc2", "v0.22.1rc3", "v0.22.2rc1", "v0.22.1rc1-a3", "v0.22.1rc2-a3", "v0.22.1rc3-a3", "v0.22.2rc1-a3", "v0.22.1"],
+          "next_page": "page-2"
+        },
+        {
+          "tags": ["v0.22.1rc1-a2", "v0.22.1rc1-a5", "v0.22.1rc1-custom"],
+          "next_page": null
+        }
+      ],
+      "snapshots": {
+        "v0.22.1rc3": {
+          "schema_version": 1,
+          "kind": "upstream-registry-snapshot",
+          "repository": "quay.io/ascend/vllm-ascend",
+          "upstream_tag": "v0.22.1rc3",
+          "index_digest": "sha256:9008b47081282612abfe4d28069ce34436752c980fd06f7599343213205ce64d",
+          "platforms": [
+            {
+              "os": "linux",
+              "architecture": "amd64",
+              "manifest_digest": "sha256:a4176a62da7ff54e8eaf2e68e09578917d5c93dab6d2c9c7ebce551781e117b3",
+              "config_digest": "sha256:0539c8ff2dbe3f02d6e5de0d8a463e1d6142482d41e5139dc4b957a191951c8b"
+            },
+            {
+              "os": "linux",
+              "architecture": "arm64",
+              "manifest_digest": "sha256:638fc04eaa3654fcf14688096ed4e9d88ea0d905fa8685eed4b36d5fffe8fd8d",
+              "config_digest": "sha256:1b8f114d14c4d0bea66ca32ebb5afe34bd1e10bfd0802b930ed678a116aaf078"
+            }
+          ]
+        },
+        "v0.22.1rc3-a3": {
+          "schema_version": 1,
+          "kind": "upstream-registry-snapshot",
+          "repository": "quay.io/ascend/vllm-ascend",
+          "upstream_tag": "v0.22.1rc3-a3",
+          "index_digest": "sha256:e3d89f09a1c1d85f0ec6a1cc26e3c807b7bc8a7ec0f97a830dbef63ab50d8f81",
+          "platforms": [
+            {
+              "os": "linux",
+              "architecture": "amd64",
+              "manifest_digest": "sha256:ac166d960b3cb1b584f6ec413e5f4ef353b78049aa2b85e22b0e04eb8770eae4",
+              "config_digest": "sha256:9c5cc2811d8dd9f26e871389723bc432fc321ba7bf46279ec423cbdd4daf9853"
+            },
+            {
+              "os": "linux",
+              "architecture": "arm64",
+              "manifest_digest": "sha256:28f44b9c94c7667a7cbcd6b7b91432f03e4dffe476784dfd9fd82f036bdb1e4d",
+              "config_digest": "sha256:c4d766b5f04fe6238a74731d67a215bb6331072ba242c7c5f24a25f99ce36c3b"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

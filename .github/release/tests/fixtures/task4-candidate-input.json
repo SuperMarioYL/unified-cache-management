@@ -1,0 +1,257 @@
+{
+  "kind": "task4-candidate-selection-raw-fixture",
+  "schema_version": 3,
+  "source_sha": "4444444444444444444444444444444444444444",
+  "repository_files": {
+    ".github/release/builders.yaml": "kind: task4-builders\nschema_version: 1\n",
+    ".github/release/docker/Dockerfile.builder": "FROM scratch\nRUN echo task4-ascend-current\n",
+    ".github/release/toolchain.lock.yaml": "kind: task4-toolchain\nschema_version: 1\n"
+  },
+  "expected_current_builder_authority": {
+    "kind": "ucm-current-builder-authority",
+    "schema_version": 3,
+    "source_sha": "4444444444444444444444444444444444444444",
+    "toolchain_sha256": "sha256:a391c1d1b352e83149ce27291d323946b93a9e13d036a5272eac7f0496a4c1d1",
+    "recipes": [
+      {
+        "recipe_path": ".github/release/builders.yaml",
+        "recipe_source_commit": "4444444444444444444444444444444444444444",
+        "recipe_sha256": "sha256:e98eecb03c267c3e09956fd72eabd1ad25c06c72385b141dda4057fd04e1ac64"
+      },
+      {
+        "recipe_path": ".github/release/docker/Dockerfile.builder",
+        "recipe_source_commit": "4444444444444444444444444444444444444444",
+        "recipe_sha256": "sha256:5e2c3a15162877404d19d6e5769e8d4cfba027962a54debc50637a45f477aa94"
+      }
+    ],
+    "authority_sha256": "sha256:fa2b698d6b4f9b7279b75bacfa4be5e6fc5d57d0f8c666c2833f6511ed957972"
+  },
+  "builder_discovery": {
+    "kind": "ucm-collected-builder-facts",
+    "schema_version": 3,
+    "source_sha": "4444444444444444444444444444444444444444",
+    "upstream_reads": [
+      {
+        "project": "task4-fixture",
+        "source_kind": "planner-checkout-recipe",
+        "source_path": ".github/release/builders.yaml",
+        "source_commit": "4444444444444444444444444444444444444444",
+        "fact": "recipe"
+      }
+    ],
+    "builders": [
+      {
+        "variant": "default",
+        "source_kind": "planner-checkout-recipe",
+        "source_path": ".github/release/builders.yaml"
+      }
+    ],
+    "builder_sync": {
+      "mode": "append-only",
+      "target_digests_verified": true,
+      "deletions": []
+    },
+    "builder_facts": [
+      {
+        "builder_fact_id": "sha256:7f7dbe997c7e59e5c9758151f2055227353aa1e2cb2fe31fc13c921de2e26c6a",
+        "project": "task4-fixture",
+        "accelerator": "cuda",
+        "accelerator_runtime": "cuda-13.0",
+        "variant": "default",
+        "cpu_architecture": "amd64",
+        "manylinux": "manylinux_2_28",
+        "source_kind": "planner-checkout-recipe",
+        "source_path": ".github/release/builders.yaml",
+        "source_image_repository": "ghcr.io/release-org/base",
+        "source_image_tag": "task4",
+        "source_image_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "recipe_path": ".github/release/builders.yaml",
+        "recipe_source_commit": "4444444444444444444444444444444444444444",
+        "recipe_sha256": "sha256:e98eecb03c267c3e09956fd72eabd1ad25c06c72385b141dda4057fd04e1ac64",
+        "toolchain_sha256": "sha256:a391c1d1b352e83149ce27291d323946b93a9e13d036a5272eac7f0496a4c1d1",
+        "target_repository": "ghcr.io/release-org/ucm-builder-cuda",
+        "target_tag": "cuda13.0-current",
+        "target_builder_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "mooncake_source_runtime_id": null,
+        "mooncake_source_runtime_image": null,
+        "mooncake_version": null
+      },
+      {
+        "builder_fact_id": "sha256:5677a540bae90e71af16b20cbf46828071d2c841bc2ed84a287df2a413273932",
+        "project": "task4-fixture",
+        "accelerator": "cuda",
+        "accelerator_runtime": "cuda-13.0",
+        "variant": "default",
+        "cpu_architecture": "amd64",
+        "manylinux": "manylinux_2_28",
+        "source_kind": "historical-recipe",
+        "source_path": ".github/release/builders.yaml",
+        "source_image_repository": "ghcr.io/release-org/base",
+        "source_image_tag": "task4",
+        "source_image_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "recipe_path": ".github/release/builders.yaml",
+        "recipe_source_commit": "3333333333333333333333333333333333333333",
+        "recipe_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "toolchain_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "target_repository": "ghcr.io/release-org/ucm-builder-cuda",
+        "target_tag": "cuda13.0-old",
+        "target_builder_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "mooncake_source_runtime_id": null,
+        "mooncake_source_runtime_image": null,
+        "mooncake_version": null
+      }
+    ],
+    "failures": []
+  },
+  "runtime_discovery": {
+    "kind": "ucm-runtime-discovery",
+    "schema_version": 3,
+    "source_sha": "4444444444444444444444444444444444444444",
+    "upstream_reads": [
+      {
+        "project": "vllm-project/vllm",
+        "source_kind": "runtime-tag",
+        "source_path": "v0.21.1-cu130",
+        "source_commit": "8888888888888888888888888888888888888888",
+        "fact": "runtime-image"
+      },
+      {
+        "project": "vllm-project/vllm",
+        "source_kind": "runtime-tag",
+        "source_path": "v0.21.0",
+        "source_commit": "9999999999999999999999999999999999999999",
+        "fact": "runtime-image"
+      },
+      {
+        "project": "vllm-project/vllm",
+        "source_kind": "runtime-tag",
+        "source_path": "v0.21.1",
+        "source_commit": "7777777777777777777777777777777777777777",
+        "fact": "runtime-image"
+      },
+      {
+        "project": "vllm-project/vllm",
+        "source_kind": "runtime-tag",
+        "source_path": "v0.21.1-rocm",
+        "source_commit": "cccccccccccccccccccccccccccccccccccccccc",
+        "fact": "runtime-image"
+      }
+    ],
+    "runtime_candidates": [
+      {
+        "product_id": "vllm",
+        "runtime_version": "0.21.1",
+        "channel": "stable",
+        "variant": "default",
+        "cpu_architecture": "amd64",
+        "accelerator": "cuda",
+        "accelerator_runtime": "cuda-13.0.2",
+        "mooncake_version": null,
+        "runtime_image_repository": "docker.io/vllm/vllm-openai",
+        "runtime_image_tag": "v0.21.1-cu130",
+        "runtime_image_digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+        "git_tag": "v0.21.1",
+        "git_commit": "8888888888888888888888888888888888888888"
+      },
+      {
+        "product_id": "vllm",
+        "runtime_version": "0.21.0",
+        "channel": "stable",
+        "variant": "default",
+        "cpu_architecture": "amd64",
+        "accelerator": "cuda",
+        "accelerator_runtime": "cuda-13.0.2",
+        "mooncake_version": null,
+        "runtime_image_repository": "docker.io/vllm/vllm-openai",
+        "runtime_image_tag": "v0.21.0",
+        "runtime_image_digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+        "git_tag": "v0.21.0",
+        "git_commit": "9999999999999999999999999999999999999999"
+      },
+      {
+        "product_id": "vllm",
+        "runtime_version": "0.21.1",
+        "channel": "stable",
+        "variant": "default",
+        "cpu_architecture": "amd64",
+        "accelerator": "cuda",
+        "accelerator_runtime": "cuda-13.0.2",
+        "mooncake_version": null,
+        "runtime_image_repository": "docker.io/vllm/vllm-openai",
+        "runtime_image_tag": "v0.21.1",
+        "runtime_image_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+        "git_tag": "v0.21.1",
+        "git_commit": "7777777777777777777777777777777777777777"
+      },
+      {
+        "product_id": "vllm",
+        "runtime_version": "0.21.1",
+        "channel": "stable",
+        "variant": "default",
+        "cpu_architecture": "amd64",
+        "accelerator": "cuda",
+        "accelerator_runtime": "cuda-13.0.2",
+        "mooncake_version": null,
+        "runtime_image_repository": "docker.io/vllm/vllm-openai",
+        "runtime_image_tag": "v0.21.1-rocm",
+        "runtime_image_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "git_tag": "v0.21.1",
+        "git_commit": "cccccccccccccccccccccccccccccccccccccccc"
+      }
+    ]
+  },
+  "python_probes": {
+    "kind": "ucm-builder-python-probes",
+    "schema_version": 3,
+    "probes": [
+      {
+        "builder_fact_id": "sha256:7f7dbe997c7e59e5c9758151f2055227353aa1e2cb2fe31fc13c921de2e26c6a",
+        "builder_image": "ghcr.io/release-org/ucm-builder-cuda@sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "target_builder_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "cpu_architecture": "amd64",
+        "manylinux": "manylinux_2_28",
+        "runner": "ubuntu-24.04",
+        "interpreter_path": "/opt/python/cp314-cp314t/bin/python",
+        "python_version": "3.14",
+        "python_abi": "cp314t",
+        "soabi": "cpython-314t-x86_64-linux-gnu",
+        "wheel_tag": "cp314-cp314t-manylinux_2_28_x86_64"
+      },
+      {
+        "builder_fact_id": "sha256:5677a540bae90e71af16b20cbf46828071d2c841bc2ed84a287df2a413273932",
+        "builder_image": "ghcr.io/release-org/ucm-builder-cuda@sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "target_builder_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "cpu_architecture": "amd64",
+        "manylinux": "manylinux_2_28",
+        "runner": "ubuntu-24.04",
+        "interpreter_path": "/opt/python/cp314-cp314t/bin/python",
+        "python_version": "3.14",
+        "python_abi": "cp314t",
+        "soabi": "cpython-314t-x86_64-linux-gnu",
+        "wheel_tag": "cp314-cp314t-manylinux_2_28_x86_64"
+      }
+    ],
+    "failures": []
+  },
+  "mooncake_probes": {
+    "kind": "ucm-runtime-mooncake-probes",
+    "schema_version": 3,
+    "probes": [],
+    "failures": []
+  },
+  "python_requires": ">=3.10",
+  "selection_expectations": {
+    "preferred": {
+      "product_id": "vllm",
+      "runtime_image_tag": "v0.21.1"
+    },
+    "same_version_fallback": {
+      "product_id": "vllm",
+      "runtime_image_tag": "v0.21.1-cu130"
+    },
+    "older_fallback": {
+      "product_id": "vllm",
+      "runtime_image_tag": "v0.21.0"
+    }
+  }
+}

@@ -1,0 +1,75 @@
+kind: release-config
+schema_version: 3
+image_revision: 1
+source: {staging_repository: 'ghcr.io/{owner}/ucm-release-staging', default_branch: develop, protected_environment: release-production}
+lanes: [feature-candidate, protected-tag]
+runner_map: {amd64: ubuntu-24.04, arm64: ubuntu-24.04-arm}
+discovery:
+  exclude_variants: [310p]
+  python_requires: '>=3.10'
+  bootstrap: all-passing
+  scan_limits: {max_tags_per_repository: 1024, max_selected_upstreams: 64}
+  matrix_limits: {max_wheel_tasks: 64, max_image_tasks: 128, max_family_tasks: 64}
+products:
+  cuda: {accelerator: cuda, distribution: 'uc-manager-cuda{runtime.compact}'}
+  cann: {accelerator: ascend, distribution: 'uc-manager-cann{runtime.compact}-{variant}-mc{mooncake.compact}'}
+dependencies:
+  build: {packaging: '24.2', pyyaml: 6.0.2}
+  runtime: {wrapt: 1.17.2}
+publish:
+  pypi:
+    enabled: false
+    index: https://upload.pypi.org/legacy/
+  ghcr: {enabled: true, namespace: 'ghcr.io/{owner}'}
+  dockerhub: {enabled: false, namespace: 'docker.io/{owner}'}
+  chart_oci: {enabled: true, namespace: 'ghcr.io/{owner}/charts'}
+  github_release: {enabled: true}
+upstream_products:
+- id: vllm
+  runtime_product: vllm
+  repository: docker.io/vllm/vllm-openai
+  target_repository: ghcr.io/{owner}/vllm-openai
+  version_specifier: '>=0.21,<0.22'
+  channels: [stable]
+  runtime_tag_selectors: ['v{version}', 'v{version}-cu{runtime.major_minor.compact}']
+- id: vllm-ascend
+  runtime_product: vllm-ascend
+  repository: quay.io/ascend/vllm-ascend
+  target_repository: ghcr.io/{owner}/vllm-ascend
+  version_specifier: '>=0.22.1rc1,<0.23'
+  channels: [rc]
+  runtime_tag_selectors: ['v{version}', 'v{version}-{variant}']
+compatibility:
+  rules:
+  - id: cuda-supported
+    upstream_products: [vllm]
+    version_specifier: '>=0.21,<0.22'
+    accelerator: cuda
+    operating_systems: [ubuntu-22.04]
+    upstream_channels: [stable]
+  - id: ascend-supported
+    upstream_products: [vllm-ascend]
+    version_specifier: '>=0.22.1rc1,<0.23'
+    accelerator: ascend
+    operating_systems: [ubuntu-22.04]
+    upstream_channels: [rc]
+  excluded_upstream_patterns: [nightly, dev, custom]
+chart:
+  source: charts/ucm
+  name: unified-cache-pd
+  validation_cases:
+  - {name: cuda, values: charts/ucm/models/cuda/values-qwen3-0p6b-1e1.yaml, product_id: vllm, variant: default, expected_resource: nvidia.com/gpu}
+  - {name: a2, values: charts/ucm/models/ascend/values-qwen3-0p6b-1e1.yaml, product_id: vllm-ascend, variant: a2, expected_resource: huawei.com/Ascend910}
+  - {name: a3, values: charts/ucm/models/ascend/values-qwen3-0p6b-1e1.yaml, product_id: vllm-ascend, variant: a3, expected_resource: huawei.com/Ascend910}
+native_contracts:
+- accelerator: cuda
+  required_native: [ucmtrans, metrics, ucmmetrics, ucmlogger, ucmnfsstore, ucmpcstore, posixstore, compressor, cachestore, emptystore, fakestore, ucmpipelinestore]
+  forbidden_native: [mooncakestore, ds3fsstore, uc_hash_ext, ucm_custom_ops, hash_retrieval_backend, hamming, gsa_prefetch, kvstar_retrieve, retrieval_backend, gsa_offload_ops]
+  allowed_dt_needed: [ld-linux-aarch64.so.1, ld-linux-x86-64.so.2, libc.so.6, libcuda.so.1, libcudart.so.13, libdl.so.2, libgcc_s.so.1, libm.so.6, libmetrics.so, libpthread.so.0, librt.so.1, libstdc++.so.6]
+  external_required_dependencies: []
+- accelerator: ascend
+  required_native: [ucmtrans, metrics, ucmmetrics, ucmlogger, ucmnfsstore, ucmpcstore, posixstore, compressor, cachestore, emptystore, fakestore, ucmpipelinestore, mooncakestore]
+  forbidden_native: [ds3fsstore, uc_hash_ext, ucm_custom_ops, hash_retrieval_backend, hamming, gsa_prefetch, kvstar_retrieve, retrieval_backend, gsa_offload_ops]
+  allowed_dt_needed: [ascend_transport.so, ld-linux-aarch64.so.1, ld-linux-x86-64.so.2, libc.so.6, libascendcl.so, libasio.so, libcurl.so.4, libdl.so.2, libgcc_s.so.1, libglog.so.1, libibverbs.so.1, libjsoncpp.so.25, libm.so.6, libmetrics.so, libmooncake_store.so, libnuma.so.1, libpthread.so.0, librt.so.1, libruntime.so, libstdc++.so.6, libtransfer_engine.so, libunwind.so.8]
+  external_required_dependencies:
+  - {dependency: libascend_hal.so, provider: host-ascend-driver, expected_mount_root: /usr/local/Ascend/driver/lib64, relation: transitive, required_at: device-runtime}
