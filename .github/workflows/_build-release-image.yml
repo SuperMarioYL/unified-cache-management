@@ -119,8 +119,18 @@ jobs:
           IMAGE_ID: ${{ inputs.image_id }}
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes skopeo
+          for setup_attempt in 1 2 3; do
+            if sudo apt-get update && sudo apt-get install --yes skopeo; then
+              break
+            fi
+            if [ "${setup_attempt}" -eq 3 ]; then
+              echo "skopeo setup failed after ${setup_attempt} attempts" >&2
+              exit 1
+            fi
+            setup_wait=$((setup_attempt * 5))
+            echo "skopeo setup failed; retrying in ${setup_wait}s" >&2
+            sleep "${setup_wait}"
+          done
           local_tag="ucm-runtime-check:${IMAGE_ID}"
           wheel_glibc_floor="$(jq -er '.glibc_floor | select(type == "string")' \
             input/wheel/wheel-result.json)"
