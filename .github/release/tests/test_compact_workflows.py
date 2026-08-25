@@ -1043,6 +1043,7 @@ def test_runtime_image_checks_wheel_glibc_floor_and_import() -> None:
         ROOT / ".github" / "release" / "docker" / "Dockerfile.runtime"
     ).read_text(encoding="utf-8")
     assert "python3 -m pip install" in dockerfile
+    assert "--index-url https://pypi.org/simple" in dockerfile
     assert "python3 -c 'import ucm'" in dockerfile
 
 
