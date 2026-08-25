@@ -1113,6 +1113,8 @@ def test_completed_release_runs_retention_and_manual_cleanup_reuses_the_module()
     assert manifest_index < retention_index
     assert "cleanup.py retention" in retention["run"]
     assert "release_profile" in retention["run"]
+    assert 'pypi_enabled="$(jq -r' in retention["run"]
+    assert 'pypi_enabled="$(jq -er' not in retention["run"]
     assert finalize["permissions"] == {
         "actions": "write",
         "contents": "write",
