@@ -759,7 +759,9 @@ def test_release_image_retries_each_enabled_profile_member_after_verification() 
     assert ".publish.dockerhub.enabled" in publish["run"]
     assert "targets:[{channel:" not in publish["run"]
     assert "for attempt in 1 2 3" not in build["run"]
-    assert "for attempt in 1 2 3" not in verify["run"]
+    assert "for setup_attempt in 1 2 3" in verify["run"]
+    assert "sudo apt-get update && sudo apt-get install --yes skopeo" in verify["run"]
+    assert "docker run --rm --entrypoint sh" in verify["run"]
 
 
 def test_compact_wheel_passes_dynamic_python_and_platform_to_build() -> None:
@@ -1043,6 +1045,7 @@ def test_runtime_image_checks_wheel_glibc_floor_and_import() -> None:
         ROOT / ".github" / "release" / "docker" / "Dockerfile.runtime"
     ).read_text(encoding="utf-8")
     assert "python3 -m pip install" in dockerfile
+    assert "--index-url https://pypi.org/simple" in dockerfile
     assert "python3 -c 'import ucm'" in dockerfile
 
 
