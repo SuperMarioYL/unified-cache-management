@@ -9,6 +9,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, urlparse
 
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
@@ -419,66 +420,279 @@ def finalize_manifest(
     return result
 
 
-def render_notes(manifest: dict[str, Any]) -> str:
-    """Render concise Release notes from the manifest's current stage."""
-    release = manifest["release"]
+def _github_asset_urls(
+    manifest: dict[str, Any], release_document: dict[str, Any]
+) -> dict[str, str]:
+    release = _mapping(manifest.get("release"), "release manifest release")
+    if release_document.get("tag_name") != release.get("git_tag"):
+        raise ValueError("GitHub Release does not match the release manifest tag")
+
+    urls: dict[str, str] = {}
+    for index, raw_asset in enumerate(
+        _list(release_document.get("assets"), "GitHub Release assets")
+    ):
+        asset = _mapping(raw_asset, f"GitHub Release assets[{index}]")
+        name = asset.get("name")
+        url = asset.get("browser_download_url")
+        parsed = urlparse(url) if isinstance(url, str) else None
+        if (
+            not isinstance(name, str)
+            or not name
+            or name in urls
+            or parsed is None
+            or parsed.scheme != "https"
+            or parsed.netloc != "github.com"
+        ):
+            raise ValueError("GitHub Release assets contain an invalid entry")
+        urls[name] = url
+
+    required = {
+        str(item["filename"])
+        for item in _list(manifest.get("wheels"), "release manifest Wheels")
+    }
+    chart = _mapping(manifest.get("chart"), "release manifest Chart")
+    required.update(
+        {str(chart.get("filename", "")), "SHA256SUMS", "release-manifest.json"}
+    )
+    missing = sorted(required - urls.keys())
+    if missing:
+        raise ValueError(f"GitHub Release is missing required assets: {missing}")
+    return urls
+
+
+def _target_repository(reference: str, context: str) -> str:
+    repository, separator, tag = reference.rpartition(":")
+    if not separator or not repository or not tag:
+        raise ValueError(f"{context} is not a tagged OCI reference")
+    return repository
+
+
+def _ghcr_package_link(repository: str, target_repository: str) -> str:
+    source_parts = repository.split("/")
+    target_parts = target_repository.removeprefix("ghcr.io/").split("/")
+    if (
+        len(source_parts) != 2
+        or any(re.fullmatch(r"[A-Za-z0-9_.-]+", part) is None for part in source_parts)
+        or len(target_parts) < 2
+        or not target_repository.startswith("ghcr.io/")
+        or target_parts[0].lower() != source_parts[0].lower()
+    ):
+        raise ValueError("GHCR target does not belong to the release repository owner")
+    package = "/".join(target_parts[1:])
+    url = f"https://github.com/{repository}/pkgs/container/{quote(package, safe='')}"
+    return f"[`{target_repository}`]({url})"
+
+
+def _architecture_label(cpu_arch: str) -> str:
+    return {"amd64": "x86_64", "arm64": "aarch64"}.get(cpu_arch, cpu_arch)
+
+
+def _product_title(runtime_repository: str) -> tuple[int, str]:
+    name = runtime_repository.rsplit("/", 1)[-1]
+    known = {
+        "vllm-openai": (0, "vLLM OpenAI"),
+        "vllm-ascend": (1, "vLLM-Ascend"),
+    }
+    return known.get(name, (2, name))
+
+
+def _capability_label(row: dict[str, Any]) -> str:
+    accelerators = sorted(row["accelerators"])
+    if len(accelerators) != 1:
+        raise ValueError("Wheel capability maps to conflicting accelerator runtimes")
+    accelerator = accelerators[0]
+    name, separator, version = accelerator.partition("-")
+    label = f"{name.upper()} {version}" if separator else accelerator
+    backend = str(row["backend"])
+    if backend.startswith("cann-"):
+        label += f" / {backend.removeprefix('cann-').upper()}"
+    return label
+
+
+def _render_product_tables(
+    manifest: dict[str, Any], *, repository: str, asset_urls: dict[str, str]
+) -> list[str]:
+    wheels = {str(item["id"]): item for item in manifest["wheels"]}
+    images_by_family: dict[str, list[dict[str, Any]]] = {}
+    for image in manifest["images"]:
+        images_by_family.setdefault(str(image["family_id"]), []).append(image)
+    families_by_product: dict[str, list[dict[str, Any]]] = {}
+    for family in manifest["families"]:
+        repository_name = str(family["runtime"]["repository"])
+        families_by_product.setdefault(repository_name, []).append(family)
+
+    rendered: list[str] = []
+    product_order = sorted(
+        families_by_product,
+        key=lambda item: (*_product_title(item), item),
+    )
+    for runtime_repository in product_order:
+        product_families = families_by_product[runtime_repository]
+        rows: dict[tuple[str, str, str], dict[str, Any]] = {}
+        ghcr_repositories: set[str] = set()
+        member_count = 0
+        published_count = 0
+        for family in product_families:
+            family_id = str(family["id"])
+            members = images_by_family[family_id]
+            member_count += len(members)
+            family_wheels = [wheels[str(member["wheel_id"])] for member in members]
+            keys = {
+                (
+                    str(wheel["backend"]),
+                    str(wheel["runtime_variant"]),
+                    str(wheel["python_abi"]),
+                )
+                for wheel in family_wheels
+            }
+            if len(keys) != 1:
+                raise ValueError(
+                    f"release family {family_id!r} spans multiple Wheel capabilities"
+                )
+            key = next(iter(keys))
+            row = rows.setdefault(
+                key,
+                {
+                    "backend": key[0],
+                    "python_abi": key[2],
+                    "accelerators": set(),
+                    "families": [],
+                    "wheels": {},
+                },
+            )
+            runtime = family["runtime"]
+            row["accelerators"].add(str(runtime["accelerator_runtime"]))
+            row["families"].append(
+                {
+                    "tag": str(runtime["tag"]),
+                    "architectures": {str(member["cpu_arch"]) for member in members},
+                }
+            )
+            for wheel in family_wheels:
+                row["wheels"][str(wheel["cpu_arch"])] = wheel
+
+            ghcr_reference = family["expected_targets"].get("ghcr")
+            if isinstance(ghcr_reference, str):
+                ghcr_repositories.add(
+                    _target_repository(ghcr_reference, "release family GHCR target")
+                )
+            if family.get("status") == "published" and any(
+                target.get("channel") == "ghcr" for target in family["targets"]
+            ):
+                published_count += 1
+
+        _, title = _product_title(runtime_repository)
+        rendered.extend([f"## {title}", "", f"Runtime: `{runtime_repository}`", ""])
+        if len(ghcr_repositories) > 1:
+            raise ValueError(f"{title} maps to multiple GHCR packages")
+        if ghcr_repositories:
+            ghcr_repository = next(iter(ghcr_repositories))
+            package = _ghcr_package_link(repository, ghcr_repository)
+            family_count = len(product_families)
+            release_status = manifest["release"]["status"]
+            if release_status == "complete":
+                image_status = (
+                    f"{family_count} image families / "
+                    f"{member_count} architecture members"
+                )
+            elif release_status == "images-failed":
+                image_status = (
+                    f"{published_count}/{family_count} image families published"
+                )
+            else:
+                image_status = (
+                    f"building {family_count} image families / "
+                    f"{member_count} architecture members"
+                )
+            rendered.extend([f"Images: {package} — {image_status}", ""])
+
+        rendered.extend(
+            [
+                "| Runtime capability | Upstream Runtime tags | Python ABI | Wheel downloads |",
+                "| --- | --- | --- | --- |",
+            ]
+        )
+        for key in sorted(rows, key=lambda item: (item[1], item[2], item[0])):
+            row = rows[key]
+            available_arches = set(row["wheels"])
+            runtime_tags = []
+            for family in sorted(row["families"], key=lambda item: item["tag"]):
+                tag = family["tag"]
+                arch_suffix = ""
+                if family["architectures"] != available_arches:
+                    architectures = ", ".join(
+                        _architecture_label(item)
+                        for item in sorted(family["architectures"])
+                    )
+                    arch_suffix = f" ({architectures} only)"
+                runtime_tags.append(f"`{tag}`{arch_suffix}")
+            wheel_links = []
+            for _, wheel in sorted(row["wheels"].items()):
+                filename = str(wheel["filename"])
+                wheel_links.append(f"[{filename}]({asset_urls[filename]})")
+            rendered.append(
+                "| "
+                + " | ".join(
+                    (
+                        _capability_label(row),
+                        "<br>".join(runtime_tags),
+                        f"`{row['python_abi']}`",
+                        "<br>".join(wheel_links),
+                    )
+                )
+                + " |"
+            )
+        rendered.append("")
+    return rendered
+
+
+def render_notes(
+    manifest: dict[str, Any], *, repository: str, asset_urls: dict[str, str]
+) -> str:
+    """Render compact, linked Release notes from the current manifest stage."""
+    release = _mapping(manifest.get("release"), "release manifest release")
     lines = [
         f"# UCM {release['git_tag']}",
         "",
         f"Status: `{release['status']}`",
         "",
     ]
-    if release["status"] != "release-open":
+    if release["status"] == "release-open":
+        lines.append("Wheels, Chart, and images are building.")
+        return "\n".join(lines) + "\n"
+
+    chart = _mapping(manifest.get("chart"), "release manifest Chart")
+    chart_filename = str(chart.get("filename", ""))
+    chart_url = asset_urls.get(chart_filename)
+    checksums_url = asset_urls.get("SHA256SUMS")
+    manifest_url = asset_urls.get("release-manifest.json")
+    if not chart_filename or not chart_url or not checksums_url or not manifest_url:
+        raise ValueError("Release notes require Chart, checksums, and manifest URLs")
+    lines.extend(
+        [
+            f"Wheels: {len(manifest.get('wheels', []))}",
+            f"Chart: [{chart_filename}]({chart_url})",
+            f"Checksums: [SHA256SUMS]({checksums_url})",
+            "",
+        ]
+    )
+    if release["status"] == "artifacts-ready":
+        lines.extend(
+            ["> Wheels and Chart are available. Images are still building.", ""]
+        )
+    elif release["status"] == "images-failed":
         lines.extend(
             [
-                f"Wheels: {len(manifest.get('wheels', []))}",
-                f"Chart: `{manifest.get('chart', {}).get('filename', 'building')}`",
+                "> Wheels and Chart remain available, but one or more images failed to publish.",
                 "",
             ]
         )
-        wheel_names = {
-            str(item["id"]): str(item["filename"])
-            for item in manifest.get("wheels", [])
-        }
-        lines.extend(["Runtime / Wheel mapping:", ""])
-        for family in manifest.get("families", []):
-            runtime = family.get("runtime", {})
-            runtime_ref = f"{runtime.get('repository')}:{runtime.get('tag')}"
-            members = sorted(
-                (
-                    item
-                    for item in manifest.get("images", [])
-                    if item.get("family_id") == family.get("id")
-                ),
-                key=lambda item: str(item.get("cpu_arch")),
-            )
-            mapping = ", ".join(
-                f"{item['cpu_arch']}={wheel_names.get(str(item['wheel_id']), 'missing')}"
-                for item in members
-            )
-            lines.append(f"- `{runtime_ref}`: `{mapping}`")
-        lines.append("")
-    if release["status"] == "artifacts-ready":
-        lines.append("Wheels and Chart are available. Images are still building.")
-    elif release["status"] == "complete":
-        lines.extend(["Published images:", ""])
-        for family in manifest["families"]:
-            targets = family.get("targets", [])
-            rendered = ", ".join(
-                f"`{item['reference']}@{item['digest']}`" for item in targets
-            )
-            lines.append(f"- {family['id']}: {rendered or 'no remote target enabled'}")
-    elif release["status"] == "images-failed":
-        lines.append(
-            "Wheels and Chart remain available, but one or more images failed to publish."
-        )
-    else:
-        lines.append("Wheels, Chart, and images are building.")
     lines.extend(
-        [
-            "",
-            "See `release-manifest.json` for the Runtime member → Wheel → Image mapping.",
-        ]
+        _render_product_tables(manifest, repository=repository, asset_urls=asset_urls)
+    )
+    lines.append(
+        "Complete Runtime member → Wheel → Image mapping: "
+        f"[release-manifest.json]({manifest_url})"
     )
     return "\n".join(lines) + "\n"
 
@@ -493,9 +707,6 @@ def _artifacts(arguments: argparse.Namespace) -> None:
         "".join(f"{digest}  {filename}\n" for digest, filename in checksums),
         encoding="utf-8",
     )
-    (arguments.output / "release-notes.md").write_text(
-        render_notes(manifest), encoding="utf-8"
-    )
 
 
 def _finalize(arguments: argparse.Namespace) -> None:
@@ -508,8 +719,21 @@ def _finalize(arguments: argparse.Namespace) -> None:
         index_outcome=arguments.index_outcome,
     )
     _write_json(arguments.output / "release-manifest.json", result)
+
+
+def _notes(arguments: argparse.Namespace) -> None:
+    manifest = _mapping(_load_json(arguments.manifest), "release manifest")
+    release_document = _mapping(
+        _load_json(arguments.release), "GitHub Release document"
+    )
+    asset_urls = _github_asset_urls(manifest, release_document)
     (arguments.output / "release-notes.md").write_text(
-        render_notes(result), encoding="utf-8"
+        render_notes(
+            manifest,
+            repository=arguments.repository,
+            asset_urls=asset_urls,
+        ),
+        encoding="utf-8",
     )
 
 
@@ -530,6 +754,12 @@ def build_parser() -> argparse.ArgumentParser:
     finalize.add_argument("--index-outcome", required=True)
     finalize.add_argument("--output", type=Path, required=True)
     finalize.set_defaults(func=_finalize)
+    notes = commands.add_parser("notes")
+    notes.add_argument("--manifest", type=Path, required=True)
+    notes.add_argument("--release", type=Path, required=True)
+    notes.add_argument("--repository", required=True)
+    notes.add_argument("--output", type=Path, required=True)
+    notes.set_defaults(func=_notes)
     return parser
 
 

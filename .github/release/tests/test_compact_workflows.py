@@ -136,10 +136,18 @@ def test_artifact_stage_generates_and_uploads_manifest_and_checksums() -> None:
     jobs = _load("release-ucm.yml")["jobs"]
     text = yaml.safe_dump(jobs["publish-release-artifacts"])
     assert "release.py artifacts" in text
+    assert "release.py notes" in text
     assert "release-manifest.json" in text
     assert "SHA256SUMS" in text
     assert "ucm-release-stage-run-${{ github.run_id }}" in text
     assert "build-images" not in jobs["publish-release-artifacts"]["needs"]
+    upload = next(
+        step
+        for step in jobs["publish-release-artifacts"]["steps"]
+        if step.get("name") == "Upload Wheels, Chart, checksums, and staged manifest"
+    )
+    assert 'gh api "/repos/${GH_REPO}/releases/${release_id}"' in upload["run"]
+    assert '--repository "${GH_REPO}"' in upload["run"]
     failure_step = jobs["publish-release-artifacts"]["steps"][-1]
     assert failure_step["if"] == "${{ failure() }}"
     assert "artifacts-failed" in failure_step["run"]
@@ -165,6 +173,8 @@ def test_image_failure_notes_are_not_overwritten_by_the_fallback() -> None:
     fallback = steps[-1]
 
     assert "release.status" not in update["run"]
+    assert "release.py notes" in update["run"]
+    assert 'gh api "/repos/${GH_REPO}/releases/${release_id}"' in update["run"]
     assert "release.status" in require["run"]
     assert "steps.update-release.outcome != 'success'" in fallback["if"]
 

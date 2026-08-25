@@ -61,6 +61,7 @@ def _plan() -> dict[str, object]:
                     "repository": "docker.io/vllm/vllm-openai",
                     "tag": "v0.23.0",
                     "python_abi": "cp312",
+                    "accelerator_runtime": "cuda-12.9",
                 },
             }
         ],
@@ -70,6 +71,7 @@ def _plan() -> dict[str, object]:
                 "runtime": {
                     "repository": "docker.io/vllm/vllm-openai",
                     "tag": "v0.23.0",
+                    "accelerator_runtime": "cuda-12.9",
                 },
                 "members": [
                     {
@@ -141,6 +143,23 @@ def _write_artifact_inputs(
     return tmp_path / "wheels", chart, result_path, filename
 
 
+def _asset_urls(manifest: dict[str, object]) -> dict[str, str]:
+    filenames = {
+        str(item["filename"]) for item in manifest["wheels"]  # type: ignore[index]
+    }
+    filenames.update(
+        {
+            str(manifest["chart"]["filename"]),  # type: ignore[index]
+            "SHA256SUMS",
+            "release-manifest.json",
+        }
+    )
+    return {
+        filename: f"https://github.com/example/ucm/releases/download/v1/{filename}"
+        for filename in filenames
+    }
+
+
 def test_artifacts_and_image_receipts_form_one_mapping(tmp_path: Path) -> None:
     wheels, chart, _, filename = _write_artifact_inputs(tmp_path)
 
@@ -151,9 +170,14 @@ def test_artifacts_and_image_receipts_form_one_mapping(tmp_path: Path) -> None:
     assert manifest["wheels"][0]["builder"]["source_image_digest"] == ("sha256:builder")
     assert manifest["wheels"][0]["builder"]["digest"] == "sha256:" + "c" * 64
     assert manifest["images"][0]["wheel_id"] == "cuda129-cp312-amd64"
-    notes = release.render_notes(manifest)
-    assert "docker.io/vllm/vllm-openai:v0.23.0" in notes
-    assert f"amd64={filename}" in notes
+    asset_urls = _asset_urls(manifest)
+    notes = release.render_notes(
+        manifest, repository="example/ucm", asset_urls=asset_urls
+    )
+    assert "Runtime: `docker.io/vllm/vllm-openai`" in notes
+    assert "`v0.23.0`" in notes
+    assert f"[{filename}]({asset_urls[filename]})" in notes
+    assert "amd64=" not in notes
     assert {name for _, name in checksums} == {
         filename,
         "ucm-0.7.62-rc.1.tgz",
@@ -189,6 +213,178 @@ def test_artifacts_and_image_receipts_form_one_mapping(tmp_path: Path) -> None:
     assert final["release"]["status"] == "complete"
     assert final["images"][0]["targets"][0]["digest"] == "sha256:" + "a" * 64
     assert final["families"][0]["targets"] == final["images"][0]["targets"]
+    final_notes = release.render_notes(
+        final, repository="example/ucm", asset_urls=asset_urls
+    )
+    assert "https://github.com/example/ucm/pkgs/container/vllm" in final_notes
+    assert "sha256:" not in final_notes
+
+
+def test_release_notes_split_products_and_aggregate_wheel_capabilities() -> None:
+    manifest = {
+        "release": {"git_tag": "v1.0.0rc1", "status": "complete"},
+        "chart": {"filename": "ucm-1.0.0-rc.1.tgz"},
+        "wheels": [
+            {
+                "id": "cuda-amd64",
+                "filename": "uc_manager_cuda-amd64.whl",
+                "backend": "cuda",
+                "runtime_variant": "cu130",
+                "python_abi": "cp312",
+                "cpu_arch": "amd64",
+            },
+            {
+                "id": "cuda-arm64",
+                "filename": "uc_manager_cuda-arm64.whl",
+                "backend": "cuda",
+                "runtime_variant": "cu130",
+                "python_abi": "cp312",
+                "cpu_arch": "arm64",
+            },
+            {
+                "id": "cann-amd64",
+                "filename": "uc_manager_cann910_a2-amd64.whl",
+                "backend": "cann-a2",
+                "runtime_variant": "cann910-a2",
+                "python_abi": "cp312",
+                "cpu_arch": "amd64",
+            },
+            {
+                "id": "cann-arm64",
+                "filename": "uc_manager_cann910_a2-arm64.whl",
+                "backend": "cann-a2",
+                "runtime_variant": "cann910-a2",
+                "python_abi": "cp312",
+                "cpu_arch": "arm64",
+            },
+        ],
+        "images": [
+            {
+                "family_id": "openai-v1",
+                "wheel_id": "cuda-amd64",
+                "cpu_arch": "amd64",
+            },
+            {
+                "family_id": "openai-v1",
+                "wheel_id": "cuda-arm64",
+                "cpu_arch": "arm64",
+            },
+            {
+                "family_id": "openai-v2",
+                "wheel_id": "cuda-amd64",
+                "cpu_arch": "amd64",
+            },
+            {
+                "family_id": "openai-v2",
+                "wheel_id": "cuda-arm64",
+                "cpu_arch": "arm64",
+            },
+            {
+                "family_id": "ascend-v1",
+                "wheel_id": "cann-arm64",
+                "cpu_arch": "arm64",
+            },
+            {
+                "family_id": "ascend-v2",
+                "wheel_id": "cann-amd64",
+                "cpu_arch": "amd64",
+            },
+            {
+                "family_id": "ascend-v2",
+                "wheel_id": "cann-arm64",
+                "cpu_arch": "arm64",
+            },
+        ],
+        "families": [
+            {
+                "id": "openai-v1",
+                "runtime": {
+                    "repository": "docker.io/vllm/vllm-openai",
+                    "tag": "v1.0.0",
+                    "accelerator_runtime": "cuda-13.0",
+                },
+                "expected_targets": {"ghcr": "ghcr.io/example/vllm-openai:v1.0.0-ucm"},
+                "status": "published",
+                "targets": [{"channel": "ghcr"}],
+            },
+            {
+                "id": "openai-v2",
+                "runtime": {
+                    "repository": "docker.io/vllm/vllm-openai",
+                    "tag": "v1.1.0",
+                    "accelerator_runtime": "cuda-13.0",
+                },
+                "expected_targets": {"ghcr": "ghcr.io/example/vllm-openai:v1.1.0-ucm"},
+                "status": "published",
+                "targets": [{"channel": "ghcr"}],
+            },
+            {
+                "id": "ascend-v1",
+                "runtime": {
+                    "repository": "quay.io/ascend/vllm-ascend",
+                    "tag": "v1.0.0",
+                    "accelerator_runtime": "cann-9.1.0",
+                },
+                "expected_targets": {"ghcr": "ghcr.io/example/vllm-ascend:v1.0.0-ucm"},
+                "status": "published",
+                "targets": [{"channel": "ghcr"}],
+            },
+            {
+                "id": "ascend-v2",
+                "runtime": {
+                    "repository": "quay.io/ascend/vllm-ascend",
+                    "tag": "v1.1.0",
+                    "accelerator_runtime": "cann-9.1.0",
+                },
+                "expected_targets": {"ghcr": "ghcr.io/example/vllm-ascend:v1.1.0-ucm"},
+                "status": "published",
+                "targets": [{"channel": "ghcr"}],
+            },
+        ],
+    }
+    asset_urls = _asset_urls(manifest)
+
+    notes = release.render_notes(
+        manifest, repository="example/ucm", asset_urls=asset_urls
+    )
+
+    assert notes.count("## vLLM OpenAI") == 1
+    assert notes.count("## vLLM-Ascend") == 1
+    assert notes.count("| Runtime capability |") == 2
+    assert notes.count("uc_manager_cuda-amd64.whl") == 2
+    assert "CANN 9.1.0 / A2" in notes
+    assert "`v1.0.0` (aarch64 only)" in notes
+    assert "pkgs/container/vllm-openai" in notes
+    assert "pkgs/container/vllm-ascend" in notes
+    assert "2 image families / 4 architecture members" in notes
+    assert "2 image families / 3 architecture members" in notes
+    assert " tags / " not in notes
+
+
+def test_github_asset_urls_preserve_draft_browser_download_urls() -> None:
+    manifest = {
+        "release": {"git_tag": "draft/v1.0.0-1"},
+        "chart": {"filename": "ucm.tgz"},
+        "wheels": [{"filename": "ucm.whl"}],
+    }
+    base = "https://github.com/example/ucm/releases/download/untagged-1234567890abcdef"
+    release_document = {
+        "tag_name": "draft/v1.0.0-1",
+        "assets": [
+            {"name": name, "browser_download_url": f"{base}/{name}"}
+            for name in (
+                "ucm.whl",
+                "ucm.tgz",
+                "SHA256SUMS",
+                "release-manifest.json",
+            )
+        ],
+    }
+
+    urls = release._github_asset_urls(manifest, release_document)
+
+    assert urls["ucm.whl"] == f"{base}/ucm.whl"
+    assert "draft%2F" not in urls["ucm.whl"]
 
 
 @pytest.mark.parametrize(

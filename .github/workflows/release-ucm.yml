@@ -689,6 +689,12 @@ jobs:
           gh release upload "${tag}" --clobber \
             input/wheels/*/*.whl input/chart/*.tgz \
             out/release/SHA256SUMS out/release/release-manifest.json
+          release_json="${RUNNER_TEMP}/github-release-${release_id}.json"
+          gh api "/repos/${GH_REPO}/releases/${release_id}" >"${release_json}"
+          python .github/release/ucm_release/release.py notes \
+            --manifest out/release/release-manifest.json \
+            --release "${release_json}" --repository "${GH_REPO}" \
+            --output out/release
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
             -f "tag_name=${tag}" \
             -f "body=$(<out/release/release-notes.md)" >/dev/null
@@ -1007,6 +1013,11 @@ jobs:
           fi
           release_id="$(jq -er '.[0].id' <<<"${releases}")"
           gh release upload "${tag}" --clobber "${manifest}"
+          release_json="${RUNNER_TEMP}/github-release-${release_id}.json"
+          gh api "/repos/${GH_REPO}/releases/${release_id}" >"${release_json}"
+          python .github/release/ucm_release/release.py notes \
+            --manifest "${manifest}" --release "${release_json}" \
+            --repository "${GH_REPO}" --output out/release
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
             -f "tag_name=${tag}" \
             -f "body=$(<out/release/release-notes.md)" >/dev/null
