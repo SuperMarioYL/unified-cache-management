@@ -1,0 +1,1114 @@
+name: UCM Reusable Release Core
+
+on:
+  workflow_call:
+    inputs:
+      git_tag:
+        description: Exact immutable Release Tag
+        type: string
+        required: true
+      release_type:
+        description: Stable, prerelease, draft, or nightly Profile
+        type: string
+        required: true
+      version:
+        description: Canonical Wheel and image version
+        type: string
+        required: true
+      chart_version:
+        description: Canonical Helm Chart version
+        type: string
+        required: true
+      image_version:
+        description: Canonical Runtime image version
+        type: string
+        required: true
+      release_kind:
+        description: GitHub Release visibility class
+        type: string
+        required: true
+      is_prerelease:
+        description: Final GitHub prerelease flag
+        type: boolean
+        required: true
+      source_sha:
+        description: Frozen source commit referenced by the Tag
+        type: string
+        required: true
+
+concurrency:
+  group: ucm-release-${{ github.repository_id }}-${{ inputs.git_tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  open-release:
+    name: Release · Open immediately
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release-production
+    outputs:
+      enabled: ${{ steps.profile.outputs.enabled }}
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_KIND: ${{ inputs.release_kind }}
+      RELEASE_TYPE: ${{ inputs.release_type }}
+      IS_PRERELEASE: ${{ inputs.is_prerelease }}
+      RELEASE_TAG: ${{ inputs.git_tag }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - id: profile
+        name: Resolve GitHub Release Profile switch
+        run: |
+          set -euo pipefail
+          enabled="$(PYTHONPATH=.github/release python -c \
+            'import sys; from ucm_release import policy; print(str(policy.resolve(release_type=sys.argv[1])["publish"]["github_release"]["enabled"]).lower())' \
+            "${RELEASE_TYPE}")"
+          echo "enabled=${enabled}" >>"${GITHUB_OUTPUT}"
+      - name: Create or reuse exact Tag Release
+        if: ${{ steps.profile.outputs.enabled == 'true' }}
+        run: |
+          set -euo pipefail
+          tag="${RELEASE_TAG}"
+          notes="${RUNNER_TEMP}/release-open.md"
+          printf '%s\n' \
+            "Status: \`release-open\`" \
+            "" \
+            "Release artifacts are building." \
+            >"${notes}"
+
+          lookup_release() {
+            gh api --paginate --slurp \
+              "/repos/${GH_REPO}/releases?per_page=100" \
+              | jq -ce --arg tag "${tag}" \
+                '[.[][] | select(.tag_name == $tag)]'
+          }
+          wait_for_release() {
+            local releases count attempt
+            for attempt in $(seq 1 15); do
+              releases="$(lookup_release)"
+              count="$(jq 'length' <<<"${releases}")"
+              if [ "${count}" -gt 1 ]; then
+                echo "Tag ${tag} resolves to ${count} Releases; refusing ambiguity" >&2
+                return 2
+              fi
+              if [ "${count}" -eq 1 ]; then
+                printf '%s\n' "${releases}"
+                return 0
+              fi
+              echo "Waiting for Tag ${tag} Release to become visible (${attempt}/15)" >&2
+              sleep 2
+            done
+            echo "Tag ${tag} Release was not visible after 30 seconds" >&2
+            return 1
+          }
+          releases="$(lookup_release)"
+          count="$(jq 'length' <<<"${releases}")"
+          if [ "${count}" -gt 1 ]; then
+            echo "Tag ${tag} resolves to ${count} Releases; refusing ambiguity" >&2
+            exit 2
+          fi
+          if [ "${count}" -eq 0 ]; then
+            args=("${tag}" --verify-tag --title "${tag}" --notes-file "${notes}")
+            if [ "${RELEASE_TYPE}" = draft ] || [ "${RELEASE_TYPE}" = nightly ]; then
+              args+=(--draft --prerelease)
+            elif [ "${IS_PRERELEASE}" = true ]; then
+              args+=(--prerelease)
+            fi
+            gh release create "${args[@]}"
+            releases="$(wait_for_release)"
+          fi
+
+          test "$(jq 'length' <<<"${releases}")" = 1
+          release_id="$(jq -er '.[0].id' <<<"${releases}")"
+          if [ "${RELEASE_TYPE}" = draft ] || [ "${RELEASE_TYPE}" = nightly ]; then
+            jq -e '.[0].draft == true' <<<"${releases}" >/dev/null
+            gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+              -F draft=true -F prerelease=true \
+              -f "tag_name=${tag}" \
+              -f "name=${tag}" -f "body=$(<"${notes}")" >/dev/null
+          else
+            gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+              -F draft=false -F "prerelease=${IS_PRERELEASE}" \
+              -f "tag_name=${tag}" \
+              -f "name=${tag}" -f "body=$(<"${notes}")" >/dev/null
+          fi
+          releases="$(lookup_release)"
+          test "$(jq 'length' <<<"${releases}")" = 1
+          if [ "${RELEASE_TYPE}" = draft ] || [ "${RELEASE_TYPE}" = nightly ]; then
+            jq -e '.[0].draft == true' <<<"${releases}" >/dev/null
+          else
+            jq -e --argjson prerelease "${IS_PRERELEASE}" \
+              '.[0].draft == false and .[0].prerelease == $prerelease' \
+              <<<"${releases}" >/dev/null
+          fi
+
+  select-runtime-candidates:
+    name: Select Runtime Registry Tags
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      candidates_artifact: ${{ steps.select.outputs.candidates_artifact }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - name: Install crane for runtime discovery
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 \
+            https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
+            | tar -xz -C "${RUNNER_TEMP}/crane" crane
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - id: select
+        name: Select runtime versions from Registry Tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TYPE: ${{ inputs.release_type }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          python scripts/materialize_version.py --version "${RELEASE_VERSION}" >/dev/null
+          mkdir -p out/candidates
+          PYTHONPATH=.github/release python -m ucm_release upstreams candidates \
+            --release-type "${RELEASE_TYPE}" \
+            --output out/candidates/runtime-candidates.json >/dev/null
+          artifact="ucm-runtime-candidates-run-${GITHUB_RUN_ID}"
+          echo "candidates_artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ steps.select.outputs.candidates_artifact }}
+          path: out/candidates/runtime-candidates.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 90
+
+  inspect-runtimes:
+    name: Inspect selected Runtime manifests
+    needs: select-runtime-candidates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      inspection_artifact: ${{ steps.inspect.outputs.inspection_artifact }}
+      probe_matrix: ${{ steps.inspect.outputs.probe_matrix }}
+      has_probe_fallback: ${{ steps.inspect.outputs.has_probe_fallback }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - name: Install crane
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 \
+            https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
+            | tar -xz -C "${RUNNER_TEMP}/crane" crane
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.select-runtime-candidates.outputs.candidates_artifact }}
+          path: input/candidates
+      - id: inspect
+        run: |
+          set -euo pipefail
+          mkdir -p out/inspection
+          jq -er '.references[]' input/candidates/runtime-candidates.json \
+            >out/inspection/runtime-refs.txt
+          PYTHONPATH=.github/release python -m ucm_release runtime inspect \
+            --references-file out/inspection/runtime-refs.txt \
+            --output out/inspection/runtime-inspection.json >/dev/null
+          artifact="ucm-runtime-inspection-run-${GITHUB_RUN_ID}"
+          {
+            echo "inspection_artifact=${artifact}"
+            echo "probe_matrix=$(jq -c 'if (.probe_matrix.include | length) > 0 then .probe_matrix else {include:[.members[0]]} end' out/inspection/runtime-inspection.json)"
+            echo "has_probe_fallback=$(jq -r '.probe_matrix.include | length > 0' out/inspection/runtime-inspection.json)"
+          } >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ steps.inspect.outputs.inspection_artifact }}
+          path: out/inspection/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 90
+
+  probe-runtimes:
+    name: Capability check · ${{ matrix.runtime_ref }} · ${{ matrix.cpu_arch }}
+    needs: inspect-runtimes
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.inspect-runtimes.outputs.probe_matrix) }}
+    uses: ./.github/workflows/_probe-runtime.yml
+    with:
+      probe_id: ${{ matrix.probe_id }}
+      runtime_ref: ${{ matrix.runtime_ref }}
+      image_reference: ${{ matrix.image_reference }}
+      platform: ${{ matrix.platform }}
+      accelerator: ${{ matrix.accelerator }}
+      runner: ${{ matrix.runner }}
+      enabled: ${{ matrix.fallback_required }}
+      retention_days: 90
+
+  resolve-upstreams:
+    name: Resolve Runtime capabilities and Builders
+    needs: [select-runtime-candidates, inspect-runtimes, probe-runtimes]
+    if: >-
+      ${{
+        always() &&
+        needs.select-runtime-candidates.result == 'success' &&
+        needs.inspect-runtimes.result == 'success' &&
+        (needs.probe-runtimes.result == 'success' ||
+         needs.probe-runtimes.result == 'skipped')
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      runtime_selection_artifact: ${{ steps.resolve.outputs.runtime_selection_artifact }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - name: Install crane
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 \
+            https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
+            | tar -xz -C "${RUNNER_TEMP}/crane" crane
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.select-runtime-candidates.outputs.candidates_artifact }}
+          path: input/candidates
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.inspect-runtimes.outputs.inspection_artifact }}
+          path: input/inspection
+      - uses: actions/download-artifact@v4.3.0
+        if: needs.inspect-runtimes.outputs.has_probe_fallback == 'true'
+        with:
+          pattern: ucm-runtime-probe-*-run-${{ github.run_id }}
+          path: input/probes
+      - id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TYPE: ${{ inputs.release_type }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          python scripts/materialize_version.py --version "${RELEASE_VERSION}" >/dev/null
+          mkdir -p out/upstreams input/probes
+          PYTHONPATH=.github/release python -m ucm_release runtime aggregate \
+            --inspection input/inspection/runtime-inspection.json \
+            --probe-dir input/probes \
+            --output out/upstreams/runtime-probe.json >/dev/null
+          PYTHONPATH=.github/release python -m ucm_release upstreams resolve \
+            --release-type "${RELEASE_TYPE}" \
+            --candidates input/candidates/runtime-candidates.json \
+            --runtime-probe out/upstreams/runtime-probe.json \
+            --output out/upstreams/runtime-selection.json >/dev/null
+          PYTHONPATH=.github/release python -m ucm_release problems render \
+            --selection out/upstreams/runtime-selection.json \
+            --summary out/upstreams/problems-summary.md \
+            --issue out/upstreams/problems-issue.json \
+            --action out/upstreams/problems-action.json >/dev/null
+          cat out/upstreams/problems-summary.md >>"${GITHUB_STEP_SUMMARY}"
+          artifact="ucm-runtime-selection-run-${GITHUB_RUN_ID}"
+          echo "runtime_selection_artifact=${artifact}" >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ steps.resolve.outputs.runtime_selection_artifact }}
+          path: out/upstreams/runtime-selection.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 90
+
+  sync-builders:
+    name: Prepare immutable Wheel Builders
+    needs: resolve-upstreams
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/sync-builders.yml
+    with:
+      runtime_selection_artifact: ${{ needs.resolve-upstreams.outputs.runtime_selection_artifact }}
+
+  plan:
+    name: Plan Wheels, Images, and Chart
+    needs: [resolve-upstreams, sync-builders]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      route: ${{ steps.plan.outputs.route }}
+      release_kind: ${{ steps.plan.outputs.release_kind }}
+      publish_images: ${{ steps.plan.outputs.publish_images }}
+      plan_artifact: ${{ steps.plan.outputs.plan_artifact }}
+      wheel_matrix: ${{ steps.plan.outputs.wheel_matrix }}
+      image_matrix: ${{ steps.plan.outputs.image_matrix }}
+      image_index_matrix: ${{ steps.plan.outputs.image_index_matrix }}
+      has_image_indexes: ${{ steps.plan.outputs.has_image_indexes }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.resolve-upstreams.outputs.runtime_selection_artifact }}
+          path: input/upstreams
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.sync-builders.outputs.builder_catalog_artifact }}
+          path: input/builders
+      - id: plan
+        name: Generate final build matrices
+        env:
+          RELEASE_TAG: ${{ inputs.git_tag }}
+          RELEASE_TYPE: ${{ inputs.release_type }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_KIND: ${{ inputs.release_kind }}
+          IS_PRERELEASE: ${{ inputs.is_prerelease }}
+          CHART_VERSION: ${{ inputs.chart_version }}
+          IMAGE_VERSION: ${{ inputs.image_version }}
+        run: |
+          set -euo pipefail
+          test "${IMAGE_VERSION}" = "${RELEASE_VERSION}"
+          python scripts/materialize_version.py \
+            --version "${RELEASE_VERSION}" >/dev/null
+          mkdir -p out/plan
+          PYTHONPATH=.github/release python -m ucm_release compact plan \
+            --runtime-selection input/upstreams/runtime-selection.json \
+            --builder-catalog input/builders/builder-catalog.json \
+            --route release --release-type "${RELEASE_TYPE}" \
+            --git-tag "${RELEASE_TAG}" \
+            --release-kind "${RELEASE_KIND}" \
+            --is-prerelease "${IS_PRERELEASE}" \
+            --chart-version "${CHART_VERSION}" \
+            --output out/plan/release-plan.json >/dev/null
+          jq -e --arg tag "${RELEASE_TAG}" \
+            --arg type "${RELEASE_TYPE}" \
+            --arg kind "${RELEASE_KIND}" \
+            --arg version "${RELEASE_VERSION}" \
+            --arg chart_version "${CHART_VERSION}" \
+            '.git_tag == $tag and .release_type == $type and
+             .release_kind == $kind and .version == $version and
+             .image_version == $version and .chart.app_version == $version and
+             .chart.version == $chart_version and
+             ([.wheels[].wheel_version] | all(. == $version))' \
+            out/plan/release-plan.json >/dev/null
+          artifact="ucm-release-plan-run-${GITHUB_RUN_ID}"
+          index_matrix="$(jq -ce \
+            '{include:[.families[]|select(.create_index)|
+              {id,label,target_repository,target_tag,members:[.members[].reference]}]}' \
+            out/plan/release-plan.json)"
+          publish_images="$(jq -r \
+            '(.publish.ghcr.enabled == true) or (.publish.dockerhub.enabled == true)' \
+            out/plan/release-plan.json)"
+          if [ "${publish_images}" = true ]; then
+            has_image_indexes="$(jq -r '.include | length > 0' \
+              <<<"${index_matrix}")"
+          else
+            has_image_indexes=false
+          fi
+          {
+            echo "route=release"
+            echo "release_kind=${RELEASE_KIND}"
+            echo "publish_images=${publish_images}"
+            echo "plan_artifact=${artifact}"
+            echo "wheel_matrix=$(jq -c '.wheel_matrix' out/plan/release-plan.json)"
+            echo "image_matrix=$(jq -c '.image_matrix' out/plan/release-plan.json)"
+            echo "image_index_matrix=${index_matrix}"
+            echo "has_image_indexes=${has_image_indexes}"
+          } >>"${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ steps.plan.outputs.plan_artifact }}
+          path: out/plan/release-plan.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 90
+
+  report-planning-failure:
+    name: Release · Report planning failure
+    needs:
+      - open-release
+      - select-runtime-candidates
+      - inspect-runtimes
+      - probe-runtimes
+      - resolve-upstreams
+      - sync-builders
+      - plan
+    if: >-
+      ${{
+        always() && needs.open-release.result == 'success' &&
+        needs.open-release.outputs.enabled == 'true' &&
+        needs.plan.result != 'success'
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release-production
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      CANDIDATE_OUTCOME: ${{ needs.select-runtime-candidates.result }}
+      INSPECT_OUTCOME: ${{ needs.inspect-runtimes.result }}
+      PROBE_OUTCOME: ${{ needs.probe-runtimes.result }}
+      RESOLVE_OUTCOME: ${{ needs.resolve-upstreams.result }}
+      BUILDER_OUTCOME: ${{ needs.sync-builders.result }}
+      PLAN_OUTCOME: ${{ needs.plan.result }}
+      RELEASE_TAG: ${{ inputs.git_tag }}
+    steps:
+      - name: Mark the opened Release as failed
+        run: |
+          set -euo pipefail
+          tag="${RELEASE_TAG}"
+          releases="$(gh api --paginate --slurp \
+            "/repos/${GH_REPO}/releases?per_page=100" \
+            | jq -ce --arg tag "${tag}" '[.[][] | select(.tag_name == $tag)]')"
+          test "$(jq 'length' <<<"${releases}")" = 1
+          release_id="$(jq -er '.[0].id' <<<"${releases}")"
+          notes="${RUNNER_TEMP}/planning-failed.md"
+          printf '%s\n' \
+            "Status: \`artifacts-failed\`" \
+            "" \
+            "Runtime candidates: ${CANDIDATE_OUTCOME}" \
+            "Runtime inspection: ${INSPECT_OUTCOME}" \
+            "Runtime probes: ${PROBE_OUTCOME}" \
+            "Runtime/Builder resolution: ${RESOLVE_OUTCOME}" \
+            "Builder synchronization: ${BUILDER_OUTCOME}" \
+            "Release plan: ${PLAN_OUTCOME}" >"${notes}"
+          gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+            -f "tag_name=${tag}" \
+            -f "body=$(<"${notes}")" >/dev/null
+
+  build-wheels:
+    name: Wheel · ${{ matrix.label }}
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.wheel_matrix) }}
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/_build-wheel.yml
+    with:
+      wheel_id: ${{ matrix.id }}
+      runner: ${{ matrix.runner }}
+      plan_artifact: ${{ needs.plan.outputs.plan_artifact }}
+      source_ref: ${{ inputs.source_sha }}
+      retention_days: 90
+
+  package-chart:
+    name: Chart · Helm package
+    needs: plan
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_build-chart.yml
+    with:
+      plan_artifact: ${{ needs.plan.outputs.plan_artifact }}
+      source_ref: ${{ inputs.source_sha }}
+      retention_days: 90
+
+  build-images:
+    name: Tag Image · ${{ matrix.label }}
+    needs: [plan, build-wheels, publish-release-artifacts]
+    if: >-
+      ${{
+        needs.plan.outputs.publish_images == 'true' &&
+        needs.plan.result == 'success' && needs.build-wheels.result == 'success' &&
+        needs.publish-release-artifacts.result == 'success'
+      }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.image_matrix) }}
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/_build-release-image.yml
+    with:
+      image_id: ${{ matrix.id }}
+      runner: ${{ matrix.runner }}
+      plan_artifact: ${{ needs.plan.outputs.plan_artifact }}
+      source_ref: ${{ inputs.source_sha }}
+    secrets: inherit
+
+  publish-release-artifacts:
+    name: Release · Publish Wheels, Chart, and Config
+    needs: [plan, open-release, build-wheels, package-chart]
+    if: >-
+      ${{
+        always() && needs.plan.result == 'success' &&
+        needs.open-release.result == 'success'
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release-production
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.git_tag }}
+      RELEASE_TYPE: ${{ inputs.release_type }}
+    steps:
+      - name: Report failed Wheel or Chart build
+        if: >-
+          ${{
+            needs.open-release.outputs.enabled == 'true' &&
+            (needs.build-wheels.result != 'success' ||
+             needs.package-chart.result != 'success')
+          }}
+        env:
+          WHEEL_OUTCOME: ${{ needs.build-wheels.result }}
+          CHART_OUTCOME: ${{ needs.package-chart.result }}
+        run: |
+          set -euo pipefail
+          tag="${RELEASE_TAG}"
+          releases="$(gh api --paginate --slurp \
+            "/repos/${GH_REPO}/releases?per_page=100" \
+            | jq -ce --arg tag "${tag}" '[.[][] | select(.tag_name == $tag)]')"
+          test "$(jq 'length' <<<"${releases}")" = 1
+          if [ "${RELEASE_TYPE}" = draft ] || [ "${RELEASE_TYPE}" = nightly ]; then
+            jq -e '.[0].draft == true' <<<"${releases}" >/dev/null
+          else
+            jq -e '.[0].draft == false' <<<"${releases}" >/dev/null
+          fi
+          release_id="$(jq -er '.[0].id' <<<"${releases}")"
+          notes="${RUNNER_TEMP}/artifacts-failed.md"
+          printf '%s\n' \
+            "Status: \`artifacts-failed\`" \
+            "" \
+            "Wheel outcome: ${WHEEL_OUTCOME}" \
+            "Chart outcome: ${CHART_OUTCOME}" >"${notes}"
+          gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+            -f "tag_name=${tag}" \
+            -f "body=$(<"${notes}")" >/dev/null
+          exit 1
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.plan.outputs.plan_artifact }}
+          path: input/plan
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          pattern: ucm-wheel-*-run-${{ github.run_id }}
+          path: input/wheels
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ucm-chart-run-${{ github.run_id }}
+          path: input/chart
+      - name: Build internal artifacts-ready release state
+        run: |
+          set -euo pipefail
+          python .github/release/ucm_release/release.py artifacts \
+            --plan input/plan/release-plan.json \
+            --wheels input/wheels --chart input/chart \
+            --run-id "${GITHUB_RUN_ID}" --output out/release
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ucm-release-stage-run-${{ github.run_id }}
+          path: out/release/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 90
+      - name: Upload Wheels, Chart, and Config
+        run: |
+          set -euo pipefail
+          plan=input/plan/release-plan.json
+          if [ "$(jq -r '.publish.github_release.enabled' "${plan}")" != true ]; then
+            exit 0
+          fi
+          tag="$(jq -r '.git_tag' "${plan}")"
+          releases="$(gh api --paginate --slurp \
+            "/repos/${GH_REPO}/releases?per_page=100" \
+            | jq -ce --arg tag "${tag}" '[.[][] | select(.tag_name == $tag)]')"
+          test "$(jq 'length' <<<"${releases}")" = 1
+          release_type="$(jq -r '.release_type' "${plan}")"
+          if [ "${release_type}" = draft ] || [ "${release_type}" = nightly ]; then
+            jq -e '.[0].draft == true' <<<"${releases}" >/dev/null
+          else
+            jq -e '.[0].draft == false' <<<"${releases}" >/dev/null
+          fi
+          release_id="$(jq -er '.[0].id' <<<"${releases}")"
+          gh release upload "${tag}" --clobber \
+            input/wheels/*/*.whl input/chart/*.tgz \
+            examples/ucm_config_example.yaml
+          release_json="${RUNNER_TEMP}/github-release-${release_id}.json"
+          gh api "/repos/${GH_REPO}/releases/${release_id}" >"${release_json}"
+          jq -e '[.assets[].name] | index("ucm_config_example.yaml") != null' \
+            "${release_json}" >/dev/null
+          python .github/release/ucm_release/release.py notes \
+            --manifest out/release/release-state.json \
+            --release "${release_json}" --repository "${GH_REPO}" \
+            --output out/release
+          gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+            -f "tag_name=${tag}" \
+            -f "body=$(<out/release/release-notes.md)" >/dev/null
+      - name: Mark artifact publication failure
+        if: ${{ failure() && needs.open-release.outputs.enabled == 'true' }}
+        run: |
+          set -euo pipefail
+          tag="${RELEASE_TAG}"
+          releases="$(gh api --paginate --slurp \
+            "/repos/${GH_REPO}/releases?per_page=100" \
+            | jq -ce --arg tag "${tag}" '[.[][] | select(.tag_name == $tag)]')"
+          test "$(jq 'length' <<<"${releases}")" = 1
+          release_id="$(jq -er '.[0].id' <<<"${releases}")"
+          notes="${RUNNER_TEMP}/artifact-publication-failed.md"
+          printf '%s\n' \
+            "Status: \`artifacts-failed\`" \
+            "" \
+            "Wheel, Chart, or config validation/upload failed. Retry the failed job to " \
+            "complete the staged assets." >"${notes}"
+          gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+            -f "tag_name=${tag}" \
+            -f "body=$(<"${notes}")" >/dev/null
+
+  publish-image-members:
+    name: Verify directly published image members
+    needs: [plan, build-images, publish-release-artifacts]
+    if: >-
+      ${{
+        always() && needs.plan.result == 'success' &&
+        needs.plan.outputs.publish_images == 'true' &&
+        needs.build-images.result == 'success' &&
+        needs.publish-release-artifacts.result == 'success'
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release-production
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.plan.outputs.plan_artifact }}
+          path: input/plan
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          pattern: ucm-image-member-receipt-*-run-${{ github.run_id }}
+          path: input/receipts
+          merge-multiple: true
+      - name: Require one complete receipt per planned image
+        run: |
+          set -euo pipefail
+          python .github/release/ucm_release/release.py members \
+            --plan input/plan/release-plan.json \
+            --receipts input/receipts --output out/validation
+
+  publish-image-indexes:
+    name: Publish index · ${{ matrix.label }}
+    needs: [plan, publish-image-members]
+    if: >-
+      ${{
+        needs.plan.outputs.publish_images == 'true' &&
+        needs.publish-image-members.result == 'success' &&
+        needs.plan.outputs.has_image_indexes == 'true'
+      }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.image_index_matrix) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release-production
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    steps:
+      - uses: docker/setup-buildx-action@v3.11.1
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.plan.outputs.plan_artifact }}
+          path: input/plan
+      - name: Publish multi-architecture index
+        env:
+          TARGET_REPOSITORY: ${{ matrix.target_repository }}
+          TARGET_TAG: ${{ matrix.target_tag }}
+          MEMBERS: ${{ toJSON(matrix.members) }}
+        run: |
+          set -euo pipefail
+          plan=input/plan/release-plan.json
+          mkdir -p out/receipts
+          receipt="out/receipts/index-${{ matrix.id }}.json"
+          targets='[]'
+          jq -n --arg id "${{ matrix.id }}" \
+            '{kind:"ucm-image-index-receipt",schema_version:1,id:$id,
+              status:"failed",targets:[]}' >"${receipt}"
+          mapfile -t ghcr_members < <(jq -er '.[]' <<<"${MEMBERS}")
+          test "${#ghcr_members[@]}" -gt 1
+          if [ "$(jq -r '.publish.ghcr.enabled' "${plan}")" = true ]; then
+            printf '%s' "${GH_TOKEN}" | docker login ghcr.io \
+              --username "${GITHUB_ACTOR}" --password-stdin
+            docker buildx imagetools create \
+              --tag "${TARGET_REPOSITORY}:${TARGET_TAG}" \
+              "${ghcr_members[@]}"
+            reference="${TARGET_REPOSITORY}:${TARGET_TAG}"
+            digest="$(docker buildx imagetools inspect "${reference}" \
+              --format '{{json .Manifest}}' | jq -er '.digest // .Digest')"
+            targets="$(jq -c --arg channel ghcr --arg reference "${reference}" \
+              --arg digest "${digest}" \
+              '. + [{channel:$channel,reference:$reference,digest:$digest}]' \
+              <<<"${targets}")"
+            jq -n --arg id "${{ matrix.id }}" --argjson targets "${targets}" \
+              '{kind:"ucm-image-index-receipt",schema_version:1,id:$id,
+                status:"failed",targets:$targets}' >"${receipt}"
+          fi
+          if [ "$(jq -r '.publish.dockerhub.enabled' "${plan}")" = true ]; then
+            test -n "${DOCKERHUB_USERNAME}" && test -n "${DOCKERHUB_TOKEN}"
+            printf '%s' "${DOCKERHUB_TOKEN}" | docker login docker.io \
+              --username "${DOCKERHUB_USERNAME}" --password-stdin
+            namespace="$(jq -r '.publish.dockerhub.namespace' "${plan}")"
+            repository="${namespace}/$(basename "${TARGET_REPOSITORY}")"
+            mapfile -t dockerhub_members < <(jq -er --arg repository "${repository}" \
+              '.[] | ($repository + ":" + (split(":")[-1]))' <<<"${MEMBERS}")
+            docker buildx imagetools create \
+              --tag "${repository}:${TARGET_TAG}" \
+              "${dockerhub_members[@]}"
+            reference="${repository}:${TARGET_TAG}"
+            digest="$(docker buildx imagetools inspect "${reference}" \
+              --format '{{json .Manifest}}' | jq -er '.digest // .Digest')"
+            targets="$(jq -c --arg channel dockerhub --arg reference "${reference}" \
+              --arg digest "${digest}" \
+              '. + [{channel:$channel,reference:$reference,digest:$digest}]' \
+              <<<"${targets}")"
+            jq -n --arg id "${{ matrix.id }}" --argjson targets "${targets}" \
+              '{kind:"ucm-image-index-receipt",schema_version:1,id:$id,
+                status:"failed",targets:$targets}' >"${receipt}"
+          fi
+          jq -n --arg id "${{ matrix.id }}" --argjson targets "${targets}" \
+            '{kind:"ucm-image-index-receipt",schema_version:1,id:$id,
+              status:"published",targets:$targets}' >"${receipt}"
+      - uses: actions/upload-artifact@v4.6.2
+        if: ${{ always() }}
+        with:
+          name: ucm-image-index-receipt-${{ matrix.id }}-run-${{ github.run_id }}
+          path: out/receipts/
+          if-no-files-found: warn
+          overwrite: true
+          retention-days: 90
+
+  publish-pypi:
+    name: Publish · PyPI
+    needs: [plan, publish-release-artifacts]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release-production
+    permissions:
+      actions: read
+      contents: read
+    env:
+      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+    steps:
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.plan.outputs.plan_artifact }}
+          path: input/plan
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          pattern: ucm-wheel-*-run-${{ github.run_id }}
+          path: input/wheels
+      - name: Publish Wheels
+        run: |
+          set -euo pipefail
+          plan=input/plan/release-plan.json
+          if [ "$(jq -r '.publish.pypi.enabled' "${plan}")" != true ]; then
+            exit 0
+          fi
+          test -n "${PYPI_API_TOKEN}"
+          python -m pip install --disable-pip-version-check --no-cache-dir twine
+          TWINE_USERNAME=__token__ TWINE_PASSWORD="${PYPI_API_TOKEN}" \
+            python -m twine upload \
+              --repository-url "$(jq -r '.publish.pypi.index' "${plan}")" \
+              input/wheels/*/*.whl
+
+  publish-chart-oci:
+    name: Publish · Chart OCI
+    needs: [plan, publish-release-artifacts]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release-production
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: azure/setup-helm@v4.3.1
+        with:
+          version: v3.15.3
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.plan.outputs.plan_artifact }}
+          path: input/plan
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ucm-chart-run-${{ github.run_id }}
+          path: input/chart
+      - name: Publish Chart package
+        run: |
+          set -euo pipefail
+          plan=input/plan/release-plan.json
+          if [ "$(jq -r '.publish.chart_oci.enabled' "${plan}")" != true ]; then
+            exit 0
+          fi
+          printf '%s' "${GH_TOKEN}" | helm registry login ghcr.io \
+            --username "${GITHUB_ACTOR}" --password-stdin
+          namespace="$(jq -r '.publish.chart_oci.namespace' "${plan}")"
+          chart_name="$(jq -r '.chart.name' "${plan}")"
+          chart_version="$(jq -r '.chart.version' "${plan}")"
+          helm push input/chart/*.tgz "oci://${namespace}"
+          mkdir -p out/chart-readback
+          helm pull "oci://${namespace}/${chart_name}" \
+            --version "${chart_version}" --destination out/chart-readback
+          test "$(find out/chart-readback -maxdepth 1 -type f -name '*.tgz' \
+            | wc -l | tr -d ' ')" = 1
+
+  update-release-images:
+    name: Release · Finalize all channels
+    needs:
+      - plan
+      - open-release
+      - publish-release-artifacts
+      - build-images
+      - publish-image-members
+      - publish-image-indexes
+      - publish-pypi
+      - publish-chart-oci
+    if: >-
+      ${{
+        always() && needs.plan.result == 'success' &&
+        needs.open-release.result == 'success' &&
+        needs.open-release.outputs.enabled == 'true' &&
+        needs.publish-release-artifacts.result == 'success'
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release-production
+    permissions:
+      actions: write
+      contents: write
+      packages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.git_tag }}
+      RELEASE_TYPE: ${{ inputs.release_type }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.plan.outputs.plan_artifact }}
+          path: input/plan
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ucm-release-stage-run-${{ github.run_id }}
+          path: input/stage
+      - uses: actions/download-artifact@v4.3.0
+        continue-on-error: true
+        with:
+          pattern: ucm-image-member-receipt-*-run-${{ github.run_id }}
+          path: input/receipts
+          merge-multiple: true
+      - uses: actions/download-artifact@v4.3.0
+        continue-on-error: true
+        with:
+          pattern: ucm-image-index-receipt-*-run-${{ github.run_id }}
+          path: input/receipts
+          merge-multiple: true
+      - name: Merge publication receipts into internal release state
+        env:
+          BUILD_OUTCOME: ${{ needs.build-images.result }}
+          MEMBER_OUTCOME: ${{ needs.publish-image-members.result }}
+          INDEX_OUTCOME: ${{ needs.publish-image-indexes.result }}
+          PYPI_OUTCOME: ${{ needs.publish-pypi.result }}
+          CHART_OCI_OUTCOME: ${{ needs.publish-chart-oci.result }}
+        run: |
+          set -euo pipefail
+          python .github/release/ucm_release/release.py finalize \
+            --manifest input/stage/release-state.json \
+            --receipts input/receipts \
+            --build-outcome "${BUILD_OUTCOME}" \
+            --member-outcome "${MEMBER_OUTCOME}" \
+            --index-outcome "${INDEX_OUTCOME}" \
+            --pypi-outcome "${PYPI_OUTCOME}" \
+            --chart-oci-outcome "${CHART_OCI_OUTCOME}" \
+            --output out/release
+      - id: update-release
+        name: Update image list and final status
+        run: |
+          set -euo pipefail
+          state=out/release/release-state.json
+          tag="$(jq -er '.release.git_tag' "${state}")"
+          releases="$(gh api --paginate --slurp \
+            "/repos/${GH_REPO}/releases?per_page=100" \
+            | jq -ce --arg tag "${tag}" '[.[][] | select(.tag_name == $tag)]')"
+          test "$(jq 'length' <<<"${releases}")" = 1
+          release_type="$(jq -r '.release.release_type' "${state}")"
+          if [ "${release_type}" = draft ] || [ "${release_type}" = nightly ]; then
+            jq -e '.[0].draft == true' <<<"${releases}" >/dev/null
+          else
+            jq -e '.[0].draft == false' <<<"${releases}" >/dev/null
+          fi
+          release_id="$(jq -er '.[0].id' <<<"${releases}")"
+          release_json="out/release/github-release.json"
+          gh api "/repos/${GH_REPO}/releases/${release_id}" >"${release_json}"
+          python .github/release/ucm_release/release.py notes \
+            --manifest "${state}" --release "${release_json}" \
+            --repository "${GH_REPO}" --output out/release
+          gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+            -f "tag_name=${tag}" \
+            -f "body=$(<out/release/release-notes.md)" >/dev/null
+      - name: Require complete image publication
+        run: >-
+          test "$(jq -r '.release.status'
+          out/release/release-state.json)" = complete
+      - id: publish-manifest
+        name: Publish and read back cleanup manifest
+        run: |
+          set -euo pipefail
+          state=out/release/release-state.json
+          release_json=out/release/github-release.json
+          tag="$(jq -er '.release.git_tag' "${state}")"
+          release_id="$(jq -er '.id' "${release_json}")"
+          python .github/release/ucm_release/release.py manifest \
+            --state "${state}" --release "${release_json}" \
+            --output out/release
+          gh release upload "${tag}" --clobber out/release/release-manifest.json
+          gh api "/repos/${GH_REPO}/releases/${release_id}" >"${release_json}"
+          asset_id="$(jq -er \
+            '[.assets[] | select(.name == "release-manifest.json")] |
+             if length == 1 then .[0].id else error("manifest asset is ambiguous") end' \
+            "${release_json}")"
+          gh api -H 'Accept: application/octet-stream' \
+            "/repos/${GH_REPO}/releases/assets/${asset_id}" \
+            >out/release/release-manifest-readback.json
+          cmp out/release/release-manifest.json \
+            out/release/release-manifest-readback.json
+          jq -e --slurpfile manifest out/release/release-manifest.json \
+            '([.assets[].name] | sort) == $manifest[0].github_release_assets' \
+            "${release_json}" >/dev/null
+          if [ "${RELEASE_TYPE}" = nightly ]; then
+            gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+              -F draft=false -F prerelease=true \
+              -f "tag_name=${tag}" -f "name=${tag}" >/dev/null
+            gh api "/repos/${GH_REPO}/releases/${release_id}" \
+              | jq -e '.draft == false and .prerelease == true' >/dev/null
+          fi
+      - id: retention
+        name: Retain only the configured same-type Releases
+        run: |
+          set -euo pipefail
+          profile="$(PYTHONPATH=.github/release python -c \
+            'import json, sys; from ucm_release import policy; print(json.dumps(policy.resolve(release_type=sys.argv[1])["release_profile"]))' \
+            "${RELEASE_TYPE}")"
+          max_count="$(jq -er '.max_count' <<<"${profile}")"
+          pypi_enabled="$(jq -er '.publish.pypi' <<<"${profile}")"
+          if [ "${max_count}" != -1 ] && [ "${pypi_enabled}" = false ]; then
+            mkdir -p "${RUNNER_TEMP}/crane"
+            curl -fsSL --retry 3 \
+              https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
+              | tar -xz -C "${RUNNER_TEMP}/crane" crane
+            export PATH="${RUNNER_TEMP}/crane:${PATH}"
+            if [ -n "${DOCKERHUB_USERNAME}" ] && [ -n "${DOCKERHUB_TOKEN}" ]; then
+              printf '%s' "${DOCKERHUB_TOKEN}" | docker login docker.io \
+                --username "${DOCKERHUB_USERNAME}" --password-stdin
+            fi
+          fi
+          python .github/release/ucm_release/cleanup.py retention \
+            --repository "${GH_REPO}" --current-tag "${RELEASE_TAG}" \
+            --release-type "${RELEASE_TYPE}" --max-count "${max_count}" \
+            --pypi-enabled "${pypi_enabled}"
+      - name: Mark unreported finalization failure
+        if: ${{ failure() && steps.publish-manifest.outcome != 'success' }}
+        run: |
+          set -euo pipefail
+          tag="${RELEASE_TAG}"
+          releases="$(gh api --paginate --slurp \
+            "/repos/${GH_REPO}/releases?per_page=100" \
+            | jq -ce --arg tag "${tag}" '[.[][] | select(.tag_name == $tag)]')"
+          test "$(jq 'length' <<<"${releases}")" = 1
+          release_id="$(jq -er '.[0].id' <<<"${releases}")"
+          if [ "${RELEASE_TYPE}" = nightly ]; then
+            gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+              -F draft=true -F prerelease=true \
+              -f "tag_name=${tag}" -f "name=${tag}" >/dev/null
+          fi
+          notes="${RUNNER_TEMP}/image-stage-failed.md"
+          printf '%s\n' \
+            "Status: \`publication-failed\`" \
+            "" \
+            "Wheels and Chart remain available, but final publication or manifest " \
+            "readback failed." >"${notes}"
+          gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+            -f "tag_name=${tag}" \
+            -f "body=$(<"${notes}")" >/dev/null
