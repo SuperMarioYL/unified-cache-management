@@ -1,0 +1,446 @@
+# docker-recipes.yaml — PR smoke and recipe inventory (moved from release.yaml)
+pr_smoke:
+  image_selectors:
+  - product_id: vllm
+    variant: default
+    cpu_arch: amd64
+  - product_id: vllm-ascend
+    variant: a2
+    cpu_arch: arm64
+docker_recipes:
+- id: mindie-a2-v2-source
+  path: docker/Dockerfile.ucm-mindie-ascend.a2-v2
+  status: specialized
+  lanes:
+  - pr-smoke
+  - manual
+  product: mindie
+  backend: ascend
+  variant: a2
+  upstream_version: 2.3.0-800I-A2-py311-openeuler24.03-lts
+  base_image:
+    source: swr.cn-south-1.myhuaweicloud.com/ascendhub
+    name_version: mindie:2.3.0-800I-A2-py311-openeuler24.03-lts
+  cpu_arch: arm64
+  platform: linux/arm64
+  runner: ubuntu-24.04-arm
+  build_mode: legacy-source-build
+  cache_scope: recipe-mindie-a2-v2
+  build_args:
+  - PIP_INDEX_URL=https://pypi.org/simple
+  engine_type: mindie
+  install_hook: required
+  exclusion_reason: Specialized MindIE source build is not a sealed-wheel formal release recipe.
+- id: sglang-cuda-055-source
+  path: docker/Dockerfile.ucm-sglang-cuda-v0.5.5
+  status: specialized
+  lanes:
+  - pr-smoke
+  - manual
+  product: sglang
+  backend: cuda
+  variant: default
+  upstream_version: 0.5.5.post3
+  base_image:
+    source: lmsysorg
+    name_version: sglang:v0.5.5.post3
+  cpu_arch: amd64
+  platform: linux/amd64
+  runner: ubuntu-24.04
+  build_mode: legacy-source-build
+  cache_scope: recipe-sglang-cuda-055
+  build_args:
+  - PIP_INDEX_URL=https://pypi.org/simple
+  engine_type: sglang
+  install_hook: required
+  exclusion_reason: Specialized SGLang source build is not a sealed-wheel formal release recipe.
+- id: vllm-ascend-a2-nightly-source
+  path: docker/Dockerfile.ucm-vllm-ascend.a2-latest
+  status: nightly
+  lanes:
+  - manual
+  product: vllm-ascend
+  backend: ascend
+  variant: a2
+  upstream_version: nightly-main-openeuler
+  base_image:
+    source: quay.io/ascend
+    name_version: vllm-ascend:nightly-main-openeuler
+  cpu_arch: arm64
+  platform: linux/arm64
+  runner: ubuntu-24.04-arm
+  build_mode: legacy-source-build
+  cache_scope: recipe-vllm-ascend-a2-nightly
+  build_args:
+  - PIP_INDEX_URL=https://pypi.org/simple
+  engine_type: vllm-ascend.a2
+  install_hook: required
+  upstream_product_id: vllm-ascend
+  upstream_variant: a2
+  exclusion_reason: Mutable nightly source build is excluded from formal release.
+- id: vllm-ascend-a2-0180-hardware
+  path: docker/Dockerfile.ucm-vllm-ascend.a2-v0.18.0
+  status: legacy
+  lanes:
+  - hardware-e2e
+  - manual
+  product: vllm-ascend
+  backend: ascend
+  variant: a2
+  upstream_version: 0.18.0
+  base_image:
+    source: quay.io/ascend
+    name_version: vllm-ascend:v0.18.0
+  cpu_arch: arm64
+  platform: linux/arm64
+  runner:
+  - self-hosted
+  - npu
+  - a2
+  build_mode: legacy-source-build
+  cache_scope: recipe-vllm-ascend-a2-0180
+  build_args:
+  - PIP_INDEX_URL=https://repo.huaweicloud.com/repository/pypi/simple
+  engine_type: vllm-ascend.a2
+  install_hook: required
+  upstream_product_id: vllm-ascend
+  upstream_variant: a2
+  exclusion_reason: Hardware regression source build is separate from formal sealed-wheel release.
+- id: vllm-ascend-a2-0180-glm51-source
+  path: docker/Dockerfile.ucm-vllm-ascend.a2-v0.18.0glm5.1
+  status: specialized
+  lanes:
+  - manual
+  product: vllm-ascend
+  backend: ascend
+  variant: a2-glm5.1
+  upstream_version: 0.18.0
+  base_image:
+    source: quay.io/ascend
+    name_version: vllm-ascend:v0.18.0
+  cpu_arch: arm64
+  platform: linux/arm64
+  runner: ubuntu-24.04-arm
+  build_mode: legacy-source-build
+  cache_scope: recipe-vllm-ascend-a2-0180-glm51
+  build_args:
+  - PIP_INDEX_URL=https://pypi.org/simple
+  engine_type: vllm-ascend.a2
+  install_hook: required
+  upstream_product_id: vllm-ascend
+  upstream_variant: a2
+  exclusion_reason: Specialized GLM source build has no sealed formal-release authority.
+- id: vllm-ascend-a2-0202rc1-smoke
+  path: docker/Dockerfile.ucm-vllm-ascend.a2-v0.20.2rc1
+  status: legacy
+  lanes:
+  - pr-smoke
+  - manual
+  product: vllm-ascend
+  backend: ascend
+  variant: a2
+  upstream_version: 0.20.2rc1
+  base_image:
+    source: quay.io/ascend
+    name_version: vllm-ascend:v0.20.2rc1
+  cpu_arch: arm64
+  platform: linux/arm64
+  runner: ubuntu-24.04-arm
+  build_mode: legacy-source-build
+  cache_scope: recipe-vllm-ascend-a2-0202rc1
+  build_args:
+  - PIP_INDEX_URL=https://pypi.org/simple
+  engine_type: vllm-ascend.a2
+  install_hook: required
+  upstream_product_id: vllm-ascend
+  upstream_variant: a2
+  exclusion_reason: PR compatibility source build is not the generic sealed-wheel release flow.
+- id: vllm-ascend-a2-0210rc1-source
+  path: docker/Dockerfile.ucm-vllm-ascend.a2-v0.21.0rc1
+  status: legacy
+  lanes:
+  - manual
+  product: vllm-ascend
+  backend: ascend
+  variant: a2
+  upstream_version: 0.21.0rc1
+  base_image:
+    source: quay.io/ascend
+    name_version: vllm-ascend:v0.21.0rc1
+  cpu_arch: arm64
+  platform: linux/arm64
+  runner: ubuntu-24.04-arm
+  build_mode: legacy-source-build
+  cache_scope: recipe-vllm-ascend-a2-0210rc1
+  build_args:
+  - PIP_INDEX_URL=https://pypi.org/simple
+  engine_type: vllm-ascend.a2
+  install_hook: required
+  upstream_product_id: vllm-ascend
+  upstream_variant: a2
+  exclusion_reason: Historical source-build recipe is excluded from formal release.
+- id: vllm-ascend-a2-0221rc1-source
+  path: docker/Dockerfile.ucm-vllm-ascend.a2-v0.22.1rc1
+  status: legacy
+  lanes:
+  - manual
+  product: vllm-ascend
+  backend: ascend
+  variant: a2
+  upstream_version: 0.22.1rc1
+  base_image:
+    source: quay.io/ascend
+    name_version: vllm-ascend:v0.22.1rc1
+  cpu_arch: arm64
+  platform: linux/arm64
+  runner: ubuntu-24.04-arm
+  build_mode: legacy-source-build
+  cache_scope: recipe-vllm-ascend-a2-0221rc1
+  build_args:
+  - PIP_INDEX_URL=https://pypi.org/simple
+  engine_type: vllm-ascend.a2
+  install_hook: required
+  upstream_product_id: vllm-ascend
+  upstream_variant: a2
+  exclusion_reason: Repository source build overlaps a formal target but is not its sealed-wheel authority.
+- id: vllm-ascend-a2-0230rc1-source
+  path: docker/Dockerfile.ucm-vllm-ascend.a2-v0.23.0rc1
+  status: legacy
+  lanes:
+  - manual
+  product: vllm-ascend
+  backend: ascend
+  variant: a2
+  upstream_version: 0.23.0rc1
+  base_image:
+    source: quay.io/ascend
+    name_version: vllm-ascend:v0.23.0rc1
+  cpu_arch: arm64
+  platform: linux/arm64
+  runner: ubuntu-24.04-arm
+  build_mode: legacy-source-build
+  cache_scope: recipe-vllm-ascend-a2-0230rc1
+  build_args:
+  - PIP_INDEX_URL=https://pypi.org/simple
+  engine_type: vllm-ascend.a2
+  install_hook: required
+  upstream_product_id: vllm-ascend
+  upstream_variant: a2
+  exclusion_reason: Historical source-build recipe is excluded from formal release.
+- id: vllm-ascend-a3-0180-glm51-source
+  path: docker/Dockerfile.ucm-vllm-ascend.a3-v0.18.0glm5.1
+  status: specialized
+  lanes:
+  - manual
+  product: vllm-ascend
+  backend: ascend
+  variant: a3-glm5.1
+  upstream_version: 0.18.0
+  base_image:
+    source: quay.io/ascend
+    name_version: vllm-ascend:v0.18.0-a3
+  cpu_arch: arm64
+  platform: linux/arm64
+  runner: ubuntu-24.04-arm
+  build_mode: legacy-source-build
+  cache_scope: recipe-vllm-ascend-a3-0180-glm51
+  build_args:
+  - PIP_INDEX_URL=https://pypi.org/simple
+  engine_type: vllm-ascend.a3
+  install_hook: required
+  upstream_product_id: vllm-ascend
+  upstream_variant: a3
+  exclusion_reason: Specialized GLM source build has no sealed formal-release authority.
+- id: vllm-ascend-a3-0202rc1-source
+  path: docker/Dockerfile.ucm-vllm-ascend.a3-v0.20.2rc1
+  status: legacy
+  lanes:
+  - manual
+  product: vllm-ascend
+  backend: ascend
+  variant: a3
+  upstream_version: 0.20.2rc1
+  base_image:
+    source: quay.io/ascend
+    name_version: vllm-ascend:v0.20.2rc1-a3
+  cpu_arch: arm64
+  platform: linux/arm64
+  runner: ubuntu-24.04-arm
+  build_mode: legacy-source-build
+  cache_scope: recipe-vllm-ascend-a3-0202rc1
+  build_args:
+  - PIP_INDEX_URL=https://pypi.org/simple
+  engine_type: vllm-ascend.a3
+  install_hook: required
+  upstream_product_id: vllm-ascend
+  upstream_variant: a3
+  exclusion_reason: Historical source-build recipe is excluded from formal release.
+- id: vllm-ascend-a3-0210rc1-source
+  path: docker/Dockerfile.ucm-vllm-ascend.a3-v0.21.0rc1
+  status: legacy
+  lanes:
+  - manual
+  product: vllm-ascend
+  backend: ascend
+  variant: a3
+  upstream_version: 0.21.0rc1
+  base_image:
+    source: quay.io/ascend
+    name_version: vllm-ascend:v0.21.0rc1-a3
+  cpu_arch: arm64
+  platform: linux/arm64
+  runner: ubuntu-24.04-arm
+  build_mode: legacy-source-build
+  cache_scope: recipe-vllm-ascend-a3-0210rc1
+  build_args:
+  - PIP_INDEX_URL=https://pypi.org/simple
+  engine_type: vllm-ascend.a3
+  install_hook: required
+  upstream_product_id: vllm-ascend
+  upstream_variant: a3
+  exclusion_reason: Historical source-build recipe is excluded from formal release.
+- id: vllm-ascend-a3-0221rc1-source
+  path: docker/Dockerfile.ucm-vllm-ascend.a3-v0.22.1rc1
+  status: legacy
+  lanes:
+  - manual
+  product: vllm-ascend
+  backend: ascend
+  variant: a3
+  upstream_version: 0.22.1rc1
+  base_image:
+    source: quay.io/ascend
+    name_version: vllm-ascend:v0.22.1rc1-a3
+  cpu_arch: arm64
+  platform: linux/arm64
+  runner: ubuntu-24.04-arm
+  build_mode: legacy-source-build
+  cache_scope: recipe-vllm-ascend-a3-0221rc1
+  build_args:
+  - PIP_INDEX_URL=https://pypi.org/simple
+  engine_type: vllm-ascend.a3
+  install_hook: required
+  upstream_product_id: vllm-ascend
+  upstream_variant: a3
+  exclusion_reason: Repository source build overlaps a formal target but is not its sealed-wheel authority.
+- id: vllm-ascend-a3-0230rc1-source
+  path: docker/Dockerfile.ucm-vllm-ascend.a3-v0.23.0rc1
+  status: legacy
+  lanes:
+  - manual
+  product: vllm-ascend
+  backend: ascend
+  variant: a3
+  upstream_version: 0.23.0rc1
+  base_image:
+    source: quay.io/ascend
+    name_version: vllm-ascend:v0.23.0rc1-a3
+  cpu_arch: arm64
+  platform: linux/arm64
+  runner: ubuntu-24.04-arm
+  build_mode: legacy-source-build
+  cache_scope: recipe-vllm-ascend-a3-0230rc1
+  build_args:
+  - PIP_INDEX_URL=https://pypi.org/simple
+  engine_type: vllm-ascend.a3
+  install_hook: required
+  upstream_product_id: vllm-ascend
+  upstream_variant: a3
+  exclusion_reason: Historical source-build recipe is excluded from formal release.
+- id: vllm-cuda-nightly-source
+  path: docker/Dockerfile.ucm-vllm-cuda-latest
+  status: nightly
+  lanes:
+  - manual
+  product: vllm
+  backend: cuda
+  variant: default
+  upstream_version: nightly
+  base_image:
+    source: vllm
+    name_version: vllm-openai:nightly
+  cpu_arch: amd64
+  platform: linux/amd64
+  runner: ubuntu-24.04
+  build_mode: legacy-source-build
+  cache_scope: recipe-vllm-cuda-nightly
+  build_args:
+  - PIP_INDEX_URL=https://pypi.org/simple
+  engine_type: vllm-cuda
+  install_hook: required
+  upstream_product_id: vllm
+  upstream_variant: default
+  exclusion_reason: Mutable nightly source build is excluded from formal release.
+- id: vllm-cuda-0180-source
+  path: docker/Dockerfile.ucm-vllm-cuda-v0.18.0
+  status: legacy
+  lanes:
+  - manual
+  product: vllm
+  backend: cuda
+  variant: default
+  upstream_version: 0.18.0
+  base_image:
+    source: vllm
+    name_version: vllm-openai:v0.18.0
+  cpu_arch: amd64
+  platform: linux/amd64
+  runner: ubuntu-24.04
+  build_mode: legacy-source-build
+  cache_scope: recipe-vllm-cuda-0180
+  build_args:
+  - PIP_INDEX_URL=https://pypi.org/simple
+  engine_type: vllm-cuda
+  install_hook: required
+  upstream_product_id: vllm
+  upstream_variant: default
+  exclusion_reason: Historical source-build recipe is excluded from formal release.
+- id: vllm-cuda-0202-smoke
+  path: docker/Dockerfile.ucm-vllm-cuda-v0.20.2
+  status: legacy
+  lanes:
+  - pr-smoke
+  - manual
+  product: vllm
+  backend: cuda
+  variant: default
+  upstream_version: 0.20.2
+  base_image:
+    source: vllm
+    name_version: vllm-openai:v0.20.2
+  cpu_arch: amd64
+  platform: linux/amd64
+  runner: ubuntu-24.04
+  build_mode: legacy-source-build
+  cache_scope: recipe-vllm-cuda-0202
+  build_args:
+  - PIP_INDEX_URL=https://pypi.org/simple
+  engine_type: vllm-cuda
+  install_hook: required
+  upstream_product_id: vllm
+  upstream_variant: default
+  exclusion_reason: PR compatibility source build is not the generic sealed-wheel release flow.
+- id: vllm-cuda-0210-source
+  path: docker/Dockerfile.ucm-vllm-cuda-v0.21.0
+  status: legacy
+  lanes:
+  - manual
+  product: vllm
+  backend: cuda
+  variant: default
+  upstream_version: 0.21.0
+  base_image:
+    source: vllm
+    name_version: vllm-openai:v0.21.0
+  cpu_arch: amd64
+  platform: linux/amd64
+  runner: ubuntu-24.04
+  build_mode: legacy-source-build
+  cache_scope: recipe-vllm-cuda-0210
+  build_args:
+  - PIP_INDEX_URL=https://pypi.org/simple
+  engine_type: vllm-cuda
+  install_hook: required
+  upstream_product_id: vllm
+  upstream_variant: default
+  exclusion_reason: Repository source build overlaps a formal target but is not its sealed-wheel authority.

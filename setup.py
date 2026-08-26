@@ -24,18 +24,132 @@
 
 import atexit
 import os
+import platform as host_platform
 import subprocess
 import sys
+import sysconfig
 
 from setuptools import Extension, find_packages, setup
 from setuptools.command.build_ext import build_ext
 
 ROOT_DIR = os.path.abspath(os.path.dirname(__file__))
-PLATFORM = os.getenv("PLATFORM")
+BUILD_CONFIG_PATH = os.getenv("UCM_BUILD_CONFIG")
 ENABLE_SPARSE = os.getenv("ENABLE_SPARSE")
 ENABLE_MINDIE = os.getenv("UCM_ENABLE_MINDIE", "0") not in ("", "0", "false", "False")
 ENABLE_GDR = os.getenv("ENABLE_GDR", "0") not in ("", "0", "false", "False")
 ASCEND_ROOT = os.getenv("ASCEND_ROOT")
+
+
+def get_package_version() -> str:
+    version_path = os.path.join(ROOT_DIR, "version.ini")
+    try:
+        with open(version_path, encoding="utf-8") as version_file:
+            for line in version_file:
+                key, separator, value = line.strip().partition("=")
+                if separator and key == "VLLM_UC_VERSION" and value:
+                    return value
+    except OSError as error:
+        raise RuntimeError(
+            f"cannot read package version from {version_path}"
+        ) from error
+    raise RuntimeError(f"VLLM_UC_VERSION is missing from {version_path}")
+
+
+def _load_build_config() -> tuple[dict[str, object], dict[str, object]] | None:
+    if BUILD_CONFIG_PATH is None:
+        return None
+    release_root = os.path.join(ROOT_DIR, ".github", "release")
+    if release_root not in sys.path:
+        sys.path.insert(0, release_root)
+    try:
+        from ucm_release.wheel import load_wheel_build_config, wheel_build_profile
+
+        config = load_wheel_build_config(BUILD_CONFIG_PATH)
+        authority = config["authority"]
+        source_version = get_package_version()
+        if authority["wheel_version"] != source_version:
+            raise ValueError(
+                "authority wheel_version differs from source version.ini: "
+                f"{authority['wheel_version']} != {source_version}"
+            )
+        return config, wheel_build_profile(authority["profile_id"])
+    except (ImportError, KeyError, OSError, TypeError, ValueError) as error:
+        raise RuntimeError(f"UCM_BUILD_CONFIG is invalid: {error}") from error
+
+
+BUILD_INPUT = _load_build_config()
+BUILD_CONFIG = BUILD_INPUT[0] if BUILD_INPUT is not None else None
+BUILD_PROFILE = BUILD_INPUT[1] if BUILD_INPUT is not None else None
+PLATFORM = (
+    str(BUILD_CONFIG["platform"]) if BUILD_CONFIG is not None else os.getenv("PLATFORM")
+)
+
+
+def get_install_requires() -> list[str]:
+    if BUILD_CONFIG is not None:
+        return list(BUILD_CONFIG["runtime_requirements"])
+    return ["wrapt==1.17.2"]
+
+
+def _release_architecture() -> str:
+    machine = host_platform.machine().lower()
+    architecture = {
+        "x86_64": "amd64",
+        "amd64": "amd64",
+        "aarch64": "arm64",
+        "arm64": "arm64",
+    }.get(machine)
+    if architecture is None:
+        raise RuntimeError(f"unsupported native release architecture: {machine}")
+    return architecture
+
+
+def _release_settings() -> dict[str, object] | None:
+    if BUILD_CONFIG is None:
+        return None
+    authority = BUILD_CONFIG["authority"]
+    assert isinstance(authority, dict)
+    assert BUILD_PROFILE is not None
+    architecture = _release_architecture()
+    invoking_python = {
+        "version": f"{sys.version_info.major}.{sys.version_info.minor}",
+        "abi": f"cp{sys.version_info.major}{sys.version_info.minor}",
+    }
+    comparisons = {
+        "architecture": (architecture, authority["cpu_arch"]),
+        "distribution": (BUILD_CONFIG["distribution"], BUILD_PROFILE["distribution"]),
+        "platform": (BUILD_CONFIG["platform"], BUILD_PROFILE["build_platform"]),
+        "invoking Python": (invoking_python, BUILD_CONFIG["python"]),
+    }
+    mismatches = [
+        name for name, (actual, expected) in comparisons.items() if actual != expected
+    ]
+    if mismatches:
+        raise RuntimeError(f"wheel build config differs from build host: {mismatches}")
+    if ENABLE_MINDIE:
+        raise RuntimeError("MindIE must be disabled in a release wheel build")
+    if ENABLE_SPARSE is not None and ENABLE_SPARSE.lower() == "true":
+        raise RuntimeError("ENABLE_SPARSE must be false in a release wheel build")
+    return {
+        "profile": authority["profile_id"],
+        "source_sha": authority["source_sha"],
+        "version": get_package_version(),
+        "build_key": authority["task_sha256"],
+        "source_date_epoch": authority["source_date_epoch"],
+        "required": authority["required_native"],
+        "forbidden": authority["forbidden_native"],
+        "architecture": architecture,
+        "spec_id": authority["spec_id"],
+    }
+
+
+RELEASE_SETTINGS = _release_settings()
+
+
+def get_distribution_name() -> str:
+    if BUILD_CONFIG is not None:
+        return str(BUILD_CONFIG["distribution"])
+    return os.getenv("UCM_DIST_NAME", "uc-manager")
 
 
 def get_abi_flag_from_env() -> str:
@@ -159,8 +273,28 @@ class CMakeBuild(build_ext):
         cmake_args = [
             "-DCMAKE_BUILD_TYPE=Release",
             f"-DPYTHON_EXECUTABLE={sys.executable}",
+            f"-DPython_EXECUTABLE={sys.executable}",
+            f"-DPython_INCLUDE_DIR={sysconfig.get_path('include')}",
+            f"-DPython_ROOT_DIR={sys.prefix}",
             f"-DCMAKE_INSTALL_PREFIX={install_dir}",
         ]
+
+        if RELEASE_SETTINGS is not None:
+            cmake_args += [
+                "-DUCM_RELEASE_BUILD=ON",
+                f"-DUCM_RELEASE_PROFILE={RELEASE_SETTINGS['profile']}",
+                f"-DUCM_RELEASE_SPEC_ID={RELEASE_SETTINGS['spec_id']}",
+                f"-DUCM_RELEASE_SOURCE_SHA={RELEASE_SETTINGS['source_sha']}",
+                f"-DUCM_RELEASE_VERSION={RELEASE_SETTINGS['version']}",
+                f"-DUCM_RELEASE_BUILD_KEY={RELEASE_SETTINGS['build_key']}",
+                f"-DSOURCE_DATE_EPOCH={RELEASE_SETTINGS['source_date_epoch']}",
+                "-DUCM_RELEASE_REQUIRED_TARGETS="
+                + ";".join(RELEASE_SETTINGS["required"]),
+                "-DUCM_RELEASE_FORBIDDEN_TARGETS="
+                + ";".join(RELEASE_SETTINGS["forbidden"]),
+                "-DBUILD_UCM_MINDIE=OFF",
+                "-DBUILD_UCM_SPARSE=OFF",
+            ]
 
         if ENABLE_MINDIE:
             cmake_args += ["-DBUILD_UCM_MINDIE=ON"]
@@ -174,6 +308,21 @@ class CMakeBuild(build_ext):
 
         if ASCEND_ROOT:
             cmake_args += [f"-DASCEND_ROOT={ASCEND_ROOT}"]
+
+        build_cpu_arch = os.getenv("UCM_BUILD_CPU_ARCH")
+        if PLATFORM == "ascend-a3" and build_cpu_arch:
+            ascend_subdirectory = {
+                "amd64": "x86_64-linux",
+                "arm64": "aarch64-linux",
+            }.get(build_cpu_arch)
+            if ascend_subdirectory is None:
+                raise RuntimeError(
+                    f"unsupported build CPU architecture: {build_cpu_arch}"
+                )
+            cmake_args += [
+                "-DASCEND_ARCH_DIR="
+                f"/usr/local/Ascend/ascend-toolkit/latest/{ascend_subdirectory}"
+            ]
 
         match PLATFORM:
             case "cuda":
@@ -191,17 +340,25 @@ class CMakeBuild(build_ext):
                 cmake_args += ["-DRUNTIME_ENVIRONMENT=simu"]
                 cmake_args += ["-DBUILD_UCM_SPARSE=OFF"]
 
+        build_env = os.environ.copy()
+        if RELEASE_SETTINGS is not None:
+            build_env["SOURCE_DATE_EPOCH"] = str(RELEASE_SETTINGS["source_date_epoch"])
+            build_env["TZ"] = "UTC"
         subprocess.check_call(
-            ["cmake", *cmake_args, ext.cmake_file_path], cwd=build_dir
+            ["cmake", *cmake_args, ext.cmake_file_path],
+            cwd=build_dir,
+            env=build_env,
         )
         subprocess.check_call(
             ["cmake", "--build", ".", "--config", "Release", "--", "-j8"],
             cwd=build_dir,
+            env=build_env,
         )
 
         subprocess.check_call(
             ["cmake", "--install", ".", "--config", "Release", "--component", "ucm"],
             cwd=build_dir,
+            env=build_env,
         )
 
 
@@ -242,8 +399,8 @@ def inject_pth():
 
 
 setup(
-    name="uc-manager",
-    version="0.6.0",
+    name=get_distribution_name(),
+    version=get_package_version(),
     description="Unified Cache Management",
     author="Unified Cache Team",
     packages=[
@@ -253,7 +410,7 @@ setup(
     ],
     package_dir={"": "."},
     python_requires=">=3.10",
-    install_requires=["wrapt==1.17.2"],
+    install_requires=get_install_requires(),
     ext_modules=[CMakeExtension(name="ucm", source_dir=ROOT_DIR)],
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,

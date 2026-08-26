@@ -1,0 +1,142 @@
+# ============================================================
+# genet 独占池 + Volcano 队列调度叠加层（overlay）
+# ------------------------------------------------------------
+# 把"接 genet 独占池队列"所需的全部调度配置集中在此，与通用 chart 解耦。
+# base values.yaml 默认不绑定 genet 池；要落独占池队列时，部署命令追加 -f values-genet.yaml：
+#
+#   helm ... -f values.yaml -f values-genet.yaml -f models/<chip>/values-<model>.yaml
+#
+# 顺序：values.yaml → values-genet.yaml → 模型 values（模型文件最后，可按需覆盖）。
+# 引擎工作负载由 kthena ModelServing 模板（templates/kthena/modelserving.yaml）消费这些值。
+#
+# 落独占池队列的四件套（缺一不可）：
+#   1. schedulerName: volcano                       —— 交给 Volcano 调度器；同时是 kthena 自建 PodGroup 的触发条件
+#                                                      （PodGroup CRD 存在 + schedulerName==volcano 即自建，与 gangPolicy 无关）
+#   2. modelSpec.annotations[scheduling.volcano.sh/queue-name]: genet-exclusive
+#                                                   —— kthena podgroupmanager 只从 ModelServing CR 自身注解读队列
+#                                                      写 PodGroup.spec.queue；MS 上没有该注解则 queue 被同步置空（落 default 队列）
+#   3. modelSpec.affinity (genet.io/node-pool=non-shared)  —— 落到独占池节点
+#   4. tolerations (genet.io/non-shared-pool=true:NoSchedule) —— 容忍独占池污点
+#
+# 注意：pod 级注解 podAnnotations[scheduling.volcano.sh/queue-name] 在 kthena 路径下不被消费——
+# kthena 给 pod 打 scheduling.k8s.io/group-name 后 volcano pg-controller 直接跳过该 pod，
+# 「从 pod 注解读 queue-name」那条路走不到。下方仍保留一份 pod 级注解仅作 pod 元数据自描述。
+#
+# 队列名 = genet 的 queuePrefix(genet-) + 池类型 = genet-exclusive（独占池）。
+# 该队列在 genet 侧 manageQueues=true 已自动建好，无需手动创建。
+# 切裸金属池：node-pool 值改 bare-metal、污点 key 改 genet.io/bare-metal-pool、队列名改 genet-baremetal。
+# ============================================================
+
+images:
+  image: "registry.dev.huawei.com/ai-dailybuild/ucm-vllm-ascend.a2-v0.18.0:cmc-AI-Storage-Software-Suite_26.0.RC1.1.0.0.123"
+
+nodeTopologyConfig:
+  #    gpu-1:
+  #      GLOO_SOCKET_IFNAME: "ens10f0"
+  #      NCCL_SOCKET_IFNAME: "ens10f0"
+  #      VLLM_NETWORK_INTERFACE: "ens10f0"
+  #      VLLM_USE_NETIF: "ens10f0"
+  #      VLLM_DETECT_MULTI_IP: "0"
+  #      VLLM_USE_HOSTNAME: "0"
+  #    gpu-3:
+  #      GLOO_SOCKET_IFNAME: "ens10f0"
+  #      NCCL_SOCKET_IFNAME: "ens10f0"
+  #      VLLM_NETWORK_INTERFACE: "ens10f0"
+  #      VLLM_USE_NETIF: "ens10f0"
+  #      VLLM_DETECT_MULTI_IP: "0"
+  #      VLLM_USE_HOSTNAME: "0"
+  #    gpu-4:
+  #      GLOO_SOCKET_IFNAME: "ens10f0"
+  #      NCCL_SOCKET_IFNAME: "ens10f0"
+  #      VLLM_NETWORK_INTERFACE: "ens10f0"
+  #      VLLM_USE_NETIF: "ens10f0"
+  #      VLLM_DETECT_MULTI_IP: "0"
+  #      VLLM_USE_HOSTNAME: "0"
+  #    npu-1:
+  #      GLOO_SOCKET_IFNAME: "enp189s0f0"
+  #      HCCL_IF_NAME: "enp189s0f0"
+  #      HCCL_SOCKET_IFNAME: "enp189s0f0"
+  #      VLLM_NETWORK_INTERFACE: "enp189s0f0"
+  #      VLLM_USE_NETIF: "enp189s0f0"
+  #      VLLM_DETECT_MULTI_IP: "0"
+  #    npu-3:
+  #      GLOO_SOCKET_IFNAME: "enp189s0f0"
+  #      HCCL_IF_NAME: "enp189s0f0"
+  #      HCCL_SOCKET_IFNAME: "enp189s0f0"
+  #      VLLM_NETWORK_INTERFACE: "enp189s0f0"
+  #      VLLM_USE_NETIF: "enp189s0f0"
+  #      VLLM_DETECT_MULTI_IP: "0"
+  npu-6:
+    GLOO_SOCKET_IFNAME: "enp189s0f0"
+    HCCL_IF_NAME: "enp189s0f0"
+    HCCL_SOCKET_IFNAME: "enp189s0f0"
+    VLLM_NETWORK_INTERFACE: "enp189s0f0"
+    VLLM_USE_NETIF: "enp189s0f0"
+    VLLM_DETECT_MULTI_IP: "0"
+    VLLM_HOST_IP: "192.168.3.16"
+  npu-7:
+    GLOO_SOCKET_IFNAME: "enp189s0f0"
+    HCCL_IF_NAME: "enp189s0f0"
+    HCCL_SOCKET_IFNAME: "enp189s0f0"
+    VLLM_NETWORK_INTERFACE: "enp189s0f0"
+    VLLM_USE_NETIF: "enp189s0f0"
+    VLLM_DETECT_MULTI_IP: "0"
+    VLLM_HOST_IP: "192.168.3.17"
+  npu-8:
+    GLOO_SOCKET_IFNAME: "enp189s0f0"
+    HCCL_IF_NAME: "enp189s0f0"
+    HCCL_SOCKET_IFNAME: "enp189s0f0"
+    VLLM_NETWORK_INTERFACE: "enp189s0f0"
+    VLLM_USE_NETIF: "enp189s0f0"
+    VLLM_DETECT_MULTI_IP: "0"
+    VLLM_HOST_IP: "192.168.3.18"
+
+mooncakeMaster:
+  podAnnotations:
+    scheduling.volcano.sh/queue-name: genet-exclusive
+  nodeSelector: {}
+  tolerations:
+    - key: genet.io/non-shared-pool
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: genet.io/node-pool
+                operator: In
+                values:
+                  - non-shared
+
+servingEngineSpec:
+  # 1. 交给 Volcano 调度器（缺则回落 default-scheduler，队列注解被忽略）
+  schedulerName: "volcano"
+
+  # 4. 容忍独占池节点污点（genet 节点 reconciler 自动打 NoSchedule）
+  tolerations:
+    - key: genet.io/non-shared-pool
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
+
+  modelSpec:
+    # 2. 队列注解（生效位）：kthena 从 ModelServing CR 注解读队列写 PodGroup.spec.queue
+    annotations:
+      scheduling.volcano.sh/queue-name: genet-exclusive
+
+    # 3. 仅调度到独占池节点
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: genet.io/node-pool
+                  operator: In
+                  values:
+                    - non-shared
+
+    # pod 级队列注解：kthena 路径不消费（见文件头注意事项），仅留作 pod 元数据自描述
+    podAnnotations:
+      scheduling.volcano.sh/queue-name: genet-exclusive
