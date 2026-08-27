@@ -146,7 +146,7 @@ python tools/site.py serve
 
 # Build a strict production build for both languages.
 python tools/site.py build --lang en --strict
-python tools/site.py build --lang zh-cn --strict
+python tools/site.py build --lang zh --strict
 
 # Validate the whole site (strict build across languages).
 python tools/site.py validate

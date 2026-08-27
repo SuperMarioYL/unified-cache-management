@@ -1,0 +1,169 @@
+name: UCM Documentation · Check and Publish Pages
+
+on:
+  pull_request:
+    paths:
+      - "docs-next/**"
+      - ".github/release/release.yaml"
+      - ".github/release/platforms.yaml"
+      - ".github/release/requirements/wheel-runtime.txt"
+      - ".github/release/ucm_release/compact.py"
+      - ".github/release/ucm_release/release.py"
+      - ".github/workflows/docs-pages.yml"
+      - ".github/workflows/release-tag.yml"
+      - ".github/workflows/release-ucm.yml"
+  push:
+    branches: ["develop"]
+  workflow_call:
+    inputs:
+      mode:
+        description: Pages publication mode, latest or stable
+        type: string
+        required: true
+      source_ref:
+        description: Source ref containing the documentation to publish
+        type: string
+        required: true
+      release_tag:
+        description: Stable GitHub Release Tag holding install-catalog.json
+        type: string
+        required: false
+        default: ""
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Pages publication mode
+        type: choice
+        required: true
+        default: latest
+        options:
+          - latest
+          - stable
+      source_ref:
+        description: Source ref containing the documentation to publish
+        type: string
+        required: true
+        default: develop
+      release_tag:
+        description: Stable GitHub Release Tag; required in stable mode
+        type: string
+        required: false
+        default: ""
+
+concurrency:
+  group: ucm-pages-${{ github.repository_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Docs · Strict build
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: docs-next/requirements.txt
+      - name: Install documentation dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          -r docs-next/requirements.txt
+      - name: Strict build for all enabled languages
+        working-directory: docs-next
+        run: python tools/site.py validate
+      - name: Test Pages publication and Simple Index contracts
+        working-directory: docs-next
+        run: python -m pytest -q tests
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ucm-docs-pages-pr-${{ github.event.pull_request.number }}
+          path: docs-next/site/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-latest:
+    name: Pages · Publish latest
+    if: >-
+      ${{
+        vars.UCM_PAGES_ENABLED == 'true' &&
+        ((github.event_name == 'push' && inputs.mode == '') ||
+         inputs.mode == 'latest')
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: docs-next/requirements.txt
+      - name: Install documentation dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          -r docs-next/requirements.txt
+      - name: Publish latest documentation and install pages
+        run: >-
+          python docs-next/tools/pages.py publish-latest
+          --repository "${GITHUB_REPOSITORY}"
+
+  publish-stable:
+    name: Pages · Publish Stable
+    if: >-
+      ${{
+        vars.UCM_PAGES_ENABLED == 'true' &&
+        inputs.mode == 'stable' &&
+        inputs.release_tag != ''
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: docs-next/requirements.txt
+      - name: Install documentation dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          -r docs-next/requirements.txt
+      - name: Download the completed Release catalog
+        run: |
+          set -euo pipefail
+          mkdir -p input/catalog
+          gh release download "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern install-catalog.json \
+            --dir input/catalog --clobber
+          test -f input/catalog/install-catalog.json
+      - name: Publish immutable Stable documentation and install pages
+        run: >-
+          python docs-next/tools/pages.py publish-stable
+          --repository "${GITHUB_REPOSITORY}"
+          --catalog input/catalog/install-catalog.json

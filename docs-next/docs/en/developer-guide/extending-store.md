@@ -13,7 +13,7 @@ In the Unified Cache Manager (UCM) architecture, the **Store component** handles
 
 UCM provides production-ready Store implementations with the following dependency architecture:
 
-![ucmstore](/assets/images/ucm_store_architecture.png)
+![ucmstore](../../assets/images/ucm_store_architecture.png)
 
 ### Extension Options
 
