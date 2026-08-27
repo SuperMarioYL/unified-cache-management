@@ -1,0 +1,4150 @@
+
+<!doctype html>
+<html lang="zh" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Unified Cache Manager (UCM) persists LLM KVCache and replaces redundant computations through multiple retrieval mechanisms.">
+      
+      
+      
+        <link rel="canonical" href="https://unified-cache-management.lei6393.com/0.9.0/zh/toolkit/developer/design/">
+      
+      
+        <link rel="prev" href="../../user/precheck/">
+      
+      
+        <link rel="next" href="../dev-sandbox/">
+      
+      
+        
+          <link rel="alternate" href="../../../../toolkit/developer/design/" hreflang="en">
+        
+          <link rel="alternate" href="./" hreflang="zh">
+        
+      
+      
+      <link rel="icon" href="../../../../assets/images/UCM-dark.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>设计文档 - Unified Cache Manager 中文站点</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../../assets/install.css">
+    
+    <script>__md_scope=new URL("../../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  
+  <link rel="stylesheet" href="https://unpkg.com/katex@0.16.11/dist/katex.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&display=swap">
+  <style>
+    /* Light-mode header: white background with dark text and dark logo.
+       Dark mode keeps the slate header untouched. */
+    [data-md-color-scheme="default"] .md-header {
+      background-color: #ffffff;
+      color: rgba(0,0,0,.75);
+      box-shadow: 0 0 .2rem rgba(0,0,0,.07), 0 .2rem .4rem rgba(0,0,0,.07);
+    }
+    [data-md-color-scheme="default"] .md-header__topic,
+    [data-md-color-scheme="default"] .md-header__topic .md-ellipsis,
+    [data-md-color-scheme="default"] .md-header .md-icon,
+    [data-md-color-scheme="default"] .md-header .md-header__nav,
+    [data-md-color-scheme="default"] .md-header .md-search__icon {
+      color: rgba(0,0,0,.75);
+    }
+    [data-md-color-scheme="default"] .md-header .md-search__input {
+      color: rgba(0,0,0,.85);
+      background-color: rgba(0,0,0,.04);
+    }
+    [data-md-color-scheme="default"] .md-header .md-search__input::placeholder {
+      color: rgba(0,0,0,.5);
+    }
+    [data-md-color-scheme="default"] .md-header__logo img {
+      filter: brightness(0) opacity(0.7);
+    }
+    [data-md-color-scheme="default"] .md-tabs {
+      background-color: #ffffff;
+      color: rgba(0,0,0,.75);
+      border-bottom: .05rem solid rgba(0,0,0,.08);
+    }
+    [data-md-color-scheme="default"] .md-tabs__link { color: rgba(0,0,0,.65); }
+    [data-md-color-scheme="default"] .md-tabs__link--active,
+    [data-md-color-scheme="default"] .md-tabs__link:hover { color: rgba(0,0,0,.9); }
+    /* Sidebars and header use Jost; body content uses the theme font (Inter) */
+    .md-header, .md-nav, .md-sidebar, .md-toc, .md-tabs {
+      --md-text-font-family: "Jost", system-ui, -apple-system, "Segoe UI",
+        Roboto, "Noto Sans", "Liberation Sans", Arial, sans-serif;
+      font-family: var(--md-text-font-family);
+      font-size: 0.85rem;
+    }
+    /* Slightly smaller body content */
+    .md-typeset { font-size: 0.72rem; line-height: 1.55; }
+    /* Bolder and larger top bar; sidebar sub-navs get progressively smaller */
+    .md-header { font-weight: 700; font-size: 0.92rem; }
+    .md-header .md-header__topic,
+    .md-header .md-tabs__link { font-weight: 700; }
+    .md-nav .md-nav { font-size: 0.9em; }
+  </style>
+
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="cyan">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#ucm-toolkit" class="md-skip">
+          跳转至
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="页眉">
+    <a href="../../../" title="Unified Cache Manager 中文站点" class="md-header__button md-logo" aria-label="Unified Cache Manager 中文站点" data-md-component="logo">
+      
+  <img src="../../../../assets/images/UCM-light.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Unified Cache Manager 中文站点
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              设计文档
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="cyan"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="cyan"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+      <div class="md-header__option">
+  <div class="md-select">
+    
+    <button class="md-header__button md-icon" aria-label="选择当前语言">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m12.87 15.07-2.54-2.51.03-.03A17.5 17.5 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2zm-2.62 7 1.62-4.33L19.12 17z"/></svg>
+    </button>
+    <div class="md-select__inner">
+      <ul class="md-select__list">
+        
+          <li class="md-select__item">
+            <a href="../../../../toolkit/developer/design/" hreflang="en" class="md-select__link">
+              English
+            </a>
+          </li>
+        
+          <li class="md-select__item">
+            <a href="./" hreflang="zh" class="md-select__link">
+              简体中文
+            </a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+</div>
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="搜索" placeholder="搜索" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="查找">
+        
+        <button type="reset" class="md-search__icon md-icon" title="清空当前内容" aria-label="清空当前内容" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            正在初始化搜索引擎
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ModelEngine-Group/unified-cache-management" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ModelEngine-Group/ucm
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="标签" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../../" class="md-tabs__link">
+        
+  
+  
+    
+  
+  首页
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../user-guide/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  用户指南
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../developer-guide/architecture/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  开发者指南
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../reference/api-parameters/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  参考
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../../benchmark/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  性能测试
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../../" class="md-tabs__link">
+          
+  
+  
+    
+  
+  工具集
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="导航栏" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../../" title="Unified Cache Manager 中文站点" class="md-nav__button md-logo" aria-label="Unified Cache Manager 中文站点" data-md-component="logo">
+      
+  <img src="../../../../assets/images/UCM-light.png" alt="logo">
+
+    </a>
+    Unified Cache Manager 中文站点
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ModelEngine-Group/unified-cache-management" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ModelEngine-Group/ucm
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    首页
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../user-guide/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    用户指南
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    用户指南
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user-guide/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    安装
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../user-guide/quick_start/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    快速开始
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_3" id="__nav_2_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    快速开始
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user-guide/quick_start/quickstart_vllm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vLLM (CUDA)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user-guide/quick_start/quickstart_vllm_ascend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vLLM Ascend (NPU)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user-guide/quick_start/quickstart_sglang/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SGLang (CUDA)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user-guide/quick_start/quickstart_mindie_llm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MindIE (NPU Ascend)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user-guide/support-matrix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    支持矩阵
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user-guide/deploy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    部署
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../user-guide/frameworks/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    部署框架
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_6" id="__nav_2_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    部署框架
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user-guide/frameworks/kubernetes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kubernetes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user-guide/frameworks/pyMotor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pyMotor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../user-guide/model-tour/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    模型示例
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_7" id="__nav_2_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    模型示例
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_7_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../user-guide/model-tour/glm/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GLM
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_7_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_7_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    GLM
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_7_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../user-guide/model-tour/qwen3/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Qwen
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_7_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_7_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Qwen
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_7_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../user-guide/model-tour/deepseek/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DeepSeek
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_7_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_7_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DeepSeek
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_7_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../user-guide/model-tour/minimax/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MiniMax
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_7_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_7_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    MiniMax
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_7_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../user-guide/model-tour/kimi/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kimi
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_7_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_7_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Kimi
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../user-guide/capabilities/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    核心能力
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_8" id="__nav_2_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    核心能力
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user-guide/capabilities/prefix-cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    前缀缓存
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_9" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../user-guide/observability/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    观测能力
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_9" id="__nav_2_9_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    观测能力
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user-guide/observability/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    指标监控
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_10" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../user-guide/diagnostics/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    诊断工具
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_10" id="__nav_2_10_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    诊断工具
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user-guide/diagnostics/trace-mode/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trace 模式
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user-guide/support-matrix/support_matrix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    支持矩阵
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    开发者指南
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    开发者指南
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../developer-guide/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    架构
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../developer-guide/build_from_source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../developer-guide/capability-principles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    能力原理
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../developer-guide/add-metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    添加指标
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../developer-guide/extending-store/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    扩展存储
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../developer-guide/contribute/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    贡献
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    参考
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    参考
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/api-parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API 与参数
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../benchmark/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    性能测试
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    工具集
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    工具集
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../kv-cache-calculator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    KV Cache 计算器
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_3" id="__nav_6_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    用户指南
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    用户指南
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/dev-sandbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    dev-sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/metrics-view/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    metrics-view
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/nic-monitor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    nic-monitor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/posix-aio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    posix-aio
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/precheck/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    precheck
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6_4" id="__nav_6_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    开发者
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    开发者
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    设计文档
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    设计文档
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        背景
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        设计目标
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        非目标
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        推荐目录结构
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        总体架构
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adapter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        工具 Adapter 接口
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        核心模块设计
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="核心模块设计">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#clipy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        cli.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#registrypy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        registry.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runnerpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        runner.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#errorspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        errors.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI 设计
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dev-sandbox" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dev-sandbox 构建设计
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="dev-sandbox 构建设计">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dev-sandbox_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        当前 dev-sandbox 的构建行为
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#toolkit-dev-sandbox" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        toolkit 对 dev-sandbox 的原则
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cli_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        可选 CLI 参数
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dev-sandbox_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dev-sandbox 运行设计
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="dev-sandbox 运行设计">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dev-sandbox-help" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dev-sandbox help 设计
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#posix-aio" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        POSIX AIO 接入设计
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        网卡负载监控接入设计
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        打包设计
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        文档设计
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        错误处理
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        实施顺序
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        已确认决策
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dev-sandbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    dev-sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        背景
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        设计目标
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        非目标
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        推荐目录结构
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        总体架构
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adapter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        工具 Adapter 接口
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        核心模块设计
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="核心模块设计">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#clipy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        cli.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#registrypy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        registry.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runnerpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        runner.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#errorspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        errors.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI 设计
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dev-sandbox" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dev-sandbox 构建设计
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="dev-sandbox 构建设计">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dev-sandbox_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        当前 dev-sandbox 的构建行为
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#toolkit-dev-sandbox" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        toolkit 对 dev-sandbox 的原则
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cli_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        可选 CLI 参数
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dev-sandbox_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dev-sandbox 运行设计
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="dev-sandbox 运行设计">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dev-sandbox-help" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dev-sandbox help 设计
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#posix-aio" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        POSIX AIO 接入设计
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        网卡负载监控接入设计
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        打包设计
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        文档设计
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        错误处理
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        实施顺序
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        已确认决策
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/ModelEngine-Group/unified-cache-management/edit/develop/docs-next/docs/en/zh/toolkit/developer/design.md" title="编辑此页" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+    
+      
+    
+    <a href="https://github.com/ModelEngine-Group/unified-cache-management/raw/develop/docs-next/docs/en/zh/toolkit/developer/design.md" title="查看本页的源代码" class="md-content__button md-icon">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
+    </a>
+  
+
+
+<h1 id="ucm-toolkit">UCM Toolkit 设计文档<a class="headerlink" href="#ucm-toolkit" title="Permanent link">&para;</a></h1>
+<h2 id="_1">背景<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
+<p>UCM 是一个基于 vLLM KV connector 构建的 KV cache 卸载插件。<code>toolkit</code>
+目录将作为 UCM 的工具子项目，用来统一管理多种测试、诊断和辅助工具，提供一致的入口、CLI、
+文档、构建和打包方式。</p>
+<p>当前计划纳入的工具包括：</p>
+<ul>
+<li>网卡负载监控工具：当前接入 <code>toolkit/src/nic_monitor/nic_monitor_pro.sh</code>，用于被动物理网卡流量监控。</li>
+<li><code>dev-sandbox</code>：当前已经存在于 <code>toolkit/src/dev-sandbox</code> 下，是一个基于 CMake 的 C++17
+  测试项目，用于测试 CUDA / Ascend 平台的 D2D、D2H、H2D 等拷贝带宽。</li>
+<li>POSIX AIO 测试脚本：代码仓中的 POSIX AIO 脚本需要统一纳入 toolkit 的 CLI 入口。</li>
+</ul>
+<h2 id="_2">设计目标<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
+<ul>
+<li>提供一个统一命令入口，例如 <code>ucm-toolkit</code>。</li>
+<li>提供一致的 <code>--help</code> 输出和参数风格。</li>
+<li>提供统一的工具列表、构建、运行、诊断和清理命令。</li>
+<li>对需要编译的工具提供统一构建入口，但不破坏原工具自身的构建语义。</li>
+<li>将不同工具隔离在 adapter 后面，方便后续新增工具。</li>
+<li>将 toolkit 的使用说明集中放在 <code>toolkit</code> 目录下。</li>
+<li>支持工具原生命令参数透传，避免统一 CLI 阻断高级用法。</li>
+</ul>
+<h2 id="_3">非目标<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
+<ul>
+<li>不把所有工具实现合并到一个巨大的 Python 文件中。</li>
+<li>不立即重写 <code>dev-sandbox</code>。第一阶段只包装它现有的 CMake 构建和二进制运行方式。</li>
+<li>不在 toolkit 层强行干预 <code>dev-sandbox</code> 的后端探测逻辑。</li>
+<li>不在第一版引入重量级 Python CLI 依赖。</li>
+<li>不要求所有原生工具参数都在第一版转换成 toolkit 的标准参数。</li>
+</ul>
+<h2 id="_4">推荐目录结构<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>toolkit/
+  pyproject.toml
+  README.md
+  DESIGN.md
+  ucm_toolkit/
+    __init__.py
+    cli.py
+    registry.py
+    runner.py
+    errors.py
+
+    commands/
+      __init__.py
+      build.py
+      run.py
+      list.py
+      doctor.py
+      clean.py
+
+    tools/
+      __init__.py
+      dev_sandbox/
+        __init__.py
+        adapter.py
+        README.md
+      posix_aio/
+        __init__.py
+        adapter.py
+        README.md
+      nic_monitor/
+        __init__.py
+        adapter.py
+        README.md
+
+  src/
+    dev-sandbox/
+      ...
+
+  build/
+    dev-sandbox/            # 可选统一构建目录，不作为 dev-sandbox 默认目录
+
+  dist/
+</code></pre></div>
+<p>其中：</p>
+<ul>
+<li><code>ucm_toolkit/</code> 是 Python CLI 和工具编排层。</li>
+<li><code>ucm_toolkit/tools/*/adapter.py</code> 是各工具的接入层。</li>
+<li><code>toolkit/src/</code> 放置各工具的实际源码。</li>
+<li><code>toolkit/src/dev-sandbox/</code> 保持为现有 CMake 项目。</li>
+<li><code>toolkit/build/</code> 和 <code>toolkit/dist/</code> 是生成目录，建议加入 <code>.gitignore</code>。</li>
+<li><code>toolkit/build/</code> 可以作为用户显式指定的统一构建输出目录，但对 <code>dev-sandbox</code> 这种已有原生项目，
+  默认应保持原项目习惯，也就是使用 <code>toolkit/src/dev-sandbox/build</code>。</li>
+</ul>
+<h2 id="_5">总体架构<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h2>
+<p>toolkit 使用一个轻量 Python 包作为统一编排层。Python 负责：</p>
+<ul>
+<li>CLI 参数解析。</li>
+<li>工具注册和发现。</li>
+<li>构建命令编排。</li>
+<li>子进程执行。</li>
+<li>错误信息整理。</li>
+<li>文档入口和帮助信息。</li>
+</ul>
+<p>具体工具通过 adapter 接入。CLI core 不直接关心每个工具内部如何构建、如何运行，而是通过 registry
+找到对应工具对象，再调用该对象的 <code>build</code>、<code>run</code>、<code>doctor</code> 等方法。</p>
+<p>工具路径、默认 build 目录、二进制相对路径、脚本路径等都属于工具对象自身的配置，不再拆出单独的
+<code>config.py</code>。这样 registry 是工具事实来源，避免 registry 与 config 两套配置重复。</p>
+<p>概念结构如下：</p>
+<div class="highlight"><pre><span></span><code>ucm-toolkit
+  |
+  +-- commands/build.py
+  |     |
+  |     +-- registry.get("dev-sandbox").build(args)
+  |
+  +-- commands/run.py
+  |     |
+  |     +-- registry.get("dev-sandbox").run(args)
+  |     +-- registry.get("posix-aio").run(args)
+  |     +-- registry.get("nic-monitor").run(args)
+  |
+  +-- commands/doctor.py
+        |
+        +-- registry.get(...).doctor(args)
+</code></pre></div>
+<h2 id="adapter">工具 Adapter 接口<a class="headerlink" href="#adapter" title="Permanent link">&para;</a></h2>
+<p>每个工具 adapter 建议提供统一接口，并将路径作为类字段或实例字段集中在工具类内部：</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">ToolAdapter</span><span class="p">:</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">aliases</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">buildable</span><span class="p">:</span> <span class="nb">bool</span>
+
+    <span class="n">source_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">build_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">binary_relpath</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">script_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">subcommands</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">add_build_args</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parser</span><span class="p">):</span> <span class="o">...</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">build</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">args</span><span class="p">):</span> <span class="o">...</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">add_run_args</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parser</span><span class="p">):</span> <span class="o">...</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">args</span><span class="p">):</span> <span class="o">...</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">doctor</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">args</span><span class="p">):</span> <span class="o">...</span>
+</code></pre></div>
+<p>这样新增工具时，只需要新增一个 adapter 并注册到 registry，不需要大改 CLI 主流程。工具需要的路径也跟随
+adapter 本身，不再放到全局 config 文件中。</p>
+<p>示例：</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">DevSandboxTool</span><span class="p">(</span><span class="n">ToolAdapter</span><span class="p">):</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="s2">"dev-sandbox"</span>
+    <span class="n">aliases</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"dev_sandbox"</span><span class="p">]</span>
+    <span class="n">buildable</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">source_dir</span> <span class="o">=</span> <span class="s2">"toolkit/src/dev-sandbox"</span>
+    <span class="n">build_dir</span> <span class="o">=</span> <span class="s2">"toolkit/src/dev-sandbox/build"</span>
+    <span class="n">subcommands</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">"copy"</span><span class="p">:</span> <span class="s2">"module/copy/copy"</span><span class="p">,</span>
+        <span class="s2">"trans"</span><span class="p">:</span> <span class="s2">"module/trans/trans"</span><span class="p">,</span>
+        <span class="s2">"aio"</span><span class="p">:</span> <span class="s2">"module/aio/aio"</span><span class="p">,</span>
+    <span class="p">}</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">PosixAioTool</span><span class="p">(</span><span class="n">ToolAdapter</span><span class="p">):</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="s2">"posix-aio"</span>
+    <span class="n">buildable</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">script_path</span> <span class="o">=</span> <span class="s2">"ucm/store/test/e2e/posixstore_aio_test.py"</span>
+</code></pre></div>
+<p>如果执行：</p>
+<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>build<span class="w"> </span>dev-sandbox<span class="w"> </span>--build-dir<span class="w"> </span>toolkit/build/dev-sandbox/release
+</code></pre></div>
+<p>则 build adapter 在构建成功后更新 <code>DevSandboxTool.build_dir</code>。这里的“更新”不是只修改当前进程内存，
+而是写回定义该工具类的 Python 源文件，使下一次执行 <code>ucm-toolkit run dev-sandbox copy/trans/aio</code>
+时也能读取到新的 build 目录。<code>copy/trans/aio</code> 作为 <code>dev-sandbox</code> 的子功能，从
+<code>DevSandboxTool.build_dir</code> 读取 build 目录。</p>
+<h2 id="_6">核心模块设计<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h2>
+<h3 id="clipy"><code>cli.py</code><a class="headerlink" href="#clipy" title="Permanent link">&para;</a></h3>
+<p><code>cli.py</code> 是 <code>ucm-toolkit</code> 的唯一命令入口，负责解析用户输入并分发到具体 command 或 tool adapter。
+它不实现具体工具逻辑，也不直接拼接各工具的底层命令。</p>
+<p>主要职责：</p>
+<ul>
+<li>构建顶层 argparse parser。</li>
+<li>解析顶层命令，例如 <code>list</code>、<code>doctor</code>、<code>build</code>、<code>run</code>、<code>clean</code>。</li>
+<li>处理 <code>ucm-toolkit --help</code>、<code>ucm-toolkit run --help</code> 等通用帮助。</li>
+<li>将 <code>build dev-sandbox</code> 分发给 registry 中的 <code>dev-sandbox</code> 工具对象。</li>
+<li>将 <code>run dev-sandbox copy ...</code> 分发给 registry 中的 <code>dev-sandbox</code> 工具对象。</li>
+<li>捕获 <code>ToolkitError</code>，统一转换为命令行错误输出和退出码。</li>
+</ul>
+<p>建议函数：</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">argv</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="o">...</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">build_parser</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">:</span>
+    <span class="o">...</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">handle_list</span><span class="p">(</span><span class="n">args</span><span class="p">:</span> <span class="n">argparse</span><span class="o">.</span><span class="n">Namespace</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="o">...</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">handle_doctor</span><span class="p">(</span><span class="n">args</span><span class="p">:</span> <span class="n">argparse</span><span class="o">.</span><span class="n">Namespace</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="o">...</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">handle_build</span><span class="p">(</span><span class="n">args</span><span class="p">:</span> <span class="n">argparse</span><span class="o">.</span><span class="n">Namespace</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="o">...</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">handle_run</span><span class="p">(</span><span class="n">argv</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="o">...</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">handle_clean</span><span class="p">(</span><span class="n">args</span><span class="p">:</span> <span class="n">argparse</span><span class="o">.</span><span class="n">Namespace</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="o">...</span>
+</code></pre></div>
+<p><code>run</code> 命令需要特殊处理。<code>cli.py</code> 只解析出一级工具名，一级工具名后面的参数应原样交给对应工具对象。
+对于 <code>dev-sandbox</code>，<code>copy/trans/aio</code> 是它自己的子功能，由 <code>DevSandboxTool.run()</code> 继续解析。</p>
+<p>示例：</p>
+<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>run<span class="w"> </span>dev-sandbox<span class="w"> </span>copy<span class="w"> </span>-t<span class="w"> </span>host_to_device_ce<span class="w"> </span>-s<span class="w"> </span>16K
+</code></pre></div>
+<p><code>cli.py</code> 只应拆出：</p>
+<div class="highlight"><pre><span></span><code>tool = "dev-sandbox"
+tool_args = ["copy", "-t", "host_to_device_ce", "-s", "16K"]
+</code></pre></div>
+<p><code>tool_args</code> 的一级子命令由 <code>DevSandboxTool.run()</code> 解释；子命令之后的参数完全由对应二进制决定。</p>
+<h3 id="registrypy"><code>registry.py</code><a class="headerlink" href="#registrypy" title="Permanent link">&para;</a></h3>
+<p><code>registry.py</code> 是工具事实来源，负责保存所有工具对象、工具别名、工具路径和工具元信息。由于不再设计
+<code>config.py</code>，工具路径、脚本路径、二进制路径、build 目录等都应由 registry 中的工具对象持有。</p>
+<p>主要职责：</p>
+<ul>
+<li>定义工具基类或协议。</li>
+<li>定义各工具对象的注册方式。</li>
+<li>提供工具名和 alias 查询。</li>
+<li>提供工具列表。</li>
+<li>持有工具路径字段。</li>
+<li>提供受控字段更新能力，例如更新 <code>DevSandboxTool.build_dir</code>。</li>
+</ul>
+<p>建议结构：</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">ToolAdapter</span><span class="p">:</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">aliases</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">()</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">""</span>
+    <span class="n">buildable</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+
+    <span class="n">source_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">build_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">binary_relpath</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">script_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">subcommands</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">build</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">args</span><span class="p">:</span> <span class="n">argparse</span><span class="o">.</span><span class="n">Namespace</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">ToolNotBuildableError</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tool_args</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">doctor</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mi">0</span>
+</code></pre></div>
+<p>建议 registry API：</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">(</span><span class="n">tool</span><span class="p">:</span> <span class="n">ToolAdapter</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="o">...</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ToolAdapter</span><span class="p">:</span>
+    <span class="o">...</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">list_tools</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">ToolAdapter</span><span class="p">]:</span>
+    <span class="o">...</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">update_tool_field</span><span class="p">(</span><span class="n">tool_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">field_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="o">...</span>
+</code></pre></div>
+<p><code>list_tools()</code> 只返回顶层工具，用于 <code>ucm-toolkit list</code>。例如只列出 <code>dev-sandbox</code>、<code>posix-aio</code>、
+<code>nic-monitor</code>，不列出 <code>copy/trans/aio</code>。</p>
+<p>内置工具建议：</p>
+<div class="highlight"><pre><span></span><code>dev-sandbox  可构建工具，持有 source_dir 和 build_dir
+posix-aio    Python 脚本工具，持有 script_path
+nic-monitor     被动物理网卡流量监控工具
+</code></pre></div>
+<p><code>copy/trans/aio</code> 不作为 registry 顶层工具注册，只作为 <code>dev-sandbox</code> 的子功能暴露。</p>
+<p><code>update_tool_field()</code> 应是受控更新，不应成为任意文件写入工具。建议限制：</p>
+<ul>
+<li>只允许更新白名单字段，例如 <code>build_dir</code>。</li>
+<li>只允许更新 registry/adapter 中明确注册的工具类字段。</li>
+<li>更新前校验字段值是普通字符串路径。</li>
+<li>更新失败时抛出 <code>ConfigUpdateError</code> 或更名后的 <code>RegistryUpdateError</code>。</li>
+</ul>
+<h3 id="runnerpy"><code>runner.py</code><a class="headerlink" href="#runnerpy" title="Permanent link">&para;</a></h3>
+<p><code>runner.py</code> 负责统一执行外部命令。它封装 <code>subprocess</code>，让 build、run、doctor 等逻辑不用重复处理
+命令打印、cwd、env、退出码和异常转换。</p>
+<p>主要职责：</p>
+<ul>
+<li>检查外部命令是否存在。</li>
+<li>执行命令并保留 stdout/stderr 原样输出。</li>
+<li>命令失败时抛出统一错误。</li>
+<li>规范化命令显示格式，方便用户复制复现。</li>
+</ul>
+<p>建议函数：</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">command_exists</span><span class="p">(</span><span class="n">command</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="o">...</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">format_command</span><span class="p">(</span><span class="n">cmd</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="o">...</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">run_command</span><span class="p">(</span>
+    <span class="n">cmd</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">env</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="o">...</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">check_command</span><span class="p">(</span>
+    <span class="n">cmd</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">env</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="o">...</span>
+</code></pre></div>
+<p>使用示例：</p>
+<div class="highlight"><pre><span></span><code><span class="n">check_command</span><span class="p">([</span><span class="s2">"cmake"</span><span class="p">,</span> <span class="s2">"-B"</span><span class="p">,</span> <span class="n">build_dir</span><span class="p">,</span> <span class="s2">"-DCMAKE_BUILD_TYPE=Release"</span><span class="p">],</span> <span class="n">cwd</span><span class="o">=</span><span class="n">source_dir</span><span class="p">)</span>
+<span class="n">check_command</span><span class="p">([</span><span class="s2">"cmake"</span><span class="p">,</span> <span class="s2">"--build"</span><span class="p">,</span> <span class="n">build_dir</span><span class="p">,</span> <span class="s2">"-j"</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">jobs</span><span class="p">)],</span> <span class="n">cwd</span><span class="o">=</span><span class="n">source_dir</span><span class="p">)</span>
+<span class="n">run_command</span><span class="p">([</span><span class="n">copy_binary</span><span class="p">,</span> <span class="o">*</span><span class="n">tool_args</span><span class="p">])</span>
+</code></pre></div>
+<p><code>runner.py</code> 不应该知道 <code>dev-sandbox</code>、<code>copy</code>、<code>posix-aio</code> 这些具体工具，只做通用命令执行。</p>
+<h3 id="errorspy"><code>errors.py</code><a class="headerlink" href="#errorspy" title="Permanent link">&para;</a></h3>
+<p><code>errors.py</code> 定义 toolkit 的统一异常类型。这样各模块只负责抛出明确错误，最终由 <code>cli.py</code> 统一打印。</p>
+<p>建议异常层次：</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">ToolkitError</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+    <span class="n">exit_code</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">UnknownToolError</span><span class="p">(</span><span class="n">ToolkitError</span><span class="p">):</span>
+    <span class="o">...</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ToolNotBuildableError</span><span class="p">(</span><span class="n">ToolkitError</span><span class="p">):</span>
+    <span class="o">...</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">BuildDirNotFoundError</span><span class="p">(</span><span class="n">ToolkitError</span><span class="p">):</span>
+    <span class="o">...</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">BinaryNotFoundError</span><span class="p">(</span><span class="n">ToolkitError</span><span class="p">):</span>
+    <span class="o">...</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ScriptNotFoundError</span><span class="p">(</span><span class="n">ToolkitError</span><span class="p">):</span>
+    <span class="o">...</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">CommandNotFoundError</span><span class="p">(</span><span class="n">ToolkitError</span><span class="p">):</span>
+    <span class="o">...</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">CommandFailedError</span><span class="p">(</span><span class="n">ToolkitError</span><span class="p">):</span>
+    <span class="o">...</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">RegistryUpdateError</span><span class="p">(</span><span class="n">ToolkitError</span><span class="p">):</span>
+    <span class="o">...</span>
+</code></pre></div>
+<p><code>cli.py</code> 统一捕获：</p>
+<div class="highlight"><pre><span></span><code><span class="k">try</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">dispatch</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+<span class="k">except</span> <span class="n">ToolkitError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"error: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span> <span class="n">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">exc</span><span class="o">.</span><span class="n">exit_code</span>
+</code></pre></div>
+<p>错误信息应尽量可操作，例如：</p>
+<div class="highlight"><pre><span></span><code>error: dev-sandbox binary not found: toolkit/src/dev-sandbox/build/module/copy/copy
+hint: run `ucm-toolkit build dev-sandbox` first
+</code></pre></div>
+<p>模块关系：</p>
+<div class="highlight"><pre><span></span><code>cli.py
+  -&gt; registry.py
+      -&gt; tool adapter
+          -&gt; runner.py
+          -&gt; errors.py
+</code></pre></div>
+<p><code>errors.py</code> 可以被所有模块引用，但不依赖其他 toolkit 模块。</p>
+<h2 id="cli">CLI 设计<a class="headerlink" href="#cli" title="Permanent link">&para;</a></h2>
+<p>安装后提供统一入口：</p>
+<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>--help
+</code></pre></div>
+<p>顶层命令建议如下：</p>
+<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>list
+ucm-toolkit<span class="w"> </span>doctor<span class="w"> </span><span class="o">[</span>TOOL<span class="o">]</span>
+ucm-toolkit<span class="w"> </span>build<span class="w"> </span>TOOL<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
+ucm-toolkit<span class="w"> </span>run<span class="w"> </span>TOOL<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
+ucm-toolkit<span class="w"> </span>clean<span class="w"> </span><span class="o">[</span>TOOL<span class="o">]</span>
+</code></pre></div>
+<p>示例：</p>
+<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>list
+ucm-toolkit<span class="w"> </span>doctor
+ucm-toolkit<span class="w"> </span>doctor<span class="w"> </span>dev-sandbox
+ucm-toolkit<span class="w"> </span>build<span class="w"> </span>dev-sandbox<span class="w"> </span>--build-type<span class="w"> </span>Release<span class="w"> </span>--jobs<span class="w"> </span><span class="m">16</span>
+ucm-toolkit<span class="w"> </span>build<span class="w"> </span>dev-sandbox<span class="w"> </span>--cmake-arg<span class="w"> </span>-DCUDA_ROOT<span class="o">=</span>/usr/local/cuda
+ucm-toolkit<span class="w"> </span>build<span class="w"> </span>dev-sandbox<span class="w"> </span>--build-dir<span class="w"> </span>toolkit/build/dev-sandbox/release
+ucm-toolkit<span class="w"> </span>run<span class="w"> </span>dev-sandbox<span class="w"> </span>copy<span class="w"> </span>-t<span class="w"> </span>host_to_device_ce<span class="w"> </span>-s<span class="w"> </span>16K<span class="w"> </span>-n<span class="w"> </span><span class="m">512</span><span class="w"> </span>-i<span class="w"> </span><span class="m">128</span><span class="w"> </span>-d<span class="w"> </span><span class="m">8</span>
+ucm-toolkit<span class="w"> </span>run<span class="w"> </span>dev-sandbox<span class="w"> </span>trans<span class="w"> </span>--help
+ucm-toolkit<span class="w"> </span>run<span class="w"> </span>dev-sandbox<span class="w"> </span>aio<span class="w"> </span>--help
+ucm-toolkit<span class="w"> </span>run<span class="w"> </span>posix-aio<span class="w"> </span>--help
+ucm-toolkit<span class="w"> </span>run<span class="w"> </span>nic-monitor<span class="w"> </span>--help
+</code></pre></div>
+<p><code>build</code>、<code>run</code>、<code>doctor</code>、<code>clean</code> 等一级命令后只跟顶层工具名称。<code>copy/trans/aio</code> 不作为顶层工具暴露，
+而是作为 <code>dev-sandbox</code> 的 run 子功能暴露。对于 <code>dev-sandbox copy/trans/aio</code> 这类已经有原生命令行参数的
+编译产物，子功能名后面的参数应默认原样透传给底层二进制。</p>
+<h2 id="dev-sandbox">dev-sandbox 构建设计<a class="headerlink" href="#dev-sandbox" title="Permanent link">&para;</a></h2>
+<h3 id="dev-sandbox_1">当前 dev-sandbox 的构建行为<a class="headerlink" href="#dev-sandbox_1" title="Permanent link">&para;</a></h3>
+<p><code>dev-sandbox</code> 当前是一个独立 CMake 项目，其 README 中的构建方式为：</p>
+<div class="highlight"><pre><span></span><code>cmake<span class="w"> </span>-B<span class="w"> </span>build
+cmake<span class="w"> </span>--build<span class="w"> </span>build<span class="w"> </span>-j
+</code></pre></div>
+<p>也就是说，如果在 <code>toolkit/src/dev-sandbox</code> 目录下执行原命令，默认 build 目录就是：</p>
+<div class="highlight"><pre><span></span><code>toolkit/src/dev-sandbox/build
+</code></pre></div>
+<p>构建完成后，<code>copy</code> 可执行文件通常位于：</p>
+<div class="highlight"><pre><span></span><code>toolkit/src/dev-sandbox/build/module/copy/copy
+</code></pre></div>
+<p>其他 CMake 产物也位于同一个 build 目录下，例如：</p>
+<div class="highlight"><pre><span></span><code>toolkit/src/dev-sandbox/build/module/trans/trans
+toolkit/src/dev-sandbox/build/module/aio/aio
+</code></pre></div>
+<p>它的 <code>cmake/DetectRuntime.cmake</code> 会自动探测运行后端。当前逻辑大致为：</p>
+<ol>
+<li>尝试探测 CUDA。</li>
+<li>如果 CUDA 不可用，再尝试探测 Ascend。</li>
+<li>如果 CUDA 和 Ascend 都不可用，则回退到 CPU simulation 模式。</li>
+</ol>
+<p>当前 CMake 配置中没有发现类似下面这样的显式平台选项：</p>
+<div class="highlight"><pre><span></span><code>-DPLATFORM=cuda
+-DUCM_TOOLKIT_PLATFORM=cuda
+-DRUNTIME_BACKEND=ascend
+</code></pre></div>
+<p>也就是说，<code>dev-sandbox</code> 原项目目前并不支持直接传入 <code>cuda</code> 或 <code>ascend</code> 来选择后端。</p>
+<p>不过它支持通过 CMake cache 变量影响 runtime root 探测，例如：</p>
+<div class="highlight"><pre><span></span><code>-DCUDA_ROOT=/usr/local/cuda
+-DASCEND_ROOT=/usr/local/Ascend/ascend-toolkit/latest
+</code></pre></div>
+<p>这些参数不是显式平台选择器，但可以作为原项目已有 CMake 参数透传给 CMake。</p>
+<p>这些 cache 变量的读取位置在 <code>toolkit/src/dev-sandbox/cmake/DetectRuntime.cmake</code>：</p>
+<ul>
+<li><code>CUDA_ROOT</code>：优先读取 <code>CACHE{CUDA_ROOT}</code>，然后读取 <code>CUDA_HOME</code>、<code>CUDA_PATH</code> 和默认路径
+  <code>/usr/local/cuda</code>。</li>
+<li><code>ASCEND_ROOT</code>：优先读取 <code>CACHE{ASCEND_ROOT}</code>，然后读取 <code>ASCEND_HOME</code>、
+  <code>ASCEND_TOOLKIT_HOME</code> 和默认路径 <code>/usr/local/Ascend/ascend-toolkit/latest</code>。</li>
+</ul>
+<p>因此，toolkit 中的 <code>--cmake-arg -DCUDA_ROOT=...</code> 不是新增的业务参数，而是把用户传入的 CMake
+cache 参数原样追加到 CMake configure 命令中。</p>
+<h3 id="toolkit-dev-sandbox">toolkit 对 dev-sandbox 的原则<a class="headerlink" href="#toolkit-dev-sandbox" title="Permanent link">&para;</a></h3>
+<p>toolkit 不应该默认干预 <code>dev-sandbox</code> 的后端选择。默认情况下，toolkit 应执行与原项目等价的 CMake
+命令，只是提供统一 CLI 入口。</p>
+<p>默认构建行为：</p>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>toolkit/src/dev-sandbox
+cmake<span class="w"> </span>-B<span class="w"> </span>build<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Release
+cmake<span class="w"> </span>--build<span class="w"> </span>build<span class="w"> </span>-j<span class="w"> </span><span class="m">16</span>
+</code></pre></div>
+<p>这保持了 <code>dev-sandbox</code> 原本的自动探测行为。</p>
+<p>默认情况下，如果用户不传 <code>--build-dir</code>，toolkit 应使用：</p>
+<div class="highlight"><pre><span></span><code>toolkit/src/dev-sandbox/build
+</code></pre></div>
+<p>如果用户显式传入 <code>--build-dir</code>，toolkit 再使用用户指定目录，例如：</p>
+<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>build<span class="w"> </span>dev-sandbox<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--build-dir<span class="w"> </span>toolkit/build/dev-sandbox/release
+</code></pre></div>
+<p>toolkit 不保存“上一次构建目录”这类外部状态文件。默认 build 目录应作为 <code>dev-sandbox</code>
+工具类字段放在 adapter 中，例如：</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">DevSandboxTool</span><span class="p">(</span><span class="n">ToolAdapter</span><span class="p">):</span>
+    <span class="n">build_dir</span> <span class="o">=</span> <span class="s2">"toolkit/src/dev-sandbox/build"</span>
+</code></pre></div>
+<p><code>ucm-toolkit build dev-sandbox</code> 不传 <code>--build-dir</code> 时，使用该默认值。用户传入 <code>--build-dir</code>
+时，构建命令使用用户指定路径，并同步写回定义 <code>DevSandboxTool</code> 的 Python 文件，更新
+<code>DevSandboxTool.build_dir</code>。之后用户运行 <code>ucm-toolkit run dev-sandbox copy/trans/aio</code> 时不需要再次传入 build
+目录，统一从工具类字段读取。</p>
+<p>注意：只在内存中修改类变量无法跨 CLI 进程持久化，因此这里需要提供一个明确的源码更新函数，例如：</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">update_tool_field</span><span class="p">(</span><span class="n">tool_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">field_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="o">...</span>
+</code></pre></div>
+<p>该函数只允许更新 registry/adapter 中受控的简单字符串字段，例如 <code>build_dir</code>，避免任意改写 Python 文件。</p>
+<p>如果用户需要传入原 CMake 项目支持的参数，可以使用通用透传参数：</p>
+<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>build<span class="w"> </span>dev-sandbox<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--cmake-arg<span class="w"> </span>-DCUDA_ROOT<span class="o">=</span>/usr/local/cuda
+</code></pre></div>
+<p>或：</p>
+<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>build<span class="w"> </span>dev-sandbox<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--cmake-arg<span class="w"> </span>-DASCEND_ROOT<span class="o">=</span>/usr/local/Ascend/ascend-toolkit/latest
+</code></pre></div>
+<p>第一版不建议在 <code>ucm-toolkit build dev-sandbox</code> 中强制要求 <code>--platform cuda|ascend</code>，因为这会让
+toolkit 暗示它能控制 <code>dev-sandbox</code> 的后端选择，但当前原 CMake 项目并没有这样的显式能力。</p>
+<h3 id="cli_1">可选 CLI 参数<a class="headerlink" href="#cli_1" title="Permanent link">&para;</a></h3>
+<p><code>dev-sandbox</code> build adapter 建议支持：</p>
+<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>build<span class="w"> </span>dev-sandbox<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--build-type<span class="w"> </span>Release<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--jobs<span class="w"> </span><span class="m">16</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--cmake-arg<span class="w"> </span>-DCUDA_ROOT<span class="o">=</span>/usr/local/cuda
+</code></pre></div>
+<p>参数含义：</p>
+<ul>
+<li><code>--build-type</code>：传入 <code>-DCMAKE_BUILD_TYPE=...</code>，默认 <code>Release</code>。</li>
+<li><code>--jobs</code>：传给 <code>cmake --build ... -j</code>。</li>
+<li><code>--build-dir</code>：覆盖 <code>DevSandboxTool.build_dir</code>；不传时使用该字段当前值。</li>
+<li><code>--cmake-arg</code>：可重复传入，原样传给 CMake configure 阶段。</li>
+</ul>
+<p>如果后续 <code>dev-sandbox</code> 自己增加了显式后端参数，例如：</p>
+<div class="highlight"><pre><span></span><code>-DUCM_TOOLKIT_PLATFORM=cuda|ascend|simu
+</code></pre></div>
+<p>那么 toolkit 再增加：</p>
+<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>build<span class="w"> </span>dev-sandbox<span class="w"> </span>--platform<span class="w"> </span>cuda
+</code></pre></div>
+<p>并将它翻译为原项目支持的 CMake 参数。当前阶段不做这个翻译。</p>
+<h2 id="dev-sandbox_2">dev-sandbox 运行设计<a class="headerlink" href="#dev-sandbox_2" title="Permanent link">&para;</a></h2>
+<p><code>dev-sandbox</code> 构建完成后，toolkit 应定位并运行其二进制产物，例如：</p>
+<ul>
+<li><code>module/copy/copy</code></li>
+<li><code>module/trans/trans</code></li>
+<li><code>module/aio/aio</code></li>
+</ul>
+<p>其中 <code>copy</code> 是第一阶段重点接入对象。</p>
+<p>对于这些编译产物，toolkit 的运行策略应是“顶层工具分发 + 子功能纯代理”：</p>
+<ul>
+<li>toolkit 只负责定位二进制。</li>
+<li>toolkit 只负责在二进制不存在时给出构建提示。</li>
+<li>toolkit 不重新定义二进制已有参数。</li>
+<li>toolkit 不把 <code>copy</code> 的 <code>-t/-s/-n/-i/-d</code> 二次包装成 <code>--case/--size/...</code>。</li>
+<li><code>ucm-toolkit run dev-sandbox copy</code> 中 <code>copy</code> 后面的参数由 <code>copy</code> 二进制自己解析。</li>
+<li><code>copy/trans/aio</code> 只在 <code>ucm-toolkit run dev-sandbox --help</code> 中作为子功能展示，不出现在 <code>ucm-toolkit list</code> 中。</li>
+</ul>
+<p>二进制查找规则：</p>
+<ol>
+<li><code>ucm-toolkit run dev-sandbox copy/trans/aio</code> 不提供 <code>--build-dir</code> 参数。</li>
+<li>run 阶段统一读取 <code>DevSandboxTool.build_dir</code>。</li>
+<li>如果用户希望切换 build 目录，应先执行 <code>ucm-toolkit build dev-sandbox --build-dir &lt;path&gt;</code> 更新工具类字段。</li>
+</ol>
+<p>toolkit 不需要把构建产物 install 到单独的 <code>bin</code> 目录，也不需要复制二进制。构建产物在哪里生成，运行时就从哪里查找。</p>
+<p>示例：</p>
+<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>run<span class="w"> </span>dev-sandbox<span class="w"> </span>copy<span class="w"> </span>-t<span class="w"> </span>host_to_device_ce<span class="w"> </span>-s<span class="w"> </span>16K<span class="w"> </span>-n<span class="w"> </span><span class="m">512</span><span class="w"> </span>-i<span class="w"> </span><span class="m">128</span><span class="w"> </span>-d<span class="w"> </span><span class="m">8</span>
+</code></pre></div>
+<p>等价于执行：</p>
+<div class="highlight"><pre><span></span><code>toolkit/src/dev-sandbox/build/module/copy/copy<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-t<span class="w"> </span>host_to_device_ce<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-s<span class="w"> </span>16K<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-n<span class="w"> </span><span class="m">512</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-i<span class="w"> </span><span class="m">128</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-d<span class="w"> </span><span class="m">8</span>
+</code></pre></div>
+<h3 id="dev-sandbox-help">dev-sandbox help 设计<a class="headerlink" href="#dev-sandbox-help" title="Permanent link">&para;</a></h3>
+<p><code>ucm-toolkit run dev-sandbox copy --help</code> 应尽量展示底层二进制的原生帮助，而不是维护一份容易过期的 toolkit
+侧参数说明。</p>
+<p>建议策略：</p>
+<ul>
+<li><code>ucm-toolkit run dev-sandbox --help</code>：展示 <code>dev-sandbox</code> 可用子功能，例如 <code>copy/trans/aio</code>。</li>
+<li><code>ucm-toolkit run dev-sandbox copy --help</code>：定位 <code>copy</code> 二进制并触发它的原生 help 输出。</li>
+<li><code>ucm-toolkit run dev-sandbox trans --help</code>：定位 <code>trans</code> 二进制并触发它的原生 help 输出。</li>
+<li><code>ucm-toolkit run dev-sandbox aio --help</code>：定位 <code>aio</code> 二进制并触发它的原生 help 输出。</li>
+<li><code>ucm-toolkit run --help</code>：只展示 toolkit 的通用运行规则和顶层可运行工具列表。</li>
+</ul>
+<p>当前 <code>trans</code> 和 <code>aio</code> 已有 <code>-h</code> 或 <code>--help</code> 风格的帮助参数。当前 <code>copy</code> 内部有
+<code>ArgsParser::Help()</code> 函数，但没有把 <code>-h/--help</code> 注册成正式成功返回的帮助参数；<code>--help</code>
+会落入未知参数分支，打印 Usage 后以失败码退出。因此第一版可以通过执行 <code>copy</code> 的 help 路径展示原生
+Usage；更理想的后续改进是给 <code>copy</code> 二进制补充原生 <code>-h/--help</code>，这样
+<code>ucm-toolkit run dev-sandbox copy --help</code> 就能完全等价地转发到 <code>copy --help</code>，并获得成功退出码。</p>
+<h2 id="posix-aio">POSIX AIO 接入设计<a class="headerlink" href="#posix-aio" title="Permanent link">&para;</a></h2>
+<p>POSIX AIO 脚本路径固定为：</p>
+<div class="highlight"><pre><span></span><code>ucm/store/test/e2e/posixstore_aio_test.py
+</code></pre></div>
+<p>POSIX AIO 通过稳定命令接入：</p>
+<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>run<span class="w"> </span>posix-aio
+</code></pre></div>
+<p>当前脚本参数以文件开头的全局变量形式存在：</p>
+<div class="highlight"><pre><span></span><code><span class="n">worker_number</span> <span class="o">=</span> <span class="mi">1</span>
+<span class="n">shard_size</span> <span class="o">=</span> <span class="mi">8</span> <span class="o">*</span> <span class="mi">1024</span> <span class="o">*</span> <span class="mi">1024</span>
+<span class="n">shard_number</span> <span class="o">=</span> <span class="mi">1</span>
+<span class="n">block_number</span> <span class="o">=</span> <span class="mi">64</span>
+<span class="n">dump_epoch_number</span> <span class="o">=</span> <span class="mi">32</span>
+<span class="n">load_epoch_number</span> <span class="o">=</span> <span class="mi">32</span>
+<span class="n">storage_backends</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"./build/data"</span><span class="p">]</span>
+</code></pre></div>
+<p>toolkit 接入时应保留这些默认值，同时提供 CLI 参数覆盖入口：</p>
+<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>run<span class="w"> </span>posix-aio<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--worker-number<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--shard-size<span class="w"> </span><span class="m">8388608</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--shard-number<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--block-number<span class="w"> </span><span class="m">64</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--dump-epoch-number<span class="w"> </span><span class="m">32</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--load-epoch-number<span class="w"> </span><span class="m">32</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--storage-backend<span class="w"> </span>./build/data
+</code></pre></div>
+<p>参数设计：</p>
+<ul>
+<li><code>--worker-number</code>：覆盖 <code>worker_number</code>。</li>
+<li><code>--shard-size</code>：覆盖 <code>shard_size</code>，单位为 bytes。</li>
+<li><code>--shard-number</code>：覆盖 <code>shard_number</code>。</li>
+<li><code>--block-number</code>：覆盖 <code>block_number</code>。</li>
+<li><code>--dump-epoch-number</code>：覆盖 <code>dump_epoch_number</code>。</li>
+<li><code>--load-epoch-number</code>：覆盖 <code>load_epoch_number</code>。</li>
+<li><code>--storage-backend</code>：覆盖 <code>storage_backends</code>，可重复传入多次。</li>
+</ul>
+<p>为了实现这个能力，建议对 <code>posixstore_aio_test.py</code> 做一个小的兼容性改造：</p>
+<ul>
+<li>保留文件开头的默认值。</li>
+<li>增加 <code>parse_args()</code>，默认值使用现有全局变量。</li>
+<li>增加 <code>main()</code>，根据 argparse 结果更新运行配置。</li>
+<li>保持直接执行 <code>python ucm/store/test/e2e/posixstore_aio_test.py</code> 时仍使用原默认行为。</li>
+</ul>
+<p>这样 <code>ucm-toolkit run posix-aio</code> 可以通过 subprocess 调用该脚本，并传入用户指定参数；原脚本直接运行的习惯也不会被破坏。</p>
+<p>如果脚本路径后续发生变化，只需要修改 <code>posix_aio/adapter.py</code>，不改变用户面对的命令入口。</p>
+<h2 id="_7">网卡负载监控接入设计<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h2>
+<p>网卡负载监控工具当前阶段只支持被动监控，不支持主动压测。当前接入脚本为：</p>
+<div class="highlight"><pre><span></span><code>toolkit/src/nic_monitor/nic_monitor_pro.sh
+</code></pre></div>
+<p>稳定命令入口：</p>
+<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>run<span class="w"> </span>nic-monitor
+</code></pre></div>
+<p>脚本支持两种模式：</p>
+<ul>
+<li><code>fg [interval_sec]</code>：前台动态展示，默认 2 秒刷新。</li>
+<li><code>bg [duration_hours] [interval_sec]</code>：后台守护监控，默认 12 小时。</li>
+</ul>
+<p>示例：</p>
+<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>run<span class="w"> </span>nic-monitor<span class="w"> </span><span class="nb">fg</span>
+ucm-toolkit<span class="w"> </span>run<span class="w"> </span>nic-monitor<span class="w"> </span><span class="nb">fg</span><span class="w"> </span><span class="m">5</span>
+ucm-toolkit<span class="w"> </span>run<span class="w"> </span>nic-monitor<span class="w"> </span><span class="nb">bg</span>
+ucm-toolkit<span class="w"> </span>run<span class="w"> </span>nic-monitor<span class="w"> </span><span class="nb">bg</span><span class="w"> </span><span class="m">24</span><span class="w"> </span><span class="m">5</span>
+ucm-toolkit<span class="w"> </span>run<span class="w"> </span>nic-monitor<span class="w"> </span><span class="nb">bg</span><span class="w"> </span><span class="m">24</span><span class="w"> </span><span class="m">5</span><span class="w"> </span>--log-dir<span class="w"> </span>/mnt/test/net_log
+ucm-toolkit<span class="w"> </span>run<span class="w"> </span>nic-monitor<span class="w"> </span><span class="nb">bg</span><span class="w"> </span><span class="m">24</span><span class="w"> </span><span class="m">5</span><span class="w"> </span>--stat-cycle-seconds<span class="w"> </span><span class="m">600</span>
+</code></pre></div>
+<p>adapter 使用 <code>bash</code> 调用该脚本并转发参数。该工具不设计主动打流、主动压测或流量生成能力。底层脚本使用
+<code>ethtool</code> 读取网卡信息和统计计数，运行时需要 root 或 sudo 权限。</p>
+<p>后台日志默认写到当前执行命令目录下的 <code>net_log</code> 目录。可通过 <code>--log-dir</code> 覆盖。后台阶段统计周期默认
+3600 秒，可通过 <code>--stat-cycle-seconds</code> 覆盖。</p>
+<h2 id="_8">打包设计<a class="headerlink" href="#_8" title="Permanent link">&para;</a></h2>
+<p><code>ucm-toolkit</code> 应作为独立 Python 包安装，不随主 <code>uc-manager</code> 包默认安装，避免干扰主包安装、依赖和发布流程。</p>
+<p><code>toolkit/pyproject.toml</code> 建议定义独立包：</p>
+<div class="highlight"><pre><span></span><code><span class="k">[build-system]</span>
+<span class="n">requires</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"setuptools&gt;=64"</span><span class="p">,</span><span class="w"> </span><span class="s2">"wheel"</span><span class="p">]</span>
+<span class="n">build-backend</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"setuptools.build_meta"</span>
+
+<span class="k">[project]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"ucm-toolkit"</span>
+<span class="n">requires-python</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"&gt;=3.10"</span>
+<span class="n">dynamic</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"version"</span><span class="p">]</span>
+
+<span class="k">[project.scripts]</span>
+<span class="n">ucm-toolkit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"ucm_toolkit.cli:main"</span>
+</code></pre></div>
+<p>第一版建议只使用 Python 标准库：</p>
+<ul>
+<li><code>argparse</code></li>
+<li><code>pathlib</code></li>
+<li><code>subprocess</code></li>
+<li><code>os</code></li>
+<li><code>sys</code></li>
+<li><code>shutil</code></li>
+</ul>
+<p>这样可以减少在 CUDA、Ascend、容器和 CI 环境中的额外依赖。</p>
+<h2 id="_9">文档设计<a class="headerlink" href="#_9" title="Permanent link">&para;</a></h2>
+<p><code>toolkit/README.md</code> 作为主入口文档，建议包含：</p>
+<ul>
+<li>项目简介</li>
+<li>安装方式</li>
+<li>快速开始</li>
+<li>通用 CLI 模式</li>
+<li>可构建工具</li>
+<li><code>dev-sandbox</code> 构建与 copy 带宽测试</li>
+<li>POSIX AIO 测试</li>
+<li>网卡负载监控</li>
+<li>常见问题</li>
+</ul>
+<p>每个工具 adapter 目录下保留自己的 <code>README.md</code>，用于记录该工具的原生命令、参数和示例。</p>
+<p>CLI 的 <code>--help</code> 与 README 中的示例应保持同步。新增 CLI 参数时，应同步更新对应文档。</p>
+<h2 id="_10">错误处理<a class="headerlink" href="#_10" title="Permanent link">&para;</a></h2>
+<p>toolkit 应尽早失败，并给出可操作的错误信息：</p>
+<ul>
+<li>工具名不存在。</li>
+<li>对不可构建工具执行 build。</li>
+<li><code>cmake</code> 不存在。</li>
+<li>构建目录不存在。</li>
+<li>构建产物不存在。</li>
+<li>原生脚本路径不存在。</li>
+<li>子进程执行失败。</li>
+</ul>
+<p>子进程失败时，应打印失败命令和退出码，方便用户复现。</p>
+<h2 id="_11">实施顺序<a class="headerlink" href="#_11" title="Permanent link">&para;</a></h2>
+<ol>
+<li>新增 Python 包骨架和 <code>ucm-toolkit --help</code>。</li>
+<li>新增 registry 和 adapter 接口。</li>
+<li>新增 <code>list</code>、<code>doctor</code>、<code>build</code>、<code>run</code>、<code>clean</code> 命令。</li>
+<li>接入 <code>dev-sandbox</code> 默认 CMake 构建，保持原自动探测行为。</li>
+<li>为 <code>dev-sandbox</code> 构建增加 <code>--cmake-arg</code> 透传。</li>
+<li>接入 <code>dev-sandbox</code> run 子功能，支持 <code>ucm-toolkit run dev-sandbox copy/trans/aio ...</code>。</li>
+<li>接入 POSIX AIO，并为脚本补充保留默认值的参数覆盖入口。</li>
+<li>接入网卡负载被动监控脚本。</li>
+<li>新增 <code>toolkit/README.md</code> 和各工具 README。</li>
+</ol>
+<h2 id="_12">已确认决策<a class="headerlink" href="#_12" title="Permanent link">&para;</a></h2>
+<ul>
+<li>POSIX AIO 脚本路径为 <code>ucm/store/test/e2e/posixstore_aio_test.py</code>。</li>
+<li>POSIX AIO 保留脚本现有默认值，同时提供 CLI 参数覆盖入口。</li>
+<li><code>dev-sandbox</code> 构建产物不 install 到单独 bin 目录；构建在哪里，运行时就从哪里查找。</li>
+<li>toolkit 不引入额外状态文件记录 build 目录。</li>
+<li>不再设计 <code>config.py</code>；工具路径、脚本路径、二进制路径、build 目录都由 registry 中的工具对象持有。</li>
+<li><code>DevSandboxTool.build_dir</code> 默认值为 <code>toolkit/src/dev-sandbox/build</code>。</li>
+<li>只有 <code>ucm-toolkit build dev-sandbox</code> 支持 <code>--build-dir</code>；指定并构建成功后，同步写回 Python 源文件中的
+  <code>DevSandboxTool.build_dir</code>。</li>
+<li><code>ucm-toolkit run dev-sandbox copy/trans/aio</code> 不支持 <code>--build-dir</code>，只从 <code>DevSandboxTool.build_dir</code> 读取 build 目录。</li>
+<li><code>ucm-toolkit list</code> 只展示顶层工具，不展示 <code>copy/trans/aio</code>；这些子功能通过 <code>ucm-toolkit run dev-sandbox --help</code> 暴露。</li>
+<li>当前不在 toolkit 中新增 <code>--platform cuda|ascend</code> 语义；除非未来 <code>dev-sandbox</code> 原项目自己支持显式后端选择参数。</li>
+<li>网卡负载监控当前阶段只支持被动监控，不支持主动压测。</li>
+<li><code>ucm-toolkit</code> 作为独立包安装，不随主 <code>uc-manager</code> 包默认安装。</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  回到页面顶部
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/ModelEngine-Group/unified-cache-management" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/ModelEngine-Group/unified-cache-management/pkgs/container/unified-cache-manager" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M349.9 236.3h-66.1v-59.4h66.1zm0-204.3h-66.1v60.7h66.1zm78.2 144.8H362v59.4h66.1zm-156.3-72.1h-66.1v60.1h66.1zm78.1 0h-66.1v60.1h66.1zm276.8 100c-14.4-9.7-47.6-13.2-73.1-8.4-3.3-24-16.7-44.9-41.1-63.7l-14-9.3-9.3 14c-18.4 27.8-23.4 73.6-3.7 103.8-8.7 4.7-25.8 11.1-48.4 10.7H2.4c-8.7 50.8 5.8 116.8 44 162.1 37.1 43.9 92.7 66.2 165.4 66.2 157.4 0 273.9-72.5 328.4-204.2 21.4.4 67.6.1 91.3-45.2 1.5-2.5 6.6-13.2 8.5-17.1zm-511.1-27.9h-66v59.4h66.1v-59.4zm78.1 0h-66.1v59.4h66.1zm78.1 0h-66.1v59.4h66.1zm-78.1-72.1h-66.1v60.1h66.1z"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tabs.link", "content.action.edit", "content.action.view"], "search": "../../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": {"provider": "mike"}}</script>
+    
+    
+  
+      <script src="../../../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../../../assets/install.js"></script>
+      
+    
+  <script src="https://unpkg.com/katex@0.16.11/dist/katex.min.js"></script>
+  <script src="https://unpkg.com/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+  <script>
+    document$.subscribe(() => {
+      renderMathInElement(document.body, {
+        delimiters: [
+          {left: "$$", right: "$$", display: true},
+          {left: "$", right: "$", display: false},
+          {left: "\\(", right: "\\)", display: false},
+          {left: "\\[", right: "\\]", display: true}
+        ],
+        throwOnError: false
+      });
+    });
+  </script>
+
+  </body>
+</html>
