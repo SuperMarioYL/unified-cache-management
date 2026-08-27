@@ -512,7 +512,18 @@ def test_finalization_failure_is_reported_until_final_notes_succeed() -> None:
 
 def test_tag_entry_only_classifies_four_release_types_and_calls_core() -> None:
     workflow = _load("release-tag.yml")
-    assert workflow["on"] == {"push": {"tags": ["v*", "draft/v*", "nightly/v*"]}}
+    assert workflow["on"] == {
+        "push": {"tags": ["v*", "draft/v*", "nightly/v*"]},
+        "workflow_dispatch": {
+            "inputs": {
+                "git_tag": {
+                    "description": "Existing immutable UCM Tag to resume",
+                    "type": "string",
+                    "required": True,
+                }
+            }
+        },
+    }
     assert set(workflow["jobs"]) == {
         "classify-tag",
         "release-official",
@@ -529,11 +540,14 @@ def test_tag_entry_only_classifies_four_release_types_and_calls_core() -> None:
         "image_version",
         "is_prerelease",
         "publication_scope",
+        "source_sha",
     }
     classify_run = next(
         step["run"] for step in classify["steps"] if step.get("id") == "classify"
     )
     assert '--tag "${RELEASE_TAG}" --classify' in classify_run
+    assert 'git show-ref --verify --quiet "refs/tags/${RELEASE_TAG}"' in classify_run
+    assert 'git rev-parse "${RELEASE_TAG}^{commit}"' in classify_run
     assert "release_type=$(jq -r '.release_type'" in classify_run
 
     assert "${GITHUB_REPOSITORY,,}" in classify_run
@@ -557,7 +571,9 @@ def test_tag_entry_only_classifies_four_release_types_and_calls_core() -> None:
             "source_sha",
             "publication_scope",
         }
-        assert release["with"]["source_sha"] == "${{ github.sha }}"
+        assert release["with"]["source_sha"] == (
+            "${{ needs.classify-tag.outputs.source_sha }}"
+        )
         assert release["with"]["publication_scope"] == scope
         assert scope in release["if"]
     assert workflow["jobs"]["release-official"]["secrets"] == "inherit"
@@ -573,7 +589,7 @@ def test_tag_entry_only_classifies_four_release_types_and_calls_core() -> None:
     assert pages["permissions"] == {"contents": "write"}
     assert pages["with"] == {
         "mode": "stable",
-        "source_ref": "${{ github.sha }}",
+        "source_ref": "${{ needs.classify-tag.outputs.source_sha }}",
         "release_tag": "${{ needs.classify-tag.outputs.git_tag }}",
     }
     condition = pages["if"]
@@ -614,6 +630,10 @@ def test_common_core_opens_the_exact_tag_before_builds() -> None:
     assert "--git-tag" in plan_run
     assert ".git_tag == $tag" in plan_run
     assert ".release_type == $type" in plan_run
+    assert '.publish.pypi.distributions == ["uc-manager"]' in plan_run
+    assert '.dist_name == "uc-manager"' in plan_run
+    assert ".channel == .runtime_variant" in plan_run
+    assert 'gsub("-"; ".")' in plan_run
     assert ".release_tag = $tag" not in plan_run
 
 

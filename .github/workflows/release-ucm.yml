@@ -454,7 +454,12 @@ jobs:
              .release_kind == $kind and .version == $version and
              .image_version == $version and .chart.app_version == $version and
              .chart.version == $chart_version and
-             ([.wheels[].wheel_version] | all(. == $version))' \
+             .publish.pypi.distributions == ["uc-manager"] and
+             ([.wheels[] |
+               .dist_name == "uc-manager" and
+               .channel == .runtime_variant and
+               .wheel_version ==
+                 ($version + "+" + (.channel | gsub("-"; ".")))] | all)' \
             out/plan/release-plan.json >/dev/null
           artifact="ucm-release-plan-run-${GITHUB_RUN_ID}"
           index_matrix="$(jq -ce \

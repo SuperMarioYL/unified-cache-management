@@ -3,6 +3,12 @@ name: UCM Tag Release · Stable, Prerelease, Draft, and Nightly
 on:
   push:
     tags: ["v*", "draft/v*", "nightly/v*"]
+  workflow_dispatch:
+    inputs:
+      git_tag:
+        description: Existing immutable UCM Tag to resume
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -23,10 +29,12 @@ jobs:
       image_version: ${{ steps.classify.outputs.image_version }}
       is_prerelease: ${{ steps.classify.outputs.is_prerelease }}
       publication_scope: ${{ steps.classify.outputs.publication_scope }}
+      source_sha: ${{ steps.classify.outputs.source_sha }}
     steps:
       - uses: actions/checkout@v4.2.2
         with:
-          fetch-depth: 1
+          fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
       - uses: actions/setup-python@v5.6.0
         with:
@@ -36,9 +44,12 @@ jobs:
           --only-binary=:all: packaging==24.2
       - id: classify
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.git_tag || github.ref_name }}
         run: |
           set -euo pipefail
+          git show-ref --verify --quiet "refs/tags/${RELEASE_TAG}"
+          source_sha="$(git rev-parse "${RELEASE_TAG}^{commit}")"
+          test "${#source_sha}" = 40
           classification="$(python scripts/materialize_version.py \
             --tag "${RELEASE_TAG}" --classify)"
           repository="${GITHUB_REPOSITORY,,}"
@@ -56,6 +67,7 @@ jobs:
             echo "image_version=$(jq -r '.image_version' <<<"${classification}")"
             echo "is_prerelease=$(jq -r '.is_prerelease' <<<"${classification}")"
             echo "publication_scope=${publication_scope}"
+            echo "source_sha=${source_sha}"
           } >>"${GITHUB_OUTPUT}"
 
   release-official:
@@ -75,7 +87,7 @@ jobs:
       image_version: ${{ needs.classify-tag.outputs.image_version }}
       release_kind: ${{ needs.classify-tag.outputs.release_kind }}
       is_prerelease: ${{ needs.classify-tag.outputs.is_prerelease == 'true' }}
-      source_sha: ${{ github.sha }}
+      source_sha: ${{ needs.classify-tag.outputs.source_sha }}
       publication_scope: official
     secrets: inherit
 
@@ -96,7 +108,7 @@ jobs:
       image_version: ${{ needs.classify-tag.outputs.image_version }}
       release_kind: ${{ needs.classify-tag.outputs.release_kind }}
       is_prerelease: ${{ needs.classify-tag.outputs.is_prerelease == 'true' }}
-      source_sha: ${{ github.sha }}
+      source_sha: ${{ needs.classify-tag.outputs.source_sha }}
       publication_scope: fork
 
   publish-stable-pages:
@@ -118,5 +130,5 @@ jobs:
     uses: ./.github/workflows/docs-pages.yml
     with:
       mode: stable
-      source_ref: ${{ github.sha }}
+      source_ref: ${{ needs.classify-tag.outputs.source_sha }}
       release_tag: ${{ needs.classify-tag.outputs.git_tag }}
