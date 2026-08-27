@@ -72,8 +72,6 @@ jobs:
       - uses: actions/setup-python@v5.6.0
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: docs-next/requirements.txt
       - name: Install documentation dependencies
         run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
@@ -113,8 +111,6 @@ jobs:
       - uses: actions/setup-python@v5.6.0
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: docs-next/requirements.txt
       - name: Install documentation dependencies
         run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
@@ -147,8 +143,6 @@ jobs:
       - uses: actions/setup-python@v5.6.0
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: docs-next/requirements.txt
       - name: Install documentation dependencies
         run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
