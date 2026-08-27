@@ -1,5 +1,5 @@
 site_name: Unified Cache Manager
-site_url: https://ucm.readthedocs.io/
+site_url: !ENV [UCM_DOCS_SITE_URL, "https://ucm.readthedocs.io/"]
 site_description: >-
   Unified Cache Manager (UCM) persists LLM KVCache and replaces redundant
   computations through multiple retrieval mechanisms.
@@ -9,6 +9,12 @@ repo_name: ModelEngine-Group/ucm
 edit_uri: edit/develop/docs-next/docs/en/
 
 docs_dir: docs
+
+extra_css:
+  - assets/install.css
+
+extra_javascript:
+  - assets/install.js
 
 theme:
   name: material
