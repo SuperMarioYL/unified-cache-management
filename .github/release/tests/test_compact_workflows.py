@@ -138,8 +138,13 @@ def test_docs_pages_workflow_checks_prs_and_serializes_publication() -> None:
         "release_tag",
     }
     dispatch_inputs = workflow["on"]["workflow_dispatch"]["inputs"]
-    assert set(dispatch_inputs) == {"mode", "source_ref", "release_tag"}
-    assert dispatch_inputs["mode"]["options"] == ["latest", "stable"]
+    assert set(dispatch_inputs) == {
+        "mode",
+        "source_ref",
+        "release_tag",
+        "site_url",
+    }
+    assert dispatch_inputs["mode"]["options"] == ["latest", "stable", "verify"]
     assert workflow["concurrency"] == {
         "group": "ucm-pages-${{ github.repository_id }}",
         "cancel-in-progress": False,
@@ -147,7 +152,12 @@ def test_docs_pages_workflow_checks_prs_and_serializes_publication() -> None:
     assert workflow["permissions"] == {"contents": "read"}
 
     jobs = workflow["jobs"]
-    assert set(jobs) == {"check", "publish-latest", "publish-stable"}
+    assert set(jobs) == {
+        "check",
+        "publish-latest",
+        "publish-stable",
+        "verify-index",
+    }
     check = jobs["check"]
     assert "github.event_name == 'pull_request'" in check["if"]
     assert check["permissions"] == {"contents": "read"}
@@ -184,6 +194,30 @@ def test_docs_pages_workflow_checks_prs_and_serializes_publication() -> None:
     assert "--pattern install-catalog.json" in stable_text
     assert "pages.py publish-stable" in stable_text
     assert "--catalog input/catalog/install-catalog.json" in stable_text
+
+    verify = jobs["verify-index"]
+    assert verify["permissions"] == {"contents": "read"}
+    assert verify["strategy"] == {
+        "fail-fast": False,
+        "matrix": {"channel": ["cu130", "cann901-a2"]},
+    }
+    for expected in (
+        "github.event_name == 'workflow_dispatch'",
+        "inputs.mode == 'verify'",
+        "inputs.site_url != ''",
+    ):
+        assert expected in verify["if"]
+    verify_run = next(
+        step["run"]
+        for step in verify["steps"]
+        if step.get("name") == "Resolve and install the published channel"
+    )
+    assert "latest/install-catalog.json" in verify_run
+    assert 'select(.distribution == "uc-manager")' in verify_run
+    assert '"uc-manager==${wheel_version}"' in verify_run
+    assert '"${site_root}/whl/${CHANNEL}/"' in verify_run
+    assert "-m pip check" in verify_run
+    assert 'version("wrapt")' in verify_run
 
 
 def test_release_workflow_has_staged_publication_jobs() -> None:
