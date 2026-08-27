@@ -1,0 +1,124 @@
+<svg viewBox="0 0 1280 720" role="img" aria-labelledby="ucmcnv2-title ucmcnv2-desc" xmlns="http://www.w3.org/2000/svg">
+    <title id="ucmcnv2-title">UCM GitHub 标准化动态发布架构</title>
+    <desc id="ucmcnv2-desc">真实 Git Tag 与策略文件定义稳定发布协议，Runtime 和 Builder Registry 提供动态产品事实。发布规划器将两类输入收敛成统一 Release Plan，随后并行构建 Wheel、Runtime 镜像和 Helm Chart，分阶段发布到 GitHub Release、GHCR 与 Chart OCI，最后先通过 receipt 和渠道结果判定 complete，再生成并回读公共 manifest 完成闭环。</desc>
+
+    <style>
+      text {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+      }
+      .title { fill: #0f172a; font-size: 28px; font-weight: 760; letter-spacing: -0.4px; }
+      .subtitle { fill: #64748b; font-size: 16px; font-weight: 600; }
+      .zone { fill: #64748b; font-size: 12px; font-weight: 760; letter-spacing: 1.6px; }
+      .step { fill: #ffffff; font-size: 12px; font-weight: 780; }
+      .step-dark { fill: #0f172a; font-size: 12px; font-weight: 780; }
+      .node-title { fill: #0f172a; font-size: 20px; font-weight: 760; letter-spacing: -0.2px; }
+      .node-title-small { fill: #0f172a; font-size: 16px; font-weight: 740; }
+      .copy { fill: #334155; font-size: 12px; font-weight: 560; }
+      .copy-strong { fill: #0f172a; font-size: 16px; font-weight: 700; }
+      .mono { fill: #1f2937; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; font-weight: 650; }
+      .caption { fill: #334155; font-size: 16px; font-weight: 680; }
+      .accent-copy { fill: #991b1b; font-size: 12px; font-weight: 760; }
+    </style>
+
+    <defs>
+      <marker id="ucmcnv2-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto" markerUnits="userSpaceOnUse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#0f172a"/>
+      </marker>
+      <marker id="ucmcnv2-arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto" markerUnits="userSpaceOnUse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#15803d"/>
+      </marker>
+      <marker id="ucmcnv2-arrow-red" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto" markerUnits="userSpaceOnUse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+
+    <rect x="0" y="0" width="1280" height="720" fill="#ffffff"/>
+
+    <text class="title" x="56" y="40">UCM GitHub 标准化动态发布架构</text>
+    <text class="subtitle" x="1224" y="40" text-anchor="end">固定发布协议 · 动态展开矩阵 · 证据闭环</text>
+
+    <rect x="56" y="64" width="1168" height="592" rx="16" fill="#f8fafc" stroke="#0f172a" stroke-width="3"/>
+    <line x1="80" y1="252" x2="1200" y2="252" stroke="#94a3b8" stroke-width="2" stroke-dasharray="8 8"/>
+    <line x1="80" y1="448" x2="1200" y2="448" stroke="#94a3b8" stroke-width="2" stroke-dasharray="8 8"/>
+
+    <!-- Connections are drawn before nodes. -->
+    <path d="M 316 224 V 244 Q 316 252 324 252 H 496 Q 504 252 504 260 V 292"
+          fill="none" stroke="#0f172a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#ucmcnv2-arrow)"/>
+    <path d="M 964 224 V 244 Q 964 252 956 252 H 784 Q 776 252 776 260 V 292"
+          fill="none" stroke="#0f172a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#ucmcnv2-arrow)"/>
+    <path d="M 640 420 V 436 Q 640 444 632 444 H 464 Q 456 444 456 452 V 492"
+          fill="none" stroke="#0f172a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#ucmcnv2-arrow)"/>
+    <line x1="776" y1="556" x2="824" y2="556" stroke="#15803d" stroke-width="3" stroke-linecap="round" marker-end="url(#ucmcnv2-arrow-green)"/>
+
+    <text class="zone" x="80" y="92">权威输入</text>
+    <text class="zone" x="80" y="280">动态规划核心</text>
+    <text class="zone" x="80" y="476">执行与闭环</text>
+
+    <!-- 01 Stable release contract -->
+    <rect x="136" y="112" width="360" height="112" rx="8" fill="#fef3c7" stroke="#0f172a" stroke-width="2.5"/>
+    <rect x="152" y="128" width="32" height="20" rx="4" fill="#fde68a" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="step-dark" x="168" y="143" text-anchor="middle">01</text>
+    <text class="node-title" x="200" y="146">标准发布入口</text>
+    <text class="copy-strong" x="152" y="176">版本由真实 Git Tag 唯一确定</text>
+    <rect x="152" y="188" width="152" height="24" rx="4" fill="#fff7d6" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="mono" x="228" y="205" text-anchor="middle">release.yaml</text>
+    <rect x="316" y="188" width="164" height="24" rx="4" fill="#fff7d6" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="mono" x="398" y="205" text-anchor="middle">platforms.yaml</text>
+
+    <!-- 02 Dynamic registry facts -->
+    <rect x="784" y="112" width="360" height="112" rx="8" fill="#e2e8f0" stroke="#0f172a" stroke-width="2.5"/>
+    <rect x="800" y="128" width="32" height="20" rx="4" fill="#cbd5e1" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="step-dark" x="816" y="143" text-anchor="middle">02</text>
+    <text class="node-title" x="848" y="146">动态能力发现</text>
+    <rect x="800" y="160" width="328" height="24" rx="4" fill="#f8fafc" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="copy" x="816" y="177">Runtime Registry - 实际 Tag、架构与能力</text>
+    <rect x="800" y="188" width="328" height="24" rx="4" fill="#eff6ff" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="copy" x="816" y="205">Builder 同步验证 - 工具链检查与 digest 固定</text>
+
+    <!-- 03 Focal release planner -->
+    <rect x="360" y="292" width="560" height="128" rx="8" fill="#fcd34d" stroke="#0f172a" stroke-width="3"/>
+    <rect x="380" y="308" width="32" height="20" rx="4" fill="#0f172a"/>
+    <text class="step" x="396" y="323" text-anchor="middle">03</text>
+    <text class="node-title" x="428" y="326">统一生成动态发布计划</text>
+    <text class="copy" x="380" y="350">把策略边界与 Registry 事实收敛为唯一执行清单</text>
+    <rect x="380" y="360" width="152" height="24" rx="4" fill="#fff7d6" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="copy" x="456" y="377" text-anchor="middle">版本物化</text>
+    <rect x="544" y="360" width="152" height="24" rx="4" fill="#fff7d6" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="copy" x="620" y="377" text-anchor="middle">能力精确匹配</text>
+    <rect x="708" y="360" width="192" height="24" rx="4" fill="#fff7d6" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="copy" x="804" y="377" text-anchor="middle">构建矩阵自动派生</text>
+    <rect x="380" y="392" width="520" height="20" rx="4" fill="#0f172a"/>
+    <text class="mono" x="640" y="407" fill="#ffffff" text-anchor="middle" style="fill: #ffffff">release-plan.json</text>
+
+    <!-- 04 Execution stage -->
+    <rect x="136" y="492" width="640" height="128" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="2.5"/>
+    <rect x="152" y="508" width="32" height="20" rx="4" fill="#bfdbfe" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="step-dark" x="168" y="523" text-anchor="middle">04</text>
+    <text class="node-title-small" x="200" y="524">按统一计划执行</text>
+
+    <rect x="152" y="540" width="280" height="64" rx="8" fill="#dbeafe" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="node-title-small" x="168" y="562">并行构建</text>
+    <text class="copy" x="168" y="582">Wheel · Runtime member / index</text>
+    <text class="copy" x="168" y="598">Helm Chart · 配置资产</text>
+
+    <text class="accent-copy" x="456" y="536" text-anchor="middle">发布屏障</text>
+    <rect x="448" y="544" width="16" height="56" rx="4" fill="#dc2626"/>
+    <path d="M 452 568 L 460 572 L 452 576 z" fill="#ffffff"/>
+
+    <rect x="480" y="540" width="280" height="64" rx="8" fill="#bbf7d0" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="node-title-small" x="496" y="562">分阶段发布</text>
+    <text class="copy" x="496" y="582">GitHub Release · GHCR</text>
+    <text class="copy" x="496" y="598">Chart OCI</text>
+
+    <!-- 05 Completion semantics -->
+    <rect x="824" y="492" width="320" height="128" rx="8" fill="#ffffff" stroke="#15803d" stroke-width="3"/>
+    <rect x="840" y="508" width="32" height="20" rx="4" fill="#15803d"/>
+    <text class="step" x="856" y="523" text-anchor="middle">05</text>
+    <text class="node-title-small" x="888" y="524">证据闭环</text>
+    <rect x="840" y="540" width="288" height="28" rx="4" fill="#fbcfe8" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="copy" x="856" y="559">① receipt + 渠道结果 → 内部状态 complete</text>
+    <rect x="840" y="576" width="288" height="28" rx="4" fill="#dcfce7" stroke="#15803d" stroke-width="1.5"/>
+    <text class="copy" x="856" y="595">② complete 后生成/上传 manifest → 回读比对</text>
+
+    <text class="caption" x="56" y="692">固定的是版本协议、策略边界和完成判定；动态的是 Runtime、Builder、架构与产物矩阵。</text>
+  </svg>

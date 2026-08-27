@@ -1,0 +1,122 @@
+<svg viewBox="0 0 1280 720" role="img" aria-labelledby="ucmexec-title ucmexec-desc" xmlns="http://www.w3.org/2000/svg">
+    <title id="ucmexec-title">UCM 发布执行：并行构建与三道屏障</title>
+    <desc id="ucmexec-desc">统一 Release Plan 先约束 Wheel 与 Chart 的并行构建，基础资产达到 artifacts-ready 后才进入 Runtime member 并行发布；所有 member receipts 到齐后才生成多架构索引并汇总渠道结果，最终计算 complete，再生成并回读公共 manifest。</desc>
+
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif; }
+      .title { fill: #0f172a; font-size: 28px; font-weight: 760; letter-spacing: -0.4px; }
+      .subtitle { fill: #64748b; font-size: 16px; font-weight: 600; }
+      .zone { fill: #64748b; font-size: 12px; font-weight: 760; letter-spacing: 1.6px; }
+      .step { fill: #ffffff; font-size: 12px; font-weight: 780; }
+      .step-dark { fill: #0f172a; font-size: 12px; font-weight: 780; }
+      .node-title { fill: #0f172a; font-size: 20px; font-weight: 760; }
+      .node-title-small { fill: #0f172a; font-size: 16px; font-weight: 740; }
+      .copy { fill: #334155; font-size: 12px; font-weight: 560; }
+      .mono { fill: #1f2937; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; font-weight: 650; }
+      .gate { fill: #991b1b; font-size: 12px; font-weight: 760; }
+      .caption { fill: #334155; font-size: 16px; font-weight: 680; }
+    </style>
+
+    <defs>
+      <marker id="ucmexec-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto" markerUnits="userSpaceOnUse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#0f172a"/>
+      </marker>
+      <marker id="ucmexec-arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto" markerUnits="userSpaceOnUse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#15803d"/>
+      </marker>
+      <marker id="ucmexec-arrow-red" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto" markerUnits="userSpaceOnUse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+
+    <rect x="0" y="0" width="1280" height="720" fill="#ffffff"/>
+    <text class="title" x="56" y="40">UCM 发布执行：并行构建与三道屏障</text>
+    <text class="subtitle" x="1224" y="40" text-anchor="end">计划屏障 · 资产屏障 · Receipt 屏障</text>
+
+    <rect x="56" y="64" width="1168" height="592" rx="16" fill="#f8fafc" stroke="#0f172a" stroke-width="3"/>
+    <line x1="80" y1="332" x2="1200" y2="332" stroke="#94a3b8" stroke-width="2" stroke-dasharray="8 8"/>
+
+    <!-- Primary execution path, emitted before nodes. -->
+    <line x1="320" y1="196" x2="376" y2="196" stroke="#dc2626" stroke-width="4" stroke-linecap="round" marker-end="url(#ucmexec-arrow-red)"/>
+    <line x1="736" y1="196" x2="792" y2="196" stroke="#0f172a" stroke-width="3" stroke-linecap="round" marker-end="url(#ucmexec-arrow)"/>
+    <path d="M 940 256 V 288 Q 940 296 932 296 H 228 Q 220 296 220 304 V 396"
+          fill="none" stroke="#0f172a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#ucmexec-arrow)"/>
+    <line x1="340" y1="456" x2="392" y2="456" stroke="#0f172a" stroke-width="3" stroke-linecap="round" marker-end="url(#ucmexec-arrow)"/>
+    <line x1="616" y1="456" x2="672" y2="456" stroke="#dc2626" stroke-width="4" stroke-linecap="round" marker-end="url(#ucmexec-arrow-red)"/>
+    <line x1="936" y1="456" x2="992" y2="456" stroke="#15803d" stroke-width="3" stroke-linecap="round" marker-end="url(#ucmexec-arrow-green)"/>
+
+    <text class="zone" x="80" y="96">基础资产阶段</text>
+    <text class="zone" x="80" y="364">镜像与完成阶段</text>
+
+    <!-- 01 Plan barrier -->
+    <rect x="96" y="136" width="224" height="120" rx="8" fill="#fcd34d" stroke="#0f172a" stroke-width="3"/>
+    <rect x="112" y="152" width="32" height="20" rx="4" fill="#0f172a"/>
+    <text class="step" x="128" y="167" text-anchor="middle">01</text>
+    <text class="node-title" x="160" y="170">统一计划</text>
+    <text class="copy" x="112" y="196">所有构建共享同一份输入</text>
+    <rect x="112" y="212" width="192" height="28" rx="4" fill="#0f172a"/>
+    <text class="mono" x="208" y="231" text-anchor="middle" style="fill:#ffffff">release-plan.json</text>
+    <text class="gate" x="348" y="180" text-anchor="middle">计划屏障</text>
+
+    <!-- 02 Parallel base builds -->
+    <rect x="376" y="120" width="360" height="152" rx="8" fill="#dbeafe" stroke="#0f172a" stroke-width="2.5"/>
+    <rect x="392" y="136" width="32" height="20" rx="4" fill="#bfdbfe" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="step-dark" x="408" y="151" text-anchor="middle">02</text>
+    <text class="node-title" x="440" y="154">基础制品并行构建</text>
+    <rect x="392" y="172" width="328" height="32" rx="4" fill="#eff6ff" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="node-title-small" x="408" y="194">Wheel 能力矩阵</text>
+    <rect x="392" y="212" width="328" height="44" rx="4" fill="#eff6ff" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="node-title-small" x="408" y="232">Helm Chart + 配置资产</text>
+    <text class="copy" x="408" y="249">Wheel、Chart 独立并行，失败互不隐藏</text>
+
+    <!-- 03 Assets barrier -->
+    <rect x="792" y="136" width="296" height="120" rx="8" fill="#fbcfe8" stroke="#dc2626" stroke-width="3"/>
+    <rect x="808" y="152" width="32" height="20" rx="4" fill="#dc2626"/>
+    <text class="step" x="824" y="167" text-anchor="middle">03</text>
+    <text class="node-title" x="856" y="170">基础资产屏障</text>
+    <text class="copy" x="808" y="196">Wheel、Chart、config 已发布到 Release</text>
+    <rect x="808" y="212" width="264" height="28" rx="4" fill="#fdf2f8" stroke="#dc2626" stroke-width="1.5"/>
+    <text class="mono" x="940" y="231" text-anchor="middle">state = artifacts-ready</text>
+
+    <!-- 04 Runtime member fan-out -->
+    <rect x="96" y="396" width="244" height="120" rx="8" fill="#dbeafe" stroke="#0f172a" stroke-width="2.5"/>
+    <rect x="112" y="412" width="32" height="20" rx="4" fill="#bfdbfe" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="step-dark" x="128" y="427" text-anchor="middle">04</text>
+    <text class="node-title-small" x="160" y="430">Runtime members</text>
+    <text class="copy" x="112" y="456">按真实 CPU 架构全并行</text>
+    <rect x="112" y="472" width="212" height="28" rx="4" fill="#eff6ff" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="mono" x="218" y="491" text-anchor="middle">amd64 · arm64 · ...</text>
+
+    <!-- 05 Receipt barrier -->
+    <rect x="392" y="396" width="224" height="120" rx="8" fill="#fbcfe8" stroke="#dc2626" stroke-width="3"/>
+    <rect x="408" y="412" width="32" height="20" rx="4" fill="#dc2626"/>
+    <text class="step" x="424" y="427" text-anchor="middle">05</text>
+    <text class="node-title-small" x="456" y="430">Receipt 屏障</text>
+    <text class="copy" x="408" y="456">所有 member 结果必须到齐</text>
+    <rect x="408" y="472" width="192" height="28" rx="4" fill="#fdf2f8" stroke="#dc2626" stroke-width="1.5"/>
+    <text class="mono" x="504" y="491" text-anchor="middle">published receipts</text>
+
+    <!-- 06 Indexes and channels -->
+    <rect x="672" y="396" width="264" height="120" rx="8" fill="#bbf7d0" stroke="#0f172a" stroke-width="2.5"/>
+    <rect x="688" y="412" width="32" height="20" rx="4" fill="#86efac" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="step-dark" x="704" y="427" text-anchor="middle">06</text>
+    <text class="node-title-small" x="736" y="430">索引与发布渠道</text>
+    <text class="copy" x="688" y="456">multi-arch indexes · Chart OCI</text>
+    <rect x="688" y="472" width="232" height="28" rx="4" fill="#f0fdf4" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="copy" x="804" y="491" text-anchor="middle">仅启用的渠道参与完成判定</text>
+
+    <!-- 07 Finalize -->
+    <rect x="992" y="396" width="184" height="120" rx="8" fill="#f0fdf4" stroke="#15803d" stroke-width="3"/>
+    <rect x="1008" y="412" width="32" height="20" rx="4" fill="#15803d"/>
+    <text class="step" x="1024" y="427" text-anchor="middle">07</text>
+    <text class="node-title-small" x="1056" y="430">最终收敛</text>
+    <text class="copy" x="1008" y="456">先计算 complete</text>
+    <text class="copy" x="1008" y="476">再生成 Manifest</text>
+    <text class="copy" x="1008" y="496">上传并回读确认</text>
+
+    <rect x="96" y="552" width="1080" height="64" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+    <text class="node-title-small" x="112" y="576">失败恢复边界</text>
+    <text class="copy" x="112" y="600">fail-fast: false 只让其他矩阵成员继续；失败成员不会自动重跑。网络步骤仅做有界重试，之后由人工 Re-run failed jobs。</text>
+
+    <text class="caption" x="56" y="692">并行提升吞吐，屏障保证一致性：后续阶段只消费前一阶段已经确认的结果。</text>
+  </svg>

@@ -1,0 +1,168 @@
+<svg viewBox="0 0 1280 720" role="img" aria-labelledby="ucm-plan-title ucm-plan-desc" xmlns="http://www.w3.org/2000/svg">
+    <title id="ucm-plan-title">UCM 动态发布计划如何生成</title>
+    <desc id="ucm-plan-desc">UCM 的发布策略文件与 Runtime Registry 动态事实共同进入运行时解析，再经 Builder 同步验证和 digest 固定，最终收敛成唯一的 release-plan.json，并派生 Wheel、Runtime family 与 Chart 三类执行矩阵。</desc>
+
+    <style>
+      text {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+      }
+      .title { fill: #0f172a; font-size: 28px; font-weight: 760; letter-spacing: -0.4px; }
+      .subtitle { fill: #64748b; font-size: 16px; font-weight: 600; }
+      .zone { fill: #64748b; font-size: 12px; font-weight: 760; letter-spacing: 1.6px; }
+      .step { fill: #ffffff; font-size: 12px; font-weight: 780; }
+      .step-dark { fill: #0f172a; font-size: 12px; font-weight: 780; }
+      .node-title { fill: #0f172a; font-size: 18px; font-weight: 760; letter-spacing: -0.2px; }
+      .node-title-small { fill: #0f172a; font-size: 15px; font-weight: 740; }
+      .copy { fill: #334155; font-size: 12px; font-weight: 560; }
+      .copy-small { fill: #475569; font-size: 11px; font-weight: 560; }
+      .mono { fill: #1f2937; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 650; }
+      .mono-white { fill: #ffffff; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13px; font-weight: 760; }
+      .eyebrow { fill: #475569; font-size: 10px; font-weight: 760; letter-spacing: 1.2px; }
+      .footer { fill: #334155; font-size: 15px; font-weight: 680; }
+    </style>
+
+    <defs>
+      <marker id="ucm-plan-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto" markerUnits="userSpaceOnUse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#0f172a"/>
+      </marker>
+      <marker id="ucm-plan-arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto" markerUnits="userSpaceOnUse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#15803d"/>
+      </marker>
+    </defs>
+
+    <rect x="0" y="0" width="1280" height="720" fill="#ffffff"/>
+
+    <text class="title" x="56" y="40">动态发布计划如何生成</text>
+    <text class="subtitle" x="1224" y="40" text-anchor="end">Registry 事实驱动 · 策略约束 · 单一执行清单</text>
+
+    <rect x="40" y="72" width="1200" height="584" rx="16" fill="#f8fafc" stroke="#0f172a" stroke-width="3"/>
+    <text class="zone" x="72" y="104">双权威输入</text>
+    <text class="zone" x="304" y="104">动态解析与固定</text>
+    <text class="zone" x="780" y="104">单一计划</text>
+    <text class="zone" x="1040" y="104">三类矩阵</text>
+
+    <!-- Connections are drawn before nodes. -->
+    <path d="M 280 216 H 300 Q 308 216 308 224 V 284 Q 308 292 316 292 H 328"
+          fill="none" stroke="#0f172a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#ucm-plan-arrow)"/>
+    <path d="M 280 472 H 300 Q 308 472 308 464 V 412 Q 308 404 316 404 H 328"
+          fill="none" stroke="#0f172a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#ucm-plan-arrow)"/>
+    <line x1="552" y1="356" x2="600" y2="356" stroke="#0f172a" stroke-width="3" stroke-linecap="round" marker-end="url(#ucm-plan-arrow)"/>
+    <line x1="792" y1="356" x2="840" y2="356" stroke="#15803d" stroke-width="3" stroke-linecap="round" marker-end="url(#ucm-plan-arrow-green)"/>
+    <line x1="1056" y1="356" x2="1104" y2="356" stroke="#0f172a" stroke-width="3" stroke-linecap="round" marker-end="url(#ucm-plan-arrow)"/>
+
+    <!-- 01: policy boundary -->
+    <rect x="72" y="128" width="208" height="176" rx="8" fill="#fef3c7" stroke="#0f172a" stroke-width="2.5"/>
+    <rect x="88" y="144" width="32" height="20" rx="4" fill="#fde68a" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="step-dark" x="104" y="159" text-anchor="middle">01</text>
+    <text class="node-title" x="132" y="160">策略边界</text>
+    <text class="copy" x="88" y="188">人维护“允许什么”</text>
+    <rect x="88" y="204" width="176" height="32" rx="4" fill="#fff7d6" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="mono" x="176" y="225" text-anchor="middle">release.yaml</text>
+    <rect x="88" y="244" width="176" height="32" rx="4" fill="#fff7d6" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="mono" x="176" y="265" text-anchor="middle">platforms.yaml</text>
+    <text class="copy-small" x="88" y="292">版本窗口 · 平台 · 发布开关</text>
+
+    <!-- 02: runtime registry facts -->
+    <rect x="72" y="344" width="208" height="232" rx="8" fill="#fbcfe8" stroke="#0f172a" stroke-width="2.5"/>
+    <rect x="88" y="360" width="32" height="20" rx="4" fill="#f9a8d4" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="step-dark" x="104" y="375" text-anchor="middle">02</text>
+    <text class="node-title" x="132" y="376">Registry 事实</text>
+    <text class="copy" x="88" y="404">机器读取“实际有什么”</text>
+    <rect x="88" y="420" width="176" height="36" rx="4" fill="#fdf2f8" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="copy" x="104" y="443">Runtime Tags</text>
+    <rect x="88" y="464" width="176" height="36" rx="4" fill="#fdf2f8" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="copy" x="104" y="487">manifest / config</text>
+    <rect x="88" y="508" width="176" height="36" rx="4" fill="#fdf2f8" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="copy" x="104" y="531">架构 · Python · CUDA/CANN</text>
+    <text class="copy-small" x="88" y="560">动态变化，不手工复制成矩阵</text>
+
+    <!-- 03: runtime resolution -->
+    <rect x="328" y="176" width="224" height="360" rx="8" fill="#e2e8f0" stroke="#0f172a" stroke-width="2.5"/>
+    <rect x="344" y="192" width="32" height="20" rx="4" fill="#cbd5e1" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="step-dark" x="360" y="207" text-anchor="middle">03</text>
+    <text class="node-title" x="388" y="208">Runtime 解析</text>
+    <text class="copy" x="344" y="236">从 Registry 收敛真实候选</text>
+
+    <rect x="344" y="256" width="192" height="52" rx="6" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="eyebrow" x="360" y="276">TAG 选择</text>
+    <text class="copy-small" x="360" y="296">每 minor：Stable → RC → Nightly</text>
+
+    <rect x="344" y="320" width="192" height="52" rx="6" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="eyebrow" x="360" y="340">轻量检查</text>
+    <text class="copy-small" x="360" y="360">manifest / config 优先</text>
+
+    <rect x="344" y="384" width="192" height="52" rx="6" fill="#dbeafe" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="eyebrow" x="360" y="404">按需 PROBE</text>
+    <text class="copy-small" x="360" y="424">仅缺失能力字段时拉取 member</text>
+
+    <rect x="344" y="456" width="192" height="52" rx="6" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text class="copy-small" x="360" y="478">边界：310P 过滤</text>
+    <text class="copy-small" x="360" y="496">A5 标记 blocked，不冒充 A3</text>
+
+    <!-- 04: builder synchronization -->
+    <rect x="600" y="216" width="192" height="280" rx="8" fill="#dbeafe" stroke="#0f172a" stroke-width="2.5"/>
+    <rect x="616" y="232" width="32" height="20" rx="4" fill="#bfdbfe" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="step-dark" x="632" y="247" text-anchor="middle">04</text>
+    <text class="node-title-small" x="660" y="248">Builder 同步验证</text>
+    <text class="copy" x="616" y="276">为每项能力找到唯一 Builder</text>
+
+    <rect x="616" y="296" width="160" height="44" rx="6" fill="#eff6ff" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="copy-small" x="632" y="316">发现原始 Builder</text>
+    <text class="copy-small" x="632" y="332">缺失时创建 mirror</text>
+
+    <rect x="616" y="352" width="160" height="44" rx="6" fill="#eff6ff" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="copy-small" x="632" y="372">命令 / 文件 / 工具链</text>
+    <text class="copy-small" x="632" y="388">逐架构验证</text>
+
+    <rect x="616" y="408" width="160" height="60" rx="6" fill="#ffffff" stroke="#15803d" stroke-width="2"/>
+    <text class="eyebrow" x="632" y="428">不可变输入</text>
+    <text class="copy-small" x="632" y="448">Builder repository@digest</text>
+    <text class="copy-small" x="632" y="464">写入最终 catalog</text>
+
+    <!-- 05: the unique release plan -->
+    <rect x="840" y="176" width="216" height="360" rx="8" fill="#fcd34d" stroke="#0f172a" stroke-width="3"/>
+    <rect x="856" y="192" width="32" height="20" rx="4" fill="#0f172a"/>
+    <text class="step" x="872" y="207" text-anchor="middle">05</text>
+    <text class="node-title" x="900" y="208">唯一 Release Plan</text>
+    <text class="copy" x="856" y="236">策略与动态事实只在此汇合</text>
+
+    <rect x="856" y="256" width="184" height="40" rx="4" fill="#fff7d6" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="copy-small" x="872" y="280">版本、Tag、发布 Profile</text>
+    <rect x="856" y="308" width="184" height="40" rx="4" fill="#fff7d6" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="copy-small" x="872" y="332">Runtime 与 Builder digest</text>
+    <rect x="856" y="360" width="184" height="40" rx="4" fill="#fff7d6" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="copy-small" x="872" y="384">Wheel / Image / Family 关系</text>
+    <rect x="856" y="412" width="184" height="40" rx="4" fill="#fff7d6" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="copy-small" x="872" y="436">Chart 与发布通道开关</text>
+
+    <rect x="856" y="468" width="184" height="48" rx="4" fill="#0f172a"/>
+    <text class="mono-white" x="948" y="498" text-anchor="middle">release-plan.json</text>
+
+    <!-- 06: matrices derived from the plan -->
+    <rect x="1104" y="128" width="120" height="448" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="2.5"/>
+    <rect x="1120" y="144" width="32" height="20" rx="4" fill="#dcfce7" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="step-dark" x="1136" y="159" text-anchor="middle">06</text>
+    <text class="node-title-small" x="1164" y="188" text-anchor="middle">自动派生</text>
+
+    <rect x="1120" y="216" width="88" height="84" rx="6" fill="#dbeafe" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="node-title-small" x="1164" y="244" text-anchor="middle">Wheel</text>
+    <text class="copy-small" x="1164" y="264" text-anchor="middle">能力 × ABI</text>
+    <text class="copy-small" x="1164" y="280" text-anchor="middle">× 架构</text>
+
+    <rect x="1120" y="320" width="88" height="100" rx="6" fill="#dcfce7" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="node-title-small" x="1164" y="348" text-anchor="middle">Runtime</text>
+    <text class="node-title-small" x="1164" y="368" text-anchor="middle">family</text>
+    <text class="copy-small" x="1164" y="392" text-anchor="middle">member</text>
+    <text class="copy-small" x="1164" y="408" text-anchor="middle">+ index</text>
+
+    <rect x="1120" y="440" width="88" height="84" rx="6" fill="#fbcfe8" stroke="#0f172a" stroke-width="1.5"/>
+    <text class="node-title-small" x="1164" y="472" text-anchor="middle">Chart</text>
+    <text class="copy-small" x="1164" y="492" text-anchor="middle">lint</text>
+    <text class="copy-small" x="1164" y="508" text-anchor="middle">+ package</text>
+
+    <text class="copy-small" x="1164" y="552" text-anchor="middle">Plan 是唯一</text>
+    <text class="copy-small" x="1164" y="568" text-anchor="middle">矩阵来源</text>
+
+    <line x1="72" y1="608" x2="1224" y2="608" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="8 8"/>
+    <text class="footer" x="72" y="636">固定的是策略边界；动态的是 Registry 事实；最终只有 release-plan.json 可以驱动后续构建与发布。</text>
+  </svg>
