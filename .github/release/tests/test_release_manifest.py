@@ -42,12 +42,14 @@ def _plan() -> dict[str, object]:
         "wheels": [
             {
                 "id": "cuda129-cp312-amd64",
-                "dist_name": "uc-manager-cuda-cu129",
-                "wheel_version": "0.7.62rc1",
+                "dist_name": "uc-manager",
+                "channel": "cu129",
+                "wheel_version": "0.7.62rc1+cu129",
                 "python_abi": "cp312",
                 "cpu_arch": "amd64",
                 "backend": "cuda",
                 "runtime_variant": "cu129",
+                "runtime_requirements": ["wrapt==1.17.2"],
                 "manylinux": "manylinux_2_28",
                 "builder": {
                     "repository": "ghcr.io/example/ucm-builder",
@@ -65,10 +67,17 @@ def _plan() -> dict[str, object]:
                 "wheel_id": "cuda129-cp312-amd64",
                 "cpu_arch": "amd64",
                 "runtime": {
+                    "product_id": "vllm",
                     "repository": "docker.io/vllm/vllm-openai",
                     "tag": "v0.23.0",
+                    "version": "0.23.0",
+                    "channel": "stable",
+                    "variant": "default",
+                    "soc_version": "na",
                     "python_abi": "cp312",
                     "accelerator_runtime": "cuda-12.9",
+                    "os_id": "ubuntu",
+                    "os_version": "22.04",
                 },
             }
         ],
@@ -99,7 +108,7 @@ def _write_artifact_inputs(
 ) -> tuple[Path, Path, Path, str]:
     wheels = tmp_path / "wheels" / "one"
     wheels.mkdir(parents=True)
-    filename = "uc_manager_cuda_cu129-0.7.62rc1-cp312-cp312-linux_x86_64.whl"
+    filename = "uc_manager-0.7.62rc1+cu129-cp312-cp312-linux_x86_64.whl"
     (wheels / filename).write_bytes(b"wheel")
     report_text = "\n".join(
         (
@@ -125,12 +134,13 @@ def _write_artifact_inputs(
                 "kind": "ucm-wheel-result",
                 "schema_version": 2,
                 "task_id": "cuda129-cp312-amd64",
-                "distribution": "uc-manager-cuda-cu129",
-                "version": "0.7.62rc1",
+                "distribution": "uc-manager",
+                "version": "0.7.62rc1+cu129",
                 "python_abi": "cp312",
                 "cpu_arch": "amd64",
                 "filename": filename,
                 "platform_tags": ["linux_x86_64"],
+                "dependencies": ["wrapt==1.17.2"],
                 "auditwheel_platform_tag": "linux_x86_64",
                 "glibc_versions": ["GLIBC_2.2.5", "GLIBC_2.17"],
                 "glibc_floor": "GLIBC_2.17",
@@ -322,6 +332,126 @@ def test_disabled_image_publication_completes_with_wheels_and_chart(
     assert "pkgs/container" not in notes
 
 
+def test_complete_state_projects_exact_install_catalog(tmp_path: Path) -> None:
+    wheels, chart, _, filename = _write_artifact_inputs(tmp_path)
+    state, _ = release.build_artifacts_manifest(
+        _plan(), wheels, chart, actions_run_id=123
+    )
+    receipts = tmp_path / "catalog-receipts"
+    receipts.mkdir()
+    (receipts / "member.json").write_text(
+        json.dumps(
+            {
+                "kind": "ucm-image-member-receipt",
+                "schema_version": 1,
+                "id": "vllm-v023-amd64",
+                "status": "published",
+                "targets": [
+                    {
+                        "channel": "ghcr",
+                        "reference": "ghcr.io/example/vllm:v0.23.0-ucm-amd64",
+                        "digest": "sha256:" + "a" * 64,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    state = release.finalize_manifest(
+        state,
+        receipts,
+        build_outcome="success",
+        member_outcome="success",
+        index_outcome="skipped",
+    )
+    asset_urls = _asset_urls(state)
+    release_document = {
+        "tag_name": "v0.7.62rc1",
+        "html_url": "https://github.com/example/ucm/releases/tag/v0.7.62rc1",
+        "assets": [
+            {"name": name, "browser_download_url": url}
+            for name, url in asset_urls.items()
+        ],
+    }
+
+    catalog = release.build_install_catalog(state, release_document)
+
+    assert catalog == {
+        "kind": "ucm-install-catalog",
+        "schema_version": 1,
+        "release": {
+            "tag": "v0.7.62rc1",
+            "version": "0.7.62rc1",
+            "url": "https://github.com/example/ucm/releases/tag/v0.7.62rc1",
+        },
+        "wheels": [
+            {
+                "channel": "cu129",
+                "distribution": "uc-manager",
+                "version": "0.7.62rc1+cu129",
+                "python_abi": "cp312",
+                "cpu_arch": "amd64",
+                "filename": filename,
+                "url": asset_urls[filename],
+                "sha256": hashlib.sha256(b"wheel").hexdigest(),
+                "dependencies": ["wrapt==1.17.2"],
+            }
+        ],
+        "images": [
+            {
+                "id": "vllm-v023",
+                "product": "vllm",
+                "upstream_version": "0.23.0",
+                "upstream_channel": "stable",
+                "accelerator_runtime": "cuda-12.9",
+                "variant": "default",
+                "soc_version": "na",
+                "os_id": "ubuntu",
+                "os_version": "22.04",
+                "architectures": ["amd64"],
+                "references": {"ghcr": "ghcr.io/example/vllm:v0.23.0-ucm-amd64"},
+            }
+        ],
+        "chart": {
+            "name": "unified-cache-chart",
+            "version": "0.7.62-rc.1",
+            "filename": "unified-cache-chart-0.7.62-rc.1.tgz",
+            "url": asset_urls["unified-cache-chart-0.7.62-rc.1.tgz"],
+            "oci": "ghcr.io/example/charts/unified-cache-chart:0.7.62-rc.1",
+        },
+    }
+    state_path = tmp_path / "catalog-state.json"
+    release_path = tmp_path / "catalog-release.json"
+    output = tmp_path / "catalog-output"
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    release_path.write_text(json.dumps(release_document), encoding="utf-8")
+    command = release.build_parser().parse_args(
+        [
+            "catalog",
+            "--state",
+            str(state_path),
+            "--release",
+            str(release_path),
+            "--output",
+            str(output),
+        ]
+    )
+    command.func(command)
+    assert json.loads((output / "install-catalog.json").read_text()) == catalog
+
+
+def test_install_catalog_rejects_incomplete_release() -> None:
+    with pytest.raises(ValueError, match="complete publication"):
+        release.build_install_catalog(
+            {
+                "kind": "ucm-release-state",
+                "schema_version": 2,
+                "release": {"status": "images-failed"},
+            },
+            {},
+        )
+
+
 def test_public_manifest_is_exact_schema_v6_and_uses_published_targets(
     tmp_path: Path,
 ) -> None:
@@ -362,6 +492,7 @@ def test_public_manifest_is_exact_schema_v6_and_uses_published_targets(
             {"name": "ucm.whl"},
             {"name": "unified-cache-chart-0.7.62-rc.1.tgz"},
             {"name": "ucm_config_example.yaml"},
+            {"name": "install-catalog.json"},
         ],
     }
 
@@ -382,6 +513,7 @@ def test_public_manifest_is_exact_schema_v6_and_uses_published_targets(
             "dockerhub": {"members": [], "indexes": []},
         },
         "github_release_assets": [
+            "install-catalog.json",
             "release-manifest.json",
             "ucm.whl",
             "ucm_config_example.yaml",

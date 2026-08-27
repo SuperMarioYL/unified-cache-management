@@ -22,7 +22,7 @@ mkdocs serve                    # 或: python tools/site.py serve
 
 ### 1. 加 md 文件
 
-放到 `docs/en/<路径>.md`(英文)。中文镜像放 `docs/zh-cn/` 同路径(不建则 fallback 显示英文)。文件名建议 kebab-case。
+放到 `docs/en/<路径>.md`(英文)。中文镜像放 `docs/zh/` 同路径(不建则 fallback 显示英文)。文件名建议 kebab-case。
 
 ### 2. 登记到导航
 
@@ -36,8 +36,8 @@ nav:
 
 ### 3. 静态资源(图片等)
 
-- 图片放 `docs/assets/images/`,引用用**绝对路径** `/assets/images/xxx.png`(en 和 zh 下都生效)
-- 计算器 JS/HTML 在 `docs/assets/` 根,iframe 用 `/assets/kv_cache_calculator.html`
+- 图片放 `docs/assets/images/`,按当前 Markdown 文件位置使用相对路径引用，例如首页使用 `../assets/images/xxx.png`
+- 计算器 JS/HTML 在 `docs/assets/` 根,iframe 同样使用相对路径，避免版本目录和 project Pages 指向站点根
 
 ### 写作注意点(踩过的坑)
 
@@ -57,20 +57,24 @@ nav:
 
 严格构建通过(退出 0)。中文首页指向尚未创建的中文镜像页会产生若干 WARNING(i18n fallback 固有,不阻塞);AI 生成完整中文后 WARNING 消失。本地检查用 `mkdocs build` 即可。
 
-`tools/site.py` 子命令:`serve` / `build --lang {en,zh-cn} [--strict] [--clean]` / `validate` / `translate --changed`(CI,本地未接通) / `generate`(占位)。
+`tools/site.py` 子命令:`serve` / `build --lang {en,zh} [--strict] [--clean]` / `validate` / `translate --changed`(CI,本地未接通) / `generate`(占位)。
 
 ## 多版本预览
 
-版本选择器需 mike 多版本站点:
+版本选择器可用一次性本地分支预览，不得直接改 `gh-pages`:
 
 ```bash
-mike deploy 0.5.0 latest -u --ignore-remote-status  # 本地构建(不推远程)
-mike serve                                          # 访问 /latest/
+mike deploy preview latest -u --branch docs-preview --ignore-remote-status
+mike serve --branch docs-preview                    # 访问 /latest/
 ```
 
 - `mkdocs serve`:dev 模式,有 live reload,**无版本选择器**
 - `mike serve`:多版本静态预览,有版本选择器,**无 live reload**(改内容后需重新 `mike deploy`)
-- 正式发布走 CI:`mike deploy <version> -u -p`(推 gh-pages)
+- `gh-pages` 的唯一写入口是 `tools/pages.py`;不要手工执行 `mike ... --push` 或直接提交该分支
+- 一次性清理使用 `python tools/pages.py initialize --repository OWNER/REPO`
+- latest 发布使用 `python tools/pages.py publish-latest --repository OWNER/REPO`
+- Stable 发布使用 `python tools/pages.py publish-stable --repository OWNER/REPO --catalog PATH`
+- 正式命令由 Pages CI 调用;脚本内部运行不带 `--push` 的 Mike，最后只普通 push 一次
 
 ## 项目结构
 
@@ -79,24 +83,26 @@ docs-next/
 ├── mkdocs.yml          站点配置:nav、Material 主题、i18n、markdown 扩展
 ├── docs/               docs_dir(站点内容根)
 │   ├── en/             英文(默认语言,URL 无前缀)
-│   ├── zh-cn/          中文镜像(当前仅 index/about,其余待 AI 生成)
-│   └── assets/         共享静态资源(images/ css/ js/ calculator、model-configs)
+│   ├── zh/             中文镜像(缺失页面回退英文)
+│   └── assets/         共享静态资源(images、install.js/css、calculator、model-configs)
 ├── overrides/
 │   └── main.html       主题覆盖:KaTeX CDN + header 白色 + 字体分层(Jost 侧栏 / Inter 正文)
 ├── tools/
 │   ├── site.py         统一入口(serve/build/validate/translate/generate)
-│   └── gen_model_tour.py  生成 Model Tour 具体模型拉起页
-├── requirements.txt    Python 依赖(mkdocs / mkdocs-material / mkdocs-static-i18n / pymdown-extensions)
+│   └── pages.py        gh-pages 唯一写入口(Mike、Catalog、Simple Index、单次 push)
+├── tests/
+│   └── test_pages.py   Pages/Catalog/Index/双语安装页 focused tests
+├── requirements.txt    Python 依赖(MkDocs / Mike / packaging / pytest)
 ├── .venv/              本地虚拟环境(不提交)
 └── site/               构建产物(不提交)
 ```
 
 ## 国际化(i18n)
 
-- 插件 `mkdocs-static-i18n`,**folder 模式**(`docs/en/`、`docs/zh-cn/`)
+- 插件 `mkdocs-static-i18n`,**folder 模式**(`docs/en/`、`docs/zh/`)
 - 英文默认语言,**URL 无前缀**(在 `/`,不是 `/en/`);中文在 `/zh/`
 - `fallback_to_default: true`:中文页缺失时回退英文内容
-- 共享静态资源用根绝对路径 `/assets/...`(避免 i18n 静态资产路径问题;构建时这些绝对链接留 INFO 提示属正常)
+- 共享静态资源按 Markdown 源文件位置使用相对路径，由 MkDocs/Mike 保持在各版本目录内
 
 ## 内容规范
 

@@ -85,8 +85,27 @@ def _all_keys(value: object) -> set[str]:
     return set()
 
 
-def _write_wheel_fixture(path: Path, metadata_tag: str) -> None:
+def _write_wheel_fixture(
+    path: Path,
+    metadata_tag: str,
+    *,
+    distribution: str = "uc-manager",
+    version: str = "0.7.60rc1+cu130",
+    dependencies: tuple[str, ...] = ("wrapt == 1.17.2",),
+) -> None:
     with zipfile.ZipFile(path, "w") as wheel:
+        wheel.writestr(
+            "fixture-1.0.dist-info/METADATA",
+            "\n".join(
+                (
+                    "Metadata-Version: 2.4",
+                    f"Name: {distribution}",
+                    f"Version: {version}",
+                    *(f"Requires-Dist: {dependency}" for dependency in dependencies),
+                    "",
+                )
+            ),
+        )
         wheel.writestr(
             "fixture-1.0.dist-info/WHEEL",
             "\n".join(
@@ -101,13 +120,15 @@ def _write_wheel_fixture(path: Path, metadata_tag: str) -> None:
         )
 
 
-def _wheel_result_task(cpu_arch: str) -> dict[str, str]:
+def _wheel_result_task(cpu_arch: str) -> dict[str, object]:
     return {
         "id": f"cuda130-cp312-{cpu_arch}",
-        "dist_name": "uc-manager-cuda-cu130",
-        "wheel_version": "0.7.60rc1",
+        "dist_name": "uc-manager",
+        "channel": "cu130",
+        "wheel_version": "0.7.60rc1+cu130",
         "python_abi": "cp312",
         "cpu_arch": cpu_arch,
+        "runtime_requirements": ["wrapt==1.17.2"],
     }
 
 
@@ -176,7 +197,6 @@ def test_enabling_absent_a5_does_not_invent_registry_tasks() -> None:
     formal["backends"]["cann-a5"] = {
         "status": "supported",
         "platform": "ascend-a5",
-        "distribution_template": "uc-manager-{runtime_variant}",
     }
 
     plan = compact.resolve_plan(
@@ -226,25 +246,20 @@ def test_plan_defers_runtime_glibc_until_final_image_validation() -> None:
     assert all(item["runtime"]["glibc_version"] is None for item in plan["images"])
 
 
-def test_plan_projects_runtime_referenced_distributions_from_platform_policy() -> None:
+def test_plan_projects_unified_distribution_and_capability_local_versions() -> None:
     plan = _plan()
 
-    assert plan["publish"]["pypi"]["distributions"] == [
-        "uc-manager-cann900-a2",
-        "uc-manager-cann900-a3",
-        "uc-manager-cuda-cu129",
-    ]
-    assert {item["dist_name"] for item in plan["wheels"]} == set(
-        plan["publish"]["pypi"]["distributions"]
-    )
+    assert plan["publish"]["pypi"]["distributions"] == ["uc-manager"]
+    assert {item["dist_name"] for item in plan["wheels"]} == {"uc-manager"}
+    by_channel = {item["channel"]: item for item in plan["wheels"]}
+    assert by_channel["cu129"]["runtime_variant"] == "cu129"
+    assert by_channel["cu129"]["wheel_version"] == "0.7.60rc1+cu129"
+    assert by_channel["cann900-a2"]["runtime_variant"] == "cann900-a2"
+    assert by_channel["cann900-a2"]["wheel_version"] == ("0.7.60rc1+cann900.a2")
 
 
-def test_cann_distribution_identity_keeps_runtime_versions_distinct() -> None:
-    formal, _, _ = _inputs()
-    backend = formal["backends"]["cann-a2"]
-
-    assert compact._distribution(backend, "cann900-a2") == "uc-manager-cann900-a2"
-    assert compact._distribution(backend, "cann910-a2") == "uc-manager-cann910-a2"
+def test_cann_channel_is_canonicalized_only_in_the_local_version() -> None:
+    assert compact._wheel_version("0.9.0", "cann901-a2") == "0.9.0+cann901.a2"
 
 
 def test_plan_keeps_top_level_contract_without_problem_or_index_matrix() -> None:
@@ -343,7 +358,11 @@ def test_official_plan_keeps_runtime_and_wheel_coordinates_unchanged() -> None:
     assert plan["publication_scope"] == "official"
     assert plan["runtime_image_tag_prefix"] == ""
     assert family["target_tag"] == "v0.22.1-cu129-ucm-0.7.60rc1"
-    assert {wheel["wheel_version"] for wheel in plan["wheels"]} == {"0.7.60rc1"}
+    assert {wheel["wheel_version"] for wheel in plan["wheels"]} == {
+        "0.7.60rc1+cu129",
+        "0.7.60rc1+cann900.a2",
+        "0.7.60rc1+cann900.a3",
+    }
 
 
 def test_fork_owner_prefix_changes_runtime_tags_only() -> None:
@@ -375,11 +394,7 @@ def test_plan_records_selected_release_profile(release_type: str) -> None:
         "pypi": {
             "index": "https://upload.pypi.org/legacy/",
             "enabled": False,
-            "distributions": [
-                "uc-manager-cann900-a2",
-                "uc-manager-cann900-a3",
-                "uc-manager-cuda-cu129",
-            ],
+            "distributions": ["uc-manager"],
         },
         "ghcr": {"namespace": "ghcr.io/release-org", "enabled": True},
         "dockerhub": {
@@ -514,7 +529,7 @@ def test_multiple_pr_runtime_tags_with_same_capability_reuse_wheels() -> None:
 
 def test_wheel_result_manifest_uses_actual_filename_tags(tmp_path: Path) -> None:
     task = _wheel_result_task("amd64")
-    wheel = tmp_path / "uc_manager_cuda_cu130-0.7.60rc1-cp312-cp312-linux_x86_64.whl"
+    wheel = tmp_path / "uc_manager-0.7.60rc1+cu130-cp312-cp312-linux_x86_64.whl"
     _write_wheel_fixture(wheel, "cp312-cp312-linux_x86_64")
     report = _write_auditwheel_report(
         wheel,
@@ -529,14 +544,29 @@ def test_wheel_result_manifest_uses_actual_filename_tags(tmp_path: Path) -> None
     assert result["glibc_versions"] == ["GLIBC_2.17", "GLIBC_2.34"]
     assert result["glibc_floor"] == "GLIBC_2.34"
     assert result["external_libraries"] == ["libascendcl.so", "libmetrics.so"]
+    assert result["dependencies"] == ["wrapt==1.17.2"]
     assert result["auditwheel_report"]["filename"] == report.name
     assert result["auditwheel_report"]["text"] == report.read_text(encoding="utf-8")
     assert len(result["auditwheel_report"]["sha256"]) == 64
 
 
+def test_wheel_result_rejects_metadata_dependency_drift(tmp_path: Path) -> None:
+    task = _wheel_result_task("amd64")
+    wheel = tmp_path / "uc_manager-0.7.60rc1+cu130-cp312-cp312-linux_x86_64.whl"
+    _write_wheel_fixture(
+        wheel,
+        "cp312-cp312-linux_x86_64",
+        dependencies=("wrapt==1.18.0",),
+    )
+    _write_auditwheel_report(wheel, compatible_platform="linux_x86_64")
+
+    with pytest.raises(ValueError, match="dependencies do not match"):
+        compact.record_wheel_result(task, wheel)
+
+
 def test_wheel_result_maps_arm64_to_aarch64_only(tmp_path: Path) -> None:
     task = _wheel_result_task("arm64")
-    wheel = tmp_path / ("uc_manager_cuda_cu130-0.7.60rc1-cp312-cp312-linux_aarch64.whl")
+    wheel = tmp_path / ("uc_manager-0.7.60rc1+cu130-cp312-cp312-linux_aarch64.whl")
     _write_wheel_fixture(wheel, "cp312-cp312-linux_aarch64")
     _write_auditwheel_report(
         wheel,
@@ -554,7 +584,7 @@ def test_wheel_result_maps_arm64_to_aarch64_only(tmp_path: Path) -> None:
 def test_wheel_result_rejects_additional_compressed_abis(tmp_path: Path) -> None:
     task = _wheel_result_task("amd64")
     wheel = tmp_path / (
-        "uc_manager_cuda_cu130-0.7.60rc1-cp311.cp312-cp311.cp312-linux_x86_64.whl"
+        "uc_manager-0.7.60rc1+cu130-cp311.cp312-cp311.cp312-linux_x86_64.whl"
     )
     metadata_tag = "cp311.cp312-cp311.cp312-linux_x86_64"
     _write_wheel_fixture(wheel, metadata_tag)
@@ -566,7 +596,7 @@ def test_wheel_result_rejects_additional_compressed_abis(tmp_path: Path) -> None
 
 def test_wheel_result_rejects_report_for_a_different_wheel(tmp_path: Path) -> None:
     task = _wheel_result_task("amd64")
-    wheel = tmp_path / "uc_manager_cuda_cu130-0.7.60rc1-cp312-cp312-linux_x86_64.whl"
+    wheel = tmp_path / "uc_manager-0.7.60rc1+cu130-cp312-cp312-linux_x86_64.whl"
     _write_wheel_fixture(wheel, "cp312-cp312-linux_x86_64")
     _write_auditwheel_report(
         wheel,
@@ -581,9 +611,9 @@ def test_wheel_result_rejects_report_for_a_different_wheel(tmp_path: Path) -> No
 @pytest.mark.parametrize(
     "filename",
     [
-        "wrong-0.7.60rc1-cp312-cp312-linux_x86_64.whl",
-        "uc_manager_cuda_cu130-0.7.60rc1-cp311-cp311-linux_x86_64.whl",
-        "uc_manager_cuda_cu130-0.7.60rc1-cp312-cp312-linux_aarch64.whl",
+        "wrong-0.7.60rc1+cu130-cp312-cp312-linux_x86_64.whl",
+        "uc_manager-0.7.60rc1+cu130-cp311-cp311-linux_x86_64.whl",
+        "uc_manager-0.7.60rc1+cu130-cp312-cp312-linux_aarch64.whl",
     ],
 )
 def test_wheel_result_rejects_distribution_abi_and_arch_drift(
@@ -630,7 +660,7 @@ def test_wheel_result_rejects_oci_aliases_and_premature_manylinux_tags(
 
 def test_wheel_result_rejects_filename_metadata_tag_drift(tmp_path: Path) -> None:
     task = _wheel_result_task("amd64")
-    wheel = tmp_path / "uc_manager_cuda_cu130-0.7.60rc1-cp312-cp312-linux_x86_64.whl"
+    wheel = tmp_path / "uc_manager-0.7.60rc1+cu130-cp312-cp312-linux_x86_64.whl"
     _write_wheel_fixture(wheel, "cp312-cp312-manylinux_2_28_x86_64")
     _write_auditwheel_report(wheel, compatible_platform="manylinux_2_34_x86_64")
 

@@ -314,22 +314,18 @@ def test_platform_policy_matches_supported_and_blocked_backends() -> None:
             "cuda": {
                 "status": "supported",
                 "platform": "cuda",
-                "distribution_template": "uc-manager-cuda-{runtime_variant}",
             },
             "cann-a2": {
                 "status": "supported",
                 "platform": "ascend",
-                "distribution_template": "uc-manager-{runtime_variant}",
             },
             "cann-a3": {
                 "status": "supported",
                 "platform": "ascend-a3",
-                "distribution_template": "uc-manager-{runtime_variant}",
             },
             "cann-a5": {
                 "status": "blocked",
                 "platform": "ascend-a5",
-                "distribution_template": "uc-manager-{runtime_variant}",
                 "reason": "A5 requires a dedicated UCM native implementation",
             },
         },
@@ -585,6 +581,8 @@ def test_core_projects_v5_for_release_consumers() -> None:
         not contract["required_native"]
         and not contract["forbidden_native"]
         and not contract["allowed_dt_needed"]
+        and "distribution" not in contract
+        and "distribution_prefix" not in contract
         for contract in catalog["backend_contracts"].values()
     )
 

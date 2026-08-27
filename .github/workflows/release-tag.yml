@@ -98,3 +98,25 @@ jobs:
       is_prerelease: ${{ needs.classify-tag.outputs.is_prerelease == 'true' }}
       source_sha: ${{ github.sha }}
       publication_scope: fork
+
+  publish-stable-pages:
+    name: Publish Stable documentation and install pages
+    needs: [classify-tag, release-official, release-fork]
+    if: >-
+      ${{
+        always() &&
+        needs.classify-tag.result == 'success' &&
+        needs.classify-tag.outputs.release_type == 'stable' &&
+        vars.UCM_PAGES_ENABLED == 'true' &&
+        ((needs.classify-tag.outputs.publication_scope == 'official' &&
+          needs.release-official.result == 'success') ||
+         (needs.classify-tag.outputs.publication_scope == 'fork' &&
+          needs.release-fork.result == 'success'))
+      }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/docs-pages.yml
+    with:
+      mode: stable
+      source_ref: ${{ github.sha }}
+      release_tag: ${{ needs.classify-tag.outputs.git_tag }}

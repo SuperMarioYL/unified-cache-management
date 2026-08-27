@@ -171,12 +171,6 @@ def _validate_release_semantics(release: dict[str, Any]) -> None:
 
 def _validate_platform_semantics(platforms: dict[str, Any]) -> None:
     for backend, config in platforms["backends"].items():
-        has_distribution = "distribution" in config
-        has_template = "distribution_template" in config
-        if has_distribution == has_template:
-            raise ValueError(
-                f"platform backend {backend!r} requires exactly one distribution rule"
-            )
         if config["status"] == "blocked" and "reason" not in config:
             raise ValueError(f"blocked platform backend {backend!r} requires a reason")
         if config["status"] == "supported" and "reason" in config:
@@ -315,16 +309,6 @@ def _backend_contracts(platforms: dict[str, Any]) -> dict[str, dict[str, Any]]:
         }
         if "reason" in source:
             contract["reason"] = source["reason"]
-        if "distribution" in source:
-            contract["distribution"] = source["distribution"]
-        else:
-            template = source["distribution_template"]
-            marker = "{runtime_variant}"
-            if not template.endswith(marker):
-                raise ValueError(
-                    f"platform backend {backend!r}: unsupported distribution template"
-                )
-            contract["distribution_prefix"] = template.removesuffix(marker)
         contracts[backend] = contract
     return contracts
 

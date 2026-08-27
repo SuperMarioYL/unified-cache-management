@@ -427,8 +427,6 @@
       "properties": {
         "status": {"enum": ["supported", "blocked"]},
         "platform": {"type": "string", "minLength": 1},
-        "distribution": {"type": "string", "pattern": "^uc-manager(?:-[a-z0-9]+)+$"},
-        "distribution_template": {"type": "string", "pattern": "^uc-manager(?:-[a-z0-9]+)*-\\{runtime_variant\\}$"},
         "reason": {"type": "string", "minLength": 1}
       }
     },

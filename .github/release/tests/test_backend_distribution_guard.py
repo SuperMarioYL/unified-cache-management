@@ -40,6 +40,7 @@ def _load_guard(monkeypatch, names: list[str]):
 @pytest.mark.parametrize(
     "name",
     [
+        "uc-manager",
         "uc-manager-cuda",
         "uc-manager-cuda-cu129",
         "uc-manager-cann-a2",
@@ -60,3 +61,10 @@ def test_multiple_versioned_backend_distributions_are_rejected(monkeypatch) -> N
             monkeypatch,
             ["uc-manager-cann851-a2", "uc-manager-cuda-cu129"],
         )
+
+
+def test_unified_distribution_rejects_a_legacy_backend_distribution(
+    monkeypatch,
+) -> None:
+    with pytest.raises(ImportError, match="Multiple UCM backend distributions"):
+        _load_guard(monkeypatch, ["uc-manager", "uc-manager-cuda-cu129"])

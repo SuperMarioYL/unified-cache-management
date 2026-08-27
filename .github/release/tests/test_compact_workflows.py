@@ -112,6 +112,80 @@ def test_pr_gate_keeps_ucm_artifact_builds_in_the_robot_lane() -> None:
     assert "./.github/workflows/release-ucm.yml" not in text
 
 
+def test_docs_pages_workflow_checks_prs_and_serializes_publication() -> None:
+    workflow = _load("docs-pages.yml")
+
+    assert set(workflow["on"]) == {
+        "pull_request",
+        "push",
+        "workflow_call",
+        "workflow_dispatch",
+    }
+    assert set(workflow["on"]["pull_request"]["paths"]) >= {
+        "docs-next/**",
+        ".github/release/platforms.yaml",
+        ".github/release/requirements/wheel-runtime.txt",
+        ".github/release/ucm_release/compact.py",
+        ".github/release/ucm_release/release.py",
+        ".github/workflows/docs-pages.yml",
+        ".github/workflows/release-tag.yml",
+        ".github/workflows/release-ucm.yml",
+    }
+    assert workflow["on"]["push"] == {"branches": ["develop"]}
+    assert set(workflow["on"]["workflow_call"]["inputs"]) == {
+        "mode",
+        "source_ref",
+        "release_tag",
+    }
+    dispatch_inputs = workflow["on"]["workflow_dispatch"]["inputs"]
+    assert set(dispatch_inputs) == {"mode", "source_ref", "release_tag"}
+    assert dispatch_inputs["mode"]["options"] == ["latest", "stable"]
+    assert workflow["concurrency"] == {
+        "group": "ucm-pages-${{ github.repository_id }}",
+        "cancel-in-progress": False,
+    }
+    assert workflow["permissions"] == {"contents": "read"}
+
+    jobs = workflow["jobs"]
+    assert set(jobs) == {"check", "publish-latest", "publish-stable"}
+    check = jobs["check"]
+    assert "github.event_name == 'pull_request'" in check["if"]
+    assert check["permissions"] == {"contents": "read"}
+    check_text = yaml.safe_dump(check)
+    assert "python tools/site.py validate" in check_text
+    assert "python -m pytest -q tests" in check_text
+    assert "actions/upload-artifact@v4.6.2" in check_text
+    assert "docs-next/site/" in check_text
+
+    latest = jobs["publish-latest"]
+    stable = jobs["publish-stable"]
+    for publish in (latest, stable):
+        assert publish["permissions"] == {"contents": "write"}
+        condition = publish["if"]
+        assert "vars.UCM_PAGES_ENABLED == 'true'" in condition
+        assert "github.event_name == 'pull_request'" not in condition
+        assert "pages" not in publish["permissions"]
+        assert "id-token" not in publish["permissions"]
+
+    latest_text = yaml.safe_dump(latest)
+    assert "((github.event_name == 'push' && inputs.mode == '') ||" in latest["if"]
+    assert "inputs.mode == 'latest'" in latest["if"]
+    assert "github.event_name == 'workflow_call'" not in latest["if"]
+    assert "github.event_name == 'workflow_dispatch'" not in latest["if"]
+    assert "inputs.mode == 'stable'" not in latest["if"]
+    assert "pages.py publish-latest" in latest_text
+    assert '--repository "${GITHUB_REPOSITORY}"' in latest_text
+
+    stable_text = yaml.safe_dump(stable)
+    assert "inputs.mode == 'stable'" in stable["if"]
+    assert "inputs.release_tag != ''" in stable["if"]
+    assert "github.event_name" not in stable["if"]
+    assert "gh release download" in stable_text
+    assert "--pattern install-catalog.json" in stable_text
+    assert "pages.py publish-stable" in stable_text
+    assert "--catalog input/catalog/install-catalog.json" in stable_text
+
+
 def test_release_workflow_has_staged_publication_jobs() -> None:
     jobs = _load("release-ucm.yml")["jobs"]
     publish_jobs = [
@@ -310,38 +384,76 @@ def test_runtime_images_include_the_config_example_at_the_workspace_root() -> No
         assert image_path in verify["run"]
 
 
-def test_schema_v6_manifest_is_uploaded_only_after_complete_and_read_back() -> None:
+def test_catalog_and_schema_v6_manifest_follow_complete_release_state() -> None:
     jobs = _load("release-ucm.yml")["jobs"]
     steps = jobs["update-release-images"]["steps"]
-    update_index, update = next(
-        (index, step)
+    merge_index = next(
+        index
         for index, step in enumerate(steps)
-        if step.get("id") == "update-release"
+        if step.get("name") == "Merge publication receipts into internal release state"
     )
     complete_index, complete = next(
         (index, step)
         for index, step in enumerate(steps)
         if step.get("name") == "Require complete image publication"
     )
+    catalog_index, catalog = next(
+        (index, step)
+        for index, step in enumerate(steps)
+        if step.get("id") == "publish-catalog"
+    )
+    refresh_index, refresh = next(
+        (index, step)
+        for index, step in enumerate(steps)
+        if step.get("id") == "refresh-release"
+    )
     manifest_index, manifest = next(
         (index, step)
         for index, step in enumerate(steps)
         if step.get("id") == "publish-manifest"
     )
+    update_index, update = next(
+        (index, step)
+        for index, step in enumerate(steps)
+        if step.get("id") == "update-release"
+    )
+    retention_index = next(
+        index for index, step in enumerate(steps) if step.get("id") == "retention"
+    )
 
-    assert update_index < complete_index < manifest_index
-    assert "release-state.json" in update["run"]
-    assert "release-manifest.json" not in update["run"]
-    assert "gh release upload" not in update["run"]
+    assert (
+        merge_index
+        < complete_index
+        < catalog_index
+        < refresh_index
+        < manifest_index
+        < update_index
+        < retention_index
+    )
     assert "release.status" in complete["run"]
+    assert "release.py catalog" in catalog["run"]
+    assert '--state "${state}" --release "${release_json}"' in catalog["run"]
+    assert (
+        'gh release upload "${tag}" --clobber out/release/install-catalog.json'
+        in catalog["run"]
+    )
+    assert "Accept: application/octet-stream" not in catalog["run"]
+    assert "cmp " not in catalog["run"]
+    assert "sha256" not in catalog["run"].lower()
+    assert 'select(.name == "install-catalog.json")' in refresh["run"]
     assert "release.py manifest" in manifest["run"]
-    assert 'gh release upload "${tag}" --clobber out/release/release-manifest.json' in (
-        manifest["run"]
+    assert (
+        'gh release upload "${tag}" --clobber out/release/release-manifest.json'
+        in manifest["run"]
     )
     assert "release-manifest-readback.json" in manifest["run"]
     assert "Accept: application/octet-stream" in manifest["run"]
     assert "cmp out/release/release-manifest.json" in manifest["run"]
     assert "github_release_assets" in manifest["run"]
+    assert "release.py notes" in update["run"]
+    assert "release-state.json" in update["run"]
+    assert "release-manifest.json" not in update["run"]
+    assert "gh release upload" not in update["run"]
     release_module = (
         ROOT / ".github" / "release" / "ucm_release" / "release.py"
     ).read_text(encoding="utf-8")
@@ -384,21 +496,15 @@ def test_opened_release_reports_pre_plan_failures() -> None:
     assert "artifacts-failed" in job["steps"][0]["run"]
 
 
-def test_image_failure_notes_are_not_overwritten_by_the_fallback() -> None:
+def test_finalization_failure_is_reported_until_final_notes_succeed() -> None:
     steps = _load("release-ucm.yml")["jobs"]["update-release-images"]["steps"]
     update = next(step for step in steps if step.get("id") == "update-release")
-    require = next(
-        step
-        for step in steps
-        if step.get("name") == "Require complete image publication"
-    )
     fallback = steps[-1]
 
     assert "release.status" not in update["run"]
     assert "release.py notes" in update["run"]
-    assert 'gh api "/repos/${GH_REPO}/releases/${release_id}"' in update["run"]
-    assert "release.status" in require["run"]
-    assert "steps.publish-manifest.outcome != 'success'" in fallback["if"]
+    assert "release_json=out/release/github-release.json" in update["run"]
+    assert "steps.update-release.outcome != 'success'" in fallback["if"]
     assert "publication-failed" in fallback["run"]
     assert 'if [ "${RELEASE_TYPE}" = nightly ]; then' in fallback["run"]
     assert "-F draft=true -F prerelease=true" in fallback["run"]
@@ -411,6 +517,7 @@ def test_tag_entry_only_classifies_four_release_types_and_calls_core() -> None:
         "classify-tag",
         "release-official",
         "release-fork",
+        "publish-stable-pages",
     }
     classify = workflow["jobs"]["classify-tag"]
     assert set(classify["outputs"]) == {
@@ -455,6 +562,31 @@ def test_tag_entry_only_classifies_four_release_types_and_calls_core() -> None:
         assert scope in release["if"]
     assert workflow["jobs"]["release-official"]["secrets"] == "inherit"
     assert "secrets" not in workflow["jobs"]["release-fork"]
+
+    pages = workflow["jobs"]["publish-stable-pages"]
+    assert set(pages["needs"]) == {
+        "classify-tag",
+        "release-official",
+        "release-fork",
+    }
+    assert pages["uses"] == "./.github/workflows/docs-pages.yml"
+    assert pages["permissions"] == {"contents": "write"}
+    assert pages["with"] == {
+        "mode": "stable",
+        "source_ref": "${{ github.sha }}",
+        "release_tag": "${{ needs.classify-tag.outputs.git_tag }}",
+    }
+    condition = pages["if"]
+    for expected in (
+        "always()",
+        "needs.classify-tag.result == 'success'",
+        "needs.classify-tag.outputs.release_type == 'stable'",
+        "vars.UCM_PAGES_ENABLED == 'true'",
+        "needs.release-official.result == 'success'",
+        "needs.release-fork.result == 'success'",
+    ):
+        assert expected in condition
+    assert "secrets" not in pages
 
 
 def test_common_core_opens_the_exact_tag_before_builds() -> None:
@@ -781,7 +913,10 @@ def test_reusable_builds_keep_functional_inputs() -> None:
         text = yaml.safe_dump(_load(workflow_name)["jobs"][job_name])
         assert "scripts/materialize_version.py" in text
         assert "--version" in text
-        assert ".version" in text
+        expected_version_field = (
+            ".wheel_version" if workflow_name == "_build-wheel.yml" else ".version"
+        )
+        assert expected_version_field in text
         assert "GITHUB_EVENT_NAME" not in text
         assert "GITHUB_REF_NAME" not in text
 
@@ -1186,12 +1321,15 @@ def test_completed_release_runs_retention_and_manual_cleanup_reuses_the_module()
         for index, step in enumerate(steps)
         if step.get("id") == "publish-manifest"
     )
+    notes_index = next(
+        index for index, step in enumerate(steps) if step.get("id") == "update-release"
+    )
     retention_index, retention = next(
         (index, step)
         for index, step in enumerate(steps)
         if step.get("id") == "retention"
     )
-    assert manifest_index < retention_index
+    assert manifest_index < notes_index < retention_index
     assert "cleanup.py retention" in retention["run"]
     assert "release_profile" in retention["run"]
     assert 'pypi_enabled="$(jq -r' in retention["run"]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import email.parser
 import hashlib
 import json
 import re
@@ -12,6 +13,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from packaging.requirements import InvalidRequirement, Requirement
 from packaging.tags import parse_tag
 from packaging.utils import canonicalize_name, parse_wheel_filename
 from packaging.version import Version
@@ -23,25 +25,18 @@ from . import upstream
 
 ROUTES = frozenset({"pr", "daily", "release"})
 WHEEL_ARCHITECTURES = {"amd64": "x86_64", "arm64": "aarch64"}
+WHEEL_DISTRIBUTION = "uc-manager"
 AUDITWHEEL_REPORT = "auditwheel-show.txt"
 
 
 def prepare_wheel_source(source_root: Path, distribution: str) -> dict[str, str]:
-    """Set the PEP 621 distribution name for one compact Wheel build."""
-    if re.fullmatch(r"uc-manager(?:-[a-z0-9]+)*", distribution) is None:
-        raise ValueError("compact Wheel distribution name is invalid")
+    """Validate the fixed PEP 621 distribution for a compact Wheel build."""
+    if distribution != WHEEL_DISTRIBUTION:
+        raise ValueError("compact Wheel distribution must be uc-manager")
     path = source_root / "pyproject.toml"
-    raw = path.read_text(encoding="utf-8")
-    document = tomllib.loads(raw)
-    if document.get("project", {}).get("name") != "uc-manager":
+    document = tomllib.loads(path.read_text(encoding="utf-8"))
+    if document.get("project", {}).get("name") != WHEEL_DISTRIBUTION:
         raise ValueError("compact Wheel source must start with project.name=uc-manager")
-    source = 'name = "uc-manager"'
-    if raw.count(source) != 1:
-        raise ValueError("compact Wheel project.name is missing or ambiguous")
-    updated = raw.replace(source, f'name = "{distribution}"')
-    if tomllib.loads(updated).get("project", {}).get("name") != distribution:
-        raise ValueError("compact Wheel project.name update failed")
-    path.write_text(updated, encoding="utf-8")
     return {"distribution": distribution, "project_file": "pyproject.toml"}
 
 
@@ -64,18 +59,16 @@ def _backend(catalog: Mapping[str, Any], backend: str) -> dict[str, Any]:
     return value
 
 
-def _distribution(backend: Mapping[str, Any], runtime_variant: str) -> str:
-    exact = backend.get("distribution")
-    template = backend.get("distribution_template")
-    if isinstance(exact, str) and exact:
-        value = exact
-    elif isinstance(template, str) and template.count("{runtime_variant}") == 1:
-        value = template.replace("{runtime_variant}", runtime_variant)
-    else:
-        raise ValueError("backend policy has no valid distribution rule")
-    if re.fullmatch(r"uc-manager(?:-[a-z0-9]+)*", value) is None:
-        raise ValueError("backend policy generated an invalid distribution")
-    return value
+def _wheel_version(public_version: str, channel: str) -> str:
+    """Bind one public UCM version to its canonical capability-local version."""
+    parsed_public = Version(public_version)
+    if str(parsed_public) != public_version or parsed_public.local is not None:
+        raise ValueError(
+            "public Wheel version must be canonical and have no local label"
+        )
+    if re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", channel) is None:
+        raise ValueError("Wheel channel must be a lowercase capability identifier")
+    return str(Version(f"{public_version}+{channel}"))
 
 
 def _runtime_label(runtime: Mapping[str, Any]) -> str:
@@ -145,6 +138,7 @@ def _wheel_task(
     backend: Mapping[str, Any],
 ) -> dict[str, Any]:
     architecture = str(build["cpu_arch"])
+    channel = str(build["runtime_variant"])
     requirements = _mapping(catalog.get("requirements"), "formal requirements")
     return {
         "id": str(build["id"]),
@@ -153,14 +147,15 @@ def _wheel_task(
         "profile_id": str(build["build_group"]),
         "group_id": str(build["build_group"]),
         "backend": str(build["backend"]),
-        "runtime_variant": str(build["runtime_variant"]),
+        "runtime_variant": channel,
+        "channel": channel,
         "cpu_arch": architecture,
         "platform": f"linux/{architecture}",
         "python_version": str(build["python_version"]),
         "python_abi": str(build["python_abi"]),
         "manylinux": str(build["manylinux"]),
-        "wheel_version": catalog["ucm_version"],
-        "dist_name": _distribution(backend, str(build["runtime_variant"])),
+        "wheel_version": _wheel_version(str(catalog["ucm_version"]), channel),
+        "dist_name": WHEEL_DISTRIBUTION,
         "build": {"docker_target": "wheel", "platform_arg": backend["platform"]},
         "builder": {
             "repository": str(builder["target_repository"]),
@@ -501,6 +496,54 @@ def _wheel_metadata_tags(wheel_path: Path) -> set[str]:
     return tags
 
 
+def _normalized_requirements(values: object, context: str) -> list[str]:
+    if not isinstance(values, list) or any(
+        not isinstance(item, str) for item in values
+    ):
+        raise ValueError(f"{context} must be a string list")
+    normalized: list[str] = []
+    for raw in values:
+        try:
+            requirement = Requirement(raw)
+        except InvalidRequirement as error:
+            raise ValueError(f"{context} contains an invalid requirement") from error
+        rendered = str(requirement)
+        normalized.append(
+            canonicalize_name(requirement.name) + rendered[len(requirement.name) :]
+        )
+    if len(normalized) != len(set(normalized)):
+        raise ValueError(f"{context} contains duplicate requirements")
+    return sorted(normalized)
+
+
+def _wheel_dependencies(
+    wheel_path: Path, *, distribution: str, version: str
+) -> list[str]:
+    try:
+        with zipfile.ZipFile(wheel_path) as wheel:
+            metadata_files = [
+                name
+                for name in wheel.namelist()
+                if name.count("/") == 1 and name.endswith(".dist-info/METADATA")
+            ]
+            if len(metadata_files) != 1:
+                raise ValueError("built Wheel must contain exactly one METADATA file")
+            metadata = email.parser.Parser().parsestr(
+                wheel.read(metadata_files[0]).decode("utf-8")
+            )
+    except (OSError, UnicodeDecodeError, zipfile.BadZipFile) as error:
+        raise ValueError("built Wheel METADATA cannot be read") from error
+
+    metadata_distribution = metadata.get("Name", "")
+    if canonicalize_name(metadata_distribution) != canonicalize_name(distribution):
+        raise ValueError("built Wheel METADATA distribution does not match its task")
+    if metadata.get("Version", "") != version:
+        raise ValueError("built Wheel METADATA version does not match its task")
+    return _normalized_requirements(
+        metadata.get_all("Requires-Dist", []), "built Wheel METADATA dependencies"
+    )
+
+
 def _validate_wheel_platforms(platforms: set[str], architecture: str) -> str:
     try:
         wheel_architecture = WHEEL_ARCHITECTURES[architecture]
@@ -612,6 +655,16 @@ def record_wheel_result(
     filename_tags = {str(tag) for tag in tags}
     if _wheel_metadata_tags(wheel_path) != filename_tags:
         raise ValueError("built Wheel filename and WHEEL metadata Tags do not match")
+    dependencies = _wheel_dependencies(
+        wheel_path,
+        distribution=str(task["dist_name"]),
+        version=str(task["wheel_version"]),
+    )
+    expected_dependencies = _normalized_requirements(
+        task.get("runtime_requirements"), "Wheel task runtime requirements"
+    )
+    if dependencies != expected_dependencies:
+        raise ValueError("built Wheel dependencies do not match its task")
     result = {
         "kind": "ucm-wheel-result",
         "schema_version": 2,
@@ -622,6 +675,7 @@ def record_wheel_result(
         "cpu_arch": architecture,
         "filename": wheel_path.name,
         "platform_tags": sorted(platform_tags),
+        "dependencies": dependencies,
     }
     result.update(_auditwheel_result(wheel_path, architecture, auditwheel_report_path))
     return result

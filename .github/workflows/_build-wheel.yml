@@ -59,11 +59,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out .ucm-compact
-          python scripts/materialize_version.py \
-            --version "$(jq -er '.version' input/plan/release-plan.json)" >/dev/null
           PYTHONPATH=.github/release python -m ucm_release compact select \
             --plan input/plan/release-plan.json --kind wheel --id "${WHEEL_ID}" \
             --output out/wheel-task.json >/dev/null
+          python scripts/materialize_version.py \
+            --version "$(jq -er '.wheel_version' out/wheel-task.json)" >/dev/null
           source_version="$(PYTHONPATH=.github/release python -c \
             'from ucm_release.core import read_version; print(read_version())')"
           test "$(jq -r '.wheel_version' out/wheel-task.json)" = "${source_version}"

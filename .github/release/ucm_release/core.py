@@ -793,10 +793,6 @@ def validate_catalog(
             ):
                 if field not in contract:
                     raise ValueError(f"backend contract {backend!r} missing {field}")
-            if not ({"distribution", "distribution_prefix"} & set(contract)):
-                raise ValueError(
-                    f"backend contract {backend!r} requires a distribution rule"
-                )
         return
     compatibility = catalog.get("compatibility", {})
     rules = compatibility.get("rules", [])

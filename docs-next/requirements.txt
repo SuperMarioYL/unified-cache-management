@@ -2,3 +2,6 @@ mkdocs>=1.6.1
 mkdocs-material>=9.5.0
 mkdocs-static-i18n>=1.2.0
 pymdown-extensions>=10.0
+mike==2.2.0
+packaging>=24.2
+pytest>=8.3,<9

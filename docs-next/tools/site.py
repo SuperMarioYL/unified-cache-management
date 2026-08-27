@@ -9,7 +9,7 @@ and generating content.
 Usage:
     python tools/site.py serve
     python tools/site.py build --lang en --strict
-    python tools/site.py build --lang zh-cn --strict
+    python tools/site.py build --lang zh --strict
     python tools/site.py validate
     python tools/site.py translate --changed
     python tools/site.py generate
@@ -18,14 +18,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-LANGS = ("en", "zh-cn")
+LANGS = ("en", "zh")
 
 
 def _run(cmd: list[str]) -> int:
@@ -80,7 +79,7 @@ def translate(args: argparse.Namespace) -> int:
     """
     print("[site] translate --changed: AI Chinese generation is not wired up locally.")
     print("       It runs in CI against changed English pages via an AI Robot.")
-    print("       For now, author Chinese mirror pages manually under docs/zh-cn/.")
+    print("       For now, author Chinese mirror pages manually under docs/zh/.")
     return 0
 
 

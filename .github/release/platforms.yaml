@@ -27,20 +27,16 @@ backends:
   cuda:
     status: supported
     platform: cuda
-    distribution_template: uc-manager-cuda-{runtime_variant}
 
   cann-a2:
     status: supported
     platform: ascend
-    distribution_template: uc-manager-{runtime_variant}
 
   cann-a3:
     status: supported
     platform: ascend-a3
-    distribution_template: uc-manager-{runtime_variant}
 
   cann-a5:
     status: blocked
     platform: ascend-a5
-    distribution_template: uc-manager-{runtime_variant}
     reason: A5 requires a dedicated UCM native implementation

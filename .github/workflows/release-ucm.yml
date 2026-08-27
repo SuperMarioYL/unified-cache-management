@@ -12,7 +12,7 @@ on:
         type: string
         required: true
       version:
-        description: Canonical Wheel and image version
+        description: Canonical public UCM version used to derive Wheel identities
         type: string
         required: true
       chart_version:
@@ -1068,8 +1068,12 @@ jobs:
             --pypi-outcome "${PYPI_OUTCOME}" \
             --chart-oci-outcome "${CHART_OCI_OUTCOME}" \
             --output out/release
-      - id: update-release
-        name: Update image list and final status
+      - name: Require complete image publication
+        run: >-
+          test "$(jq -r '.release.status'
+          out/release/release-state.json)" = complete
+      - id: publish-catalog
+        name: Publish install catalog
         run: |
           set -euo pipefail
           test "${GH_REPO}" = "${GITHUB_REPOSITORY}"
@@ -1093,16 +1097,24 @@ jobs:
           release_id="$(jq -er '.[0].id' <<<"${releases}")"
           release_json="out/release/github-release.json"
           gh api "/repos/${GH_REPO}/releases/${release_id}" >"${release_json}"
-          python .github/release/ucm_release/release.py notes \
-            --manifest "${state}" --release "${release_json}" \
-            --repository "${GH_REPO}" --output out/release
-          gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
-            -f "tag_name=${tag}" \
-            -f "body=$(<out/release/release-notes.md)" >/dev/null
-      - name: Require complete image publication
-        run: >-
-          test "$(jq -r '.release.status'
-          out/release/release-state.json)" = complete
+          python .github/release/ucm_release/release.py catalog \
+            --state "${state}" --release "${release_json}" \
+            --output out/release
+          test -f out/release/install-catalog.json
+          gh release upload "${tag}" --clobber out/release/install-catalog.json
+      - id: refresh-release
+        name: Refresh GitHub Release asset list
+        run: |
+          set -euo pipefail
+          state=out/release/release-state.json
+          release_json=out/release/github-release.json
+          tag="$(jq -er '.release.git_tag' "${state}")"
+          release_id="$(jq -er '.id' "${release_json}")"
+          gh api "/repos/${GH_REPO}/releases/${release_id}" >"${release_json}"
+          jq -e --arg tag "${tag}" \
+            '.tag_name == $tag and
+             ([.assets[] | select(.name == "install-catalog.json")] | length) == 1' \
+            "${release_json}" >/dev/null
       - id: publish-manifest
         name: Publish and read back cleanup manifest
         run: |
@@ -1136,6 +1148,21 @@ jobs:
             gh api "/repos/${GH_REPO}/releases/${release_id}" \
               | jq -e '.draft == false and .prerelease == true' >/dev/null
           fi
+      - id: update-release
+        name: Update image list and final status
+        run: |
+          set -euo pipefail
+          test "${GH_REPO}" = "${GITHUB_REPOSITORY}"
+          state=out/release/release-state.json
+          release_json=out/release/github-release.json
+          tag="$(jq -er '.release.git_tag' "${state}")"
+          release_id="$(jq -er '.id' "${release_json}")"
+          python .github/release/ucm_release/release.py notes \
+            --manifest "${state}" --release "${release_json}" \
+            --repository "${GH_REPO}" --output out/release
+          gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+            -f "tag_name=${tag}" \
+            -f "body=$(<out/release/release-notes.md)" >/dev/null
       - id: retention
         name: Retain only the configured same-type Releases
         run: |
@@ -1170,7 +1197,7 @@ jobs:
             --release-type "${RELEASE_TYPE}" --max-count "${max_count}" \
             --pypi-enabled "${pypi_enabled}"
       - name: Mark unreported finalization failure
-        if: ${{ failure() && steps.publish-manifest.outcome != 'success' }}
+        if: ${{ failure() && steps.update-release.outcome != 'success' }}
         run: |
           set -euo pipefail
           test "${GH_REPO}" = "${GITHUB_REPOSITORY}"

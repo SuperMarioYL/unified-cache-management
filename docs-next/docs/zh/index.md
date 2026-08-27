@@ -6,8 +6,8 @@ hide:
 
 <div align="center" markdown>
 
-![UCM](/assets/images/UCM-light.png#only-light){: style="height:120px;width:auto"}
-![UCM](/assets/images/UCM-dark.png#only-dark){: style="height:120px;width:auto"}
+![UCM](../assets/images/UCM-light.png#only-light){: style="height:120px;width:auto"}
+![UCM](../assets/images/UCM-dark.png#only-dark){: style="height:120px;width:auto"}
 
 </div>
 

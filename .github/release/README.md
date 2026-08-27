@@ -68,13 +68,13 @@ Builder Tag.
 
 The workflow accepts:
 
-| Git Tag | Wheel version | Chart version | GitHub Release |
+| Git Tag | Wheel version per channel | Chart version | GitHub Release |
 | --- | --- | --- | --- |
-| `vX.Y.Z` | `X.Y.Z` | `X.Y.Z` | public Release |
-| `vX.Y.ZrcN` | `X.Y.ZrcN` | `X.Y.Z-rc.N` | public prerelease |
-| `draft/vX.Y.Z` | `X.Y.Z.dev0` | `X.Y.Z-draft.0` | Draft |
-| `draft/vX.Y.Z-N` | `X.Y.Z.devN` | `X.Y.Z-draft.N` | Draft |
-| `nightly/vX.Y.Z-YYYYMMDD-N` | `X.Y.Z.devYYYYMMDDNNN` | `X.Y.Z-nightly.YYYYMMDD.N` | public prerelease after success |
+| `vX.Y.Z` | `X.Y.Z+<channel>` | `X.Y.Z` | public Release |
+| `vX.Y.ZrcN` | `X.Y.ZrcN+<channel>` | `X.Y.Z-rc.N` | public prerelease |
+| `draft/vX.Y.Z` | `X.Y.Z.dev0+<channel>` | `X.Y.Z-draft.0` | Draft |
+| `draft/vX.Y.Z-N` | `X.Y.Z.devN+<channel>` | `X.Y.Z-draft.N` | Draft |
+| `nightly/vX.Y.Z-YYYYMMDD-N` | `X.Y.Z.devYYYYMMDDNNN+<channel>` | `X.Y.Z-nightly.YYYYMMDD.N` | public prerelease after success |
 
 For a formal `v*` Tag, the Release is created or reused and made public
 immediately. A manually pre-opened public Release is valid. A Draft Tag always
@@ -100,9 +100,17 @@ Publication then updates the same Release in stages:
 
 `release-state.json` remains the rich internal staging file in the
 `ucm-release-stage-run-<run>` Actions artifact. Only after all enabled channels
-succeed, a compact public `release-manifest.json` schema 6 is uploaded and read
-back. It records only the Tag/type/Actions Run, Chart OCI reference, Runtime
-member/index references, and GitHub Release asset names needed for cleanup.
+succeed, `install-catalog.json` is projected from the complete state and exact
+GitHub Release asset URLs. It contains the functional Wheel channels and
+dependencies, published Runtime Images, and Chart addresses used by the Pages
+installer and Simple Index. The workflow uploads it and verifies that the
+Release contains exactly one Catalog asset; it does not perform a Catalog hash
+or download readback.
+
+After refreshing the Release asset list, the compact public
+`release-manifest.json` schema 6 is uploaded and read back. It records only the
+Tag/type/Actions Run, Chart OCI reference, Runtime member/index references, and
+GitHub Release asset names needed for cleanup.
 
 If image publication is disabled, Tag Releases stop after Wheels, the example
 config, and Chart publication. If requested image publication fails, those
@@ -133,6 +141,11 @@ must explicitly point `UCM_CONFIG_FILE` at it when they want to use the example.
 
 ## Wheel contract
 
+Every capability uses the single `uc-manager` distribution. The raw
+`runtime_variant` remains the Simple Index channel (for example,
+`cann901-a2`), while its PEP 440 local-version segment is canonicalized (for
+example, `0.9.0+cann901.a2`).
+
 Internal and OCI architectures use `amd64` and `arm64`; Wheel tags use
 `x86_64` and `aarch64`. Official files currently use the honest generic tags:
 
@@ -148,10 +161,12 @@ repair. Each Wheel artifact contains:
 - `wheel-result.json` schema 2;
 - `auditwheel-show.txt`.
 
-The result verifies the filename against WHEEL metadata, records platform Tags,
-GLIBC symbols/floor, external libraries, and embeds the audit report digest.
-The staged Release validates the standalone report again before uploading the
-Wheel.
+The result verifies the filename against WHEEL metadata and verifies the
+distribution, capability-local version, and `Requires-Dist` fields from
+METADATA against the Compact Plan. It records the normalized dependencies,
+platform Tags, GLIBC symbols/floor, external libraries, and embeds the audit
+report digest. The staged Release validates the standalone report again before
+uploading the Wheel.
 
 ## PR behavior
 
@@ -194,5 +209,5 @@ git diff --check
 ```
 
 Local checks are preflight only. Forward-compatible matrix and staged Release
-acceptance must be demonstrated by GitHub Actions on `feature/cicd_v5`, with
-run URL/SHA/job/artifact evidence and Registry/Release readback.
+acceptance must be demonstrated by GitHub Actions from the implementation
+branch, with run URL/SHA/job/artifact evidence and Registry/Release readback.
