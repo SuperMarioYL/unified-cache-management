@@ -49,6 +49,15 @@ def _plan() -> dict[str, object]:
                 "backend": "cuda",
                 "runtime_variant": "cu129",
                 "manylinux": "manylinux_2_28",
+                "target_platform_tag": "manylinux_2_28_x86_64",
+                "external_runtime_libraries": ["libcudart.so.12"],
+                "runtime_requirements": ["wrapt==1.17.2"],
+                "repair": {
+                    "tool": "auditwheel",
+                    "version": "6.7.0",
+                    "target_platform": "manylinux_2_28_x86_64",
+                    "excluded_libraries": ["libcudart.so.12"],
+                },
                 "builder": {
                     "repository": "ghcr.io/example/ucm-builder",
                     "tag": "cuda129-cp312-amd64",
@@ -99,7 +108,9 @@ def _write_artifact_inputs(
 ) -> tuple[Path, Path, Path, str]:
     wheels = tmp_path / "wheels" / "one"
     wheels.mkdir(parents=True)
-    filename = "uc_manager_cuda_cu129-0.7.62rc1-cp312-cp312-linux_x86_64.whl"
+    filename = (
+        "uc_manager_cuda_cu129-0.7.62rc1-cp312-cp312-" "manylinux_2_28_x86_64.whl"
+    )
     (wheels / filename).write_bytes(b"wheel")
     report_text = "\n".join(
         (
@@ -112,7 +123,7 @@ def _write_artifact_inputs(
             'This constrains the platform tag to "manylinux_2_27_x86_64".',
             "",
             "The following external shared libraries are required by the wheel:",
-            json.dumps({"libcudart.so.13": None, "libmetrics.so": None}, indent=4),
+            json.dumps({"libcudart.so.12": None}, indent=4),
             "",
         )
     )
@@ -123,18 +134,27 @@ def _write_artifact_inputs(
         json.dumps(
             {
                 "kind": "ucm-wheel-result",
-                "schema_version": 2,
+                "schema_version": 3,
                 "task_id": "cuda129-cp312-amd64",
                 "distribution": "uc-manager-cuda-cu129",
                 "version": "0.7.62rc1",
                 "python_abi": "cp312",
                 "cpu_arch": "amd64",
                 "filename": filename,
-                "platform_tags": ["linux_x86_64"],
+                "sha256": hashlib.sha256(b"wheel").hexdigest(),
+                "platform_tags": ["manylinux_2_28_x86_64"],
                 "auditwheel_platform_tag": "linux_x86_64",
+                "abi_compatible_platform_tag": "manylinux_2_27_x86_64",
                 "glibc_versions": ["GLIBC_2.2.5", "GLIBC_2.17"],
                 "glibc_floor": "GLIBC_2.17",
-                "external_libraries": ["libcudart.so.13", "libmetrics.so"],
+                "external_libraries": ["libcudart.so.12"],
+                "repair": {
+                    "tool": "auditwheel",
+                    "version": "6.7.0",
+                    "target_platform": "manylinux_2_28_x86_64",
+                    "excluded_libraries": ["libcudart.so.12"],
+                },
+                "dependencies": ["wrapt==1.17.2"],
                 "auditwheel_report": {
                     "filename": report_path.name,
                     "sha256": hashlib.sha256(report_text.encode()).hexdigest(),
@@ -155,10 +175,193 @@ def _asset_urls(manifest: dict[str, object]) -> dict[str, str]:
         str(item["filename"]) for item in manifest["wheels"]  # type: ignore[index]
     }
     filenames.add(str(manifest["chart"]["filename"]))  # type: ignore[index]
+    if "meta_package" in manifest:
+        filenames.add(str(manifest["meta_package"]["filename"]))  # type: ignore[index]
     return {
         filename: f"https://github.com/example/ucm/releases/download/v1/{filename}"
         for filename in filenames
     }
+
+
+def _write_meta_artifact(tmp_path: Path, plan: dict[str, object]) -> Path:
+    meta_root = tmp_path / "meta"
+    meta_root.mkdir()
+    filename = "uc_manager-0.7.62rc1-py3-none-any.whl"
+    wheel = meta_root / filename
+    wheel.write_bytes(b"meta")
+    meta_package = plan["meta_package"]
+    assert isinstance(meta_package, dict)
+    (meta_root / "meta-result.json").write_text(
+        json.dumps(
+            {
+                "kind": "ucm-meta-result",
+                "schema_version": 1,
+                "distribution": "uc-manager",
+                "version": "0.7.62rc1",
+                "filename": filename,
+                "sha256": "sha256:" + hashlib.sha256(b"meta").hexdigest(),
+                "size": 4,
+                "tags": ["py3-none-any"],
+                "extras": meta_package["extras"],
+                "requires_dist": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return meta_root
+
+
+def test_artifact_state_includes_exact_meta_wheel(tmp_path: Path) -> None:
+    wheels, chart, _, _ = _write_artifact_inputs(tmp_path)
+    plan = _plan()
+    plan["meta_package"] = {
+        "distribution": "uc-manager",
+        "version": "0.7.62rc1",
+        "extras": {"cu129": "uc-manager-cuda-cu129==0.7.62rc1"},
+    }
+    meta_root = _write_meta_artifact(tmp_path, plan)
+
+    manifest, checksums = release.build_artifacts_manifest(
+        plan, wheels, chart, meta_root, actions_run_id=123
+    )
+
+    assert manifest["meta_package"]["filename"] == (
+        "uc_manager-0.7.62rc1-py3-none-any.whl"
+    )
+    assert any(filename.endswith("py3-none-any.whl") for _, filename in checksums)
+
+
+def test_enabled_pypi_requires_and_records_complete_receipt(tmp_path: Path) -> None:
+    manifest = {
+        "publish": {"pypi": {"enabled": True}},
+        "release": {
+            "git_tag": "v0.7.62rc1",
+            "version": "0.7.62rc1",
+            "status": "artifacts-ready",
+        },
+        "meta_package": {
+            "distribution": "uc-manager",
+            "version": "0.7.62rc1",
+            "filename": "uc_manager-0.7.62rc1-py3-none-any.whl",
+            "sha256": "sha256:" + "b" * 64,
+            "extras": {"cu129": "uc-manager-cuda-cu129==0.7.62rc1"},
+        },
+        "wheels": [
+            {
+                "distribution": "uc-manager-cuda-cu129",
+                "version": "0.7.62rc1",
+                "filename": "uc_manager_cuda_cu129-0.7.62rc1-cp312-cp312-manylinux_2_28_x86_64.whl",
+                "sha256": "a" * 64,
+            }
+        ],
+        "images": [
+            {
+                "id": "image",
+                "family_id": "family",
+                "expected_targets": {},
+                "status": "not-requested",
+                "targets": [],
+            }
+        ],
+        "families": [
+            {
+                "id": "family",
+                "create_index": False,
+                "expected_targets": {},
+                "status": "not-requested",
+                "targets": [],
+            }
+        ],
+    }
+    with pytest.raises(ValueError, match="no complete receipt"):
+        release.finalize_manifest(
+            manifest,
+            tmp_path,
+            build_outcome="skipped",
+            member_outcome="skipped",
+            index_outcome="skipped",
+            pypi_outcome="success",
+            pypi_install_outcome="success",
+        )
+
+    receipt = {
+        "kind": "ucm-pypi-receipt",
+        "schema_version": 1,
+        "status": "complete",
+        "version": "0.7.62rc1",
+        "projects": [
+            {
+                "project": "uc-manager-cuda-cu129",
+                "version": "0.7.62rc1",
+                "role": "backend",
+                "files": [
+                    {
+                        "filename": "uc_manager_cuda_cu129-0.7.62rc1-cp312-cp312-manylinux_2_28_x86_64.whl",
+                        "sha256": "sha256:" + "a" * 64,
+                    }
+                ],
+            },
+            {
+                "project": "uc-manager",
+                "version": "0.7.62rc1",
+                "role": "meta",
+                "files": [
+                    {
+                        "filename": "uc_manager-0.7.62rc1-py3-none-any.whl",
+                        "sha256": "sha256:" + "b" * 64,
+                    }
+                ],
+            },
+        ],
+        "extras": {"cu129": "uc-manager-cuda-cu129==0.7.62rc1"},
+    }
+    (tmp_path / "pypi-receipt.json").write_text(json.dumps(receipt), encoding="utf-8")
+
+    result = release.finalize_manifest(
+        manifest,
+        tmp_path,
+        build_outcome="skipped",
+        member_outcome="skipped",
+        index_outcome="skipped",
+        pypi_outcome="success",
+        pypi_install_outcome="success",
+    )
+
+    assert result["release"]["status"] == "complete"
+    assert result["pypi"] == receipt
+
+    receipt["projects"][0]["files"][0]["sha256"] = "sha256:" + "c" * 64
+    (tmp_path / "pypi-receipt.json").write_text(json.dumps(receipt), encoding="utf-8")
+    with pytest.raises(ValueError, match="do not match release artifacts"):
+        release.finalize_manifest(
+            manifest,
+            tmp_path,
+            build_outcome="skipped",
+            member_outcome="skipped",
+            index_outcome="skipped",
+            pypi_outcome="success",
+            pypi_install_outcome="success",
+        )
+
+
+def test_disabled_pypi_requires_both_jobs_to_be_skipped(tmp_path: Path) -> None:
+    manifest = {
+        "publish": {"pypi": {"enabled": False}},
+        "release": {"version": "0.9.1.dev1"},
+        "images": [],
+        "families": [],
+    }
+
+    with pytest.raises(ValueError, match="jobs must be skipped"):
+        release.finalize_manifest(
+            manifest,
+            tmp_path,
+            build_outcome="skipped",
+            member_outcome="skipped",
+            index_outcome="skipped",
+            pypi_outcome="success",
+            pypi_install_outcome="skipped",
+        )
 
 
 def test_artifacts_and_image_receipts_form_one_mapping(tmp_path: Path) -> None:
@@ -175,7 +378,7 @@ def test_artifacts_and_image_receipts_form_one_mapping(tmp_path: Path) -> None:
         "ghcr.io/example/charts/unified-cache-chart:0.7.62-rc.1"
     )
     assert manifest["release"]["status"] == "artifacts-ready"
-    assert manifest["wheels"][0]["platform_tags"] == ["linux_x86_64"]
+    assert manifest["wheels"][0]["platform_tags"] == ["manylinux_2_28_x86_64"]
     assert manifest["wheels"][0]["auditwheel_platform_tag"] == "linux_x86_64"
     assert manifest["wheels"][0]["builder"]["source_image_digest"] == ("sha256:builder")
     assert manifest["wheels"][0]["builder"]["digest"] == "sha256:" + "c" * 64
@@ -506,7 +709,9 @@ def test_release_commands_write_internal_state_without_public_metadata_assets(
             "--index-outcome",
             "skipped",
             "--pypi-outcome",
-            "success",
+            "skipped",
+            "--pypi-install-outcome",
+            "skipped",
             "--chart-oci-outcome",
             "success",
             "--output",
@@ -673,11 +878,12 @@ def test_release_notes_split_products_and_aggregate_wheel_capabilities() -> None
     assert " tags / " not in notes
 
 
-def test_github_asset_urls_require_only_wheel_and_chart() -> None:
+def test_github_asset_urls_require_backend_meta_and_chart() -> None:
     manifest = {
         "release": {"git_tag": "draft/v1.0.0-1"},
         "chart": {"filename": "unified-cache-chart.tgz"},
         "wheels": [{"filename": "ucm.whl"}],
+        "meta_package": {"filename": "uc_manager-1.0.0-py3-none-any.whl"},
     }
     base = "https://github.com/example/ucm/releases/download/untagged-1234567890abcdef"
     release_document = {
@@ -686,6 +892,7 @@ def test_github_asset_urls_require_only_wheel_and_chart() -> None:
             {"name": name, "browser_download_url": f"{base}/{name}"}
             for name in (
                 "ucm.whl",
+                "uc_manager-1.0.0-py3-none-any.whl",
                 "unified-cache-chart.tgz",
             )
         ],
@@ -694,8 +901,19 @@ def test_github_asset_urls_require_only_wheel_and_chart() -> None:
     urls = release._github_asset_urls(manifest, release_document)
 
     assert urls["ucm.whl"] == f"{base}/ucm.whl"
+    assert urls["uc_manager-1.0.0-py3-none-any.whl"] == (
+        f"{base}/uc_manager-1.0.0-py3-none-any.whl"
+    )
     assert urls["unified-cache-chart.tgz"] == (f"{base}/unified-cache-chart.tgz")
     assert "draft%2F" not in urls["ucm.whl"]
+
+    release_document["assets"] = [
+        asset
+        for asset in release_document["assets"]
+        if asset["name"] != "uc_manager-1.0.0-py3-none-any.whl"
+    ]
+    with pytest.raises(ValueError, match="missing required assets"):
+        release._github_asset_urls(manifest, release_document)
 
 
 @pytest.mark.parametrize(
@@ -710,7 +928,7 @@ def test_artifact_manifest_rejects_wrong_wheel_result_contract(
     result[field] = value
     result_path.write_text(json.dumps(result), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="ucm-wheel-result schema 2"):
+    with pytest.raises(ValueError, match="ucm-wheel-result schema 3"):
         release.build_artifacts_manifest(_plan(), wheels, chart, actions_run_id=123)
 
 
@@ -719,10 +937,14 @@ def test_artifact_manifest_rejects_wrong_wheel_result_contract(
     (
         "platform_tags",
         "auditwheel_platform_tag",
+        "abi_compatible_platform_tag",
         "glibc_versions",
         "glibc_floor",
         "external_libraries",
         "auditwheel_report",
+        "repair",
+        "sha256",
+        "dependencies",
     ),
 )
 def test_artifact_manifest_requires_wheel_audit_fields(

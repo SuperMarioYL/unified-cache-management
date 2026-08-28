@@ -18,13 +18,18 @@ The human-maintained release authorities are:
 - `requirements/wheel-build.txt` and `requirements/wheel-runtime.txt`: exact
   Python dependencies.
 
-`minimum_version` is required per product. `maximum_version` is optional and,
-when present, inclusive. Registry Tags are grouped by major/minor. Each line
-selects its highest Stable version, otherwise its highest formal RC, otherwise
-its release-nightly version. All real variants of that selected version remain
-eligible; 310P is filtered and A5 is reported as blocked. A Profile
-`max_minor_versions` of `-1` keeps all actual minor groups; a positive value
-keeps the first N existing minor groups in ascending order without filling gaps.
+`minimum_version` and `maximum_version` are optional inclusive product bounds.
+The shipped policy leaves both unset. Each product uses
+`recent_minor_versions: 3`: the latest valid Registry minor anchors the three
+most recent continuous minor ranges, and missing minors are not backfilled with
+older ones. For example, latest `0.27` selects the `0.25` through `0.27` range.
+Optional product bounds and this latest-relative window are independent filters;
+when combined, selection uses their intersection. Within each eligible
+major/minor line, selection keeps its highest Stable version, otherwise its
+highest formal RC, otherwise its release-nightly version. All real variants of
+that version remain eligible. A Profile `max_minor_versions` of `-1` keeps all
+actual minor groups in this intersection; a positive value keeps the first N in
+ascending order. 310P is filtered and A5 is reported as blocked.
 
 ## Registry-only flow
 
@@ -76,8 +81,9 @@ The workflow accepts:
 | `draft/vX.Y.Z-N` | `X.Y.Z.devN` | `X.Y.Z-draft.N` | Draft |
 | `nightly/vX.Y.Z-YYYYMMDD-N` | `X.Y.Z.devYYYYMMDDNNN` | `X.Y.Z-nightly.YYYYMMDD.N` | public prerelease after success |
 
-For a formal `v*` Tag, the Release is created or reused and made public
-immediately. A manually pre-opened public Release is valid. A Draft Tag always
+The meta/backend package model is accepted only for canonical, non-local
+versions after `v0.9.0`; the existing `v0.9.0` Release is never migrated by this
+workflow. A manually pre-opened public Release is valid. A Draft Tag always
 remains Draft. Exact Releases API lookup requires one Release for the Tag;
 duplicate Release records fail closed.
 
@@ -91,11 +97,14 @@ same core through `release-tag.yml`.
 
 Publication then updates the same Release in stages:
 
-1. `release-open`: no artifacts are required yet;
-2. all Wheels, the example config, and the Chart are uploaded and the state is
+1. the package-model prerequisite passes, then `release-open` records the
+   in-progress Release;
+2. every repaired Wheel passes one matching native-architecture Runtime before
+   any Release asset or PyPI upload;
+3. all Wheels, the example config, and the Chart are uploaded and the state is
    `artifacts-ready` while any enabled channel remains;
-3. image members/indexes, PyPI, and Chart OCI complete and are read back;
-4. the final state becomes `complete`, `images-failed`, or
+4. image members/indexes, PyPI, and Chart OCI complete and are read back;
+5. the final state becomes `complete`, `images-failed`, or
    `publication-failed`.
 
 `release-state.json` remains the rich internal staging file in the
@@ -107,9 +116,12 @@ member/index references, and GitHub Release asset names needed for cleanup.
 If image publication is disabled, Tag Releases stop after Wheels, the example
 config, and Chart publication. If requested image publication fails, those
 artifacts remain usable and the public Release is marked `images-failed`. OCI
-archives are not uploaded to GitHub Release. Draft and Nightly channel behavior
-comes only from their Profiles; there are no type-specific PyPI or DockerHub
-prohibitions in publication code.
+archives are not uploaded to GitHub Release. PyPI and Docker Hub follow the
+selected Release Profile for the official repository; fork plans forcibly
+disable both shared external channels even when the Profile enables them.
+Missing backend Wheels are uploaded and read back first, the meta Wheel is
+uploaded last, and exact extras metadata plus all filenames, versions, and
+SHA256 digests are persisted in `pypi-receipt.json`.
 
 ## Retention and cleanup
 
@@ -134,22 +146,29 @@ must explicitly point `UCM_CONFIG_FILE` at it when they want to use the example.
 ## Wheel contract
 
 Internal and OCI architectures use `amd64` and `arm64`; Wheel tags use
-`x86_64` and `aarch64`. Official files currently use the honest generic tags:
+`x86_64` and `aarch64`. The Builder repairs every backend Wheel to its planned
+platform:
 
 ```text
-linux_x86_64
-linux_aarch64
+manylinux_2_28_x86_64  # CUDA
+manylinux_2_28_aarch64
+manylinux_2_34_x86_64  # CANN
+manylinux_2_34_aarch64
 ```
 
-They must not be renamed to `manylinux_*` without a successful portability
-repair. Each Wheel artifact contains:
+CUDA/CANN Runtime libraries may remain external only when their SONAME appears
+in the task allowlist; UCM-owned libraries such as `libmetrics.so` must be
+repaired into the Wheel dependency closure. Each backend artifact contains:
 
 - the Wheel;
-- `wheel-result.json` schema 2;
+- `wheel-result.json` schema 3;
+- `auditwheel-repair.txt`;
 - `auditwheel-show.txt`.
 
-The result verifies the filename against WHEEL metadata, records platform Tags,
-GLIBC symbols/floor, external libraries, and embeds the audit report digest.
+The result verifies the filename against WHEEL metadata, records the repair
+target, compatible ABI floor, GLIBC symbols/floor, actual external libraries,
+and audit report digest. A separate `py3-none-any` `uc-manager` meta Wheel maps
+the release's dynamic extras to exact backend distribution versions.
 The staged Release validates the standalone report again before uploading the
 Wheel.
 

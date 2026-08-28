@@ -8,6 +8,7 @@ consumers on the same policy without duplicating Release configuration.
 from __future__ import annotations
 
 import copy
+import re
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,7 @@ _MATRIX_LIMITS = {
 _SCAN_LIMITS = {"max_tags_per_repository": 1024, "max_selected_upstreams": 64}
 RELEASE_TYPES = ("stable", "prerelease", "draft", "nightly")
 PUBLISH_CHANNELS = core.PUBLISH_CHANNELS
+DEFAULT_RECENT_MINOR_VERSIONS = 3
 
 
 def publication_identity(repository: str) -> tuple[str, str]:
@@ -123,6 +125,17 @@ def _select_release_profile(
     return profile, publish
 
 
+def _resolve_release_profile(
+    release: dict[str, Any], release_type: str, publication_scope: str
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    profile, publish = _select_release_profile(release, release_type)
+    if publication_scope == "fork":
+        for channel in ("pypi", "dockerhub"):
+            profile["publish"][channel] = False
+            publish[channel]["enabled"] = False
+    return profile, publish
+
+
 def _validate_release_semantics(release: dict[str, Any]) -> None:
     products = release["products"]
     product_ids = [product["id"] for product in products]
@@ -130,7 +143,11 @@ def _validate_release_semantics(release: dict[str, Any]) -> None:
         raise ValueError("release policy requires exactly vllm and vllm-ascend")
     for product in products:
         try:
-            minimum = Version(product["minimum_version"])
+            minimum = (
+                Version(product["minimum_version"])
+                if "minimum_version" in product
+                else None
+            )
             maximum = (
                 Version(product["maximum_version"])
                 if "maximum_version" in product
@@ -145,7 +162,7 @@ def _validate_release_semantics(release: dict[str, Any]) -> None:
                 raise ValueError(
                     f"release product {product['id']}: {name} must be a formal version"
                 )
-        if maximum is not None and maximum < minimum:
+        if minimum is not None and maximum is not None and maximum < minimum:
             raise ValueError(
                 f"release product {product['id']}: maximum_version must be >= minimum_version"
             )
@@ -169,6 +186,11 @@ def _validate_release_semantics(release: dict[str, Any]) -> None:
             )
 
 
+def _apply_release_defaults(release: dict[str, Any]) -> None:
+    for product in release["products"]:
+        product.setdefault("recent_minor_versions", DEFAULT_RECENT_MINOR_VERSIONS)
+
+
 def _validate_platform_semantics(platforms: dict[str, Any]) -> None:
     for backend, config in platforms["backends"].items():
         has_distribution = "distribution" in config
@@ -182,6 +204,38 @@ def _validate_platform_semantics(platforms: dict[str, Any]) -> None:
         if config["status"] == "supported" and "reason" in config:
             raise ValueError(
                 f"supported platform backend {backend!r} cannot have a reason"
+            )
+        libraries = config.get("external_runtime_libraries")
+        if config["status"] == "supported":
+            if not isinstance(libraries, list) or not libraries:
+                raise ValueError(
+                    f"supported platform backend {backend!r} requires external runtime libraries"
+                )
+            for library in libraries:
+                if not isinstance(library, str):
+                    raise ValueError(
+                        f"platform backend {backend!r} has invalid external runtime library"
+                    )
+                rendered = library.replace("{accelerator_major}", "1")
+                if (
+                    library.count("{accelerator_major}") > 1
+                    or "{" in rendered
+                    or "}" in rendered
+                    or re.fullmatch(r"lib[a-zA-Z0-9_.+-]+\.so(?:\.[0-9]+)*", rendered)
+                    is None
+                ):
+                    raise ValueError(
+                        f"platform backend {backend!r} has invalid external runtime library"
+                    )
+            if backend != "cuda" and any(
+                "{accelerator_major}" in library for library in libraries
+            ):
+                raise ValueError(
+                    f"platform backend {backend!r} cannot use accelerator_major"
+                )
+        elif libraries is not None:
+            raise ValueError(
+                f"blocked platform backend {backend!r} cannot declare runtime libraries"
             )
 
 
@@ -212,6 +266,7 @@ def load(
     core.validate_schema(
         platforms, schema["$defs"]["platformPolicy"], root=schema, path="$.platforms"
     )
+    _apply_release_defaults(release)
     _validate_release_semantics(release)
     _validate_platform_semantics(platforms)
     return {
@@ -266,11 +321,9 @@ def resolve(
             "backends": platforms["backends"],
         }
     )
-    selected_profile, normalized_publish = _select_release_profile(merged, release_type)
-    if publication_scope == "fork":
-        for channel in ("pypi", "dockerhub"):
-            selected_profile["publish"][channel] = False
-            normalized_publish[channel]["enabled"] = False
+    selected_profile, normalized_publish = _resolve_release_profile(
+        merged, release_type, publication_scope
+    )
     merged["publish"] = normalized_publish
     merged["release_type"] = release_type
     merged["release_profile"] = selected_profile
@@ -330,7 +383,11 @@ def _backend_contracts(platforms: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def compatibility_projection(
-    policy: dict[str, Any], *, chart_name: str, release_type: str = "stable"
+    policy: dict[str, Any],
+    *,
+    chart_name: str,
+    release_type: str = "stable",
+    repository: str = OFFICIAL_REPOSITORY,
 ) -> dict[str, Any]:
     """Project v5 policy into the transitional schema-v3 catalog interface."""
     release = policy["release"]
@@ -338,25 +395,30 @@ def compatibility_projection(
     smoke_values = release["chart"]["smoke_values"]
     upstream_products = []
     for product in release["products"]:
-        version_specifier = f">={product['minimum_version']}"
+        version_constraints = []
+        if "minimum_version" in product:
+            version_constraints.append(f">={product['minimum_version']}")
         if "maximum_version" in product:
-            version_specifier += f",<={product['maximum_version']}"
+            version_constraints.append(f"<={product['maximum_version']}")
         projected = {
             "id": product["id"],
             "runtime_product": product["id"],
             "runtime_repository": product["runtime_repository"],
             "target_repository": product["target_repository"],
-            "minimum_version": product["minimum_version"],
+            "recent_minor_versions": product["recent_minor_versions"],
             "channel_policy": product["channel_policy"],
-            "version_specifier": version_specifier,
+            "version_specifier": ",".join(version_constraints) or ">=0",
             "channels": ["stable", "rc", "nightly"],
             # Transitional only. Formal runtime Python comes from OCI probing.
             "integration_python_abi": "cp312",
         }
+        if "minimum_version" in product:
+            projected["minimum_version"] = product["minimum_version"]
         if "maximum_version" in product:
             projected["maximum_version"] = product["maximum_version"]
         upstream_products.append(projected)
-    _, publish = _select_release_profile(release, release_type)
+    publication_scope, _ = publication_identity(repository)
+    _, publish = _resolve_release_profile(release, release_type, publication_scope)
     builder_families = platforms["builder_families"]
     return {
         "kind": "release-config",

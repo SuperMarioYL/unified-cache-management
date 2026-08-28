@@ -1203,6 +1203,7 @@ def load_catalog(
 ) -> dict[str, Any]:
     config_schema = load_json(schema_dir / "config.schema.json")
     release = load_yaml(release_path)
+    resolved_repository = resolve_repository(repository, repository_root=repository_root)  # fmt: skip  # noqa: E501
     is_formal_policy = (
         release.get("kind") == "ucm-release-policy"
         and release.get("schema_version") == 5
@@ -1219,9 +1220,10 @@ def load_catalog(
         if not isinstance(chart_name, str) or not chart_name:
             raise ValueError("Chart.yaml name must be a non-empty string")
         release = release_policy.compatibility_projection(
-            formal_policy, chart_name=chart_name
+            formal_policy,
+            chart_name=chart_name,
+            repository=resolved_repository,
         )
-    resolved_repository = resolve_repository(repository, repository_root=repository_root)  # fmt: skip  # noqa: E501
     release = resolve_owner_templates(release, repository=resolved_repository)
     validate_schema(release, config_schema)
     missing = sorted(RELEASE_KEYS - set(release))
