@@ -100,11 +100,24 @@
     return String(version).replace(/rc0$/, "");
   }
 
+  function titleCase(value) {
+    var text = String(value);
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  }
+
+  function runtimeLabel(runtime) {
+    return String(runtime).replace("-", " ").toUpperCase();
+  }
+
   function engineVersionOptions(combinations, engine) {
     var versions = {};
     combinations.forEach(function (combination) {
       if (combination.engine === engine && combination.engineVersion !== null) {
-        versions[combination.engineVersion] = true;
+        if (!versions[combination.engineVersion]) {
+          versions[combination.engineVersion] = { channels: {}, runtimes: {} };
+        }
+        versions[combination.engineVersion].channels[combination.engineChannel] = true;
+        versions[combination.engineVersion].runtimes[combination.engineRuntime] = true;
       }
     });
     var values = Object.keys(versions).sort(function (left, right) {
@@ -117,8 +130,41 @@
       var label = displayEngineVersion(value);
       if (values.length > 1 && index === 0) label = "\u2264 " + label;
       if (values.length > 1 && index === values.length - 1) label = "\u2265 " + label;
+      var metadata = versions[value];
+      var channels = Object.keys(metadata.channels).sort();
+      if (channels.length !== 1) {
+        throw new TypeError(
+          engine +
+            " " +
+            value +
+            " maps to conflicting release channels: " +
+            channels.join(", ")
+        );
+      }
+      var runtimes = Object.keys(metadata.runtimes).sort();
+      if (engine === "vllm-ascend" && runtimes.length !== 1) {
+        throw new TypeError(
+          engine +
+            " " +
+            value +
+            " maps to conflicting CANN runtimes: " +
+            runtimes.join(", ")
+        );
+      }
+      var details = [];
+      if (engine === "vllm-ascend") {
+        details.push(titleCase(channels[0]));
+        details.push(runtimeLabel(runtimes[0]));
+      } else if (channels[0] !== "stable") {
+        details.push(titleCase(channels[0]));
+      }
+      if (details.length) label += " / " + details.join(" \u00b7 ");
       return { value: value, label: label };
     });
+  }
+
+  function selectedComputeValue(combination, engine) {
+    return engine === "vllm-ascend" ? combination.computeVariant : combination.compute;
   }
 
   function unsupportedVariant(artifact) {
@@ -146,6 +192,7 @@
       engine: wheel.product,
       engineVersion: null,
       compute: Manifest.acceleratorKey(wheel.accelerator),
+      computeVariant: wheel.accelerator.variant,
       computeLabel: Manifest.acceleratorLabel(wheel.accelerator),
       os: null,
       osLabel: null,
@@ -184,7 +231,10 @@
         method: "image",
         engine: image.product,
         engineVersion: image.upstream.version,
+        engineChannel: image.upstream.channel,
+        engineRuntime: image.accelerator.runtime,
         compute: Manifest.acceleratorKey(image.accelerator),
+        computeVariant: image.accelerator.variant,
         computeLabel: Manifest.acceleratorLabel(image.accelerator),
         os: Manifest.osKey(image.os),
         osLabel: Manifest.osLabel(image.os),
@@ -202,7 +252,10 @@
       method: "helm",
       engine: null,
       engineVersion: null,
+      engineChannel: null,
+      engineRuntime: null,
       compute: null,
+      computeVariant: null,
       computeLabel: null,
       os: null,
       osLabel: null,
@@ -222,6 +275,12 @@
     });
     manifest.images.filter(selectableProduct).forEach(function (image) {
       combinations = combinations.concat(imageCombinations(image));
+    });
+    var publishedImageCombinations = combinations.filter(function (combination) {
+      return combination.method === "image";
+    });
+    ENGINE_ORDER.forEach(function (engine) {
+      engineVersionOptions(publishedImageCombinations, engine);
     });
     combinations.push(helmCombination(manifest.chart));
     return { manifest: manifest, manifestUrl: target, combinations: combinations };
@@ -330,6 +389,7 @@
     var engine = choose(requested.engine, rows.engine.options);
 
     var engineVersion = null;
+    var versionComputes = {};
     if (method !== "helm") {
       var publishedImageCombinations = all.filter(function (item) {
         return item.method === "image";
@@ -343,15 +403,37 @@
         }
       );
       engineVersion = choose(requested.engineVersion, rows.engineVersion.options);
+      publishedImageCombinations.forEach(function (item) {
+        if (item.engine === engine && item.engineVersion === engineVersion) {
+          versionComputes[item.compute] = true;
+        }
+      });
     }
 
-    var computeUniverse = orderedUnique(methodCombinations, "compute", "computeLabel");
+    var computeLabels = {};
+    methodCombinations.forEach(function (item) {
+      if (item.engine !== engine) return;
+      var value = selectedComputeValue(item, engine);
+      computeLabels[value] =
+        engine === "vllm-ascend" ? item.computeVariant.toUpperCase() : item.computeLabel;
+    });
+    var computeUniverse = Object.keys(computeLabels)
+      .sort(function (left, right) {
+        return computeLabels[left].localeCompare(computeLabels[right], undefined, {
+          numeric: true,
+        });
+      })
+      .map(function (value) {
+        return { value: value, label: computeLabels[value] };
+      });
     rows.compute.options = optionList(computeUniverse, function (computeValue) {
       return methodCombinations.some(function (item) {
         return (
           item.engine === engine &&
-          (method !== "image" || item.engineVersion === engineVersion) &&
-          item.compute === computeValue
+          (method === "image"
+            ? item.engineVersion === engineVersion
+            : versionComputes[item.compute] === true) &&
+          selectedComputeValue(item, engine) === computeValue
         );
       });
     });
@@ -365,7 +447,7 @@
           return (
             item.engine === engine &&
             item.engineVersion === engineVersion &&
-            item.compute === compute &&
+            selectedComputeValue(item, engine) === compute &&
             item.os === osValue
           );
         });
@@ -384,8 +466,10 @@
         return methodCombinations.some(function (item) {
           return (
             item.engine === engine &&
-            (method !== "image" || item.engineVersion === engineVersion) &&
-            item.compute === compute &&
+            (method === "image"
+              ? item.engineVersion === engineVersion
+              : versionComputes[item.compute] === true) &&
+            selectedComputeValue(item, engine) === compute &&
             (method !== "image" || item.os === os) &&
             item.architecture === architectureValue
           );
@@ -396,8 +480,10 @@
     var combination = methodCombinations.find(function (item) {
       return (
         item.engine === engine &&
-        (method !== "image" || item.engineVersion === engineVersion) &&
-        item.compute === compute &&
+        (method === "image"
+          ? item.engineVersion === engineVersion
+          : versionComputes[item.compute] === true) &&
+        selectedComputeValue(item, engine) === compute &&
         (method !== "image" || item.os === os) &&
         item.architecture === architecture
       );
@@ -484,7 +570,7 @@
       });
       optionLabel.appendChild(input);
       var labelParts =
-        name === "compute"
+        name === "compute" || name === "engineVersion"
           ? computeLabelParts(labelText)
           : { primary: labelText, secondary: null };
       var optionText = element("span", "ucm-selector__option-text");
@@ -582,6 +668,7 @@
     computeLabelParts: computeLabelParts,
     displayEngineVersion: displayEngineVersion,
     engineVersionOptions: engineVersionOptions,
+    selectedComputeValue: selectedComputeValue,
     buildSelectorModel: buildSelectorModel,
     deriveSelection: deriveSelection,
     initialize: initialize,
