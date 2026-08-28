@@ -109,9 +109,16 @@ jobs:
           local_tag="ucm-runtime-check:${IMAGE_ID}"
           wheel_glibc_floor="$(jq -er '.glibc_floor | select(type == "string")' \
             input/wheel/wheel-result.json)"
+          runtime_requirements="$(jq -ce '.dependencies | select(type == "array")' \
+            input/wheel/wheel-result.json)"
+          allow_missing_external_libraries=false
+          if [ "$(jq -r '.runtime.product_id' out/image-task.json)" = vllm-ascend ]; then
+            allow_missing_external_libraries=true
+          fi
           config_sha256="$(sha256sum examples/ucm_config_example.yaml | cut -d' ' -f1)"
           skopeo copy "oci-archive:out/image.oci.tar" "docker-daemon:${local_tag}"
           docker run --rm --entrypoint sh \
+            -e ALLOW_MISSING_EXTERNAL_LIBRARIES="${allow_missing_external_libraries}" \
             -e EXPECTED_PYTHON="$(jq -r '.runtime.python_version' out/image-task.json)" \
             -e EXPECTED_OS_ID="$(jq -r '.runtime.os_id' out/image-task.json)" \
             -e EXPECTED_OS_VERSION="$(jq -r '.runtime.os_version' out/image-task.json)" \
@@ -119,13 +126,13 @@ jobs:
             -e EXPECTED_BACKEND_DISTRIBUTION="$(jq -r '.distribution' input/wheel/wheel-result.json)" \
             -e EXPECTED_UCM_VERSION="$(jq -r '.version' input/wheel/wheel-result.json)" \
             -e EXPECTED_EXTERNAL_LIBRARIES="$(jq -c '.external_libraries' input/wheel/wheel-result.json)" \
+            -e EXPECTED_RUNTIME_REQUIREMENTS="${runtime_requirements}" \
             -e EXPECTED_UCM_CONFIG_SHA256="${config_sha256}" \
             -v "${PWD}/.github/release/validate_wheel_runtime.py:/tmp/validate_wheel_runtime.py:ro" \
             "${local_tag}" -c '
               set -eu
-              ldd_line="$(ldd --version 2>&1 | head -n 1)"
-              actual_glibc="$(printf "%s\n" "${ldd_line}" |
-                grep -oE "[0-9]+(\.[0-9]+)+" | head -n 1)"
+              ldd_output="$(ldd --version 2>&1)"
+              actual_glibc="$(python3 -c "import re, sys; match = re.search(r\"[0-9]+(?:\\.[0-9]+)+\", sys.argv[1]); print(match.group(0) if match else \"\")" "${ldd_output}")"
               wheel_glibc_floor="${EXPECTED_WHEEL_GLIBC_FLOOR#GLIBC_}"
               test -n "${actual_glibc}"
               test -n "${wheel_glibc_floor}"

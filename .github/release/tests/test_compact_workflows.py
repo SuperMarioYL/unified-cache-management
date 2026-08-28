@@ -331,6 +331,10 @@ def test_runtime_images_include_the_config_example_at_the_workspace_root() -> No
         )
         assert "sha256sum examples/ucm_config_example.yaml" in verify["run"]
         assert "EXPECTED_UCM_CONFIG_SHA256" in verify["run"]
+        assert "ALLOW_MISSING_EXTERNAL_LIBRARIES" in verify["run"]
+        assert "EXPECTED_RUNTIME_REQUIREMENTS" in verify["run"]
+        assert '.dependencies | select(type == "array")' in verify["run"]
+        assert ".runtime.product_id" in verify["run"]
         assert "hashlib.sha256(path.read_bytes())" in verify["run"]
         assert image_path in verify["run"]
 
