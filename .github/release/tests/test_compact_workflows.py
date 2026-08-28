@@ -545,6 +545,11 @@ def test_v090_manifest_migration_reads_back_v7_before_catalog_deletion() -> None
     assert migration["permissions"] == {"actions": "read", "contents": "write"}
     steps = migration["steps"]
     inspect = next(step for step in steps if step.get("id") == "inspect")
+    receipts = next(
+        step
+        for step in steps
+        if step.get("name") == "Download the original image publication receipts"
+    )
     publish_index, publish = next(
         (index, step)
         for index, step in enumerate(steps)
@@ -560,6 +565,8 @@ def test_v090_manifest_migration_reads_back_v7_before_catalog_deletion() -> None
     assert "33087700398" in inspect["run"]
     assert "ucm-manifest-migration-backup" in yaml.safe_dump(migration)
     assert "ucm-release-stage-run-" in yaml.safe_dump(migration)
+    assert "gh run download" in receipts["run"]
+    assert 'test "${receipt_count}" = 110' in receipts["run"]
     assert "release.py finalize" in yaml.safe_dump(migration)
     assert publish_index < delete_index
     assert "release-manifest-readback.json" in publish["run"]
