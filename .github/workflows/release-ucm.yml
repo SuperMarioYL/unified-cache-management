@@ -666,8 +666,13 @@ jobs:
           wheel_glibc_floor="$(jq -er '.glibc_floor | select(type == "string")' \
             "${result}")"
           ucm_version="$(jq -er '.version' "${result}")"
+          allow_missing_external_libraries=false
+          if [[ "${PLATFORM_ARG}" == ascend* ]]; then
+            allow_missing_external_libraries=true
+          fi
           docker pull "${RUNTIME_IMAGE}"
           docker run --rm --entrypoint bash \
+            -e ALLOW_MISSING_EXTERNAL_LIBRARIES="${allow_missing_external_libraries}" \
             -e PLATFORM="${PLATFORM_ARG}" \
             -e EXPECTED_UCM_VERSION="${ucm_version}" \
             -e EXPECTED_BACKEND_DISTRIBUTION="${BACKEND_DISTRIBUTION}" \
@@ -678,9 +683,10 @@ jobs:
             -v "${PWD}/.github/release/validate_wheel_runtime.py:/tmp/validate_wheel_runtime.py:ro" \
             "${RUNTIME_IMAGE}" -c '
               set -euo pipefail
-              ldd_line="$(ldd --version 2>&1 | head -n 1)"
-              actual_glibc="$(printf "%s\n" "${ldd_line}" |
-                grep -oE "[0-9]+(\.[0-9]+)+" | head -n 1)"
+              ldd_output="$(ldd --version 2>&1)"
+              actual_glibc="$(python3 -c "import re, sys; match = re.search(r'[0-9]+(?:\\.[0-9]+)+', sys.stdin.read()); print(match.group(0) if match else '')" \
+                <<<"${ldd_output}")"
+              test -n "${actual_glibc}"
               required_glibc="${EXPECTED_WHEEL_GLIBC_FLOOR#GLIBC_}"
               python3 -c "import sys; parse=lambda value: tuple(map(int, value.split(\".\"))); sys.exit(0 if parse(sys.argv[1]) >= parse(sys.argv[2]) else 1)" \
                 "${actual_glibc}" "${required_glibc}"

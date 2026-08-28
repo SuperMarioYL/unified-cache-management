@@ -829,6 +829,8 @@ def test_exact_wheels_pass_runtime_validation_before_publication() -> None:
     assert '"${UCM_WHEEL}"' in run
     assert "validate_wheel_runtime.py" in run
     assert "python3 -m venv" in run
+    assert "ALLOW_MISSING_EXTERNAL_LIBRARIES" in run
+    assert 'if [[ "${PLATFORM_ARG}" == ascend* ]]' in run
     assert "validate-wheel-runtimes" in jobs["publish-release-artifacts"]["needs"]
     assert set(jobs["publish-pypi"]["needs"]) == {
         "plan",

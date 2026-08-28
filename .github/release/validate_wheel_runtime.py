@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 _LDD_DEPENDENCY = re.compile(r"^\s*(?P<soname>\S+)\s+=>\s+(?P<path>\S+)", re.MULTILINE)
+_LDD_MISSING = re.compile(r"^\s*(?P<soname>\S+)\s+=>\s+not\s+found\s*$", re.MULTILINE)
 
 
 def parse_ldd_dependencies(output: str) -> dict[str, set[str]]:
@@ -21,6 +22,10 @@ def parse_ldd_dependencies(output: str) -> dict[str, set[str]]:
     for match in _LDD_DEPENDENCY.finditer(output):
         dependencies.setdefault(match.group("soname"), set()).add(match.group("path"))
     return dependencies
+
+
+def parse_ldd_missing(output: str) -> set[str]:
+    return {match.group("soname") for match in _LDD_MISSING.finditer(output)}
 
 
 def distribution_native_members(
@@ -51,10 +56,22 @@ def validate_external_resolution(
     resolved: dict[str, set[str]],
     expected_external: list[str],
     owned_members: set[Path],
+    *,
+    missing: set[str] | None = None,
+    allow_missing: bool = False,
 ) -> None:
+    missing = missing or set()
+    unexpected_missing = sorted(missing - set(expected_external))
+    if unexpected_missing:
+        raise RuntimeError(
+            "missing Runtime libraries are not allowlisted: "
+            + ", ".join(unexpected_missing)
+        )
     for soname in expected_external:
         paths = resolved.get(soname)
         if not paths:
+            if allow_missing and soname in missing:
+                continue
             raise RuntimeError(
                 f"expected external Runtime library was not resolved: {soname}"
             )
@@ -69,12 +86,16 @@ def validate_runtime(
     package_root: Path,
     expected_external: list[str],
     members: list[Path],
+    *,
+    allow_missing: bool = False,
 ) -> None:
     members = sorted(members)
     if not members:
         raise RuntimeError("installed UCM backend contains no native members")
 
     resolved: dict[str, set[str]] = {}
+    missing: set[str] = set()
+    members_with_missing: set[Path] = set()
     for member in members:
         completed = subprocess.run(
             ["ldd", str(member)],
@@ -83,17 +104,31 @@ def validate_runtime(
             text=True,
         )
         output = completed.stdout + completed.stderr
-        if completed.returncode != 0 or "not found" in output:
+        member_missing = parse_ldd_missing(output)
+        if completed.returncode != 0 or (member_missing and not allow_missing):
             raise RuntimeError(
                 f"native dependency resolution failed for {member}:\n{output}"
             )
+        if member_missing:
+            members_with_missing.add(member)
+            missing.update(member_missing)
         for soname, paths in parse_ldd_dependencies(output).items():
+            if soname in member_missing:
+                continue
             resolved.setdefault(soname, set()).update(paths)
 
     owned_members = {member.resolve() for member in members}
-    validate_external_resolution(resolved, expected_external, owned_members)
+    validate_external_resolution(
+        resolved,
+        expected_external,
+        owned_members,
+        missing=missing,
+        allow_missing=allow_missing,
+    )
 
     for member in members:
+        if member in members_with_missing:
+            continue
         module = (
             extension_module_name(package_root, member)
             if member.is_relative_to(package_root)
@@ -142,6 +177,7 @@ def main() -> int:
     expected_backend = required_environment("EXPECTED_BACKEND_DISTRIBUTION")
     expected_version = required_environment("EXPECTED_UCM_VERSION")
     expected_meta_version = os.environ.get("EXPECTED_META_VERSION")
+    allow_missing = os.environ.get("ALLOW_MISSING_EXTERNAL_LIBRARIES") == "true"
     expected = json.loads(os.environ.get("EXPECTED_EXTERNAL_LIBRARIES", "[]"))
     if not isinstance(expected, list) or any(
         not isinstance(value, str) or not value for value in expected
@@ -158,6 +194,7 @@ def main() -> int:
         Path(next(iter(package_paths))),
         sorted(expected),
         distribution_native_members(backend),
+        allow_missing=allow_missing,
     )
     return 0
 

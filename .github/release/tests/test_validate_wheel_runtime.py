@@ -26,6 +26,17 @@ def test_parse_ldd_dependencies_collects_resolved_sonames() -> None:
     }
 
 
+def test_parse_ldd_missing_collects_unresolved_sonames() -> None:
+    result = runtime_validation.parse_ldd_missing(
+        """
+        libascendcl.so => /usr/local/Ascend/lib64/libascendcl.so
+        libascend_hal.so => not found
+        """
+    )
+
+    assert result == {"libascend_hal.so"}
+
+
 def test_extension_module_name_uses_installed_package_path(tmp_path: Path) -> None:
     package_root = tmp_path / "ucm"
     extension = (
@@ -71,3 +82,28 @@ def test_external_runtime_library_cannot_resolve_to_sibling_wheel_libs(
         assert "inside the Wheel" in str(error)
     else:
         raise AssertionError("bundled external Runtime library was accepted")
+
+
+def test_allowlisted_missing_driver_library_can_be_deferred() -> None:
+    runtime_validation.validate_external_resolution(
+        {},
+        ["libascend_hal.so"],
+        set(),
+        missing={"libascend_hal.so"},
+        allow_missing=True,
+    )
+
+
+def test_unexpected_missing_library_is_never_deferred() -> None:
+    try:
+        runtime_validation.validate_external_resolution(
+            {},
+            ["libascendcl.so"],
+            set(),
+            missing={"libunknown.so"},
+            allow_missing=True,
+        )
+    except RuntimeError as error:
+        assert "not allowlisted" in str(error)
+    else:
+        raise AssertionError("unexpected missing Runtime library was accepted")
