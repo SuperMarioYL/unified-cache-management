@@ -379,6 +379,12 @@ def test_schema_v6_manifest_is_uploaded_only_after_complete_and_read_back() -> N
     assert "Accept: application/octet-stream" in manifest["run"]
     assert "cmp out/release/release-manifest.json" in manifest["run"]
     assert "github_release_assets" in manifest["run"]
+    assert "--rawfile notes out/release/release-notes.md" in manifest["run"]
+    assert "out/release/readback/release-notes.md" in manifest["run"]
+    assert "cmp out/release/release-notes.md" in manifest["run"]
+    assert manifest["run"].index('if [ "${RELEASE_TYPE}" = nightly ]') < manifest[
+        "run"
+    ].index("release.py notes")
     release_module = (
         ROOT / ".github" / "release" / "ucm_release" / "release.py"
     ).read_text(encoding="utf-8")
@@ -527,9 +533,16 @@ def test_common_core_opens_the_exact_tag_before_builds() -> None:
     assert ".release_tag = $tag" not in plan_run
 
 
-def test_every_release_patch_preserves_the_exact_tag_name() -> None:
-    text = (WORKFLOWS / "release-ucm.yml").read_text(encoding="utf-8")
-    assert text.count("gh api --method PATCH") == text.count('-f "tag_name=${tag}"')
+def test_asset_link_body_patches_do_not_rotate_the_draft_slug() -> None:
+    jobs = _load("release-ucm.yml")["jobs"]
+    for job_name, job in jobs.items():
+        if job_name == "open-release":
+            continue
+        for step in job.get("steps", []):
+            run = step.get("run", "")
+            for patch in run.split("gh api --method PATCH")[1:]:
+                if '-f "body=' in patch:
+                    assert '-f "tag_name=${tag}"' not in patch
 
 
 def test_direct_member_receipt_barrier_and_index_matrix_are_unbounded() -> None:

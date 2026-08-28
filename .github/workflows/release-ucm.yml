@@ -560,7 +560,6 @@ jobs:
             "Builder synchronization: ${BUILDER_OUTCOME}" \
             "Release plan: ${PLAN_OUTCOME}" >"${notes}"
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
-            -f "tag_name=${tag}" \
             -f "body=$(<"${notes}")" >/dev/null
 
   build-wheels:
@@ -791,7 +790,6 @@ jobs:
             "Runtime validation outcome: ${RUNTIME_VALIDATION_OUTCOME}" \
             "Chart outcome: ${CHART_OUTCOME}" >"${notes}"
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
-            -f "tag_name=${tag}" \
             -f "body=$(<"${notes}")" >/dev/null
           exit 1
       - uses: actions/checkout@v4.2.2
@@ -885,7 +883,6 @@ jobs:
             --release "${release_json}" --repository "${GH_REPO}" \
             --output out/release
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
-            -f "tag_name=${tag}" \
             -f "body=$(<out/release/release-notes.md)" >/dev/null
       - name: Mark artifact publication failure
         if: ${{ failure() && needs.open-release.outputs.enabled == 'true' }}
@@ -905,7 +902,6 @@ jobs:
             "Wheel, Chart, or config validation/upload failed. Retry the failed job to " \
             "complete the staged assets." >"${notes}"
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
-            -f "tag_name=${tag}" \
             -f "body=$(<"${notes}")" >/dev/null
 
   publish-image-members:
@@ -1416,19 +1412,28 @@ jobs:
           jq -e --slurpfile manifest out/release/release-manifest.json \
             '([.assets[].name] | sort) == $manifest[0].github_release_assets' \
             "${release_json}" >/dev/null
+          if [ "${RELEASE_TYPE}" = nightly ]; then
+            gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+              -F draft=false -F prerelease=true \
+              -f "name=${tag}" >/dev/null
+            gh api "/repos/${GH_REPO}/releases/${release_id}" \
+              | jq -e '.draft == false and .prerelease == true' >/dev/null
+          fi
+          gh api "/repos/${GH_REPO}/releases/${release_id}" >"${release_json}"
           python .github/release/ucm_release/release.py notes \
             --manifest "${state}" --release "${release_json}" \
             --repository "${GH_REPO}" --output out/release
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
-            -f "tag_name=${tag}" \
             -f "body=$(<out/release/release-notes.md)" >/dev/null
-          if [ "${RELEASE_TYPE}" = nightly ]; then
-            gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
-              -F draft=false -F prerelease=true \
-              -f "tag_name=${tag}" -f "name=${tag}" >/dev/null
-            gh api "/repos/${GH_REPO}/releases/${release_id}" \
-              | jq -e '.draft == false and .prerelease == true' >/dev/null
-          fi
+          gh api "/repos/${GH_REPO}/releases/${release_id}" >"${release_json}"
+          jq -e --rawfile notes out/release/release-notes.md \
+            '.body == $notes' "${release_json}" >/dev/null
+          mkdir -p out/release/readback
+          python .github/release/ucm_release/release.py notes \
+            --manifest "${state}" --release "${release_json}" \
+            --repository "${GH_REPO}" --output out/release/readback
+          cmp out/release/release-notes.md \
+            out/release/readback/release-notes.md
       - id: retention
         name: Retain only the configured same-type Releases
         run: |
@@ -1496,5 +1501,4 @@ jobs:
               "or manifest readback failed." >"${notes}"
           fi
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
-            -f "tag_name=${tag}" \
             -f "body=$(<"${notes}")" >/dev/null
