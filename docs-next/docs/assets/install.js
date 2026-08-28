@@ -257,17 +257,13 @@
   }
 
   function optionList(universe, enabled) {
-    return universe
-      .map(function (option) {
-        return {
-          value: option.value,
-          label: option.label,
-          disabled: !enabled(option.value),
-        };
-      })
-      .sort(function (left, right) {
-        return Number(left.disabled) - Number(right.disabled);
-      });
+    return universe.map(function (option) {
+      return {
+        value: option.value,
+        label: option.label,
+        disabled: !enabled(option.value),
+      };
+    });
   }
 
   function deriveSelection(model, requestedState) {
@@ -289,7 +285,7 @@
     var rows = {
       method: { visible: true, options: methodOptions },
       engine: { visible: method !== "helm", options: [] },
-      engineVersion: { visible: method === "image", options: [] },
+      engineVersion: { visible: method !== "helm", options: [] },
       compute: { visible: method !== "helm", options: [] },
       os: { visible: method === "image", options: [] },
       architecture: { visible: method !== "helm", options: [] },
@@ -326,11 +322,14 @@
     var engine = choose(requested.engine, rows.engine.options);
 
     var engineVersion = null;
-    if (method === "image") {
+    if (method !== "helm") {
+      var publishedImageCombinations = all.filter(function (item) {
+        return item.method === "image";
+      });
       rows.engineVersion.options = optionList(
-        engineVersionOptions(methodCombinations, engine),
+        engineVersionOptions(publishedImageCombinations, engine),
         function (versionValue) {
-          return methodCombinations.some(function (item) {
+          return publishedImageCombinations.some(function (item) {
             return item.engine === engine && item.engineVersion === versionValue;
           });
         }
