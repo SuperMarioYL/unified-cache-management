@@ -91,6 +91,7 @@
   color: var(--md-default-fg-color);
   font: inherit;
   font-size: 0.7rem;
+  font-weight: 500;
   cursor: pointer;
   overflow: hidden;
   white-space: nowrap;
@@ -152,7 +153,6 @@
 .ucm-selector__option--selected {
   background: var(--ucm-install-accent) !important;
   color: var(--md-primary-bg-color) !important;
-  font-weight: 600;
 }
 
 .ucm-selector__option--disabled {
