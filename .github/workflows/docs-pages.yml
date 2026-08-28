@@ -10,6 +10,7 @@ on:
       - ".github/release/ucm_release/compact.py"
       - ".github/release/ucm_release/release.py"
       - ".github/workflows/docs-pages.yml"
+      - ".github/workflows/migrate-release-manifest.yml"
       - ".github/workflows/release-tag.yml"
       - ".github/workflows/release-ucm.yml"
   push:
@@ -25,10 +26,15 @@ on:
         type: string
         required: true
       release_tag:
-        description: Stable GitHub Release Tag holding install-catalog.json
+        description: Stable GitHub Release Tag holding release-manifest.json
         type: string
         required: false
         default: ""
+      replace_existing:
+        description: Replace an existing Stable documentation body during migration
+        type: boolean
+        required: false
+        default: false
   workflow_dispatch:
     inputs:
       mode:
@@ -153,20 +159,29 @@ jobs:
         run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           -r docs-next/requirements.txt
-      - name: Download the completed Release catalog
+      - name: Download the completed Release Manifest
         run: |
           set -euo pipefail
-          mkdir -p input/catalog
+          mkdir -p input/manifest
           gh release download "${RELEASE_TAG}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --pattern install-catalog.json \
-            --dir input/catalog --clobber
-          test -f input/catalog/install-catalog.json
+            --pattern release-manifest.json \
+            --dir input/manifest --clobber
+          test -f input/manifest/release-manifest.json
       - name: Publish immutable Stable documentation and install pages
-        run: >-
-          python docs-next/tools/pages.py publish-stable
-          --repository "${GITHUB_REPOSITORY}"
-          --catalog input/catalog/install-catalog.json
+        env:
+          REPLACE_EXISTING: ${{ inputs.replace_existing && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          arguments=(
+            publish-stable
+            --repository "${GITHUB_REPOSITORY}"
+            --manifest input/manifest/release-manifest.json
+          )
+          if [ "${REPLACE_EXISTING}" = true ]; then
+            arguments+=(--replace-existing)
+          fi
+          python docs-next/tools/pages.py "${arguments[@]}"
 
   verify-index:
     name: Index · Python 3.12 · ${{ matrix.channel }}
@@ -197,13 +212,13 @@ jobs:
         run: |
           set -euo pipefail
           site_root="${SITE_URL%/}"
-          catalog="$(curl -fsSL "${site_root}/latest/install-catalog.json")"
+          manifest="$(curl -fsSL "${site_root}/latest/release-manifest.json")"
           wheel_version="$(jq -er --arg channel "${CHANNEL}" '
             [.wheels[] | select(.channel == $channel) |
              select(.distribution == "uc-manager") | .version] |
             unique | if length == 1 then .[0]
             else error("channel Wheel version is ambiguous") end
-          ' <<<"${catalog}")"
+          ' <<<"${manifest}")"
           ucm_venv="${RUNNER_TEMP}/ucm-index-${CHANNEL}"
           python -m venv "${ucm_venv}"
           "${ucm_venv}/bin/python" -m pip install \

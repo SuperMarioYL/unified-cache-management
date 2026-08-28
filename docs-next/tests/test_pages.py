@@ -56,11 +56,18 @@ def _wheel_record(
     *, channel: str, version: str, filename: str, url: str, sha256: str
 ) -> dict[str, object]:
     return {
+        "id": filename.removesuffix(".whl"),
+        "product": "vllm",
         "channel": channel,
+        "accelerator": {
+            "runtime": "cuda-13.0" if channel.startswith("cu") else "cann-9.0.1",
+            "variant": "cuda" if channel.startswith("cu") else "a2",
+            "soc_version": "cuda" if channel.startswith("cu") else "Ascend910B",
+        },
         "distribution": "uc-manager",
         "version": version,
         "python_abi": "py3",
-        "cpu_arch": "any",
+        "architecture": "any",
         "filename": filename,
         "url": url,
         "sha256": sha256,
@@ -68,29 +75,46 @@ def _wheel_record(
     }
 
 
-def _catalog(wheels: list[dict[str, object]], version: str = "0.9.0") -> dict:
-    return {
-        "kind": "ucm-install-catalog",
-        "schema_version": 1,
+def _manifest(wheels: list[dict[str, object]], version: str = "0.9.0") -> dict:
+    manifest = {
+        "kind": "ucm-release-manifest",
+        "schema_version": 7,
         "release": {
             "tag": f"v{version}",
+            "type": "stable",
             "version": version,
             "url": f"https://github.com/example/ucm/releases/tag/v{version}",
+            "actions_run_id": 33087700398,
         },
         "wheels": wheels,
         "images": [
             {
                 "id": "vllm-v1-cu130",
                 "product": "vllm",
-                "upstream_version": "1.0.0",
-                "upstream_channel": "stable",
-                "accelerator_runtime": "cuda-13.0",
-                "variant": "cuda",
-                "soc_version": "cuda",
-                "os_id": "ubuntu",
-                "os_version": "24.04",
-                "architectures": ["amd64", "arm64"],
-                "references": {"ghcr": "ghcr.io/example/vllm:v1-ucm-0.9.0"},
+                "upstream": {"version": "1.0.0", "channel": "stable"},
+                "accelerator": {
+                    "runtime": "cuda-13.0",
+                    "variant": "cuda",
+                    "soc_version": "cuda",
+                },
+                "os": {"id": "ubuntu", "version": "24.04"},
+                "publications": {
+                    "ghcr": {
+                        "pull": "ghcr.io/example/vllm:v1-ucm-0.9.0",
+                        "multi_arch": True,
+                        "members": [
+                            {
+                                "architecture": "amd64",
+                                "reference": "ghcr.io/example/vllm:v1-amd64-ucm-0.9.0",
+                            },
+                            {
+                                "architecture": "arm64",
+                                "reference": "ghcr.io/example/vllm:v1-arm64-ucm-0.9.0",
+                            },
+                        ],
+                    },
+                    "dockerhub": None,
+                },
             }
         ],
         "chart": {
@@ -100,13 +124,19 @@ def _catalog(wheels: list[dict[str, object]], version: str = "0.9.0") -> dict:
             "url": f"https://github.com/example/ucm/releases/download/v{version}/chart.tgz",
             "oci": f"ghcr.io/example/charts/unified-cache-chart:{version}",
         },
+        "github_release_assets": [
+            "release-manifest.json",
+            f"unified-cache-chart-{version}.tgz",
+            *(str(wheel["filename"]) for wheel in wheels),
+        ],
     }
+    return manifest
 
 
-def _freeze(root: Path, catalog: dict) -> None:
-    path = root / "catalogs" / catalog["release"]["version"] / "install-catalog.json"
+def _freeze(root: Path, manifest: dict) -> None:
+    path = root / "manifests" / manifest["release"]["version"] / "release-manifest.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(catalog), encoding="utf-8")
+    path.write_text(json.dumps(manifest), encoding="utf-8")
 
 
 class _QuietHandler(SimpleHTTPRequestHandler):
@@ -128,6 +158,49 @@ def _serve(directory: Path):
         server.server_close()
 
 
+def test_schema_7_manifest_validation_is_exact() -> None:
+    manifest = _manifest([])
+    assert pages.validate_manifest(manifest) == manifest
+
+    schema_6 = json.loads(json.dumps(manifest))
+    schema_6["schema_version"] = 6
+    with pytest.raises(pages.PagesError, match="schema_version"):
+        pages.validate_manifest(schema_6)
+
+    extra_field = json.loads(json.dumps(manifest))
+    extra_field["release"]["commit"] = "a8c0d7ef"
+    with pytest.raises(pages.PagesError, match="fields differ"):
+        pages.validate_manifest(extra_field)
+
+    missing_self_asset = json.loads(json.dumps(manifest))
+    missing_self_asset["github_release_assets"].remove("release-manifest.json")
+    with pytest.raises(pages.PagesError, match="must list itself"):
+        pages.validate_manifest(missing_self_asset)
+
+    legacy_asset = json.loads(json.dumps(manifest))
+    legacy_asset["github_release_assets"].append("install-catalog.json")
+    with pytest.raises(pages.PagesError, match="must not list"):
+        pages.validate_manifest(legacy_asset)
+
+    missing_chart = json.loads(json.dumps(manifest))
+    missing_chart["github_release_assets"].remove("unified-cache-chart-0.9.0.tgz")
+    with pytest.raises(pages.PagesError, match="assets are missing"):
+        pages.validate_manifest(missing_chart)
+
+
+def test_schema_7_publication_validation_distinguishes_index_and_member() -> None:
+    manifest = _manifest([])
+    publication = manifest["images"][0]["publications"]["ghcr"]
+    assert publication is not None
+    publication["multi_arch"] = False
+    with pytest.raises(pages.PagesError, match="single-architecture"):
+        pages.validate_manifest(manifest)
+
+    publication["members"] = [publication["members"][0]]
+    publication["pull"] = publication["members"][0]["reference"]
+    assert pages.validate_manifest(manifest) == manifest
+
+
 def test_cuda_simple_index_performs_real_pip_dependency_resolution(
     tmp_path: Path,
 ) -> None:
@@ -141,7 +214,7 @@ def test_cuda_simple_index_performs_real_pip_dependency_resolution(
     _write_wheel(wrapt, "wrapt", "1.17.2")
 
     with _serve(tmp_path) as base_url:
-        catalog = _catalog(
+        manifest = _manifest(
             [
                 _wheel_record(
                     channel="cu130",
@@ -152,7 +225,7 @@ def test_cuda_simple_index_performs_real_pip_dependency_resolution(
                 )
             ]
         )
-        _freeze(tmp_path, catalog)
+        _freeze(tmp_path, manifest)
         pages.build_simple_indexes(
             tmp_path,
             fetch_wrapt_files=lambda version: [
@@ -199,7 +272,7 @@ def test_cuda_simple_index_performs_real_pip_dependency_resolution(
 def test_cann_channel_does_not_contain_cuda_wheels(tmp_path: Path) -> None:
     cuda_name = "uc_manager-0.9.0+cu130-py3-none-any.whl"
     cann_name = "uc_manager-0.9.0+cann901.a2-py3-none-any.whl"
-    catalog = _catalog(
+    manifest = _manifest(
         [
             _wheel_record(
                 channel="cu130",
@@ -217,7 +290,7 @@ def test_cann_channel_does_not_contain_cuda_wheels(tmp_path: Path) -> None:
             ),
         ]
     )
-    _freeze(tmp_path, catalog)
+    _freeze(tmp_path, manifest)
     pages.build_simple_indexes(
         tmp_path,
         fetch_wrapt_files=lambda version: [
@@ -236,9 +309,47 @@ def test_cann_channel_does_not_contain_cuda_wheels(tmp_path: Path) -> None:
     assert "#sha256=" + "b" * 64 in cann_index
 
 
-def test_latest_uses_current_stable_frozen_catalog(tmp_path: Path) -> None:
-    catalog = _catalog([])
-    _freeze(tmp_path, catalog)
+def test_simple_indexes_cover_all_six_release_channels(tmp_path: Path) -> None:
+    channels = {
+        "cu129",
+        "cu130",
+        "cann901-a2",
+        "cann901-a3",
+        "cann910-a2",
+        "cann910-a3",
+    }
+    wheels = []
+    for index, channel in enumerate(sorted(channels)):
+        local_version = channel.replace("-", ".")
+        filename = f"uc_manager-0.9.0+{local_version}-py3-none-any.whl"
+        wheels.append(
+            _wheel_record(
+                channel=channel,
+                version=f"0.9.0+{local_version}",
+                filename=filename,
+                url=f"https://example.invalid/{filename}",
+                sha256=f"{index + 1:x}" * 64,
+            )
+        )
+    _freeze(tmp_path, _manifest(wheels))
+
+    pages.build_simple_indexes(
+        tmp_path,
+        fetch_wrapt_files=lambda version: [
+            pages.PyPIWheel(
+                filename="wrapt-1.17.2-py3-none-any.whl",
+                url="https://example.invalid/wrapt.whl",
+                sha256="f" * 64,
+            )
+        ],
+    )
+
+    assert {path.name for path in (tmp_path / "whl").iterdir()} == channels
+
+
+def test_latest_uses_current_stable_frozen_manifest(tmp_path: Path) -> None:
+    manifest = _manifest([])
+    _freeze(tmp_path, manifest)
     (tmp_path / "latest").mkdir()
     (tmp_path / "versions.json").write_text(
         json.dumps(
@@ -250,32 +361,42 @@ def test_latest_uses_current_stable_frozen_catalog(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    assert pages.inject_latest_catalog(tmp_path) == "0.9.0"
+    assert pages.inject_latest_manifest(tmp_path) == "0.9.0"
     injected = json.loads(
-        (tmp_path / "latest" / "install-catalog.json").read_text(encoding="utf-8")
+        (tmp_path / "latest" / "release-manifest.json").read_text(encoding="utf-8")
     )
-    assert injected == catalog
+    assert injected == manifest
 
 
-def test_catalog_sync_does_not_create_latest_without_documentation(
+def test_manifest_sync_does_not_create_latest_without_documentation(
     tmp_path: Path,
 ) -> None:
-    catalog = _catalog([])
-    _freeze(tmp_path, catalog)
+    manifest = _manifest([])
+    _freeze(tmp_path, manifest)
     (tmp_path / "versions.json").write_text(
         json.dumps([{"version": "0.9.0", "title": "0.9.0", "aliases": ["stable"]}]),
         encoding="utf-8",
     )
 
-    assert pages.inject_latest_catalog(tmp_path) is None
+    assert pages.inject_latest_manifest(tmp_path) is None
     assert not (tmp_path / "latest").exists()
 
 
 def test_latest_publish_preserves_indexes_and_pushes_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    manifest = _manifest([])
+    _freeze(tmp_path, manifest)
     (tmp_path / "latest").mkdir()
-    (tmp_path / "versions.json").write_text("[]", encoding="utf-8")
+    (tmp_path / "versions.json").write_text(
+        json.dumps(
+            [
+                {"version": "latest", "aliases": []},
+                {"version": "0.9.0", "aliases": ["stable"]},
+            ]
+        ),
+        encoding="utf-8",
+    )
     existing_index = tmp_path / "whl" / "cu130" / "index.html"
     existing_index.parent.mkdir(parents=True)
     existing_index.write_text("frozen", encoding="utf-8")
@@ -287,7 +408,24 @@ def test_latest_publish_preserves_indexes_and_pushes_once(
         yield tmp_path
 
     monkeypatch.setattr(pages, "_prepare_pages_branch", lambda repository: None)
-    monkeypatch.setattr(pages, "_read_branch_file", lambda path: "docs.example\n")
+    monkeypatch.setattr(
+        pages,
+        "_branch_versions",
+        lambda: [{"version": "0.9.0", "aliases": ["stable"]}],
+    )
+    monkeypatch.setattr(
+        pages,
+        "_read_branch_file",
+        lambda path: (
+            "docs.example\n"
+            if path == "CNAME"
+            else (
+                json.dumps(manifest)
+                if path == "manifests/0.9.0/release-manifest.json"
+                else None
+            )
+        ),
+    )
     monkeypatch.setattr(
         pages, "_mike", lambda arguments, site_url: mike_calls.append(list(arguments))
     )
@@ -307,6 +445,45 @@ def test_latest_publish_preserves_indexes_and_pushes_once(
     assert len(mike_calls) == 1
     assert mike_calls[0][:2] == ["deploy", "latest"]
     assert "--push" not in mike_calls[0]
+
+
+def test_latest_publish_is_noop_before_schema_7_stable_migration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    legacy = tmp_path / "latest" / "install-catalog.json"
+    legacy.parent.mkdir()
+    legacy.write_text("still public", encoding="utf-8")
+    prepares: list[str] = []
+
+    monkeypatch.setattr(
+        pages, "_prepare_pages_branch", lambda repository: prepares.append(repository)
+    )
+    monkeypatch.setattr(
+        pages,
+        "_branch_versions",
+        lambda: [{"version": "0.9.0", "aliases": ["stable"]}],
+    )
+    monkeypatch.setattr(pages, "_read_branch_file", lambda path: None)
+    monkeypatch.setattr(
+        pages,
+        "_mike",
+        lambda *args, **kwargs: pytest.fail("latest body must not be deployed"),
+    )
+    monkeypatch.setattr(
+        pages,
+        "_pages_worktree",
+        lambda *args, **kwargs: pytest.fail("Pages tree must not be edited"),
+    )
+    monkeypatch.setattr(
+        pages,
+        "_push_pages_branch",
+        lambda: pytest.fail("gh-pages must not be pushed"),
+    )
+
+    pages.publish_latest("example/ucm")
+
+    assert prepares == ["example/ucm"]
+    assert legacy.read_text(encoding="utf-8") == "still public"
 
 
 def test_final_push_is_one_ordinary_branch_update(
@@ -353,29 +530,40 @@ def test_stable_body_deploy_decision(versions: list[dict], expected: bool) -> No
         ("0.9.0", "draft/v0.9.0"),
     ],
 )
-def test_stable_publish_rejects_non_stable_catalog(version: str, tag: str) -> None:
-    catalog = _catalog([], version=version)
-    catalog["release"]["tag"] = tag
+def test_stable_publish_rejects_non_stable_manifest(version: str, tag: str) -> None:
+    manifest = _manifest([], version=version)
+    manifest["release"]["tag"] = tag
     with pytest.raises(pages.PagesError):
-        pages.require_stable_catalog(catalog)
+        pages.require_stable_manifest(manifest)
 
 
 @pytest.mark.parametrize("already_exists", [False, True])
 def test_first_and_repeated_stable_publish_mike_decision_and_one_push(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, already_exists: bool
 ) -> None:
-    catalog = _catalog([])
-    catalog_path = tmp_path / "catalog.json"
-    catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+    manifest = _manifest([])
+    manifest_path = tmp_path / "release-manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     branch_tree = tmp_path / "branch"
     (branch_tree / "0.9.0").mkdir(parents=True)
     (branch_tree / "latest").mkdir()
+    (branch_tree / "catalogs" / "0.9.0").mkdir(parents=True)
+    (branch_tree / "catalogs" / "0.9.0" / "install-catalog.json").write_text(
+        "legacy", encoding="utf-8"
+    )
+    (branch_tree / "0.9.0" / "install-catalog.json").write_text(
+        "legacy", encoding="utf-8"
+    )
+    (branch_tree / "latest" / "install-catalog.json").write_text(
+        "legacy", encoding="utf-8"
+    )
     (branch_tree / "versions.json").write_text(
         json.dumps([{"version": "0.9.0", "title": "0.9.0", "aliases": ["stable"]}]),
         encoding="utf-8",
     )
     mike_calls: list[list[str]] = []
     pushes: list[bool] = []
+    index_rebuilds: list[Path] = []
 
     @contextmanager
     def fake_worktree(message: str):
@@ -394,20 +582,42 @@ def test_first_and_repeated_stable_publish_mike_decision_and_one_push(
         pages, "_mike", lambda arguments, site_url: mike_calls.append(list(arguments))
     )
     monkeypatch.setattr(pages, "_pages_worktree", fake_worktree)
-    monkeypatch.setattr(pages, "build_simple_indexes", lambda root: None)
+    monkeypatch.setattr(
+        pages, "build_simple_indexes", lambda root: index_rebuilds.append(root)
+    )
     monkeypatch.setattr(pages, "_assert_cname_preserved", lambda original: None)
     monkeypatch.setattr(pages, "_push_pages_branch", lambda: pushes.append(True))
 
-    pages.publish_stable("example/ucm", catalog_path)
+    pages.publish_stable("example/ucm", manifest_path)
 
     assert len(pushes) == 1
+    assert index_rebuilds == [branch_tree]
+    assert not (branch_tree / "catalogs").exists()
+    assert not (branch_tree / "0.9.0" / "install-catalog.json").exists()
+    assert not (branch_tree / "latest" / "install-catalog.json").exists()
     assert (
         json.loads(
-            (branch_tree / "latest" / "install-catalog.json").read_text(
+            (branch_tree / "manifests" / "0.9.0" / "release-manifest.json").read_text(
                 encoding="utf-8"
             )
         )
-        == catalog
+        == manifest
+    )
+    assert (
+        json.loads(
+            (branch_tree / "0.9.0" / "release-manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        == manifest
+    )
+    assert (
+        json.loads(
+            (branch_tree / "latest" / "release-manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        == manifest
     )
     if already_exists:
         assert mike_calls == []
@@ -417,6 +627,60 @@ def test_first_and_repeated_stable_publish_mike_decision_and_one_push(
         assert "--push" not in mike_calls[0]
         assert mike_calls[1][:2] == ["set-default", "stable"]
         assert "--push" not in mike_calls[1]
+
+
+def test_replace_existing_stable_redeploys_body_and_navigation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = _manifest([])
+    manifest_path = tmp_path / "release-manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    branch_tree = tmp_path / "branch"
+    (branch_tree / "0.9.0").mkdir(parents=True)
+    (branch_tree / "latest").mkdir()
+    (branch_tree / "versions.json").write_text(
+        json.dumps([{"version": "0.9.0", "aliases": ["stable"]}]),
+        encoding="utf-8",
+    )
+    mike_calls: list[list[str]] = []
+
+    @contextmanager
+    def fake_worktree(message: str):
+        yield branch_tree
+
+    monkeypatch.setattr(pages, "_prepare_pages_branch", lambda repository: None)
+    monkeypatch.setattr(pages, "_read_branch_file", lambda path: "docs.example\n")
+    monkeypatch.setattr(
+        pages,
+        "_branch_versions",
+        lambda: [{"version": "0.9.0", "aliases": ["stable"]}],
+    )
+    monkeypatch.setattr(
+        pages, "_mike", lambda arguments, site_url: mike_calls.append(list(arguments))
+    )
+    monkeypatch.setattr(pages, "_pages_worktree", fake_worktree)
+    monkeypatch.setattr(pages, "build_simple_indexes", lambda root: None)
+    monkeypatch.setattr(pages, "_assert_cname_preserved", lambda original: None)
+    monkeypatch.setattr(pages, "_push_pages_branch", lambda: None)
+
+    pages.publish_stable("example/ucm", manifest_path, replace_existing=True)
+
+    assert len(mike_calls) == 2
+    assert mike_calls[0][:4] == ["deploy", "0.9.0", "stable", "--update-aliases"]
+    assert mike_calls[1][:2] == ["set-default", "stable"]
+
+
+def test_replace_existing_requires_an_existing_stable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest_path = tmp_path / "release-manifest.json"
+    manifest_path.write_text(json.dumps(_manifest([])), encoding="utf-8")
+    monkeypatch.setattr(pages, "_prepare_pages_branch", lambda repository: None)
+    monkeypatch.setattr(pages, "_read_branch_file", lambda path: "docs.example\n")
+    monkeypatch.setattr(pages, "_branch_versions", lambda: [])
+
+    with pytest.raises(pages.PagesError, match="requires an existing Stable"):
+        pages.publish_stable("example/ucm", manifest_path, replace_existing=True)
 
 
 def test_initialize_preserves_cname_and_removes_trial_content(
@@ -445,7 +709,7 @@ def test_initialize_preserves_cname_and_removes_trial_content(
     assert len(pushes) == 1
 
 
-def test_bilingual_install_pages_use_one_shared_catalog_renderer() -> None:
+def test_bilingual_install_and_download_pages_use_one_manifest_contract() -> None:
     english = (DOCS_ROOT / "docs" / "en" / "user-guide" / "installation.md").read_text(
         encoding="utf-8"
     )
@@ -453,6 +717,10 @@ def test_bilingual_install_pages_use_one_shared_catalog_renderer() -> None:
         encoding="utf-8"
     )
     javascript = (DOCS_ROOT / "docs" / "assets" / "install.js").read_text(
+        encoding="utf-8"
+    )
+    loader = (DOCS_ROOT / "docs" / "assets" / "manifest.js").read_text(encoding="utf-8")
+    inventory = (DOCS_ROOT / "docs" / "assets" / "download.js").read_text(
         encoding="utf-8"
     )
     mkdocs = (DOCS_ROOT / "mkdocs.yml").read_text(encoding="utf-8")
@@ -466,8 +734,36 @@ def test_bilingual_install_pages_use_one_shared_catalog_renderer() -> None:
         assert "0.5.0" not in page
         assert "SGLang" not in page
         assert "A5" not in page
-    assert "install-catalog.json" in javascript
-    assert 'python -m pip install "uc-manager==' in javascript
+        assert "data-install-source" not in page
+    for locale in ("en", "zh"):
+        for page, kind in (
+            ("index.md", "overview"),
+            ("whl.md", "wheel"),
+            ("helm.md", "helm"),
+            ("image.md", "image"),
+        ):
+            download_page = (DOCS_ROOT / "docs" / locale / "download" / page).read_text(
+                encoding="utf-8"
+            )
+            assert f'data-locale="{locale}"' in download_page
+            assert f'data-download-kind="{kind}"' in download_page
+            assert "data-ucm-download" in download_page
+    assert "release-manifest.json" in loader
+    assert "ucm-release-manifest" in loader
+    assert "schema_version" in loader
+    assert "install-catalog.json" not in javascript + inventory
+    assert 'assets.has("install-catalog.json")' in loader
+    assert "python -m pip install" in javascript
     assert "docker pull" in javascript
+    assert "helm install ucm" in javascript
+    assert 'method !== "helm"' in javascript
+    assert "Manifest.validateManifest" in inventory
+    assert mkdocs.index("  - Toolkit:") < mkdocs.index("  - Download:")
+    download_nav = mkdocs[mkdocs.index("  - Download:") :]
+    assert download_nav.index("- Overview:") < download_nav.index("- Wheel:")
+    assert download_nav.index("- Wheel:") < download_nav.index("- Helm:")
+    assert download_nav.index("- Helm:") < download_nav.index("- Image:")
+    assert "assets/manifest.js" in mkdocs
     assert "assets/install.js" in mkdocs
+    assert "assets/download.js" in mkdocs
     assert "assets/install.css" in mkdocs

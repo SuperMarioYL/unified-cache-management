@@ -11,10 +11,13 @@ edit_uri: edit/develop/docs-next/docs/en/
 docs_dir: docs
 
 extra_css:
+  - assets/stylesheets/extra.css
   - assets/install.css
 
 extra_javascript:
+  - assets/manifest.js
   - assets/install.js
+  - assets/download.js
 
 theme:
   name: material
@@ -100,6 +103,10 @@ plugins:
             API & Parameters: API 与参数
             Benchmark: 性能测试
             Toolkit: 工具集
+            Download: 下载
+            Wheel: Wheel
+            Helm: Helm
+            Image: 镜像
             KV Cache Calculator: KV Cache 计算器
             User Guide: 用户指南
             Precheck: 环境预检
@@ -141,9 +148,6 @@ markdown_extensions:
   - pymdownx.emoji:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
-
-extra_css:
-  - assets/stylesheets/extra.css
 
 extra:
   social:
@@ -216,3 +220,8 @@ nav:
       - Developer:
           - Design: toolkit/developer/design.md
           - Dev Sandbox: toolkit/developer/dev-sandbox.md
+  - Download:
+      - Overview: download/index.md
+      - Wheel: download/whl.md
+      - Helm: download/helm.md
+      - Image: download/image.md
