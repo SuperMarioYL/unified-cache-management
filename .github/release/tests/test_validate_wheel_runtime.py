@@ -107,3 +107,21 @@ def test_unexpected_missing_library_is_never_deferred() -> None:
         assert "not allowlisted" in str(error)
     else:
         raise AssertionError("unexpected missing Runtime library was accepted")
+
+
+def test_runtime_requirements_are_checked_without_global_pip_state(monkeypatch) -> None:
+    versions = {"wrapt": "1.17.2"}
+    monkeypatch.setattr(
+        runtime_validation.importlib.metadata,
+        "version",
+        lambda name: versions[name],
+    )
+
+    runtime_validation.validate_runtime_requirements(["wrapt==1.17.2"])
+
+    try:
+        runtime_validation.validate_runtime_requirements(["wrapt==1.17.1"])
+    except RuntimeError as error:
+        assert "does not match" in str(error)
+    else:
+        raise AssertionError("wrong Runtime dependency version was accepted")

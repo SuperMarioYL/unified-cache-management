@@ -10,7 +10,6 @@ import json
 import os
 import re
 import subprocess
-import sys
 from pathlib import Path
 
 _LDD_DEPENDENCY = re.compile(r"^\s*(?P<soname>\S+)\s+=>\s+(?P<path>\S+)", re.MULTILINE)
@@ -139,8 +138,6 @@ def validate_runtime(
         elif member.name.startswith("lib"):
             ctypes.CDLL(str(member), mode=os.RTLD_NOW | os.RTLD_LOCAL)
 
-    subprocess.run([sys.executable, "-m", "pip", "check"], check=True)
-
 
 def validate_installed_distributions(
     expected_backend: str, expected_version: str, expected_meta_version: str | None
@@ -166,6 +163,25 @@ def validate_installed_distributions(
     return backend
 
 
+def validate_runtime_requirements(expected: list[str]) -> None:
+    for requirement in expected:
+        name, separator, version = requirement.partition("==")
+        if separator != "==" or not name or not version or "==" in version:
+            raise RuntimeError(
+                f"installed Runtime requirement does not match: {requirement}"
+            )
+        try:
+            installed_version = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError as error:
+            raise RuntimeError(
+                f"installed Runtime requirement is missing: {requirement}"
+            ) from error
+        if installed_version != version:
+            raise RuntimeError(
+                f"installed Runtime requirement does not match: {requirement}"
+            )
+
+
 def required_environment(name: str) -> str:
     value = os.environ.get(name)
     if not value:
@@ -183,6 +199,13 @@ def main() -> int:
         not isinstance(value, str) or not value for value in expected
     ):
         raise RuntimeError("EXPECTED_EXTERNAL_LIBRARIES must be a JSON string list")
+    runtime_requirements = json.loads(
+        os.environ.get("EXPECTED_RUNTIME_REQUIREMENTS", "[]")
+    )
+    if not isinstance(runtime_requirements, list) or any(
+        not isinstance(value, str) or not value for value in runtime_requirements
+    ):
+        raise RuntimeError("EXPECTED_RUNTIME_REQUIREMENTS must be a JSON string list")
     backend = validate_installed_distributions(
         expected_backend, expected_version, expected_meta_version
     )
@@ -196,6 +219,7 @@ def main() -> int:
         distribution_native_members(backend),
         allow_missing=allow_missing,
     )
+    validate_runtime_requirements(sorted(runtime_requirements))
     return 0
 
 

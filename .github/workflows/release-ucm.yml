@@ -663,6 +663,7 @@ jobs:
           wheel="$(realpath "${wheel}")"
           wheel_name="$(basename "${wheel}")"
           external_libraries="$(jq -c '.external_libraries' "${result}")"
+          runtime_requirements="$(jq -c '.runtime_requirements' "${result}")"
           wheel_glibc_floor="$(jq -er '.glibc_floor | select(type == "string")' \
             "${result}")"
           ucm_version="$(jq -er '.version' "${result}")"
@@ -677,6 +678,7 @@ jobs:
             -e EXPECTED_UCM_VERSION="${ucm_version}" \
             -e EXPECTED_BACKEND_DISTRIBUTION="${BACKEND_DISTRIBUTION}" \
             -e EXPECTED_EXTERNAL_LIBRARIES="${external_libraries}" \
+            -e EXPECTED_RUNTIME_REQUIREMENTS="${runtime_requirements}" \
             -e EXPECTED_WHEEL_GLIBC_FLOOR="${wheel_glibc_floor}" \
             -e UCM_WHEEL="/tmp/${wheel_name}" \
             -v "${wheel}:/tmp/${wheel_name}:ro" \

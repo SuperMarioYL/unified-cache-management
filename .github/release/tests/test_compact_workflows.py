@@ -830,7 +830,9 @@ def test_exact_wheels_pass_runtime_validation_before_publication() -> None:
     assert "validate_wheel_runtime.py" in run
     assert "python3 -m venv" in run
     assert "ALLOW_MISSING_EXTERNAL_LIBRARIES" in run
+    assert "EXPECTED_RUNTIME_REQUIREMENTS" in run
     assert 'if [[ "${PLATFORM_ARG}" == ascend* ]]' in run
+    assert "python -m pip check" not in run
     assert 're.search(r\\"[0-9]+' in run
     assert "re.search(r'[0-9]+" not in run
     assert "validate-wheel-runtimes" in jobs["publish-release-artifacts"]["needs"]
