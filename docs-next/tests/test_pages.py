@@ -765,6 +765,9 @@ def test_bilingual_install_and_download_pages_use_one_manifest_contract() -> Non
     assert "computeLabelParts" in javascript
     assert "engineVersionOptions" in javascript
     assert "ucm-selector__option-text--stacked" in javascript
+    assert "controls.appendChild(output)" in javascript
+    assert "ucm-install__output-value" in javascript
+    assert 'element("h2", "ucm-install__output-title"' not in javascript
     assert "flex-wrap: nowrap" in stylesheet
     assert "flex: 1 1 0" in stylesheet
     assert "font-weight: 500" in stylesheet
