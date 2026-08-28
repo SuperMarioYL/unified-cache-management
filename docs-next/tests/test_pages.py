@@ -763,6 +763,7 @@ def test_bilingual_install_and_download_pages_use_one_manifest_contract() -> Non
     assert 'element("label", "ucm-selector__option")' in javascript
     assert 'element("button", "ucm-selector__option"' not in javascript
     assert "computeLabelParts" in javascript
+    assert "engineVersionOptions" in javascript
     assert "ucm-selector__option-text--stacked" in javascript
     assert "flex-wrap: nowrap" in stylesheet
     assert "flex: 1 1 0" in stylesheet

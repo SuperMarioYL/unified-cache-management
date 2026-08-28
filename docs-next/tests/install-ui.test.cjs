@@ -154,15 +154,33 @@ test("Compute platform labels hide internal SoC identifiers", () => {
   });
 });
 
+test("Image engine versions use published endpoints as ranges", () => {
+  const combinations = [
+    { engine: "vllm-ascend", engineVersion: "0.23.0" },
+    { engine: "vllm-ascend", engineVersion: "0.24.0rc0" },
+    { engine: "vllm-ascend", engineVersion: "0.25.1rc0" },
+    { engine: "vllm-ascend", engineVersion: "0.26.0rc0" },
+    { engine: "vllm", engineVersion: "0.28.0" },
+  ];
+  assert.deepEqual(Selector.engineVersionOptions(combinations, "vllm-ascend"), [
+    { value: "0.23.0", label: "\u2264 0.23.0" },
+    { value: "0.24.0rc0", label: "0.24.0" },
+    { value: "0.25.1rc0", label: "0.25.1" },
+    { value: "0.26.0rc0", label: "\u2265 0.26.0" },
+  ]);
+});
+
 test("Wheel selection auto-corrects dependent fields and emits one exact command", () => {
   const model = Selector.buildSelectorModel(
     fixture(),
     "https://docs.example/0.9.0/release-manifest.json"
   );
   const initial = Selector.deriveSelection(model, { method: "wheel" });
+  assert.equal(initial.rows.engineVersion.visible, false);
   assert.deepEqual(initial.state, {
     method: "wheel",
     engine: "vllm",
+    engineVersion: null,
     compute: "cuda-13.0|default",
     os: null,
     architecture: "amd64",
@@ -200,6 +218,8 @@ test("Image selection filters by architecture and always pulls publication.pull"
     architecture: "arm64",
   });
   assert.equal(selected.rows.os.visible, true);
+  assert.equal(selected.rows.engineVersion.visible, true);
+  assert.equal(selected.state.engineVersion, "0.10.2");
   assert.equal(selected.state.architecture, "arm64");
   assert.equal(selected.command, "docker pull " + manifest.images[0].publications.ghcr.pull);
   assert.equal((selected.command.match(/docker pull/g) || []).length, 1);
@@ -221,7 +241,7 @@ test("Helm hides unrelated rows and emits only the Release Chart command", () =>
     "https://docs.example/latest/release-manifest.json"
   );
   const selected = Selector.deriveSelection(model, { method: "helm" });
-  for (const row of ["engine", "compute", "os", "architecture"]) {
+  for (const row of ["engine", "engineVersion", "compute", "os", "architecture"]) {
     assert.equal(selected.rows[row].visible, false);
   }
   assert.equal(selected.command, "helm install ucm " + manifest.chart.url);
