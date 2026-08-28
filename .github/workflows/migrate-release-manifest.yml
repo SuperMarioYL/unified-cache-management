@@ -143,13 +143,18 @@ jobs:
           github-token: ${{ github.token }}
       - name: Download the original image publication receipts
         if: ${{ steps.inspect.outputs.needs_migration == 'true' }}
-        uses: actions/download-artifact@v4.3.0
-        with:
-          pattern: ucm-image-*-receipt-*-run-${{ steps.inspect.outputs.actions_run_id }}
-          path: input/receipts
-          merge-multiple: true
-          run-id: ${{ steps.inspect.outputs.actions_run_id }}
-          github-token: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p input/receipts
+          gh run download "${{ steps.inspect.outputs.actions_run_id }}" \
+            --repo "${GH_REPO}" \
+            --pattern \
+              "ucm-image-*-receipt-*-run-${{ steps.inspect.outputs.actions_run_id }}" \
+            --dir input/receipts
+          receipt_count="$(find input/receipts -type f -name '*.json' | wc -l \
+            | tr -d '[:space:]')"
+          echo "downloaded ${receipt_count} publication receipts"
+          test "${receipt_count}" = 110
       - name: Reconstruct the complete Final State and Schema 7 projection
         if: ${{ steps.inspect.outputs.needs_migration == 'true' }}
         run: |
@@ -163,6 +168,14 @@ jobs:
             --pypi-outcome success \
             --chart-oci-outcome success \
             --output out/release
+          jq '{
+            tag: .release.git_tag,
+            run_id: .release.actions_run_id,
+            status: .release.status,
+            wheels: (.wheels | length),
+            images: (.images | length),
+            families: (.families | length)
+          }' out/release/release-state.json
           jq -e --arg tag "${RELEASE_TAG}" \
             --argjson run_id "${{ steps.inspect.outputs.actions_run_id }}" '
             .kind == "ucm-release-state" and
@@ -176,6 +189,13 @@ jobs:
             --state out/release/release-state.json \
             --release input/release/release-before.json \
             --output out/release
+          jq '{
+            schema_version,
+            release,
+            wheels: (.wheels | length),
+            images: (.images | length),
+            assets: (.github_release_assets | length)
+          }' out/release/release-manifest.json
           jq -e --arg tag "${RELEASE_TAG}" '
             .kind == "ucm-release-manifest" and
             .schema_version == 7 and
