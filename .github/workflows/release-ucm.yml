@@ -684,7 +684,7 @@ jobs:
             "${RUNTIME_IMAGE}" -c '
               set -euo pipefail
               ldd_output="$(ldd --version 2>&1)"
-              actual_glibc="$(python3 -c "import re, sys; match = re.search(r'[0-9]+(?:\\.[0-9]+)+', sys.stdin.read()); print(match.group(0) if match else '')" \
+              actual_glibc="$(python3 -c "import re, sys; match = re.search(r\"[0-9]+(?:\\.[0-9]+)+\", sys.stdin.read()); print(match.group(0) if match else \"\")" \
                 <<<"${ldd_output}")"
               test -n "${actual_glibc}"
               required_glibc="${EXPECTED_WHEEL_GLIBC_FLOOR#GLIBC_}"
