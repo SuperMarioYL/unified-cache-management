@@ -162,12 +162,55 @@
 }
 
 .ucm-install__output {
-  margin-top: 1.2rem;
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  min-height: 3.5rem;
+  margin: 0;
+  border-top: 0.1rem solid var(--md-default-bg-color);
 }
 
 .ucm-install__output-title {
-  margin: 0 0 0.5rem !important;
-  font-size: 0.9rem;
+  margin: 0 !important;
+  font-size: 0.68rem;
+}
+
+.ucm-install__output-value {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  background: var(--md-code-bg-color);
+}
+
+.ucm-install__output .ucm-install__command {
+  width: 100%;
+  margin: 0;
+}
+
+.ucm-install__output .ucm-install__pre {
+  min-height: 3.5rem;
+  padding: 0.65rem 4.5rem 0.65rem 0.65rem !important;
+  border-radius: 0;
+  background: var(--md-code-bg-color) !important;
+  color: var(--md-default-fg-color) !important;
+}
+
+.ucm-install__output .ucm-install__pre code {
+  color: inherit !important;
+  font-size: 0.65rem;
+}
+
+.ucm-install__output .ucm-install__copy {
+  inset-block-start: 50%;
+  transform: translateY(-50%);
+  border-color: var(--ucm-install-border);
+  background: var(--md-default-bg-color);
+  color: var(--ucm-install-accent);
+}
+
+.ucm-install__output .ucm-install__copy:hover,
+.ucm-install__output .ucm-install__copy:focus-visible {
+  border-color: var(--ucm-install-accent);
+  background: var(--ucm-install-accent-soft);
 }
 
 .ucm-install__grid {
@@ -362,6 +405,10 @@
 
 @media (max-width: 48rem) {
   .ucm-selector__row {
+    grid-template-columns: 6.5rem minmax(0, 1fr);
+  }
+
+  .ucm-install__output {
     grid-template-columns: 6.5rem minmax(0, 1fr);
   }
 
