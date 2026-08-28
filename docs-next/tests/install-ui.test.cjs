@@ -135,6 +135,17 @@ test("Schema 7 loader enforces the exact public contract", () => {
   );
 });
 
+test("Compute platform labels hide internal SoC identifiers", () => {
+  const accelerator = {
+    runtime: "cann-9.0.1",
+    variant: "a3",
+    soc_version: "ascend910_9391",
+  };
+  assert.equal(Manifest.acceleratorKey(accelerator), "cann-9.0.1|a3");
+  assert.equal(Manifest.acceleratorLabel(accelerator), "CANN 9.0.1 / A3");
+  assert.equal(Manifest.acceleratorLabel(accelerator).includes("9391"), false);
+});
+
 test("Wheel selection auto-corrects dependent fields and emits one exact command", () => {
   const model = Selector.buildSelectorModel(
     fixture(),
@@ -144,11 +155,11 @@ test("Wheel selection auto-corrects dependent fields and emits one exact command
   assert.deepEqual(initial.state, {
     method: "wheel",
     engine: "vllm",
-    compute: "cuda-13.0|default|na",
+    compute: "cuda-13.0|default",
     os: null,
     architecture: "amd64",
   });
-  assert.equal(option(initial.rows.compute, "cann-9.0.1|a2|ascend910b1").disabled, true);
+  assert.equal(option(initial.rows.compute, "cann-9.0.1|a2").disabled, true);
   assert.equal(
     initial.command,
     'python -m pip install "uc-manager==0.9.0+cu130" --index-url https://docs.example/whl/cu130/'
@@ -157,10 +168,10 @@ test("Wheel selection auto-corrects dependent fields and emits one exact command
   const ascend = Selector.deriveSelection(model, {
     method: "wheel",
     engine: "vllm-ascend",
-    compute: "cuda-13.0|default|na",
+    compute: "cuda-13.0|default",
     architecture: "amd64",
   });
-  assert.equal(ascend.state.compute, "cann-9.0.1|a2|ascend910b1");
+  assert.equal(ascend.state.compute, "cann-9.0.1|a2");
   assert.equal(ascend.state.architecture, "arm64");
   assert.match(ascend.command, /uc-manager==0\.9\.0\+cann901\.a2/);
 });
