@@ -570,7 +570,7 @@ def test_artifact_upload_restores_tag_before_generating_asset_links() -> None:
         < run.index("release.py notes")
     )
     assert "out/release/artifact-readback/release-notes.md" in run
-    assert 'rtrimstr("\\n")' in run
+    assert 'sub("\\\\n+$"; "")' in run
 
 
 def test_direct_member_receipt_barrier_and_index_matrix_are_unbounded() -> None:

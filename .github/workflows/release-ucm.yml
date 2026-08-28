@@ -900,7 +900,8 @@ jobs:
           fi
           gh api "/repos/${GH_REPO}/releases/${release_id}" >"${release_json}"
           jq -e --arg tag "${tag}" --rawfile notes out/release/release-notes.md \
-            '.tag_name == $tag and .body == ($notes | rtrimstr("\n"))' \
+            '.tag_name == $tag and
+             (.body | sub("\\n+$"; "")) == ($notes | sub("\\n+$"; ""))' \
             "${release_json}" >/dev/null
           mkdir -p out/release/artifact-readback
           python .github/release/ucm_release/release.py notes \
@@ -1467,7 +1468,8 @@ jobs:
           fi
           gh api "/repos/${GH_REPO}/releases/${release_id}" >"${release_json}"
           jq -e --arg tag "${tag}" --rawfile notes out/release/release-notes.md \
-            '.tag_name == $tag and .body == ($notes | rtrimstr("\n"))' \
+            '.tag_name == $tag and
+             (.body | sub("\\n+$"; "")) == ($notes | sub("\\n+$"; ""))' \
             "${release_json}" >/dev/null
           mkdir -p out/release/readback
           python .github/release/ucm_release/release.py notes \
