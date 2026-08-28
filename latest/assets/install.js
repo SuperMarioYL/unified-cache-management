@@ -79,6 +79,13 @@
     return architecture;
   }
 
+  function computeLabelParts(label) {
+    var parts = String(label).split(" / ");
+    return parts.length === 2
+      ? { primary: parts[0], secondary: parts[1] }
+      : { primary: String(label), secondary: null };
+  }
+
   function unsupportedVariant(artifact) {
     return [artifact.accelerator.variant, artifact.accelerator.soc_version].some(
       function (value) {
@@ -402,15 +409,31 @@
       input.name = "ucm-selector-" + name;
       input.value = option.value;
       input.dataset.selectorOption = option.value;
+      input.setAttribute("aria-label", labelText);
       input.checked = option.value === selected;
       input.disabled = option.disabled;
+      optionLabel.title = labelText;
       if (input.checked) optionLabel.classList.add("ucm-selector__option--selected");
       if (input.disabled) optionLabel.classList.add("ucm-selector__option--disabled");
       input.addEventListener("change", function () {
         if (input.checked) onSelect(name, option.value);
       });
       optionLabel.appendChild(input);
-      optionLabel.appendChild(element("span", "ucm-selector__option-text", labelText));
+      var labelParts =
+        name === "compute"
+          ? computeLabelParts(labelText)
+          : { primary: labelText, secondary: null };
+      var optionText = element("span", "ucm-selector__option-text");
+      optionText.appendChild(
+        element("span", "ucm-selector__option-primary", labelParts.primary)
+      );
+      if (labelParts.secondary !== null) {
+        optionText.classList.add("ucm-selector__option-text--stacked");
+        optionText.appendChild(
+          element("span", "ucm-selector__option-secondary", labelParts.secondary)
+        );
+      }
+      optionLabel.appendChild(optionText);
       options.appendChild(optionLabel);
     });
     wrapper.appendChild(options);
@@ -482,6 +505,7 @@
   return {
     TEXT: TEXT,
     architectureLabel: architectureLabel,
+    computeLabelParts: computeLabelParts,
     buildSelectorModel: buildSelectorModel,
     deriveSelection: deriveSelection,
     initialize: initialize,
