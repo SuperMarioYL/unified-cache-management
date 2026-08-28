@@ -5,6 +5,8 @@ const Manifest = require("../docs/assets/manifest.js");
 const Selector = require("../docs/assets/install.js");
 const Download = require("../docs/assets/download.js");
 
+assert.deepEqual(Selector.ROW_ORDER.slice(0, 2), ["engine", "method"]);
+
 function publication(reference, architectures) {
   return {
     pull: reference,
