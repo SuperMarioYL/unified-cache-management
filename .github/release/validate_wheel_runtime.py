@@ -57,19 +57,22 @@ def validate_external_resolution(
     owned_members: set[Path],
     *,
     missing: set[str] | None = None,
-    allow_missing: bool = False,
+    deferred: set[str] | None = None,
 ) -> None:
     missing = missing or set()
-    unexpected_missing = sorted(missing - set(expected_external))
+    deferred = deferred or set()
+    if not deferred.issubset(expected_external):
+        raise RuntimeError("deferred Runtime libraries must be external libraries")
+    unexpected_missing = sorted(missing - deferred)
     if unexpected_missing:
         raise RuntimeError(
-            "missing Runtime libraries are not allowlisted: "
+            "missing Runtime libraries were not deferred by the Wheel audit: "
             + ", ".join(unexpected_missing)
         )
     for soname in expected_external:
         paths = resolved.get(soname)
         if not paths:
-            if allow_missing and soname in missing:
+            if soname in missing and soname in deferred:
                 continue
             raise RuntimeError(
                 f"expected external Runtime library was not resolved: {soname}"
@@ -86,7 +89,7 @@ def validate_runtime(
     expected_external: list[str],
     members: list[Path],
     *,
-    allow_missing: bool = False,
+    deferred: set[str] | None = None,
 ) -> None:
     members = sorted(members)
     if not members:
@@ -94,6 +97,7 @@ def validate_runtime(
 
     resolved: dict[str, set[str]] = {}
     missing: set[str] = set()
+    deferred = deferred or set()
     members_with_missing: set[Path] = set()
     for member in members:
         completed = subprocess.run(
@@ -104,7 +108,7 @@ def validate_runtime(
         )
         output = completed.stdout + completed.stderr
         member_missing = parse_ldd_missing(output)
-        if completed.returncode != 0 or (member_missing and not allow_missing):
+        if completed.returncode != 0 or member_missing - deferred:
             raise RuntimeError(
                 f"native dependency resolution failed for {member}:\n{output}"
             )
@@ -122,7 +126,7 @@ def validate_runtime(
         expected_external,
         owned_members,
         missing=missing,
-        allow_missing=allow_missing,
+        deferred=deferred,
     )
 
     for member in members:
@@ -193,12 +197,18 @@ def main() -> int:
     expected_backend = required_environment("EXPECTED_BACKEND_DISTRIBUTION")
     expected_version = required_environment("EXPECTED_UCM_VERSION")
     expected_meta_version = os.environ.get("EXPECTED_META_VERSION")
-    allow_missing = os.environ.get("ALLOW_MISSING_EXTERNAL_LIBRARIES") == "true"
     expected = json.loads(os.environ.get("EXPECTED_EXTERNAL_LIBRARIES", "[]"))
     if not isinstance(expected, list) or any(
         not isinstance(value, str) or not value for value in expected
     ):
         raise RuntimeError("EXPECTED_EXTERNAL_LIBRARIES must be a JSON string list")
+    deferred = json.loads(os.environ.get("DEFERRED_EXTERNAL_LIBRARIES", "[]"))
+    if not isinstance(deferred, list) or any(
+        not isinstance(value, str) or not value for value in deferred
+    ):
+        raise RuntimeError("DEFERRED_EXTERNAL_LIBRARIES must be a JSON string list")
+    if not set(deferred).issubset(expected):
+        raise RuntimeError("deferred Runtime libraries must be external libraries")
     runtime_requirements = json.loads(
         os.environ.get("EXPECTED_RUNTIME_REQUIREMENTS", "[]")
     )
@@ -217,7 +227,7 @@ def main() -> int:
         Path(next(iter(package_paths))),
         sorted(expected),
         distribution_native_members(backend),
-        allow_missing=allow_missing,
+        deferred=set(deferred),
     )
     validate_runtime_requirements(sorted(runtime_requirements))
     return 0

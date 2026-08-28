@@ -1,18 +1,30 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.util
+import importlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
-MODULE = ROOT / ".github" / "release" / "ucm_release" / "release.py"
-SPEC = importlib.util.spec_from_file_location("ucm_release_manifest", MODULE)
-assert SPEC is not None and SPEC.loader is not None
-release = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(release)
+RELEASE_ROOT = ROOT / ".github" / "release"
+sys.path.insert(0, str(RELEASE_ROOT))
+release = importlib.import_module("ucm_release.release")
+
+
+def test_release_script_direct_entrypoint_remains_executable() -> None:
+    completed = subprocess.run(
+        [sys.executable, str(RELEASE_ROOT / "ucm_release" / "release.py"), "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "{artifacts,finalize,notes,manifest,members}" in completed.stdout
 
 
 def _plan() -> dict[str, object]:
@@ -50,13 +62,14 @@ def _plan() -> dict[str, object]:
                 "runtime_variant": "cu129",
                 "manylinux": "manylinux_2_28",
                 "target_platform_tag": "manylinux_2_28_x86_64",
-                "external_runtime_libraries": ["libcudart.so.12"],
+                "external_runtime_exclude_patterns": ["libcudart.so.12"],
+                "runtime_deferred_libraries": [],
                 "runtime_requirements": ["wrapt==1.17.2"],
                 "repair": {
                     "tool": "auditwheel",
                     "version": "6.7.0",
                     "target_platform": "manylinux_2_28_x86_64",
-                    "excluded_libraries": ["libcudart.so.12"],
+                    "excluded_patterns": ["libcudart.so.12"],
                 },
                 "builder": {
                     "repository": "ghcr.io/example/ucm-builder",
@@ -114,6 +127,16 @@ def _write_artifact_inputs(
     (wheels / filename).write_bytes(b"wheel")
     report_text = "\n".join(
         (
+            "DEBUG:auditwheel.wheel_abi:full_elftree:",
+            json.dumps(
+                {
+                    "ucm/test-extension.so": {
+                        "needed": ["libcudart.so.12"],
+                        "libraries": {"libcudart.so.12": {"needed": []}},
+                    }
+                },
+                sort_keys=True,
+            ),
             f"{filename} is consistent with the following platform tag: "
             '"linux_x86_64".',
             "",
@@ -134,7 +157,7 @@ def _write_artifact_inputs(
         json.dumps(
             {
                 "kind": "ucm-wheel-result",
-                "schema_version": 3,
+                "schema_version": 4,
                 "task_id": "cuda129-cp312-amd64",
                 "distribution": "uc-manager-cuda-cu129",
                 "version": "0.7.62rc1",
@@ -147,12 +170,15 @@ def _write_artifact_inputs(
                 "abi_compatible_platform_tag": "manylinux_2_27_x86_64",
                 "glibc_versions": ["GLIBC_2.2.5", "GLIBC_2.17"],
                 "glibc_floor": "GLIBC_2.17",
+                "external_library_roots": ["libcudart.so.12"],
                 "external_libraries": ["libcudart.so.12"],
+                "runtime_deferred_libraries": [],
+                "deferred_external_libraries": [],
                 "repair": {
                     "tool": "auditwheel",
                     "version": "6.7.0",
                     "target_platform": "manylinux_2_28_x86_64",
-                    "excluded_libraries": ["libcudart.so.12"],
+                    "excluded_patterns": ["libcudart.so.12"],
                 },
                 "dependencies": ["wrapt==1.17.2"],
                 "auditwheel_report": {
@@ -928,7 +954,7 @@ def test_artifact_manifest_rejects_wrong_wheel_result_contract(
     result[field] = value
     result_path.write_text(json.dumps(result), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="ucm-wheel-result schema 3"):
+    with pytest.raises(ValueError, match="ucm-wheel-result schema 4"):
         release.build_artifacts_manifest(_plan(), wheels, chart, actions_run_id=123)
 
 
@@ -940,7 +966,10 @@ def test_artifact_manifest_rejects_wrong_wheel_result_contract(
         "abi_compatible_platform_tag",
         "glibc_versions",
         "glibc_floor",
+        "external_library_roots",
         "external_libraries",
+        "runtime_deferred_libraries",
+        "deferred_external_libraries",
         "auditwheel_report",
         "repair",
         "sha256",

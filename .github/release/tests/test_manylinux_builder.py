@@ -26,13 +26,13 @@ def test_wheel_builder_repairs_to_the_planned_manylinux_tag() -> None:
     assert "tee /out/auditwheel-show.txt" in dockerfile
 
 
-def test_wheel_workflow_materializes_exact_exclusions_for_the_builder() -> None:
+def test_wheel_workflow_materializes_external_roots_for_the_builder() -> None:
     workflow = (ROOT / ".github" / "workflows" / "_build-wheel.yml").read_text(
         encoding="utf-8"
     )
 
-    assert ".external_runtime_libraries[]" in workflow
-    assert ">.ucm-compact/auditwheel-excludes.txt" in workflow
+    assert ".external_runtime_exclude_patterns[]" in workflow
+    assert ">.ucm-compact/auditwheel-exclude-patterns.txt" in workflow
     assert 'index("\\n") == null and index("\\r") == null' in workflow
     assert "source_date_epoch=$(git show" in workflow.replace('"', "")
     assert (

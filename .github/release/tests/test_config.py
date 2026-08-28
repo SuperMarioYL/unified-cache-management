@@ -28,45 +28,6 @@ LEGACY_POLICY_FILES = (
     RELEASE_ROOT / "native-contract.yaml",
     RELEASE_ROOT / "toolchain.lock.yaml",
 )
-CANN_EXTERNAL_RUNTIME_LIBRARIES = [
-    "libacl_rt.so",
-    "libacl_rt_impl.so",
-    "libascend_dump.so",
-    "libascend_hal.so",
-    "libascend_kms.so",
-    "libascend_protobuf.so.3.13.0.0",
-    "libascend_trace.so",
-    "libascend_watchdog.so",
-    "libascendalog.so",
-    "libascendcl.so",
-    "libc_sec.so",
-    "libcann_hixl.so",
-    "libccl_dpu.so",
-    "liberror_manager.so",
-    "libhccl_alg.so",
-    "libhccl_legacy.so",
-    "libhccl_plf.so",
-    "libhccl_v2.so",
-    "libhccl_v2_alg_frame.so",
-    "libhccl_v2_native_alg_repo.so",
-    "libhcomm.so",
-    "libmetadef.so",
-    "libmmpa.so",
-    "libmsprofiler.so",
-    "libopp_registry.so",
-    "libplatform.so",
-    "libprofapi.so",
-    "libra.so",
-    "libra_hdc.so",
-    "libra_peer.so",
-    "librs.so",
-    "libruntime.so",
-    "libruntime_common.so",
-    "libtls_adp.so",
-    "libtopoaddrinfo.so",
-    "libtsdclient.so",
-    "libunified_dlog.so",
-]
 
 
 def _source_files(path: Path, *, excluded_parts: set[str] | None = None) -> list[Path]:
@@ -401,7 +362,7 @@ def test_draft_profile_publication_is_policy_driven(tmp_path: Path) -> None:
 def test_platform_policy_matches_supported_and_blocked_backends() -> None:
     assert _platform_policy() == {
         "kind": "ucm-platform-policy",
-        "schema_version": 1,
+        "schema_version": 2,
         "excluded_upstream_variants": {"vllm-ascend": ["310p"]},
         "builder_families": {
             "cuda": {
@@ -444,19 +405,30 @@ def test_platform_policy_matches_supported_and_blocked_backends() -> None:
                 "status": "supported",
                 "platform": "cuda",
                 "distribution_template": "uc-manager-cuda-{runtime_variant}",
-                "external_runtime_libraries": ["libcudart.so.{accelerator_major}"],
+                "external_runtime_exclude_patterns": [
+                    "libcudart.so.{accelerator_major}"
+                ],
+                "runtime_deferred_libraries": [],
             },
             "cann-a2": {
                 "status": "supported",
                 "platform": "ascend",
                 "distribution_template": "uc-manager-{runtime_variant}",
-                "external_runtime_libraries": CANN_EXTERNAL_RUNTIME_LIBRARIES,
+                "external_runtime_exclude_patterns": ["/usr/local/Ascend/*"],
+                "runtime_deferred_libraries": [
+                    "libascend_hal.so",
+                    "libccl_dpu.so",
+                ],
             },
             "cann-a3": {
                 "status": "supported",
                 "platform": "ascend-a3",
                 "distribution_template": "uc-manager-{runtime_variant}",
-                "external_runtime_libraries": CANN_EXTERNAL_RUNTIME_LIBRARIES,
+                "external_runtime_exclude_patterns": ["/usr/local/Ascend/*"],
+                "runtime_deferred_libraries": [
+                    "libascend_hal.so",
+                    "libccl_dpu.so",
+                ],
             },
             "cann-a5": {
                 "status": "blocked",

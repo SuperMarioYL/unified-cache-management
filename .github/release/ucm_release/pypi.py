@@ -178,7 +178,7 @@ def build_publication(
         task_id = result.get("task_id")
         if (
             result.get("kind") != "ucm-wheel-result"
-            or result.get("schema_version") != 3
+            or result.get("schema_version") != 4
             or not isinstance(task_id, str)
             or task_id not in tasks
             or task_id in results

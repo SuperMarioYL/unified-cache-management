@@ -331,10 +331,10 @@ def test_runtime_images_include_the_config_example_at_the_workspace_root() -> No
         )
         assert "sha256sum examples/ucm_config_example.yaml" in verify["run"]
         assert "EXPECTED_UCM_CONFIG_SHA256" in verify["run"]
-        assert "ALLOW_MISSING_EXTERNAL_LIBRARIES" in verify["run"]
+        assert "DEFERRED_EXTERNAL_LIBRARIES" in verify["run"]
         assert "EXPECTED_RUNTIME_REQUIREMENTS" in verify["run"]
         assert '.dependencies | select(type == "array")' in verify["run"]
-        assert ".runtime.product_id" in verify["run"]
+        assert ".deferred_external_libraries" in verify["run"]
         assert "hashlib.sha256(path.read_bytes())" in verify["run"]
         assert image_path in verify["run"]
 
@@ -813,6 +813,7 @@ def test_pypi_publication_is_backend_first_meta_last_and_read_back() -> None:
     assert "python3 -m venv" in install
     assert '"uc-manager[${UCM_EXTRA}]==${UCM_VERSION}"' in install
     assert "validate_wheel_runtime.py" in install
+    assert "DEFERRED_EXTERNAL_LIBRARIES" in install
 
 
 def test_exact_wheels_pass_runtime_validation_before_publication() -> None:
@@ -833,10 +834,11 @@ def test_exact_wheels_pass_runtime_validation_before_publication() -> None:
     assert '"${UCM_WHEEL}"' in run
     assert "validate_wheel_runtime.py" in run
     assert "python3 -m venv" in run
-    assert "ALLOW_MISSING_EXTERNAL_LIBRARIES" in run
+    assert "DEFERRED_EXTERNAL_LIBRARIES" in run
     assert "EXPECTED_RUNTIME_REQUIREMENTS" in run
     assert '.dependencies | select(type == "array")' in run
-    assert 'if [[ "${PLATFORM_ARG}" == ascend* ]]' in run
+    assert ".deferred_external_libraries" in run
+    assert 'if [[ "${PLATFORM_ARG}" == ascend* ]]' not in run
     assert "python -m pip check" not in run
     assert 're.search(r\\"[0-9]+' in run
     assert "re.search(r'[0-9]+" not in run

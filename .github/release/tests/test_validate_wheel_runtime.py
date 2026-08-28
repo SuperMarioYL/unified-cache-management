@@ -84,29 +84,44 @@ def test_external_runtime_library_cannot_resolve_to_sibling_wheel_libs(
         raise AssertionError("bundled external Runtime library was accepted")
 
 
-def test_allowlisted_missing_driver_library_can_be_deferred() -> None:
+def test_auditwheel_unresolved_transitive_library_can_be_deferred() -> None:
     runtime_validation.validate_external_resolution(
         {},
         ["libascend_hal.so"],
         set(),
         missing={"libascend_hal.so"},
-        allow_missing=True,
+        deferred={"libascend_hal.so"},
     )
 
 
-def test_unexpected_missing_library_is_never_deferred() -> None:
+def test_non_deferred_missing_library_is_rejected() -> None:
+    try:
+        runtime_validation.validate_external_resolution(
+            {},
+            ["libascendcl.so"],
+            set(),
+            missing={"libascendcl.so"},
+            deferred=set(),
+        )
+    except RuntimeError as error:
+        assert "not deferred" in str(error)
+    else:
+        raise AssertionError("non-deferred missing Runtime library was accepted")
+
+
+def test_deferred_library_must_be_in_the_external_closure() -> None:
     try:
         runtime_validation.validate_external_resolution(
             {},
             ["libascendcl.so"],
             set(),
             missing={"libunknown.so"},
-            allow_missing=True,
+            deferred={"libunknown.so"},
         )
     except RuntimeError as error:
-        assert "not allowlisted" in str(error)
+        assert "must be external" in str(error)
     else:
-        raise AssertionError("unexpected missing Runtime library was accepted")
+        raise AssertionError("unknown deferred Runtime library was accepted")
 
 
 def test_runtime_requirements_are_checked_without_global_pip_state(monkeypatch) -> None:

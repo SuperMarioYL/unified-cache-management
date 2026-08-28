@@ -663,18 +663,16 @@ jobs:
           wheel="$(realpath "${wheel}")"
           wheel_name="$(basename "${wheel}")"
           external_libraries="$(jq -c '.external_libraries' "${result}")"
+          deferred_external_libraries="$(jq -c \
+            '.deferred_external_libraries' "${result}")"
           runtime_requirements="$(jq -ce '.dependencies | select(type == "array")' \
             "${result}")"
           wheel_glibc_floor="$(jq -er '.glibc_floor | select(type == "string")' \
             "${result}")"
           ucm_version="$(jq -er '.version' "${result}")"
-          allow_missing_external_libraries=false
-          if [[ "${PLATFORM_ARG}" == ascend* ]]; then
-            allow_missing_external_libraries=true
-          fi
           docker pull "${RUNTIME_IMAGE}"
           docker run --rm --entrypoint bash \
-            -e ALLOW_MISSING_EXTERNAL_LIBRARIES="${allow_missing_external_libraries}" \
+            -e DEFERRED_EXTERNAL_LIBRARIES="${deferred_external_libraries}" \
             -e PLATFORM="${PLATFORM_ARG}" \
             -e EXPECTED_UCM_VERSION="${ucm_version}" \
             -e EXPECTED_BACKEND_DISTRIBUTION="${BACKEND_DISTRIBUTION}" \
@@ -1163,6 +1161,8 @@ jobs:
           set -euo pipefail
           external_libraries="$(jq -c '.external_libraries' \
             input/wheel/wheel-result.json)"
+          deferred_external_libraries="$(jq -c '.deferred_external_libraries' \
+            input/wheel/wheel-result.json)"
           docker pull "${RUNTIME_IMAGE}"
           docker run --rm \
             --entrypoint bash \
@@ -1173,6 +1173,7 @@ jobs:
             -e EXPECTED_META_VERSION="${UCM_VERSION}" \
             -e EXPECTED_BACKEND_DISTRIBUTION="${BACKEND_DISTRIBUTION}" \
             -e EXPECTED_EXTERNAL_LIBRARIES="${external_libraries}" \
+            -e DEFERRED_EXTERNAL_LIBRARIES="${deferred_external_libraries}" \
             -v "${PWD}/.github/release/validate_wheel_runtime.py:/tmp/validate_wheel_runtime.py:ro" \
             "${RUNTIME_IMAGE}" -c '
               set -euo pipefail

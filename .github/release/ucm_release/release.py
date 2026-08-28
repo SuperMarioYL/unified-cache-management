@@ -11,6 +11,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlparse
 
+if __package__:
+    from . import wheel_audit
+else:
+    import wheel_audit
+
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 STATE_KIND = "ucm-release-state"
 STATE_SCHEMA_VERSION = 2
@@ -58,8 +63,8 @@ def _one(paths: list[Path], context: str) -> Path:
 
 def _validate_wheel_result_contract(result: dict[str, Any], result_path: Path) -> None:
     context = f"Wheel result {result_path}"
-    if result.get("kind") != "ucm-wheel-result" or result.get("schema_version") != 3:
-        raise ValueError(f"{context} must use ucm-wheel-result schema 3")
+    if result.get("kind") != "ucm-wheel-result" or result.get("schema_version") != 4:
+        raise ValueError(f"{context} must use ucm-wheel-result schema 4")
 
     audit_fields = {
         "platform_tags",
@@ -67,7 +72,10 @@ def _validate_wheel_result_contract(result: dict[str, Any], result_path: Path) -
         "abi_compatible_platform_tag",
         "glibc_versions",
         "glibc_floor",
+        "external_library_roots",
         "external_libraries",
+        "runtime_deferred_libraries",
+        "deferred_external_libraries",
         "auditwheel_report",
         "repair",
         "sha256",
@@ -109,18 +117,47 @@ def _validate_wheel_result_contract(result: dict[str, Any], result_path: Path) -
         not isinstance(glibc_floor, str) or glibc_floor not in glibc_versions
     ):
         raise ValueError(f"{context} has an invalid glibc_floor")
+    external_roots = result.get("external_library_roots")
     external_libraries = result.get("external_libraries")
     if not isinstance(external_libraries, list) or any(
         not isinstance(value, str) or not value for value in external_libraries
     ):
         raise ValueError(f"{context} has invalid external_libraries")
+    if external_libraries != sorted(set(external_libraries)):
+        raise ValueError(f"{context} has non-canonical external_libraries")
+    if (
+        not isinstance(external_roots, list)
+        or external_roots != sorted(set(external_roots))
+        or any(not isinstance(value, str) or not value for value in external_roots)
+        or not set(external_roots).issubset(external_libraries)
+    ):
+        raise ValueError(f"{context} has invalid external_library_roots")
+    runtime_deferred = result.get("runtime_deferred_libraries")
+    if (
+        not isinstance(runtime_deferred, list)
+        or runtime_deferred != sorted(set(runtime_deferred))
+        or any(not isinstance(value, str) or not value for value in runtime_deferred)
+    ):
+        raise ValueError(f"{context} has invalid runtime_deferred_libraries")
+    for soname in runtime_deferred:
+        wheel_audit.validate_external_soname(soname)
+    deferred_external = result.get("deferred_external_libraries")
+    if (
+        not isinstance(deferred_external, list)
+        or deferred_external != sorted(set(deferred_external))
+        or any(not isinstance(value, str) or not value for value in deferred_external)
+        or not set(deferred_external).issubset(external_libraries)
+        or not set(deferred_external).issubset(runtime_deferred)
+        or set(deferred_external).intersection(external_roots)
+    ):
+        raise ValueError(f"{context} has invalid deferred_external_libraries")
 
     repair = _mapping(result.get("repair"), f"{context} repair")
     if set(repair) != {
         "tool",
         "version",
         "target_platform",
-        "excluded_libraries",
+        "excluded_patterns",
     }:
         raise ValueError(f"{context} has an invalid repair contract")
     if repair.get("tool") != "auditwheel" or not isinstance(repair.get("version"), str):
@@ -128,14 +165,14 @@ def _validate_wheel_result_contract(result: dict[str, Any], result_path: Path) -
     target_platform = repair.get("target_platform")
     if not isinstance(target_platform, str) or target_platform not in platform_tags:
         raise ValueError(f"{context} repair target is not a Wheel platform tag")
-    excluded = repair.get("excluded_libraries")
+    excluded = repair.get("excluded_patterns")
     if (
         not isinstance(excluded, list)
         or excluded != sorted(excluded)
+        or len(excluded) != len(set(excluded))
         or any(not isinstance(value, str) or not value for value in excluded)
-        or not set(external_libraries).issubset(excluded)
     ):
-        raise ValueError(f"{context} has non-allowlisted external libraries")
+        raise ValueError(f"{context} has invalid external exclude patterns")
 
     report = _mapping(result.get("auditwheel_report"), f"{context} auditwheel report")
     report_name = report.get("filename")
@@ -158,6 +195,19 @@ def _validate_wheel_result_contract(result: dict[str, Any], result_path: Path) -
         or report_path.read_text(encoding="utf-8") != report_text
     ):
         raise ValueError(f"{context} auditwheel report text does not match")
+    closure = wheel_audit.validate_external_library_closure(
+        report_text,
+        expected_patterns=excluded,
+        allowed_deferred_libraries=runtime_deferred,
+    )
+    if external_roots != closure["external_library_roots"]:
+        raise ValueError(f"{context} external roots do not match auditwheel")
+    if external_libraries != closure["external_libraries"]:
+        raise ValueError(f"{context} external libraries do not match auditwheel")
+    if runtime_deferred != closure["runtime_deferred_libraries"]:
+        raise ValueError(f"{context} Runtime deferred policy does not match auditwheel")
+    if deferred_external != closure["deferred_external_libraries"]:
+        raise ValueError(f"{context} deferred libraries do not match auditwheel")
 
 
 def _family_map(plan: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -264,6 +314,7 @@ def build_artifacts_manifest(
             "python_abi": task["python_abi"],
             "cpu_arch": task["cpu_arch"],
             "dependencies": task["runtime_requirements"],
+            "runtime_deferred_libraries": task["runtime_deferred_libraries"],
         }
         if any(result.get(key) != value for key, value in expected.items()):
             raise ValueError(f"Wheel result {task_id!r} does not match its plan")
@@ -271,7 +322,7 @@ def build_artifacts_manifest(
             "tool": task["repair"]["tool"],
             "version": task["repair"]["version"],
             "target_platform": task["target_platform_tag"],
-            "excluded_libraries": task["external_runtime_libraries"],
+            "excluded_patterns": task["external_runtime_exclude_patterns"],
         }
         if result.get("repair") != expected_repair:
             raise ValueError(f"Wheel result {task_id!r} repair does not match its plan")

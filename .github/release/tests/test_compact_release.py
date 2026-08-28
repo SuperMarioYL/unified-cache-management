@@ -125,13 +125,14 @@ def _wheel_result_task(cpu_arch: str) -> dict[str, str]:
         "python_abi": "cp312",
         "cpu_arch": cpu_arch,
         "target_platform_tag": target,
-        "external_runtime_libraries": ["libcudart.so.13"],
+        "external_runtime_exclude_patterns": ["libcudart.so.13"],
+        "runtime_deferred_libraries": [],
         "runtime_requirements": ["wrapt==1.17.2"],
         "repair": {
             "tool": "auditwheel",
             "version": "6.7.0",
             "target_platform": target,
-            "excluded_libraries": ["libcudart.so.13"],
+            "excluded_patterns": ["libcudart.so.13"],
         },
     }
 
@@ -144,9 +145,30 @@ def _write_auditwheel_report(
     reported_filename: str | None = None,
     glibc_versions: tuple[str, ...] = ("GLIBC_2.17",),
     external_libraries: tuple[str, ...] = ("libcudart.so.13",),
+    direct_external_libraries: tuple[str, ...] = ("libcudart.so.13",),
+    external_library_paths: dict[str, str | None] | None = None,
 ) -> Path:
     report = wheel.with_name(compact.AUDITWHEEL_REPORT)
-    libraries = json.dumps({name: None for name in external_libraries}, indent=4)
+    direct_external = sorted(set(direct_external_libraries) & set(external_libraries))
+    external_paths = external_library_paths or {
+        name: None if name in direct_external else f"/vendor/{name}"
+        for name in external_libraries
+    }
+    libraries = json.dumps(external_paths, indent=4)
+    dependencies = {soname: [] for soname in external_libraries}
+    if direct_external:
+        dependencies[direct_external[0]] = sorted(
+            set(external_libraries) - set(direct_external)
+        )
+    elf_trees = {
+        "ucm/test-extension.so": {
+            "needed": direct_external,
+            "libraries": {
+                soname: {"needed": required}
+                for soname, required in dependencies.items()
+            },
+        }
+    }
     constraint = (
         f'This constrains the platform tag to "{constrained_platform}". In order '
         "to achieve a more compatible tag, you would need to recompile a new Wheel."
@@ -156,6 +178,8 @@ def _write_auditwheel_report(
     report.write_text(
         "\n".join(
             (
+                "DEBUG:auditwheel.wheel_abi:full_elftree:",
+                json.dumps(elf_trees, sort_keys=True),
                 f"{reported_filename or wheel.name} is consistent with the following "
                 f'platform tag: "{compatible_platform}".',
                 "",
@@ -274,7 +298,8 @@ def test_plan_projects_runtime_referenced_distributions_from_platform_policy() -
     assert all(
         wheel["target_platform_tag"].startswith("manylinux_")
         and wheel["repair"]["target_platform"] == wheel["target_platform_tag"]
-        and wheel["repair"]["excluded_libraries"] == wheel["external_runtime_libraries"]
+        and wheel["repair"]["excluded_patterns"]
+        == wheel["external_runtime_exclude_patterns"]
         for wheel in plan["wheels"]
     )
 
@@ -572,13 +597,16 @@ def test_wheel_result_manifest_uses_actual_filename_tags(tmp_path: Path) -> None
     result = compact.record_wheel_result(task, wheel)
     assert result["task_id"] == "cuda130-cp312-amd64"
     assert result["filename"] == wheel.name
-    assert result["schema_version"] == 3
+    assert result["schema_version"] == 4
     assert result["platform_tags"] == ["manylinux_2_28_x86_64"]
     assert result["auditwheel_platform_tag"] == "linux_x86_64"
     assert result["abi_compatible_platform_tag"] == "manylinux_2_27_x86_64"
     assert result["glibc_versions"] == ["GLIBC_2.17"]
     assert result["glibc_floor"] == "GLIBC_2.17"
+    assert result["external_library_roots"] == ["libcudart.so.13"]
     assert result["external_libraries"] == ["libcudart.so.13"]
+    assert result["runtime_deferred_libraries"] == []
+    assert result["deferred_external_libraries"] == []
     assert result["repair"] == task["repair"]
     assert len(result["sha256"]) == 64
     assert result["auditwheel_report"]["filename"] == report.name
@@ -586,12 +614,13 @@ def test_wheel_result_manifest_uses_actual_filename_tags(tmp_path: Path) -> None
     assert len(result["auditwheel_report"]["sha256"]) == 64
 
 
-def test_wheel_result_allows_an_unused_external_library_allowlist_entry(
+def test_wheel_result_path_pattern_discovers_actual_roots(
     tmp_path: Path,
 ) -> None:
     task = _wheel_result_task("amd64")
-    task["external_runtime_libraries"].append("liboptional.so")
-    task["repair"]["excluded_libraries"].append("liboptional.so")
+    task["external_runtime_exclude_patterns"] = ["/usr/local/Ascend/*"]
+    task["runtime_deferred_libraries"] = ["libdriver.so"]
+    task["repair"]["excluded_patterns"] = ["/usr/local/Ascend/*"]
     wheel = tmp_path / (
         "uc_manager_cuda_cu130-0.7.60rc1-cp312-cp312-" "manylinux_2_28_x86_64.whl"
     )
@@ -599,15 +628,25 @@ def test_wheel_result_allows_an_unused_external_library_allowlist_entry(
     _write_auditwheel_report(
         wheel,
         compatible_platform="manylinux_2_27_x86_64",
-        external_libraries=("libcudart.so.13",),
+        external_libraries=("libascendcl.so", "libdriver.so"),
+        direct_external_libraries=("libascendcl.so",),
+        external_library_paths={
+            "libascendcl.so": "/usr/local/Ascend/cann/lib64/libascendcl.so",
+            "libdriver.so": None,
+        },
     )
 
     result = compact.record_wheel_result(task, wheel)
 
-    assert result["external_libraries"] == ["libcudart.so.13"]
+    assert result["external_library_roots"] == ["libascendcl.so"]
+    assert result["external_libraries"] == ["libascendcl.so", "libdriver.so"]
+    assert result["runtime_deferred_libraries"] == ["libdriver.so"]
+    assert result["deferred_external_libraries"] == ["libdriver.so"]
 
 
-def test_wheel_result_rejects_non_allowlisted_external_library(tmp_path: Path) -> None:
+def test_wheel_result_records_a_transitive_external_library_without_configuring_it(
+    tmp_path: Path,
+) -> None:
     task = _wheel_result_task("amd64")
     wheel = tmp_path / (
         "uc_manager_cuda_cu130-0.7.60rc1-cp312-cp312-" "manylinux_2_28_x86_64.whl"
@@ -616,10 +655,34 @@ def test_wheel_result_rejects_non_allowlisted_external_library(tmp_path: Path) -
     _write_auditwheel_report(
         wheel,
         compatible_platform="manylinux_2_27_x86_64",
-        external_libraries=("libunexpected.so",),
+        external_libraries=("libcudart.so.13", "libvendor_child.so"),
     )
 
-    with pytest.raises(ValueError, match="non-allowlisted"):
+    result = compact.record_wheel_result(task, wheel)
+
+    assert result["external_libraries"] == [
+        "libcudart.so.13",
+        "libvendor_child.so",
+    ]
+    assert result["deferred_external_libraries"] == []
+
+
+def test_wheel_result_rejects_an_external_library_outside_configured_roots(
+    tmp_path: Path,
+) -> None:
+    task = _wheel_result_task("amd64")
+    wheel = tmp_path / (
+        "uc_manager_cuda_cu130-0.7.60rc1-cp312-cp312-" "manylinux_2_28_x86_64.whl"
+    )
+    _write_wheel_fixture(wheel, "cp312-cp312-manylinux_2_28_x86_64")
+    _write_auditwheel_report(
+        wheel,
+        compatible_platform="manylinux_2_27_x86_64",
+        external_libraries=("libcudart.so.13", "libunexpected.so"),
+        direct_external_libraries=("libcudart.so.13", "libunexpected.so"),
+    )
+
+    with pytest.raises(ValueError, match="outside the provider boundary"):
         compact.record_wheel_result(task, wheel)
 
 

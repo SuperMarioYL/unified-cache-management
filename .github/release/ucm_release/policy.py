@@ -8,7 +8,6 @@ consumers on the same policy without duplicating Release configuration.
 from __future__ import annotations
 
 import copy
-import re
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +17,7 @@ from packaging.version import InvalidVersion, Version
 
 from . import core
 from . import runtime as runtime_ops
+from . import wheel_audit
 
 RELEASE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RELEASE = RELEASE_ROOT / "release.yaml"
@@ -205,37 +205,57 @@ def _validate_platform_semantics(platforms: dict[str, Any]) -> None:
             raise ValueError(
                 f"supported platform backend {backend!r} cannot have a reason"
             )
-        libraries = config.get("external_runtime_libraries")
+        patterns = config.get("external_runtime_exclude_patterns")
+        deferred_libraries = config.get("runtime_deferred_libraries")
         if config["status"] == "supported":
-            if not isinstance(libraries, list) or not libraries:
+            if not isinstance(patterns, list) or not patterns:
                 raise ValueError(
-                    f"supported platform backend {backend!r} requires external runtime libraries"
+                    f"supported platform backend {backend!r} requires external runtime exclude patterns"
                 )
-            for library in libraries:
-                if not isinstance(library, str):
+            for pattern in patterns:
+                if not isinstance(pattern, str):
                     raise ValueError(
-                        f"platform backend {backend!r} has invalid external runtime library"
+                        f"platform backend {backend!r} has invalid external runtime exclude pattern"
                     )
-                rendered = library.replace("{accelerator_major}", "1")
+                rendered = pattern.replace("{accelerator_major}", "1")
                 if (
-                    library.count("{accelerator_major}") > 1
+                    pattern.count("{accelerator_major}") > 1
                     or "{" in rendered
                     or "}" in rendered
-                    or re.fullmatch(r"lib[a-zA-Z0-9_.+-]+\.so(?:\.[0-9]+)*", rendered)
-                    is None
                 ):
                     raise ValueError(
-                        f"platform backend {backend!r} has invalid external runtime library"
+                        f"platform backend {backend!r} has invalid external runtime exclude pattern"
                     )
+                try:
+                    wheel_audit.validate_exclude_pattern(rendered)
+                except ValueError as error:
+                    raise ValueError(
+                        f"platform backend {backend!r} has invalid external runtime exclude pattern"
+                    ) from error
             if backend != "cuda" and any(
-                "{accelerator_major}" in library for library in libraries
+                "{accelerator_major}" in pattern for pattern in patterns
             ):
                 raise ValueError(
                     f"platform backend {backend!r} cannot use accelerator_major"
                 )
-        elif libraries is not None:
+            if not isinstance(deferred_libraries, list):
+                raise ValueError(
+                    f"supported platform backend {backend!r} requires runtime deferred libraries"
+                )
+            for soname in deferred_libraries:
+                if not isinstance(soname, str):
+                    raise ValueError(
+                        f"platform backend {backend!r} has invalid runtime deferred library"
+                    )
+                try:
+                    wheel_audit.validate_external_soname(soname)
+                except ValueError as error:
+                    raise ValueError(
+                        f"platform backend {backend!r} has invalid runtime deferred library"
+                    ) from error
+        elif patterns is not None or deferred_libraries is not None:
             raise ValueError(
-                f"blocked platform backend {backend!r} cannot declare runtime libraries"
+                f"blocked platform backend {backend!r} cannot declare runtime library policy"
             )
 
 

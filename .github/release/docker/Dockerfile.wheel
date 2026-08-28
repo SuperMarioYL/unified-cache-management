@@ -47,7 +47,7 @@ RUN python_scripts="$(ucm-python -c \
     ucm-python -m build --no-isolation --wheel \
       --outdir /tmp/ucm-raw-wheel && \
     mapfile -t auditwheel_excludes \
-      <.ucm-compact/auditwheel-excludes.txt && \
+      <.ucm-compact/auditwheel-exclude-patterns.txt && \
     repair_args=() && \
     for library in "${auditwheel_excludes[@]}"; do \
       repair_args+=(--exclude "${library}"); \

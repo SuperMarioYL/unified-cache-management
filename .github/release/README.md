@@ -156,19 +156,27 @@ manylinux_2_34_x86_64  # CANN
 manylinux_2_34_aarch64
 ```
 
-CUDA/CANN Runtime libraries may remain external only when their SONAME appears
-in the task allowlist; UCM-owned libraries such as `libmetrics.so` must be
-repaired into the Wheel dependency closure. Each backend artifact contains:
+`external_runtime_exclude_patterns` declares the Runtime-provider boundary:
+CANN uses one `/usr/local/Ascend/*` path pattern, while unresolved CUDA uses a
+versioned `libcudart` SONAME pattern. The concrete direct roots and complete
+version-specific closure are derived from auditwheel's ELF graph. Every direct
+external library must match the boundary, and every transitive external library
+must be reachable from a discovered root. UCM-owned libraries such as
+`libmetrics.so` must be repaired into the Wheel. Each backend artifact contains:
 
 - the Wheel;
-- `wheel-result.json` schema 3;
+- `wheel-result.json` schema 4;
 - `auditwheel-repair.txt`;
 - `auditwheel-show.txt`.
 
 The result verifies the filename against WHEEL metadata, records the repair
-target, compatible ABI floor, GLIBC symbols/floor, actual external libraries,
-and audit report digest. A separate `py3-none-any` `uc-manager` meta Wheel maps
-the release's dynamic extras to exact backend distribution versions.
+target and exclude patterns, compatible ABI floor, GLIBC symbols/floor,
+dynamically discovered external roots and closure, the unresolved non-root
+libraries that Runtime validation may defer, and the audit report digest. Only
+the explicit CANN device libraries `libascend_hal.so` and `libccl_dpu.so` may be
+deferred; a new unresolved library fails instead of expanding that policy. A
+separate `py3-none-any` `uc-manager` meta Wheel maps the release's dynamic
+extras to exact backend distribution versions.
 The staged Release validates the standalone report again before uploading the
 Wheel.
 

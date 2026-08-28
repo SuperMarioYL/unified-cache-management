@@ -111,14 +111,13 @@ jobs:
             input/wheel/wheel-result.json)"
           runtime_requirements="$(jq -ce '.dependencies | select(type == "array")' \
             input/wheel/wheel-result.json)"
-          allow_missing_external_libraries=false
-          if [ "$(jq -r '.runtime.product_id' out/image-task.json)" = vllm-ascend ]; then
-            allow_missing_external_libraries=true
-          fi
+          deferred_external_libraries="$(jq -ce \
+            '.deferred_external_libraries | select(type == "array")' \
+            input/wheel/wheel-result.json)"
           config_sha256="$(sha256sum examples/ucm_config_example.yaml | cut -d' ' -f1)"
           skopeo copy "oci-archive:out/image.oci.tar" "docker-daemon:${local_tag}"
           docker run --rm --entrypoint sh \
-            -e ALLOW_MISSING_EXTERNAL_LIBRARIES="${allow_missing_external_libraries}" \
+            -e DEFERRED_EXTERNAL_LIBRARIES="${deferred_external_libraries}" \
             -e EXPECTED_PYTHON="$(jq -r '.runtime.python_version' out/image-task.json)" \
             -e EXPECTED_OS_ID="$(jq -r '.runtime.os_id' out/image-task.json)" \
             -e EXPECTED_OS_VERSION="$(jq -r '.runtime.os_version' out/image-task.json)" \

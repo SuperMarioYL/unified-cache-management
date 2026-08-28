@@ -5,7 +5,6 @@ from __future__ import annotations
 import copy
 import email.parser
 import hashlib
-import json
 import re
 import tomllib
 import zipfile
@@ -21,7 +20,7 @@ from packaging.version import Version
 from . import builders
 from . import policy as release_policy
 from . import runtime as runtime_ops
-from . import upstream
+from . import upstream, wheel_audit
 
 ROUTES = frozenset({"pr", "daily", "release"})
 WHEEL_ARCHITECTURES = {"amd64": "x86_64", "arm64": "aarch64"}
@@ -116,38 +115,46 @@ def _auditwheel_version(requirements: list[str]) -> str:
     return specifiers[0].version
 
 
-def _external_runtime_libraries(
+def _external_runtime_exclude_patterns(
     backend: Mapping[str, Any], build: Mapping[str, Any]
 ) -> list[str]:
-    templates = backend.get("external_runtime_libraries")
+    templates = backend.get("external_runtime_exclude_patterns")
     if (
         not isinstance(templates, list)
         or not templates
         or any(not isinstance(item, str) or not item for item in templates)
     ):
-        raise ValueError("supported backend has no external runtime library contract")
+        raise ValueError("supported backend has no external runtime exclude patterns")
     accelerator_runtime = str(build["accelerator_runtime"])
     match = re.fullmatch(r"cuda-(?P<major>[0-9]+)(?:\.[0-9]+)*", accelerator_runtime)
     major = match.group("major") if match is not None else None
-    libraries: list[str] = []
+    patterns: list[str] = []
     for template in templates:
         if "{accelerator_major}" in template:
             if major is None:
                 raise ValueError(
-                    "external runtime library requires a CUDA accelerator major"
+                    "external runtime exclude pattern requires a CUDA accelerator major"
                 )
-            library = template.replace("{accelerator_major}", major)
+            pattern = template.replace("{accelerator_major}", major)
         else:
-            library = template
-        if re.fullmatch(r"lib[a-zA-Z0-9_.+-]+\.so(?:\.[0-9]+)*", library) is None:
-            raise ValueError("external runtime library generated an invalid SONAME")
-        libraries.append(library)
+            pattern = template
+        wheel_audit.validate_exclude_pattern(pattern)
+        patterns.append(pattern)
+    if len(patterns) != len(set(patterns)):
+        raise ValueError("external runtime exclude patterns contain duplicates")
+    return sorted(patterns)
+
+
+def _runtime_deferred_libraries(backend: Mapping[str, Any]) -> list[str]:
+    libraries = backend.get("runtime_deferred_libraries")
+    if not isinstance(libraries, list) or any(
+        not isinstance(item, str) or not item for item in libraries
+    ):
+        raise ValueError("supported backend has invalid runtime deferred libraries")
+    for soname in libraries:
+        wheel_audit.validate_external_soname(soname)
     if len(libraries) != len(set(libraries)):
-        raise ValueError("external runtime library contract contains duplicates")
-    if "libmetrics.so" in libraries:
-        raise ValueError(
-            "UCM-owned libmetrics.so cannot be an external runtime library"
-        )
+        raise ValueError("runtime deferred libraries contain duplicates")
     return sorted(libraries)
 
 
@@ -241,7 +248,10 @@ def _wheel_task(
     requirements = _mapping(catalog.get("requirements"), "formal requirements")
     build_requirements = copy.deepcopy(requirements["wheel_build"])
     target_platform_tag = _target_platform_tag(manylinux, architecture)
-    external_runtime_libraries = _external_runtime_libraries(backend, build)
+    external_runtime_exclude_patterns = _external_runtime_exclude_patterns(
+        backend, build
+    )
+    runtime_deferred_libraries = _runtime_deferred_libraries(backend)
     return {
         "id": str(build["id"]),
         "label": (f"{build['build_group']} · {build['python_abi']} · {architecture}"),
@@ -256,7 +266,8 @@ def _wheel_task(
         "python_abi": str(build["python_abi"]),
         "manylinux": manylinux,
         "target_platform_tag": target_platform_tag,
-        "external_runtime_libraries": external_runtime_libraries,
+        "external_runtime_exclude_patterns": external_runtime_exclude_patterns,
+        "runtime_deferred_libraries": runtime_deferred_libraries,
         "wheel_version": catalog["ucm_version"],
         "dist_name": _distribution(backend, str(build["runtime_variant"])),
         "build": {"docker_target": "wheel", "platform_arg": backend["platform"]},
@@ -274,7 +285,7 @@ def _wheel_task(
             "tool": "auditwheel",
             "version": _auditwheel_version(build_requirements),
             "target_platform": target_platform_tag,
-            "excluded_libraries": external_runtime_libraries,
+            "excluded_patterns": external_runtime_exclude_patterns,
         },
         "runtime_requirements": copy.deepcopy(requirements["wheel_runtime"]),
     }
@@ -707,7 +718,8 @@ def _auditwheel_result(
     wheel_path: Path,
     architecture: str,
     target_platform: str,
-    expected_external_libraries: list[str],
+    expected_external_patterns: list[str],
+    allowed_deferred_libraries: list[str],
     report_path: Path | None,
 ) -> dict[str, Any]:
     report = report_path or wheel_path.with_name(AUDITWHEEL_REPORT)
@@ -762,31 +774,11 @@ def _auditwheel_result(
             int(part) for part in value.removeprefix("GLIBC_").split(".")
         ),
     )
-    external_libraries: list[str] | None = None
-    marker = "The following external shared libraries are required by the wheel:"
-    if marker in text:
-        payload = text.split(marker, 1)[1].lstrip()
-        try:
-            libraries, _ = json.JSONDecoder().raw_decode(payload)
-        except json.JSONDecodeError as error:
-            raise ValueError("auditwheel external-library report is invalid") from error
-        if not isinstance(libraries, dict):
-            raise ValueError("auditwheel external-library report must be a mapping")
-        external_libraries = sorted(str(name) for name in libraries)
-    elif "The wheel requires no external shared libraries" in text:
-        external_libraries = []
-    if external_libraries is None:
-        raise ValueError("auditwheel report has no external-library result")
-    unexpected_external = sorted(
-        set(external_libraries) - set(expected_external_libraries)
+    external_closure = wheel_audit.validate_external_library_closure(
+        text,
+        expected_patterns=expected_external_patterns,
+        allowed_deferred_libraries=allowed_deferred_libraries,
     )
-    if unexpected_external:
-        raise ValueError(
-            "auditwheel left non-allowlisted external libraries: "
-            f"{unexpected_external}"
-        )
-    if "libmetrics.so" in external_libraries:
-        raise ValueError("UCM-owned libmetrics.so remains external after repair")
 
     return {
         "auditwheel_report": {
@@ -798,7 +790,7 @@ def _auditwheel_result(
         "abi_compatible_platform_tag": abi_compatible_platform,
         "glibc_versions": glibc_versions,
         "glibc_floor": glibc_versions[-1] if glibc_versions else None,
-        "external_libraries": external_libraries,
+        **external_closure,
     }
 
 
@@ -843,7 +835,7 @@ def record_wheel_result(
         raise ValueError("built Wheel dependencies do not match its task")
     result = {
         "kind": "ucm-wheel-result",
-        "schema_version": 3,
+        "schema_version": 4,
         "task_id": task["id"],
         "distribution": task["dist_name"],
         "version": task["wheel_version"],
@@ -860,7 +852,8 @@ def record_wheel_result(
             wheel_path,
             architecture,
             target_platform,
-            sorted(str(item) for item in task["external_runtime_libraries"]),
+            sorted(str(item) for item in task["external_runtime_exclude_patterns"]),
+            sorted(str(item) for item in task["runtime_deferred_libraries"]),
             auditwheel_report_path,
         )
     )

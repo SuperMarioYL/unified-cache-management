@@ -61,7 +61,7 @@ def _backend_results() -> list[dict[str, object]]:
     return [
         {
             "kind": "ucm-wheel-result",
-            "schema_version": 3,
+            "schema_version": 4,
             "task_id": "cuda-amd64",
             "distribution": CUDA,
             "version": VERSION,
@@ -70,7 +70,7 @@ def _backend_results() -> list[dict[str, object]]:
         },
         {
             "kind": "ucm-wheel-result",
-            "schema_version": 3,
+            "schema_version": 4,
             "task_id": "cuda-arm64",
             "distribution": CUDA,
             "version": VERSION,
@@ -79,7 +79,7 @@ def _backend_results() -> list[dict[str, object]]:
         },
         {
             "kind": "ucm-wheel-result",
-            "schema_version": 3,
+            "schema_version": 4,
             "task_id": "cann-amd64",
             "distribution": CANN,
             "version": VERSION,
