@@ -1077,8 +1077,8 @@ jobs:
         run: >-
           test "$(jq -r '.release.status'
           out/release/release-state.json)" = complete
-      - id: publish-catalog
-        name: Publish install catalog
+      - id: publish-manifest
+        name: Publish and read back Schema 7 Release Manifest
         run: |
           set -euo pipefail
           test "${GH_REPO}" = "${GITHUB_REPOSITORY}"
@@ -1100,38 +1100,17 @@ jobs:
             jq -e '.[0].draft == false' <<<"${releases}" >/dev/null
           fi
           release_id="$(jq -er '.[0].id' <<<"${releases}")"
-          release_json="out/release/github-release.json"
-          gh api "/repos/${GH_REPO}/releases/${release_id}" >"${release_json}"
-          python .github/release/ucm_release/release.py catalog \
-            --state "${state}" --release "${release_json}" \
-            --output out/release
-          test -f out/release/install-catalog.json
-          gh release upload "${tag}" --clobber out/release/install-catalog.json
-      - id: refresh-release
-        name: Refresh GitHub Release asset list
-        run: |
-          set -euo pipefail
-          state=out/release/release-state.json
           release_json=out/release/github-release.json
-          tag="$(jq -er '.release.git_tag' "${state}")"
-          release_id="$(jq -er '.id' "${release_json}")"
           gh api "/repos/${GH_REPO}/releases/${release_id}" >"${release_json}"
-          jq -e --arg tag "${tag}" \
-            '.tag_name == $tag and
-             ([.assets[] | select(.name == "install-catalog.json")] | length) == 1' \
-            "${release_json}" >/dev/null
-      - id: publish-manifest
-        name: Publish and read back cleanup manifest
-        run: |
-          set -euo pipefail
-          test "${GH_REPO}" = "${GITHUB_REPOSITORY}"
-          state=out/release/release-state.json
-          release_json=out/release/github-release.json
-          tag="$(jq -er '.release.git_tag' "${state}")"
-          release_id="$(jq -er '.id' "${release_json}")"
           python .github/release/ucm_release/release.py manifest \
             --state "${state}" --release "${release_json}" \
             --output out/release
+          jq -e '
+            .kind == "ucm-release-manifest" and
+            .schema_version == 7 and
+            (.github_release_assets | index("release-manifest.json") != null) and
+            (.github_release_assets | index("install-catalog.json") == null)
+          ' out/release/release-manifest.json >/dev/null
           gh release upload "${tag}" --clobber out/release/release-manifest.json
           gh api "/repos/${GH_REPO}/releases/${release_id}" >"${release_json}"
           asset_id="$(jq -er \
@@ -1146,7 +1125,7 @@ jobs:
           jq -e --slurpfile manifest out/release/release-manifest.json \
             '([.assets[].name] | sort) == $manifest[0].github_release_assets' \
             "${release_json}" >/dev/null
-          if [ "${RELEASE_TYPE}" = nightly ]; then
+          if [ "${release_type}" = nightly ]; then
             gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
               -F draft=false -F prerelease=true \
               -f "tag_name=${tag}" -f "name=${tag}" >/dev/null

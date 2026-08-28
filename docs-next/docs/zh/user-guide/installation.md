@@ -1,45 +1,27 @@
 # 安装
 
-本页读取当前 Stable UCM Release 发布的安装目录。下方 Wheel、镜像和 Chart
-均直接来自该目录；没有实际发布的组合不会显示。
+这里只提供当前文档版本实际发布的制品组合。切换选项时，页面会自动选择
+第一个有效组合，并只生成一条精确安装命令。跨 UCM 版本请使用站点版本菜单。
 
 <div id="ucm-install-app" class="ucm-install" data-locale="zh">
   <p class="ucm-install__status" data-install-status aria-live="polite">
-    正在加载当前 Stable 版本目录……
+    正在加载当前版本的 Release Manifest……
   </p>
-
-  <section class="ucm-install__section" aria-labelledby="ucm-wheels-heading">
-    <h2 id="ucm-wheels-heading">Python Wheel</h2>
-    <p>选择能力 Channel，并使用对应的独立 pip Simple Index。</p>
-    <div class="ucm-install__grid" data-install-wheels></div>
-  </section>
-
-  <section class="ucm-install__section" aria-labelledby="ucm-images-heading">
-    <h2 id="ucm-images-heading">运行时镜像</h2>
-    <p>拉取与实际上游运行时和平台对应的已发布镜像。</p>
-    <div class="ucm-install__grid" data-install-images></div>
-  </section>
-
-  <section class="ucm-install__section" aria-labelledby="ucm-chart-heading">
-    <h2 id="ucm-chart-heading">Helm Chart</h2>
-    <p>安装同一 Stable Release 附带的 Chart 资产。</p>
-    <div class="ucm-install__grid" data-install-chart></div>
-  </section>
-
-  <section class="ucm-install__section" aria-labelledby="ucm-source-heading">
-    <h2 id="ucm-source-heading">从源码构建</h2>
-    <p>检出安装目录对应的不可变源码 Tag。</p>
-    <div class="ucm-install__grid" data-install-source></div>
-  </section>
+  <div class="ucm-selector" data-install-selector></div>
+  <section class="ucm-install__output" data-install-output aria-live="polite"></section>
 </div>
 
 <noscript>
-  请启用 JavaScript 以加载安装目录并生成命令。Release 资产仍可从项目
-  Releases 页面访问。
+  请启用 JavaScript 以加载 Release Manifest 并生成安装命令。所有已发布制品
+  仍可在 <a href="../../download/">下载</a> 页面中查看。
 </noscript>
+
+如需查看全部 ABI、架构、直接链接和 Registry 发布结果，请前往
+[下载](../../download/index.md)。
 
 ## 后续步骤
 
 - [在 CUDA 上使用 vLLM](quick_start/quickstart_vllm.md)
 - [在 NPU 上使用 vLLM-Ascend](quick_start/quickstart_vllm_ascend.md)
 - [Kubernetes 部署](frameworks/kubernetes.md)
+- [从源码构建](../../developer-guide/build_from_source.md)

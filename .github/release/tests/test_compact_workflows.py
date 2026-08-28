@@ -25,6 +25,9 @@ def test_user_facing_release_workflow_names_explain_the_build_lanes() -> None:
         "UCM Nightly Release · Shanghai 02:00"
     )
     assert _load("release-ucm.yml")["name"] == "UCM Reusable Release Core"
+    assert _load("migrate-release-manifest.yml")["name"] == (
+        "UCM Release · Migrate Legacy Manifest"
+    )
     assert _load("ucm-build-bot.yml")["name"] == (
         "UCM PR Build Robot · Wheel, Image, and Chart"
     )
@@ -136,6 +139,7 @@ def test_docs_pages_workflow_checks_prs_and_serializes_publication() -> None:
         "mode",
         "source_ref",
         "release_tag",
+        "replace_existing",
     }
     dispatch_inputs = workflow["on"]["workflow_dispatch"]["inputs"]
     assert set(dispatch_inputs) == {
@@ -191,9 +195,11 @@ def test_docs_pages_workflow_checks_prs_and_serializes_publication() -> None:
     assert "inputs.release_tag != ''" in stable["if"]
     assert "github.event_name" not in stable["if"]
     assert "gh release download" in stable_text
-    assert "--pattern install-catalog.json" in stable_text
-    assert "pages.py publish-stable" in stable_text
-    assert "--catalog input/catalog/install-catalog.json" in stable_text
+    assert "--pattern release-manifest.json" in stable_text
+    assert "python docs-next/tools/pages.py" in stable_text
+    assert "publish-stable" in stable_text
+    assert "--manifest input/manifest/release-manifest.json" in stable_text
+    assert "arguments+=(--replace-existing)" in stable_text
 
     verify = jobs["verify-index"]
     assert verify["permissions"] == {"contents": "read"}
@@ -212,7 +218,7 @@ def test_docs_pages_workflow_checks_prs_and_serializes_publication() -> None:
         for step in verify["steps"]
         if step.get("name") == "Resolve and install the published channel"
     )
-    assert "latest/install-catalog.json" in verify_run
+    assert "latest/release-manifest.json" in verify_run
     assert 'select(.distribution == "uc-manager")' in verify_run
     assert '"uc-manager==${wheel_version}"' in verify_run
     assert '"${site_root}/whl/${CHANNEL}/"' in verify_run
@@ -418,7 +424,7 @@ def test_runtime_images_include_the_config_example_at_the_workspace_root() -> No
         assert image_path in verify["run"]
 
 
-def test_catalog_and_schema_v6_manifest_follow_complete_release_state() -> None:
+def test_schema_v7_manifest_is_the_only_json_after_complete_release_state() -> None:
     jobs = _load("release-ucm.yml")["jobs"]
     steps = jobs["update-release-images"]["steps"]
     merge_index = next(
@@ -430,16 +436,6 @@ def test_catalog_and_schema_v6_manifest_follow_complete_release_state() -> None:
         (index, step)
         for index, step in enumerate(steps)
         if step.get("name") == "Require complete image publication"
-    )
-    catalog_index, catalog = next(
-        (index, step)
-        for index, step in enumerate(steps)
-        if step.get("id") == "publish-catalog"
-    )
-    refresh_index, refresh = next(
-        (index, step)
-        for index, step in enumerate(steps)
-        if step.get("id") == "refresh-release"
     )
     manifest_index, manifest = next(
         (index, step)
@@ -456,34 +452,25 @@ def test_catalog_and_schema_v6_manifest_follow_complete_release_state() -> None:
     )
 
     assert (
-        merge_index
-        < complete_index
-        < catalog_index
-        < refresh_index
-        < manifest_index
-        < update_index
-        < retention_index
+        merge_index < complete_index < manifest_index < update_index < retention_index
     )
     assert "release.status" in complete["run"]
-    assert "release.py catalog" in catalog["run"]
-    assert '--state "${state}" --release "${release_json}"' in catalog["run"]
-    assert (
-        'gh release upload "${tag}" --clobber out/release/install-catalog.json'
-        in catalog["run"]
-    )
-    assert "Accept: application/octet-stream" not in catalog["run"]
-    assert "cmp " not in catalog["run"]
-    assert "sha256" not in catalog["run"].lower()
-    assert 'select(.name == "install-catalog.json")' in refresh["run"]
     assert "release.py manifest" in manifest["run"]
     assert (
         'gh release upload "${tag}" --clobber out/release/release-manifest.json'
         in manifest["run"]
     )
+    assert manifest["run"].count("gh release upload") == 1
     assert "release-manifest-readback.json" in manifest["run"]
     assert "Accept: application/octet-stream" in manifest["run"]
     assert "cmp out/release/release-manifest.json" in manifest["run"]
     assert "github_release_assets" in manifest["run"]
+    assert ".schema_version == 7" in manifest["run"]
+    assert 'index("install-catalog.json") == null' in manifest["run"]
+    assert "release.py catalog" not in yaml.safe_dump(jobs["update-release-images"])
+    assert "out/release/install-catalog.json" not in yaml.safe_dump(
+        jobs["update-release-images"]
+    )
     assert "release.py notes" in update["run"]
     assert "release-state.json" in update["run"]
     assert "release-manifest.json" not in update["run"]
@@ -491,7 +478,7 @@ def test_catalog_and_schema_v6_manifest_follow_complete_release_state() -> None:
     release_module = (
         ROOT / ".github" / "release" / "ucm_release" / "release.py"
     ).read_text(encoding="utf-8")
-    assert "PUBLIC_MANIFEST_SCHEMA_VERSION = 6" in release_module
+    assert "PUBLIC_MANIFEST_SCHEMA_VERSION = 7" in release_module
 
     for name, job in jobs.items():
         if name != "update-release-images":
@@ -542,6 +529,57 @@ def test_finalization_failure_is_reported_until_final_notes_succeed() -> None:
     assert "publication-failed" in fallback["run"]
     assert 'if [ "${RELEASE_TYPE}" = nightly ]; then' in fallback["run"]
     assert "-F draft=true -F prerelease=true" in fallback["run"]
+
+
+def test_v090_manifest_migration_reads_back_v7_before_catalog_deletion() -> None:
+    workflow = _load("migrate-release-manifest.yml")
+    assert set(workflow["on"]) == {"workflow_dispatch"}
+    assert set(workflow["on"]["workflow_dispatch"]["inputs"]) == {"tag"}
+    assert set(workflow["jobs"]) == {
+        "migrate-manifest",
+        "replace-stable-pages",
+        "publish-latest-pages",
+    }
+
+    migration = workflow["jobs"]["migrate-manifest"]
+    assert migration["permissions"] == {"actions": "read", "contents": "write"}
+    steps = migration["steps"]
+    inspect = next(step for step in steps if step.get("id") == "inspect")
+    publish_index, publish = next(
+        (index, step)
+        for index, step in enumerate(steps)
+        if step.get("id") == "publish-v7"
+    )
+    delete_index, delete = next(
+        (index, step)
+        for index, step in enumerate(steps)
+        if step.get("id") == "delete-catalog"
+    )
+    assert 'test "${RELEASE_TAG}" = v0.9.0' in inspect["run"]
+    assert "a8c0d7efd8106302aa97c9face1836fad6b07d1c" in inspect["run"]
+    assert "33087700398" in inspect["run"]
+    assert "ucm-manifest-migration-backup" in yaml.safe_dump(migration)
+    assert "ucm-release-stage-run-" in yaml.safe_dump(migration)
+    assert "release.py finalize" in yaml.safe_dump(migration)
+    assert publish_index < delete_index
+    assert "release-manifest-readback.json" in publish["run"]
+    assert "cmp out/release/release-manifest.json" in publish["run"]
+    assert "cleanup.validate_manifest" in publish["run"]
+    assert "--method DELETE" not in publish["run"]
+    assert "--method DELETE" in delete["run"]
+    assert "install-catalog.json" in delete["run"]
+
+    pages = workflow["jobs"]["replace-stable-pages"]
+    assert pages["needs"] == "migrate-manifest"
+    assert "outputs.migrated == 'true'" in pages["if"]
+    assert pages["uses"] == "./.github/workflows/docs-pages.yml"
+    assert pages["with"]["replace_existing"] is True
+    assert pages["with"]["mode"] == "stable"
+
+    latest = workflow["jobs"]["publish-latest-pages"]
+    assert latest["needs"] == "replace-stable-pages"
+    assert latest["uses"] == "./.github/workflows/docs-pages.yml"
+    assert latest["with"]["mode"] == "latest"
 
 
 def test_tag_entry_only_classifies_four_release_types_and_calls_core() -> None:

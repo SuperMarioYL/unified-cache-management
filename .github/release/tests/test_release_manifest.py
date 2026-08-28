@@ -332,12 +332,14 @@ def test_disabled_image_publication_completes_with_wheels_and_chart(
     assert "pkgs/container" not in notes
 
 
-def test_complete_state_projects_exact_install_catalog(tmp_path: Path) -> None:
+def _complete_state_and_release_document(
+    tmp_path: Path, *, actions_run_id: int = 123
+) -> tuple[dict[str, object], dict[str, object], str]:
     wheels, chart, _, filename = _write_artifact_inputs(tmp_path)
     state, _ = release.build_artifacts_manifest(
-        _plan(), wheels, chart, actions_run_id=123
+        _plan(), wheels, chart, actions_run_id=actions_run_id
     )
-    receipts = tmp_path / "catalog-receipts"
+    receipts = tmp_path / "manifest-receipts"
     receipts.mkdir()
     (receipts / "member.json").write_text(
         json.dumps(
@@ -365,6 +367,12 @@ def test_complete_state_projects_exact_install_catalog(tmp_path: Path) -> None:
         index_outcome="skipped",
     )
     asset_urls = _asset_urls(state)
+    asset_urls["ucm_config_example.yaml"] = (
+        "https://github.com/example/ucm/releases/download/v1/ucm_config_example.yaml"
+    )
+    asset_urls["install-catalog.json"] = (
+        "https://github.com/example/ucm/releases/download/v1/install-catalog.json"
+    )
     release_document = {
         "tag_name": "v0.7.62rc1",
         "html_url": "https://github.com/example/ucm/releases/tag/v0.7.62rc1",
@@ -373,24 +381,41 @@ def test_complete_state_projects_exact_install_catalog(tmp_path: Path) -> None:
             for name, url in asset_urls.items()
         ],
     }
+    return state, release_document, filename
 
-    catalog = release.build_install_catalog(state, release_document)
 
-    assert catalog == {
-        "kind": "ucm-install-catalog",
-        "schema_version": 1,
+def test_complete_state_projects_exact_schema_v7(tmp_path: Path) -> None:
+    state, release_document, filename = _complete_state_and_release_document(
+        tmp_path, actions_run_id=987654
+    )
+    asset_urls = _asset_urls(state)
+
+    manifest = release.build_public_manifest(state, release_document)
+
+    assert manifest == {
+        "kind": "ucm-release-manifest",
+        "schema_version": 7,
         "release": {
             "tag": "v0.7.62rc1",
+            "type": "prerelease",
             "version": "0.7.62rc1",
             "url": "https://github.com/example/ucm/releases/tag/v0.7.62rc1",
+            "actions_run_id": 987654,
         },
         "wheels": [
             {
+                "id": "cuda129-cp312-amd64",
+                "product": "vllm",
                 "channel": "cu129",
+                "accelerator": {
+                    "runtime": "cuda-12.9",
+                    "variant": "default",
+                    "soc_version": "na",
+                },
                 "distribution": "uc-manager",
                 "version": "0.7.62rc1+cu129",
                 "python_abi": "cp312",
-                "cpu_arch": "amd64",
+                "architecture": "amd64",
                 "filename": filename,
                 "url": asset_urls[filename],
                 "sha256": hashlib.sha256(b"wheel").hexdigest(),
@@ -401,15 +426,26 @@ def test_complete_state_projects_exact_install_catalog(tmp_path: Path) -> None:
             {
                 "id": "vllm-v023",
                 "product": "vllm",
-                "upstream_version": "0.23.0",
-                "upstream_channel": "stable",
-                "accelerator_runtime": "cuda-12.9",
-                "variant": "default",
-                "soc_version": "na",
-                "os_id": "ubuntu",
-                "os_version": "22.04",
-                "architectures": ["amd64"],
-                "references": {"ghcr": "ghcr.io/example/vllm:v0.23.0-ucm-amd64"},
+                "upstream": {"version": "0.23.0", "channel": "stable"},
+                "accelerator": {
+                    "runtime": "cuda-12.9",
+                    "variant": "default",
+                    "soc_version": "na",
+                },
+                "os": {"id": "ubuntu", "version": "22.04"},
+                "publications": {
+                    "ghcr": {
+                        "pull": "ghcr.io/example/vllm:v0.23.0-ucm-amd64",
+                        "multi_arch": False,
+                        "members": [
+                            {
+                                "architecture": "amd64",
+                                "reference": ("ghcr.io/example/vllm:v0.23.0-ucm-amd64"),
+                            }
+                        ],
+                    },
+                    "dockerhub": None,
+                },
             }
         ],
         "chart": {
@@ -419,114 +455,18 @@ def test_complete_state_projects_exact_install_catalog(tmp_path: Path) -> None:
             "url": asset_urls["unified-cache-chart-0.7.62-rc.1.tgz"],
             "oci": "ghcr.io/example/charts/unified-cache-chart:0.7.62-rc.1",
         },
-    }
-    state_path = tmp_path / "catalog-state.json"
-    release_path = tmp_path / "catalog-release.json"
-    output = tmp_path / "catalog-output"
-    state_path.write_text(json.dumps(state), encoding="utf-8")
-    release_path.write_text(json.dumps(release_document), encoding="utf-8")
-    command = release.build_parser().parse_args(
-        [
-            "catalog",
-            "--state",
-            str(state_path),
-            "--release",
-            str(release_path),
-            "--output",
-            str(output),
-        ]
-    )
-    command.func(command)
-    assert json.loads((output / "install-catalog.json").read_text()) == catalog
-
-
-def test_install_catalog_rejects_incomplete_release() -> None:
-    with pytest.raises(ValueError, match="complete publication"):
-        release.build_install_catalog(
-            {
-                "kind": "ucm-release-state",
-                "schema_version": 2,
-                "release": {"status": "images-failed"},
-            },
-            {},
-        )
-
-
-def test_public_manifest_is_exact_schema_v6_and_uses_published_targets(
-    tmp_path: Path,
-) -> None:
-    wheels, chart, _, _ = _write_artifact_inputs(tmp_path)
-    state, _ = release.build_artifacts_manifest(
-        _plan(), wheels, chart, actions_run_id=987654
-    )
-    receipts = tmp_path / "receipts"
-    receipts.mkdir()
-    (receipts / "member.json").write_text(
-        json.dumps(
-            {
-                "kind": "ucm-image-member-receipt",
-                "schema_version": 1,
-                "id": "vllm-v023-amd64",
-                "status": "published",
-                "targets": [
-                    {
-                        "channel": "ghcr",
-                        "reference": "ghcr.io/example/vllm:v0.23.0-ucm-amd64",
-                        "digest": "sha256:" + "d" * 64,
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    state = release.finalize_manifest(
-        state,
-        receipts,
-        build_outcome="success",
-        member_outcome="success",
-        index_outcome="skipped",
-    )
-    document = {
-        "tag_name": "v0.7.62rc1",
-        "assets": [
-            {"name": "ucm.whl"},
-            {"name": "unified-cache-chart-0.7.62-rc.1.tgz"},
-            {"name": "ucm_config_example.yaml"},
-            {"name": "install-catalog.json"},
-        ],
-    }
-
-    manifest = release.build_public_manifest(state, document)
-
-    assert manifest == {
-        "kind": "ucm-release-manifest",
-        "schema_version": 6,
-        "tag": "v0.7.62rc1",
-        "release_type": "prerelease",
-        "actions_run_id": 987654,
-        "chart_oci": ("ghcr.io/example/charts/unified-cache-chart:0.7.62-rc.1"),
-        "runtime_images": {
-            "ghcr": {
-                "members": ["ghcr.io/example/vllm:v0.23.0-ucm-amd64"],
-                "indexes": [],
-            },
-            "dockerhub": {"members": [], "indexes": []},
-        },
         "github_release_assets": [
-            "install-catalog.json",
             "release-manifest.json",
-            "ucm.whl",
+            "uc_manager-0.7.62rc1+cu129-cp312-cp312-linux_x86_64.whl",
             "ucm_config_example.yaml",
             "unified-cache-chart-0.7.62-rc.1.tgz",
         ],
     }
-
     state_path = tmp_path / "public-state.json"
     release_path = tmp_path / "public-release.json"
     output = tmp_path / "public-output"
-    output.mkdir()
     state_path.write_text(json.dumps(state), encoding="utf-8")
-    release_path.write_text(json.dumps(document), encoding="utf-8")
+    release_path.write_text(json.dumps(release_document), encoding="utf-8")
     command = release.build_parser().parse_args(
         [
             "manifest",
@@ -540,19 +480,70 @@ def test_public_manifest_is_exact_schema_v6_and_uses_published_targets(
     )
     command.func(command)
     assert json.loads((output / "release-manifest.json").read_text()) == manifest
+    assert "catalog" not in release.build_parser()._subparsers._group_actions[0].choices
 
 
 def test_public_manifest_rejects_incomplete_release() -> None:
     with pytest.raises(ValueError, match="complete publication"):
         release.build_public_manifest(
             {
+                "kind": "ucm-release-state",
+                "schema_version": 2,
                 "release": {
                     "git_tag": "nightly/v0.8.1-20260826-1",
                     "status": "images-failed",
-                }
+                },
             },
             {"tag_name": "nightly/v0.8.1-20260826-1"},
         )
+
+
+def test_schema_v7_rejects_conflicting_wheel_capabilities(tmp_path: Path) -> None:
+    state, document, _ = _complete_state_and_release_document(tmp_path)
+    conflicting = json.loads(json.dumps(state["images"][0]))
+    conflicting["id"] = "vllm-ascend-v023-amd64"
+    conflicting["runtime"]["product_id"] = "vllm-ascend"
+    state["images"].append(conflicting)
+
+    with pytest.raises(ValueError, match="conflicting Runtime capabilities"):
+        release.build_public_manifest(state, document)
+
+
+def test_schema_v7_projects_multi_arch_publications(tmp_path: Path) -> None:
+    state, document, _ = _complete_state_and_release_document(tmp_path)
+    second = json.loads(json.dumps(state["images"][0]))
+    second["id"] = "vllm-v023-arm64"
+    second["cpu_arch"] = "arm64"
+    second["targets"][0]["reference"] = "ghcr.io/example/vllm:v0.23.0-ucm-arm64"
+    state["images"].append(second)
+    state["families"][0]["create_index"] = True
+    state["families"][0]["targets"][0]["reference"] = "ghcr.io/example/vllm:v0.23.0-ucm"
+
+    manifest = release.build_public_manifest(state, document)
+
+    publication = manifest["images"][0]["publications"]["ghcr"]
+    assert publication == {
+        "pull": "ghcr.io/example/vllm:v0.23.0-ucm",
+        "multi_arch": True,
+        "members": [
+            {
+                "architecture": "amd64",
+                "reference": "ghcr.io/example/vllm:v0.23.0-ucm-amd64",
+            },
+            {
+                "architecture": "arm64",
+                "reference": "ghcr.io/example/vllm:v0.23.0-ucm-arm64",
+            },
+        ],
+    }
+
+
+def test_schema_v7_rejects_one_member_multi_arch_publication(tmp_path: Path) -> None:
+    state, document, _ = _complete_state_and_release_document(tmp_path)
+    state["families"][0]["create_index"] = True
+
+    with pytest.raises(ValueError, match="requires at least two members"):
+        release.build_public_manifest(state, document)
 
 
 def test_member_barrier_accepts_all_profile_enabled_targets(tmp_path: Path) -> None:

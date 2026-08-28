@@ -1,4 +1,4 @@
-"""Build staged Release state and its install-facing public projections."""
+"""Build staged Release state and its single install-facing public manifest."""
 
 from __future__ import annotations
 
@@ -15,11 +15,8 @@ _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 STATE_KIND = "ucm-release-state"
 STATE_SCHEMA_VERSION = 2
 PUBLIC_MANIFEST_KIND = "ucm-release-manifest"
-PUBLIC_MANIFEST_SCHEMA_VERSION = 6
+PUBLIC_MANIFEST_SCHEMA_VERSION = 7
 PUBLIC_MANIFEST_FILENAME = "release-manifest.json"
-INSTALL_CATALOG_KIND = "ucm-install-catalog"
-INSTALL_CATALOG_SCHEMA_VERSION = 1
-INSTALL_CATALOG_FILENAME = "install-catalog.json"
 
 
 def _load_json(path: Path) -> Any:
@@ -527,77 +524,6 @@ def finalize_manifest(
     return result
 
 
-def _published_references(records: list[dict[str, Any]], *, channel: str) -> list[str]:
-    references = {
-        str(target["reference"])
-        for record in records
-        if record.get("status") == "published"
-        for target in _list(record.get("targets"), "publication targets")
-        if _mapping(target, "publication target").get("channel") == channel
-    }
-    return sorted(references)
-
-
-def build_public_manifest(
-    state: dict[str, Any], release_document: dict[str, Any]
-) -> dict[str, Any]:
-    """Project completed internal state into the exact public schema-v6 surface."""
-    release = _mapping(state.get("release"), "release state release")
-    tag = release.get("git_tag")
-    if release.get("status") != "complete":
-        raise ValueError("public release manifest requires complete publication")
-    if release_document.get("tag_name") != tag:
-        raise ValueError("GitHub Release does not match the release state tag")
-    release_type = release.get("release_type")
-    if release_type not in {"stable", "prerelease", "draft", "nightly"}:
-        raise ValueError("release state has an invalid release type")
-    actions_run_id = release.get("actions_run_id")
-    if (
-        not isinstance(actions_run_id, int)
-        or isinstance(actions_run_id, bool)
-        or actions_run_id < 1
-    ):
-        raise ValueError("release state has an invalid Actions run ID")
-
-    asset_names = {
-        str(_mapping(asset, "GitHub Release asset").get("name", ""))
-        for asset in _list(release_document.get("assets"), "GitHub Release assets")
-    }
-    if "" in asset_names:
-        raise ValueError("GitHub Release contains an unnamed asset")
-    asset_names.add(PUBLIC_MANIFEST_FILENAME)
-
-    images = [
-        _mapping(item, "release state image")
-        for item in _list(state.get("images"), "release state images")
-    ]
-    families = [
-        _mapping(item, "release state family")
-        for item in _list(state.get("families"), "release state families")
-    ]
-    indexes = [item for item in families if item.get("create_index") is True]
-    chart = _mapping(state.get("chart"), "release state Chart")
-    chart_oci = chart.get("oci_reference")
-    if chart_oci is not None and (not isinstance(chart_oci, str) or not chart_oci):
-        raise ValueError("release state Chart OCI reference is invalid")
-    return {
-        "kind": PUBLIC_MANIFEST_KIND,
-        "schema_version": PUBLIC_MANIFEST_SCHEMA_VERSION,
-        "tag": tag,
-        "release_type": release_type,
-        "actions_run_id": actions_run_id,
-        "chart_oci": chart_oci,
-        "runtime_images": {
-            channel: {
-                "members": _published_references(images, channel=channel),
-                "indexes": _published_references(indexes, channel=channel),
-            }
-            for channel in ("ghcr", "dockerhub")
-        },
-        "github_release_assets": sorted(asset_names),
-    }
-
-
 def _github_asset_urls(
     manifest: dict[str, Any], release_document: dict[str, Any]
 ) -> dict[str, str]:
@@ -672,7 +598,7 @@ def _release_page_url(release_document: dict[str, Any]) -> str:
     return url
 
 
-def _catalog_references(record: dict[str, Any], context: str) -> dict[str, str]:
+def _publication_references(record: dict[str, Any], context: str) -> dict[str, str]:
     references: dict[str, str] = {}
     for index, raw_target in enumerate(
         _list(record.get("targets"), f"{context} publication targets")
@@ -682,7 +608,7 @@ def _catalog_references(record: dict[str, Any], context: str) -> dict[str, str]:
         reference = target.get("reference")
         if (
             not isinstance(channel, str)
-            or not channel
+            or channel not in {"ghcr", "dockerhub"}
             or channel in references
             or not isinstance(reference, str)
             or not reference
@@ -695,21 +621,131 @@ def _catalog_references(record: dict[str, Any], context: str) -> dict[str, str]:
     return {channel: references[channel] for channel in sorted(references)}
 
 
-def build_install_catalog(
+def _wheel_capability(
+    wheel_id: str, images: list[dict[str, Any]]
+) -> tuple[str, dict[str, str]]:
+    capabilities: set[tuple[str, str, str, str]] = set()
+    for image in images:
+        if image.get("wheel_id") != wheel_id:
+            continue
+        runtime = _mapping(image.get("runtime"), f"Wheel {wheel_id} Runtime")
+        values = tuple(
+            runtime.get(field)
+            for field in (
+                "product_id",
+                "accelerator_runtime",
+                "variant",
+                "soc_version",
+            )
+        )
+        if any(not isinstance(value, str) or not value for value in values):
+            raise ValueError(f"Wheel {wheel_id} has an invalid Runtime capability")
+        capabilities.add(values)  # type: ignore[arg-type]
+    if not capabilities:
+        raise ValueError(f"Wheel {wheel_id} is not linked to an Image family")
+    if len(capabilities) != 1:
+        raise ValueError(f"Wheel {wheel_id} maps to conflicting Runtime capabilities")
+    product, accelerator_runtime, variant, soc_version = capabilities.pop()
+    return product, {
+        "runtime": accelerator_runtime,
+        "variant": variant,
+        "soc_version": soc_version,
+    }
+
+
+def _project_image_publications(
+    family: dict[str, Any], members: list[dict[str, Any]], family_id: str
+) -> dict[str, dict[str, Any] | None]:
+    pull_references = _publication_references(family, f"release family {family_id}")
+    create_index = family.get("create_index")
+    if not isinstance(create_index, bool):
+        raise ValueError(f"release family {family_id} has invalid index ownership")
+    if create_index and len(members) < 2:
+        raise ValueError(
+            f"multi-architecture family {family_id} requires at least two members"
+        )
+
+    members_by_channel: dict[str, list[dict[str, str]]] = {
+        "ghcr": [],
+        "dockerhub": [],
+    }
+    for member in members:
+        architecture = member.get("cpu_arch")
+        if not isinstance(architecture, str) or not architecture:
+            raise ValueError(f"release family {family_id} has invalid architectures")
+        references = _publication_references(
+            member, f"release family {family_id} member {architecture}"
+        )
+        if set(references) != set(pull_references):
+            raise ValueError(
+                f"release family {family_id} has inconsistent publication channels"
+            )
+        for channel, reference in references.items():
+            members_by_channel[channel].append(
+                {"architecture": architecture, "reference": reference}
+            )
+
+    result: dict[str, dict[str, Any] | None] = {}
+    for channel in ("ghcr", "dockerhub"):
+        if channel not in pull_references:
+            result[channel] = None
+            continue
+        channel_members = sorted(
+            members_by_channel[channel], key=lambda item: item["architecture"]
+        )
+        if len({item["architecture"] for item in channel_members}) != len(
+            channel_members
+        ):
+            raise ValueError(f"release family {family_id} has duplicate architectures")
+        if not create_index and (
+            len(channel_members) != 1
+            or pull_references[channel] != channel_members[0]["reference"]
+        ):
+            raise ValueError(
+                f"single-architecture family {family_id} has an ambiguous pull reference"
+            )
+        result[channel] = {
+            "pull": pull_references[channel],
+            "multi_arch": create_index,
+            "members": channel_members,
+        }
+    return result
+
+
+def build_public_manifest(
     state: dict[str, Any], release_document: dict[str, Any]
 ) -> dict[str, Any]:
-    """Project one complete Final Release State into install-facing data."""
+    """Project one complete Final Release State into exact public schema 7."""
     if (
         state.get("kind") != STATE_KIND
         or state.get("schema_version") != STATE_SCHEMA_VERSION
     ):
-        raise ValueError("install Catalog requires Final Release State schema 2")
+        raise ValueError(
+            "public release manifest requires Final Release State schema 2"
+        )
     release = _mapping(state.get("release"), "release state release")
     if release.get("status") != "complete":
-        raise ValueError("install Catalog requires complete publication")
+        raise ValueError("public release manifest requires complete publication")
+    tag = release.get("git_tag")
+    if release_document.get("tag_name") != tag:
+        raise ValueError("GitHub Release does not match the release state tag")
+    release_type = release.get("release_type")
+    if release_type not in {"stable", "prerelease", "draft", "nightly"}:
+        raise ValueError("release state has an invalid release type")
+    actions_run_id = release.get("actions_run_id")
+    if (
+        not isinstance(actions_run_id, int)
+        or isinstance(actions_run_id, bool)
+        or actions_run_id < 1
+    ):
+        raise ValueError("release state has an invalid Actions run ID")
     asset_urls = _github_asset_urls(state, release_document)
     release_url = _release_page_url(release_document)
 
+    images = [
+        _mapping(item, "release state Image")
+        for item in _list(state.get("images"), "release state Images")
+    ]
     wheels: list[dict[str, Any]] = []
     for index, raw_wheel in enumerate(
         _list(state.get("wheels"), "release state Wheels")
@@ -726,16 +762,21 @@ def build_install_catalog(
             or not isinstance(dependencies, list)
             or any(not isinstance(value, str) or not value for value in dependencies)
         ):
-            raise ValueError(
-                "release state Wheel cannot be projected into install Catalog"
-            )
+            raise ValueError("release state Wheel cannot be projected into schema 7")
+        wheel_id = wheel.get("id")
+        if not isinstance(wheel_id, str) or not wheel_id:
+            raise ValueError("release state Wheel has no ID")
+        product, accelerator = _wheel_capability(wheel_id, images)
         wheels.append(
             {
+                "id": wheel_id,
+                "product": product,
                 "channel": wheel["channel"],
+                "accelerator": accelerator,
                 "distribution": wheel["distribution"],
                 "version": wheel["version"],
                 "python_abi": wheel["python_abi"],
-                "cpu_arch": wheel["cpu_arch"],
+                "architecture": wheel["cpu_arch"],
                 "filename": filename,
                 "url": asset_urls[filename],
                 "sha256": sha256,
@@ -746,22 +787,19 @@ def build_install_catalog(
         key=lambda item: (
             str(item["channel"]),
             str(item["python_abi"]),
-            str(item["cpu_arch"]),
+            str(item["architecture"]),
             str(item["filename"]),
         )
     )
 
     images_by_family: dict[str, list[dict[str, Any]]] = {}
-    for index, raw_image in enumerate(
-        _list(state.get("images"), "release state Images")
-    ):
-        image = _mapping(raw_image, f"release state Images[{index}]")
+    for image in images:
         family_id = image.get("family_id")
         if not isinstance(family_id, str) or not family_id:
             raise ValueError("release state Image has no family ID")
         images_by_family.setdefault(family_id, []).append(image)
 
-    catalog_images: list[dict[str, Any]] = []
+    projected_images: list[dict[str, Any]] = []
     runtime_fields = (
         "product_id",
         "version",
@@ -782,6 +820,8 @@ def build_install_catalog(
         members = images_by_family.get(str(family_id), [])
         if not isinstance(family_id, str) or not family_id or not members:
             raise ValueError("published release family has no Images")
+        if any(member.get("status") != "published" for member in members):
+            raise ValueError(f"published release family {family_id} has failed members")
         runtimes = [
             _mapping(member.get("runtime"), f"release family {family_id} Runtime")
             for member in members
@@ -797,27 +837,24 @@ def build_install_catalog(
                 raise ValueError(
                     f"release family {family_id} has inconsistent Runtime {field}"
                 )
-        architectures = sorted(str(member.get("cpu_arch", "")) for member in members)
-        if "" in architectures or len(architectures) != len(set(architectures)):
-            raise ValueError(f"release family {family_id} has invalid architectures")
-        catalog_images.append(
+        projected_images.append(
             {
                 "id": family_id,
                 "product": runtime["product_id"],
-                "upstream_version": runtime["version"],
-                "upstream_channel": runtime["channel"],
-                "accelerator_runtime": runtime["accelerator_runtime"],
-                "variant": runtime["variant"],
-                "soc_version": runtime["soc_version"],
-                "os_id": runtime["os_id"],
-                "os_version": runtime["os_version"],
-                "architectures": architectures,
-                "references": _catalog_references(
-                    family, f"release family {family_id}"
-                ),
+                "upstream": {
+                    "version": runtime["version"],
+                    "channel": runtime["channel"],
+                },
+                "accelerator": {
+                    "runtime": runtime["accelerator_runtime"],
+                    "variant": runtime["variant"],
+                    "soc_version": runtime["soc_version"],
+                },
+                "os": {"id": runtime["os_id"], "version": runtime["os_version"]},
+                "publications": _project_image_publications(family, members, family_id),
             }
         )
-    catalog_images.sort(key=lambda item: str(item["id"]))
+    projected_images.sort(key=lambda item: str(item["id"]))
 
     chart = _mapping(state.get("chart"), "release state Chart")
     chart_filename = chart.get("filename")
@@ -827,17 +864,27 @@ def build_install_catalog(
         or chart_filename not in asset_urls
         or (chart_oci is not None and (not isinstance(chart_oci, str) or not chart_oci))
     ):
-        raise ValueError("release state Chart cannot be projected into install Catalog")
+        raise ValueError("release state Chart cannot be projected into schema 7")
+    asset_names = {
+        str(_mapping(asset, "GitHub Release asset").get("name", ""))
+        for asset in _list(release_document.get("assets"), "GitHub Release assets")
+    }
+    if "" in asset_names:
+        raise ValueError("GitHub Release contains an unnamed asset")
+    asset_names.discard("install-catalog.json")
+    asset_names.add(PUBLIC_MANIFEST_FILENAME)
     return {
-        "kind": INSTALL_CATALOG_KIND,
-        "schema_version": INSTALL_CATALOG_SCHEMA_VERSION,
+        "kind": PUBLIC_MANIFEST_KIND,
+        "schema_version": PUBLIC_MANIFEST_SCHEMA_VERSION,
         "release": {
-            "tag": release["git_tag"],
+            "tag": tag,
+            "type": release_type,
             "version": release["version"],
             "url": release_url,
+            "actions_run_id": actions_run_id,
         },
         "wheels": wheels,
-        "images": catalog_images,
+        "images": projected_images,
         "chart": {
             "name": chart["name"],
             "version": chart["version"],
@@ -845,6 +892,7 @@ def build_install_catalog(
             "url": asset_urls[chart_filename],
             "oci": chart_oci,
         },
+        "github_release_assets": sorted(asset_names),
     }
 
 
@@ -1152,17 +1200,6 @@ def _manifest(arguments: argparse.Namespace) -> None:
     )
 
 
-def _catalog(arguments: argparse.Namespace) -> None:
-    state = _mapping(_load_json(arguments.state), "release state")
-    release_document = _mapping(
-        _load_json(arguments.release), "GitHub Release document"
-    )
-    _write_json(
-        arguments.output / INSTALL_CATALOG_FILENAME,
-        build_install_catalog(state, release_document),
-    )
-
-
 def _members(arguments: argparse.Namespace) -> None:
     plan = _mapping(_load_json(arguments.plan), "release plan")
     validate_member_receipts(plan, arguments.receipts)
@@ -1199,11 +1236,6 @@ def build_parser() -> argparse.ArgumentParser:
     manifest.add_argument("--release", type=Path, required=True)
     manifest.add_argument("--output", type=Path, required=True)
     manifest.set_defaults(func=_manifest)
-    catalog = commands.add_parser("catalog")
-    catalog.add_argument("--state", type=Path, required=True)
-    catalog.add_argument("--release", type=Path, required=True)
-    catalog.add_argument("--output", type=Path, required=True)
-    catalog.set_defaults(func=_catalog)
     members = commands.add_parser("members")
     members.add_argument("--plan", type=Path, required=True)
     members.add_argument("--receipts", type=Path, required=True)

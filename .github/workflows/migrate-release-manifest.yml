@@ -1,0 +1,278 @@
+name: UCM Release · Migrate Legacy Manifest
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact legacy Stable Tag to migrate
+        type: string
+        required: true
+
+concurrency:
+  group: ucm-release-manifest-migration-${{ github.repository_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  migrate-manifest:
+    name: Migrate ${{ inputs.tag }} to Schema 7
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    outputs:
+      release_tag: ${{ steps.inspect.outputs.release_tag }}
+      migrated: ${{ steps.inspect.outputs.needs_migration }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
+      - id: inspect
+        name: Inspect the exact Release and preserve legacy assets
+        run: |
+          set -euo pipefail
+          test "${RELEASE_TAG}" = v0.9.0
+          git show-ref --verify --quiet "refs/tags/${RELEASE_TAG}"
+          source_sha="$(git rev-parse "${RELEASE_TAG}^{commit}")"
+          test "${source_sha}" = a8c0d7efd8106302aa97c9face1836fad6b07d1c
+
+          mkdir -p input/legacy input/release
+          releases="$(gh api --paginate --slurp \
+            "/repos/${GH_REPO}/releases?per_page=100" \
+            | jq -ce --arg tag "${RELEASE_TAG}" \
+              '[.[][] | select(.tag_name == $tag)]')"
+          test "$(jq 'length' <<<"${releases}")" = 1
+          release_id="$(jq -er '.[0].id' <<<"${releases}")"
+          gh api "/repos/${GH_REPO}/releases/${release_id}" \
+            >input/release/release-before.json
+          jq -e --arg tag "${RELEASE_TAG}" '
+            .tag_name == $tag and .draft == false and .prerelease == false
+          ' input/release/release-before.json >/dev/null
+
+          manifest_asset_id="$(jq -er '
+            [.assets[] | select(.name == "release-manifest.json")] |
+            if length == 1 then .[0].id
+            else error("Release Manifest asset is ambiguous") end
+          ' input/release/release-before.json)"
+          gh api -H 'Accept: application/octet-stream' \
+            "/repos/${GH_REPO}/releases/assets/${manifest_asset_id}" \
+            >input/legacy/release-manifest.json
+          schema_version="$(jq -er '.schema_version' \
+            input/legacy/release-manifest.json)"
+          catalog_assets="$(jq -c '
+            [.assets[] | select(.name == "install-catalog.json")]
+          ' input/release/release-before.json)"
+
+          if [ "${schema_version}" = 6 ]; then
+            test "$(jq 'length' <<<"${catalog_assets}")" = 1
+            catalog_asset_id="$(jq -er '.[0].id' <<<"${catalog_assets}")"
+            gh api -H 'Accept: application/octet-stream' \
+              "/repos/${GH_REPO}/releases/assets/${catalog_asset_id}" \
+              >input/legacy/install-catalog.json
+            PYTHONPATH=.github/release python - "${RELEASE_TAG}" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          from ucm_release import cleanup
+
+          manifest = json.loads(
+              Path("input/legacy/release-manifest.json").read_text(encoding="utf-8")
+          )
+          cleanup.validate_manifest(manifest, expected_tag=sys.argv[1])
+          PY
+            actions_run_id="$(jq -er '.actions_run_id' \
+              input/legacy/release-manifest.json)"
+            test "${actions_run_id}" = 33087700398
+            {
+              echo "needs_migration=true"
+              echo "catalog_asset_id=${catalog_asset_id}"
+              echo "actions_run_id=${actions_run_id}"
+            } >>"${GITHUB_OUTPUT}"
+          elif [ "${schema_version}" = 7 ]; then
+            test "$(jq 'length' <<<"${catalog_assets}")" = 0
+            PYTHONPATH=.github/release python - "${RELEASE_TAG}" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          from ucm_release import cleanup
+
+          manifest = json.loads(
+              Path("input/legacy/release-manifest.json").read_text(encoding="utf-8")
+          )
+          cleanup.validate_manifest(manifest, expected_tag=sys.argv[1])
+          PY
+            jq -e --slurpfile manifest input/legacy/release-manifest.json \
+              '([.assets[].name] | sort) == $manifest[0].github_release_assets' \
+              input/release/release-before.json >/dev/null
+            echo "needs_migration=false" >>"${GITHUB_OUTPUT}"
+          else
+            echo "unsupported public manifest schema: ${schema_version}" >&2
+            exit 1
+          fi
+          echo "release_tag=${RELEASE_TAG}" >>"${GITHUB_OUTPUT}"
+      - name: Upload the immutable Schema 6 migration backup
+        if: ${{ steps.inspect.outputs.needs_migration == 'true' }}
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ucm-manifest-migration-backup-${{ inputs.tag }}-run-${{ github.run_id }}
+          path: input/legacy/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Download the original staged Release State
+        if: ${{ steps.inspect.outputs.needs_migration == 'true' }}
+        uses: actions/download-artifact@v4.3.0
+        with:
+          name: ucm-release-stage-run-${{ steps.inspect.outputs.actions_run_id }}
+          path: input/stage
+          run-id: ${{ steps.inspect.outputs.actions_run_id }}
+          github-token: ${{ github.token }}
+      - name: Download the original image publication receipts
+        if: ${{ steps.inspect.outputs.needs_migration == 'true' }}
+        uses: actions/download-artifact@v4.3.0
+        with:
+          pattern: ucm-image-*-receipt-*-run-${{ steps.inspect.outputs.actions_run_id }}
+          path: input/receipts
+          merge-multiple: true
+          run-id: ${{ steps.inspect.outputs.actions_run_id }}
+          github-token: ${{ github.token }}
+      - name: Reconstruct the complete Final State and Schema 7 projection
+        if: ${{ steps.inspect.outputs.needs_migration == 'true' }}
+        run: |
+          set -euo pipefail
+          python .github/release/ucm_release/release.py finalize \
+            --manifest input/stage/release-state.json \
+            --receipts input/receipts \
+            --build-outcome success \
+            --member-outcome success \
+            --index-outcome success \
+            --pypi-outcome success \
+            --chart-oci-outcome success \
+            --output out/release
+          jq -e --arg tag "${RELEASE_TAG}" \
+            --argjson run_id "${{ steps.inspect.outputs.actions_run_id }}" '
+            .kind == "ucm-release-state" and
+            .schema_version == 2 and
+            .release.status == "complete" and
+            .release.git_tag == $tag and
+            .release.release_type == "stable" and
+            .release.actions_run_id == $run_id
+          ' out/release/release-state.json >/dev/null
+          python .github/release/ucm_release/release.py manifest \
+            --state out/release/release-state.json \
+            --release input/release/release-before.json \
+            --output out/release
+          jq -e --arg tag "${RELEASE_TAG}" '
+            .kind == "ucm-release-manifest" and
+            .schema_version == 7 and
+            .release.tag == $tag and
+            .release.actions_run_id == 33087700398 and
+            (.github_release_assets | index("release-manifest.json") != null) and
+            (.github_release_assets | index("install-catalog.json") == null)
+          ' out/release/release-manifest.json >/dev/null
+          jq -e --slurpfile manifest out/release/release-manifest.json '
+            ([.assets[].name | select(. != "install-catalog.json")] | sort) ==
+            $manifest[0].github_release_assets
+          ' input/release/release-before.json >/dev/null
+      - id: publish-v7
+        name: Upload and read back Schema 7 before legacy deletion
+        if: ${{ steps.inspect.outputs.needs_migration == 'true' }}
+        run: |
+          set -euo pipefail
+          gh release upload "${RELEASE_TAG}" --repo "${GH_REPO}" --clobber \
+            out/release/release-manifest.json
+          release_id="$(jq -er '.id' input/release/release-before.json)"
+          gh api "/repos/${GH_REPO}/releases/${release_id}" \
+            >out/release/release-after-upload.json
+          asset_id="$(jq -er '
+            [.assets[] | select(.name == "release-manifest.json")] |
+            if length == 1 then .[0].id
+            else error("Schema 7 asset is ambiguous") end
+          ' out/release/release-after-upload.json)"
+          gh api -H 'Accept: application/octet-stream' \
+            "/repos/${GH_REPO}/releases/assets/${asset_id}" \
+            >out/release/release-manifest-readback.json
+          cmp out/release/release-manifest.json \
+            out/release/release-manifest-readback.json
+          PYTHONPATH=.github/release python - "${RELEASE_TAG}" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          from ucm_release import cleanup
+
+          manifest = json.loads(
+              Path("out/release/release-manifest-readback.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          cleanup.validate_manifest(manifest, expected_tag=sys.argv[1])
+          PY
+          jq -e --slurpfile manifest out/release/release-manifest.json '
+            ([.assets[].name | select(. != "install-catalog.json")] | sort) ==
+              $manifest[0].github_release_assets and
+            ([.assets[] | select(.name == "install-catalog.json")] | length) == 1
+          ' out/release/release-after-upload.json >/dev/null
+      - id: delete-catalog
+        name: Delete the legacy Catalog after Schema 7 readback
+        if: ${{ steps.inspect.outputs.needs_migration == 'true' }}
+        run: |
+          set -euo pipefail
+          gh api --method DELETE \
+            "/repos/${GH_REPO}/releases/assets/${{ steps.inspect.outputs.catalog_asset_id }}"
+          release_id="$(jq -er '.id' input/release/release-before.json)"
+          gh api "/repos/${GH_REPO}/releases/${release_id}" \
+            >out/release/release-after-migration.json
+          jq -e --slurpfile manifest out/release/release-manifest.json '
+            ([.assets[].name] | sort) == $manifest[0].github_release_assets and
+            ([.assets[] | select(.name == "install-catalog.json")] | length) == 0
+          ' out/release/release-after-migration.json >/dev/null
+      - name: Upload migration evidence
+        if: ${{ steps.inspect.outputs.needs_migration == 'true' }}
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ucm-manifest-migration-evidence-${{ inputs.tag }}-run-${{ github.run_id }}
+          path: out/release/
+          if-no-files-found: error
+          retention-days: 90
+
+  replace-stable-pages:
+    name: Replace migrated Stable documentation once
+    needs: migrate-manifest
+    if: >-
+      ${{
+        needs.migrate-manifest.outputs.migrated == 'true' &&
+        vars.UCM_PAGES_ENABLED == 'true'
+      }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/docs-pages.yml
+    with:
+      mode: stable
+      source_ref: ${{ github.sha }}
+      release_tag: ${{ needs.migrate-manifest.outputs.release_tag }}
+      replace_existing: true
+
+  publish-latest-pages:
+    name: Publish latest from the migrated Manifest
+    needs: replace-stable-pages
+    permissions:
+      contents: write
+    uses: ./.github/workflows/docs-pages.yml
+    with:
+      mode: latest
+      source_ref: ${{ github.sha }}
+      release_tag: ""
