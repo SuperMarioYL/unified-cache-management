@@ -663,7 +663,8 @@ jobs:
           wheel="$(realpath "${wheel}")"
           wheel_name="$(basename "${wheel}")"
           external_libraries="$(jq -c '.external_libraries' "${result}")"
-          runtime_requirements="$(jq -c '.runtime_requirements' "${result}")"
+          runtime_requirements="$(jq -ce '.dependencies | select(type == "array")' \
+            "${result}")"
           wheel_glibc_floor="$(jq -er '.glibc_floor | select(type == "string")' \
             "${result}")"
           ucm_version="$(jq -er '.version' "${result}")"
