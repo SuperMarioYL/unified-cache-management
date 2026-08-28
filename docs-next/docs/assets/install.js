@@ -516,12 +516,21 @@
       }
     );
     output.replaceChildren();
+    output.appendChild(
+      element(
+        "div",
+        "ucm-selector__label ucm-install__output-title",
+        messages.command
+      )
+    );
+    var outputValue = element("div", "ucm-install__output-value");
     if (selection.command) {
-      output.appendChild(element("h2", "ucm-install__output-title", messages.command));
-      output.appendChild(commandBlock(selection.command, messages));
+      outputValue.appendChild(commandBlock(selection.command, messages));
     } else {
-      output.appendChild(element("p", "ucm-install__empty", messages.noCombination));
+      outputValue.appendChild(element("p", "ucm-install__empty", messages.noCombination));
     }
+    output.appendChild(outputValue);
+    controls.appendChild(output);
     app.dataset.selectedMethod = selection.state.method || "";
     return selection;
   }
