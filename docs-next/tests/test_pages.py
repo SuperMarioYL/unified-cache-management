@@ -764,6 +764,7 @@ def test_bilingual_install_and_download_pages_use_one_manifest_contract() -> Non
     assert 'element("button", "ucm-selector__option"' not in javascript
     assert "computeLabelParts" in javascript
     assert "engineVersionOptions" in javascript
+    assert 'var ROW_ORDER = [\n    "engine",\n    "method"' in javascript
     assert "ucm-selector__option-text--stacked" in javascript
     assert "controls.appendChild(output)" in javascript
     assert "ucm-install__output-value" in javascript
