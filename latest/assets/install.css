@@ -182,29 +182,49 @@
 }
 
 .ucm-install__output .ucm-install__command {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
   width: 100%;
   margin: 0;
 }
 
 .ucm-install__output .ucm-install__pre {
+  display: flex;
+  align-items: center;
+  min-width: 0;
   min-height: 3.5rem;
-  padding: 0.65rem 4.5rem 0.65rem 0.65rem !important;
+  padding: 0.65rem !important;
+  overflow: hidden;
   border-radius: 0;
   background: var(--md-code-bg-color) !important;
   color: var(--md-default-fg-color) !important;
 }
 
 .ucm-install__output .ucm-install__pre code {
+  width: 100%;
+  min-width: 0;
+  overflow: visible;
   color: inherit !important;
   font-size: 0.65rem;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
 
 .ucm-install__output .ucm-install__copy {
-  inset-block-start: 50%;
-  transform: translateY(-50%);
-  border-color: var(--ucm-install-border);
+  position: static;
+  inset: auto;
+  align-self: stretch;
+  justify-content: center;
+  min-width: 4.4rem;
+  padding-inline: 0.65rem;
+  transform: none;
+  border: 0;
+  border-inline-start: 0.1rem solid var(--md-default-bg-color);
+  border-radius: 0;
   background: var(--md-default-bg-color);
   color: var(--ucm-install-accent);
+  white-space: nowrap;
 }
 
 .ucm-install__output .ucm-install__copy:hover,
@@ -409,7 +429,13 @@
   }
 
   .ucm-install__output {
-    grid-template-columns: 6.5rem minmax(0, 1fr);
+    grid-template-columns: 1fr;
+  }
+
+  .ucm-install__output-title {
+    min-height: 2.5rem;
+    border-inline-end: 0;
+    border-bottom: 0.1rem solid var(--md-default-bg-color);
   }
 
   .ucm-selector__label {
