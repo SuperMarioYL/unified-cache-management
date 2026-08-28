@@ -946,7 +946,11 @@ def _capability_label(row: dict[str, Any]) -> str:
 
 
 def _render_product_tables(
-    manifest: dict[str, Any], *, repository: str, asset_urls: dict[str, str]
+    manifest: dict[str, Any],
+    *,
+    repository: str,
+    asset_urls: dict[str, str],
+    link_assets: bool,
 ) -> list[str]:
     wheels = {str(item["id"]): item for item in manifest["wheels"]}
     images_by_family: dict[str, list[dict[str, Any]]] = {}
@@ -1102,8 +1106,11 @@ def _render_product_tables(
             for architecture in wheel_architectures:
                 wheel = row["wheels"][architecture]
                 filename = str(wheel["filename"])
+                label = _architecture_label(architecture)
                 wheel_links.append(
-                    f"[{_architecture_label(architecture)}]({asset_urls[filename]})"
+                    f"[{label}]({asset_urls[filename]})"
+                    if link_assets
+                    else f"`{label}`"
                 )
             rendered.append(
                 "| "
@@ -1123,7 +1130,11 @@ def _render_product_tables(
 
 
 def render_notes(
-    manifest: dict[str, Any], *, repository: str, asset_urls: dict[str, str]
+    manifest: dict[str, Any],
+    *,
+    repository: str,
+    asset_urls: dict[str, str],
+    link_assets: bool = True,
 ) -> str:
     """Render compact, linked Release notes from the current manifest stage."""
     release = _mapping(manifest.get("release"), "release manifest release")
@@ -1150,8 +1161,17 @@ def render_notes(
         meta_url = asset_urls.get(meta_filename)
         if not meta_filename or not meta_url:
             raise ValueError("Release notes require a meta Wheel URL")
-        artifact_lines.append(f"Meta Wheel: [{meta_filename}]({meta_url})")
-    artifact_lines.extend([f"Chart: [{chart_filename}]({chart_url})", ""])
+        artifact_lines.append(
+            f"Meta Wheel: [{meta_filename}]({meta_url})"
+            if link_assets
+            else f"Meta Wheel: `{meta_filename}`"
+        )
+    chart_line = (
+        f"Chart: [{chart_filename}]({chart_url})"
+        if link_assets
+        else f"Chart: `{chart_filename}`"
+    )
+    artifact_lines.extend([chart_line, ""])
     lines.extend(artifact_lines)
     available_artifacts = (
         "Backend, meta, and Chart" if has_meta_package else "Backend and Chart"
@@ -1197,7 +1217,12 @@ def render_notes(
             lines.append(f"- `pip install 'uc-manager[{extra}]=={version}'`")
         lines.append("")
     lines.extend(
-        _render_product_tables(manifest, repository=repository, asset_urls=asset_urls)
+        _render_product_tables(
+            manifest,
+            repository=repository,
+            asset_urls=asset_urls,
+            link_assets=link_assets,
+        )
     )
     return "\n".join(lines) + "\n"
 
@@ -1240,6 +1265,7 @@ def _notes(arguments: argparse.Namespace) -> None:
             manifest,
             repository=arguments.repository,
             asset_urls=asset_urls,
+            link_assets=release_document.get("draft") is not True,
         ),
         encoding="utf-8",
     )

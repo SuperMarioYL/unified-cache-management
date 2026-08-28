@@ -903,6 +903,18 @@ def test_release_notes_split_products_and_aggregate_wheel_capabilities() -> None
     assert "2 image families / 3 architecture members" in notes
     assert " tags / " not in notes
 
+    draft_notes = release.render_notes(
+        manifest,
+        repository="example/ucm",
+        asset_urls=asset_urls,
+        link_assets=False,
+    )
+    assert "releases/download" not in draft_notes
+    assert "[aarch64](" not in draft_notes
+    assert "[x86_64](" not in draft_notes
+    assert draft_notes.count("`aarch64`") == 2
+    assert draft_notes.count("`x86_64`") == 2
+
 
 def test_github_asset_urls_require_backend_meta_and_chart() -> None:
     manifest = {

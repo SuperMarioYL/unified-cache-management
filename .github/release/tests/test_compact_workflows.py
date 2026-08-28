@@ -382,9 +382,11 @@ def test_schema_v6_manifest_is_uploaded_only_after_complete_and_read_back() -> N
     assert "--rawfile notes out/release/release-notes.md" in manifest["run"]
     assert "out/release/readback/release-notes.md" in manifest["run"]
     assert "cmp out/release/release-notes.md" in manifest["run"]
-    assert manifest["run"].index('if [ "${RELEASE_TYPE}" = nightly ]') < manifest[
-        "run"
-    ].index("release.py notes")
+    assert (
+        manifest["run"].index("gh release upload")
+        < manifest["run"].index('-f "tag_name=${tag}"')
+        < manifest["run"].index("release.py notes")
+    )
     release_module = (
         ROOT / ".github" / "release" / "ucm_release" / "release.py"
     ).read_text(encoding="utf-8")
@@ -533,16 +535,40 @@ def test_common_core_opens_the_exact_tag_before_builds() -> None:
     assert ".release_tag = $tag" not in plan_run
 
 
-def test_asset_link_body_patches_do_not_rotate_the_draft_slug() -> None:
+def test_draft_body_patches_preserve_tag_after_asset_uploads() -> None:
     jobs = _load("release-ucm.yml")["jobs"]
-    for job_name, job in jobs.items():
-        if job_name == "open-release":
-            continue
-        for step in job.get("steps", []):
-            run = step.get("run", "")
-            for patch in run.split("gh api --method PATCH")[1:]:
-                if '-f "body=' in patch:
-                    assert '-f "tag_name=${tag}"' not in patch
+    artifact_run = next(
+        step["run"]
+        for step in jobs["publish-release-artifacts"]["steps"]
+        if step.get("name") == "Upload backend/meta Wheels, Chart, and Config"
+    )
+    manifest_run = next(
+        step["run"]
+        for step in jobs["update-release-images"]["steps"]
+        if step.get("id") == "publish-manifest"
+    )
+
+    for run in (artifact_run, manifest_run):
+        assert "if jq -e '.draft == true'" in run
+        assert '-f "tag_name=${tag}"' in run
+        assert '-f "body=$(<out/release/release-notes.md)"' in run
+
+
+def test_artifact_upload_restores_tag_before_generating_asset_links() -> None:
+    steps = _load("release-ucm.yml")["jobs"]["publish-release-artifacts"]["steps"]
+    run = next(
+        step["run"]
+        for step in steps
+        if step.get("name") == "Upload backend/meta Wheels, Chart, and Config"
+    )
+
+    assert (
+        run.index("gh release upload")
+        < run.index('-f "tag_name=${tag}"')
+        < run.index("release.py notes")
+    )
+    assert "out/release/artifact-readback/release-notes.md" in run
+    assert 'rtrimstr("\\n")' in run
 
 
 def test_direct_member_receipt_barrier_and_index_matrix_are_unbounded() -> None:

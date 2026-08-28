@@ -179,7 +179,9 @@ deferred; a new unresolved library fails instead of expanding that policy. A
 separate `py3-none-any` `uc-manager` meta Wheel maps the release's dynamic
 extras to exact backend distribution versions.
 The staged Release validates the standalone report again before uploading the
-Wheel.
+Wheel. Draft notes show filenames and architecture labels without embedding
+GitHub's rotating `untagged-*` asset URLs; downloads remain in the Release
+Assets section. Published Releases keep direct asset links.
 
 ## PR behavior
 

@@ -875,15 +875,36 @@ jobs:
           artifacts+=("${meta_artifacts[@]}")
           test "${#artifacts[@]}" -gt 2
           gh release upload "${tag}" --clobber "${artifacts[@]}"
+          gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+            -f "tag_name=${tag}" >/dev/null
           gh api "/repos/${GH_REPO}/releases/${release_id}" >"${release_json}"
+          jq -e --arg tag "${tag}" '.tag_name == $tag' \
+            "${release_json}" >/dev/null
           jq -e '[.assets[].name] | index("ucm_config_example.yaml") != null' \
             "${release_json}" >/dev/null
           python .github/release/ucm_release/release.py notes \
             --manifest out/release/release-state.json \
             --release "${release_json}" --repository "${GH_REPO}" \
             --output out/release
-          gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
-            -f "body=$(<out/release/release-notes.md)" >/dev/null
+          if jq -e '.draft == true' "${release_json}" >/dev/null; then
+            gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+              -f "tag_name=${tag}" \
+              -f "body=$(<out/release/release-notes.md)" >/dev/null
+          else
+            gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+              -f "body=$(<out/release/release-notes.md)" >/dev/null
+          fi
+          gh api "/repos/${GH_REPO}/releases/${release_id}" >"${release_json}"
+          jq -e --arg tag "${tag}" --rawfile notes out/release/release-notes.md \
+            '.tag_name == $tag and .body == ($notes | rtrimstr("\n"))' \
+            "${release_json}" >/dev/null
+          mkdir -p out/release/artifact-readback
+          python .github/release/ucm_release/release.py notes \
+            --manifest out/release/release-state.json \
+            --release "${release_json}" --repository "${GH_REPO}" \
+            --output out/release/artifact-readback
+          cmp out/release/release-notes.md \
+            out/release/artifact-readback/release-notes.md
       - name: Mark artifact publication failure
         if: ${{ failure() && needs.open-release.outputs.enabled == 'true' }}
         run: |
@@ -1399,7 +1420,17 @@ jobs:
             --state "${state}" --release "${release_json}" \
             --output out/release
           gh release upload "${tag}" --clobber out/release/release-manifest.json
+          if [ "${RELEASE_TYPE}" = nightly ]; then
+            gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+              -F draft=false -F prerelease=true \
+              -f "tag_name=${tag}" -f "name=${tag}" >/dev/null
+          else
+            gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+              -f "tag_name=${tag}" >/dev/null
+          fi
           gh api "/repos/${GH_REPO}/releases/${release_id}" >"${release_json}"
+          jq -e --arg tag "${tag}" '.tag_name == $tag' \
+            "${release_json}" >/dev/null
           asset_id="$(jq -er \
             '[.assets[] | select(.name == "release-manifest.json")] |
              if length == 1 then .[0].id else error("manifest asset is ambiguous") end' \
@@ -1413,21 +1444,24 @@ jobs:
             '([.assets[].name] | sort) == $manifest[0].github_release_assets' \
             "${release_json}" >/dev/null
           if [ "${RELEASE_TYPE}" = nightly ]; then
-            gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
-              -F draft=false -F prerelease=true \
-              -f "name=${tag}" >/dev/null
-            gh api "/repos/${GH_REPO}/releases/${release_id}" \
-              | jq -e '.draft == false and .prerelease == true' >/dev/null
+            jq -e '.draft == false and .prerelease == true' \
+              "${release_json}" >/dev/null
           fi
-          gh api "/repos/${GH_REPO}/releases/${release_id}" >"${release_json}"
           python .github/release/ucm_release/release.py notes \
             --manifest "${state}" --release "${release_json}" \
             --repository "${GH_REPO}" --output out/release
-          gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
-            -f "body=$(<out/release/release-notes.md)" >/dev/null
+          if jq -e '.draft == true' "${release_json}" >/dev/null; then
+            gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+              -f "tag_name=${tag}" \
+              -f "body=$(<out/release/release-notes.md)" >/dev/null
+          else
+            gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+              -f "body=$(<out/release/release-notes.md)" >/dev/null
+          fi
           gh api "/repos/${GH_REPO}/releases/${release_id}" >"${release_json}"
-          jq -e --rawfile notes out/release/release-notes.md \
-            '.body == $notes' "${release_json}" >/dev/null
+          jq -e --arg tag "${tag}" --rawfile notes out/release/release-notes.md \
+            '.tag_name == $tag and .body == ($notes | rtrimstr("\n"))' \
+            "${release_json}" >/dev/null
           mkdir -p out/release/readback
           python .github/release/ucm_release/release.py notes \
             --manifest "${state}" --release "${release_json}" \
