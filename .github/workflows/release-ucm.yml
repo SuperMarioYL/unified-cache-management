@@ -1125,7 +1125,7 @@ jobs:
           jq -e --slurpfile manifest out/release/release-manifest.json \
             '([.assets[].name] | sort) == $manifest[0].github_release_assets' \
             "${release_json}" >/dev/null
-          if [ "${RELEASE_TYPE}" = nightly ]; then
+          if [ "${release_type}" = nightly ]; then
             gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
               -F draft=false -F prerelease=true \
               -f "tag_name=${tag}" -f "name=${tag}" >/dev/null
