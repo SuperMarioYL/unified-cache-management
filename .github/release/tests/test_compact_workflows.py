@@ -382,9 +382,10 @@ def test_schema_v6_manifest_is_uploaded_only_after_complete_and_read_back() -> N
     assert "--rawfile notes out/release/release-notes.md" in manifest["run"]
     assert "out/release/readback/release-notes.md" in manifest["run"]
     assert "cmp out/release/release-notes.md" in manifest["run"]
+    manifest_upload = manifest["run"].index("gh release upload")
     assert (
-        manifest["run"].index("gh release upload")
-        < manifest["run"].index('-f "tag_name=${tag}"')
+        manifest_upload
+        < manifest["run"].index('-f "tag_name=${tag}"', manifest_upload)
         < manifest["run"].index("release.py notes")
     )
     release_module = (
@@ -518,7 +519,7 @@ def test_common_core_opens_the_exact_tag_before_builds() -> None:
     assert "needs" not in jobs["open-release"]
     assert "--verify-tag" in open_text
     assert "--paginate --slurp" in open_text
-    assert "select(.tag_name == $tag)" in open_run
+    assert "(.tag_name == $tag) or (.name == $tag)" in open_run
     assert "wait_for_release" in open_run
     assert "for attempt in $(seq 1 15)" in open_run
     assert "sleep 2" in open_run
@@ -562,9 +563,10 @@ def test_artifact_upload_restores_tag_before_generating_asset_links() -> None:
         if step.get("name") == "Upload backend/meta Wheels, Chart, and Config"
     )
 
+    upload = run.index("gh release upload")
     assert (
-        run.index("gh release upload")
-        < run.index('-f "tag_name=${tag}"')
+        upload
+        < run.index('-f "tag_name=${tag}"', upload)
         < run.index("release.py notes")
     )
     assert "out/release/artifact-readback/release-notes.md" in run

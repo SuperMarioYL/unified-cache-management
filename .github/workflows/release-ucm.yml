@@ -122,7 +122,7 @@ jobs:
             gh api --paginate --slurp \
               "/repos/${GH_REPO}/releases?per_page=100" \
               | jq -ce --arg tag "${tag}" \
-                '[.[][] | select(.tag_name == $tag)]'
+                '[.[][] | select((.tag_name == $tag) or (.name == $tag))]'
           }
           wait_for_release() {
             local releases count attempt
@@ -546,7 +546,7 @@ jobs:
           tag="${RELEASE_TAG}"
           releases="$(gh api --paginate --slurp \
             "/repos/${GH_REPO}/releases?per_page=100" \
-            | jq -ce --arg tag "${tag}" '[.[][] | select(.tag_name == $tag)]')"
+            | jq -ce --arg tag "${tag}" '[.[][] | select((.tag_name == $tag) or (.name == $tag))]')"
           test "$(jq 'length' <<<"${releases}")" = 1
           release_id="$(jq -er '.[0].id' <<<"${releases}")"
           notes="${RUNNER_TEMP}/planning-failed.md"
@@ -560,6 +560,7 @@ jobs:
             "Builder synchronization: ${BUILDER_OUTCOME}" \
             "Release plan: ${PLAN_OUTCOME}" >"${notes}"
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+            -f "tag_name=${tag}" \
             -f "body=$(<"${notes}")" >/dev/null
 
   build-wheels:
@@ -773,7 +774,7 @@ jobs:
           tag="${RELEASE_TAG}"
           releases="$(gh api --paginate --slurp \
             "/repos/${GH_REPO}/releases?per_page=100" \
-            | jq -ce --arg tag "${tag}" '[.[][] | select(.tag_name == $tag)]')"
+            | jq -ce --arg tag "${tag}" '[.[][] | select((.tag_name == $tag) or (.name == $tag))]')"
           test "$(jq 'length' <<<"${releases}")" = 1
           if [ "${RELEASE_TYPE}" = draft ] || [ "${RELEASE_TYPE}" = nightly ]; then
             jq -e '.[0].draft == true' <<<"${releases}" >/dev/null
@@ -790,6 +791,7 @@ jobs:
             "Runtime validation outcome: ${RUNTIME_VALIDATION_OUTCOME}" \
             "Chart outcome: ${CHART_OUTCOME}" >"${notes}"
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+            -f "tag_name=${tag}" \
             -f "body=$(<"${notes}")" >/dev/null
           exit 1
       - uses: actions/checkout@v4.2.2
@@ -854,7 +856,7 @@ jobs:
           tag="$(jq -r '.git_tag' "${plan}")"
           releases="$(gh api --paginate --slurp \
             "/repos/${GH_REPO}/releases?per_page=100" \
-            | jq -ce --arg tag "${tag}" '[.[][] | select(.tag_name == $tag)]')"
+            | jq -ce --arg tag "${tag}" '[.[][] | select((.tag_name == $tag) or (.name == $tag))]')"
           test "$(jq 'length' <<<"${releases}")" = 1
           release_type="$(jq -r '.release_type' "${plan}")"
           if [ "${release_type}" = draft ] || [ "${release_type}" = nightly ]; then
@@ -874,6 +876,8 @@ jobs:
           test "${#meta_artifacts[@]}" = 1
           artifacts+=("${meta_artifacts[@]}")
           test "${#artifacts[@]}" -gt 2
+          gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+            -f "tag_name=${tag}" >/dev/null
           gh release upload "${tag}" --clobber "${artifacts[@]}"
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
             -f "tag_name=${tag}" >/dev/null
@@ -913,7 +917,7 @@ jobs:
           tag="${RELEASE_TAG}"
           releases="$(gh api --paginate --slurp \
             "/repos/${GH_REPO}/releases?per_page=100" \
-            | jq -ce --arg tag "${tag}" '[.[][] | select(.tag_name == $tag)]')"
+            | jq -ce --arg tag "${tag}" '[.[][] | select((.tag_name == $tag) or (.name == $tag))]')"
           test "$(jq 'length' <<<"${releases}")" = 1
           release_id="$(jq -er '.[0].id' <<<"${releases}")"
           notes="${RUNNER_TEMP}/artifact-publication-failed.md"
@@ -923,6 +927,7 @@ jobs:
             "Wheel, Chart, or config validation/upload failed. Retry the failed job to " \
             "complete the staged assets." >"${notes}"
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+            -f "tag_name=${tag}" \
             -f "body=$(<"${notes}")" >/dev/null
 
   publish-image-members:
@@ -1360,7 +1365,7 @@ jobs:
               -name 'pypi-receipt.json' | wc -l | tr -d ' ')" = 1
             releases="$(gh api --paginate --slurp \
               "/repos/${GH_REPO}/releases?per_page=100" \
-              | jq -ce --arg tag "${tag}" '[.[][] | select(.tag_name == $tag)]')"
+              | jq -ce --arg tag "${tag}" '[.[][] | select((.tag_name == $tag) or (.name == $tag))]')"
             test "$(jq 'length' <<<"${releases}")" = 1
             release_id="$(jq -er '.[0].id' <<<"${releases}")"
             gh release upload "${tag}" --clobber input/receipts/pypi-receipt.json
@@ -1390,7 +1395,7 @@ jobs:
           tag="$(jq -er '.release.git_tag' "${state}")"
           releases="$(gh api --paginate --slurp \
             "/repos/${GH_REPO}/releases?per_page=100" \
-            | jq -ce --arg tag "${tag}" '[.[][] | select(.tag_name == $tag)]')"
+            | jq -ce --arg tag "${tag}" '[.[][] | select((.tag_name == $tag) or (.name == $tag))]')"
           test "$(jq 'length' <<<"${releases}")" = 1
           release_type="$(jq -r '.release.release_type' "${state}")"
           if [ "${release_type}" = draft ] || [ "${release_type}" = nightly ]; then
@@ -1412,13 +1417,15 @@ jobs:
           tag="$(jq -er '.release.git_tag' "${state}")"
           releases="$(gh api --paginate --slurp \
             "/repos/${GH_REPO}/releases?per_page=100" \
-            | jq -ce --arg tag "${tag}" '[.[][] | select(.tag_name == $tag)]')"
+            | jq -ce --arg tag "${tag}" '[.[][] | select((.tag_name == $tag) or (.name == $tag))]')"
           test "$(jq 'length' <<<"${releases}")" = 1
           release_id="$(jq -er '.[0].id' <<<"${releases}")"
           gh api "/repos/${GH_REPO}/releases/${release_id}" >"${release_json}"
           python .github/release/ucm_release/release.py manifest \
             --state "${state}" --release "${release_json}" \
             --output out/release
+          gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+            -f "tag_name=${tag}" >/dev/null
           gh release upload "${tag}" --clobber out/release/release-manifest.json
           if [ "${RELEASE_TYPE}" = nightly ]; then
             gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
@@ -1509,7 +1516,7 @@ jobs:
           tag="${RELEASE_TAG}"
           releases="$(gh api --paginate --slurp \
             "/repos/${GH_REPO}/releases?per_page=100" \
-            | jq -ce --arg tag "${tag}" '[.[][] | select(.tag_name == $tag)]')"
+            | jq -ce --arg tag "${tag}" '[.[][] | select((.tag_name == $tag) or (.name == $tag))]')"
           test "$(jq 'length' <<<"${releases}")" = 1
           release_id="$(jq -er '.[0].id' <<<"${releases}")"
           if [ "${RELEASE_TYPE}" = nightly ]; then
@@ -1535,4 +1542,5 @@ jobs:
               "or manifest readback failed." >"${notes}"
           fi
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
+            -f "tag_name=${tag}" \
             -f "body=$(<"${notes}")" >/dev/null
