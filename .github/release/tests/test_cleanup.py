@@ -58,15 +58,102 @@ def _manifest(
     }
 
 
+def _manifest_v7(
+    tag: str = "draft/v0.8.0-3",
+    *,
+    release_type: str = "draft",
+    multi_arch: bool = True,
+) -> dict[str, object]:
+    member = "ghcr.io/release-org/vllm-openai:v0.23.0-amd64"
+    pull = "ghcr.io/release-org/vllm-openai:v0.23.0" if multi_arch else member
+    members = [{"architecture": "amd64", "reference": member}]
+    if multi_arch:
+        members.append(
+            {
+                "architecture": "arm64",
+                "reference": "ghcr.io/release-org/vllm-openai:v0.23.0-arm64",
+            }
+        )
+    return {
+        "kind": "ucm-release-manifest",
+        "schema_version": 7,
+        "release": {
+            "tag": tag,
+            "type": release_type,
+            "version": "0.8.0",
+            "url": f"https://github.com/release-org/ucm/releases/tag/{tag}",
+            "actions_run_id": 12345,
+        },
+        "wheels": [
+            {
+                "id": "cu129-cp312-amd64",
+                "product": "vllm",
+                "channel": "cu129",
+                "accelerator": {
+                    "runtime": "cuda-12.9",
+                    "variant": "default",
+                    "soc_version": "na",
+                },
+                "distribution": "uc-manager",
+                "version": "0.8.0+cu129",
+                "python_abi": "cp312",
+                "architecture": "amd64",
+                "filename": "uc-manager.whl",
+                "url": "https://github.com/release-org/ucm/releases/download/v0.8.0/uc-manager.whl",
+                "sha256": "a" * 64,
+                "dependencies": ["wrapt==1.17.2"],
+            }
+        ],
+        "images": [
+            {
+                "id": "vllm-v023",
+                "product": "vllm",
+                "upstream": {"version": "0.23.0", "channel": "stable"},
+                "accelerator": {
+                    "runtime": "cuda-12.9",
+                    "variant": "default",
+                    "soc_version": "na",
+                },
+                "os": {"id": "ubuntu", "version": "22.04"},
+                "publications": {
+                    "ghcr": {
+                        "pull": pull,
+                        "multi_arch": multi_arch,
+                        "members": members,
+                    },
+                    "dockerhub": None,
+                },
+            }
+        ],
+        "chart": {
+            "name": "unified-cache-chart",
+            "version": "0.8.0",
+            "filename": "unified-cache-chart.tgz",
+            "url": "https://github.com/release-org/ucm/releases/download/v0.8.0/unified-cache-chart.tgz",
+            "oci": "ghcr.io/release-org/charts/unified-cache-chart:0.8.0-draft.3",
+        },
+        "github_release_assets": [
+            "uc-manager.whl",
+            "unified-cache-chart.tgz",
+            "release-manifest.json",
+        ],
+    }
+
+
 def _record(
     manifest: dict[str, object], created_at: str, release_id: int
 ) -> cleanup.ManifestRecord:
+    release_type = (
+        manifest["release_type"]
+        if "release_type" in manifest
+        else manifest["release"]["type"]
+    )
     draft, prerelease = {
         "stable": (False, False),
         "prerelease": (False, True),
         "draft": (True, True),
         "nightly": (False, True),
-    }[str(manifest["release_type"])]
+    }[str(release_type)]
     return cleanup.ManifestRecord(manifest, created_at, release_id, draft, prerelease)
 
 
@@ -135,6 +222,63 @@ def test_schema_v6_manifest_contract_is_exact() -> None:
     no_self["github_release_assets"].remove("release-manifest.json")
     with pytest.raises(cleanup.CleanupError, match="must list itself"):
         cleanup.validate_manifest(no_self)
+
+
+def test_schema_v7_manifest_contract_is_exact_and_excludes_catalog() -> None:
+    manifest = _manifest_v7()
+
+    assert cleanup.validate_manifest(manifest) is manifest
+    assert (
+        cleanup.validate_manifest(manifest, expected_tag="draft/v0.8.0-3") is manifest
+    )
+
+    extra = json.loads(json.dumps(manifest))
+    extra["release"]["status"] = "complete"
+    with pytest.raises(cleanup.CleanupError, match="fields must be exact"):
+        cleanup.validate_manifest(extra)
+
+    catalog = json.loads(json.dumps(manifest))
+    catalog["github_release_assets"].append("install-catalog.json")
+    with pytest.raises(cleanup.CleanupError, match="must not list"):
+        cleanup.validate_manifest(catalog)
+
+    one_member_index = json.loads(json.dumps(manifest))
+    one_member_index["images"][0]["publications"]["ghcr"]["members"] = [
+        one_member_index["images"][0]["publications"]["ghcr"]["members"][0]
+    ]
+    with pytest.raises(cleanup.CleanupError, match="at least two members"):
+        cleanup.validate_manifest(one_member_index)
+
+
+def test_schema_v6_and_v7_normalize_to_equivalent_cleanup_resources() -> None:
+    legacy = cleanup.registry_resources(
+        _manifest(
+            ghcr_members=[
+                "ghcr.io/release-org/vllm-openai:v0.23.0-amd64",
+                "ghcr.io/release-org/vllm-openai:v0.23.0-arm64",
+            ]
+        )
+    )
+    current = cleanup.registry_resources(_manifest_v7())
+
+    assert [(item.kind, item.reference) for item in current] == [
+        (item.kind, item.reference) for item in legacy
+    ]
+
+
+def test_schema_v7_single_arch_pull_and_member_are_deleted_once() -> None:
+    resources = cleanup.registry_resources(_manifest_v7(multi_arch=False))
+
+    assert [
+        (item.kind, item.reference)
+        for item in resources
+        if item.kind.startswith("ghcr-")
+    ] == [
+        (
+            "ghcr-member",
+            "ghcr.io/release-org/vllm-openai:v0.23.0-amd64",
+        )
+    ]
 
 
 def test_manifest_rejects_duplicate_or_wrong_registry_references() -> None:
@@ -217,6 +361,21 @@ def test_retention_selects_oldest_same_type_schema_v6_tags_and_reserves_current(
         "draft/v0.8.0-1"
     ]
     assert selection.skipped_reason is None
+
+
+def test_retention_selects_schema_v7_tags() -> None:
+    oldest = _record(_manifest_v7("draft/v0.8.0-1"), "2026-08-20T00:00:00Z", 1)
+    newer = _record(_manifest_v7("draft/v0.8.0-2"), "2026-08-21T00:00:00Z", 2)
+
+    selection = cleanup.select_retention_candidates(
+        [oldest, newer],
+        current_tag="draft/v0.8.0-3",
+        release_type="draft",
+        max_count=2,
+        pypi_enabled=False,
+    )
+
+    assert selection.candidates == (oldest,)
 
 
 def test_retention_skips_unlimited_and_finite_pypi_profiles() -> None:

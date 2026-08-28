@@ -100,17 +100,25 @@ Publication then updates the same Release in stages:
 
 `release-state.json` remains the rich internal staging file in the
 `ucm-release-stage-run-<run>` Actions artifact. Only after all enabled channels
-succeed, `install-catalog.json` is projected from the complete state and exact
-GitHub Release asset URLs. It contains the functional Wheel channels and
-dependencies, published Runtime Images, and Chart addresses used by the Pages
-installer and Simple Index. The workflow uploads it and verifies that the
-Release contains exactly one Catalog asset; it does not perform a Catalog hash
-or download readback.
+succeed, `release.py manifest` projects the complete state into the sole public
+JSON asset, `release-manifest.json` schema 7. The manifest contains exact
+Release identity, installable Wheels, published Runtime Image families, the
+Chart addresses, and the final GitHub Release asset set. It is uploaded,
+downloaded, and compared before Release notes or retention continue.
 
-After refreshing the Release asset list, the compact public
-`release-manifest.json` schema 6 is uploaded and read back. It records only the
-Tag/type/Actions Run, Chart OCI reference, Runtime member/index references, and
-GitHub Release asset names needed for cleanup.
+Wheel product and accelerator fields come from their explicit Wheel-to-Image
+family relationships; conflicting relationships fail publication. Image
+publications distinguish the user-facing pull reference from architecture
+members, so the same structure drives both the Pages installer and cleanup.
+`install-catalog.json` is no longer generated or published.
+
+The one-time `v0.9.0` conversion runs through
+`migrate-release-manifest.yml(tag=v0.9.0)`. It preserves the schema 6 Manifest
+and Catalog as an Actions backup, reconstructs the complete Final State from
+run `33087700398` and its publication receipts, uploads and reads back schema
+7, and only then removes the legacy Catalog. The same run replaces the
+`0.9.0` documentation once and republishes `latest`; normal Stable publication
+continues to skip an existing documentation body.
 
 If image publication is disabled, Tag Releases stop after Wheels, the example
 config, and Chart publication. If requested image publication fails, those
@@ -122,9 +130,11 @@ prohibitions in publication code.
 ## Retention and cleanup
 
 `max_count: -1` disables retention. Finite retention considers only successful
-same-type Releases carrying an exact schema-v6 manifest, never the current Tag;
-old Releases without that manifest are skipped rather than guessed. When PyPI
-is enabled for a finite Profile, retention is skipped with an explicit reason.
+same-type Releases carrying an exact schema 6 or schema 7 manifest, never the
+current Tag; old Releases without either manifest are skipped rather than
+guessed. Schema 6 remains read-only compatibility for historical cleanup; new
+Releases emit only schema 7. When PyPI is enabled for a finite Profile,
+retention is skipped with an explicit reason.
 
 Cleanup is manifest-driven and retryable through
 `cleanup-ucm-release.yml(tag=...)`. Each resource is probed before up to three

@@ -73,7 +73,7 @@ mike serve --branch docs-preview                    # 访问 /latest/
 - `gh-pages` 的唯一写入口是 `tools/pages.py`;不要手工执行 `mike ... --push` 或直接提交该分支
 - 一次性清理使用 `python tools/pages.py initialize --repository OWNER/REPO`
 - latest 发布使用 `python tools/pages.py publish-latest --repository OWNER/REPO`
-- Stable 发布使用 `python tools/pages.py publish-stable --repository OWNER/REPO --catalog PATH`
+- Stable 发布使用 `python tools/pages.py publish-stable --repository OWNER/REPO --manifest PATH`;仅迁移已有 Stable 时追加 `--replace-existing`
 - 正式命令由 Pages CI 调用;脚本内部运行不带 `--push` 的 Mike，最后只普通 push 一次
 
 ## 项目结构
@@ -84,14 +84,14 @@ docs-next/
 ├── docs/               docs_dir(站点内容根)
 │   ├── en/             英文(默认语言,URL 无前缀)
 │   ├── zh/             中文镜像(缺失页面回退英文)
-│   └── assets/         共享静态资源(images、install.js/css、calculator、model-configs)
+│   └── assets/         共享静态资源(images、Manifest loader、安装/下载 renderer、calculator)
 ├── overrides/
 │   └── main.html       主题覆盖:KaTeX CDN + header 白色 + 字体分层(Jost 侧栏 / Inter 正文)
 ├── tools/
 │   ├── site.py         统一入口(serve/build/validate/translate/generate)
-│   └── pages.py        gh-pages 唯一写入口(Mike、Catalog、Simple Index、单次 push)
+│   └── pages.py        gh-pages 唯一写入口(Mike、Manifest、Simple Index、单次 push)
 ├── tests/
-│   └── test_pages.py   Pages/Catalog/Index/双语安装页 focused tests
+│   └── test_pages.py   Pages/Manifest/Index/双语安装与下载页 focused tests
 ├── requirements.txt    Python 依赖(MkDocs / Mike / packaging / pytest)
 ├── .venv/              本地虚拟环境(不提交)
 └── site/               构建产物(不提交)
