@@ -144,6 +144,14 @@ test("Compute platform labels hide internal SoC identifiers", () => {
   assert.equal(Manifest.acceleratorKey(accelerator), "cann-9.0.1|a3");
   assert.equal(Manifest.acceleratorLabel(accelerator), "CANN 9.0.1 / A3");
   assert.equal(Manifest.acceleratorLabel(accelerator).includes("9391"), false);
+  assert.deepEqual(Selector.computeLabelParts("CANN 9.0.1 / A3"), {
+    primary: "CANN 9.0.1",
+    secondary: "A3",
+  });
+  assert.deepEqual(Selector.computeLabelParts("CUDA 13.0"), {
+    primary: "CUDA 13.0",
+    secondary: null,
+  });
 });
 
 test("Wheel selection auto-corrects dependent fields and emits one exact command", () => {

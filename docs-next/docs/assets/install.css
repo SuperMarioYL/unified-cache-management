@@ -83,7 +83,7 @@
   align-items: center;
   justify-content: center;
   flex: 1 1 0;
-  min-width: 0;
+  min-width: max-content;
   padding: 0 0.65rem;
   border: 0.1rem solid var(--md-default-bg-color);
   border-radius: 0;
@@ -92,13 +92,42 @@
   font: inherit;
   font-size: 0.7rem;
   cursor: pointer;
+  overflow: hidden;
   white-space: nowrap;
   user-select: none;
 }
 
+.ucm-selector__option-text {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  min-width: 0;
+  line-height: 1.05;
+}
+
+.ucm-selector__option-text--stacked {
+  flex-direction: column;
+  gap: 0.08rem;
+}
+
+.ucm-selector__option-primary,
+.ucm-selector__option-secondary {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ucm-selector__option-secondary {
+  font-size: 0.82em;
+  font-weight: 600;
+}
+
 [data-selector-row="compute"] .ucm-selector__option {
   padding-inline: 0.15rem;
-  font-size: clamp(0.52rem, 0.8vw, 0.62rem);
+  font-size: clamp(0.58rem, 0.9vw, 0.68rem);
 }
 
 .ucm-selector__input {
