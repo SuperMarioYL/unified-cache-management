@@ -723,6 +723,9 @@ def test_bilingual_install_and_download_pages_use_one_manifest_contract() -> Non
     inventory = (DOCS_ROOT / "docs" / "assets" / "download.js").read_text(
         encoding="utf-8"
     )
+    stylesheet = (DOCS_ROOT / "docs" / "assets" / "install.css").read_text(
+        encoding="utf-8"
+    )
     mkdocs = (DOCS_ROOT / "mkdocs.yml").read_text(encoding="utf-8")
 
     for page, locale in ((english, "en"), (chinese, "zh")):
@@ -757,6 +760,10 @@ def test_bilingual_install_and_download_pages_use_one_manifest_contract() -> Non
     assert "docker pull" in javascript
     assert "helm install ucm" in javascript
     assert 'method !== "helm"' in javascript
+    assert 'element("label", "ucm-selector__option")' in javascript
+    assert 'element("button", "ucm-selector__option"' not in javascript
+    assert "flex-wrap: nowrap" in stylesheet
+    assert "flex: 1 1 0" in stylesheet
     assert "Manifest.validateManifest" in inventory
     assert mkdocs.index("  - Toolkit:") < mkdocs.index("  - Download:")
     download_nav = mkdocs[mkdocs.index("  - Download:") :]

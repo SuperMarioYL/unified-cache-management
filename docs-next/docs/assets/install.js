@@ -395,18 +395,23 @@
     options.setAttribute("role", "radiogroup");
     options.setAttribute("aria-label", messages[name]);
     row.options.forEach(function (option) {
-      var label = name === "method" ? messages[option.value] : option.label;
-      var button = element("button", "ucm-selector__option", label);
-      button.type = "button";
-      button.dataset.selectorOption = option.value;
-      button.disabled = option.disabled;
-      button.setAttribute("role", "radio");
-      button.setAttribute("aria-checked", option.value === selected ? "true" : "false");
-      if (option.value === selected) button.classList.add("ucm-selector__option--selected");
-      button.addEventListener("click", function () {
-        onSelect(name, option.value);
+      var labelText = name === "method" ? messages[option.value] : option.label;
+      var optionLabel = element("label", "ucm-selector__option");
+      var input = element("input", "ucm-selector__input");
+      input.type = "radio";
+      input.name = "ucm-selector-" + name;
+      input.value = option.value;
+      input.dataset.selectorOption = option.value;
+      input.checked = option.value === selected;
+      input.disabled = option.disabled;
+      if (input.checked) optionLabel.classList.add("ucm-selector__option--selected");
+      if (input.disabled) optionLabel.classList.add("ucm-selector__option--disabled");
+      input.addEventListener("change", function () {
+        if (input.checked) onSelect(name, option.value);
       });
-      options.appendChild(button);
+      optionLabel.appendChild(input);
+      optionLabel.appendChild(element("span", "ucm-selector__option-text", labelText));
+      options.appendChild(optionLabel);
     });
     wrapper.appendChild(options);
     return wrapper;
