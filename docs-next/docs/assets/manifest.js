@@ -286,15 +286,14 @@
   }
 
   function acceleratorKey(accelerator) {
-    return [accelerator.runtime, accelerator.variant, accelerator.soc_version].join("|");
+    return [accelerator.runtime, accelerator.variant].join("|");
   }
 
   function acceleratorLabel(accelerator) {
     var runtime = accelerator.runtime.replace("-", " ").toUpperCase();
-    var details = [];
-    if (accelerator.variant !== "default") details.push(accelerator.variant.toUpperCase());
-    if (accelerator.soc_version !== "na") details.push(accelerator.soc_version);
-    return details.length ? runtime + " / " + details.join(" / ") : runtime;
+    return accelerator.variant === "default"
+      ? runtime
+      : runtime + " / " + accelerator.variant.toUpperCase();
   }
 
   function osKey(os) {
