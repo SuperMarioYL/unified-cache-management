@@ -63,6 +63,10 @@ RUN python_scripts="$(ucm-python -c \
       "${repair_args[@]}" \
       --wheel-dir /out "${raw_wheel}" 2>&1 \
       | tee /out/auditwheel-repair.txt && \
+    if grep -Fq 'Grafting:' /out/auditwheel-repair.txt; then \
+      echo "auditwheel grafted an unplanned external library" >&2; \
+      exit 1; \
+    fi && \
     repaired_wheel="$(find /out -maxdepth 1 -type f \
       -name '*.whl' -print -quit)" && \
     test -n "${repaired_wheel}" && \

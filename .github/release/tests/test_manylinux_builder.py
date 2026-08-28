@@ -22,6 +22,8 @@ def test_wheel_builder_repairs_to_the_planned_manylinux_tag() -> None:
     assert 'SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}"' in dockerfile
     assert "--strip" not in dockerfile
     assert "tee /out/auditwheel-repair.txt" in dockerfile
+    assert "grep -Fq 'Grafting:' /out/auditwheel-repair.txt" in dockerfile
+    assert "auditwheel grafted an unplanned external library" in dockerfile
     assert 'auditwheel -v show "${repaired_wheel}"' in dockerfile
     assert "tee /out/auditwheel-show.txt" in dockerfile
 

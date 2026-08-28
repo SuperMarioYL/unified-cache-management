@@ -162,7 +162,8 @@ versioned `libcudart` SONAME pattern. The concrete direct roots and complete
 version-specific closure are derived from auditwheel's ELF graph. Every direct
 external library must match the boundary, and every transitive external library
 must be reachable from a discovered root. UCM-owned libraries such as
-`libmetrics.so` must be repaired into the Wheel. Each backend artifact contains:
+`libmetrics.so` must already be present in the Wheel; an unplanned auditwheel
+graft fails the build. Each backend artifact contains:
 
 - the Wheel;
 - `wheel-result.json` schema 4;
