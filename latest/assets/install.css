@@ -37,15 +37,15 @@
 .ucm-selector {
   overflow: hidden;
   border: 0.05rem solid var(--ucm-install-border);
-  border-radius: 0.3rem;
+  border-radius: 0;
   background: var(--md-default-bg-color);
 }
 
 .ucm-selector__row {
   display: grid;
-  grid-template-columns: minmax(8.5rem, 0.28fr) minmax(0, 1fr);
-  min-height: 3.5rem;
-  border-bottom: 0.05rem solid var(--ucm-install-border);
+  grid-template-columns: 7rem minmax(0, 1fr);
+  min-height: 2.55rem;
+  border-bottom: 0.1rem solid var(--md-default-bg-color);
 }
 
 .ucm-selector__row:last-child {
@@ -59,49 +59,77 @@
 .ucm-selector__label {
   display: flex;
   align-items: center;
-  padding: 0.75rem 0.9rem;
-  background: var(--md-code-bg-color);
+  padding: 0.55rem 0.4rem;
+  border-inline-end: 0.05rem solid var(--ucm-install-border);
+  background: var(--md-default-bg-color);
   color: var(--md-default-fg-color--light);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .ucm-selector__options {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.6rem 0.75rem;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
 }
 
 .ucm-selector__option {
-  min-height: 2rem;
-  padding: 0.38rem 0.7rem;
-  border: 0.05rem solid var(--ucm-install-border);
-  border-radius: 0.2rem;
-  background: transparent;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 0.65rem;
+  border: 0.1rem solid var(--md-default-bg-color);
+  border-radius: 0;
+  background: var(--md-code-bg-color);
   color: var(--md-default-fg-color);
   font: inherit;
   font-size: 0.7rem;
   cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
 }
 
-.ucm-selector__option:hover:not(:disabled),
-.ucm-selector__option:focus-visible:not(:disabled) {
-  border-color: var(--ucm-install-accent);
+[data-selector-row="compute"] .ucm-selector__option {
+  padding-inline: 0.15rem;
+  font-size: clamp(0.52rem, 0.8vw, 0.62rem);
+}
+
+.ucm-selector__input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: -1px;
+  opacity: 0;
+  clip-path: inset(50%);
+}
+
+.ucm-selector__option:not(.ucm-selector__option--disabled):hover {
   color: var(--ucm-install-accent);
 }
 
-.ucm-selector__option--selected {
-  border-color: var(--ucm-install-accent);
-  background: var(--ucm-install-accent) !important;
-  color: var(--md-primary-bg-color) !important;
-  font-weight: 700;
+.ucm-selector__option:focus-within {
+  outline: 0.1rem solid var(--ucm-install-accent);
+  outline-offset: -0.2rem;
+  z-index: 1;
 }
 
-.ucm-selector__option:disabled {
-  opacity: 0.38;
+.ucm-selector__option--selected {
+  background: var(--ucm-install-accent) !important;
+  color: var(--md-primary-bg-color) !important;
+  font-weight: 600;
+}
+
+.ucm-selector__option--disabled {
+  color: var(--md-default-fg-color--lighter);
   cursor: not-allowed;
+  text-decoration: line-through;
 }
 
 .ucm-install__output {
@@ -305,11 +333,19 @@
 
 @media (max-width: 48rem) {
   .ucm-selector__row {
-    grid-template-columns: 1fr;
+    grid-template-columns: 6.5rem minmax(0, 1fr);
   }
 
   .ucm-selector__label {
-    padding-block: 0.55rem;
+    padding: 0.5rem;
+    font-size: 0.66rem;
+  }
+
+  [data-selector-row="compute"] .ucm-selector__option {
+    flex: 0 0 auto;
+    min-width: max-content;
+    padding-inline: 0.65rem;
+    font-size: 0.68rem;
   }
 
   .ucm-install__facts,
