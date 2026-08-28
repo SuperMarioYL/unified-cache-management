@@ -176,11 +176,11 @@ test("Wheel selection auto-corrects dependent fields and emits one exact command
     "https://docs.example/0.9.0/release-manifest.json"
   );
   const initial = Selector.deriveSelection(model, { method: "wheel" });
-  assert.equal(initial.rows.engineVersion.visible, false);
+  assert.equal(initial.rows.engineVersion.visible, true);
   assert.deepEqual(initial.state, {
     method: "wheel",
     engine: "vllm",
-    engineVersion: null,
+    engineVersion: "0.10.2",
     compute: "cuda-13.0|default",
     os: null,
     architecture: "amd64",
@@ -200,6 +200,10 @@ test("Wheel selection auto-corrects dependent fields and emits one exact command
   assert.equal(ascend.state.compute, "cann-9.0.1|a2");
   assert.equal(ascend.state.architecture, "arm64");
   assert.match(ascend.command, /uc-manager==0\.9\.0\+cann901\.a2/);
+  assert.deepEqual(
+    initial.rows.compute.options.map((item) => item.value),
+    ascend.rows.compute.options.map((item) => item.value)
+  );
 });
 
 test("Image selection filters by architecture and always pulls publication.pull", () => {
