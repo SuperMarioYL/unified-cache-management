@@ -33,6 +33,7 @@
       release: "Release",
       method: "Install Method",
       engine: "Engine",
+      engineVersion: "Engine Version",
       compute: "Compute Platform",
       os: "OS",
       architecture: "Architecture",
@@ -52,6 +53,7 @@
       release: "Release",
       method: "安装方式",
       engine: "推理引擎",
+      engineVersion: "引擎版本",
       compute: "计算平台",
       os: "操作系统",
       architecture: "架构",
@@ -86,6 +88,31 @@
       : { primary: String(label), secondary: null };
   }
 
+  function displayEngineVersion(version) {
+    return String(version).replace(/rc0$/, "");
+  }
+
+  function engineVersionOptions(combinations, engine) {
+    var versions = {};
+    combinations.forEach(function (combination) {
+      if (combination.engine === engine && combination.engineVersion !== null) {
+        versions[combination.engineVersion] = true;
+      }
+    });
+    var values = Object.keys(versions).sort(function (left, right) {
+      return left.localeCompare(right, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+    });
+    return values.map(function (value, index) {
+      var label = displayEngineVersion(value);
+      if (values.length > 1 && index === 0) label = "\u2264 " + label;
+      if (values.length > 1 && index === values.length - 1) label = "\u2265 " + label;
+      return { value: value, label: label };
+    });
+  }
+
   function unsupportedVariant(artifact) {
     return [artifact.accelerator.variant, artifact.accelerator.soc_version].some(
       function (value) {
@@ -109,6 +136,7 @@
     return {
       method: "wheel",
       engine: wheel.product,
+      engineVersion: null,
       compute: Manifest.acceleratorKey(wheel.accelerator),
       computeLabel: Manifest.acceleratorLabel(wheel.accelerator),
       os: null,
@@ -147,6 +175,7 @@
       return {
         method: "image",
         engine: image.product,
+        engineVersion: image.upstream.version,
         compute: Manifest.acceleratorKey(image.accelerator),
         computeLabel: Manifest.acceleratorLabel(image.accelerator),
         os: Manifest.osKey(image.os),
@@ -164,6 +193,7 @@
     return {
       method: "helm",
       engine: null,
+      engineVersion: null,
       compute: null,
       computeLabel: null,
       os: null,
@@ -259,6 +289,7 @@
     var rows = {
       method: { visible: true, options: methodOptions },
       engine: { visible: method !== "helm", options: [] },
+      engineVersion: { visible: method === "image", options: [] },
       compute: { visible: method !== "helm", options: [] },
       os: { visible: method === "image", options: [] },
       architecture: { visible: method !== "helm", options: [] },
@@ -268,6 +299,7 @@
         state: {
           method: method,
           engine: null,
+          engineVersion: null,
           compute: null,
           os: null,
           architecture: null,
@@ -293,10 +325,27 @@
     });
     var engine = choose(requested.engine, rows.engine.options);
 
+    var engineVersion = null;
+    if (method === "image") {
+      rows.engineVersion.options = optionList(
+        engineVersionOptions(methodCombinations, engine),
+        function (versionValue) {
+          return methodCombinations.some(function (item) {
+            return item.engine === engine && item.engineVersion === versionValue;
+          });
+        }
+      );
+      engineVersion = choose(requested.engineVersion, rows.engineVersion.options);
+    }
+
     var computeUniverse = orderedUnique(methodCombinations, "compute", "computeLabel");
     rows.compute.options = optionList(computeUniverse, function (computeValue) {
       return methodCombinations.some(function (item) {
-        return item.engine === engine && item.compute === computeValue;
+        return (
+          item.engine === engine &&
+          (method !== "image" || item.engineVersion === engineVersion) &&
+          item.compute === computeValue
+        );
       });
     });
     var compute = choose(requested.compute, rows.compute.options);
@@ -306,7 +355,12 @@
       var osUniverse = orderedUnique(methodCombinations, "os", "osLabel");
       rows.os.options = optionList(osUniverse, function (osValue) {
         return methodCombinations.some(function (item) {
-          return item.engine === engine && item.compute === compute && item.os === osValue;
+          return (
+            item.engine === engine &&
+            item.engineVersion === engineVersion &&
+            item.compute === compute &&
+            item.os === osValue
+          );
         });
       });
       os = choose(requested.os, rows.os.options);
@@ -323,6 +377,7 @@
         return methodCombinations.some(function (item) {
           return (
             item.engine === engine &&
+            (method !== "image" || item.engineVersion === engineVersion) &&
             item.compute === compute &&
             (method !== "image" || item.os === os) &&
             item.architecture === architectureValue
@@ -334,6 +389,7 @@
     var combination = methodCombinations.find(function (item) {
       return (
         item.engine === engine &&
+        (method !== "image" || item.engineVersion === engineVersion) &&
         item.compute === compute &&
         (method !== "image" || item.os === os) &&
         item.architecture === architecture
@@ -344,6 +400,7 @@
       state: {
         method: method,
         engine: engine,
+        engineVersion: engineVersion,
         compute: compute,
         os: os,
         architecture: architecture,
@@ -452,11 +509,13 @@
       renderSelector(app, model, next, messages);
     }
 
-    ["method", "engine", "compute", "os", "architecture"].forEach(function (name) {
-      controls.appendChild(
-        renderRow(name, selection.rows[name], selection.state[name], messages, select)
-      );
-    });
+    ["method", "engine", "engineVersion", "compute", "os", "architecture"].forEach(
+      function (name) {
+        controls.appendChild(
+          renderRow(name, selection.rows[name], selection.state[name], messages, select)
+        );
+      }
+    );
     output.replaceChildren();
     if (selection.command) {
       output.appendChild(element("h2", "ucm-install__output-title", messages.command));
@@ -506,6 +565,8 @@
     TEXT: TEXT,
     architectureLabel: architectureLabel,
     computeLabelParts: computeLabelParts,
+    displayEngineVersion: displayEngineVersion,
+    engineVersionOptions: engineVersionOptions,
     buildSelectorModel: buildSelectorModel,
     deriveSelection: deriveSelection,
     initialize: initialize,
