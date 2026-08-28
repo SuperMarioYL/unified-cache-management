@@ -37,13 +37,24 @@ function wheel({ id, product, channel, runtime, variant, soc, architecture }) {
   };
 }
 
-function image({ id, product, runtime, variant, soc, architectures }) {
+function image({
+  id,
+  product,
+  runtime,
+  variant,
+  soc,
+  architectures,
+  version = "0.10.2",
+  channel = "stable",
+  osId = "ubuntu",
+  osVersion = "22.04",
+}) {
   return {
     id,
     product,
-    upstream: { version: "0.10.2", channel: "stable" },
+    upstream: { version, channel },
     accelerator: { runtime, variant, soc_version: soc },
-    os: { id: "ubuntu", version: "22.04" },
+    os: { id: osId, version: osVersion },
     publications: {
       ghcr: publication("ghcr.io/example/" + id + ":v0.9.0", architectures),
       dockerhub: null,
@@ -158,17 +169,216 @@ test("Compute platform labels hide internal SoC identifiers", () => {
 
 test("Image engine versions use published endpoints as ranges", () => {
   const combinations = [
-    { engine: "vllm-ascend", engineVersion: "0.23.0" },
-    { engine: "vllm-ascend", engineVersion: "0.24.0rc0" },
-    { engine: "vllm-ascend", engineVersion: "0.25.1rc0" },
-    { engine: "vllm-ascend", engineVersion: "0.26.0rc0" },
-    { engine: "vllm", engineVersion: "0.28.0" },
+    {
+      engine: "vllm-ascend",
+      engineVersion: "0.23.0",
+      engineChannel: "stable",
+      engineRuntime: "cann-9.1.0",
+    },
+    {
+      engine: "vllm-ascend",
+      engineVersion: "0.24.0rc0",
+      engineChannel: "nightly",
+      engineRuntime: "cann-9.0.1",
+    },
+    {
+      engine: "vllm-ascend",
+      engineVersion: "0.25.1rc0",
+      engineChannel: "nightly",
+      engineRuntime: "cann-9.0.1",
+    },
+    {
+      engine: "vllm-ascend",
+      engineVersion: "0.26.0rc0",
+      engineChannel: "nightly",
+      engineRuntime: "cann-9.1.0",
+    },
+    {
+      engine: "vllm",
+      engineVersion: "0.28.0",
+      engineChannel: "stable",
+      engineRuntime: "cuda-13.0",
+    },
   ];
   assert.deepEqual(Selector.engineVersionOptions(combinations, "vllm-ascend"), [
-    { value: "0.23.0", label: "\u2264 0.23.0" },
-    { value: "0.24.0rc0", label: "0.24.0" },
-    { value: "0.25.1rc0", label: "0.25.1" },
-    { value: "0.26.0rc0", label: "\u2265 0.26.0" },
+    { value: "0.23.0", label: "\u2264 0.23.0 / Stable \u00b7 CANN 9.1.0" },
+    { value: "0.24.0rc0", label: "0.24.0 / Nightly \u00b7 CANN 9.0.1" },
+    { value: "0.25.1rc0", label: "0.25.1 / Nightly \u00b7 CANN 9.0.1" },
+    { value: "0.26.0rc0", label: "\u2265 0.26.0 / Nightly \u00b7 CANN 9.1.0" },
+  ]);
+});
+
+test("Engine version rejects ambiguous channel or CANN mappings", () => {
+  assert.throws(
+    () =>
+      Selector.engineVersionOptions(
+        [
+          {
+            engine: "vllm-ascend",
+            engineVersion: "0.24.0rc0",
+            engineChannel: "stable",
+            engineRuntime: "cann-9.0.1",
+          },
+          {
+            engine: "vllm-ascend",
+            engineVersion: "0.24.0rc0",
+            engineChannel: "nightly",
+            engineRuntime: "cann-9.0.1",
+          },
+        ],
+        "vllm-ascend"
+      ),
+    /conflicting release channels/
+  );
+  assert.throws(
+    () =>
+      Selector.engineVersionOptions(
+        [
+          {
+            engine: "vllm-ascend",
+            engineVersion: "0.24.0rc0",
+            engineChannel: "nightly",
+            engineRuntime: "cann-9.0.1",
+          },
+          {
+            engine: "vllm-ascend",
+            engineVersion: "0.24.0rc0",
+            engineChannel: "nightly",
+            engineRuntime: "cann-9.1.0",
+          },
+        ],
+        "vllm-ascend"
+      ),
+    /conflicting CANN runtimes/
+  );
+
+  const conflictingManifest = fixture();
+  const conflictingImage = structuredClone(conflictingManifest.images[1]);
+  conflictingImage.id = "vllm-ascend-a2-cann910";
+  conflictingImage.accelerator.runtime = "cann-9.1.0";
+  conflictingManifest.images.push(conflictingImage);
+  assert.throws(
+    () =>
+      Selector.buildSelectorModel(
+        conflictingManifest,
+        "https://docs.example/latest/release-manifest.json"
+      ),
+    /conflicting CANN runtimes/
+  );
+});
+
+test("Ascend engine version selects the matching CANN Wheel and Image", () => {
+  const versions = [
+    { version: "0.23.0", runtime: "cann-9.1.0", wheel: "cann910" },
+    { version: "0.24.0rc0", runtime: "cann-9.0.1", wheel: "cann901" },
+    { version: "0.25.1rc0", runtime: "cann-9.0.1", wheel: "cann901" },
+    { version: "0.26.0rc0", runtime: "cann-9.1.0", wheel: "cann910" },
+  ];
+  const variants = ["a2", "a3"];
+  const manifest = fixture();
+  manifest.wheels = [];
+  manifest.images = [];
+  [
+    { runtime: "cann-9.0.1", channel: "cann901" },
+    { runtime: "cann-9.1.0", channel: "cann910" },
+  ].forEach(({ runtime, channel }) => {
+    variants.forEach((variant) => {
+      manifest.wheels.push(
+        wheel({
+          id: "wheel-" + channel + "-" + variant,
+          product: "vllm-ascend",
+          channel: channel + "-" + variant,
+          runtime,
+          variant,
+          soc: variant === "a2" ? "ascend910b1" : "ascend910_9391",
+          architecture: "arm64",
+        })
+      );
+    });
+  });
+  versions.forEach(({ version, runtime }) => {
+    variants.forEach((variant) => {
+      manifest.images.push(
+        image({
+          id: "ascend-" + version + "-" + variant,
+          product: "vllm-ascend",
+          version,
+          channel: version === "0.23.0" ? "stable" : "nightly",
+          runtime,
+          variant,
+          soc: variant === "a2" ? "ascend910b1" : "ascend910_9391",
+          architectures: ["arm64"],
+        })
+      );
+    });
+  });
+  manifest.images.push(
+    image({
+      id: "ascend-0.23.0-a2-amd64-openeuler",
+      product: "vllm-ascend",
+      version: "0.23.0",
+      channel: "stable",
+      runtime: "cann-9.1.0",
+      variant: "a2",
+      soc: "ascend910b1",
+      architectures: ["amd64"],
+      osId: "openeuler",
+      osVersion: "22.03",
+    })
+  );
+  manifest.github_release_assets = [
+    "release-manifest.json",
+    ...manifest.wheels.map((item) => item.filename),
+    manifest.chart.filename,
+  ];
+  const model = Selector.buildSelectorModel(
+    manifest,
+    "https://docs.example/latest/release-manifest.json"
+  );
+
+  versions.forEach(({ version, wheel }) => {
+    variants.forEach((variant) => {
+      const wheelSelection = Selector.deriveSelection(model, {
+        method: "wheel",
+        engine: "vllm-ascend",
+        engineVersion: version,
+        compute: variant,
+        architecture: "arm64",
+      });
+      const imageSelection = Selector.deriveSelection(model, {
+        method: "image",
+        engine: "vllm-ascend",
+        engineVersion: version,
+        compute: variant,
+        os: "ubuntu|22.04",
+        architecture: "arm64",
+      });
+      assert.match(wheelSelection.command, new RegExp("0\\.9\\.0\\+" + wheel + "\\." + variant));
+      assert.equal(
+        imageSelection.command,
+        "docker pull ghcr.io/example/ascend-" + version + "-" + variant + ":v0.9.0"
+      );
+    });
+  });
+
+  const latest = Selector.deriveSelection(model, {
+    method: "image",
+    engine: "vllm-ascend",
+    engineVersion: "0.26.0rc0",
+    compute: "a2",
+    os: "openeuler|22.03",
+    architecture: "amd64",
+  });
+  assert.equal(option(latest.rows.os, "openeuler|22.03").disabled, true);
+  assert.equal(option(latest.rows.architecture, "amd64").disabled, true);
+  assert.equal(latest.state.os, "ubuntu|22.04");
+  assert.equal(latest.state.architecture, "arm64");
+  assert.deepEqual(latest.rows.compute.options.map((item) => item.label), ["A2", "A3"]);
+  assert.deepEqual(latest.rows.engineVersion.options.map((item) => item.label), [
+    "\u2264 0.23.0 / Stable \u00b7 CANN 9.1.0",
+    "0.24.0 / Nightly \u00b7 CANN 9.0.1",
+    "0.25.1 / Nightly \u00b7 CANN 9.0.1",
+    "\u2265 0.26.0 / Nightly \u00b7 CANN 9.1.0",
   ]);
 });
 
@@ -187,7 +397,7 @@ test("Wheel selection auto-corrects dependent fields and emits one exact command
     os: null,
     architecture: "amd64",
   });
-  assert.equal(option(initial.rows.compute, "cann-9.0.1|a2").disabled, true);
+  assert.deepEqual(initial.rows.compute.options.map((item) => item.label), ["CUDA 13.0"]);
   assert.equal(
     initial.command,
     'python -m pip install "uc-manager==0.9.0+cu130" --index-url https://docs.example/whl/cu130/'
@@ -199,13 +409,10 @@ test("Wheel selection auto-corrects dependent fields and emits one exact command
     compute: "cuda-13.0|default",
     architecture: "amd64",
   });
-  assert.equal(ascend.state.compute, "cann-9.0.1|a2");
+  assert.equal(ascend.state.compute, "a2");
   assert.equal(ascend.state.architecture, "arm64");
   assert.match(ascend.command, /uc-manager==0\.9\.0\+cann901\.a2/);
-  assert.deepEqual(
-    initial.rows.compute.options.map((item) => item.value),
-    ascend.rows.compute.options.map((item) => item.value)
-  );
+  assert.deepEqual(ascend.rows.compute.options.map((item) => item.label), ["A2"]);
 });
 
 test("Image selection filters by architecture and always pulls publication.pull", () => {
