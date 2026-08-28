@@ -25,6 +25,14 @@
   var COPY_ICON = "\u2398";
   var METHOD_ORDER = ["wheel", "image", "helm"];
   var ENGINE_ORDER = ["vllm", "vllm-ascend"];
+  var ROW_ORDER = [
+    "engine",
+    "method",
+    "engineVersion",
+    "compute",
+    "os",
+    "architecture",
+  ];
   var TEXT = {
     en: {
       loading: "Loading the current release manifest...",
@@ -508,13 +516,11 @@
       renderSelector(app, model, next, messages);
     }
 
-    ["method", "engine", "engineVersion", "compute", "os", "architecture"].forEach(
-      function (name) {
-        controls.appendChild(
-          renderRow(name, selection.rows[name], selection.state[name], messages, select)
-        );
-      }
-    );
+    ROW_ORDER.forEach(function (name) {
+      controls.appendChild(
+        renderRow(name, selection.rows[name], selection.state[name], messages, select)
+      );
+    });
     output.replaceChildren();
     output.appendChild(
       element(
@@ -571,6 +577,7 @@
 
   return {
     TEXT: TEXT,
+    ROW_ORDER: ROW_ORDER.slice(),
     architectureLabel: architectureLabel,
     computeLabelParts: computeLabelParts,
     displayEngineVersion: displayEngineVersion,
