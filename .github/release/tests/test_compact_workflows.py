@@ -381,7 +381,7 @@ def test_runtime_images_include_the_config_example_at_the_workspace_root() -> No
         assert image_path in verify["run"]
 
 
-def test_schema_v6_manifest_is_uploaded_only_after_complete_and_read_back() -> None:
+def test_schema_v8_manifest_is_uploaded_only_after_complete_and_read_back() -> None:
     jobs = _load("release-ucm.yml")["jobs"]
     steps = jobs["update-release-images"]["steps"]
     update_index, update = next(
@@ -433,7 +433,7 @@ def test_schema_v6_manifest_is_uploaded_only_after_complete_and_read_back() -> N
     release_module = (
         ROOT / ".github" / "release" / "ucm_release" / "release.py"
     ).read_text(encoding="utf-8")
-    assert "PUBLIC_MANIFEST_SCHEMA_VERSION = 6" in release_module
+    assert "PUBLIC_MANIFEST_SCHEMA_VERSION = 8" in release_module
 
     for name, job in jobs.items():
         if name != "update-release-images":
@@ -441,6 +441,48 @@ def test_schema_v6_manifest_is_uploaded_only_after_complete_and_read_back() -> N
                 name == "publish-release-artifacts"
                 and "release-manifest.json" not in yaml.safe_dump(job)
             )
+
+
+def test_v093_manifest_migration_reconstructs_exact_schema8_and_pages() -> None:
+    workflow = _load("migrate-release-manifest.yml")
+    migration = workflow["jobs"]["migrate-manifest"]
+    steps = migration["steps"]
+    text = (WORKFLOWS / "migrate-release-manifest.yml").read_text(encoding="utf-8")
+
+    assert workflow["on"]["workflow_dispatch"]["inputs"]["tag"]["default"] == ("v0.9.3")
+    assert "98eda15bb9d17dc0f9d7b1438f06a7930626d0e9" in text
+    assert 'ORIGINAL_RUN_ID: "33235078637"' in text
+    assert 'test "${receipt_count}" = 62' in text
+    assert "--pypi-outcome skipped" in text
+    assert "--pypi-install-outcome skipped" in text
+    assert ".schema_version == 3" in text
+    assert ".schema_version == 8" in text
+    assert ".python.pypi == null" in text
+    assert "(.python.extras | length) == 6" in text
+    assert "(.wheels | length) == 10" in text
+    assert "(.images | length) == 22" in text
+
+    upload_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Upload and read back Schema 8"
+    )
+    reconstruct_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Reconstruct Final State and Schema 8"
+    )
+    assert reconstruct_index < upload_index
+    assert "release-manifest-readback.json" in steps[upload_index]["run"]
+    assert "cleanup.validate_manifest" in steps[upload_index]["run"]
+
+    stable = workflow["jobs"]["publish-stable-pages"]
+    latest = workflow["jobs"]["publish-latest-pages"]
+    assert stable["uses"] == "./.github/workflows/docs-pages.yml"
+    assert stable["with"]["mode"] == "stable"
+    assert stable["with"]["replace_existing"] is False
+    assert latest["needs"] == "publish-stable-pages"
+    assert latest["with"]["mode"] == "latest"
 
 
 def test_handwritten_release_notes_start_with_status() -> None:
