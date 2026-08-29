@@ -11,12 +11,11 @@ edit_uri: edit/develop/docs-next/docs/en/
 docs_dir: docs
 
 extra_css:
-  - assets/install.css?v=20260829-schema8-3
+  - assets/install.css?v=20260829-schema8-4
 
 extra_javascript:
-  - assets/manifest.js?v=20260829-schema8-3
-  - assets/install.js?v=20260829-schema8-3
-  - assets/download.js?v=20260829-schema8-3
+  - assets/manifest.js?v=20260829-schema8-4
+  - assets/install.js?v=20260829-schema8-4
 
 theme:
   name: material
@@ -102,10 +101,6 @@ plugins:
             API & Parameters: API 与参数
             Benchmark: 性能测试
             Toolkit: 工具集
-            Download: 下载
-            Wheel: Wheel
-            Helm: Helm
-            Image: 镜像
             KV Cache Calculator: KV Cache 计算器
             Developer: 开发者
             Design: 设计文档
@@ -213,8 +208,3 @@ nav:
       - Developer:
           - Design: toolkit/developer/design.md
           - dev-sandbox: toolkit/developer/dev-sandbox.md
-  - Download:
-      - Overview: download/index.md
-      - Wheel: download/whl.md
-      - Helm: download/helm.md
-      - Image: download/image.md

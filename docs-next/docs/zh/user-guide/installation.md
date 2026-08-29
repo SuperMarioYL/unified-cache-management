@@ -15,12 +15,8 @@
 </div>
 
 <noscript>
-  请启用 JavaScript 以加载 Release Manifest 并生成安装命令。所有已发布制品
-  仍可在 <a href="../../download/">下载</a> 页面中查看。
+  请启用 JavaScript 以加载 Release Manifest 并生成安装命令。
 </noscript>
-
-如需查看全部 ABI、架构、直接链接和 Registry 发布结果，请前往
-[下载](../../download/index.md)。
 
 ## 后续步骤
 
