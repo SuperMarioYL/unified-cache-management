@@ -907,7 +907,7 @@ def test_bilingual_install_and_download_pages_use_one_manifest_contract() -> Non
     assert 'element("button", "ucm-selector__option"' not in javascript
     assert "computeLabelParts" in javascript
     assert "engineVersionOptions" in javascript
-    assert 'var ROW_ORDER = [\n    "engine",\n    "method"' in javascript
+    assert 'var ROW_ORDER = [\n    "method",\n    "engine"' in javascript
     assert "ucm-selector__option-text--stacked" in javascript
     assert "controls.appendChild(output)" in javascript
     assert "ucm-install__output-value" in javascript
@@ -927,4 +927,4 @@ def test_bilingual_install_and_download_pages_use_one_manifest_contract() -> Non
     assert "assets/download.js" in mkdocs
     assert "assets/install.css" in mkdocs
     for asset in ("manifest.js", "install.js", "download.js", "install.css"):
-        assert f"assets/{asset}?v=20260829-schema8" in mkdocs
+        assert f"assets/{asset}?v=20260829-schema8-2" in mkdocs

@@ -11,12 +11,12 @@ edit_uri: edit/develop/docs-next/docs/en/
 docs_dir: docs
 
 extra_css:
-  - assets/install.css?v=20260829-schema8
+  - assets/install.css?v=20260829-schema8-2
 
 extra_javascript:
-  - assets/manifest.js?v=20260829-schema8
-  - assets/install.js?v=20260829-schema8
-  - assets/download.js?v=20260829-schema8
+  - assets/manifest.js?v=20260829-schema8-2
+  - assets/install.js?v=20260829-schema8-2
+  - assets/download.js?v=20260829-schema8-2
 
 theme:
   name: material
