@@ -55,6 +55,11 @@ on:
         type: string
         required: false
         default: ""
+      replace_existing:
+        description: Replace an existing Stable documentation body
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: ucm-pages-${{ github.repository_id }}

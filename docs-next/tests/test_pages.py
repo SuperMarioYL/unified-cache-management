@@ -926,3 +926,5 @@ def test_bilingual_install_and_download_pages_use_one_manifest_contract() -> Non
     assert "assets/install.js" in mkdocs
     assert "assets/download.js" in mkdocs
     assert "assets/install.css" in mkdocs
+    for asset in ("manifest.js", "install.js", "download.js", "install.css"):
+        assert f"assets/{asset}?v=20260829-schema8" in mkdocs
