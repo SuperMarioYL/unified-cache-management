@@ -36,8 +36,6 @@
       overviewWheel: "Browse PyPI extras, backend Wheels, ABIs, architectures, and Release assets.",
       overviewImage: "Browse every published image family and registry publication.",
       overviewHelm: "Download the Release Chart and use its OCI reference when published.",
-      channel: "Channel",
-      index: "Simple Index",
       extra: "Extra",
       backend: "Backend package",
       platformTags: "Wheel platform",
@@ -71,8 +69,6 @@
       overviewWheel: "查看 PyPI Extra、Backend Wheel、ABI、架构和 Release 资产。",
       overviewImage: "查看全部已发布镜像 Family 及其 Registry 发布结果。",
       overviewHelm: "下载 Release Chart；如已发布，也可以使用 OCI 引用。",
-      channel: "Channel",
-      index: "Simple Index",
       extra: "Extra",
       backend: "Backend 包",
       platformTags: "Wheel 平台",
@@ -149,21 +145,15 @@
     return wrapper;
   }
 
-  function buildInventory(manifest, manifestUrl) {
+  function buildInventory(manifest) {
     Manifest.validateManifest(manifest);
-    var target = new URL(String(manifestUrl || Manifest.defaultManifestUrl()));
-    var legacy = manifest.schema_version === Manifest.LEGACY_SCHEMA_VERSION;
     var wheelGroups = {};
     manifest.wheels.forEach(function (wheel) {
-      var groupName = legacy ? wheel.channel : wheel.extra;
+      var groupName = wheel.extra;
       if (!wheelGroups[groupName]) {
         wheelGroups[groupName] = {
-          channel: groupName,
-          extra: legacy ? null : groupName,
+          extra: groupName,
           distribution: wheel.distribution,
-          indexUrl: legacy
-            ? new URL("../whl/" + encodeURIComponent(groupName) + "/", target).href
-            : null,
           wheels: [],
         };
       }
@@ -191,8 +181,7 @@
     });
     return {
       release: manifest.release,
-      legacy: legacy,
-      python: legacy ? null : manifest.python,
+      python: manifest.python,
       wheelGroups: groups,
       wheelCount: manifest.wheels.length,
       images: images,
@@ -249,86 +238,63 @@
       root.appendChild(element("p", "ucm-install__empty", messages.empty));
       return;
     }
-    if (inventory.python !== null) {
-      var meta = element("article", "ucm-install__card ucm-download__card");
-      meta.appendChild(
-        cardHeading(messages.metaPackage, inventory.python.version)
-      );
-      meta.appendChild(element("p", "", messages.freshEnvironment));
-      var metaFacts = element("dl", "ucm-install__facts");
+    var meta = element("article", "ucm-install__card ucm-download__card");
+    meta.appendChild(cardHeading(messages.metaPackage, inventory.python.version));
+    meta.appendChild(element("p", "", messages.freshEnvironment));
+    var metaFacts = element("dl", "ucm-install__facts");
+    metaFacts.appendChild(definition(messages.version, inventory.python.version));
+    metaFacts.appendChild(
+      definition(messages.platformTags, inventory.python.tags.join(", "))
+    );
+    if (inventory.python.pypi !== null) {
       metaFacts.appendChild(
-        definition(messages.version, inventory.python.version)
-      );
-      metaFacts.appendChild(
-        definition(messages.platformTags, inventory.python.tags.join(", "))
-      );
-      if (inventory.python.pypi !== null) {
-        metaFacts.appendChild(
-          linkDefinition(
-            messages.pypiProject,
-            inventory.python.pypi.project_url,
-            inventory.python.distribution
-          )
-        );
-      }
-      meta.appendChild(metaFacts);
-      if (inventory.python.pypi === null) {
-        meta.appendChild(
-          element("p", "ucm-install__empty", messages.pypiUnavailable)
-        );
-      }
-      meta.appendChild(
-        directLink(
-          inventory.python.url,
-          inventory.python.filename,
-          "ucm-install__download"
+        linkDefinition(
+          messages.pypiProject,
+          inventory.python.pypi.project_url,
+          inventory.python.distribution
         )
       );
-      root.appendChild(meta);
     }
+    meta.appendChild(metaFacts);
+    if (inventory.python.pypi === null) {
+      meta.appendChild(
+        element("p", "ucm-install__empty", messages.pypiUnavailable)
+      );
+    }
+    meta.appendChild(
+      directLink(
+        inventory.python.url,
+        inventory.python.filename,
+        "ucm-install__download"
+      )
+    );
+    root.appendChild(meta);
     inventory.wheelGroups.forEach(function (group) {
       var card = element("article", "ucm-install__card ucm-download__card");
-      card.appendChild(
-        cardHeading(
-          group.channel,
-          inventory.legacy
-            ? group.wheels.length + " " + messages.wheels
-            : group.distribution
-        )
-      );
-      if (inventory.legacy) {
-        var indexFacts = element("dl", "ucm-install__facts");
-        indexFacts.appendChild(
-          linkDefinition(messages.index, group.indexUrl, group.indexUrl)
-        );
-        card.appendChild(indexFacts);
-      } else {
-        var packageFacts = element("dl", "ucm-install__facts");
-        var installCommand = null;
-        packageFacts.appendChild(definition(messages.extra, group.extra));
+      card.appendChild(cardHeading(group.extra, group.distribution));
+      var packageFacts = element("dl", "ucm-install__facts");
+      var installCommand = null;
+      packageFacts.appendChild(definition(messages.extra, group.extra));
+      packageFacts.appendChild(definition(messages.backend, group.distribution));
+      if (inventory.python.pypi !== null) {
         packageFacts.appendChild(
-          definition(messages.backend, group.distribution)
+          linkDefinition(
+            messages.pypiProject,
+            pypiProjectUrl(group.distribution, inventory.python.version),
+            group.distribution
+          )
         );
-        if (inventory.python.pypi !== null) {
-          packageFacts.appendChild(
-            linkDefinition(
-              messages.pypiProject,
-              pypiProjectUrl(group.distribution, inventory.python.version),
-              group.distribution
-            )
-          );
-          installCommand =
-            'python -m pip install "' +
-            inventory.python.distribution +
-            "[" +
-            group.extra +
-            "]==" +
-            inventory.python.version +
-            '"';
-        }
-        card.appendChild(packageFacts);
-        if (installCommand !== null) card.appendChild(command(installCommand));
+        installCommand =
+          'pip install "' +
+          inventory.python.distribution +
+          "[" +
+          group.extra +
+          "]==" +
+          inventory.python.version +
+          '"';
       }
+      card.appendChild(packageFacts);
+      if (installCommand !== null) card.appendChild(command(installCommand));
       var list = element("div", "ucm-install__wheel-list");
       group.wheels.forEach(function (wheel) {
         var row = element("div", "ucm-install__wheel");
@@ -338,11 +304,9 @@
         facts.appendChild(
           definition(messages.architecture, architectureLabel(wheel.architecture))
         );
-        if (!inventory.legacy) {
-          facts.appendChild(
-            definition(messages.platformTags, wheel.platform_tags.join(", "))
-          );
-        }
+        facts.appendChild(
+          definition(messages.platformTags, wheel.platform_tags.join(", "))
+        );
         row.appendChild(facts);
         row.appendChild(
           directLink(wheel.url, wheel.filename, "ucm-install__download")
@@ -447,7 +411,7 @@
       var manifestUrl = Manifest.defaultManifestUrl();
       Manifest.loadManifest(manifestUrl)
         .then(function (manifest) {
-          var inventory = buildInventory(manifest, manifestUrl);
+          var inventory = buildInventory(manifest);
           status.replaceChildren(
             document.createTextNode(messages.release + ": "),
             directLink(manifest.release.url, manifest.release.version)
