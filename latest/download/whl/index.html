@@ -2881,8 +2881,12 @@
 
 
 <h1 id="wheel-downloads">Wheel downloads<a class="headerlink" href="#wheel-downloads" title="Permanent link">&para;</a></h1>
-<p>Every published Wheel is listed with its complete local version, Python ABI,
-architecture, channel Simple Index, and direct Release asset link.</p>
+<p>When this Release is published to PyPI, the recommended installation uses its
+<code>uc-manager[extra]</code> package. This page also lists the meta Wheel, every backend
+Wheel, Python ABI, architecture, manylinux platform, and direct Release asset
+link.</p>
+<p>Install only one backend extra in a fresh Python environment. Different backend
+packages own the same <code>ucm</code> import namespace and must not be combined.</p>
 <div class="ucm-install" data-ucm-download data-download-kind="wheel" data-locale="en">
   <p class="ucm-install__status" data-download-status aria-live="polite">
     Loading the current release manifest...
