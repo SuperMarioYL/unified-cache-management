@@ -211,6 +211,20 @@
         <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/latestzh/user-guide/frameworks/pyMotor/"/>
     </url>
     <url>
+        <loc>https://unified-cache-management.lei6393.com/latest/user-guide/frameworks/kubernetes/deploy/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/latest/user-guide/frameworks/kubernetes/deploy/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/latestzh/user-guide/frameworks/kubernetes/deploy/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/latest/user-guide/frameworks/kubernetes/prerequisites/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/latest/user-guide/frameworks/kubernetes/prerequisites/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/latestzh/user-guide/frameworks/kubernetes/prerequisites/"/>
+    </url>
+    <url>
         <loc>https://unified-cache-management.lei6393.com/latest/user-guide/model-tour/</loc>
         <lastmod>2026-08-29</lastmod>
         <changefreq>daily</changefreq>
@@ -629,6 +643,20 @@
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/latest/zh/user-guide/frameworks/pyMotor/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/latestuser-guide/frameworks/pyMotor/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/latest/zh/user-guide/frameworks/kubernetes/deploy/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/latest/zh/user-guide/frameworks/kubernetes/deploy/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/latestuser-guide/frameworks/kubernetes/deploy/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/latest/zh/user-guide/frameworks/kubernetes/prerequisites/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/latest/zh/user-guide/frameworks/kubernetes/prerequisites/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/latestuser-guide/frameworks/kubernetes/prerequisites/"/>
     </url>
     <url>
         <loc>https://unified-cache-management.lei6393.com/latest/zh/user-guide/model-tour/</loc>

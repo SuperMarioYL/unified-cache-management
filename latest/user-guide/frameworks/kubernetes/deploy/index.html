@@ -1,6 +1,6 @@
 
 <!doctype html>
-<html lang="zh" class="no-js">
+<html lang="en" class="no-js">
   <head>
     
       <meta charset="utf-8">
@@ -10,35 +10,35 @@
       
       
       
-        <link rel="canonical" href="https://unified-cache-management.lei6393.com/latest/zh/developer-guide/contribute/">
+        <link rel="canonical" href="https://unified-cache-management.lei6393.com/latest/user-guide/frameworks/kubernetes/deploy/">
       
       
-        <link rel="prev" href="../extending-store/">
+        <link rel="prev" href="../prerequisites/">
       
       
-        <link rel="next" href="../../reference/api-parameters/">
+        <link rel="next" href="../../pyMotor/">
       
       
         
-          <link rel="alternate" href="../../../developer-guide/contribute/" hreflang="en">
+          <link rel="alternate" href="./" hreflang="en">
         
-          <link rel="alternate" href="./" hreflang="zh">
+          <link rel="alternate" href="../../../../zh/user-guide/frameworks/kubernetes/deploy/" hreflang="zh">
         
       
       
-      <link rel="icon" href="../../../assets/images/UCM-dark.png">
+      <link rel="icon" href="../../../../assets/images/UCM-dark.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>贡献 - Unified Cache Manager 中文站点</title>
+        <title>Install and Deploy - Unified Cache Manager</title>
       
     
     
-      <link rel="stylesheet" href="../../../assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../../../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -57,9 +57,9 @@
       
     
     
-      <link rel="stylesheet" href="../../../assets/install.css?v=20260829-schema8-4">
+      <link rel="stylesheet" href="../../../../assets/install.css?v=20260829-schema8-4">
     
-    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -136,8 +136,8 @@
     <div data-md-component="skip">
       
         
-        <a href="#ucm-contributing-guide" class="md-skip">
-          跳转至
+        <a href="#install-and-deploy-with-helm" class="md-skip">
+          Skip to content
         </a>
       
     </div>
@@ -155,10 +155,10 @@
   
 
 <header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
-  <nav class="md-header__inner md-grid" aria-label="页眉">
-    <a href="../../" title="Unified Cache Manager 中文站点" class="md-header__button md-logo" aria-label="Unified Cache Manager 中文站点" data-md-component="logo">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../../.." title="Unified Cache Manager" class="md-header__button md-logo" aria-label="Unified Cache Manager" data-md-component="logo">
       
-  <img src="../../../assets/images/UCM-light.png" alt="logo">
+  <img src="../../../../assets/images/UCM-light.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -169,13 +169,13 @@
       <div class="md-header__ellipsis">
         <div class="md-header__topic">
           <span class="md-ellipsis">
-            Unified Cache Manager 中文站点
+            Unified Cache Manager
           </span>
         </div>
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              贡献
+              Install and Deploy
             
           </span>
         </div>
@@ -215,20 +215,20 @@
       <div class="md-header__option">
   <div class="md-select">
     
-    <button class="md-header__button md-icon" aria-label="选择当前语言">
+    <button class="md-header__button md-icon" aria-label="Select language">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m12.87 15.07-2.54-2.51.03-.03A17.5 17.5 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2zm-2.62 7 1.62-4.33L19.12 17z"/></svg>
     </button>
     <div class="md-select__inner">
       <ul class="md-select__list">
         
           <li class="md-select__item">
-            <a href="../../../developer-guide/contribute/" hreflang="en" class="md-select__link">
+            <a href="./" hreflang="en" class="md-select__link">
               English
             </a>
           </li>
         
           <li class="md-select__item">
-            <a href="./" hreflang="zh" class="md-select__link">
+            <a href="../../../../zh/user-guide/frameworks/kubernetes/deploy/" hreflang="zh" class="md-select__link">
               简体中文
             </a>
           </li>
@@ -249,16 +249,16 @@
   <label class="md-search__overlay" for="__search"></label>
   <div class="md-search__inner" role="search">
     <form class="md-search__form" name="search">
-      <input type="text" class="md-search__input" name="query" aria-label="搜索" placeholder="搜索" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
       <label class="md-search__icon md-icon" for="__search">
         
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
         
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
       </label>
-      <nav class="md-search__options" aria-label="查找">
+      <nav class="md-search__options" aria-label="Search">
         
-        <button type="reset" class="md-search__icon md-icon" title="清空当前内容" aria-label="清空当前内容" tabindex="-1">
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
           
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
         </button>
@@ -271,7 +271,7 @@
       <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
         <div class="md-search-result" data-md-component="search-result">
           <div class="md-search-result__meta">
-            正在初始化搜索引擎
+            Initializing search
           </div>
           <ol class="md-search-result__list" role="presentation"></ol>
         </div>
@@ -283,7 +283,7 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/ModelEngine-Group/unified-cache-management" title="前往仓库" class="md-source" data-md-component="source">
+        <a href="https://github.com/ModelEngine-Group/unified-cache-management" title="Go to repository" class="md-source" data-md-component="source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
@@ -298,7 +298,7 @@
   
     
       
-<nav class="md-tabs" aria-label="标签" data-md-component="tabs">
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
   <div class="md-grid">
     <ul class="md-tabs__list">
       
@@ -308,38 +308,16 @@
   
   
     <li class="md-tabs__item">
-      <a href="../../" class="md-tabs__link">
+      <a href="../../../.." class="md-tabs__link">
         
   
   
     
   
-  首页
+  Home
 
       </a>
     </li>
-  
-
-      
-        
-  
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="../../user-guide/" class="md-tabs__link">
-          
-  
-  
-    
-  
-  用户指南
-
-        </a>
-      </li>
-    
   
 
       
@@ -353,13 +331,13 @@
     
     
       <li class="md-tabs__item md-tabs__item--active">
-        <a href="../architecture/" class="md-tabs__link">
+        <a href="../../../" class="md-tabs__link">
           
   
   
     
   
-  开发者指南
+  User Guide
 
         </a>
       </li>
@@ -375,13 +353,35 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../reference/api-parameters/" class="md-tabs__link">
+        <a href="../../../../developer-guide/architecture/" class="md-tabs__link">
           
   
   
     
   
-  参考
+  Developer Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../../reference/api-parameters/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
 
         </a>
       </li>
@@ -395,13 +395,13 @@
   
   
     <li class="md-tabs__item">
-      <a href="../../benchmark/" class="md-tabs__link">
+      <a href="../../../../benchmark/" class="md-tabs__link">
         
   
   
     
   
-  性能测试
+  Benchmark
 
       </a>
     </li>
@@ -416,13 +416,13 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../toolkit/" class="md-tabs__link">
+        <a href="../../../../toolkit/" class="md-tabs__link">
           
   
   
     
   
-  工具集
+  Toolkit
 
         </a>
       </li>
@@ -456,18 +456,18 @@
   
 
 
-<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="导航栏" data-md-level="0">
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../../" title="Unified Cache Manager 中文站点" class="md-nav__button md-logo" aria-label="Unified Cache Manager 中文站点" data-md-component="logo">
+    <a href="../../../.." title="Unified Cache Manager" class="md-nav__button md-logo" aria-label="Unified Cache Manager" data-md-component="logo">
       
-  <img src="../../../assets/images/UCM-light.png" alt="logo">
+  <img src="../../../../assets/images/UCM-light.png" alt="logo">
 
     </a>
-    Unified Cache Manager 中文站点
+    Unified Cache Manager
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/ModelEngine-Group/unified-cache-management" title="前往仓库" class="md-source" data-md-component="source">
+      <a href="https://github.com/ModelEngine-Group/unified-cache-management" title="Go to repository" class="md-source" data-md-component="source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
@@ -487,14 +487,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../" class="md-nav__link">
+      <a href="../../../.." class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    首页
+    Home
   
 
     
@@ -511,6 +511,8 @@
       
   
   
+    
+  
   
   
     
@@ -544,29 +546,30 @@
     
     
       
+        
+        
+      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../user-guide/" class="md-nav__link ">
+            <a href="../../../" class="md-nav__link ">
               
   
   
   <span class="md-ellipsis">
     
   
-    用户指南
+    User Guide
   
 
     
@@ -577,18 +580,18 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
   
-    用户指南
+    User Guide
   
 
           </label>
@@ -603,14 +606,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../user-guide/installation/" class="md-nav__link">
+      <a href="../../../installation/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    安装
+    Installation
   
 
     
@@ -651,10 +654,13 @@
       
       
         
+          
+          
+        
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
@@ -664,14 +670,14 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../user-guide/quick_start/" class="md-nav__link ">
+            <a href="../../../quick_start/" class="md-nav__link ">
               
   
   
   <span class="md-ellipsis">
     
   
-    快速开始
+    Getting Started
   
 
     
@@ -682,7 +688,7 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_2_3" id="__nav_2_3_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_2_3" id="__nav_2_3_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
@@ -693,7 +699,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    快速开始
+    Getting Started
   
 
           </label>
@@ -708,7 +714,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../user-guide/quick_start/quickstart_vllm/" class="md-nav__link">
+      <a href="../../../quick_start/quickstart_vllm/" class="md-nav__link">
         
   
   
@@ -736,7 +742,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../user-guide/quick_start/quickstart_vllm_ascend/" class="md-nav__link">
+      <a href="../../../quick_start/quickstart_vllm_ascend/" class="md-nav__link">
         
   
   
@@ -764,7 +770,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../user-guide/quick_start/quickstart_sglang/" class="md-nav__link">
+      <a href="../../../quick_start/quickstart_sglang/" class="md-nav__link">
         
   
   
@@ -792,7 +798,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../user-guide/quick_start/quickstart_mindie_llm/" class="md-nav__link">
+      <a href="../../../quick_start/quickstart_mindie_llm/" class="md-nav__link">
         
   
   
@@ -828,14 +834,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../user-guide/support-matrix/" class="md-nav__link">
+      <a href="../../../support-matrix/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    支持矩阵
+    Support Matrix
   
 
     
@@ -856,14 +862,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../user-guide/deploy/" class="md-nav__link">
+      <a href="../../../deploy/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    部署
+    Deploy
   
 
     
@@ -881,6 +887,8 @@
                 
   
   
+    
+  
   
   
     
@@ -900,27 +908,28 @@
       
       
         
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
+          
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_6" >
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_6" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../user-guide/frameworks/" class="md-nav__link ">
+            <a href="../../" class="md-nav__link ">
               
   
   
   <span class="md-ellipsis">
     
   
-    部署框架
+    Deployment Frameworks
   
 
     
@@ -931,18 +940,18 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_2_6" id="__nav_2_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_2_6" id="__nav_2_6_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_6_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_6_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_2_6">
             <span class="md-nav__icon md-icon"></span>
             
   
-    部署框架
+    Deployment Frameworks
   
 
           </label>
@@ -954,8 +963,10 @@
                 
   
   
+    
   
   
+  
     
     
       
@@ -974,13 +985,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_6_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_6_2" checked>
         
           
           <label class="md-nav__link" for="__nav_2_6_2" id="__nav_2_6_2_label" tabindex="0">
@@ -1001,7 +1010,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_6_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_6_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_2_6_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1019,14 +1028,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../user-guide/frameworks/kubernetes/" class="md-nav__link">
+      <a href="../" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    概览
+    Overview
   
 
     
@@ -1047,14 +1056,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../user-guide/frameworks/kubernetes/prerequisites/" class="md-nav__link">
+      <a href="../prerequisites/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    依赖与前置条件
+    Prerequisites
   
 
     
@@ -1072,17 +1081,44 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../user-guide/frameworks/kubernetes/deploy/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install and Deploy
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
   <span class="md-ellipsis">
     
   
-    安装部署
+    Install and Deploy
   
 
     
@@ -1091,6 +1127,120 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#get-and-unpack-the-chart" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Get and unpack the Chart
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#create-site-specific-values" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Create site-specific values
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#render-and-install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Render and install
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verify-the-release" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verify the release
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Verify the release">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#single-node-and-multi-node-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Single-node and multi-node access
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pd-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PD access
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#confirm-the-ucm-runtime-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Confirm the UCM runtime configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#upgrade-and-uninstall" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upgrade and uninstall
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1111,7 +1261,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../user-guide/frameworks/pyMotor/" class="md-nav__link">
+      <a href="../../pyMotor/" class="md-nav__link">
         
   
   
@@ -1169,10 +1319,13 @@
       
       
         
+          
+          
+        
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
@@ -1182,14 +1335,14 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../user-guide/model-tour/" class="md-nav__link ">
+            <a href="../../../model-tour/" class="md-nav__link ">
               
   
   
   <span class="md-ellipsis">
     
   
-    模型示例
+    Model Tour
   
 
     
@@ -1200,7 +1353,7 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_2_7" id="__nav_2_7_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_2_7" id="__nav_2_7_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
@@ -1211,7 +1364,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    模型示例
+    Model Tour
   
 
           </label>
@@ -1251,7 +1404,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../user-guide/model-tour/glm/" class="md-nav__link ">
+            <a href="../../../model-tour/glm/" class="md-nav__link ">
               
   
   
@@ -1323,7 +1476,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../user-guide/model-tour/qwen3/" class="md-nav__link ">
+            <a href="../../../model-tour/qwen3/" class="md-nav__link ">
               
   
   
@@ -1395,7 +1548,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../user-guide/model-tour/deepseek/" class="md-nav__link ">
+            <a href="../../../model-tour/deepseek/" class="md-nav__link ">
               
   
   
@@ -1467,7 +1620,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../user-guide/model-tour/minimax/" class="md-nav__link ">
+            <a href="../../../model-tour/minimax/" class="md-nav__link ">
               
   
   
@@ -1539,7 +1692,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../user-guide/model-tour/kimi/" class="md-nav__link ">
+            <a href="../../../model-tour/kimi/" class="md-nav__link ">
               
   
   
@@ -1608,10 +1761,13 @@
       
       
         
+          
+          
+        
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
@@ -1621,14 +1777,14 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../user-guide/capabilities/" class="md-nav__link ">
+            <a href="../../../capabilities/" class="md-nav__link ">
               
   
   
   <span class="md-ellipsis">
     
   
-    核心能力
+    Capabilities
   
 
     
@@ -1639,7 +1795,7 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_2_8" id="__nav_2_8_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_2_8" id="__nav_2_8_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
@@ -1650,7 +1806,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    核心能力
+    Capabilities
   
 
           </label>
@@ -1665,14 +1821,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../user-guide/capabilities/prefix-cache/" class="md-nav__link">
+      <a href="../../../capabilities/prefix-cache/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    前缀缓存
+    Prefix Cache
   
 
     
@@ -1715,10 +1871,13 @@
       
       
         
+          
+          
+        
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
@@ -1728,14 +1887,14 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../user-guide/observability/" class="md-nav__link ">
+            <a href="../../../observability/" class="md-nav__link ">
               
   
   
   <span class="md-ellipsis">
     
   
-    观测能力
+    Observability
   
 
     
@@ -1746,7 +1905,7 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_2_9" id="__nav_2_9_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_2_9" id="__nav_2_9_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
@@ -1757,7 +1916,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    观测能力
+    Observability
   
 
           </label>
@@ -1772,14 +1931,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../user-guide/observability/metrics/" class="md-nav__link">
+      <a href="../../../observability/metrics/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    指标监控
+    Metrics
   
 
     
@@ -1812,6 +1971,157 @@
       
         
           
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_10" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../diagnostics/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Diagnostics
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_10" id="__nav_2_10_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Diagnostics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../diagnostics/trace-mode/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trace Mode
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../support-matrix/support_matrix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Support Matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
         
       
         
@@ -1831,168 +2141,17 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_10" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
         
           
-          <div class="md-nav__link md-nav__container">
-            <a href="../../user-guide/diagnostics/" class="md-nav__link ">
-              
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    诊断工具
-  
-
-    
-  </span>
-  
-  
-
-            </a>
-            
-              
-              <label class="md-nav__link " for="__nav_2_10" id="__nav_2_10_label" tabindex="0">
-                <span class="md-nav__icon md-icon"></span>
-              </label>
-            
-          </div>
-        
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_10_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_2_10">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    诊断工具
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../user-guide/diagnostics/trace-mode/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Trace 模式
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../user-guide/support-matrix/support_matrix/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    支持矩阵
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-    
-  
-  
-  
-    
-    
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-    
-      
-        
-        
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
-        
-          
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
             
   
   
   <span class="md-ellipsis">
     
   
-    开发者指南
+    Developer Guide
   
 
     
@@ -2003,12 +2162,12 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
   
-    开发者指南
+    Developer Guide
   
 
           </label>
@@ -2021,14 +2180,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/" class="md-nav__link">
+      <a href="../../../../developer-guide/architecture/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    架构
+    Architecture
   
 
     
@@ -2049,7 +2208,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../build_from_source/" class="md-nav__link">
+      <a href="../../../../developer-guide/build_from_source/" class="md-nav__link">
         
   
   
@@ -2077,14 +2236,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../capability-principles/" class="md-nav__link">
+      <a href="../../../../developer-guide/capability-principles/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    能力原理
+    Capability Principles
   
 
     
@@ -2105,14 +2264,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../add-metrics/" class="md-nav__link">
+      <a href="../../../../developer-guide/add-metrics/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    添加指标
+    Add Metrics
   
 
     
@@ -2133,14 +2292,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../extending-store/" class="md-nav__link">
+      <a href="../../../../developer-guide/extending-store/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    扩展存储
+    Extending Store
   
 
     
@@ -2158,44 +2317,17 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    贡献
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../../../developer-guide/contribute/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    贡献
+    Contribute
   
 
     
@@ -2204,170 +2336,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="目录">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      目录
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#ways-to-contribute" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Ways to Contribute
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#license" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        License
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#how-to-submit-an-issue" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How to Submit an Issue
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#submitting-code-changes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Submitting Code Changes
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Submitting Code Changes">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#step-1-fork-the-repository" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 1: Fork the Repository
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-2-create-a-branch" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 2: Create a Branch
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-3-implement-your-changes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 3: Implement Your Changes
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-4-run-lint-checks" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 4: Run Lint Checks
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-5-open-a-pull-request-pr" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 5: Open a Pull Request (PR)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-6-code-review-process" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 6: Code Review Process
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#improving-documentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Improving Documentation
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Improving Documentation">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#building-the-docs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Building the docs
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -2416,7 +2384,7 @@
   <span class="md-ellipsis">
     
   
-    参考
+    Reference
   
 
     
@@ -2432,7 +2400,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    参考
+    Reference
   
 
           </label>
@@ -2445,14 +2413,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/api-parameters/" class="md-nav__link">
+      <a href="../../../../reference/api-parameters/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    API 与参数
+    API & Parameters
   
 
     
@@ -2480,14 +2448,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../benchmark/" class="md-nav__link">
+      <a href="../../../../benchmark/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    性能测试
+    Benchmark
   
 
     
@@ -2538,14 +2506,14 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../toolkit/" class="md-nav__link ">
+            <a href="../../../../toolkit/" class="md-nav__link ">
               
   
   
   <span class="md-ellipsis">
     
   
-    工具集
+    Toolkit
   
 
     
@@ -2567,7 +2535,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    工具集
+    Toolkit
   
 
           </label>
@@ -2582,14 +2550,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../toolkit/kv-cache-calculator/" class="md-nav__link">
+      <a href="../../../../toolkit/kv-cache-calculator/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    KV Cache 计算器
+    KV Cache Calculator
   
 
     
@@ -2647,7 +2615,7 @@
   <span class="md-ellipsis">
     
   
-    用户指南
+    User Guide
   
 
     
@@ -2663,7 +2631,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    用户指南
+    User Guide
   
 
           </label>
@@ -2676,7 +2644,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../toolkit/user/dev-sandbox/" class="md-nav__link">
+      <a href="../../../../toolkit/user/dev-sandbox/" class="md-nav__link">
         
   
   
@@ -2704,7 +2672,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../toolkit/user/metrics-view/" class="md-nav__link">
+      <a href="../../../../toolkit/user/metrics-view/" class="md-nav__link">
         
   
   
@@ -2732,7 +2700,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../toolkit/user/nic-monitor/" class="md-nav__link">
+      <a href="../../../../toolkit/user/nic-monitor/" class="md-nav__link">
         
   
   
@@ -2760,7 +2728,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../toolkit/user/posix-aio/" class="md-nav__link">
+      <a href="../../../../toolkit/user/posix-aio/" class="md-nav__link">
         
   
   
@@ -2788,7 +2756,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../toolkit/user/precheck/" class="md-nav__link">
+      <a href="../../../../toolkit/user/precheck/" class="md-nav__link">
         
   
   
@@ -2855,7 +2823,7 @@
   <span class="md-ellipsis">
     
   
-    开发者
+    Developer
   
 
     
@@ -2871,7 +2839,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    开发者
+    Developer
   
 
           </label>
@@ -2884,14 +2852,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../toolkit/developer/design/" class="md-nav__link">
+      <a href="../../../../toolkit/developer/design/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    设计文档
+    Design
   
 
     
@@ -2912,7 +2880,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../toolkit/developer/dev-sandbox/" class="md-nav__link">
+      <a href="../../../../toolkit/developer/dev-sandbox/" class="md-nav__link">
         
   
   
@@ -2961,7 +2929,7 @@
                   <div class="md-sidebar__inner">
                     
 
-<nav class="md-nav md-nav--secondary" aria-label="目录">
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
   
   
   
@@ -2970,15 +2938,15 @@
   
     <label class="md-nav__title" for="__toc">
       <span class="md-nav__icon md-icon"></span>
-      目录
+      Table of contents
     </label>
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#ways-to-contribute" class="md-nav__link">
+  <a href="#get-and-unpack-the-chart" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Ways to Contribute
+        Get and unpack the Chart
       
     </span>
   </a>
@@ -2986,10 +2954,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#license" class="md-nav__link">
+  <a href="#create-site-specific-values" class="md-nav__link">
     <span class="md-ellipsis">
       
-        License
+        Create site-specific values
       
     </span>
   </a>
@@ -2997,10 +2965,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#how-to-submit-an-issue" class="md-nav__link">
+  <a href="#render-and-install" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How to Submit an Issue
+        Render and install
       
     </span>
   </a>
@@ -3008,22 +2976,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#submitting-code-changes" class="md-nav__link">
+  <a href="#verify-the-release" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Submitting Code Changes
+        Verify the release
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Submitting Code Changes">
+    <nav class="md-nav" aria-label="Verify the release">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#step-1-fork-the-repository" class="md-nav__link">
+  <a href="#single-node-and-multi-node-access" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 1: Fork the Repository
+        Single-node and multi-node access
       
     </span>
   </a>
@@ -3031,10 +2999,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#step-2-create-a-branch" class="md-nav__link">
+  <a href="#pd-access" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 2: Create a Branch
+        PD access
       
     </span>
   </a>
@@ -3042,43 +3010,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#step-3-implement-your-changes" class="md-nav__link">
+  <a href="#confirm-the-ucm-runtime-configuration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 3: Implement Your Changes
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-4-run-lint-checks" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 4: Run Lint Checks
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-5-open-a-pull-request-pr" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 5: Open a Pull Request (PR)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-6-code-review-process" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 6: Code Review Process
+        Confirm the UCM runtime configuration
       
     </span>
   </a>
@@ -3091,30 +3026,13 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#improving-documentation" class="md-nav__link">
+  <a href="#upgrade-and-uninstall" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Improving Documentation
+        Upgrade and uninstall
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Improving Documentation">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#building-the-docs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Building the docs
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -3135,7 +3053,7 @@
 
 
   
-    <a href="https://github.com/ModelEngine-Group/unified-cache-management/edit/develop/docs-next/docs/en/en/developer-guide/contribute.md" title="编辑此页" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/ModelEngine-Group/unified-cache-management/edit/develop/docs-next/docs/en/en/user-guide/frameworks/kubernetes/deploy.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -3144,144 +3062,168 @@
     
       
     
-    <a href="https://github.com/ModelEngine-Group/unified-cache-management/raw/develop/docs-next/docs/en/en/developer-guide/contribute.md" title="查看本页的源代码" class="md-content__button md-icon">
+    <a href="https://github.com/ModelEngine-Group/unified-cache-management/raw/develop/docs-next/docs/en/en/user-guide/frameworks/kubernetes/deploy.md" title="View source of this page" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
     </a>
   
 
 
-<h1 id="ucm-contributing-guide">UCM Contributing Guide<a class="headerlink" href="#ucm-contributing-guide" title="Permanent link">&para;</a></h1>
-<p>Thank you for your interest in contributing to the UCM project! Our community is open to all, and we welcome various contributions—your efforts help the project grow and benefit more users.</p>
-<h2 id="ways-to-contribute">Ways to Contribute<a class="headerlink" href="#ways-to-contribute" title="Permanent link">&para;</a></h2>
-<p>You can contribute in the following ways, and we value each type of participation:
-- <strong>Report issues or bugs</strong><br />
-  Report any issues or unexpected behavior you encounter. Your feedback helps us improve stability and performance.
-- <strong>Add support for new hardware or components</strong><br />
-  Extend UCM to new devices or platforms by proposing requirements or submitting implementations. All ideas and contributions are welcome.
-- <strong>Suggest or implement new features</strong><br />
-  Share feature ideas or contribute code to help UCM better meet user needs.
-- <strong>Improve documentation and guides</strong><br />
-  Enhance existing documentation or create new guides to help others get started quickly and effectively.</p>
-<p>Every contribution matters—thank you for being part of the UCM community.</p>
-<h2 id="license">License<a class="headerlink" href="#license" title="Permanent link">&para;</a></h2>
-<p>License information is available in the <a href="https://github.com/ModelEngine-Group/unified-cache-management/blob/develop/LICENSE">LICENSE</a> file.</p>
-<h2 id="how-to-submit-an-issue">How to Submit an Issue<a class="headerlink" href="#how-to-submit-an-issue" title="Permanent link">&para;</a></h2>
-<p>If you find a bug or want to suggest a new feature, please first check <a href="https://github.com/ModelEngine-Group/unified-cache-management/issues">existing issues</a>. If it’s a new issue, please <a href="https://github.com/ModelEngine-Group/unified-cache-management/issues/new/choose">open a new issue</a> and include the following information:</p>
-<ul>
-<li><strong>Title</strong>: A clear and concise summary of the issue.  </li>
-<li><strong>Environment</strong>: Device, inference framework version, package version, OS, etc. </li>
-<li><strong>Steps to Reproduce</strong>: Clear, numbered steps to reliably trigger the issue.  </li>
-<li><strong>Expected vs. Actual Behavior</strong>: What should happen versus what actually happens.  </li>
-<li><strong>Error Messages / Logs</strong>: Relevant console output or log snippets.  </li>
-<li><strong>Visual Evidence</strong> (if helpful): Screenshots or short screen recordings.  </li>
-<li><strong>Severity</strong>: Indicate impact level (<em>Critical</em>, <em>High</em>, <em>Medium</em>, <em>Low</em>).</li>
-</ul>
-<p>Keep your report clear, factual, and concise—this helps us address your issue faster!</p>
-<h2 id="submitting-code-changes">Submitting Code Changes<a class="headerlink" href="#submitting-code-changes" title="Permanent link">&para;</a></h2>
-<p><strong>To submit your code changes, please follow the workflow outlined below.</strong></p>
-<h3 id="step-1-fork-the-repository">Step 1: Fork the Repository<a class="headerlink" href="#step-1-fork-the-repository" title="Permanent link">&para;</a></h3>
-<p>Fork the <a href="https://github.com/ModelEngine-Group/unified-cache-management">UCM repository</a> to your GitHub account.</p>
-<h3 id="step-2-create-a-branch">Step 2: Create a Branch<a class="headerlink" href="#step-2-create-a-branch" title="Permanent link">&para;</a></h3>
-<p>Create a new branch with a clear and descriptive name.</p>
-<h3 id="step-3-implement-your-changes">Step 3: Implement Your Changes<a class="headerlink" href="#step-3-implement-your-changes" title="Permanent link">&para;</a></h3>
-<p>Make your code or documentation changes in the branch, keeping them focused and consistent with the project’s style and conventions. </p>
-<h3 id="step-4-run-lint-checks">Step 4: Run Lint Checks<a class="headerlink" href="#step-4-run-lint-checks" title="Permanent link">&para;</a></h3>
-<p><strong>UCM adheres to standard style conventions:</strong></p>
-<ul>
-<li>Python code: <a href="https://peps.python.org/pep-0008/">PEP 8</a></li>
-<li>C++ code: <a href="https://google.github.io/styleguide/cppguide.html">Google C++ Style Guide</a></li>
-</ul>
-<p><strong>The following tools help keep the codebase clean and consistently formatted:</strong></p>
-<ul>
-<li>Python linting and formatting: <a href="https://black.readthedocs.io/en/stable/the_black_code_style">black</a> and <a href="https://pycqa.github.io/isort/">isort</a></li>
-<li>Spell checking: <a href="https://github.com/codespell-project/codespell">codespell</a></li>
-<li>C++ formatting: <a href="https://clang.llvm.org/docs/ClangFormat.html">clang-format</a></li>
-</ul>
-<p>It’s recommended to set up a local development environment and run the linter before submitting a PR to help ensure consistent code style.</p>
-<ul>
-<li><strong>Run lint locally:</strong> run code style checks and fix any issues.</li>
-</ul>
-<div class="highlight"><pre><span></span><code><span class="c1"># Run the following commands to format your code before submitting.</span>
-<span class="c1"># Using a virtual environment is optional but recommended to avoid dependency conflicts.</span>
-
-<span class="c1"># Choose a workspace dir (e.g., ~/vllm-project/) and set up venv (optional)</span>
-<span class="nb">cd</span><span class="w"> </span>~/vllm-project/
-python3<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv
-<span class="nb">source</span><span class="w"> </span>./.venv/bin/activate
-
-<span class="c1"># Clone UCM and install</span>
-git<span class="w"> </span>clone<span class="w"> </span>https://github.com/ModelEngine-Group/unified-cache-management.git<span class="w"> </span>
-<span class="nb">cd</span><span class="w"> </span>unified-cache-management
-
-<span class="c1"># Install lint requirement and enable pre-commit hook</span>
-pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements-lint.txt
-
-<span class="c1"># Run lint (You need install pre-commits deps via proxy network at first time)</span>
-bash<span class="w"> </span>format.sh
+<h1 id="install-and-deploy-with-helm">Install and deploy with Helm<a class="headerlink" href="#install-and-deploy-with-helm" title="Permanent link">&para;</a></h1>
+<p>Complete the <a href="../prerequisites/">Kubernetes prerequisites</a> before using these
+commands. This workflow starts from a packaged Chart profile, renders the exact
+objects for review, installs one model release, and then verifies the selected
+request path.</p>
+<h2 id="get-and-unpack-the-chart">Get and unpack the Chart<a class="headerlink" href="#get-and-unpack-the-chart" title="Permanent link">&para;</a></h2>
+<p>Open the matching
+<a href="https://github.com/ModelEngine-Group/unified-cache-management/releases">GitHub Release</a>,
+copy the <code>unified-cache-chart</code> asset URL, and let Helm download and unpack it:</p>
+<div class="highlight"><pre><span></span><code>helm<span class="w"> </span>pull<span class="w"> </span><span class="s2">"&lt;chart-url&gt;"</span><span class="w"> </span>--untar
+<span class="nb">cd</span><span class="w"> </span>unified-cache-chart
 </code></pre></div>
-<h3 id="step-5-open-a-pull-request-pr">Step 5: Open a Pull Request (PR)<a class="headerlink" href="#step-5-open-a-pull-request-pr" title="Permanent link">&para;</a></h3>
-<p>Push your changes to your fork and open a PR in the main repository. Include:</p>
-<ul>
-<li>A <strong>clear title</strong> and <strong>description</strong> of your changes.</li>
-<li>A reference to the related issue.</li>
-<li>Any additional context or screenshots.</li>
-</ul>
-<p>The PR title is prefixed appropriately to indicate the type of change, according to the following categories: </p>
-<p><strong>Reminder:</strong> If your PR spans multiple categories, include all relevant prefixes (e.g., <code>[Feat][Test]</code>).</p>
-<ul>
-<li>[Feat] for new features or enhancements</li>
-<li>[Bugfix] for bug fixes</li>
-<li>[Opt] for code optimizations that improve performance, efficiency, or resource usage without changing functionality</li>
-<li>[Build] for build system changes, dependency updates, or tooling improvements</li>
-<li>[CI] for continuous integration configuration and workflow updates</li>
-<li>[Doc] for documentation improvements or corrections</li>
-<li>[Test] for adding, updating, or refactoring tests</li>
-<li>[Misc] for PRs that do not fit other categories — please use sparingly</li>
-</ul>
-<h3 id="step-6-code-review-process">Step 6: Code Review Process<a class="headerlink" href="#step-6-code-review-process" title="Permanent link">&para;</a></h3>
-<p>All pull requests targeting protected branches (e.g., <code>develop;release</code>) must adhere to the following review policy:</p>
-<ul>
-<li><strong>Code Owner Approval Required</strong>: Pull requests automatically request reviews from relevant code owners based on the files changed. You cannot approve your own pull request, and approval from at least one designated code owner is mandatory.</li>
-<li><strong>Additional Approvals</strong>: The pull request must receive sufficient peer review beyond the author, including validation from maintainers or experienced contributors familiar with the affected code.</li>
-<li><strong>Passing CI Checks</strong>: All continuous integration checks—including linting, unit tests, and builds—must pass before merging.</li>
-<li><strong>No Bypassing</strong>: Direct pushes to protected branches are disabled, and force merges or self-approvals are not permitted.</li>
-</ul>
-<p>Once all requirements are satisfied, the “Squash and merge” button will become available. Please ensure your changes are well-documented, tested, and aligned with the project’s coding standards before requesting review.</p>
-<h2 id="improving-documentation">Improving Documentation<a class="headerlink" href="#improving-documentation" title="Permanent link">&para;</a></h2>
-<p><strong>Great docs grow stronger together. You can help by:</strong></p>
-<ul>
-<li>Fixing typos or clarifying unclear text.</li>
-<li>Documenting missing features or setup steps.</li>
-<li>Improving examples or adding practical use cases.</li>
-</ul>
-<h3 id="building-the-docs">Building the docs<a class="headerlink" href="#building-the-docs" title="Permanent link">&para;</a></h3>
-<p>The new documentation site lives under <code>docs-next/</code> and is built with MkDocs
-Material. The legacy Sphinx site under <code>docs/</code> stays in place until the
-MkDocs site passes review.</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># Install documentation dependencies.</span>
-<span class="nb">cd</span><span class="w"> </span>unified-cache-management/docs-next
-python3<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv
-<span class="nb">source</span><span class="w"> </span>.venv/bin/activate
-pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
-
-<span class="c1"># Serve the site locally with live reload.</span>
-mkdocs<span class="w"> </span>serve
-<span class="c1"># Or via the unified entry point:</span>
-python<span class="w"> </span>tools/site.py<span class="w"> </span>serve
-
-<span class="c1"># Build a strict production build for both languages.</span>
-python<span class="w"> </span>tools/site.py<span class="w"> </span>build<span class="w"> </span>--lang<span class="w"> </span>en<span class="w"> </span>--strict
-python<span class="w"> </span>tools/site.py<span class="w"> </span>build<span class="w"> </span>--lang<span class="w"> </span>zh<span class="w"> </span>--strict
-
-<span class="c1"># Validate the whole site (strict build across languages).</span>
-python<span class="w"> </span>tools/site.py<span class="w"> </span>validate
+<p>When working from a source checkout instead, enter
+<code>charts/unified-cache-chart</code> directly. Helm loads the Chart's root
+<code>values.yaml</code> automatically. That file cannot be deployed by itself because
+it does not define <code>modelSpec.roles[]</code>.</p>
+<h2 id="create-site-specific-values">Create site-specific values<a class="headerlink" href="#create-site-specific-values" title="Permanent link">&para;</a></h2>
+<p>Start from the smallest profile that matches your accelerator:</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">CUDA</label><label for="__tabbed_1_2">Ascend</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>cp<span class="w"> </span>models/cuda/values-qwen3-0p6b-1e1.yaml<span class="w"> </span>values-site.yaml
 </code></pre></div>
-<p>Open the site in your browser before submitting a pull request.</p>
-<ul>
-<li>English version: <a href="http://127.0.0.1:8000/">http://127.0.0.1:8000/</a></li>
-<li>Chinese version: <a href="http://127.0.0.1:8000/zh/">http://127.0.0.1:8000/zh/</a></li>
-</ul>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>cp<span class="w"> </span>models/ascend/values-qwen3-0p6b-1e1.yaml<span class="w"> </span>values-site.yaml
+</code></pre></div>
+</div>
+</div>
+</div>
+<p>Edit <code>values-site.yaml</code> using the
+<a href="../prerequisites/#configuration-dependencies">configuration dependency checklist</a>.
+At minimum, replace the engine image, model path and mount, UCM storage,
+accelerator/RDMA resources, and any scheduler, monitoring, or network values
+that do not exist in your cluster.</p>
+<p>Helm replaces list values instead of merging their individual elements. Edit
+the copied profile as a complete deployment file rather than layering a
+partial <code>roles[]</code> or storage list on top of it.</p>
+<h2 id="render-and-install">Render and install<a class="headerlink" href="#render-and-install" title="Permanent link">&para;</a></h2>
+<p>Set a release name and namespace, then validate the site values before
+changing the cluster:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">UCM_RELEASE</span><span class="o">=</span>qwen3
+<span class="nb">export</span><span class="w"> </span><span class="nv">UCM_NAMESPACE</span><span class="o">=</span>ucm
+
+helm<span class="w"> </span>lint<span class="w"> </span>--strict<span class="w"> </span>.<span class="w"> </span>-f<span class="w"> </span>values-site.yaml
+helm<span class="w"> </span>template<span class="w"> </span><span class="s2">"</span><span class="nv">$UCM_RELEASE</span><span class="s2">"</span><span class="w"> </span>.<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--namespace<span class="w"> </span><span class="s2">"</span><span class="nv">$UCM_NAMESPACE</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-f<span class="w"> </span>values-site.yaml<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>&gt;<span class="w"> </span>/tmp/ucm-rendered.yaml
+</code></pre></div>
+<p>Inspect <code>/tmp/ucm-rendered.yaml</code>. A non-PD profile should contain
+<code>ModelServing</code>, a release Service, and the configured support resources. A PD
+profile should additionally contain <code>ModelServer</code> and <code>ModelRoute</code>; bundled PD
+profiles also contain a Mooncake master <code>Deployment</code> and <code>Service</code>.</p>
+<p>When the namespace and required CRDs already exist, ask the Kubernetes API to
+validate the rendered objects without persisting them:</p>
+<div class="highlight"><pre><span></span><code>kubectl<span class="w"> </span>apply<span class="w"> </span>--dry-run<span class="o">=</span>server<span class="w"> </span>-f<span class="w"> </span>/tmp/ucm-rendered.yaml
+</code></pre></div>
+<p>Install only after the local render and optional server-side validation match
+the intended platform and topology:</p>
+<div class="highlight"><pre><span></span><code>helm<span class="w"> </span>upgrade<span class="w"> </span>--install<span class="w"> </span><span class="s2">"</span><span class="nv">$UCM_RELEASE</span><span class="s2">"</span><span class="w"> </span>.<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--namespace<span class="w"> </span><span class="s2">"</span><span class="nv">$UCM_NAMESPACE</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--create-namespace<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-f<span class="w"> </span>values-site.yaml
+</code></pre></div>
+<h2 id="verify-the-release">Verify the release<a class="headerlink" href="#verify-the-release" title="Permanent link">&para;</a></h2>
+<p>Start with the resources owned or declared by the release:</p>
+<div class="highlight"><pre><span></span><code>kubectl<span class="w"> </span>-n<span class="w"> </span><span class="s2">"</span><span class="nv">$UCM_NAMESPACE</span><span class="s2">"</span><span class="w"> </span>get<span class="w"> </span>modelserving
+kubectl<span class="w"> </span>-n<span class="w"> </span><span class="s2">"</span><span class="nv">$UCM_NAMESPACE</span><span class="s2">"</span><span class="w"> </span>get<span class="w"> </span>pod,pvc,service<span class="w"> </span>-o<span class="w"> </span>wide
+</code></pre></div>
+<p>For a PD profile, also inspect the routing declarations and Mooncake master:</p>
+<div class="highlight"><pre><span></span><code>kubectl<span class="w"> </span>-n<span class="w"> </span><span class="s2">"</span><span class="nv">$UCM_NAMESPACE</span><span class="s2">"</span><span class="w"> </span>get<span class="w"> </span>modelserver,modelroute
+kubectl<span class="w"> </span>-n<span class="w"> </span><span class="s2">"</span><span class="nv">$UCM_NAMESPACE</span><span class="s2">"</span><span class="w"> </span>get<span class="w"> </span>deployment,service
+</code></pre></div>
+<h3 id="single-node-and-multi-node-access">Single-node and multi-node access<a class="headerlink" href="#single-node-and-multi-node-access" title="Permanent link">&para;</a></h3>
+<p>For non-PD profiles, the Chart creates a Service named
+<code>&lt;release&gt;-&lt;modelSpec.name&gt;</code>. Its Service port is <code>80</code> and its vLLM target port
+is <code>8000</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">UCM_MODEL_RESOURCE</span><span class="o">=</span>qwen3-0p6b-1e1
+<span class="nb">export</span><span class="w"> </span><span class="nv">UCM_MODEL_NAME</span><span class="o">=</span>Qwen3-0.6B
+
+kubectl<span class="w"> </span>-n<span class="w"> </span><span class="s2">"</span><span class="nv">$UCM_NAMESPACE</span><span class="s2">"</span><span class="w"> </span>port-forward<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">"svc/</span><span class="si">${</span><span class="nv">UCM_RELEASE</span><span class="si">}</span><span class="s2">-</span><span class="si">${</span><span class="nv">UCM_MODEL_RESOURCE</span><span class="si">}</span><span class="s2">"</span><span class="w"> </span><span class="m">8000</span>:80
+</code></pre></div>
+<p>In another terminal, check the API and send one request:</p>
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>--fail<span class="w"> </span>http://127.0.0.1:8000/health
+curl<span class="w"> </span>--fail<span class="w"> </span>http://127.0.0.1:8000/v1/models
+
+curl<span class="w"> </span>http://127.0.0.1:8000/v1/chat/completions<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-d<span class="w"> </span><span class="s2">"{</span>
+<span class="s2">    \"model\": \"</span><span class="si">${</span><span class="nv">UCM_MODEL_NAME</span><span class="si">}</span><span class="s2">\",</span>
+<span class="s2">    \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}],</span>
+<span class="s2">    \"max_tokens\": 128</span>
+<span class="s2">  }"</span>
+</code></pre></div>
+<p><code>UCM_MODEL_RESOURCE</code> is <code>modelSpec.name</code>; <code>UCM_MODEL_NAME</code> is
+<code>modelSpec.modelName</code>.</p>
+<h3 id="pd-access">PD access<a class="headerlink" href="#pd-access" title="Permanent link">&para;</a></h3>
+<p>PD traffic must enter through the gateway exposed by the pre-installed
+kthena-router. This Chart creates the <code>ModelServer</code> and <code>ModelRoute</code>
+declarations but does not create or name that gateway Service. Use the
+endpoint documented by your kthena installation.</p>
+<p>The release's engine Service still exists in a PD deployment so
+<code>ServiceMonitor</code> can discover entry Pods. It selects both prefill and decode
+entries and is not the PD client traffic endpoint.</p>
+<h3 id="confirm-the-ucm-runtime-configuration">Confirm the UCM runtime configuration<a class="headerlink" href="#confirm-the-ucm-runtime-configuration" title="Permanent link">&para;</a></h3>
+<p>When UCM is enabled, inspect the runtime file in an engine Pod. For PD, select
+a prefill Pod because the decode role uses only the transfer connector:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">UCM_ENGINE_POD</span><span class="o">=</span><span class="s2">"replace-with-engine-pod-name"</span>
+
+kubectl<span class="w"> </span>-n<span class="w"> </span><span class="s2">"</span><span class="nv">$UCM_NAMESPACE</span><span class="s2">"</span><span class="w"> </span><span class="nb">exec</span><span class="w"> </span><span class="s2">"</span><span class="nv">$UCM_ENGINE_POD</span><span class="s2">"</span><span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>cat<span class="w"> </span>/vllm-workspace/UnifiedCache/config/ucm_config.runtime.yaml
+</code></pre></div>
+<p>These checks prove different things:</p>
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>helm lint</code> and <code>helm template</code></td>
+<td>The values satisfy the Chart's local rendering contract.</td>
+</tr>
+<tr>
+<td><code>kubectl apply --dry-run=server</code></td>
+<td>The current Kubernetes API and installed CRDs accept the rendered objects.</td>
+</tr>
+<tr>
+<td>Ready Pods, bound storage, and routing objects</td>
+<td>kthena, scheduling, devices, images, and storage converged in this cluster.</td>
+</tr>
+<tr>
+<td>A successful chat request</td>
+<td>The selected access path and model work end to end.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="upgrade-and-uninstall">Upgrade and uninstall<a class="headerlink" href="#upgrade-and-uninstall" title="Permanent link">&para;</a></h2>
+<p>After changing <code>values-site.yaml</code>, rerun the render checks and apply the same
+<code>helm upgrade --install</code> command.</p>
+<p>Remove the release with:</p>
+<div class="highlight"><pre><span></span><code>helm<span class="w"> </span>uninstall<span class="w"> </span><span class="s2">"</span><span class="nv">$UCM_RELEASE</span><span class="s2">"</span><span class="w"> </span>--namespace<span class="w"> </span><span class="s2">"</span><span class="nv">$UCM_NAMESPACE</span><span class="s2">"</span>
+</code></pre></div>
+<p>Helm requests deletion of the PVC and static PV objects created by this
+release. For dynamically provisioned storage, the PV and stored data then
+follow the PV or StorageClass reclaim policy. A PVC referenced through
+<code>persistentVolumeClaim</code> is not created by this Chart and is therefore not
+deleted with the release. Confirm the storage and backup policy before
+uninstalling.</p>
+<p>Return to the <a href="../">Kubernetes overview</a> to choose another profile
+or deployment shape.</p>
 
 
 
@@ -3307,7 +3249,7 @@ python<span class="w"> </span>tools/site.py<span class="w"> </span>validate
           <button type="button" class="md-top md-icon" data-md-component="top" hidden>
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
-  回到页面顶部
+  Back to top
 </button>
         
       </main>
@@ -3366,15 +3308,15 @@ python<span class="w"> </span>tools/site.py<span class="w"> </span>validate
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tabs.link", "content.action.edit", "content.action.view"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tabs.link", "content.action.edit", "content.action.view"], "search": "../../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
   
-      <script src="../../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../../../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
-        <script src="../../../assets/manifest.js?v=20260829-schema8-4"></script>
+        <script src="../../../../assets/manifest.js?v=20260829-schema8-4"></script>
       
-        <script src="../../../assets/install.js?v=20260829-schema8-4"></script>
+        <script src="../../../../assets/install.js?v=20260829-schema8-4"></script>
       
     
   <script src="https://unpkg.com/katex@0.16.11/dist/katex.min.js"></script>
