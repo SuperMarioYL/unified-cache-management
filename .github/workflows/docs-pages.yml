@@ -45,7 +45,6 @@ on:
         options:
           - latest
           - stable
-          - verify
       source_ref:
         description: Source ref containing the documentation to publish
         type: string
@@ -53,11 +52,6 @@ on:
         default: develop
       release_tag:
         description: Stable GitHub Release Tag; required in stable mode
-        type: string
-        required: false
-        default: ""
-      site_url:
-        description: Published Pages root URL; required in verify mode
         type: string
         required: false
         default: ""
@@ -91,7 +85,7 @@ jobs:
       - name: Strict build for all enabled languages
         working-directory: docs-next
         run: python tools/site.py validate
-      - name: Test Pages publication and Simple Index contracts
+      - name: Test Pages publication contracts
         working-directory: docs-next
         run: python -m pytest -q tests
       - uses: actions/upload-artifact@v4.6.2
@@ -182,53 +176,3 @@ jobs:
             arguments+=(--replace-existing)
           fi
           python docs-next/tools/pages.py "${arguments[@]}"
-
-  verify-index:
-    name: Index · Python 3.12 · ${{ matrix.channel }}
-    if: >-
-      ${{
-        vars.UCM_PAGES_ENABLED == 'true' &&
-        github.event_name == 'workflow_dispatch' &&
-        inputs.mode == 'verify' &&
-        inputs.site_url != ''
-      }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        channel: [cu130, cann901-a2]
-    env:
-      SITE_URL: ${{ inputs.site_url }}
-    steps:
-      - uses: actions/setup-python@v5.6.0
-        with:
-          python-version: "3.12"
-      - name: Resolve and install the published channel
-        env:
-          CHANNEL: ${{ matrix.channel }}
-        run: |
-          set -euo pipefail
-          site_root="${SITE_URL%/}"
-          manifest="$(curl -fsSL "${site_root}/latest/release-manifest.json")"
-          wheel_version="$(jq -er --arg channel "${CHANNEL}" '
-            [.wheels[] | select(.channel == $channel) |
-             select(.distribution == "uc-manager") | .version] |
-            unique | if length == 1 then .[0]
-            else error("channel Wheel version is ambiguous") end
-          ' <<<"${manifest}")"
-          ucm_venv="${RUNNER_TEMP}/ucm-index-${CHANNEL}"
-          python -m venv "${ucm_venv}"
-          "${ucm_venv}/bin/python" -m pip install \
-            --disable-pip-version-check --no-cache-dir --only-binary=:all: \
-            "uc-manager==${wheel_version}" \
-            --index-url "${site_root}/whl/${CHANNEL}/"
-          "${ucm_venv}/bin/python" -m pip check
-          test "$("${ucm_venv}/bin/python" -c \
-            'from importlib.metadata import version; print(version("uc-manager"))')" \
-            = "${wheel_version}"
-          test "$("${ucm_venv}/bin/python" -c \
-            'from importlib.metadata import version; print(version("wrapt"))')" \
-            = "1.17.2"

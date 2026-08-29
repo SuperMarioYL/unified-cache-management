@@ -89,9 +89,9 @@ docs-next/
 │   └── main.html       主题覆盖:KaTeX CDN + header 白色 + 字体分层(Jost 侧栏 / Inter 正文)
 ├── tools/
 │   ├── site.py         统一入口(serve/build/validate/translate/generate)
-│   └── pages.py        gh-pages 唯一写入口(Mike、Manifest、Simple Index、单次 push)
+│   └── pages.py        gh-pages 唯一写入口(Mike、Manifest、历史 Index 保留、单次 push)
 ├── tests/
-│   └── test_pages.py   Pages/Manifest/Index/双语安装与下载页 focused tests
+│   └── test_pages.py   Pages/Manifest/历史 Index 保留/双语安装与下载页 focused tests
 ├── requirements.txt    Python 依赖(MkDocs / Mike / packaging / pytest)
 ├── .venv/              本地虚拟环境(不提交)
 └── site/               构建产物(不提交)
