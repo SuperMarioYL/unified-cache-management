@@ -98,8 +98,9 @@ context must be allowed by the namespace's Pod security policy.
 
 ### Get and unpack the Chart
 
-Open [Helm downloads](../../download/helm.md), copy the GitHub Release Chart
-URL for the version you want, and unpack it:
+Open the matching
+[GitHub Release](https://github.com/ModelEngine-Group/unified-cache-management/releases),
+copy the `unified-cache-chart` asset URL, and let Helm download and unpack it:
 
 ```bash
 helm pull "<chart-url>" --untar
@@ -131,7 +132,7 @@ Edit the copied file before running Helm:
 
 | Configuration | Required change |
 | --- | --- |
-| Engine image | Add a matching `images.engine.repository` and `tag` or `digest`; profiles do not select the image for you. See [Image downloads](../../download/image.md). |
+| Engine image | Add a matching `images.engine.repository` and `tag` or `digest`; profiles do not select the image for you. |
 | Model identity | Set `modelSpec.modelPath` to the container-visible path and set `modelName` to the name clients will send to the OpenAI-compatible API. |
 | Model mount | Replace the root `extraStorage` NFS example, or provide another supported `hostPath`, PVC, CSI, or NFS source that exposes `modelPath`. |
 | UCM storage | Replace the example `unifiedcacheStorage` StorageClass and capacity with a cache backend available in the cluster. |
@@ -289,7 +290,6 @@ uninstalling.
 
 ## References
 
-- [Helm downloads](../../download/helm.md)
 - [UCM GitHub Releases](https://github.com/ModelEngine-Group/unified-cache-management/releases)
 - In the unpacked Chart: `README.md`, `values.yaml`, and the CUDA/Ascend files under `models/`
 - [kthena documentation](https://kthena.volcano.sh/)

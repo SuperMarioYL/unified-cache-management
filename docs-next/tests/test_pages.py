@@ -639,7 +639,7 @@ def test_initialize_preserves_cname_and_removes_trial_content(
     assert len(pushes) == 1
 
 
-def test_bilingual_install_and_download_pages_use_one_manifest_contract() -> None:
+def test_bilingual_installation_uses_one_schema_8_manifest_contract() -> None:
     english = (DOCS_ROOT / "docs" / "en" / "user-guide" / "installation.md").read_text(
         encoding="utf-8"
     )
@@ -650,9 +650,6 @@ def test_bilingual_install_and_download_pages_use_one_manifest_contract() -> Non
         encoding="utf-8"
     )
     loader = (DOCS_ROOT / "docs" / "assets" / "manifest.js").read_text(encoding="utf-8")
-    inventory = (DOCS_ROOT / "docs" / "assets" / "download.js").read_text(
-        encoding="utf-8"
-    )
     stylesheet = (DOCS_ROOT / "docs" / "assets" / "install.css").read_text(
         encoding="utf-8"
     )
@@ -668,27 +665,16 @@ def test_bilingual_install_and_download_pages_use_one_manifest_contract() -> Non
         assert "SGLang" not in page
         assert "A5" not in page
         assert "data-install-source" not in page
-    for locale in ("en", "zh"):
-        for page, kind in (
-            ("index.md", "overview"),
-            ("whl.md", "wheel"),
-            ("helm.md", "helm"),
-            ("image.md", "image"),
-        ):
-            download_page = (DOCS_ROOT / "docs" / locale / "download" / page).read_text(
-                encoding="utf-8"
-            )
-            assert f'data-locale="{locale}"' in download_page
-            assert f'data-download-kind="{kind}"' in download_page
-            assert "data-ucm-download" in download_page
+    assert not (DOCS_ROOT / "docs" / "en" / "download").exists()
+    assert not (DOCS_ROOT / "docs" / "zh" / "download").exists()
+    assert not (DOCS_ROOT / "docs" / "assets" / "download.js").exists()
     assert "release-manifest.json" in loader
     assert "ucm-release-manifest" in loader
     assert "schema_version" in loader
-    assert "install-catalog.json" not in javascript + inventory
+    assert "install-catalog.json" not in javascript
     assert 'assets.has("install-catalog.json")' in loader
     assert "pip install" in javascript
-    assert 'pip install "' in inventory
-    assert "python -m pip install" not in javascript + inventory
+    assert "python -m pip install" not in javascript
     assert "docker pull" in javascript
     assert "helm install ucm" in javascript
     assert 'method !== "helm"' in javascript
@@ -705,15 +691,11 @@ def test_bilingual_install_and_download_pages_use_one_manifest_contract() -> Non
     assert "flex: 1 1 0" in stylesheet
     assert "font-weight: 500" in stylesheet
     assert "overflow: hidden" in stylesheet
-    assert "Manifest.validateManifest" in inventory
-    assert mkdocs.index("  - Toolkit:") < mkdocs.index("  - Download:")
-    download_nav = mkdocs[mkdocs.index("  - Download:") :]
-    assert download_nav.index("- Overview:") < download_nav.index("- Wheel:")
-    assert download_nav.index("- Wheel:") < download_nav.index("- Helm:")
-    assert download_nav.index("- Helm:") < download_nav.index("- Image:")
+    assert "  - Download:" not in mkdocs
+    assert "assets/download.js" not in mkdocs
+    assert "../../download/" not in english + chinese
     assert "assets/manifest.js" in mkdocs
     assert "assets/install.js" in mkdocs
-    assert "assets/download.js" in mkdocs
     assert "assets/install.css" in mkdocs
-    for asset in ("manifest.js", "install.js", "download.js", "install.css"):
-        assert f"assets/{asset}?v=20260829-schema8-3" in mkdocs
+    for asset in ("manifest.js", "install.js", "install.css"):
+        assert f"assets/{asset}?v=20260829-schema8-4" in mkdocs

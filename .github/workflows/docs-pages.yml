@@ -93,7 +93,7 @@ jobs:
       - name: Test Pages publication contracts
         working-directory: docs-next
         run: python -m pytest -q tests
-      - name: Test Installation and Download renderers
+      - name: Test Installation renderer
         working-directory: docs-next
         run: node --test tests/install-ui.test.cjs
       - name: Test Release Manifest and cleanup contracts

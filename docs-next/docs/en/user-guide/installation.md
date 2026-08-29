@@ -17,12 +17,8 @@ backend extra. Backend extras share the same `ucm` import namespace.
 
 <noscript>
   Enable JavaScript to load the release manifest and generate an install
-  command. All published artifacts remain available under
-  <a href="../../download/">Download</a>.
+  command.
 </noscript>
-
-For the complete artifact inventory, including every ABI, architecture, direct
-link, and registry publication, see [Download](../../download/index.md).
 
 ## Next steps
 

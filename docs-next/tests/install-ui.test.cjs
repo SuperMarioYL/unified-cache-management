@@ -3,7 +3,6 @@ const test = require("node:test");
 
 const Manifest = require("../docs/assets/manifest.js");
 const Selector = require("../docs/assets/install.js");
-const Download = require("../docs/assets/download.js");
 
 assert.deepEqual(Selector.ROW_ORDER.slice(0, 2), ["method", "engine"]);
 
@@ -576,39 +575,4 @@ test("Helm hides unrelated rows and emits only the Release Chart command", () =>
     assert.equal(selected.rows[row].visible, false);
   }
   assert.equal(selected.command, "helm install ucm " + manifest.chart.url);
-});
-
-test("Download inventory exposes Schema 8 meta package and PyPI extras", () => {
-  const manifest = fixture();
-  const inventory = Download.buildInventory(manifest);
-  assert.equal(inventory.wheelCount, manifest.wheels.length);
-  assert.equal(inventory.imageCount, manifest.images.length);
-  assert.equal(inventory.python.distribution, "uc-manager");
-  assert.deepEqual(
-    inventory.wheelGroups.map((group) => ({
-      extra: group.extra,
-      distribution: group.distribution,
-    })),
-    [
-      {
-        extra: "cann901-a2",
-        distribution: "uc-manager-cann901-a2",
-      },
-      {
-        extra: "cu130",
-        distribution: "uc-manager-cuda-cu130",
-      },
-    ]
-  );
-  assert.deepEqual(
-    Download.publicationRows(manifest.images[0]).map((row) => row.channel),
-    ["ghcr"]
-  );
-  assert.equal(inventory.chart.url, manifest.chart.url);
-  assert.deepEqual(
-    Download.overviewEntries(inventory, Download.TEXT.en).map((entry) => entry.title),
-    ["Wheel", "Helm", "Image"]
-  );
-  assert.equal(Download.TEXT.en.overviewWheel.includes("Simple Index"), false);
-  assert.equal(Download.TEXT.zh.overviewWheel.includes("Simple Index"), false);
 });
