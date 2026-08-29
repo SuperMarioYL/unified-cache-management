@@ -64,34 +64,6 @@
         <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/developer-guide/extending-store/"/>
     </url>
     <url>
-        <loc>https://unified-cache-management.lei6393.com/0.9.3/download/</loc>
-        <lastmod>2026-08-29</lastmod>
-        <changefreq>daily</changefreq>
-        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/download/"/>
-        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/download/"/>
-    </url>
-    <url>
-        <loc>https://unified-cache-management.lei6393.com/0.9.3/download/helm/</loc>
-        <lastmod>2026-08-29</lastmod>
-        <changefreq>daily</changefreq>
-        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/download/helm/"/>
-        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/download/helm/"/>
-    </url>
-    <url>
-        <loc>https://unified-cache-management.lei6393.com/0.9.3/download/image/</loc>
-        <lastmod>2026-08-29</lastmod>
-        <changefreq>daily</changefreq>
-        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/download/image/"/>
-        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/download/image/"/>
-    </url>
-    <url>
-        <loc>https://unified-cache-management.lei6393.com/0.9.3/download/whl/</loc>
-        <lastmod>2026-08-29</lastmod>
-        <changefreq>daily</changefreq>
-        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/download/whl/"/>
-        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/download/whl/"/>
-    </url>
-    <url>
         <loc>https://unified-cache-management.lei6393.com/0.9.3/reference/api-parameters/</loc>
         <lastmod>2026-08-29</lastmod>
         <changefreq>daily</changefreq>
@@ -510,34 +482,6 @@
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/developer-guide/extending-store/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3developer-guide/extending-store/"/>
-    </url>
-    <url>
-        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/download/</loc>
-        <lastmod>2026-08-29</lastmod>
-        <changefreq>daily</changefreq>
-        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/download/"/>
-        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3download/"/>
-    </url>
-    <url>
-        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/download/helm/</loc>
-        <lastmod>2026-08-29</lastmod>
-        <changefreq>daily</changefreq>
-        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/download/helm/"/>
-        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3download/helm/"/>
-    </url>
-    <url>
-        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/download/image/</loc>
-        <lastmod>2026-08-29</lastmod>
-        <changefreq>daily</changefreq>
-        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/download/image/"/>
-        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3download/image/"/>
-    </url>
-    <url>
-        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/download/whl/</loc>
-        <lastmod>2026-08-29</lastmod>
-        <changefreq>daily</changefreq>
-        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/download/whl/"/>
-        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3download/whl/"/>
     </url>
     <url>
         <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/reference/api-parameters/</loc>
