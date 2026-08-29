@@ -233,43 +233,6 @@
   background: var(--ucm-install-accent-soft);
 }
 
-.ucm-install__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
-  gap: 0.8rem;
-}
-
-.ucm-install__card {
-  min-width: 0;
-  padding: 0.9rem;
-  border: 0.05rem solid var(--ucm-install-border);
-  border-radius: 0.25rem;
-  background: var(--md-default-bg-color);
-}
-
-.ucm-install__card-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.7rem;
-  margin-bottom: 0.7rem;
-}
-
-.ucm-install__card-title {
-  margin: 0 !important;
-  font-size: 0.95rem;
-}
-
-.ucm-install__badge {
-  flex: none;
-  padding: 0.16rem 0.45rem;
-  border-radius: 999px;
-  background: var(--ucm-install-accent-soft);
-  color: var(--ucm-install-accent);
-  font-size: 0.66rem;
-  font-weight: 700;
-}
-
 .ucm-install__command {
   position: relative;
   margin-block: 0.65rem;
@@ -291,10 +254,6 @@
   background: transparent !important;
   color: inherit !important;
   white-space: pre;
-}
-
-.ucm-install__pre--inventory {
-  padding-inline-end: 0.85rem !important;
 }
 
 .ucm-install__copy {
@@ -324,103 +283,9 @@
   font-size: 0.78rem;
 }
 
-.ucm-install__facts {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.5rem;
-  margin: 0.65rem 0;
-}
-
-.ucm-install__facts--image {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.ucm-install__fact {
-  min-width: 0;
-}
-
-.ucm-install__term {
-  color: var(--md-default-fg-color--light);
-  font-size: 0.64rem;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.ucm-install__value {
-  margin: 0.15rem 0 0 !important;
-  overflow-wrap: anywhere;
-  font-family: var(--md-code-font-family);
-  font-size: 0.7rem;
-  white-space: pre-wrap;
-}
-
-.ucm-install__wheel-list {
-  display: grid;
-  gap: 0.5rem;
-  margin-top: 0.8rem;
-}
-
-.ucm-install__wheel {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.65rem;
-  padding-top: 0.5rem;
-  border-top: 0.05rem solid var(--ucm-install-border);
-}
-
-.ucm-install__download {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  max-width: 100%;
-  min-height: 1.8rem;
-  padding: 0.35rem 0.6rem;
-  border: 0.05rem solid var(--ucm-install-accent);
-  border-radius: 0.2rem;
-  color: var(--ucm-install-accent) !important;
-  font-size: 0.68rem;
-  font-weight: 700;
-  overflow-wrap: anywhere;
-  text-align: start;
-  text-decoration: none;
-}
-
-.ucm-install__download:hover,
-.ucm-install__download:focus-visible {
-  background: var(--ucm-install-accent-soft);
-}
-
 .ucm-install__empty {
   margin: 0;
   color: var(--md-default-fg-color--light);
-}
-
-.ucm-download__card {
-  margin-bottom: 0.85rem;
-}
-
-.ucm-download__overview-card {
-  display: flex;
-  flex-direction: column;
-  min-height: 10rem;
-}
-
-.ucm-download__overview-card .ucm-install__download {
-  align-self: flex-start;
-  margin-top: auto;
-}
-
-.ucm-download__publication {
-  margin-top: 0.8rem;
-  padding-top: 0.7rem;
-  border-top: 0.05rem solid var(--ucm-install-border);
-}
-
-.ucm-download__publication-title {
-  margin: 0 !important;
-  font-size: 0.72rem;
-  text-transform: uppercase;
 }
 
 @media (max-width: 48rem) {
@@ -450,16 +315,4 @@
     font-size: 0.68rem;
   }
 
-  .ucm-install__facts,
-  .ucm-install__facts--image {
-    grid-template-columns: 1fr;
-  }
-
-  .ucm-install__wheel {
-    grid-template-columns: 1fr;
-  }
-
-  .ucm-install__download {
-    justify-self: start;
-  }
 }

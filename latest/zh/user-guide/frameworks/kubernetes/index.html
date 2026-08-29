@@ -57,7 +57,7 @@
       
     
     
-      <link rel="stylesheet" href="../../../../assets/install.css?v=20260829-schema8-3">
+      <link rel="stylesheet" href="../../../../assets/install.css?v=20260829-schema8-4">
     
     <script>__md_scope=new URL("../../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
@@ -423,28 +423,6 @@
     
   
   工具集
-
-        </a>
-      </li>
-    
-  
-
-      
-        
-  
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="../../../download/" class="md-tabs__link">
-          
-  
-  
-    
-  
-  下载
 
         </a>
       </li>
@@ -2862,172 +2840,6 @@
   
 
     
-      
-      
-  
-  
-  
-  
-    
-    
-      
-        
-          
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-    
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
-        
-          
-          <div class="md-nav__link md-nav__container">
-            <a href="../../../download/" class="md-nav__link ">
-              
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    下载
-  
-
-    
-  </span>
-  
-  
-
-            </a>
-            
-              
-              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
-                <span class="md-nav__icon md-icon"></span>
-              </label>
-            
-          </div>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    下载
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../download/whl/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Wheel
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../download/helm/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Helm
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../download/image/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    镜像
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
   </ul>
 </nav>
                   </div>
@@ -3407,8 +3219,9 @@ port <code>8000</code> is free, including when several releases share the cluste
 Multi-node and PD profiles must have enough eligible nodes, and their security
 context must be allowed by the namespace's Pod security policy.</p>
 <h3 id="get-and-unpack-the-chart">Get and unpack the Chart<a class="headerlink" href="#get-and-unpack-the-chart" title="Permanent link">&para;</a></h3>
-<p>Open <a href="../../../download/helm/">Helm downloads</a>, copy the GitHub Release Chart
-URL for the version you want, and unpack it:</p>
+<p>Open the matching
+<a href="https://github.com/ModelEngine-Group/unified-cache-management/releases">GitHub Release</a>,
+copy the <code>unified-cache-chart</code> asset URL, and let Helm download and unpack it:</p>
 <div class="highlight"><pre><span></span><code>helm<span class="w"> </span>pull<span class="w"> </span><span class="s2">"&lt;chart-url&gt;"</span><span class="w"> </span>--untar
 <span class="nb">cd</span><span class="w"> </span>unified-cache-chart
 </code></pre></div>
@@ -3441,7 +3254,7 @@ does not define <code>modelSpec.roles[]</code>.</p>
 <tbody>
 <tr>
 <td>Engine image</td>
-<td>Add a matching <code>images.engine.repository</code> and <code>tag</code> or <code>digest</code>; profiles do not select the image for you. See <a href="../../../download/image/">Image downloads</a>.</td>
+<td>Add a matching <code>images.engine.repository</code> and <code>tag</code> or <code>digest</code>; profiles do not select the image for you.</td>
 </tr>
 <tr>
 <td>Model identity</td>
@@ -3596,7 +3409,6 @@ deleted with the release. Confirm the storage and backup policy before
 uninstalling.</p>
 <h2 id="references">References<a class="headerlink" href="#references" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="../../../download/helm/">Helm downloads</a></li>
 <li><a href="https://github.com/ModelEngine-Group/unified-cache-management/releases">UCM GitHub Releases</a></li>
 <li>In the unpacked Chart: <code>README.md</code>, <code>values.yaml</code>, and the CUDA/Ascend files under <code>models/</code></li>
 <li><a href="https://kthena.volcano.sh/">kthena documentation</a></li>
@@ -3692,11 +3504,9 @@ uninstalling.</p>
   
       <script src="../../../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
-        <script src="../../../../assets/manifest.js?v=20260829-schema8-3"></script>
+        <script src="../../../../assets/manifest.js?v=20260829-schema8-4"></script>
       
-        <script src="../../../../assets/install.js?v=20260829-schema8-3"></script>
-      
-        <script src="../../../../assets/download.js?v=20260829-schema8-3"></script>
+        <script src="../../../../assets/install.js?v=20260829-schema8-4"></script>
       
     
   <script src="https://unpkg.com/katex@0.16.11/dist/katex.min.js"></script>
