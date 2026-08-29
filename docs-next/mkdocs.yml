@@ -82,6 +82,8 @@ plugins:
             Deploy: 部署
             Deployment Frameworks: 部署框架
             Kubernetes: Kubernetes
+            Prerequisites: 依赖与前置条件
+            Install and Deploy: 安装部署
             pyMotor: pyMotor
             Support Matrix: 支持矩阵
             Capabilities: 核心能力
@@ -161,7 +163,10 @@ nav:
       - Deploy: user-guide/deploy/index.md
       - Deployment Frameworks:
           - user-guide/frameworks/index.md
-          - Kubernetes: user-guide/frameworks/kubernetes.md
+          - Kubernetes:
+              - Overview: user-guide/frameworks/kubernetes.md
+              - Prerequisites: user-guide/frameworks/kubernetes/prerequisites.md
+              - Install and Deploy: user-guide/frameworks/kubernetes/deploy.md
           - pyMotor: user-guide/frameworks/pyMotor.md
       - Model Tour:
           - user-guide/model-tour/index.md
