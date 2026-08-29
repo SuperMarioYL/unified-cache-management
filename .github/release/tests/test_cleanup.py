@@ -58,15 +58,152 @@ def _manifest(
     }
 
 
+def _manifest_v7(
+    tag: str = "draft/v0.8.0-3",
+    *,
+    release_type: str = "draft",
+    multi_arch: bool = True,
+) -> dict[str, object]:
+    member = "ghcr.io/release-org/vllm-openai:v0.23.0-amd64"
+    pull = "ghcr.io/release-org/vllm-openai:v0.23.0" if multi_arch else member
+    members = [{"architecture": "amd64", "reference": member}]
+    if multi_arch:
+        members.append(
+            {
+                "architecture": "arm64",
+                "reference": "ghcr.io/release-org/vllm-openai:v0.23.0-arm64",
+            }
+        )
+    return {
+        "kind": "ucm-release-manifest",
+        "schema_version": 7,
+        "release": {
+            "tag": tag,
+            "type": release_type,
+            "version": "0.8.0",
+            "url": f"https://github.com/release-org/ucm/releases/tag/{tag}",
+            "actions_run_id": 12345,
+        },
+        "wheels": [
+            {
+                "id": "cu129-cp312-amd64",
+                "product": "vllm",
+                "channel": "cu129",
+                "accelerator": {
+                    "runtime": "cuda-12.9",
+                    "variant": "default",
+                    "soc_version": "na",
+                },
+                "distribution": "uc-manager",
+                "version": "0.8.0+cu129",
+                "python_abi": "cp312",
+                "architecture": "amd64",
+                "filename": "uc-manager.whl",
+                "url": "https://github.com/release-org/ucm/releases/download/v0.8.0/uc-manager.whl",
+                "sha256": "a" * 64,
+                "dependencies": ["wrapt==1.17.2"],
+            }
+        ],
+        "images": [
+            {
+                "id": "vllm-v023",
+                "product": "vllm",
+                "upstream": {"version": "0.23.0", "channel": "stable"},
+                "accelerator": {
+                    "runtime": "cuda-12.9",
+                    "variant": "default",
+                    "soc_version": "na",
+                },
+                "os": {"id": "ubuntu", "version": "22.04"},
+                "publications": {
+                    "ghcr": {
+                        "pull": pull,
+                        "multi_arch": multi_arch,
+                        "members": members,
+                    },
+                    "dockerhub": None,
+                },
+            }
+        ],
+        "chart": {
+            "name": "unified-cache-chart",
+            "version": "0.8.0",
+            "filename": "unified-cache-chart.tgz",
+            "url": "https://github.com/release-org/ucm/releases/download/v0.8.0/unified-cache-chart.tgz",
+            "oci": "ghcr.io/release-org/charts/unified-cache-chart:0.8.0-draft.3",
+        },
+        "github_release_assets": [
+            "uc-manager.whl",
+            "unified-cache-chart.tgz",
+            "release-manifest.json",
+        ],
+    }
+
+
+def _manifest_v8(
+    tag: str = "draft/v0.9.3-1", *, release_type: str = "draft"
+) -> dict[str, object]:
+    manifest = json.loads(json.dumps(_manifest_v7(tag, release_type=release_type)))
+    manifest["schema_version"] = 8
+    manifest["release"]["version"] = "0.9.3"
+    manifest["python"] = {
+        "distribution": "uc-manager",
+        "version": "0.9.3",
+        "filename": "uc_manager-0.9.3-py3-none-any.whl",
+        "url": "https://github.com/release-org/ucm/releases/download/v0.9.3/uc_manager-0.9.3-py3-none-any.whl",
+        "sha256": "b" * 64,
+        "tags": ["py3-none-any"],
+        "extras": {"cu129": "uc-manager-cuda-cu129"},
+        "pypi": {
+            "index_url": "https://pypi.org/simple",
+            "project_url": "https://pypi.org/project/uc-manager/0.9.3/",
+        },
+    }
+    wheel = manifest["wheels"][0]
+    wheel["extra"] = wheel.pop("channel")
+    wheel["distribution"] = "uc-manager-cuda-cu129"
+    wheel["version"] = "0.9.3"
+    wheel["python_abi"] = "cp312"
+    wheel["architecture"] = "amd64"
+    wheel["filename"] = (
+        "uc_manager_cuda_cu129-0.9.3-cp312-cp312-" "manylinux_2_28_x86_64.whl"
+    )
+    wheel["url"] = (
+        "https://github.com/release-org/ucm/releases/download/v0.9.3/"
+        + wheel["filename"]
+    )
+    wheel["platform_tags"] = ["manylinux_2_28_x86_64"]
+    manifest["github_release_assets"].remove("uc-manager.whl")
+    manifest["github_release_assets"].append(wheel["filename"])
+    manifest["github_release_assets"].append(manifest["python"]["filename"])
+    manifest["github_release_assets"].append("pypi-receipt.json")
+    return manifest
+
+
+def test_schema_v8_accepts_fork_package_names_and_testpypi() -> None:
+    manifest = json.loads(
+        json.dumps(_manifest_v8())
+        .replace("uc-manager", "supermarioyl-uc-manager")
+        .replace("uc_manager", "supermarioyl_uc_manager")
+        .replace("https://pypi.org/", "https://test.pypi.org/")
+    )
+    assert cleanup.validate_manifest(manifest) == manifest
+
+
 def _record(
     manifest: dict[str, object], created_at: str, release_id: int
 ) -> cleanup.ManifestRecord:
+    release_type = (
+        manifest["release_type"]
+        if "release_type" in manifest
+        else manifest["release"]["type"]
+    )
     draft, prerelease = {
         "stable": (False, False),
         "prerelease": (False, True),
         "draft": (True, True),
         "nightly": (False, True),
-    }[str(manifest["release_type"])]
+    }[str(release_type)]
     return cleanup.ManifestRecord(manifest, created_at, release_id, draft, prerelease)
 
 
@@ -128,13 +265,87 @@ def test_schema_v6_manifest_contract_is_exact() -> None:
 
     old = json.loads(json.dumps(manifest))
     old["schema_version"] = 5
-    with pytest.raises(cleanup.CleanupError, match="schema version 6"):
+    with pytest.raises(cleanup.CleanupError, match="schema version 6, 7, or 8"):
         cleanup.validate_manifest(old)
 
     no_self = json.loads(json.dumps(manifest))
     no_self["github_release_assets"].remove("release-manifest.json")
     with pytest.raises(cleanup.CleanupError, match="must list itself"):
         cleanup.validate_manifest(no_self)
+
+
+@pytest.mark.parametrize("factory", [_manifest_v7, _manifest_v8])
+def test_rich_manifest_contracts_are_exact(factory) -> None:
+    manifest = factory()
+
+    assert cleanup.validate_manifest(manifest) is manifest
+    extra = json.loads(json.dumps(manifest))
+    extra["release"]["status"] = "complete"
+    with pytest.raises(cleanup.CleanupError, match="fields must be exact"):
+        cleanup.validate_manifest(extra)
+
+    catalog = json.loads(json.dumps(manifest))
+    catalog["github_release_assets"].append("install-catalog.json")
+    with pytest.raises(cleanup.CleanupError, match="must not list"):
+        cleanup.validate_manifest(catalog)
+
+
+def test_schema_6_7_and_8_normalize_to_equivalent_cleanup_resources() -> None:
+    legacy = cleanup.registry_resources(
+        _manifest(
+            ghcr_members=[
+                "ghcr.io/release-org/vllm-openai:v0.23.0-amd64",
+                "ghcr.io/release-org/vllm-openai:v0.23.0-arm64",
+            ]
+        )
+    )
+    schema7 = cleanup.registry_resources(_manifest_v7())
+    schema8 = cleanup.registry_resources(_manifest_v8())
+
+    expected = [(item.kind, item.reference) for item in legacy]
+    assert [(item.kind, item.reference) for item in schema7] == expected
+    assert [(item.kind, item.reference) for item in schema8] == expected
+
+
+def test_schema_v8_binds_pypi_receipt_urls_and_wheel_platform() -> None:
+    manifest = _manifest_v8()
+
+    missing_receipt = json.loads(json.dumps(manifest))
+    missing_receipt["github_release_assets"].remove("pypi-receipt.json")
+    with pytest.raises(cleanup.CleanupError, match="PyPI receipt"):
+        cleanup.validate_manifest(missing_receipt)
+
+    wrong_project = json.loads(json.dumps(manifest))
+    wrong_project["python"]["pypi"][
+        "project_url"
+    ] = "https://pypi.org/project/uc-manager/99.0/"
+    with pytest.raises(cleanup.CleanupError, match="PyPI URLs"):
+        cleanup.validate_manifest(wrong_project)
+
+    empty_platform = json.loads(json.dumps(manifest))
+    empty_platform["wheels"][0]["platform_tags"] = []
+    with pytest.raises(cleanup.CleanupError, match="platform tags"):
+        cleanup.validate_manifest(empty_platform)
+
+    mismatched_platform = json.loads(json.dumps(manifest))
+    mismatched_platform["wheels"][0]["platform_tags"] = ["manylinux_2_34_x86_64"]
+    with pytest.raises(cleanup.CleanupError, match="filename and platform"):
+        cleanup.validate_manifest(mismatched_platform)
+
+
+def test_rich_single_arch_pull_and_member_are_deleted_once() -> None:
+    resources = cleanup.registry_resources(_manifest_v7(multi_arch=False))
+
+    assert [
+        (item.kind, item.reference)
+        for item in resources
+        if item.kind.startswith("ghcr-")
+    ] == [
+        (
+            "ghcr-member",
+            "ghcr.io/release-org/vllm-openai:v0.23.0-amd64",
+        )
+    ]
 
 
 def test_manifest_rejects_duplicate_or_wrong_registry_references() -> None:

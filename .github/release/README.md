@@ -145,9 +145,11 @@ stages:
 
 `release-state.json` remains the rich internal staging file in the
 `ucm-release-stage-run-<run>` Actions artifact. Only after all enabled channels
-succeed, a compact public `release-manifest.json` schema 6 is uploaded and read
-back. It records only the Tag/type/Actions Run, Chart OCI reference, Runtime
-member/index references, and GitHub Release asset names needed for cleanup.
+succeed, a public `release-manifest.json` Schema 8 is uploaded and read back.
+It projects the meta package and extras, backend Wheels, PyPI publication
+status, Runtime image families, Chart, and exact GitHub Release assets needed
+by installation documentation and cleanup. Historical Schema 6 and Schema 7
+manifests remain readable for retention and cleanup.
 
 If image publication is disabled while other channels remain enabled, the image
 stages are skipped and publication continues only through those enabled
@@ -427,9 +429,9 @@ After completion, verify all of the following:
 ## Retention and cleanup
 
 `max_count: -1` disables retention. Finite retention considers only successful
-same-type Releases carrying an exact schema-v6 manifest, never the current Tag;
-old Releases without that manifest are skipped rather than guessed. When PyPI
-is enabled for a finite Profile, retention is skipped with an explicit reason.
+same-type Releases carrying an exact supported manifest, never the current
+Tag; old Releases without one are skipped rather than guessed. When PyPI is
+enabled for a finite Profile, retention is skipped with an explicit reason.
 
 Cleanup is manifest-driven and retryable through
 `cleanup-ucm-release.yml(tag=...)`. Each resource is probed before up to three

@@ -1,4 +1,4 @@
-"""Retain and remove one UCM Tag release from its public schema-v6 manifest."""
+"""Retain and remove one UCM Tag release from its schema 6, 7, or 8 manifest."""
 
 from __future__ import annotations
 
@@ -16,13 +16,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, Sequence
 
+from packaging.utils import canonicalize_name, parse_wheel_filename
+
 MANIFEST_KIND = "ucm-release-manifest"
-MANIFEST_SCHEMA_VERSION = 6
+MANIFEST_SCHEMA_VERSION = 8
+SCHEMA7_MANIFEST_VERSION = 7
+LEGACY_MANIFEST_SCHEMA_VERSION = 6
 MANIFEST_FILENAME = "release-manifest.json"
 RELEASE_TYPES = frozenset({"stable", "prerelease", "draft", "nightly"})
 RETRY_DELAYS_SECONDS = (0.0, 5.0, 15.0)
 
-_MANIFEST_KEYS = frozenset(
+_SCHEMA6_MANIFEST_KEYS = frozenset(
     {
         "kind",
         "schema_version",
@@ -34,6 +38,66 @@ _MANIFEST_KEYS = frozenset(
         "github_release_assets",
     }
 )
+_SCHEMA7_MANIFEST_KEYS = frozenset(
+    {
+        "kind",
+        "schema_version",
+        "release",
+        "wheels",
+        "images",
+        "chart",
+        "github_release_assets",
+    }
+)
+_SCHEMA8_MANIFEST_KEYS = _SCHEMA7_MANIFEST_KEYS | {"python"}
+_RELEASE_KEYS = frozenset({"tag", "type", "version", "url", "actions_run_id"})
+_SCHEMA7_WHEEL_KEYS = frozenset(
+    {
+        "id",
+        "product",
+        "channel",
+        "accelerator",
+        "distribution",
+        "version",
+        "python_abi",
+        "architecture",
+        "filename",
+        "url",
+        "sha256",
+        "dependencies",
+    }
+)
+_SCHEMA8_WHEEL_KEYS = frozenset(
+    {
+        "id",
+        "product",
+        "extra",
+        "accelerator",
+        "distribution",
+        "version",
+        "python_abi",
+        "architecture",
+        "platform_tags",
+        "filename",
+        "url",
+        "sha256",
+        "dependencies",
+    }
+)
+_PYTHON_KEYS = frozenset(
+    {"distribution", "version", "filename", "url", "sha256", "tags", "extras", "pypi"}
+)
+_PYPI_KEYS = frozenset({"index_url", "project_url"})
+_IMAGE_KEYS = frozenset(
+    {"id", "product", "upstream", "accelerator", "os", "publications"}
+)
+_ACCELERATOR_KEYS = frozenset({"runtime", "variant", "soc_version"})
+_UPSTREAM_KEYS = frozenset({"version", "channel"})
+_OS_KEYS = frozenset({"id", "version"})
+_PUBLICATION_CHANNELS = frozenset({"ghcr", "dockerhub"})
+_PUBLICATION_KEYS = frozenset({"pull", "multi_arch", "members"})
+_MEMBER_KEYS = frozenset({"architecture", "reference"})
+_CHART_KEYS = frozenset({"name", "version", "filename", "url", "oci"})
 _RUNTIME_CHANNELS = ("ghcr", "dockerhub")
 _RUNTIME_IMAGE_KEYS = frozenset({"members", "indexes"})
 _OCI_REFERENCE = re.compile(
@@ -45,6 +109,7 @@ _REPOSITORY = re.compile(
     r"(?P<owner>[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))/(?P<repo>[A-Za-z0-9_.-]+)"
 )
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+_PATH_COMPONENT = re.compile(r"[a-z0-9][a-z0-9.+-]*")
 _MISSING_MARKERS = (
     "404",
     "manifest unknown",
@@ -179,16 +244,11 @@ def _tagged_oci_reference(value: object, context: str, *, registry: str) -> str:
     return value
 
 
-def validate_manifest(
-    value: object, *, expected_tag: str | None = None
+def _validate_schema6(
+    manifest: dict[str, Any], *, expected_tag: str | None = None
 ) -> dict[str, Any]:
-    """Validate and return the exact public cleanup manifest contract."""
-    manifest = _mapping(value, "release manifest")
-    _exact_keys(manifest, _MANIFEST_KEYS, "release manifest")
-    if manifest["kind"] != MANIFEST_KIND:
-        raise CleanupError("release manifest kind is invalid")
-    if manifest["schema_version"] != MANIFEST_SCHEMA_VERSION:
-        raise CleanupError("release manifest must use schema version 6")
+    """Validate the historical cleanup-only Schema 6 contract."""
+    _exact_keys(manifest, _SCHEMA6_MANIFEST_KEYS, "release manifest schema 6")
     tag = manifest["tag"]
     if not isinstance(tag, str) or not tag or tag.strip() != tag:
         raise CleanupError("release manifest Tag must be a non-empty exact string")
@@ -263,9 +323,382 @@ def validate_manifest(
     return manifest
 
 
+def _nonempty_string(value: object, context: str) -> str:
+    if not isinstance(value, str) or not value or value.strip() != value:
+        raise CleanupError(f"{context} must be a non-empty exact string")
+    return value
+
+
+def _filename(value: object, context: str) -> str:
+    name = _nonempty_string(value, context)
+    if name in {".", ".."} or Path(name).name != name:
+        raise CleanupError(f"{context} must be a filename")
+    return name
+
+
+def _github_url(value: object, context: str) -> str:
+    url = _nonempty_string(value, context)
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https" or parsed.netloc != "github.com" or not parsed.path:
+        raise CleanupError(f"{context} must be an https://github.com URL")
+    return url
+
+
+def _validate_assets(value: object) -> set[str]:
+    assets = _array(value, "release manifest GitHub Release assets")
+    seen: set[str] = set()
+    for index, asset in enumerate(assets):
+        name = _filename(asset, f"release manifest GitHub Release assets[{index}]")
+        if name in seen:
+            raise CleanupError("release manifest GitHub Release assets must be unique")
+        seen.add(name)
+    if MANIFEST_FILENAME not in seen:
+        raise CleanupError(
+            "release manifest must list itself as a GitHub Release asset"
+        )
+    return seen
+
+
+def _validate_accelerator(value: object, context: str) -> None:
+    accelerator = _mapping(value, context)
+    _exact_keys(accelerator, _ACCELERATOR_KEYS, context)
+    for field in sorted(_ACCELERATOR_KEYS):
+        _nonempty_string(accelerator[field], f"{context} {field}")
+
+
+def _validate_wheel_filename(
+    wheel: dict[str, Any], platform_tags: Sequence[str], context: str
+) -> None:
+    try:
+        distribution, version, build, tags = parse_wheel_filename(wheel["filename"])
+    except ValueError as error:
+        raise CleanupError(f"{context} filename is not a valid Wheel") from error
+    architecture = {"amd64": "x86_64", "arm64": "aarch64"}.get(
+        wheel["architecture"], wheel["architecture"]
+    )
+    if (
+        canonicalize_name(str(distribution)) != canonicalize_name(wheel["distribution"])
+        or str(version) != wheel["version"]
+        or build
+        or {tag.interpreter for tag in tags} != {wheel["python_abi"]}
+        or {tag.abi for tag in tags} != {wheel["python_abi"]}
+        or {tag.platform for tag in tags} != set(platform_tags)
+        or len(platform_tags) != 1
+        or not platform_tags[0].endswith(f"_{architecture}")
+    ):
+        raise CleanupError(f"{context} filename and platform identity differ")
+
+
+def _validate_publication(value: object, *, channel: str, context: str) -> None:
+    publication = _mapping(value, context)
+    _exact_keys(publication, _PUBLICATION_KEYS, context)
+    registry = "ghcr.io" if channel == "ghcr" else "docker.io"
+    pull = _tagged_oci_reference(
+        publication["pull"], f"{context} pull", registry=registry
+    )
+    multi_arch = publication["multi_arch"]
+    if not isinstance(multi_arch, bool):
+        raise CleanupError(f"{context} multi_arch must be boolean")
+    members = _array(publication["members"], f"{context} members")
+    if not members:
+        raise CleanupError(f"{context} members must not be empty")
+    architectures: set[str] = set()
+    references: set[str] = set()
+    for index, raw_member in enumerate(members):
+        member_context = f"{context} members[{index}]"
+        member = _mapping(raw_member, member_context)
+        _exact_keys(member, _MEMBER_KEYS, member_context)
+        architecture = _nonempty_string(
+            member["architecture"], f"{member_context} architecture"
+        )
+        reference = _tagged_oci_reference(
+            member["reference"], f"{member_context} reference", registry=registry
+        )
+        if architecture in architectures or reference in references:
+            raise CleanupError(f"{context} members must be unique")
+        architectures.add(architecture)
+        references.add(reference)
+    if multi_arch and len(members) < 2:
+        raise CleanupError(f"{context} multi_arch requires at least two members")
+    if not multi_arch and (len(members) != 1 or pull not in references):
+        raise CleanupError(
+            f"{context} single-architecture pull must equal its only member"
+        )
+
+
+def _validate_schema7_or_8(
+    manifest: dict[str, Any], *, expected_tag: str | None, schema_version: int
+) -> dict[str, Any]:
+    manifest_keys = (
+        _SCHEMA7_MANIFEST_KEYS
+        if schema_version == SCHEMA7_MANIFEST_VERSION
+        else _SCHEMA8_MANIFEST_KEYS
+    )
+    _exact_keys(manifest, manifest_keys, f"release manifest schema {schema_version}")
+    release = _mapping(manifest["release"], "release manifest release")
+    _exact_keys(release, _RELEASE_KEYS, "release manifest release")
+    tag = _nonempty_string(release["tag"], "release manifest Tag")
+    if expected_tag is not None and tag != expected_tag:
+        raise CleanupError("release manifest Tag differs from the requested Tag")
+    if not isinstance(release["type"], str) or release["type"] not in RELEASE_TYPES:
+        raise CleanupError("release manifest release type is invalid")
+    _nonempty_string(release["version"], "release manifest version")
+    _github_url(release["url"], "release manifest Release URL")
+    run_id = release["actions_run_id"]
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+        raise CleanupError("release manifest Actions run ID must be a positive integer")
+
+    python_extras: dict[str, str] | None = None
+    asset_filenames: set[str] = set()
+    if schema_version == MANIFEST_SCHEMA_VERSION:
+        python_package = _mapping(manifest["python"], "release manifest Python")
+        _exact_keys(python_package, _PYTHON_KEYS, "release manifest Python")
+        meta_distribution = python_package.get("distribution")
+        if (
+            not isinstance(meta_distribution, str)
+            or re.fullmatch(r"(?:[a-z0-9]+-)*uc-manager", meta_distribution) is None
+            or python_package.get("version") != release["version"]
+        ):
+            raise CleanupError("release manifest Python identity is invalid")
+        python_filename = _filename(
+            python_package["filename"], "release manifest Python filename"
+        )
+        asset_filenames.add(python_filename)
+        _github_url(python_package["url"], "release manifest Python URL")
+        if (
+            not isinstance(python_package["sha256"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", python_package["sha256"]) is None
+        ):
+            raise CleanupError("release manifest Python sha256 is invalid")
+        tags = _array(python_package["tags"], "release manifest Python tags")
+        if any(not isinstance(tag, str) or not tag for tag in tags) or tags != sorted(
+            set(tags)
+        ):
+            raise CleanupError("release manifest Python tags are invalid")
+        raw_extras = _mapping(
+            python_package["extras"], "release manifest Python extras"
+        )
+        if not raw_extras:
+            raise CleanupError("release manifest Python extras must not be empty")
+        python_extras = {}
+        distributions: set[str] = set()
+        for extra in sorted(raw_extras):
+            distribution = _nonempty_string(
+                raw_extras[extra], f"release manifest Python extra {extra}"
+            )
+            if (
+                _PATH_COMPONENT.fullmatch(extra) is None
+                or not distribution.startswith(f"{meta_distribution}-")
+                or distribution in distributions
+            ):
+                raise CleanupError("release manifest Python extras are invalid")
+            distributions.add(distribution)
+            python_extras[extra] = distribution
+        if python_package["pypi"] is not None:
+            pypi = _mapping(python_package["pypi"], "release manifest PyPI")
+            _exact_keys(pypi, _PYPI_KEYS, "release manifest PyPI")
+            for field in sorted(_PYPI_KEYS):
+                url = _nonempty_string(pypi[field], f"release manifest PyPI {field}")
+                parsed = urllib.parse.urlparse(url)
+                if parsed.scheme != "https" or parsed.netloc not in {
+                    "pypi.org",
+                    "test.pypi.org",
+                }:
+                    raise CleanupError("release manifest PyPI URL is invalid")
+            pypi_host = urllib.parse.urlparse(pypi["index_url"]).netloc
+            if (
+                pypi["index_url"] != f"https://{pypi_host}/simple"
+                or pypi["project_url"]
+                != f"https://{pypi_host}/project/{meta_distribution}/"
+                f"{urllib.parse.quote(str(release['version']), safe='')}/"
+            ):
+                raise CleanupError("release manifest PyPI URLs differ from the release")
+
+    wheel_keys = (
+        _SCHEMA7_WHEEL_KEYS
+        if schema_version == SCHEMA7_MANIFEST_VERSION
+        else _SCHEMA8_WHEEL_KEYS
+    )
+    wheel_ids: set[str] = set()
+    wheel_extras: set[str] = set()
+    for index, raw_wheel in enumerate(
+        _array(manifest["wheels"], "release manifest Wheels")
+    ):
+        context = f"release manifest Wheels[{index}]"
+        wheel = _mapping(raw_wheel, context)
+        _exact_keys(wheel, wheel_keys, context)
+        wheel_id = _nonempty_string(wheel["id"], f"{context} id")
+        filename = _filename(wheel["filename"], f"{context} filename")
+        if wheel_id in wheel_ids or filename in asset_filenames:
+            raise CleanupError("release manifest Wheels must have unique IDs and files")
+        wheel_ids.add(wheel_id)
+        asset_filenames.add(filename)
+        for field in (
+            "product",
+            "distribution",
+            "version",
+            "python_abi",
+            "architecture",
+        ):
+            _nonempty_string(wheel[field], f"{context} {field}")
+        _validate_accelerator(wheel["accelerator"], f"{context} accelerator")
+        _github_url(wheel["url"], f"{context} URL")
+        if (
+            not isinstance(wheel["sha256"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", wheel["sha256"]) is None
+        ):
+            raise CleanupError(f"{context} sha256 is invalid")
+        dependencies = _array(wheel["dependencies"], f"{context} dependencies")
+        if any(
+            not isinstance(item, str) or not item for item in dependencies
+        ) or dependencies != sorted(set(dependencies)):
+            raise CleanupError(f"{context} dependencies are invalid")
+        if schema_version == SCHEMA7_MANIFEST_VERSION:
+            channel = _nonempty_string(wheel["channel"], f"{context} channel")
+            if (
+                wheel["distribution"] != "uc-manager"
+                or _PATH_COMPONENT.fullmatch(channel) is None
+            ):
+                raise CleanupError("release manifest Schema 7 Wheel is invalid")
+        else:
+            assert python_extras is not None
+            extra = _nonempty_string(wheel["extra"], f"{context} extra")
+            if (
+                _PATH_COMPONENT.fullmatch(extra) is None
+                or python_extras.get(extra) != wheel["distribution"]
+                or wheel["version"] != release["version"]
+            ):
+                raise CleanupError("release manifest Wheel extra mapping is invalid")
+            platform_tags = _array(wheel["platform_tags"], f"{context} platform tags")
+            if (
+                not platform_tags
+                or any(not isinstance(item, str) or not item for item in platform_tags)
+                or platform_tags != sorted(set(platform_tags))
+            ):
+                raise CleanupError(f"{context} platform tags are invalid")
+            _validate_wheel_filename(wheel, platform_tags, context)
+            wheel_extras.add(extra)
+    if python_extras is not None and wheel_extras != set(python_extras):
+        raise CleanupError("release manifest Wheels do not cover every Python extra")
+
+    image_ids: set[str] = set()
+    for index, raw_image in enumerate(
+        _array(manifest["images"], "release manifest Images")
+    ):
+        context = f"release manifest Images[{index}]"
+        image = _mapping(raw_image, context)
+        _exact_keys(image, _IMAGE_KEYS, context)
+        image_id = _nonempty_string(image["id"], f"{context} id")
+        if image_id in image_ids:
+            raise CleanupError("release manifest Image IDs must be unique")
+        image_ids.add(image_id)
+        _nonempty_string(image["product"], f"{context} product")
+        upstream = _mapping(image["upstream"], f"{context} upstream")
+        _exact_keys(upstream, _UPSTREAM_KEYS, f"{context} upstream")
+        for field in sorted(_UPSTREAM_KEYS):
+            _nonempty_string(upstream[field], f"{context} upstream {field}")
+        _validate_accelerator(image["accelerator"], f"{context} accelerator")
+        operating_system = _mapping(image["os"], f"{context} OS")
+        _exact_keys(operating_system, _OS_KEYS, f"{context} OS")
+        for field in sorted(_OS_KEYS):
+            _nonempty_string(operating_system[field], f"{context} OS {field}")
+        publications = _mapping(image["publications"], f"{context} publications")
+        _exact_keys(publications, _PUBLICATION_CHANNELS, f"{context} publications")
+        if all(publications[channel] is None for channel in _RUNTIME_CHANNELS):
+            raise CleanupError(f"{context} has no publication")
+        for channel in _RUNTIME_CHANNELS:
+            if publications[channel] is not None:
+                _validate_publication(
+                    publications[channel],
+                    channel=channel,
+                    context=f"{context} publications {channel}",
+                )
+
+    chart = _mapping(manifest["chart"], "release manifest Chart")
+    _exact_keys(chart, _CHART_KEYS, "release manifest Chart")
+    for field in ("name", "version"):
+        _nonempty_string(chart[field], f"release manifest Chart {field}")
+    chart_filename = _filename(chart["filename"], "release manifest Chart filename")
+    if chart_filename in asset_filenames:
+        raise CleanupError("release manifest artifact filenames must be unique")
+    asset_filenames.add(chart_filename)
+    _github_url(chart["url"], "release manifest Chart URL")
+    if chart["oci"] is not None:
+        _tagged_oci_reference(
+            chart["oci"], "release manifest Chart OCI", registry="ghcr.io"
+        )
+    assets = _validate_assets(manifest["github_release_assets"])
+    if "install-catalog.json" in assets:
+        raise CleanupError("release manifest must not list install-catalog.json")
+    if schema_version == MANIFEST_SCHEMA_VERSION and (
+        (manifest["python"]["pypi"] is not None) != ("pypi-receipt.json" in assets)
+    ):
+        raise CleanupError(
+            "release manifest PyPI receipt asset differs from publication"
+        )
+    missing_assets = sorted(asset_filenames - assets)
+    if missing_assets:
+        raise CleanupError(f"release manifest assets are missing {missing_assets}")
+    return manifest
+
+
+def validate_manifest(
+    value: object, *, expected_tag: str | None = None
+) -> dict[str, Any]:
+    """Validate an exact public Schema 6, 7, or 8 manifest."""
+    manifest = _mapping(value, "release manifest")
+    if manifest.get("kind") != MANIFEST_KIND:
+        raise CleanupError("release manifest kind is invalid")
+    schema_version = manifest.get("schema_version")
+    if schema_version == LEGACY_MANIFEST_SCHEMA_VERSION:
+        return _validate_schema6(manifest, expected_tag=expected_tag)
+    if schema_version in {SCHEMA7_MANIFEST_VERSION, MANIFEST_SCHEMA_VERSION}:
+        return _validate_schema7_or_8(
+            manifest,
+            expected_tag=expected_tag,
+            schema_version=schema_version,
+        )
+    raise CleanupError("release manifest must use schema version 6, 7, or 8")
+
+
+def _cleanup_model(value: object, *, expected_tag: str | None = None) -> dict[str, Any]:
+    manifest = validate_manifest(value, expected_tag=expected_tag)
+    if manifest["schema_version"] == LEGACY_MANIFEST_SCHEMA_VERSION:
+        return manifest
+    release = manifest["release"]
+    runtime_images = {
+        channel: {"members": set(), "indexes": set()} for channel in _RUNTIME_CHANNELS
+    }
+    for image in manifest["images"]:
+        for channel in _RUNTIME_CHANNELS:
+            publication = image["publications"][channel]
+            if publication is None:
+                continue
+            destination = "indexes" if publication["multi_arch"] else "members"
+            runtime_images[channel][destination].add(publication["pull"])
+            runtime_images[channel]["members"].update(
+                member["reference"] for member in publication["members"]
+            )
+    return {
+        "kind": MANIFEST_KIND,
+        "schema_version": LEGACY_MANIFEST_SCHEMA_VERSION,
+        "tag": release["tag"],
+        "release_type": release["type"],
+        "actions_run_id": release["actions_run_id"],
+        "chart_oci": manifest["chart"]["oci"],
+        "runtime_images": {
+            channel: {
+                kind: sorted(references) for kind, references in channel_value.items()
+            }
+            for channel, channel_value in runtime_images.items()
+        },
+        "github_release_assets": list(manifest["github_release_assets"]),
+    }
+
+
 def registry_resources(manifest: object) -> list[Resource]:
     """Project phase-one resources in the required deletion order."""
-    validated = validate_manifest(manifest)
+    validated = _cleanup_model(manifest)
     ghcr_resources: list[tuple[str, str]] = []
     if validated["chart_oci"] is not None:
         ghcr_resources.append(("chart-oci", validated["chart_oci"]))
@@ -329,9 +762,10 @@ def select_retention_candidates(
         )
 
     grouped: dict[str, list[ManifestRecord]] = {}
+    normalized_by_record: dict[int, dict[str, Any]] = {}
     for record in records:
         try:
-            manifest = validate_manifest(record.manifest)
+            manifest = _cleanup_model(record.manifest)
         except CleanupError:
             continue
         if manifest["release_type"] != release_type or manifest["tag"] == current_tag:
@@ -354,6 +788,7 @@ def select_retention_candidates(
         }[release_type]
         if (record.draft, record.prerelease) != expected_visibility:
             continue
+        normalized_by_record[id(record)] = manifest
         grouped.setdefault(manifest["tag"], []).append(record)
 
     unique_records: list[ManifestRecord] = []
@@ -365,7 +800,11 @@ def select_retention_candidates(
             min(tag_records, key=lambda item: (item.created_at, item.release_id))
         )
     unique_records.sort(
-        key=lambda item: (item.created_at, item.release_id, item.manifest["tag"])
+        key=lambda item: (
+            item.created_at,
+            item.release_id,
+            normalized_by_record[id(item)]["tag"],
+        )
     )
     allowed_other_tags = max_count - 1
     excess = max(0, len(unique_records) - allowed_other_tags)
@@ -468,7 +907,7 @@ def cleanup_manifest(
     fail_resource: str | None = None,
 ) -> CleanupReport:
     """Delete one Tag through the four recovery-preserving phases."""
-    validated = validate_manifest(manifest)
+    validated = _cleanup_model(manifest)
     tag = validated["tag"]
     phase_one_resources = registry_resources(validated)
 
@@ -679,7 +1118,7 @@ class ProductionRemote:
             is not None
         ]
         if not manifests:
-            raise CleanupError(f"Tag {tag} has no exact schema-v6 release manifest")
+            raise CleanupError(f"Tag {tag} has no exact schema 6, 7, or 8 manifest")
         if any(manifest != manifests[0] for manifest in manifests[1:]):
             raise CleanupError(f"Tag {tag} has conflicting release manifests")
         return manifests[0]

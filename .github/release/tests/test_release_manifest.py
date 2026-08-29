@@ -39,6 +39,8 @@ def _plan() -> dict[str, object]:
                 "enabled": False,
                 "disposition": "disabled",
                 "index": "https://upload.pypi.org/legacy/",
+                "target": "pypi",
+                "simple_index": "https://pypi.org/simple/",
             },
             "ghcr": {
                 "requested": True,
@@ -640,12 +642,40 @@ def test_disabled_image_publication_completes_with_wheels_and_chart(
     assert "pkgs/container" not in notes
 
 
-def test_public_manifest_is_exact_schema_v6_and_uses_published_targets(
+def test_public_manifest_is_exact_schema_v8_and_uses_published_targets(
     tmp_path: Path,
 ) -> None:
     wheels, chart, _, _ = _write_artifact_inputs(tmp_path)
+    plan = _plan()
+    plan["meta_package"] = {
+        "distribution": "uc-manager",
+        "version": "0.7.62rc1",
+        "extras": {"cu129": "uc-manager-cuda-cu129==0.7.62rc1"},
+    }
+    plan["images"][0]["runtime"].update(  # type: ignore[index]
+        {
+            "product_id": "vllm",
+            "version": "0.23.0",
+            "channel": "stable",
+            "variant": "default",
+            "soc_version": "na",
+            "os_id": "ubuntu",
+            "os_version": "22.04",
+        }
+    )
+    plan["families"][0]["runtime"].update(  # type: ignore[index]
+        {
+            "version": "0.23.0",
+            "channel": "stable",
+            "variant": "default",
+            "soc_version": "na",
+            "os_id": "ubuntu",
+            "os_version": "22.04",
+        }
+    )
+    meta_root = _write_meta_artifact(tmp_path, plan)
     state, _ = release.build_artifacts_manifest(
-        _plan(), wheels, chart, actions_run_id=987654
+        plan, wheels, chart, meta_root, actions_run_id=987654
     )
     receipts = tmp_path / "receipts"
     receipts.mkdir()
@@ -674,38 +704,152 @@ def test_public_manifest_is_exact_schema_v6_and_uses_published_targets(
         member_outcome="success",
         index_outcome="skipped",
     )
-    document = {
+    asset_urls = _asset_urls(state)
+    document: dict[str, object] = {
         "tag_name": "v0.7.62rc1",
+        "html_url": "https://github.com/example/ucm/releases/tag/v0.7.62rc1",
         "assets": [
-            {"name": "ucm.whl"},
-            {"name": "unified-cache-chart-0.7.62-rc.1.tgz"},
-            {"name": "ucm_config_example.yaml"},
+            {"name": name, "browser_download_url": url}
+            for name, url in asset_urls.items()
         ],
     }
+    document["assets"].append(  # type: ignore[union-attr]
+        {
+            "name": "ucm_config_example.yaml",
+            "browser_download_url": (
+                "https://github.com/example/ucm/releases/download/"
+                "v0.7.62rc1/ucm_config_example.yaml"
+            ),
+        }
+    )
 
     manifest = release.build_public_manifest(state, document)
 
     assert manifest == {
         "kind": "ucm-release-manifest",
-        "schema_version": 6,
-        "tag": "v0.7.62rc1",
-        "release_type": "prerelease",
-        "actions_run_id": 987654,
-        "chart_oci": ("ghcr.io/example/charts/unified-cache-chart:0.7.62-rc.1"),
-        "runtime_images": {
-            "ghcr": {
-                "members": ["ghcr.io/example/vllm:v0.23.0-ucm-amd64"],
-                "indexes": [],
+        "schema_version": 8,
+        "release": {
+            "tag": "v0.7.62rc1",
+            "type": "prerelease",
+            "version": "0.7.62rc1",
+            "url": "https://github.com/example/ucm/releases/tag/v0.7.62rc1",
+            "actions_run_id": 987654,
+        },
+        "python": {
+            "distribution": "uc-manager",
+            "version": "0.7.62rc1",
+            "filename": "uc_manager-0.7.62rc1-py3-none-any.whl",
+            "url": asset_urls["uc_manager-0.7.62rc1-py3-none-any.whl"],
+            "sha256": hashlib.sha256(b"meta").hexdigest(),
+            "tags": ["py3-none-any"],
+            "extras": {"cu129": "uc-manager-cuda-cu129"},
+            "pypi": None,
+        },
+        "wheels": [
+            {
+                "id": "cuda129-cp312-amd64",
+                "product": "vllm",
+                "extra": "cu129",
+                "accelerator": {
+                    "runtime": "cuda-12.9",
+                    "variant": "default",
+                    "soc_version": "na",
+                },
+                "distribution": "uc-manager-cuda-cu129",
+                "version": "0.7.62rc1",
+                "python_abi": "cp312",
+                "architecture": "amd64",
+                "platform_tags": ["manylinux_2_28_x86_64"],
+                "filename": (
+                    "uc_manager_cuda_cu129-0.7.62rc1-cp312-cp312-"
+                    "manylinux_2_28_x86_64.whl"
+                ),
+                "url": asset_urls[
+                    "uc_manager_cuda_cu129-0.7.62rc1-cp312-cp312-"
+                    "manylinux_2_28_x86_64.whl"
+                ],
+                "sha256": hashlib.sha256(b"wheel").hexdigest(),
+                "dependencies": ["wrapt==1.17.2"],
             },
-            "dockerhub": {"members": [], "indexes": []},
+        ],
+        "images": [
+            {
+                "id": "vllm-v023",
+                "product": "vllm",
+                "upstream": {"version": "0.23.0", "channel": "stable"},
+                "accelerator": {
+                    "runtime": "cuda-12.9",
+                    "variant": "default",
+                    "soc_version": "na",
+                },
+                "os": {"id": "ubuntu", "version": "22.04"},
+                "publications": {
+                    "ghcr": {
+                        "pull": "ghcr.io/example/vllm:v0.23.0-ucm-amd64",
+                        "multi_arch": False,
+                        "members": [
+                            {
+                                "architecture": "amd64",
+                                "reference": ("ghcr.io/example/vllm:v0.23.0-ucm-amd64"),
+                            }
+                        ],
+                    },
+                    "dockerhub": None,
+                },
+            }
+        ],
+        "chart": {
+            "name": "unified-cache-chart",
+            "version": "0.7.62-rc.1",
+            "filename": "unified-cache-chart-0.7.62-rc.1.tgz",
+            "url": asset_urls["unified-cache-chart-0.7.62-rc.1.tgz"],
+            "oci": "ghcr.io/example/charts/unified-cache-chart:0.7.62-rc.1",
         },
         "github_release_assets": [
             "release-manifest.json",
-            "ucm.whl",
+            "uc_manager-0.7.62rc1-py3-none-any.whl",
+            (
+                "uc_manager_cuda_cu129-0.7.62rc1-cp312-cp312-"
+                "manylinux_2_28_x86_64.whl"
+            ),
             "ucm_config_example.yaml",
             "unified-cache-chart-0.7.62-rc.1.tgz",
         ],
     }
+
+    pypi_state = json.loads(json.dumps(state))
+    pypi_state["publish"]["pypi"]["enabled"] = True
+    pypi_state["pypi"] = {
+        "kind": "ucm-pypi-receipt",
+        "schema_version": 2,
+        "target": "pypi",
+        "repository_url": "https://upload.pypi.org/legacy/",
+        "status": "complete",
+        "version": pypi_state["release"]["version"],
+        "projects": release._expected_pypi_projects(pypi_state),
+        "extras": pypi_state["meta_package"]["extras"],
+    }
+    with pytest.raises(ValueError, match="receipt asset differs"):
+        release.build_public_manifest(pypi_state, document)
+
+    pypi_document = json.loads(json.dumps(document))
+    pypi_document["assets"].append(
+        {
+            "name": "pypi-receipt.json",
+            "browser_download_url": (
+                "https://github.com/example/ucm/releases/download/"
+                "v0.7.62rc1/pypi-receipt.json"
+            ),
+        }
+    )
+    pypi_manifest = release.build_public_manifest(pypi_state, pypi_document)
+    assert pypi_manifest["python"]["pypi"] == {
+        "index_url": "https://pypi.org/simple",
+        "project_url": "https://pypi.org/project/uc-manager/0.7.62rc1/",
+    }
+    assert "pypi-receipt.json" in pypi_manifest["github_release_assets"]
+    with pytest.raises(ValueError, match="receipt asset differs"):
+        release.build_public_manifest(state, pypi_document)
 
     state_path = tmp_path / "public-state.json"
     release_path = tmp_path / "public-release.json"
@@ -732,12 +876,165 @@ def test_public_manifest_rejects_incomplete_release() -> None:
     with pytest.raises(ValueError, match="complete publication"):
         release.build_public_manifest(
             {
+                "kind": "ucm-release-state",
+                "schema_version": 3,
                 "release": {
                     "git_tag": "nightly/v0.8.1-20260826-1",
                     "status": "images-failed",
-                }
+                },
             },
             {"tag_name": "nightly/v0.8.1-20260826-1"},
+        )
+
+
+def test_python_projection_requires_canonical_extras_and_complete_pypi_receipt() -> (
+    None
+):
+    requirement = "uc-manager-cuda-cu130==0.9.3"
+    state = {
+        "release": {"version": "0.9.3"},
+        "publish": {
+            "pypi": {
+                "enabled": True,
+                "target": "pypi",
+                "index": "https://upload.pypi.org/legacy/",
+                "simple_index": "https://pypi.org/simple/",
+            }
+        },
+        "meta_package": {
+            "distribution": "uc-manager",
+            "version": "0.9.3",
+            "filename": "uc_manager-0.9.3-py3-none-any.whl",
+            "sha256": "sha256:" + "b" * 64,
+            "tags": ["py3-none-any"],
+            "extras": {"cu130": requirement},
+        },
+        "wheels": [
+            {
+                "runtime_variant": "cu130",
+                "distribution": "uc-manager-cuda-cu130",
+                "version": "0.9.3",
+                "filename": "uc_manager_cuda_cu130-0.9.3-cp312.whl",
+                "sha256": "a" * 64,
+            }
+        ],
+        "pypi": {
+            "kind": "ucm-pypi-receipt",
+            "schema_version": 2,
+            "target": "pypi",
+            "repository_url": "https://upload.pypi.org/legacy/",
+            "status": "complete",
+            "version": "0.9.3",
+            "extras": {"cu130": requirement},
+            "projects": [
+                {
+                    "project": "uc-manager-cuda-cu130",
+                    "version": "0.9.3",
+                    "role": "backend",
+                    "files": [
+                        {
+                            "filename": "uc_manager_cuda_cu130-0.9.3-cp312.whl",
+                            "sha256": "sha256:" + "a" * 64,
+                        }
+                    ],
+                },
+                {
+                    "project": "uc-manager",
+                    "version": "0.9.3",
+                    "role": "meta",
+                    "files": [
+                        {
+                            "filename": "uc_manager-0.9.3-py3-none-any.whl",
+                            "sha256": "sha256:" + "b" * 64,
+                        }
+                    ],
+                },
+            ],
+        },
+    }
+    package, extras = release._project_python_package(
+        state,
+        {
+            "uc_manager-0.9.3-py3-none-any.whl": (
+                "https://github.com/example/ucm/releases/download/"
+                "v0.9.3/uc_manager-0.9.3-py3-none-any.whl"
+            )
+        },
+    )
+
+    assert extras == {"cu130": "uc-manager-cuda-cu130"}
+    assert package["pypi"] == {
+        "index_url": "https://pypi.org/simple",
+        "project_url": "https://pypi.org/project/uc-manager/0.9.3/",
+    }
+
+    fork = json.loads(
+        json.dumps(state)
+        .replace("uc-manager", "supermarioyl-uc-manager")
+        .replace("uc_manager", "supermarioyl_uc_manager")
+    )
+    fork["publish"]["pypi"].update(
+        target="testpypi",
+        index="https://test.pypi.org/legacy/",
+        simple_index="https://test.pypi.org/simple/",
+    )
+    fork["pypi"].update(
+        target="testpypi", repository_url="https://test.pypi.org/legacy/"
+    )
+    fork_package, fork_extras = release._project_python_package(
+        fork,
+        {fork["meta_package"]["filename"]: "https://github.com/example/meta"},
+    )
+    assert fork_package["distribution"] == "supermarioyl-uc-manager"
+    assert fork_extras == {"cu130": "supermarioyl-uc-manager-cuda-cu130"}
+    assert fork_package["pypi"] == {
+        "index_url": "https://test.pypi.org/simple",
+        "project_url": "https://test.pypi.org/project/supermarioyl-uc-manager/0.9.3/",
+    }
+
+    local_version = json.loads(json.dumps(state))
+    local_version["release"]["version"] = "0.9.3+cu130"
+    with pytest.raises(ValueError, match="must not use a local version"):
+        release._project_python_package(local_version, {})
+
+    missing_project = json.loads(json.dumps(state))
+    missing_project["pypi"]["projects"].pop()
+    with pytest.raises(ValueError, match="no complete matching PyPI receipt"):
+        release._project_python_package(
+            missing_project,
+            {"uc_manager-0.9.3-py3-none-any.whl": "https://github.com/example/meta"},
+        )
+
+    wrong_kind = json.loads(json.dumps(state))
+    wrong_kind["pypi"]["kind"] = "wrong"
+    with pytest.raises(ValueError, match="invalid contract"):
+        release._project_python_package(
+            wrong_kind,
+            {"uc_manager-0.9.3-py3-none-any.whl": "https://github.com/example/meta"},
+        )
+
+
+def test_public_wheel_filename_matches_exact_platform_identity() -> None:
+    filename = "uc_manager_cuda_cu130-0.9.3-cp312-cp312-" "manylinux_2_28_x86_64.whl"
+    release._validate_public_wheel_filename(
+        filename,
+        distribution="uc-manager-cuda-cu130",
+        version="0.9.3",
+        python_abi="cp312",
+        architecture="amd64",
+        platform_tags=["manylinux_2_28_x86_64"],
+        context="Wheel cu130",
+    )
+
+    with pytest.raises(ValueError, match="filename and platform identity differ"):
+        release._validate_public_wheel_filename(
+            filename,
+            distribution="uc-manager-cuda-cu130",
+            version="0.9.3",
+            python_abi="cp312",
+            architecture="amd64",
+            platform_tags=["manylinux_2_34_x86_64"],
+            context="Wheel cu130",
         )
 
 
