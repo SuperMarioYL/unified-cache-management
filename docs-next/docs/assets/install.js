@@ -182,31 +182,15 @@
     );
   }
 
-  function wheelIndexUrl(manifestUrl, channel) {
-    return new URL("../whl/" + encodeURIComponent(channel) + "/", manifestUrl).href;
-  }
-
-  function wheelCombination(wheel, manifest, manifestUrl) {
-    var legacy = manifest.schema_version === Manifest.LEGACY_SCHEMA_VERSION;
-    var command;
-    if (legacy) {
-      command =
-        'python -m pip install "' +
-        wheel.distribution +
-        "==" +
-        wheel.version +
-        '" --index-url ' +
-        wheelIndexUrl(manifestUrl, wheel.channel);
-    } else {
-      command =
-        'python -m pip install "' +
-        manifest.python.distribution +
-        "[" +
-        wheel.extra +
-        "]==" +
-        manifest.python.version +
-        '"';
-    }
+  function wheelCombination(wheel, manifest) {
+    var command =
+      'pip install "' +
+      manifest.python.distribution +
+      "[" +
+      wheel.extra +
+      "]==" +
+      manifest.python.version +
+      '"';
     return {
       method: "wheel",
       engine: wheel.product,
@@ -280,12 +264,11 @@
     };
   }
 
-  function buildSelectorModel(manifest, manifestUrl) {
+  function buildSelectorModel(manifest) {
     Manifest.validateManifest(manifest);
-    var target = new URL(String(manifestUrl || Manifest.defaultManifestUrl()));
     var combinations = [];
     manifest.wheels.filter(selectableProduct).forEach(function (wheel) {
-      combinations.push(wheelCombination(wheel, manifest, target));
+      combinations.push(wheelCombination(wheel, manifest));
     });
     manifest.images.filter(selectableProduct).forEach(function (image) {
       combinations = combinations.concat(imageCombinations(image));
@@ -297,7 +280,7 @@
       engineVersionOptions(publishedImageCombinations, engine);
     });
     combinations.push(helmCombination(manifest.chart));
-    return { manifest: manifest, manifestUrl: target, combinations: combinations };
+    return { manifest: manifest, combinations: combinations };
   }
 
   function orderedUnique(combinations, field, labelField, preferredOrder) {
@@ -656,7 +639,7 @@
 
     Manifest.loadManifest(manifestUrl)
       .then(function (manifest) {
-        var model = buildSelectorModel(manifest, manifestUrl);
+        var model = buildSelectorModel(manifest);
         status.replaceChildren(
           document.createTextNode(messages.release + ": "),
           directLink(manifest.release.url, manifest.release.version)
