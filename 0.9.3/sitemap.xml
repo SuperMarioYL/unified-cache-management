@@ -1,0 +1,905 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/about/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/about/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/about/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/benchmark/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/benchmark/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/benchmark/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/developer-guide/add-metrics/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/developer-guide/add-metrics/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/developer-guide/add-metrics/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/developer-guide/architecture/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/developer-guide/architecture/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/developer-guide/architecture/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/developer-guide/build_from_source/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/developer-guide/build_from_source/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/developer-guide/build_from_source/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/developer-guide/capability-principles/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/developer-guide/capability-principles/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/developer-guide/capability-principles/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/developer-guide/contribute/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/developer-guide/contribute/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/developer-guide/contribute/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/developer-guide/extending-store/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/developer-guide/extending-store/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/developer-guide/extending-store/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/download/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/download/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/download/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/download/helm/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/download/helm/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/download/helm/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/download/image/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/download/image/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/download/image/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/download/whl/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/download/whl/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/download/whl/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/reference/api-parameters/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/reference/api-parameters/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/reference/api-parameters/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/reference/troubleshooting/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/reference/troubleshooting/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/reference/troubleshooting/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/toolkit/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/toolkit/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/toolkit/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/toolkit/kv-cache-calculator/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/toolkit/kv-cache-calculator/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/toolkit/kv-cache-calculator/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/toolkit/developer/design/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/toolkit/developer/design/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/toolkit/developer/design/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/toolkit/developer/dev-sandbox/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/toolkit/developer/dev-sandbox/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/toolkit/developer/dev-sandbox/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/toolkit/user/dev-sandbox/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/toolkit/user/dev-sandbox/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/toolkit/user/dev-sandbox/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/toolkit/user/metrics-view/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/toolkit/user/metrics-view/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/toolkit/user/metrics-view/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/toolkit/user/nic-monitor/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/toolkit/user/nic-monitor/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/toolkit/user/nic-monitor/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/toolkit/user/posix-aio/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/toolkit/user/posix-aio/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/toolkit/user/posix-aio/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/toolkit/user/precheck/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/toolkit/user/precheck/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/toolkit/user/precheck/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/installation/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/installation/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/installation/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/capabilities/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/capabilities/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/capabilities/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/capabilities/prefix-cache/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/capabilities/prefix-cache/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/capabilities/prefix-cache/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/deploy/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/deploy/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/deploy/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/diagnostics/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/diagnostics/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/diagnostics/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/diagnostics/trace-mode/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/diagnostics/trace-mode/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/diagnostics/trace-mode/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/frameworks/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/frameworks/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/frameworks/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/frameworks/kubernetes/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/frameworks/kubernetes/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/frameworks/kubernetes/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/frameworks/pyMotor/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/frameworks/pyMotor/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/frameworks/pyMotor/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/deepseek/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/deepseek/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/deepseek/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/deepseek/ascend/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/deepseek/ascend/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/deepseek/ascend/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/deepseek/sglang/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/deepseek/sglang/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/deepseek/sglang/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/deepseek/vllm/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/deepseek/vllm/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/deepseek/vllm/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/glm/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/glm/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/glm/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/glm/ascend/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/glm/ascend/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/glm/ascend/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/glm/sglang/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/glm/sglang/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/glm/sglang/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/glm/vllm/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/glm/vllm/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/glm/vllm/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/kimi/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/kimi/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/kimi/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/kimi/ascend/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/kimi/ascend/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/kimi/ascend/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/kimi/sglang/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/kimi/sglang/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/kimi/sglang/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/kimi/vllm/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/kimi/vllm/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/kimi/vllm/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/minimax/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/minimax/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/minimax/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/minimax/ascend/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/minimax/ascend/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/minimax/ascend/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/minimax/sglang/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/minimax/sglang/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/minimax/sglang/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/minimax/vllm/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/minimax/vllm/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/minimax/vllm/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/qwen3/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/qwen3/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/qwen3/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/qwen3/ascend/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/qwen3/ascend/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/qwen3/ascend/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/qwen3/sglang/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/qwen3/sglang/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/qwen3/sglang/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/qwen3/vllm/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/model-tour/qwen3/vllm/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/model-tour/qwen3/vllm/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/observability/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/observability/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/observability/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/observability/metrics/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/observability/metrics/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/observability/metrics/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/quick_start/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/quick_start/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/quick_start/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/quick_start/quickstart_mindie_llm/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/quick_start/quickstart_mindie_llm/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/quick_start/quickstart_mindie_llm/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/quick_start/quickstart_sglang/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/quick_start/quickstart_sglang/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/quick_start/quickstart_sglang/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/quick_start/quickstart_vllm/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/quick_start/quickstart_vllm/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/quick_start/quickstart_vllm/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/quick_start/quickstart_vllm_ascend/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/quick_start/quickstart_vllm_ascend/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/quick_start/quickstart_vllm_ascend/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/support-matrix/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/support-matrix/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/support-matrix/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/user-guide/support-matrix/support_matrix/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3/user-guide/support-matrix/support_matrix/"/>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3zh/user-guide/support-matrix/support_matrix/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/about/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/about/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3about/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/benchmark/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/benchmark/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3benchmark/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/developer-guide/add-metrics/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/developer-guide/add-metrics/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3developer-guide/add-metrics/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/developer-guide/architecture/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/developer-guide/architecture/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3developer-guide/architecture/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/developer-guide/build_from_source/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/developer-guide/build_from_source/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3developer-guide/build_from_source/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/developer-guide/capability-principles/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/developer-guide/capability-principles/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3developer-guide/capability-principles/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/developer-guide/contribute/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/developer-guide/contribute/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3developer-guide/contribute/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/developer-guide/extending-store/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/developer-guide/extending-store/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3developer-guide/extending-store/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/download/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/download/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3download/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/download/helm/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/download/helm/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3download/helm/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/download/image/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/download/image/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3download/image/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/download/whl/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/download/whl/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3download/whl/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/reference/api-parameters/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/reference/api-parameters/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3reference/api-parameters/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/reference/troubleshooting/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/reference/troubleshooting/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3reference/troubleshooting/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/toolkit/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/toolkit/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3toolkit/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/toolkit/kv-cache-calculator/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/toolkit/kv-cache-calculator/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3toolkit/kv-cache-calculator/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/toolkit/developer/design/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/toolkit/developer/design/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3toolkit/developer/design/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/toolkit/developer/dev-sandbox/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/toolkit/developer/dev-sandbox/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3toolkit/developer/dev-sandbox/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/toolkit/user/dev-sandbox/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/toolkit/user/dev-sandbox/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3toolkit/user/dev-sandbox/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/toolkit/user/metrics-view/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/toolkit/user/metrics-view/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3toolkit/user/metrics-view/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/toolkit/user/nic-monitor/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/toolkit/user/nic-monitor/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3toolkit/user/nic-monitor/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/toolkit/user/posix-aio/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/toolkit/user/posix-aio/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3toolkit/user/posix-aio/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/toolkit/user/precheck/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/toolkit/user/precheck/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3toolkit/user/precheck/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/installation/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/installation/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/installation/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/capabilities/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/capabilities/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/capabilities/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/capabilities/prefix-cache/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/capabilities/prefix-cache/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/capabilities/prefix-cache/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/deploy/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/deploy/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/deploy/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/diagnostics/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/diagnostics/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/diagnostics/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/diagnostics/trace-mode/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/diagnostics/trace-mode/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/diagnostics/trace-mode/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/frameworks/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/frameworks/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/frameworks/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/frameworks/kubernetes/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/frameworks/kubernetes/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/frameworks/kubernetes/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/frameworks/pyMotor/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/frameworks/pyMotor/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/frameworks/pyMotor/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/deepseek/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/deepseek/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/deepseek/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/deepseek/ascend/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/deepseek/ascend/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/deepseek/ascend/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/deepseek/sglang/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/deepseek/sglang/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/deepseek/sglang/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/deepseek/vllm/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/deepseek/vllm/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/deepseek/vllm/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/glm/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/glm/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/glm/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/glm/ascend/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/glm/ascend/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/glm/ascend/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/glm/sglang/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/glm/sglang/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/glm/sglang/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/glm/vllm/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/glm/vllm/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/glm/vllm/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/kimi/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/kimi/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/kimi/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/kimi/ascend/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/kimi/ascend/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/kimi/ascend/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/kimi/sglang/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/kimi/sglang/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/kimi/sglang/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/kimi/vllm/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/kimi/vllm/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/kimi/vllm/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/minimax/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/minimax/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/minimax/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/minimax/ascend/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/minimax/ascend/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/minimax/ascend/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/minimax/sglang/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/minimax/sglang/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/minimax/sglang/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/minimax/vllm/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/minimax/vllm/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/minimax/vllm/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/qwen3/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/qwen3/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/qwen3/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/qwen3/ascend/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/qwen3/ascend/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/qwen3/ascend/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/qwen3/sglang/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/qwen3/sglang/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/qwen3/sglang/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/qwen3/vllm/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/model-tour/qwen3/vllm/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/model-tour/qwen3/vllm/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/observability/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/observability/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/observability/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/observability/metrics/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/observability/metrics/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/observability/metrics/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/quick_start/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/quick_start/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/quick_start/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/quick_start/quickstart_mindie_llm/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/quick_start/quickstart_mindie_llm/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/quick_start/quickstart_mindie_llm/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/quick_start/quickstart_sglang/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/quick_start/quickstart_sglang/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/quick_start/quickstart_sglang/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/quick_start/quickstart_vllm/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/quick_start/quickstart_vllm/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/quick_start/quickstart_vllm/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/quick_start/quickstart_vllm_ascend/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/quick_start/quickstart_vllm_ascend/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/quick_start/quickstart_vllm_ascend/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/support-matrix/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/support-matrix/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/support-matrix/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/support-matrix/support_matrix/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/support-matrix/support_matrix/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://unified-cache-management.lei6393.com/0.9.3user-guide/support-matrix/support_matrix/"/>
+    </url>
+    <url>
+        <loc>https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/engines/</loc>
+        <lastmod>2026-08-29</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh" href="https://unified-cache-management.lei6393.com/0.9.3/zh/user-guide/engines/"/>
+    </url>
+</urlset>
