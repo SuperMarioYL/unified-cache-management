@@ -133,6 +133,74 @@ def _manifest(wheels: list[dict[str, object]], version: str = "0.9.0") -> dict:
     return manifest
 
 
+def _manifest_v8(wheels: list[dict[str, object]], version: str = "0.9.3") -> dict:
+    manifest = _manifest([], version)
+    manifest["schema_version"] = 8
+    extras: dict[str, str] = {}
+    backend_wheels: list[dict[str, object]] = []
+    for raw_wheel in wheels:
+        wheel = json.loads(json.dumps(raw_wheel))
+        extra = str(wheel.pop("channel"))
+        distribution = (
+            f"uc-manager-cuda-{extra}"
+            if extra.startswith("cu")
+            else f"uc-manager-{extra}"
+        )
+        platform_tag = (
+            "manylinux_2_28_x86_64"
+            if extra.startswith("cu")
+            else "manylinux_2_34_x86_64"
+        )
+        filename = (
+            f"{distribution.replace('-', '_')}-{version}-"
+            f"cp312-cp312-{platform_tag}.whl"
+        )
+        wheel.update(
+            {
+                "extra": extra,
+                "distribution": distribution,
+                "version": version,
+                "python_abi": "cp312",
+                "architecture": "amd64",
+                "filename": filename,
+                "url": (
+                    "https://github.com/example/ucm/releases/download/"
+                    f"v{version}/{filename}"
+                ),
+                "platform_tags": [platform_tag],
+            }
+        )
+        extras[extra] = distribution
+        backend_wheels.append(wheel)
+    manifest["python"] = {
+        "distribution": "uc-manager",
+        "version": version,
+        "filename": f"uc_manager-{version}-py3-none-any.whl",
+        "url": (
+            "https://github.com/example/ucm/releases/download/"
+            f"v{version}/uc_manager-{version}-py3-none-any.whl"
+        ),
+        "sha256": "b" * 64,
+        "tags": ["py3-none-any"],
+        "extras": extras,
+        "pypi": {
+            "index_url": "https://pypi.org/simple",
+            "project_url": f"https://pypi.org/project/uc-manager/{version}/",
+        },
+    }
+    manifest["wheels"] = backend_wheels
+    manifest["github_release_assets"] = sorted(
+        [
+            "release-manifest.json",
+            "pypi-receipt.json",
+            manifest["chart"]["filename"],
+            manifest["python"]["filename"],
+            *(str(wheel["filename"]) for wheel in backend_wheels),
+        ]
+    )
+    return manifest
+
+
 def _freeze(root: Path, manifest: dict) -> None:
     path = root / "manifests" / manifest["release"]["version"] / "release-manifest.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -186,6 +254,82 @@ def test_schema_7_manifest_validation_is_exact() -> None:
     missing_chart["github_release_assets"].remove("unified-cache-chart-0.9.0.tgz")
     with pytest.raises(pages.PagesError, match="assets are missing"):
         pages.validate_manifest(missing_chart)
+
+
+def test_schema_8_manifest_validation_is_exact() -> None:
+    wheel = _wheel_record(
+        channel="cu130",
+        version="0.9.3",
+        filename="uc_manager_cuda_cu130-0.9.3-cp312-manylinux_x86_64.whl",
+        url=(
+            "https://github.com/example/ucm/releases/download/v0.9.3/"
+            "uc_manager_cuda_cu130.whl"
+        ),
+        sha256="a" * 64,
+    )
+    manifest = _manifest_v8([wheel])
+    assert pages.validate_manifest(manifest) == manifest
+
+    wrong_backend = json.loads(json.dumps(manifest))
+    wrong_backend["wheels"][0]["distribution"] = "uc-manager-cuda-wrong"
+    with pytest.raises(pages.PagesError, match="declared Python extra"):
+        pages.validate_manifest(wrong_backend)
+
+    missing_meta = json.loads(json.dumps(manifest))
+    missing_meta["github_release_assets"].remove(missing_meta["python"]["filename"])
+    with pytest.raises(pages.PagesError, match="assets are missing"):
+        pages.validate_manifest(missing_meta)
+
+    missing_receipt = json.loads(json.dumps(manifest))
+    missing_receipt["github_release_assets"].remove("pypi-receipt.json")
+    with pytest.raises(pages.PagesError, match="PyPI receipt"):
+        pages.validate_manifest(missing_receipt)
+
+    wrong_project = json.loads(json.dumps(manifest))
+    wrong_project["python"]["pypi"][
+        "project_url"
+    ] = "https://pypi.org/project/uc-manager/99.0/"
+    with pytest.raises(pages.PagesError, match="PyPI URLs"):
+        pages.validate_manifest(wrong_project)
+
+    empty_platform = json.loads(json.dumps(manifest))
+    empty_platform["wheels"][0]["platform_tags"] = []
+    with pytest.raises(pages.PagesError, match="must not be empty"):
+        pages.validate_manifest(empty_platform)
+
+    mismatched_platform = json.loads(json.dumps(manifest))
+    mismatched_platform["wheels"][0]["platform_tags"] = ["manylinux_2_34_x86_64"]
+    with pytest.raises(pages.PagesError, match="filename and platform"):
+        pages.validate_manifest(mismatched_platform)
+
+
+def test_schema_8_does_not_rebuild_or_delete_legacy_simple_indexes(
+    tmp_path: Path,
+) -> None:
+    manifest = _manifest_v8(
+        [
+            _wheel_record(
+                channel="cu130",
+                version="0.9.3",
+                filename="uc_manager_cuda_cu130.whl",
+                url="https://github.com/example/ucm/releases/download/v0.9.3/cu130.whl",
+                sha256="a" * 64,
+            )
+        ]
+    )
+    _freeze(tmp_path, manifest)
+    legacy_index = tmp_path / "whl" / "cu130" / "index.html"
+    legacy_index.parent.mkdir(parents=True)
+    legacy_index.write_text("legacy", encoding="utf-8")
+
+    pages.build_simple_indexes(
+        tmp_path,
+        fetch_wrapt_files=lambda version: pytest.fail(
+            f"Schema 8 must not fetch wrapt=={version}"
+        ),
+    )
+
+    assert legacy_index.read_text(encoding="utf-8") == "legacy"
 
 
 def test_schema_7_publication_validation_distinguishes_index_and_member() -> None:
@@ -557,13 +701,15 @@ def test_first_and_repeated_stable_publish_mike_decision_and_one_push(
     (branch_tree / "latest" / "install-catalog.json").write_text(
         "legacy", encoding="utf-8"
     )
+    (branch_tree / "whl" / "cu130").mkdir(parents=True)
+    legacy_index = branch_tree / "whl" / "cu130" / "index.html"
+    legacy_index.write_text("legacy index", encoding="utf-8")
     (branch_tree / "versions.json").write_text(
         json.dumps([{"version": "0.9.0", "title": "0.9.0", "aliases": ["stable"]}]),
         encoding="utf-8",
     )
     mike_calls: list[list[str]] = []
     pushes: list[bool] = []
-    index_rebuilds: list[Path] = []
 
     @contextmanager
     def fake_worktree(message: str):
@@ -582,16 +728,13 @@ def test_first_and_repeated_stable_publish_mike_decision_and_one_push(
         pages, "_mike", lambda arguments, site_url: mike_calls.append(list(arguments))
     )
     monkeypatch.setattr(pages, "_pages_worktree", fake_worktree)
-    monkeypatch.setattr(
-        pages, "build_simple_indexes", lambda root: index_rebuilds.append(root)
-    )
     monkeypatch.setattr(pages, "_assert_cname_preserved", lambda original: None)
     monkeypatch.setattr(pages, "_push_pages_branch", lambda: pushes.append(True))
 
     pages.publish_stable("example/ucm", manifest_path)
 
     assert len(pushes) == 1
-    assert index_rebuilds == [branch_tree]
+    assert legacy_index.read_text(encoding="utf-8") == "legacy index"
     assert not (branch_tree / "catalogs").exists()
     assert not (branch_tree / "0.9.0" / "install-catalog.json").exists()
     assert not (branch_tree / "latest" / "install-catalog.json").exists()

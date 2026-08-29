@@ -3,8 +3,8 @@
 
 This module is the only supported writer for the Pages branch.  Mike creates
 the versioned documentation commits without pushing; this module then freezes
-the public release manifest, rebuilds the cross-version PEP 503 indexes,
-preserves the existing CNAME, and performs one ordinary push.
+the public release manifest, preserves historical PEP 503 indexes and the
+existing CNAME, and performs one ordinary push.
 """
 
 from __future__ import annotations
@@ -23,11 +23,11 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 from packaging.requirements import InvalidRequirement, Requirement
-from packaging.utils import canonicalize_name
+from packaging.utils import canonicalize_name, parse_wheel_filename
 from packaging.version import InvalidVersion, Version
 
 DOCS_ROOT = Path(__file__).resolve().parent.parent
@@ -35,7 +35,8 @@ REPOSITORY_ROOT = DOCS_ROOT.parent
 PAGES_BRANCH = "gh-pages"
 RELEASE_MANIFEST_FILENAME = "release-manifest.json"
 RELEASE_MANIFEST_KIND = "ucm-release-manifest"
-RELEASE_MANIFEST_SCHEMA_VERSION = 7
+RELEASE_MANIFEST_SCHEMA_VERSION = 8
+LEGACY_RELEASE_MANIFEST_SCHEMA_VERSION = 7
 BOT_NAME = "github-actions[bot]"
 BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
 _REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
@@ -264,6 +265,48 @@ def _string_array(value: object, context: str) -> list[str]:
     return value
 
 
+def _sorted_string_array(value: object, context: str) -> list[str]:
+    items = _string_array(value, context)
+    if items != sorted(set(items)):
+        raise PagesError(f"{context} must be sorted and unique")
+    return items
+
+
+def _https_url(value: object, context: str, *, host: str | None = None) -> str:
+    url = _nonempty_string(value, context)
+    parsed = urlparse(url)
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or (host and parsed.netloc != host)
+    ):
+        raise PagesError(f"{context} must be an HTTPS URL")
+    return url
+
+
+def _validate_wheel_filename(
+    wheel: Mapping[str, Any], platform_tags: Sequence[str], context: str
+) -> None:
+    try:
+        distribution, version, build, tags = parse_wheel_filename(wheel["filename"])
+    except ValueError as error:
+        raise PagesError(f"{context} filename is not a valid Wheel") from error
+    architecture = {"amd64": "x86_64", "arm64": "aarch64"}.get(
+        wheel["architecture"], wheel["architecture"]
+    )
+    if (
+        canonicalize_name(str(distribution)) != canonicalize_name(wheel["distribution"])
+        or str(version) != wheel["version"]
+        or build
+        or {tag.interpreter for tag in tags} != {wheel["python_abi"]}
+        or {tag.abi for tag in tags} != {wheel["python_abi"]}
+        or {tag.platform for tag in tags} != set(platform_tags)
+        or len(platform_tags) != 1
+        or not platform_tags[0].endswith(f"_{architecture}")
+    ):
+        raise PagesError(f"{context} filename and platform identity differ")
+
+
 def _accelerator(value: object, context: str) -> dict[str, Any]:
     accelerator = _mapping(value, context)
     _exact_keys(accelerator, {"runtime", "variant", "soc_version"}, context)
@@ -310,12 +353,14 @@ def _publication(value: object, context: str) -> dict[str, Any] | None:
 
 
 def validate_manifest(value: object) -> dict[str, Any]:
-    """Validate the exact public Schema 7 contract used by all Pages outputs."""
+    """Validate an exact public Schema 7 or Schema 8 Pages contract."""
 
     manifest = _mapping(value, "release manifest")
-    _exact_keys(
-        manifest,
-        {
+    if manifest.get("kind") != RELEASE_MANIFEST_KIND:
+        raise PagesError(f"release manifest kind must be {RELEASE_MANIFEST_KIND}")
+    schema_version = manifest.get("schema_version")
+    if schema_version == LEGACY_RELEASE_MANIFEST_SCHEMA_VERSION:
+        manifest_keys = {
             "kind",
             "schema_version",
             "release",
@@ -323,16 +368,29 @@ def validate_manifest(value: object) -> dict[str, Any]:
             "images",
             "chart",
             "github_release_assets",
-        },
-        "release manifest",
-    )
-    if manifest.get("kind") != RELEASE_MANIFEST_KIND:
-        raise PagesError(f"release manifest kind must be {RELEASE_MANIFEST_KIND}")
-    if manifest.get("schema_version") != RELEASE_MANIFEST_SCHEMA_VERSION:
+        }
+    elif schema_version == RELEASE_MANIFEST_SCHEMA_VERSION:
+        manifest_keys = {
+            "kind",
+            "schema_version",
+            "release",
+            "python",
+            "wheels",
+            "images",
+            "chart",
+            "github_release_assets",
+        }
+    else:
         raise PagesError(
             "release manifest schema_version must be "
+            f"{LEGACY_RELEASE_MANIFEST_SCHEMA_VERSION} or "
             f"{RELEASE_MANIFEST_SCHEMA_VERSION}"
         )
+    _exact_keys(
+        manifest,
+        manifest_keys,
+        "release manifest",
+    )
 
     release = _mapping(manifest.get("release"), "release manifest release")
     _exact_keys(
@@ -354,30 +412,127 @@ def validate_manifest(value: object) -> dict[str, Any]:
     ):
         raise PagesError("release manifest actions_run_id must be a positive integer")
 
+    python_extras: dict[str, str] | None = None
+    python_filename: str | None = None
+    if schema_version == RELEASE_MANIFEST_SCHEMA_VERSION:
+        python_package = _mapping(manifest.get("python"), "release manifest python")
+        _exact_keys(
+            python_package,
+            {
+                "distribution",
+                "version",
+                "filename",
+                "url",
+                "sha256",
+                "tags",
+                "extras",
+                "pypi",
+            },
+            "release manifest python",
+        )
+        for field in ("distribution", "version", "filename", "url", "sha256"):
+            _nonempty_string(
+                python_package.get(field), f"release manifest python {field}"
+            )
+        if (
+            python_package["distribution"] != "uc-manager"
+            or python_package["version"] != release["version"]
+        ):
+            raise PagesError("release manifest Python package must match the release")
+        python_filename = python_package["filename"]
+        if Path(python_filename).name != python_filename:
+            raise PagesError("release manifest Python filename must be a filename")
+        if _SHA256.fullmatch(python_package["sha256"]) is None:
+            raise PagesError("release manifest Python sha256 is invalid")
+        _sorted_string_array(python_package.get("tags"), "release manifest Python tags")
+        raw_extras = _mapping(
+            python_package.get("extras"), "release manifest Python extras"
+        )
+        if not raw_extras:
+            raise PagesError("release manifest Python extras must not be empty")
+        python_extras = {}
+        distributions: set[str] = set()
+        for extra in sorted(raw_extras):
+            distribution = _nonempty_string(
+                raw_extras[extra], f"release manifest Python extra {extra}"
+            )
+            if (
+                _PATH_COMPONENT.fullmatch(extra) is None
+                or not distribution.startswith("uc-manager-")
+                or distribution in distributions
+            ):
+                raise PagesError("release manifest Python extras are invalid")
+            distributions.add(distribution)
+            python_extras[extra] = distribution
+        pypi = python_package.get("pypi")
+        if pypi is not None:
+            pypi = _mapping(pypi, "release manifest Python PyPI")
+            _exact_keys(
+                pypi,
+                {"index_url", "project_url"},
+                "release manifest Python PyPI",
+            )
+            _https_url(
+                pypi.get("index_url"),
+                "release manifest Python PyPI index",
+                host="pypi.org",
+            )
+            _https_url(
+                pypi.get("project_url"),
+                "release manifest Python PyPI project",
+                host="pypi.org",
+            )
+            if (
+                pypi["index_url"] != "https://pypi.org/simple"
+                or pypi["project_url"] != "https://pypi.org/project/uc-manager/"
+                f"{quote(release['version'], safe='')}/"
+            ):
+                raise PagesError("release manifest PyPI URLs differ from the release")
+
     wheels = manifest.get("wheels")
     if not isinstance(wheels, list):
         raise PagesError("release manifest wheels must be an array")
-    wheel_keys = {
-        "id",
-        "product",
-        "channel",
-        "accelerator",
-        "distribution",
-        "version",
-        "python_abi",
-        "architecture",
-        "filename",
-        "url",
-        "sha256",
-        "dependencies",
-    }
+    if schema_version == LEGACY_RELEASE_MANIFEST_SCHEMA_VERSION:
+        wheel_keys = {
+            "id",
+            "product",
+            "channel",
+            "accelerator",
+            "distribution",
+            "version",
+            "python_abi",
+            "architecture",
+            "filename",
+            "url",
+            "sha256",
+            "dependencies",
+        }
+        selector_field = "channel"
+    else:
+        wheel_keys = {
+            "id",
+            "product",
+            "extra",
+            "accelerator",
+            "distribution",
+            "version",
+            "python_abi",
+            "architecture",
+            "platform_tags",
+            "filename",
+            "url",
+            "sha256",
+            "dependencies",
+        }
+        selector_field = "extra"
     wheel_ids: set[str] = set()
     wheel_filenames: set[str] = set()
+    wheel_extras: set[str] = set()
     for index, raw_wheel in enumerate(wheels):
         context = f"release manifest wheels[{index}]"
         wheel = _mapping(raw_wheel, context)
         _exact_keys(wheel, wheel_keys, context)
-        for field in wheel_keys - {"accelerator", "dependencies"}:
+        for field in wheel_keys - {"accelerator", "dependencies", "platform_tags"}:
             _nonempty_string(wheel.get(field), f"{context} {field}")
         wheel_id = wheel["id"]
         filename = wheel["filename"]
@@ -386,10 +541,25 @@ def validate_manifest(value: object) -> dict[str, Any]:
         wheel_ids.add(wheel_id)
         wheel_filenames.add(filename)
         _accelerator(wheel.get("accelerator"), f"{context} accelerator")
-        if wheel["distribution"] != "uc-manager":
-            raise PagesError("Simple Index requires the uc-manager distribution")
-        if _PATH_COMPONENT.fullmatch(wheel["channel"]) is None:
-            raise PagesError("Wheel channel is not path-safe")
+        if _PATH_COMPONENT.fullmatch(wheel[selector_field]) is None:
+            raise PagesError(f"Wheel {selector_field} is not path-safe")
+        if schema_version == LEGACY_RELEASE_MANIFEST_SCHEMA_VERSION:
+            if wheel["distribution"] != "uc-manager":
+                raise PagesError("Schema 7 requires the uc-manager distribution")
+        else:
+            assert python_extras is not None
+            if (
+                python_extras.get(wheel["extra"]) != wheel["distribution"]
+                or wheel["version"] != manifest["python"]["version"]
+            ):
+                raise PagesError("Wheel does not match its declared Python extra")
+            platform_tags = _sorted_string_array(
+                wheel.get("platform_tags"), f"{context} platform_tags"
+            )
+            if not platform_tags:
+                raise PagesError("Wheel platform tags must not be empty")
+            _validate_wheel_filename(wheel, platform_tags, context)
+            wheel_extras.add(wheel["extra"])
         if Path(filename).name != filename:
             raise PagesError("Wheel filename must not contain a path")
         if _SHA256.fullmatch(wheel["sha256"]) is None:
@@ -399,6 +569,12 @@ def validate_manifest(value: object) -> dict[str, Any]:
         )
         if dependencies != sorted(set(dependencies)):
             raise PagesError(f"{context} dependencies must be sorted and unique")
+    if (
+        schema_version == RELEASE_MANIFEST_SCHEMA_VERSION
+        and python_extras is not None
+        and wheel_extras != set(python_extras)
+    ):
+        raise PagesError("release manifest Wheels must publish every Python extra")
 
     images = manifest.get("images")
     if not isinstance(images, list):
@@ -446,6 +622,10 @@ def validate_manifest(value: object) -> dict[str, Any]:
         raise PagesError("release manifest Chart filename must not contain a path")
     if chart_filename in wheel_filenames:
         raise PagesError("release manifest Chart and Wheel files must be unique")
+    if python_filename is not None and python_filename in wheel_filenames:
+        raise PagesError("release manifest Python and Wheel files must be unique")
+    if python_filename is not None and chart_filename == python_filename:
+        raise PagesError("release manifest Python and Chart files must be unique")
     if chart.get("oci") is not None:
         _nonempty_string(chart.get("oci"), "release manifest chart oci")
 
@@ -458,8 +638,15 @@ def validate_manifest(value: object) -> dict[str, Any]:
     if RELEASE_MANIFEST_FILENAME not in assets:
         raise PagesError("release manifest must list itself as a GitHub Release asset")
     if "install-catalog.json" in assets:
-        raise PagesError("Schema 7 must not list install-catalog.json")
-    missing_assets = sorted(({chart_filename} | wheel_filenames) - set(assets))
+        raise PagesError("release manifest must not list install-catalog.json")
+    if schema_version == RELEASE_MANIFEST_SCHEMA_VERSION and (
+        (manifest["python"]["pypi"] is not None) != ("pypi-receipt.json" in assets)
+    ):
+        raise PagesError("release manifest PyPI receipt asset differs from publication")
+    required_assets = {chart_filename} | wheel_filenames
+    if python_filename is not None:
+        required_assets.add(python_filename)
+    missing_assets = sorted(required_assets - set(assets))
     if missing_assets:
         raise PagesError(f"release manifest assets are missing {missing_assets}")
     return manifest
@@ -617,16 +804,23 @@ def build_simple_indexes(
     *,
     fetch_wrapt_files: Callable[[str], Sequence[PyPIWheel]] = fetch_wrapt_wheels,
 ) -> None:
-    """Rebuild every channel index from all frozen Stable Manifests."""
+    """Legacy recovery helper for frozen Schema 7 channel indexes."""
 
-    index_root = pages_root / "whl"
-    if index_root.exists():
-        shutil.rmtree(index_root)
-    manifests = _frozen_manifests(pages_root)
+    manifests = [
+        manifest
+        for manifest in _frozen_manifests(pages_root)
+        if manifest["schema_version"] == LEGACY_RELEASE_MANIFEST_SCHEMA_VERSION
+    ]
     channels: dict[str, list[dict[str, Any]]] = {}
     for manifest in manifests:
         for wheel in manifest["wheels"]:
             channels.setdefault(wheel["channel"], []).append(wheel)
+    if not channels:
+        return
+
+    index_root = pages_root / "whl"
+    if index_root.exists():
+        shutil.rmtree(index_root)
 
     wrapt_cache: dict[str, Sequence[PyPIWheel]] = {}
     for channel in sorted(channels):
@@ -708,7 +902,7 @@ def _branch_stable_manifest() -> tuple[str, dict[str, Any]] | None:
     raw = _read_branch_file(path)
     if raw is None:
         print(
-            f"[pages] stable alias {current_stable} has no frozen Schema 7 "
+            f"[pages] stable alias {current_stable} has no frozen release "
             "Manifest; skipping latest publication"
         )
         return None
@@ -852,13 +1046,10 @@ def publish_stable(
         )
     else:
         print(f"[pages] Stable {version} already exists; skipping documentation body")
-    with _pages_worktree(
-        f"Freeze release Manifest and indexes for {version}"
-    ) as worktree:
+    with _pages_worktree(f"Freeze release Manifest for {version}") as worktree:
         _remove_legacy_catalogs(worktree)
         _freeze_stable_manifest(worktree, manifest)
         inject_latest_manifest(worktree)
-        build_simple_indexes(worktree)
     _assert_cname_preserved(cname)
     _push_pages_branch()
 

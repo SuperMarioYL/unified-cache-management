@@ -186,7 +186,22 @@
     return new URL("../whl/" + encodeURIComponent(channel) + "/", manifestUrl).href;
   }
 
-  function wheelCombination(wheel, manifestUrl) {
+  function wheelCombination(wheel, manifest, manifestUrl) {
+    var legacy = manifest.schema_version === Manifest.LEGACY_SCHEMA_VERSION;
+    var command = legacy
+      ? 'python -m pip install "' +
+        wheel.distribution +
+        "==" +
+        wheel.version +
+        '" --index-url ' +
+        wheelIndexUrl(manifestUrl, wheel.channel)
+      : 'python -m pip install "' +
+        manifest.python.distribution +
+        "[" +
+        wheel.extra +
+        "]==" +
+        manifest.python.version +
+        '"';
     return {
       method: "wheel",
       engine: wheel.product,
@@ -199,13 +214,7 @@
       architecture: wheel.architecture,
       architectureLabel: architectureLabel(wheel.architecture),
       artifact: wheel,
-      command:
-        'python -m pip install "' +
-        wheel.distribution +
-        "==" +
-        wheel.version +
-        '" --index-url ' +
-        wheelIndexUrl(manifestUrl, wheel.channel),
+      command: command,
     };
   }
 
@@ -270,9 +279,14 @@
     Manifest.validateManifest(manifest);
     var target = new URL(String(manifestUrl || Manifest.defaultManifestUrl()));
     var combinations = [];
-    manifest.wheels.filter(selectableProduct).forEach(function (wheel) {
-      combinations.push(wheelCombination(wheel, target));
-    });
+    var wheelInstallationAvailable =
+      manifest.schema_version === Manifest.LEGACY_SCHEMA_VERSION ||
+      manifest.python.pypi !== null;
+    if (wheelInstallationAvailable) {
+      manifest.wheels.filter(selectableProduct).forEach(function (wheel) {
+        combinations.push(wheelCombination(wheel, manifest, target));
+      });
+    }
     manifest.images.filter(selectableProduct).forEach(function (image) {
       combinations = combinations.concat(imageCombinations(image));
     });

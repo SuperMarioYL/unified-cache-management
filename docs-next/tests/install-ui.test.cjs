@@ -127,6 +127,68 @@ function fixture() {
   };
 }
 
+function schema8Fixture({ pypi = true } = {}) {
+  const manifest = fixture();
+  manifest.schema_version = 8;
+  manifest.release = {
+    ...manifest.release,
+    tag: "v0.9.3",
+    version: "0.9.3",
+    url: "https://github.com/example/ucm/releases/tag/v0.9.3",
+  };
+  const extras = {};
+  manifest.wheels = manifest.wheels.map((item) => {
+    const extra = item.channel;
+    const distribution =
+      item.product === "vllm"
+        ? "uc-manager-cuda-" + extra
+        : "uc-manager-" + extra;
+    extras[extra] = distribution;
+    const platformTag =
+      (item.product === "vllm" ? "manylinux_2_28_" : "manylinux_2_34_") +
+      (item.architecture === "amd64" ? "x86_64" : "aarch64");
+    const filename =
+      distribution.replaceAll("-", "_") +
+      "-0.9.3-cp312-cp312-" +
+      platformTag +
+      ".whl";
+    const wheel = {
+      ...item,
+      extra,
+      distribution,
+      version: "0.9.3",
+      filename,
+      url: "https://github.com/example/ucm/releases/download/v0.9.3/" + filename,
+      platform_tags: [platformTag],
+    };
+    delete wheel.channel;
+    return wheel;
+  });
+  manifest.python = {
+    distribution: "uc-manager",
+    version: "0.9.3",
+    filename: "uc_manager-0.9.3-py3-none-any.whl",
+    url: "https://github.com/example/ucm/releases/download/v0.9.3/uc_manager.whl",
+    sha256: "b".repeat(64),
+    tags: ["py3-none-any"],
+    extras,
+    pypi: pypi
+      ? {
+          index_url: "https://pypi.org/simple",
+          project_url: "https://pypi.org/project/uc-manager/0.9.3/",
+        }
+      : null,
+  };
+  manifest.github_release_assets = [
+    "release-manifest.json",
+    manifest.chart.filename,
+    ...manifest.wheels.map((item) => item.filename),
+    manifest.python.filename,
+    ...(pypi ? ["pypi-receipt.json"] : []),
+  ].sort();
+  return manifest;
+}
+
 function option(row, value) {
   return row.options.find((candidate) => candidate.value === value);
 }
@@ -146,6 +208,76 @@ test("Schema 7 loader enforces the exact public contract", () => {
     () => Manifest.validateManifest(invalidSingleArchitecture),
     /must equal the single member reference/
   );
+});
+
+test("Schema 8 loader validates the meta package and backend extras", () => {
+  const manifest = schema8Fixture();
+  assert.equal(Manifest.validateManifest(manifest).schema_version, 8);
+  assert.equal(Manifest.SCHEMA_VERSION, 8);
+  assert.equal(Manifest.LEGACY_SCHEMA_VERSION, 7);
+
+  const wrongBackend = structuredClone(manifest);
+  wrongBackend.wheels[0].distribution = "uc-manager-cuda-wrong";
+  assert.throws(() => Manifest.validateManifest(wrongBackend), /Python extra/);
+
+  const missingMeta = structuredClone(manifest);
+  missingMeta.github_release_assets = missingMeta.github_release_assets.filter(
+    (item) => item !== missingMeta.python.filename
+  );
+  assert.throws(() => Manifest.validateManifest(missingMeta), /is missing/);
+
+  const missingReceipt = structuredClone(manifest);
+  missingReceipt.github_release_assets = missingReceipt.github_release_assets.filter(
+    (item) => item !== "pypi-receipt.json"
+  );
+  assert.throws(() => Manifest.validateManifest(missingReceipt), /PyPI receipt/);
+
+  const wrongProject = structuredClone(manifest);
+  wrongProject.python.pypi.project_url =
+    "https://pypi.org/project/uc-manager/99.0/";
+  assert.throws(() => Manifest.validateManifest(wrongProject), /exact release PyPI/);
+
+  const emptyPlatform = structuredClone(manifest);
+  emptyPlatform.wheels[0].platform_tags = [];
+  assert.throws(() => Manifest.validateManifest(emptyPlatform), /must not be empty/);
+
+  const mismatchedPlatform = structuredClone(manifest);
+  mismatchedPlatform.wheels[0].platform_tags = ["manylinux_2_34_x86_64"];
+  assert.throws(() => Manifest.validateManifest(mismatchedPlatform), /filename/);
+});
+
+test("Schema 8 Wheel installs one PyPI extra and disables Wheel without receipt", () => {
+  const manifest = schema8Fixture();
+  const model = Selector.buildSelectorModel(
+    manifest,
+    "https://docs.example/latest/release-manifest.json"
+  );
+  const cuda = Selector.deriveSelection(model, {
+    method: "wheel",
+    engine: "vllm",
+  });
+  const ascend = Selector.deriveSelection(model, {
+    method: "wheel",
+    engine: "vllm-ascend",
+  });
+  assert.equal(
+    cuda.command,
+    'python -m pip install "uc-manager[cu130]==0.9.3"'
+  );
+  assert.equal(
+    ascend.command,
+    'python -m pip install "uc-manager[cann901-a2]==0.9.3"'
+  );
+  assert.equal(cuda.command.includes("/whl/"), false);
+  assert.equal(cuda.command.includes("--index-url"), false);
+
+  const unpublished = Selector.buildSelectorModel(
+    schema8Fixture({ pypi: false }),
+    "https://docs.example/latest/release-manifest.json"
+  );
+  const selected = Selector.deriveSelection(unpublished, { method: "wheel" });
+  assert.equal(option(selected.rows.method, "wheel").disabled, true);
+  assert.equal(selected.state.method, "image");
 });
 
 test("Compute platform labels hide internal SoC identifiers", () => {
@@ -478,4 +610,35 @@ test("Download inventory shares Schema 7 and exposes every artifact", () => {
     Download.overviewEntries(inventory, Download.TEXT.en).map((entry) => entry.title),
     ["Wheel", "Helm", "Image"]
   );
+});
+
+test("Download inventory exposes Schema 8 meta package and PyPI extras", () => {
+  const manifest = schema8Fixture();
+  const inventory = Download.buildInventory(
+    manifest,
+    "https://docs.example/latest/release-manifest.json"
+  );
+  assert.equal(inventory.legacy, false);
+  assert.equal(inventory.python.distribution, "uc-manager");
+  assert.deepEqual(
+    inventory.wheelGroups.map((group) => ({
+      extra: group.extra,
+      distribution: group.distribution,
+      indexUrl: group.indexUrl,
+    })),
+    [
+      {
+        extra: "cann901-a2",
+        distribution: "uc-manager-cann901-a2",
+        indexUrl: null,
+      },
+      {
+        extra: "cu130",
+        distribution: "uc-manager-cuda-cu130",
+        indexUrl: null,
+      },
+    ]
+  );
+  assert.equal(Download.TEXT.en.overviewWheel.includes("Simple Index"), false);
+  assert.equal(Download.TEXT.zh.overviewWheel.includes("Simple Index"), false);
 });
