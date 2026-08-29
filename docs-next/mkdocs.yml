@@ -12,12 +12,12 @@ docs_dir: docs
 
 extra_css:
   - assets/stylesheets/extra.css
-  - assets/install.css?v=20260829-schema8-2
+  - assets/install.css?v=20260829-schema8-3
 
 extra_javascript:
-  - assets/manifest.js?v=20260829-schema8-2
-  - assets/install.js?v=20260829-schema8-2
-  - assets/download.js?v=20260829-schema8-2
+  - assets/manifest.js?v=20260829-schema8-3
+  - assets/install.js?v=20260829-schema8-3
+  - assets/download.js?v=20260829-schema8-3
 
 theme:
   name: material

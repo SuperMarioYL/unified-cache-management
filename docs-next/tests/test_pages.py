@@ -1,16 +1,10 @@
 from __future__ import annotations
 
-import functools
-import hashlib
 import importlib.util
 import json
-import os
 import subprocess
 import sys
-import threading
-import zipfile
 from contextlib import contextmanager
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -22,34 +16,6 @@ assert SPEC is not None and SPEC.loader is not None
 pages = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = pages
 SPEC.loader.exec_module(pages)
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _write_wheel(
-    path: Path, distribution: str, version: str, dependencies: tuple[str, ...] = ()
-) -> None:
-    normalized = distribution.replace("-", "_")
-    dist_info = f"{normalized}-{version}.dist-info"
-    metadata = [
-        "Metadata-Version: 2.1",
-        f"Name: {distribution}",
-        f"Version: {version}",
-    ]
-    metadata.extend(f"Requires-Dist: {dependency}" for dependency in dependencies)
-    with zipfile.ZipFile(path, "w") as wheel:
-        wheel.writestr(f"{normalized}/__init__.py", "")
-        wheel.writestr(f"{dist_info}/METADATA", "\n".join(metadata) + "\n")
-        wheel.writestr(
-            f"{dist_info}/WHEEL",
-            "Wheel-Version: 1.0\n"
-            "Generator: ucm-pages-test\n"
-            "Root-Is-Purelib: true\n"
-            "Tag: py3-none-any\n",
-        )
-        wheel.writestr(f"{dist_info}/RECORD", "")
 
 
 def _wheel_record(
@@ -75,10 +41,10 @@ def _wheel_record(
     }
 
 
-def _manifest(wheels: list[dict[str, object]], version: str = "0.9.0") -> dict:
+def _manifest_structure(wheels: list[dict[str, object]], version: str) -> dict:
     manifest = {
         "kind": "ucm-release-manifest",
-        "schema_version": 7,
+        "schema_version": 8,
         "release": {
             "tag": f"v{version}",
             "type": "stable",
@@ -134,8 +100,17 @@ def _manifest(wheels: list[dict[str, object]], version: str = "0.9.0") -> dict:
 
 
 def _manifest_v8(wheels: list[dict[str, object]], version: str = "0.9.3") -> dict:
-    manifest = _manifest([], version)
-    manifest["schema_version"] = 8
+    manifest = _manifest_structure([], version)
+    if not wheels:
+        wheels = [
+            _wheel_record(
+                channel="cu130",
+                version=version,
+                filename="placeholder.whl",
+                url="https://example.invalid/placeholder.whl",
+                sha256="a" * 64,
+            )
+        ]
     extras: dict[str, str] = {}
     backend_wheels: list[dict[str, object]] = []
     for raw_wheel in wheels:
@@ -201,39 +176,25 @@ def _manifest_v8(wheels: list[dict[str, object]], version: str = "0.9.3") -> dic
     return manifest
 
 
+def _manifest(wheels: list[dict[str, object]], version: str = "0.9.0") -> dict:
+    return _manifest_v8(wheels, version)
+
+
 def _freeze(root: Path, manifest: dict) -> None:
     path = root / "manifests" / manifest["release"]["version"] / "release-manifest.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(manifest), encoding="utf-8")
 
 
-class _QuietHandler(SimpleHTTPRequestHandler):
-    def log_message(self, format: str, *args: object) -> None:
-        pass
-
-
-@contextmanager
-def _serve(directory: Path):
-    handler = functools.partial(_QuietHandler, directory=str(directory))
-    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield f"http://127.0.0.1:{server.server_port}"
-    finally:
-        server.shutdown()
-        thread.join(timeout=5)
-        server.server_close()
-
-
-def test_schema_7_manifest_validation_is_exact() -> None:
+def test_manifest_validation_accepts_only_schema_8() -> None:
     manifest = _manifest([])
     assert pages.validate_manifest(manifest) == manifest
 
-    schema_6 = json.loads(json.dumps(manifest))
-    schema_6["schema_version"] = 6
-    with pytest.raises(pages.PagesError, match="schema_version"):
-        pages.validate_manifest(schema_6)
+    for unsupported_schema in (6, 7):
+        unsupported = json.loads(json.dumps(manifest))
+        unsupported["schema_version"] = unsupported_schema
+        with pytest.raises(pages.PagesError, match="schema_version must be 8"):
+            pages.validate_manifest(unsupported)
 
     extra_field = json.loads(json.dumps(manifest))
     extra_field["release"]["commit"] = "a8c0d7ef"
@@ -270,6 +231,14 @@ def test_schema_8_manifest_validation_is_exact() -> None:
     manifest = _manifest_v8([wheel])
     assert pages.validate_manifest(manifest) == manifest
 
+    fork = json.loads(
+        json.dumps(manifest)
+        .replace("uc-manager", "supermarioyl-uc-manager")
+        .replace("uc_manager", "supermarioyl_uc_manager")
+        .replace("https://pypi.org/", "https://test.pypi.org/")
+    )
+    assert pages.validate_manifest(fork) == fork
+
     wrong_backend = json.loads(json.dumps(manifest))
     wrong_backend["wheels"][0]["distribution"] = "uc-manager-cuda-wrong"
     with pytest.raises(pages.PagesError, match="declared Python extra"):
@@ -303,36 +272,7 @@ def test_schema_8_manifest_validation_is_exact() -> None:
         pages.validate_manifest(mismatched_platform)
 
 
-def test_schema_8_does_not_rebuild_or_delete_legacy_simple_indexes(
-    tmp_path: Path,
-) -> None:
-    manifest = _manifest_v8(
-        [
-            _wheel_record(
-                channel="cu130",
-                version="0.9.3",
-                filename="uc_manager_cuda_cu130.whl",
-                url="https://github.com/example/ucm/releases/download/v0.9.3/cu130.whl",
-                sha256="a" * 64,
-            )
-        ]
-    )
-    _freeze(tmp_path, manifest)
-    legacy_index = tmp_path / "whl" / "cu130" / "index.html"
-    legacy_index.parent.mkdir(parents=True)
-    legacy_index.write_text("legacy", encoding="utf-8")
-
-    pages.build_simple_indexes(
-        tmp_path,
-        fetch_wrapt_files=lambda version: pytest.fail(
-            f"Schema 8 must not fetch wrapt=={version}"
-        ),
-    )
-
-    assert legacy_index.read_text(encoding="utf-8") == "legacy"
-
-
-def test_schema_7_publication_validation_distinguishes_index_and_member() -> None:
+def test_schema_8_publication_validation_distinguishes_index_and_member() -> None:
     manifest = _manifest([])
     publication = manifest["images"][0]["publications"]["ghcr"]
     assert publication is not None
@@ -343,152 +283,6 @@ def test_schema_7_publication_validation_distinguishes_index_and_member() -> Non
     publication["members"] = [publication["members"][0]]
     publication["pull"] = publication["members"][0]["reference"]
     assert pages.validate_manifest(manifest) == manifest
-
-
-def test_cuda_simple_index_performs_real_pip_dependency_resolution(
-    tmp_path: Path,
-) -> None:
-    files = tmp_path / "files"
-    files.mkdir()
-    ucm_name = "uc_manager-0.9.0+cu130-py3-none-any.whl"
-    wrapt_name = "wrapt-1.17.2-py3-none-any.whl"
-    ucm = files / ucm_name
-    wrapt = files / wrapt_name
-    _write_wheel(ucm, "uc-manager", "0.9.0+cu130", ("wrapt==1.17.2",))
-    _write_wheel(wrapt, "wrapt", "1.17.2")
-
-    with _serve(tmp_path) as base_url:
-        manifest = _manifest(
-            [
-                _wheel_record(
-                    channel="cu130",
-                    version="0.9.0+cu130",
-                    filename=ucm_name,
-                    url=f"{base_url}/files/{ucm_name}",
-                    sha256=_sha256(ucm),
-                )
-            ]
-        )
-        _freeze(tmp_path, manifest)
-        pages.build_simple_indexes(
-            tmp_path,
-            fetch_wrapt_files=lambda version: [
-                pages.PyPIWheel(
-                    filename=wrapt_name,
-                    url=f"{base_url}/files/{wrapt_name}",
-                    sha256=_sha256(wrapt),
-                )
-            ],
-        )
-        destination = tmp_path / "download"
-        environment = os.environ.copy()
-        environment.pop("PIP_EXTRA_INDEX_URL", None)
-        environment.pop("PIP_NO_INDEX", None)
-        environment["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pip",
-                "download",
-                "--no-cache-dir",
-                "--only-binary=:all:",
-                "--trusted-host",
-                "127.0.0.1",
-                "--index-url",
-                f"{base_url}/whl/cu130/",
-                "--dest",
-                str(destination),
-                "uc-manager==0.9.0",
-            ],
-            text=True,
-            capture_output=True,
-            env=environment,
-            timeout=60,
-        )
-        assert result.returncode == 0, result.stdout + result.stderr
-        assert {path.name for path in destination.glob("*.whl")} == {
-            ucm_name,
-            wrapt_name,
-        }
-
-
-def test_cann_channel_does_not_contain_cuda_wheels(tmp_path: Path) -> None:
-    cuda_name = "uc_manager-0.9.0+cu130-py3-none-any.whl"
-    cann_name = "uc_manager-0.9.0+cann901.a2-py3-none-any.whl"
-    manifest = _manifest(
-        [
-            _wheel_record(
-                channel="cu130",
-                version="0.9.0+cu130",
-                filename=cuda_name,
-                url=f"https://example.invalid/{cuda_name}",
-                sha256="a" * 64,
-            ),
-            _wheel_record(
-                channel="cann901-a2",
-                version="0.9.0+cann901.a2",
-                filename=cann_name,
-                url=f"https://example.invalid/{cann_name}",
-                sha256="b" * 64,
-            ),
-        ]
-    )
-    _freeze(tmp_path, manifest)
-    pages.build_simple_indexes(
-        tmp_path,
-        fetch_wrapt_files=lambda version: [
-            pages.PyPIWheel(
-                filename="wrapt-1.17.2-py3-none-any.whl",
-                url="https://example.invalid/wrapt.whl",
-                sha256="c" * 64,
-            )
-        ],
-    )
-    cann_index = (
-        tmp_path / "whl" / "cann901-a2" / "uc-manager" / "index.html"
-    ).read_text(encoding="utf-8")
-    assert cann_name in cann_index
-    assert cuda_name not in cann_index
-    assert "#sha256=" + "b" * 64 in cann_index
-
-
-def test_simple_indexes_cover_all_six_release_channels(tmp_path: Path) -> None:
-    channels = {
-        "cu129",
-        "cu130",
-        "cann901-a2",
-        "cann901-a3",
-        "cann910-a2",
-        "cann910-a3",
-    }
-    wheels = []
-    for index, channel in enumerate(sorted(channels)):
-        local_version = channel.replace("-", ".")
-        filename = f"uc_manager-0.9.0+{local_version}-py3-none-any.whl"
-        wheels.append(
-            _wheel_record(
-                channel=channel,
-                version=f"0.9.0+{local_version}",
-                filename=filename,
-                url=f"https://example.invalid/{filename}",
-                sha256=f"{index + 1:x}" * 64,
-            )
-        )
-    _freeze(tmp_path, _manifest(wheels))
-
-    pages.build_simple_indexes(
-        tmp_path,
-        fetch_wrapt_files=lambda version: [
-            pages.PyPIWheel(
-                filename="wrapt-1.17.2-py3-none-any.whl",
-                url="https://example.invalid/wrapt.whl",
-                sha256="f" * 64,
-            )
-        ],
-    )
-
-    assert {path.name for path in (tmp_path / "whl").iterdir()} == channels
 
 
 def test_latest_uses_current_stable_frozen_manifest(tmp_path: Path) -> None:
@@ -576,12 +370,6 @@ def test_latest_publish_preserves_indexes_and_pushes_once(
     monkeypatch.setattr(pages, "_pages_worktree", fake_worktree)
     monkeypatch.setattr(pages, "_assert_cname_preserved", lambda original: None)
     monkeypatch.setattr(pages, "_push_pages_branch", lambda: pushes.append(True))
-    monkeypatch.setattr(
-        pages,
-        "build_simple_indexes",
-        lambda root: pytest.fail("latest must not rebuild the Stable Simple Index"),
-    )
-
     pages.publish_latest("example/ucm")
 
     assert existing_index.read_text(encoding="utf-8") == "frozen"
@@ -591,7 +379,7 @@ def test_latest_publish_preserves_indexes_and_pushes_once(
     assert "--push" not in mike_calls[0]
 
 
-def test_latest_publish_is_noop_before_schema_7_stable_migration(
+def test_latest_publish_is_noop_without_a_frozen_stable_manifest(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     legacy = tmp_path / "latest" / "install-catalog.json"
@@ -802,7 +590,6 @@ def test_replace_existing_stable_redeploys_body_and_navigation(
         pages, "_mike", lambda arguments, site_url: mike_calls.append(list(arguments))
     )
     monkeypatch.setattr(pages, "_pages_worktree", fake_worktree)
-    monkeypatch.setattr(pages, "build_simple_indexes", lambda root: None)
     monkeypatch.setattr(pages, "_assert_cname_preserved", lambda original: None)
     monkeypatch.setattr(pages, "_push_pages_branch", lambda: None)
 
@@ -899,7 +686,9 @@ def test_bilingual_install_and_download_pages_use_one_manifest_contract() -> Non
     assert "schema_version" in loader
     assert "install-catalog.json" not in javascript + inventory
     assert 'assets.has("install-catalog.json")' in loader
-    assert "python -m pip install" in javascript
+    assert "pip install" in javascript
+    assert 'pip install "' in inventory
+    assert "python -m pip install" not in javascript + inventory
     assert "docker pull" in javascript
     assert "helm install ucm" in javascript
     assert 'method !== "helm"' in javascript
@@ -927,4 +716,4 @@ def test_bilingual_install_and_download_pages_use_one_manifest_contract() -> Non
     assert "assets/download.js" in mkdocs
     assert "assets/install.css" in mkdocs
     for asset in ("manifest.js", "install.js", "download.js", "install.css"):
-        assert f"assets/{asset}?v=20260829-schema8-2" in mkdocs
+        assert f"assets/{asset}?v=20260829-schema8-3" in mkdocs
