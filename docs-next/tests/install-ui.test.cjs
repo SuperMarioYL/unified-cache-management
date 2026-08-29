@@ -5,7 +5,7 @@ const Manifest = require("../docs/assets/manifest.js");
 const Selector = require("../docs/assets/install.js");
 const Download = require("../docs/assets/download.js");
 
-assert.deepEqual(Selector.ROW_ORDER.slice(0, 2), ["engine", "method"]);
+assert.deepEqual(Selector.ROW_ORDER.slice(0, 2), ["method", "engine"]);
 
 function publication(reference, architectures) {
   return {
@@ -246,7 +246,7 @@ test("Schema 8 loader validates the meta package and backend extras", () => {
   assert.throws(() => Manifest.validateManifest(mismatchedPlatform), /filename/);
 });
 
-test("Schema 8 Wheel installs one PyPI extra and disables Wheel without receipt", () => {
+test("Schema 8 Wheel shows the PyPI extra contract in official and fork docs", () => {
   const manifest = schema8Fixture();
   const model = Selector.buildSelectorModel(
     manifest,
@@ -275,9 +275,26 @@ test("Schema 8 Wheel installs one PyPI extra and disables Wheel without receipt"
     schema8Fixture({ pypi: false }),
     "https://docs.example/latest/release-manifest.json"
   );
-  const selected = Selector.deriveSelection(unpublished, { method: "wheel" });
-  assert.equal(option(selected.rows.method, "wheel").disabled, true);
-  assert.equal(selected.state.method, "image");
+  const unpublishedCuda = Selector.deriveSelection(unpublished, {
+    method: "wheel",
+    engine: "vllm",
+  });
+  const unpublishedAscend = Selector.deriveSelection(unpublished, {
+    method: "wheel",
+    engine: "vllm-ascend",
+  });
+  assert.equal(option(unpublishedCuda.rows.method, "wheel").disabled, false);
+  assert.equal(unpublishedCuda.state.method, "wheel");
+  assert.equal(
+    unpublishedCuda.command,
+    'python -m pip install "uc-manager[cu130]==0.9.3"'
+  );
+  assert.equal(
+    unpublishedAscend.command,
+    'python -m pip install "uc-manager[cann901-a2]==0.9.3"'
+  );
+  assert.equal(unpublishedCuda.command.includes("github.com"), false);
+  assert.equal(unpublishedCuda.command.includes("/whl/"), false);
 });
 
 test("Compute platform labels hide internal SoC identifiers", () => {
