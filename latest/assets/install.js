@@ -26,8 +26,8 @@
   var METHOD_ORDER = ["wheel", "image", "helm"];
   var ENGINE_ORDER = ["vllm", "vllm-ascend"];
   var ROW_ORDER = [
-    "engine",
     "method",
+    "engine",
     "engineVersion",
     "compute",
     "os",
@@ -188,20 +188,25 @@
 
   function wheelCombination(wheel, manifest, manifestUrl) {
     var legacy = manifest.schema_version === Manifest.LEGACY_SCHEMA_VERSION;
-    var command = legacy
-      ? 'python -m pip install "' +
+    var command;
+    if (legacy) {
+      command =
+        'python -m pip install "' +
         wheel.distribution +
         "==" +
         wheel.version +
         '" --index-url ' +
-        wheelIndexUrl(manifestUrl, wheel.channel)
-      : 'python -m pip install "' +
+        wheelIndexUrl(manifestUrl, wheel.channel);
+    } else {
+      command =
+        'python -m pip install "' +
         manifest.python.distribution +
         "[" +
         wheel.extra +
         "]==" +
         manifest.python.version +
         '"';
+    }
     return {
       method: "wheel",
       engine: wheel.product,
@@ -279,14 +284,9 @@
     Manifest.validateManifest(manifest);
     var target = new URL(String(manifestUrl || Manifest.defaultManifestUrl()));
     var combinations = [];
-    var wheelInstallationAvailable =
-      manifest.schema_version === Manifest.LEGACY_SCHEMA_VERSION ||
-      manifest.python.pypi !== null;
-    if (wheelInstallationAvailable) {
-      manifest.wheels.filter(selectableProduct).forEach(function (wheel) {
-        combinations.push(wheelCombination(wheel, manifest, target));
-      });
-    }
+    manifest.wheels.filter(selectableProduct).forEach(function (wheel) {
+      combinations.push(wheelCombination(wheel, manifest, target));
+    });
     manifest.images.filter(selectableProduct).forEach(function (image) {
       combinations = combinations.concat(imageCombinations(image));
     });
