@@ -1194,26 +1194,20 @@ def render_notes(
         ):
             raise ValueError("Release notes require complete PyPI coordinates")
         meta_project = str(meta_projects[0]["project"])
-        heading = "PyPI" if target == "pypi" else "TestPyPI"
-        lines.extend(
-            [
-                f"## {heading}",
-                "",
-                "> Install one backend extra in a new virtual environment; do not upgrade "
-                "an older monolithic uc-manager environment or switch backends in place.",
-                "",
-            ]
-        )
-        for extra in sorted(extras):
-            command = f"pip install '{meta_project}[{extra}]=={version}'"
-            if target == "testpypi":
-                command = (
-                    "pip install --index-url https://test.pypi.org/simple/ "
-                    "--extra-index-url https://pypi.org/simple/ "
-                    f"'{meta_project}[{extra}]=={version}'"
-                )
-            lines.append(f"- `{command}`")
-        lines.append("")
+        if target == "pypi":
+            lines.extend(
+                [
+                    "## PyPI",
+                    "",
+                    "> Install one backend extra in a new virtual environment; do not upgrade "
+                    "an older monolithic uc-manager environment or switch backends in place.",
+                    "",
+                ]
+            )
+            for extra in sorted(extras):
+                command = f"pip install '{meta_project}[{extra}]=={version}'"
+                lines.append(f"- `{command}`")
+            lines.append("")
     lines.extend(
         _render_product_tables(
             manifest,

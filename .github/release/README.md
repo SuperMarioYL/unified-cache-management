@@ -147,10 +147,13 @@ when both Docker Hub credentials exist; absent Fork credentials remain
 `scope-skipped`, while a Profile-disabled channel stays disabled.
 Missing backend Wheels are uploaded and read back first, the meta Wheel is
 uploaded last, and exact extras metadata plus all filenames, versions, and
-SHA256 digests are persisted in `pypi-receipt.json`. Fresh-environment install
-validation downloads the exact receipt-bound meta/backend URLs, verifies their
-SHA256 digests, and uses production PyPI only for ordinary dependencies; index
-ordering never chooses the UCM distributions.
+SHA256 digests are persisted in the internal `pypi-receipt.json` Actions
+artifact. It is not attached to the public GitHub Release. Fresh-environment
+install validation downloads the exact receipt-bound meta/backend URLs,
+verifies their SHA256 digests, and uses production PyPI only for ordinary
+dependencies; index ordering never chooses the UCM distributions. Fork Release
+notes omit TestPyPI installation commands; production PyPI commands remain
+visible for official releases.
 
 Python distribution names are repository-owned and deterministic. The official
 repository publishes canonical `uc-manager*` names. A Fork always prefixes the
@@ -267,7 +270,7 @@ After completion, verify all of the following:
 - Docker Hub member tags and multi-architecture indexes exist under the planned
   namespace and match the digests recorded in `release-manifest.json`;
 - the Fork GitHub Release still contains backend Wheels, the Chart, config,
-  receipts, and manifest, but not the empty meta Wheel;
+  and manifest, but not the empty meta Wheel or internal receipt;
 - no project or image was written to production PyPI or the official Docker Hub
   namespace.
 
