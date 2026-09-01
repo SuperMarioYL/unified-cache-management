@@ -31,7 +31,7 @@ consume the same selectors; Profiles no longer trim the Runtime matrix. 310P is
 filtered and A5 is reported as blocked.
 
 This keyword rule applies only to `UCM_SUPPORTED_VLLM_VERSIONS` and
-`UCM_SUPPORTED_VLLM_ASCEND_VERSIONS`. `VLLM_UC_VERSION` remains a canonical PEP
+`UCM_SUPPORTED_VLLM_ASCEND_VERSIONS`. `UCM_VERSION` remains a canonical PEP
 440 package version because it drives Wheel, Chart, and Release coordinates.
 
 For example:
@@ -97,7 +97,7 @@ The workflow accepts:
 
 The tagged source owns the package model, and public versions must be canonical
 and non-local. Before opening or reusing a Release, the reusable core requires
-the Tag's complete `X.Y.Z` base to match `VLLM_UC_VERSION`, then reclassifies the
+the Tag's complete `X.Y.Z` base to match `UCM_VERSION`, then reclassifies the
 Tag and checks its release type, visibility, prerelease flag, Chart/image
 versions, target commit, requested source SHA, and checked-out commit. A Draft
 Tag always remains Draft. Exact Releases API lookup requires one Release for the
@@ -238,7 +238,7 @@ the frozen Release Plan.
 
 ### 3. Run one Fork Draft validation
 
-First update and commit `version.ini`, including `VLLM_UC_VERSION` and both
+First update and commit `version.ini`, including `UCM_VERSION` and both
 supported Runtime selector lists. Use a fresh Draft sequence because Python
 index filenames are immutable and the cleanup workflow does not delete
 TestPyPI releases:

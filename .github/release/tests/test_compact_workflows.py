@@ -1198,7 +1198,7 @@ def test_compact_wheel_uses_source_metadata_and_active_ascend_arch_handoff() -> 
     assert "compact prepare-wheel-source" in workflow
     assert "--distribution \"$(jq -r '.dist_name'" in workflow
     assert 'version_path = os.path.join(ROOT_DIR, "version.ini")' in setup_py
-    assert 'key == "VLLM_UC_VERSION"' in setup_py
+    assert 'key == "UCM_VERSION"' in setup_py
     assert "version=get_package_version()" in setup_py
 
     combined = workflow + dockerfile + setup_py
