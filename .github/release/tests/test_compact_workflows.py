@@ -430,14 +430,7 @@ def test_schema_v6_manifest_is_uploaded_only_after_complete_and_read_back() -> N
     assert "release-state.json" in update["run"]
     assert "release-manifest.json" not in update["run"]
     assert "gh release upload" not in update["run"]
-    receipt_index, receipt = next(
-        (index, step)
-        for index, step in enumerate(steps)
-        if step.get("id") == "publish-pypi-receipt"
-    )
-    assert receipt_index < update_index < complete_index
-    assert "pypi-receipt.json" in receipt["run"]
-    assert "cmp input/receipts/pypi-receipt.json" in receipt["run"]
+    assert not any(step.get("id") == "publish-pypi-receipt" for step in steps)
     assert "release.status" in complete["run"]
     assert "release.py manifest" in manifest["run"]
     assert 'gh release upload "${tag}" --clobber out/release/release-manifest.json' in (
