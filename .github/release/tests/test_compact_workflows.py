@@ -1231,6 +1231,19 @@ def test_ucm_build_does_not_enable_strict_compilation() -> None:
     assert "add_subdirectory(vendor)" not in shared_cmake
 
 
+def test_ascend_drampool_defers_only_shared_library_driver_symbols() -> None:
+    cmake = (ROOT / "ucm" / "store" / "dram" / "CMakeLists.txt").read_text(
+        encoding="utf-8"
+    )
+
+    option = 'target_link_options(drampool PRIVATE "LINKER:--allow-shlib-undefined")'
+    assert cmake.count(option) == 1
+    option_index = cmake.index(option)
+    guard_index = cmake.rfind("if(UCM_RUNTIME_ASCEND_FAMILY)", 0, option_index)
+    endif_index = cmake.index("endif()", option_index)
+    assert guard_index < option_index < endif_index
+
+
 def test_chart_consumes_product_smoke_values_from_v4_policy() -> None:
     text = (WORKFLOWS / "_build-chart.yml").read_text(encoding="utf-8")
     assert ".chart.smoke_values[$product]" in text
