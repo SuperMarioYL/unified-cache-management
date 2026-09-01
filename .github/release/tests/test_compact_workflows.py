@@ -1215,11 +1215,20 @@ def test_compact_wheel_uses_source_metadata_and_active_ascend_arch_handoff() -> 
     assert "-DASCEND_ARCH_DIR=" in setup_py
 
 
-def test_release_build_keeps_gcc_fmt_false_positive_non_fatal() -> None:
+def test_ucm_build_does_not_enable_strict_compilation() -> None:
     cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
-    assert 'CMAKE_BUILD_TYPE_LOWER STREQUAL "release"' in cmake
-    assert 'CMAKE_CXX_COMPILER_ID STREQUAL "GNU"' in cmake
-    assert "-Wno-error=stringop-overflow" in cmake
+    shared_cmake = (ROOT / "ucm" / "shared" / "CMakeLists.txt").read_text(
+        encoding="utf-8"
+    )
+
+    vendor_index = cmake.index("add_subdirectory(ucm/shared/vendor)")
+    ucm_index = cmake.index("add_subdirectory(ucm)")
+
+    assert vendor_index < ucm_index
+    assert "-Wall" not in cmake
+    assert "-Werror" not in cmake
+    assert "-Wno-error=stringop-overflow" not in cmake
+    assert "add_subdirectory(vendor)" not in shared_cmake
 
 
 def test_chart_consumes_product_smoke_values_from_v4_policy() -> None:
