@@ -109,9 +109,8 @@ def test_pr_plan_can_build_directly_from_pinned_upstream_builders() -> None:
     assert len(plan["wheels"]) == len(builds)
     for wheel in plan["wheels"]:
         build = builds[wheel["id"]]
-        source_repository, source_tag = build["source_image"].rsplit(":", 1)
+        source_repository, _source_tag = build["source_image"].rsplit(":", 1)
         assert wheel["builder"]["repository"] == source_repository
-        assert wheel["builder"]["tag"] == source_tag
         assert wheel["builder"]["digest"] == build["source_image_digest"]
 
 

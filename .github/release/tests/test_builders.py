@@ -85,9 +85,9 @@ def test_source_binding_pins_upstream_builders_without_mutating_desired_catalog(
     assert bound["schema_version"] == 4
     assert len(bound["builders"]) == len(desired["builders"])
     for original, selected in zip(desired["builders"], bound["builders"], strict=True):
-        source_repository, source_tag = original["source_image"].rsplit(":", 1)
+        source_repository, _source_tag = original["source_image"].rsplit(":", 1)
         assert selected["target_repository"] == source_repository
-        assert selected["target_tag"] == source_tag
+        assert selected["target_tag"] == original["target_tag"]
         assert selected["target_digest"] == original["source_image_digest"]
         assert original["target_repository"] == "ghcr.io/release-org/" + (
             "ucm-builder-vllm"

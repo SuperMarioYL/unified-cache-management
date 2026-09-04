@@ -398,7 +398,6 @@ def bind_source_catalog(catalog: object) -> dict[str, object]:
             {
                 **copy.deepcopy(item),
                 "target_repository": source_image[:separator],
-                "target_tag": source_image[separator + 1 :],
                 "target_digest": item["source_image_digest"],
             }
         )
