@@ -205,6 +205,9 @@ def test_pr_gate_runs_the_native_wheel_matrix_behind_one_stable_check() -> None:
     assert "PRE_CHECK_RESULT" in gate_text
     assert "BUILD_REQUIRED" in gate_text
     assert "BUILD_RESULT" in gate_text
+    assert jobs["test-e2e-pc-a2"]["if"] == (
+        "github.repository == 'ModelEngine-Group/unified-cache-management'"
+    )
 
     text = (WORKFLOWS / "pull-request.yml").read_text(encoding="utf-8")
     assert "./.github/workflows/release-ucm.yml" not in text

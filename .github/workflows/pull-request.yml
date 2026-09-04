@@ -241,6 +241,7 @@ jobs:
     timeout-minutes: 20
     runs-on: [self-hosted, npu, a2]
     needs: lint-and-unit-tests
+    if: github.repository == 'ModelEngine-Group/unified-cache-management'
     permissions:
       checks: write
       pull-requests: write
