@@ -168,6 +168,7 @@ def test_release_core_is_input_driven_and_uses_crane_before_plan() -> None:
 
 def test_pr_gate_runs_the_native_wheel_matrix_behind_one_stable_check() -> None:
     workflow = _load("pull-request.yml")
+    assert "feature/**" in workflow["on"]["pull_request"]["branches"]
     jobs = workflow["jobs"]
     pre_check = jobs["pre-check"]
     build = jobs["native-wheel-build"]
