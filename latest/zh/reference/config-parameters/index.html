@@ -10,35 +10,35 @@
       
       
       
-        <link rel="canonical" href="https://unified-cache-management.lei6393.com/latest/zh/toolkit/user/metrics-view/">
+        <link rel="canonical" href="https://unified-cache-management.lei6393.com/latest/zh/reference/config-parameters/">
       
       
-        <link rel="prev" href="../posix-aio/">
+        <link rel="prev" href="../api-parameters/">
       
       
-        <link rel="next" href="../nic-monitor/">
+        <link rel="next" href="../troubleshooting/">
       
       
         
-          <link rel="alternate" href="../../../../toolkit/user/metrics-view/" hreflang="en">
+          <link rel="alternate" href="../../../reference/config-parameters/" hreflang="en">
         
           <link rel="alternate" href="./" hreflang="zh">
         
       
       
-      <link rel="icon" href="../../../../assets/images/UCM.png">
+      <link rel="icon" href="../../../assets/images/UCM.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>指标监控 - Unified Cache Manager 中文站点</title>
+        <title>Configuration Parameters - Unified Cache Manager 中文站点</title>
       
     
     
-      <link rel="stylesheet" href="../../../../assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="../../../../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -57,11 +57,11 @@
       
     
     
-      <link rel="stylesheet" href="../../../../assets/stylesheets/extra.css">
+      <link rel="stylesheet" href="../../../assets/stylesheets/extra.css">
     
-      <link rel="stylesheet" href="../../../../assets/install.css?v=20260829-schema8-4">
+      <link rel="stylesheet" href="../../../assets/install.css?v=20260829-schema8-4">
     
-    <script>__md_scope=new URL("../../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -138,7 +138,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#metrics-view" class="md-skip">
+        <a href="#ucm" class="md-skip">
           跳转至
         </a>
       
@@ -158,9 +158,9 @@
 
 <header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="页眉">
-    <a href="../../../" title="Unified Cache Manager 中文站点" class="md-header__button md-logo" aria-label="Unified Cache Manager 中文站点" data-md-component="logo">
+    <a href="../../" title="Unified Cache Manager 中文站点" class="md-header__button md-logo" aria-label="Unified Cache Manager 中文站点" data-md-component="logo">
       
-  <img src="../../../../assets/images/UCM-light.png" alt="logo">
+  <img src="../../../assets/images/UCM-light.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -177,7 +177,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              指标监控
+              Configuration Parameters
             
           </span>
         </div>
@@ -224,7 +224,7 @@
       <ul class="md-select__list">
         
           <li class="md-select__item">
-            <a href="../../../../toolkit/user/metrics-view/" hreflang="en" class="md-select__link">
+            <a href="../../../reference/config-parameters/" hreflang="en" class="md-select__link">
               English
             </a>
           </li>
@@ -310,7 +310,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../../../" class="md-tabs__link">
+      <a href="../../" class="md-tabs__link">
         
   
   
@@ -331,7 +331,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../../user-guide/" class="md-tabs__link">
+        <a href="../../user-guide/" class="md-tabs__link">
           
   
   
@@ -353,7 +353,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../../developer-guide/architecture/" class="md-tabs__link">
+        <a href="../../developer-guide/architecture/" class="md-tabs__link">
           
   
   
@@ -371,11 +371,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../../reference/api-parameters/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../api-parameters/" class="md-tabs__link">
           
   
   
@@ -395,7 +397,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../../../benchmark/" class="md-tabs__link">
+      <a href="../../benchmark/" class="md-tabs__link">
         
   
   
@@ -412,13 +414,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../../" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../toolkit/" class="md-tabs__link">
           
   
   
@@ -460,9 +460,9 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="导航栏" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../../../" title="Unified Cache Manager 中文站点" class="md-nav__button md-logo" aria-label="Unified Cache Manager 中文站点" data-md-component="logo">
+    <a href="../../" title="Unified Cache Manager 中文站点" class="md-nav__button md-logo" aria-label="Unified Cache Manager 中文站点" data-md-component="logo">
       
-  <img src="../../../../assets/images/UCM-light.png" alt="logo">
+  <img src="../../../assets/images/UCM-light.png" alt="logo">
 
     </a>
     Unified Cache Manager 中文站点
@@ -489,7 +489,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../" class="md-nav__link">
+      <a href="../../" class="md-nav__link">
         
   
   
@@ -557,7 +557,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../user-guide/" class="md-nav__link ">
+            <a href="../../user-guide/" class="md-nav__link ">
               
   
   
@@ -601,7 +601,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user-guide/installation/" class="md-nav__link">
+      <a href="../../user-guide/installation/" class="md-nav__link">
         
   
   
@@ -662,7 +662,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../user-guide/quick_start/" class="md-nav__link ">
+            <a href="../../user-guide/quick_start/" class="md-nav__link ">
               
   
   
@@ -706,7 +706,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user-guide/quick_start/quickstart_vllm/" class="md-nav__link">
+      <a href="../../user-guide/quick_start/quickstart_vllm/" class="md-nav__link">
         
   
   
@@ -734,7 +734,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user-guide/quick_start/quickstart_vllm_ascend/" class="md-nav__link">
+      <a href="../../user-guide/quick_start/quickstart_vllm_ascend/" class="md-nav__link">
         
   
   
@@ -762,7 +762,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user-guide/quick_start/quickstart_sglang/" class="md-nav__link">
+      <a href="../../user-guide/quick_start/quickstart_sglang/" class="md-nav__link">
         
   
   
@@ -790,7 +790,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user-guide/quick_start/quickstart_mindie_llm/" class="md-nav__link">
+      <a href="../../user-guide/quick_start/quickstart_mindie_llm/" class="md-nav__link">
         
   
   
@@ -826,7 +826,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user-guide/support-matrix/" class="md-nav__link">
+      <a href="../../user-guide/support-matrix/" class="md-nav__link">
         
   
   
@@ -883,7 +883,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../user-guide/frameworks/" class="md-nav__link ">
+            <a href="../../user-guide/frameworks/" class="md-nav__link ">
               
   
   
@@ -989,7 +989,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user-guide/frameworks/kubernetes/" class="md-nav__link">
+      <a href="../../user-guide/frameworks/kubernetes/" class="md-nav__link">
         
   
   
@@ -1017,7 +1017,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user-guide/frameworks/kubernetes/prerequisites/" class="md-nav__link">
+      <a href="../../user-guide/frameworks/kubernetes/prerequisites/" class="md-nav__link">
         
   
   
@@ -1045,7 +1045,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user-guide/frameworks/kubernetes/deploy/" class="md-nav__link">
+      <a href="../../user-guide/frameworks/kubernetes/deploy/" class="md-nav__link">
         
   
   
@@ -1081,7 +1081,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user-guide/frameworks/pyMotor/" class="md-nav__link">
+      <a href="../../user-guide/frameworks/pyMotor/" class="md-nav__link">
         
   
   
@@ -1152,7 +1152,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../user-guide/model-tour/" class="md-nav__link ">
+            <a href="../../user-guide/model-tour/" class="md-nav__link ">
               
   
   
@@ -1221,7 +1221,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../user-guide/model-tour/glm/" class="md-nav__link ">
+            <a href="../../user-guide/model-tour/glm/" class="md-nav__link ">
               
   
   
@@ -1293,7 +1293,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../user-guide/model-tour/qwen3/" class="md-nav__link ">
+            <a href="../../user-guide/model-tour/qwen3/" class="md-nav__link ">
               
   
   
@@ -1365,7 +1365,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../user-guide/model-tour/deepseek/" class="md-nav__link ">
+            <a href="../../user-guide/model-tour/deepseek/" class="md-nav__link ">
               
   
   
@@ -1437,7 +1437,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../user-guide/model-tour/minimax/" class="md-nav__link ">
+            <a href="../../user-guide/model-tour/minimax/" class="md-nav__link ">
               
   
   
@@ -1509,7 +1509,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../user-guide/model-tour/kimi/" class="md-nav__link ">
+            <a href="../../user-guide/model-tour/kimi/" class="md-nav__link ">
               
   
   
@@ -1591,7 +1591,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../user-guide/capabilities/" class="md-nav__link ">
+            <a href="../../user-guide/capabilities/" class="md-nav__link ">
               
   
   
@@ -1635,7 +1635,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user-guide/capabilities/prefix-cache/" class="md-nav__link">
+      <a href="../../user-guide/capabilities/prefix-cache/" class="md-nav__link">
         
   
   
@@ -1698,7 +1698,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../user-guide/observability/" class="md-nav__link ">
+            <a href="../../user-guide/observability/" class="md-nav__link ">
               
   
   
@@ -1742,7 +1742,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user-guide/observability/metrics/" class="md-nav__link">
+      <a href="../../user-guide/observability/metrics/" class="md-nav__link">
         
   
   
@@ -1805,7 +1805,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../user-guide/diagnostics/" class="md-nav__link ">
+            <a href="../../user-guide/diagnostics/" class="md-nav__link ">
               
   
   
@@ -1849,7 +1849,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user-guide/diagnostics/trace-mode/" class="md-nav__link">
+      <a href="../../user-guide/diagnostics/trace-mode/" class="md-nav__link">
         
   
   
@@ -1960,7 +1960,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../developer-guide/architecture/" class="md-nav__link">
+      <a href="../../developer-guide/architecture/" class="md-nav__link">
         
   
   
@@ -1988,7 +1988,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../developer-guide/build_from_source/" class="md-nav__link">
+      <a href="../../developer-guide/build_from_source/" class="md-nav__link">
         
   
   
@@ -2016,7 +2016,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../developer-guide/capability-principles/" class="md-nav__link">
+      <a href="../../developer-guide/capability-principles/" class="md-nav__link">
         
   
   
@@ -2044,7 +2044,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../developer-guide/add-metrics/" class="md-nav__link">
+      <a href="../../developer-guide/add-metrics/" class="md-nav__link">
         
   
   
@@ -2072,7 +2072,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../developer-guide/extending-store/" class="md-nav__link">
+      <a href="../../developer-guide/extending-store/" class="md-nav__link">
         
   
   
@@ -2100,7 +2100,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../developer-guide/contribute/" class="md-nav__link">
+      <a href="../../developer-guide/contribute/" class="md-nav__link">
         
   
   
@@ -2132,8 +2132,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -2147,21 +2149,22 @@
     
     
       
+        
+        
+      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
-        
-          
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
             
   
   
@@ -2179,7 +2182,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -2197,7 +2200,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../reference/api-parameters/" class="md-nav__link">
+      <a href="../api-parameters/" class="md-nav__link">
         
   
   
@@ -2205,327 +2208,6 @@
     
   
     API 与参数
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../reference/config-parameters/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Configuration Parameters
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../reference/troubleshooting/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Troubleshooting
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../benchmark/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    性能测试
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-    
-  
-  
-  
-    
-    
-      
-        
-          
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-    
-      
-        
-        
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
-        
-          
-          <div class="md-nav__link md-nav__container">
-            <a href="../../" class="md-nav__link ">
-              
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    工具集
-  
-
-    
-  </span>
-  
-  
-
-            </a>
-            
-              
-              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="">
-                <span class="md-nav__icon md-icon"></span>
-              </label>
-            
-          </div>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_6">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    工具集
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../kv-cache-calculator/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    KV Cache 计算器
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-    
-  
-  
-  
-    
-    
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-    
-      
-      
-        
-          
-          
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_3" checked>
-        
-          
-          <label class="md-nav__link" for="__nav_6_3" id="__nav_6_3_label" tabindex="">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    用户指南
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_3_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_6_3">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    用户指南
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../precheck/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    环境预检
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../posix-aio/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    带宽模拟
   
 
     
@@ -2562,7 +2244,7 @@
   <span class="md-ellipsis">
     
   
-    指标监控
+    Configuration Parameters
   
 
     
@@ -2580,7 +2262,7 @@
   <span class="md-ellipsis">
     
   
-    指标监控
+    Configuration Parameters
   
 
     
@@ -2609,7 +2291,7 @@
   <a href="#_1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        依赖
+        顶层参数
       
     </span>
   </a>
@@ -2617,32 +2299,38 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#kv-cache" class="md-nav__link">
+  <a href="#ucm_connector_config" class="md-nav__link">
     <span class="md-ellipsis">
       
-        模型与分层 KV cache 命中率
+        ucm_connector_config（存储后端配置）
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ucm_connector_config（存储后端配置）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#store_pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        store_pipeline 可选值
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#check" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        方式一：check —— 查看启动以来的统计
-      
-    </span>
-  </a>
+        
+      </ul>
+    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#_2" class="md-nav__link">
+  <a href="#store_healthucm_connector_configstore_health" class="md-nav__link">
     <span class="md-ellipsis">
       
-        方式二：后台采集和查询
+        store_health（ucm_connector_config.store_health）
       
     </span>
   </a>
@@ -2665,7 +2353,322 @@
   
   
     <li class="md-nav__item">
-      <a href="../nic-monitor/" class="md-nav__link">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../benchmark/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    性能测试
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../toolkit/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    工具集
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    工具集
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../toolkit/kv-cache-calculator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    KV Cache 计算器
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_3" id="__nav_6_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    用户指南
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    用户指南
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../toolkit/user/precheck/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    环境预检
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../toolkit/user/posix-aio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    带宽模拟
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../toolkit/user/metrics-view/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    指标监控
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../toolkit/user/nic-monitor/" class="md-nav__link">
         
   
   
@@ -2693,7 +2696,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../dev-sandbox/" class="md-nav__link">
+      <a href="../../toolkit/user/dev-sandbox/" class="md-nav__link">
         
   
   
@@ -2741,13 +2744,10 @@
       
       
         
-          
-          
-        
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
@@ -2756,7 +2756,7 @@
         <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_4" >
         
           
-          <label class="md-nav__link" for="__nav_6_4" id="__nav_6_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_6_4" id="__nav_6_4_label" tabindex="0">
             
   
   
@@ -2792,7 +2792,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../developer/design/" class="md-nav__link">
+      <a href="../../toolkit/developer/design/" class="md-nav__link">
         
   
   
@@ -2820,7 +2820,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../developer/dev-sandbox/" class="md-nav__link">
+      <a href="../../toolkit/developer/dev-sandbox/" class="md-nav__link">
         
   
   
@@ -2886,7 +2886,7 @@
   <a href="#_1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        依赖
+        顶层参数
       
     </span>
   </a>
@@ -2894,32 +2894,38 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#kv-cache" class="md-nav__link">
+  <a href="#ucm_connector_config" class="md-nav__link">
     <span class="md-ellipsis">
       
-        模型与分层 KV cache 命中率
+        ucm_connector_config（存储后端配置）
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ucm_connector_config（存储后端配置）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#store_pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        store_pipeline 可选值
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#check" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        方式一：check —— 查看启动以来的统计
-      
-    </span>
-  </a>
+        
+      </ul>
+    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#_2" class="md-nav__link">
+  <a href="#store_healthucm_connector_configstore_health" class="md-nav__link">
     <span class="md-ellipsis">
       
-        方式二：后台采集和查询
+        store_health（ucm_connector_config.store_health）
       
     </span>
   </a>
@@ -2943,7 +2949,7 @@
 
 
   
-    <a href="https://github.com/ModelEngine-Group/unified-cache-management/edit/develop/docs-next/docs/en/zh/toolkit/user/metrics-view.md" title="编辑此页" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/ModelEngine-Group/unified-cache-management/edit/develop/docs-next/docs/en/zh/reference/config-parameters.md" title="编辑此页" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -2952,133 +2958,378 @@
     
       
     
-    <a href="https://github.com/ModelEngine-Group/unified-cache-management/raw/develop/docs-next/docs/en/zh/toolkit/user/metrics-view.md" title="查看本页的源代码" class="md-content__button md-icon">
+    <a href="https://github.com/ModelEngine-Group/unified-cache-management/raw/develop/docs-next/docs/en/zh/reference/config-parameters.md" title="查看本页的源代码" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
     </a>
   
 
 
-<h1 id="metrics-view">metrics-view<a class="headerlink" href="#metrics-view" title="Permanent link">&para;</a></h1>
-<p>采集 Prometheus/OpenMetrics <code>/metrics</code> 样本到 SQLite，并在终端查询聚合后的 UCM/vLLM 指标。适合在没有 Prometheus/Grafana 的环境中观察分层 KV cache 命中率、带宽等指标。</p>
-<p>← 返回 <a href="../../">UCM Toolkit 文档</a></p>
-<h2 id="_1">依赖<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
-<p>仅依赖 Python 标准库（<code>sqlite3</code> 内置）；采集需要可访问的 Prometheus/OpenMetrics <code>/metrics</code> HTTP 接口。</p>
-<h2 id="kv-cache">模型与分层 KV cache 命中率<a class="headerlink" href="#kv-cache" title="Permanent link">&para;</a></h2>
-<p>要获取正确的分层 KV cache 命中率数据，需要根据模型设置参数。GQA/MHA 模型无需设置，直接使用默认值；MLA 模型使用 <code>--config-param tp_size=&lt;实际TP&gt;</code> 设置服务实际 TP。</p>
+<h1 id="ucm">原生UCM方案参数<a class="headerlink" href="#ucm" title="Permanent link">&para;</a></h1>
+<hr />
+<h2 id="_1">顶层参数<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>直接写在 YAML 根级别的全局参数。</p>
+</blockquote>
 <table>
 <thead>
 <tr>
-<th>模型类型</th>
-<th>参数</th>
+<th>配置项</th>
+<th>是否必填</th>
+<th>取值类型</th>
+<th>取值范围</th>
+<th>配置说明</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>GQA/MHA</td>
-<td>使用默认值</td>
+<td><code>use_layerwise</code></td>
+<td>选填</td>
+<td>bool</td>
+<td>默认 <code>true</code></td>
+<td>是否启用分层（逐层）加载和保存模式。推荐设置为 <code>true</code>，DeepSeek v4 系列模型推荐设置为 <code>false</code>。</td>
 </tr>
 <tr>
-<td>MLA</td>
-<td>传入 <code>--config-param tp_size=&lt;实际TP&gt;</code></td>
+<td><code>enable_event_sync</code></td>
+<td>选填</td>
+<td>bool</td>
+<td>默认 <code>true</code></td>
+<td>性能优化开关，推荐开启。</td>
+</tr>
+<tr>
+<td><code>persist_token_threshold</code></td>
+<td>选填</td>
+<td>int</td>
+<td><code>0</code></td>
+<td>当请求长度小于 <code>persist_token_threshold</code> 时，UCM 软件不对该请求进行处理。</td>
+</tr>
+<tr>
+<td><code>timeout_ms</code></td>
+<td>选填</td>
+<td>int</td>
+<td>&gt;0，默认 <code>30000</code></td>
+<td>显存和 DRAM/SHM 之间的拷贝以及读写盘的超时时间（单位：ms）。</td>
+</tr>
+<tr>
+<td><code>wa_dump_block_wise</code></td>
+<td>选填</td>
+<td>bool</td>
+<td><code>true</code></td>
+<td>仅在 FAWA connector 中使用。<code>true</code>: 每个 block 的 WA cache 都会被 dump（高频 dump）；<code>false</code>: 只 dump 每个 chunk prefill 最后 block 的 WA cache（低频 dump）。</td>
+</tr>
+<tr>
+<td><code>load_tokens_threshold</code></td>
+<td>选填</td>
+<td>int</td>
+<td><code>0</code></td>
+<td>设置触发 KV cache 加载的最小 token 阈值，仅在 DeepSeek V4 系列模型生效。当外部命中 tokens 数 &gt; <code>load_tokens_threshold</code> 时触发 KV Cache 加载。</td>
+</tr>
+<tr>
+<td><code>enable_record_traces</code></td>
+<td>选填</td>
+<td>bool</td>
+<td><code>false</code></td>
+<td>用来记录请求信息（时间戳，输入长度，输出长度等信息）。</td>
+</tr>
+<tr>
+<td><code>enable_metrics</code></td>
+<td>选填</td>
+<td>bool</td>
+<td>默认 <code>true</code></td>
+<td>是否开启 metrics 收集。</td>
+</tr>
+<tr>
+<td><code>use_lite</code></td>
+<td>选填</td>
+<td>bool</td>
+<td><code>false</code></td>
+<td>是否启用 UCM Lite 功能。不对 KV Cache 数据进行保存和加载，仅对元数据进行保存和查询。仅可用于评估 KV Cache 命中率情况，无加速效果。</td>
+</tr>
+<tr>
+<td><code>metrics_config_path</code></td>
+<td>选填</td>
+<td>string</td>
+<td>自行配置</td>
+<td>指定监控指标配置文件路径，启用后可通过 toolkit 进行 UCM 在线监控。参考配置文件：<code>examples/metrics/metrics_configs.yaml</code>。</td>
 </tr>
 </tbody>
 </table>
-<p>列出内置配置：</p>
-<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>run<span class="w"> </span>metrics-view<span class="w"> </span>list-configs
-</code></pre></div>
-<p>内置配置与 Grafana dashboard 的对应关系如下：</p>
+<hr />
+<h2 id="ucm_connector_config">ucm_connector_config（存储后端配置）<a class="headerlink" href="#ucm_connector_config" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>写在 <code>ucm_connectors[0].ucm_connector_config</code> 下的参数。</p>
+</blockquote>
 <table>
 <thead>
 <tr>
-<th>Metrics View 配置</th>
-<th>Grafana dashboard</th>
+<th>配置项</th>
+<th>是否必填</th>
+<th>取值类型</th>
+<th>取值范围</th>
+<th>配置说明</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>metrics_lite</code></td>
-<td>常用指标的精简集合</td>
+<td><code>store_pipeline</code></td>
+<td>选填</td>
+<td>string</td>
+<td>见下方可选值</td>
+<td>管线名称，决定 Cache 与 Store 的组合方式。默认使用 <code>Cache\|Posix</code>。</td>
 </tr>
 <tr>
-<td><code>vllm</code></td>
-<td><code>examples/metrics/grafana_vllm.json</code></td>
+<td><code>storage_backends</code></td>
+<td><strong>必填</strong></td>
+<td>string</td>
+<td>自行配置，多个挂载点用冒号隔开</td>
+<td>填写本地目录或者挂载点，如果有多个挂载点需要用冒号隔开。</td>
 </tr>
 <tr>
-<td><code>connector</code></td>
-<td><code>examples/metrics/grafana_connector.json</code></td>
+<td><code>io_direct</code></td>
+<td>选填</td>
+<td>bool</td>
+<td>默认 <code>true</code></td>
+<td>是否启用直接 IO 模式（绕过操作系统页缓存）。<code>false</code>: 使用 PageCache；<code>true</code>: 跳过 PageCache，直接 IO。</td>
 </tr>
 <tr>
-<td><code>store</code></td>
-<td><code>examples/metrics/grafana_store.json</code></td>
+<td><code>posix_io_engine</code></td>
+<td>选填</td>
+<td>string</td>
+<td>默认 <code>psync</code></td>
+<td>文件 IO 模式。<code>psync</code>：同步 io；<code>aio</code>：异步 io，要求 <code>io_direct</code> 配置为 <code>true</code>。</td>
+</tr>
+<tr>
+<td><code>posix_data_trans_concurrency</code></td>
+<td>选填</td>
+<td>int</td>
+<td>默认 <code>128</code></td>
+<td><code>psync</code> 模式下单卡对存储的读写线程数。NFS over RDMA 下推荐单卡 128 线程。<code>aio</code> 下不读取该值。</td>
+</tr>
+<tr>
+<td><code>posix_open_concurrency</code></td>
+<td>选填</td>
+<td>int</td>
+<td>默认 <code>32</code></td>
+<td><code>aio</code> 下对文件进行 open 操作的线程数。<code>psync</code> 下不感知。</td>
+</tr>
+<tr>
+<td><code>posix_commit_concurrency</code></td>
+<td>选填</td>
+<td>int</td>
+<td>默认 <code>4</code></td>
+<td><code>aio</code> 下对文件进行 rename 操作的线程数。<code>psync</code> 下不感知。</td>
+</tr>
+<tr>
+<td><code>posix_lookup_concurrency</code></td>
+<td>选填</td>
+<td>int</td>
+<td>默认 <code>16</code></td>
+<td>在挂载点中查找文件是否存在的线程数。</td>
+</tr>
+<tr>
+<td><code>cache_buffer_capacity_gb</code></td>
+<td>选填</td>
+<td>int</td>
+<td>见配置说明</td>
+<td>对于 GQA，默认值是每张卡会占 32GB DRAM 内存。对于 MLA，默认值是单机会占 128GB 的 shm 空间。目前建议全部使用默认值。</td>
+</tr>
+<tr>
+<td><code>cache_sdma_direct</code></td>
+<td>选填</td>
+<td>bool</td>
+<td>依据编译环境变量决定，<code>PLATFORM=ascend-a3</code> 时默认 <code>true</code>，其他默认 <code>false</code></td>
+<td>启用 SDMA H2D/D2H 传输路径，仅在 A3 设备生效，推荐关闭。</td>
+</tr>
+<tr>
+<td><code>cache_load_backend_only</code></td>
+<td>选填</td>
+<td>bool</td>
+<td>默认 <code>false</code></td>
+<td>即使在 cache 层命中还是会强制从 SSD 上加载，仅供测试使用。</td>
+</tr>
+<tr>
+<td><code>cache_io_aggregation</code></td>
+<td>选填</td>
+<td>bool</td>
+<td>默认 <code>false</code>，仅在 <code>PLATFORM=ascend</code> 且模型为 V4 时自动开启</td>
+<td>启用 IO 聚合 h2d 传输，仅在 A2 设备生效。</td>
+</tr>
+<tr>
+<td><code>share_buffer_enable</code></td>
+<td>选填</td>
+<td>bool</td>
+<td>MLA 默认启用，GQA 默认不启用</td>
+<td>是否启用共享内存。MLA 如果不用 shm 或 GQA 用 shm 都会导致性能下降。</td>
+</tr>
+<tr>
+<td><code>posix_capacity_gb</code></td>
+<td>选填</td>
+<td>int</td>
+<td>默认 <code>0</code>，表示不启用 GC；不可超过挂载文件系统可用容量</td>
+<td>设置磁盘存储的最大容量（GB），当已用容量 &gt;= <code>posix_capacity_gb * posix_gc_trigger_threshold_ratio</code> 时触发 GC。多实例部署共享同一文件系统时，只能有一个实例开启 GC，其他实例不要开启。</td>
+</tr>
+<tr>
+<td><code>posix_gc_trigger_threshold_ratio</code></td>
+<td>条件选填</td>
+<td>float</td>
+<td>默认 <code>0.7</code>，范围：0~1。<code>posix_capacity_gb</code> 未配置时不填写</td>
+<td>GC 阈值比例，配合 <code>posix_capacity_gb</code> 使用。</td>
+</tr>
+<tr>
+<td><code>posix_gc_recycle_percent</code></td>
+<td>选填</td>
+<td>float</td>
+<td>默认 <code>0.1</code>，范围：0~1。<code>posix_capacity_gb</code> 未配置时不填写</td>
+<td>每轮 GC 删除当前容量的比值。</td>
+</tr>
+<tr>
+<td><code>posix_gc_max_recycle_count_per_shard</code></td>
+<td>选填</td>
+<td>int</td>
+<td>默认 <code>50000</code>，&gt;0。不建议修改。<code>posix_capacity_gb</code> 未配置时不填写</td>
+<td>每轮 GC 单目录允许删除的文件数上限。</td>
+</tr>
+<tr>
+<td><code>posix_gc_shard_sample_ratio</code></td>
+<td>选填</td>
+<td>float</td>
+<td>默认 <code>0.1</code>，范围：0~1。<code>posix_capacity_gb</code> 未配置时不填写</td>
+<td>采样 10% 目录估算总容量。</td>
+</tr>
+<tr>
+<td><code>posix_gc_check_interval_sec</code></td>
+<td>选填</td>
+<td>int</td>
+<td>默认 <code>30</code>，&gt;0。<code>posix_capacity_gb</code> 未配置时不填写</td>
+<td>GC 采样及触发间隔。</td>
+</tr>
+<tr>
+<td><code>posix_gc_concurrency</code></td>
+<td>选填</td>
+<td>int</td>
+<td>默认 <code>16</code>，&gt;0。<code>posix_capacity_gb</code> 未配置时不填写</td>
+<td>GC 线程池 worker 数。</td>
+</tr>
+<tr>
+<td><code>posix_gc_task_timeout_ms</code></td>
+<td>选填</td>
+<td>int</td>
+<td>默认 <code>300000</code>，&gt;0。<code>posix_capacity_gb</code> 未配置时不填写</td>
+<td>单目录任务超时 watchdog。<code>0</code>=禁用。</td>
+</tr>
+<tr>
+<td><code>posix_gc_precise_mode</code></td>
+<td>选填</td>
+<td>bool</td>
+<td>默认 <code>true</code>。<code>posix_capacity_gb</code> 未配置时不填写</td>
+<td><code>true</code>: 精准模式（全局最冷）；<code>false</code>: 性能模式（每目录最冷）。</td>
 </tr>
 </tbody>
 </table>
-<p><code>vllm</code>、<code>connector</code> 和 <code>store</code> 会展示对应 Grafana dashboard 的全部数据。单曲线数据使用面板名，多曲线数据使用 <code>&lt;面板名&gt;: &lt;曲线名&gt;</code>。</p>
-<p>查询 metrics 有两种方式：<strong>方式一</strong> <code>check</code> 即时拉取一次快照，适合快速看总量；<strong>方式二</strong> <code>start</code>/<code>query</code> 后台持续采集到 SQLite，适合查看时间窗口内的变化趋势。</p>
-<h2 id="check">方式一：check —— 查看启动以来的统计<a class="headerlink" href="#check" title="Permanent link">&para;</a></h2>
-<p><code>check</code> 会直接拉取一次当前 <code>/metrics</code> 快照并输出总聚合值，获取的是从服务启动到现在的总计值。</p>
-<p>输入示例，以 mla 模型 tp=8 为例：</p>
-<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>run<span class="w"> </span>metrics-view<span class="w"> </span>check<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--url<span class="w"> </span>http://127.0.0.1:35325/metrics<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--config<span class="w"> </span>metrics_lite<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--config-param<span class="w"> </span><span class="nv">tp_size</span><span class="o">=</span><span class="m">8</span>
-</code></pre></div>
-<p>输出示例：</p>
-<div class="highlight"><pre><span></span><code>metric                           values                                   unit
--------------------------------  ---------------------------------------  -----
-total_requests                   requests=1.000
-e2e_request_latency_s            p50=0.150 p90=0.270 p99=0.297 avg=0.060  s
-ttft_s                           p50=0.150 p90=0.270 p99=0.297 avg=0.060  s
-tpot_s                           p50=0.005 p90=0.009 p99=0.010 avg=0.000  s
-hbm_hit_rate                     hit_rate=0.333                           ratio
-cache_hit_rate                   hit_rate=0.333                           ratio
-posix_hit_rate                   hit_rate=0.333                           ratio
-cache_store_load_bandwidth_gbps  gbps=0.001                               GB/s
-cache_store_dump_bandwidth_gbps  gbps=0.000                               GB/s
-posix_store_load_bandwidth_gbps  gbps=2.949e-04                           GB/s
-posix_store_dump_bandwidth_gbps  gbps=0.000                               GB/s
-</code></pre></div>
-<p>使用 <code>check</code> 的话 gbps 不具备参考性，因为逻辑是总数据传输量/时间，不是瞬时值。需要看到合理的带宽需要使用如下 <code>start</code> 的方式来后台持续拉取 metrics。</p>
-<h2 id="_2">方式二：后台采集和查询<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
-<p>推荐使用 <code>start</code> / <code>stop</code> 方式后台采集 metrics。后台采集会把多次样本写入 SQLite，因此后续可以查询指定时间范围内的数据。</p>
-<p>后台启动采集（采集的时候无需配置 config）：</p>
-<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>run<span class="w"> </span>metrics-view<span class="w"> </span>start<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--url<span class="w"> </span>http://prefill:8000/metrics<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--url<span class="w"> </span>http://decode:8000/metrics<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--interval<span class="w"> </span>5s
-</code></pre></div>
-<p><code>--url</code> 可以重复传入。每个样本都会增加 <code>url=&lt;完整 metrics URL&gt;</code> label，用于区分 PD 分离部署中的不同实例。某个 URL 临时抓取失败时，后台进程会记录错误，其他 URL 仍会正常采集。</p>
-<p>查看或停止后台采集：</p>
-<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>run<span class="w"> </span>metrics-view<span class="w"> </span>status
-ucm-toolkit<span class="w"> </span>run<span class="w"> </span>metrics-view<span class="w"> </span>stop
-</code></pre></div>
-<p>按时间窗口查询。推荐使用 <code>--aggr-by</code>，例如 <code>--window 10m --aggr-by 1m</code> 会展示最新 10 分钟的数据，每分钟聚合一份结果。MLA 模型需要按实际 TP 覆盖配置参数：</p>
-<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>run<span class="w"> </span>metrics-view<span class="w"> </span>query<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--window<span class="w"> </span>10m<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--aggr-by<span class="w"> </span>1m<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--config<span class="w"> </span>metrics_lite<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--config-param<span class="w"> </span><span class="nv">tp_size</span><span class="o">=</span><span class="m">8</span>
-</code></pre></div>
-<p><code>query</code> 也支持使用 <code>--tag</code> 按 Prometheus label 过滤：</p>
-<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>run<span class="w"> </span>metrics-view<span class="w"> </span>query<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--start-time<span class="w"> </span><span class="m">2026</span>-06-25T10:00:00<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--window<span class="w"> </span>10m<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--aggr-by<span class="w"> </span>1m<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--tag<span class="w"> </span><span class="nv">url</span><span class="o">=</span>http://prefill:8000/metrics<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--tag<span class="w"> </span><span class="nv">model_name</span><span class="o">=</span>qwen<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--tag<span class="w"> </span><span class="nv">worker_id</span><span class="o">=</span><span class="m">0</span>
-</code></pre></div>
-<p>默认数据库、PID 和日志分别为 <code>/tmp/ucm_metrics.db</code>、<code>/tmp/ucm_metrics.pid</code> 和 <code>/tmp/terminal_metrics.log</code>，因此切换工作目录后仍可以执行 <code>status</code> 和 <code>stop</code>。如需同时运行多个采集进程，必须分别指定不同的 <code>--db</code>、<code>--pid-file</code> 和 <code>--log-file</code>。</p>
-<p>如果需要使用其它数据库文件，可以显式指定 <code>--db</code>：</p>
-<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>run<span class="w"> </span>metrics-view<span class="w"> </span>query<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--db<span class="w"> </span>/tmp/another_ucm_metrics.db<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--window<span class="w"> </span>10m<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--aggr-by<span class="w"> </span>1m
-</code></pre></div>
-<p>清空 metrics 数据库使用 <code>metrics-view</code> 自己的 <code>clean</code> 子命令：</p>
-<div class="highlight"><pre><span></span><code>ucm-toolkit<span class="w"> </span>run<span class="w"> </span>metrics-view<span class="w"> </span>clean
-</code></pre></div>
+<h3 id="store_pipeline">store_pipeline 可选值<a class="headerlink" href="#store_pipeline" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Cache\|Posix</code></td>
+<td>正常使用场景</td>
+</tr>
+<tr>
+<td><code>Cache\|Empty</code></td>
+<td>MLA 纯 Cache 测试</td>
+</tr>
+<tr>
+<td><code>Cache\|Fake</code></td>
+<td>MLA/GQA 纯 Cache 测试（有精度问题）</td>
+</tr>
+<tr>
+<td><code>Empty</code></td>
+<td>Store 全部接口空实现，引擎侧永远不命中</td>
+</tr>
+<tr>
+<td><code>Fake</code></td>
+<td>不实际存取，仅存元数据 lookup，测试极限性能</td>
+</tr>
+<tr>
+<td><code>Mooncake</code></td>
+<td>对接 Mooncake 内存池，仅支持 vllm-ascend</td>
+</tr>
+<tr>
+<td><code>Mooncake\|Posix</code></td>
+<td>对接 Mooncake 内存池并支持落盘</td>
+</tr>
+<tr>
+<td><code>YuanRong</code></td>
+<td>对接 YuanRong 内存池</td>
+</tr>
+<tr>
+<td><code>YuanRong\|Posix</code></td>
+<td>对接 YuanRong 内存池并支持落盘</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="admonition-title">storage_backends 须知</p>
+<p>若 <code>storage_backends</code> 参数填写挂载的文件系统，则不可设置 <code>posix_capacity_gb</code>。</p>
+</div>
+<hr />
+<h2 id="store_healthucm_connector_configstore_health">store_health（ucm_connector_config.store_health）<a class="headerlink" href="#store_healthucm_connector_configstore_health" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>写在 <code>ucm_connector_config.store_health</code> 下的参数。</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>配置项</th>
+<th>是否必填</th>
+<th>取值类型</th>
+<th>取值范围</th>
+<th>配置说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enabled</code></td>
+<td>选填</td>
+<td>bool</td>
+<td>默认 <code>false</code></td>
+<td>存储隔离机制总开关。开启后给磁盘 KV 缓存增加故障熔断器，磁盘读写频繁超时/报错时自动切断存储。</td>
+</tr>
+<tr>
+<td><code>health_check_interval_s</code></td>
+<td>选填</td>
+<td>int</td>
+<td>默认 <code>5</code></td>
+<td>缓存磁盘健康巡检周期（秒）。必须 &gt;0 且 &gt; <code>health_check_timeout_s</code>。</td>
+</tr>
+<tr>
+<td><code>health_check_timeout_s</code></td>
+<td>选填</td>
+<td>int</td>
+<td>默认 <code>3</code></td>
+<td>单次探测超时时间（秒）。必须 &gt;0 且 &lt; <code>health_check_interval_s</code>。</td>
+</tr>
+<tr>
+<td><code>health_window_size</code></td>
+<td>选填</td>
+<td>int</td>
+<td>默认 <code>8</code></td>
+<td>故障统计窗口长度。必须为正整数且 &gt;= <code>failure_threshold</code>。</td>
+</tr>
+<tr>
+<td><code>failure_threshold</code></td>
+<td>选填</td>
+<td>int</td>
+<td>默认 <code>2</code></td>
+<td>故障触发阈值。必须为正整数且 &lt;= <code>health_window_size</code>。</td>
+</tr>
+</tbody>
+</table>
 
 
 
@@ -3163,15 +3414,15 @@ ucm-toolkit<span class="w"> </span>run<span class="w"> </span>metrics-view<span 
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../../../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tabs.link", "content.action.edit", "content.action.view"], "search": "../../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tabs.link", "content.action.edit", "content.action.view"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": {"provider": "mike"}}</script>
     
     
   
-      <script src="../../../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
-        <script src="../../../../assets/manifest.js?v=20260829-schema8-4"></script>
+        <script src="../../../assets/manifest.js?v=20260829-schema8-4"></script>
       
-        <script src="../../../../assets/install.js?v=20260829-schema8-4"></script>
+        <script src="../../../assets/install.js?v=20260829-schema8-4"></script>
       
     
   <script src="https://unpkg.com/katex@0.16.11/dist/katex.min.js"></script>

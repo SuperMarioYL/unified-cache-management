@@ -207,7 +207,7 @@
       }
     );
     if (
-      manifest.python.distribution !== "uc-manager" ||
+      !/^(?:[a-z0-9]+-)*uc-manager$/.test(manifest.python.distribution) ||
       manifest.python.version !== manifest.release.version
     ) {
       fail("manifest.python", "must match the release uc-manager package");
@@ -234,7 +234,7 @@
         }
         string(distribution, "manifest.python.extras." + extra);
         if (
-          distribution.indexOf("uc-manager-") !== 0 ||
+          distribution.indexOf(manifest.python.distribution + "-") !== 0 ||
           backendDistributions[distribution]
         ) {
           fail("manifest.python.extras", "must map uniquely to backend distributions");
@@ -250,18 +250,22 @@
       );
       httpsUrl(
         manifest.python.pypi.index_url,
-        "manifest.python.pypi.index_url",
-        "pypi.org"
+        "manifest.python.pypi.index_url"
       );
+      var pypiHost = new URL(manifest.python.pypi.index_url).host;
+      if (pypiHost !== "pypi.org" && pypiHost !== "test.pypi.org") {
+        fail("manifest.python.pypi", "must use PyPI or TestPyPI");
+      }
       httpsUrl(
         manifest.python.pypi.project_url,
         "manifest.python.pypi.project_url",
-        "pypi.org"
+        pypiHost
       );
       if (
-        manifest.python.pypi.index_url !== "https://pypi.org/simple" ||
+        manifest.python.pypi.index_url !== "https://" + pypiHost + "/simple" ||
         manifest.python.pypi.project_url !==
-          "https://pypi.org/project/uc-manager/" +
+          "https://" + pypiHost + "/project/" +
+            encodeURIComponent(manifest.python.distribution) + "/" +
             encodeURIComponent(manifest.release.version) +
             "/"
       ) {
