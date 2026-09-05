@@ -23,7 +23,7 @@ theme:
   custom_dir: overrides
   language: en
   logo: assets/images/UCM-light.png
-  favicon: assets/images/UCM.png
+  favicon: assets/images/ucm-favicon.png
   features:
     - navigation.tabs
     - navigation.tabs.sticky
