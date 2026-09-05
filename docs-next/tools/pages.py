@@ -457,7 +457,8 @@ def validate_manifest(value: object) -> dict[str, Any]:
         )
         if (
             pypi["index_url"] != f"https://{pypi_host}/simple"
-            or pypi["project_url"] != f"https://{pypi_host}/project/{meta_distribution}/"
+            or pypi["project_url"]
+            != f"https://{pypi_host}/project/{meta_distribution}/"
             f"{quote(release['version'], safe='')}/"
         ):
             raise PagesError("release manifest PyPI URLs differ from the release")
