@@ -15,8 +15,8 @@ hide:
 
 **Unified Cache Manager (UCM)** persists LLM KVCache to replace redundant computations.
 Reuse depends on repeated prefixes, available cache capacity, and storage latency.
-See the [benchmark guide](benchmark/index.md) for measurement methods and historical
-results with their recorded environments.
+See the [benchmark guide](benchmark/index.md) for measurement tools and experiment
+designs that distinguish external reuse from process-local cache hits.
 
 <div align="center" markdown>
 

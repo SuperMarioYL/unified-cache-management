@@ -1,10 +1,14 @@
 # Pipeline Store
 
-`UcmPipelineStore` 组合已注册的 Store 实现。常用的 `Cache|Posix` 管线在设备内存、主机缓存和 POSIX 文件系统之间传输 KV 数据。Posix 阶段可使用本地 SSD 或已有 NFS 挂载，因此 Pipeline Store 也支持文件系统持久化。
+需要让 KV 块在推理进程重启后继续从本地磁盘或挂载文件系统复用，同时将近期访问的块保存在主机内存中时，可以选择 `Cache|Posix`。`Cache` 负责设备与主机之间的数据搬运及主机缓冲区，`Posix` 负责文件、查询和文件系统 I/O；设备上的 KV Cache 仍由推理引擎管理。
+
+管线通过已注册的名称选择，不能任意拼接阶段名。Python 构建函数会在启动时加载对应的原生库。当前 vLLM 集成使用的入口是 `UcmPipelineStore`。
 
 ## 配置 Cache 与 Posix
 
-在 vLLM 的 UCM YAML 中，connector 级选项放在根节点，存储参数放在 `ucm_connector_config`：
+先从[安装页面](../../installation.md)选择制品，或在目标引擎环境中[从源码构建](../../../developer-guide/build_from_source.md)。这条管线需要 `ucmpipelinestore` 扩展、`libcachestore.so` 和 `libposixstore.so`。仅能导入 Python 包，还不能说明所选管线能够初始化。
+
+准备独立且可写的目录，并将其挂载到需要访问它的进程中。将下面的配置保存为 UCM YAML 文件：
 
 ```yaml
 ucm_connectors:
@@ -16,84 +20,60 @@ ucm_connectors:
       io_direct: false
       posix_io_engine: psync
       timeout_ms: 30000
-      store_health:
-        enabled: true
-        health_check_interval_s: 10
-        health_check_timeout_s: 3
-        health_window_size: 8
-        failure_threshold: 2
 use_layerwise: true
 enable_event_sync: true
 enable_metrics: true
 ```
 
-创建存储目录，并允许推理服务进程读取、写入和删除文件。使用容器时，将目录挂载到持久存储。通过 `kv_connector_extra_config.UCM_CONFIG_FILE` 传入 YAML 路径，详见 [vLLM 快速开始](../../quick_start/quickstart_vllm.md)。
+按 [vLLM 快速开始](../../quick_start/quickstart_vllm.md)或 [Ascend 快速开始](../../quick_start/quickstart_vllm_ascend.md)，通过 `kv_connector_extra_config.UCM_CONFIG_FILE` 指向该文件。Connector 会提供设备 ID、块大小和张量布局，不要复制其他模型 Store 测试中的这些数值。
 
-示例中的 4 GiB 容量和 buffered I/O 是首次测试的显式设置。原生 Cache Store 默认分配 256 GiB；启用共享 buffer 且未指定容量时，vLLM connector 会设为 128 GiB。未共享的 worker 各自独立分配。MLA 默认启用共享 buffer，共享分配必须能放入 `/dev/shm`。请按实际部署拓扑计算容量，不能把默认值视为环境中可用的内存。
+示例使用带缓冲的同步 I/O，便于先建立文件系统读写基线。原生 Cache 和 Posix 阶段的 `io_direct` 默认值为 `true`。只有在设置 `io_direct: true`，且文件系统支持对应的对齐 I/O 时，才切换到 `posix_io_engine: aio`。`timeout_ms` 应放在 `ucm_connector_config` 内，它是 Store 任务超时，不是 HTTP 请求超时。
 
-原生 Cache 和 Posix Store 的 `io_direct` 默认为 `true`。文件系统和 I/O 对齐满足要求时可启用；`posix_io_engine: aio` 要求使用 Direct I/O。`timeout_ms` 在 Store 配置中默认为 30000，放在 YAML 根节点不会设置 Store 任务超时。
+## 规划主机内存 { #budget-host-memory }
+
+示例中的 4 GiB 是初始预算，并非适用于所有模型的固定值。Cache Store 至少需要容纳 `max(1024, 2 * cache_load_exclusive_buffer_number)` 个 shard，独占缓冲数量默认是 1024。如果容量太小，初始化错误会给出至少需要多少 GiB。
+
+| 未显式设置容量时的分配路径 | 实际默认值 |
+| --- | --- |
+| 原生 Cache，启用共享缓冲 | 256 GiB |
+| 原生 Cache，`share_buffer_enable: false` | 每个 worker 32 GiB |
+| 当前 vLLM Connector，启用共享缓冲 | 128 GiB |
+
+vLLM Connector 根据模型是否使用 MLA 决定 `share_buffer_enable` 的默认值。正数 `cache_buffer_capacity_gb` 会覆盖原生默认值。共享缓冲需要足够的 `/dev/shm`；非共享 worker 分别分配内存，因此要按同一主机上的 worker 数量汇总预算。模型权重、设备 KV Cache 和其他主机内存开销需要另外计入。
 
 ## 存储容量与健康检查
 
-`posix_capacity_gb` 默认为 `0`，表示不启用按容量触发的垃圾回收。正值定义 Store 的容量预算，并按所配置阈值触发 GC。多个实例共享同一存储命名空间时，需要明确回收归属，并统计所有实例写入的文件。vLLM connector 在单实例内选择 DP0 scheduler 作为 GC 执行者。容量配置不会为文件系统预留空间。
+`posix_capacity_gb: 0` 表示不启用基于容量的垃圾回收。正数值提供容量预算，但不会预留文件系统空间。vLLM Connector 将 Posix GC 交给 DP0 scheduler。多个推理实例共用目录时，需要统计它们共同写入的数据；没有验证其他回收归属方案之前，应保留 Posix 的协调设置。
 
-对于支持健康检查的 Store 阶段，Pipeline 默认启用健康探测和熔断。默认探测间隔为 10 秒、超时为 3 秒、窗口为 8 个样本、失败阈值为 2。Posix 探测执行真实的小文件 I/O，比仅确认目录存在更能反映存储路径是否可用，但它仍不能证明某个请求命中了 KV cache。详见[健康指标](../../observability/health-metrics.md)。
+管线健康检查默认开启，检查间隔为 10 秒、超时为 3 秒、窗口为 8 个样本、失败阈值为 2。Posix 探针实际执行写入、读取、比较和删除。探针成功说明文件系统健康，只有请求级命中和完成的加载才能说明 KV 被复用。详见[健康指标](../../observability/health-metrics.md)。
 
 ## 其他已注册管线
 
-管线名称在 `ucm/store/pipeline/connector.py` 中注册，不能任意拼接阶段名称。注册表包含 Cache/Posix、DS3FS、压缩、Mooncake、YuanRong 以及测试管线，各自需要对应的构建组件和配置。参见相应的[后端指南](index.md#storage-backends)。
+| 需求 | 选择 |
+| --- | --- |
+| 保留已有 vLLM NFS Connector 配置 | [NFS Store](nfs.md) |
+| 使用 3FS 客户端 I/O | [`Cache\|Ds3fs`](ds3fs.md) |
+| 缩小 BF16 存储载荷，并接受精度权衡 | [`Cache\|Compress\|Posix`](compress.md) |
+| 使用共享 Mooncake 内存，可选文件后端 | [`Mooncake` 或 `Mooncake\|Posix`](mooncake.md) |
 
-SGLang 已提供主机缓存，因此 UCM 适配器直接选择 `Posix`。配置布局参见 [SGLang 快速开始](../../quick_start/quickstart_sglang.md)。
+SGLang 已经管理主机缓存，因此其适配器直接选择 `Posix` 阶段。请使用 [SGLang 快速开始](../../quick_start/quickstart_sglang.md)，不要直接套用 vLLM YAML。
 
 ## 验证写入与读取
 
-按[重启并重放请求](../../quick_start/quickstart_vllm.md#verify-the-service-and-external-cache)的步骤验证：第一个进程写入 KV 块，保留存储，以相同的模型和缓存块布局重启，再确认第二个进程出现外部命中 token 和 Posix 读取。注意区分 KV 缓存文件与临时健康探测文件。其他参数参见[配置参考](../../../reference/config-parameters.md)；缓存未写入或未复用时，参见[故障排查](../../../reference/troubleshooting.md)。
+1. 使用空的测试目录，记录模型 revision、KV dtype、并行布局和实际生效的 Store 配置。
+2. 发送带有可复用前缀的请求，长度应足以产生完整块。确认 dump 完成，且已提交的缓存文件出现。
+3. 保留目录，重启推理进程，再使用完全相同的输入及缓存几何参数重放。操作步骤见[重启与重放检查](../../quick_start/quickstart_vllm.md#verify-the-service-and-external-cache)。
+4. 重放时应同时看到外部缓存命中 token 和 Posix 读取活动。同一进程内第二次请求更快，可能只命中了内存缓存。
 
-## 历史性能报告 { #historical-performance-report }
+如果重放被主机缓存满足，可以在诊断运行中设置 `cache_load_backend_only: true`，单独检查后端查询和加载路径。发生错误时，先核对已加载的阶段名称、目录权限、缓冲区大小提示和 Posix 健康状态，再参照[故障排查](../../../reference/troubleshooting.md)。
 
-以下表格保留自原 Pipeline Store 指南，描述当时记录的模型、硬件和 80% SSD 命中负载，并非本次文档版本的新测试结果。原文未固定完整的 UCM 与引擎版本组合；用于部署决策前，应记录实际环境并重新测量。
+## 测量存储收益 { #historical-performance-report }
 
-来源：[原 Pipeline Store 报告](https://github.com/ModelEngine-Group/unified-cache-management/blob/a336d69bc03a550d44bee3df9da7664e9edfe3a7/docs/source/user-guide/prefix-cache/pipeline_store.md)。
+分别比较无缓存 prefill、存储重放和内存热缓存重放。保持模型与输入集相同，记录外部命中 token、Posix 读取字节数、主机内存、TTFT 和吞吐，判断当前负载下存储 I/O 是否比重新计算更划算。[基准测试指南](../../../benchmark/index.md)说明如何报告这一比较；本页不提供未经目标硬件验证的性能数字。
 
-### 测试概览
+## 实现依据
 
-以下是原报告在 CUDA 环境中，对 Prefix Cache 场景进行不同并发度测试的结果。测试禁用 HBM 缓存，仅从 SSD 查询和匹配 KV Cache。
-
-Full Compute 表示纯 vLLM 计算；SSD80% 表示启用 UCM 池化后，KV cache 的 SSD 命中率为 80%。
-
-下表为 QwQ-32B 模型的结果（**4 张 H100 GPU**）：
-
-|      **QwQ-32B** |                |                      |                |               |
-| ---------------: | -------------: | -------------------: | -------------: | :------------ |
-| **输入长度** | **并发数** | **Full Compute (ms)** | **SSD80% (ms)** | **加速比例（%）** |
-|            4 000 |              1 |              223.05 |         156.54 | **+42.5%**   |
-|            8 000 |              1 |              350.47 |         228.27 | **+53.5%**   |
-|           16 000 |              1 |              708.94 |         349.17 | **+103.0%**  |
-|           32 000 |              1 |             1512.04 |         635.18 | **+138.0%**  |
-|            4 000 |              8 |              908.52 |         625.92 | **+45.1%**   |
-|            8 000 |              8 |             1578.72 |         955.25 | **+65.3%**   |
-|           16 000 |              8 |             3139.03 |        1647.72 | **+90.5%**   |
-|           32 000 |              8 |             6735.25 |        3025.23 | **+122.6%**  |
-|            4 000 |             16 |             1509.79 |         919.53 | **+64.2%**   |
-|            8 000 |             16 |             2602.34 |        1480.30 | **+75.8%**   |
-|           16 000 |             16 |             5732.49 |        2393.54 | **+139.5%**  |
-|           32 000 |             16 |            11891.61 |        4790.00 | **+148.3%**  |
-
-
-下表为 DeepSeek-R1-awq 模型的结果（**8 张 H100 GPU**）：
-
-|**DeepSeek-R1-awq**|                |                      |                |               |
-| -----------------:| -------------: | -------------------: | -------------: | :------------ |
-| **输入长度**  | **并发数** | **Full Compute (ms)** | **SSD80% (ms)** | **加速比例（%）** |
-|             4 000 |              1 |               429.30 |        261.34 | **+64.3%**   |
-|             8 000 |              1 |               762.23 |        363.37 | **+109.8%**  |
-|            16 000 |              1 |              1426.06 |        586.17 | **+143.3%**  |
-|            32 000 |              1 |              3086.85 |       1073.25 | **+187.6%**  |
-|             4 000 |              8 |              1823.55 |       1017.72 | **+79.2%**   |
-|             8 000 |              8 |              3214.76 |       1511.16 | **+112.7%**  |
-|            16 000 |              8 |              6417.81 |       2596.70 | **+147.2%**  |
-|            32 000 |              8 |             14278.00 |       5111.67 | **+179.3%**  |
-|             4 000 |             16 |              3205.22 |       1534.00 | **+108.9%**  |
-|             8 000 |             16 |              5813.09 |       2208.60 | **+163.2%**  |
-|            16 000 |             16 |             11752.48 |       4000.46 | **+193.8%**  |
-|            32 000 |             16 |             38643.73 |      19910.41 | **+94.1%**   |
+- `ucm/store/pipeline/connector.py` 定义注册管线及加载的原生库。
+- `ucm/store/cache/cc/cache_store.cc` 管理缓冲默认值和最小容量检查。
+- `ucm/store/posix/cc/posix_store.cc` 管理文件系统配置与健康探针。
+- `ucm/integration/vllm/ucm_connector.py` 提供布局、共享缓冲默认值和 GC 归属。

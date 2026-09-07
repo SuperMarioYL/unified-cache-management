@@ -52,18 +52,19 @@ This information serves as a reference for evaluating framework compatibility in
 
 ### Inference Enhancement Features
 
-This section presents support information for inference enhancement features, including Sparse Attention, ReRoPE, and CacheBlend, across the listed models and framework versions.
+These entries describe the integration paths present in this revision. Model
+routing and patched model classes identify where to begin validation; they
+are not hardware acceptance results for every model in a family.
 
-| Model | GsaOnDevice<br>vLLM / vLLM-Ascend 0.11.0 | ReRoPE<br>vLLM 0.11.0 | CacheBlend<br>vLLM 0.9.2 |
-|-------|:-------------------------:|:------------------------:|:---------------------:|
-| DeepSeek V3/3.1 | ✅ | ✅ | ✅ |
-| DeepSeek R1 | ✅ | ✅ | ✅ |
-| DeepSeek V3.2 | ✅ | ✅ | ✅ |
-| Qwen2.5 | ✅ | ✅ | ✅ |
-| Qwen3 | ✅ | ✅ | ✅ |
+| Implementation | Engine integration | Model and execution boundary |
+| --- | --- | --- |
+| [GSAOnDevice](../capabilities/sparse-attention/gsa.md) | Automatic sparse patches for vLLM / vLLM-Ascend 0.11.0 | CUDA/NPU paths; name-based configuration selection for DeepSeek R1/V2, Qwen3 4B/32B/Coder 30B A3B, and QwQ 32B; verify actual model dimensions and activation thresholds |
+| [CacheBlend](../capabilities/sparse-attention/cacheblend.md) | Automatic sparse hooks for vLLM 0.11.0; manual sparse patches also exist for 0.9.2 | Experimental CUDA path with `llama`/`qwen2` forward hooks and a compatible rotary-cache layout; no chunked prefill or native HBM prefix-cache reuse |
+| [ReRoPE](../capabilities/rerope.md) | Manual patches for vLLM 0.9.2 / 0.11.0 | Triton attention and patched `qwen2`/`qwen3`/`qwen3_moe` classes; no automatic ReRoPE activation or established Ascend path |
 
-> See [Sparse Attention](../capabilities/sparse-attention/index.md) and
-> [ReRoPE](../capabilities/rerope.md) for version-specific recipes.
+Prefix-cache support on a newer engine does not imply support for these
+attention changes. Follow the linked guide for prerequisites and verify the
+specific model, engine, platform and workload combination.
 
 ## Supported Compute Platforms and Devices
 

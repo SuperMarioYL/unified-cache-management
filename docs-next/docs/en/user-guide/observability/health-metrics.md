@@ -1,217 +1,140 @@
-# UCM Health Metrics
+# Store health and circuit breaking
 
-UCM Pipeline Store enables health probes and circuit breaking for individual Store stages by default. Set `store_health.enabled` to `false` to disable them. Health metrics answer two different questions:
+A responding inference server can still have an unusable cache backend. Store
+health tells you whether a Pipeline stage is accepting new cache operations.
+It does not establish that a particular KV block exists, that a model answer is
+correct, or that a deployment meets its latency target.
 
-- How many health probes succeeded or failed during a time window?
-- Is a Store currently blocked from accepting new requests by its circuit breaker?
+## What happens when a backend fails
 
-Counters and Gauges represent these two kinds of information and require different aggregation methods. This guide describes the Posix Store and Mooncake Store probes, metric semantics, and recommended PromQL aggregation.
+Pipeline wraps each loaded stage in a `HealthBreakerStore` when health checking
+is enabled. The wrapper starts enabled and records a rolling window of probe
+results. With the defaults, two failures in the window block the stage; recovery
+requires a full window of eight successful results.
 
-## 1. Health Probes
+| Operation while blocked | Result |
+| --- | --- |
+| `Lookup` | A miss for every requested block |
+| `LookupOnPrefix` / `LookupOnReverse` | No hit (`-1`) |
+| `Prefetch` | No new prefetch is submitted |
+| `Load` / `Dump` | `StoreUnhealthy` is returned |
+| `Check` / `Wait` for an existing task | Forwarded to the underlying Store |
 
-Each UCM connector instance independently probes and maintains a circuit breaker for every Store that supports health checks. A worker Store uses a numeric `worker_rank`, while a scheduler Store uses `worker_rank="scheduler"`. Although the scheduler is not a distributed rank, it owns a Store and is therefore included in the Store count.
+Blocking new work does not cancel an already-submitted transfer. Whether a cache
+miss leads to recomputation or an error is decided by the integration and request
+path; the breaker itself does not retry inference requests.
 
-Only the following remote Stores currently implement health checks and circuit breaking. Other Stores are unaffected.
+The base `StoreV1.CheckHealth()` returns success. Posix and Mooncake override it
+with backend operations. An enabled wrapper around a stage without such an
+override is therefore not an independent check of that stage's storage service.
 
-### 1.1 Posix Store
+## Set the probe policy
 
-A Posix health probe performs a complete small-file I/O operation on every health-check path: it creates a file, writes 4 KiB of test data, synchronizes the data when required, reads and verifies the data, and finally removes the file. A failure to open, read, write, synchronize, verify, or remove the file on any path causes the probe to fail.
-
-The probe therefore validates the actual I/O path rather than only checking whether a directory exists. For a remote file system such as NFS, it can also detect mount, network, and remote-storage failures.
-
-### 1.2 Mooncake Store
-
-A Mooncake health probe uses a dedicated temporary key to perform a small Put, Get, content verification, and Remove sequence. The probe fails when the client is unavailable, an operation fails, or the returned content does not match.
-
-## 2. Health Metrics
-
-The default configuration contains six health metrics:
-
-| Metric | Type | Meaning | Update |
-| --- | --- | --- | --- |
-| `ucm:posix_healthy_count_total` | Counter | Successful Posix health probes | Incremented by 1 after a successful Posix probe |
-| `ucm:posix_unhealthy_count_total` | Counter | Failed or timed-out Posix health probes | Incremented by 1 after a failed Posix probe |
-| `ucm:posix_store_health` | Gauge | Effective Posix circuit-breaker state: 1 is available and 0 is fused | Updated at startup and after every Posix probe |
-| `ucm:mooncake_healthy_count_total` | Counter | Successful Mooncake health probes | Incremented by 1 after a successful Mooncake probe |
-| `ucm:mooncake_unhealthy_count_total` | Counter | Failed or timed-out Mooncake health probes | Incremented by 1 after a failed Mooncake probe |
-| `ucm:mooncake_store_health` | Gauge | Effective Mooncake circuit-breaker state: 1 is available and 0 is fused | Updated at startup and after every Mooncake probe |
-
-Use the Gauge to determine whether a Store is currently fused. Use both the success and failure Counters to analyze probe quality over time. There is currently no dedicated Counter for fuse or recovery transitions.
-
-Metric names distinguish Store types, while labels distinguish vLLM instances and UCM processes. Connector metrics carry `model_name`, `engine`, and `worker_rank`; Prometheus also adds `job` and `instance`. See [UCM Metrics Observability](metrics.md) for the complete label definitions.
-
-### 2.1 Synchronization Delay in Connector Mode
-
-The health threads continue to run inside UCM at their configured interval, but connector metrics are synchronized to `/metrics` only when vLLM calls `get_kv_connector_stats()`. With no inference requests, the health metrics in Prometheus do not update even if the background probe result has changed.
-
-## 3. Recommended Aggregation
-
-The examples below omit some selectors. In production, scope queries by at least `job`, `instance`, `model_name`, and `engine`, and filter `worker_rank` as needed.
-
-- Scheduler only: `worker_rank="scheduler"`
-- Workers only: `worker_rank!="scheduler"`
-- No `worker_rank` filter: include the scheduler and all workers
-
-### 3.1 View the Current State of Each Store
-
-```promql
-ucm:posix_store_health{
-  job="vllm",
-  instance="10.0.0.8:8000",
-  model_name="Qwen3-32B"
-}
-```
-
-A value of 1 means the Store corresponding to that `worker_rank` is available. A value of 0 means it is fused. This query is the most direct way to locate an unhealthy worker Store or scheduler Store.
-
-### 3.2 Count Healthy and Fused Stores
-
-Because the Gauge is either 0 or 1, use `sum` to count healthy Stores and `count - sum` to count fused Stores:
-
-```promql
-# Healthy Store count
-sum by (job, instance, model_name, engine) (
-  ucm:posix_store_health
-)
-```
-
-```promql
-# Fused Store count
-clamp_min(
-  count by (job, instance, model_name, engine) (
-    ucm:posix_store_health
-  )
-  -
-  sum by (job, instance, model_name, engine) (
-    ucm:posix_store_health
-  ),
-  0
-)
-```
-
-This is also the basic aggregation used by the health-state count panels in the bottom **Store Health Metrics** group of the vLLM dashboard. Calculate Posix and Mooncake counts separately so their states are not mixed.
-
-#### Understanding the Store Count
-
-| Deployment | Store count visible in metrics | Description |
-| --- | ---: | --- |
-| DP1, TP1 | 2 | One worker Store and one scheduler Store |
-| DP1, multiple TP ranks | `TP + 1` | TP worker Stores and one scheduler Store |
-| Multiple DP ranks | `DP × (TP + 1)` | Each DP rank creates its own worker Stores and scheduler Store |
-
-For DeepSeek V4, each worker has two actual Stores, but their states are combined in the metrics and appear as one healthy or unhealthy value.
-
-### 3.3 Calculate the Healthy Store Ratio
-
-```promql
-sum by (job, instance, model_name, engine) (
-  ucm:posix_store_health
-)
-/
-clamp_min(
-  count by (job, instance, model_name, engine) (
-    ucm:posix_store_health
-  ),
-  1
-)
-```
-
-The numerator is the number of healthy Stores, and the denominator is the total number of reported Stores. Because `posix_store_health` is either 0 or 1, this expression is equivalent to applying `avg()` to the Gauge, but “healthy count divided by total count” makes the meaning explicit. For example, if two of eight Stores are fused, the result is 0.75.
-
-Without a `worker_rank` filter, the scheduler Store is included in both the numerator and denominator. The two Stores in the DeepSeek V4/HMA/FAWA path are combined into one Gauge, so this query calculates the ratio of visible health states, not the exact health ratio of the underlying FA and WA Stores.
-
-### 3.4 Calculate the Probe Failure Ratio
-
-Aggregate successful and failed probe counts first, then calculate the ratio. Do not calculate a failure ratio for each Store and then take the arithmetic mean.
-
-```promql
-(
-  sum by (job, instance, model_name, engine) (
-    rate(ucm:posix_unhealthy_count_total[5m])
-  )
-  or
-  0 * sum by (job, instance, model_name, engine) (
-    rate({__name__=~"ucm:posix_(healthy|unhealthy)_count_total"}[5m])
-  )
-)
-/
-clamp_min(
-  sum by (job, instance, model_name, engine) (
-    rate({__name__=~"ucm:posix_(healthy|unhealthy)_count_total"}[5m])
-  ),
-  1e-12
-)
-```
-
-This expression is weighted by the number of probes. The `or 0 * ...` term supplies zero before a failure series exists, preventing a healthy Store from displaying No data. To query Mooncake, replace the `posix` prefix with `mooncake`.
-
-Use `increase()` to count failed probes over a time window:
-
-```promql
-(
-  sum by (job, instance, model_name, engine) (
-    increase(ucm:posix_unhealthy_count_total[15m])
-  )
-  or
-  0 * sum by (job, instance, model_name, engine) (
-    increase({__name__=~"ucm:posix_(healthy|unhealthy)_count_total"}[15m])
-  )
-)
-```
-
-`rate()` and `increase()` handle Counter resets caused by process restarts. Do not subtract raw Counter values or treat a Counter as the current health state.
-
-The default probe interval is 10 seconds, but connector synchronization depends on requests. For low-traffic services, use a longer window, such as 5–15 minutes, to reduce fluctuations caused by delayed synchronization and small sample counts.
-
-## 4. Multi-instance Aggregation
-
-| Monitoring goal | Recommended | Not recommended |
-| --- | --- | --- |
-| Determine whether one Store is fused | Preserve `worker_rank` and inspect the Gauge | Sum the Gauge and interpret it as a Boolean |
-| Determine whether any Store in an instance is fused | Apply `min` to the Gauge by instance | Apply `avg` and only check whether it is greater than zero |
-| Count healthy/fused Stores in an instance | Use `sum` and `count - sum` | Accumulate Gauge states over time |
-| Calculate the probe failure ratio over a window | Aggregate the Counter numerator and denominator, then divide | Calculate per-Store ratios and take their arithmetic mean |
-| Count independent physical-backend failures | Deduplicate with backend identifiers, logs, or external monitoring | Directly sum failure Counters from all Stores |
-
-To aggregate by cluster, node, or storage failure domain, add stable labels to the Prometheus target configuration:
+`store_health` belongs inside `ucm_connector_config`. For example, a small
+`Cache|Posix` configuration can explicitly set the default health policy:
 
 ```yaml
-static_configs:
-  - targets:
-      - "10.0.0.8:8000"
-    labels:
-      cluster: "production-a"
-      node: "inference-01"
-      storage_domain: "posix-cluster-a"
+ucm_connectors:
+  - ucm_connector_name: UcmPipelineStore
+    ucm_connector_config:
+      store_pipeline: "Cache|Posix"
+      storage_backends: /mnt/ucm-cache
+      cache_buffer_capacity_gb: 4
+      store_health:
+        enabled: true
+        health_check_interval_s: 10
+        health_check_timeout_s: 3
+        health_window_size: 8
+        failure_threshold: 2
+enable_metrics: true
 ```
 
-Add these labels to `by (...)`. Aggregated results are meaningful only after confirming that the selected series belong to the same failure domain. UCM does not currently derive these labels from storage paths or endpoints.
+Keep the model, mount and cache settings appropriate to your deployment; see
+[Pipeline Store](../capabilities/prefix-cache/pipeline.md). The example's 4 GiB
+cache allocation is explicit, not a default.
 
-## 5. Alerting Recommendations
+| Field | Meaning |
+| --- | --- |
+| `enabled` | Create the health wrapper and probe thread; default `true` |
+| `health_check_interval_s` | Target probe interval; default 10 seconds |
+| `health_check_timeout_s` | Probe execution deadline; default 3 seconds |
+| `health_window_size` | Number of recent results retained; default 8 |
+| `failure_threshold` | Failures needed to block new operations; default 2 |
 
-### 5.1 A Posix Circuit Breaker Remains Fused
+Numeric values must be positive, the failure threshold cannot exceed the window,
+and the timeout must be shorter than the interval. The first probe is delayed by
+one interval plus random jitter of up to another interval. The initial enabled
+state is published before that first probe; it is not evidence of a successful I/O.
+
+Setting `enabled: false` removes this protection. It does not fix a backend failure
+or turn off the backend's own error handling.
+
+## Understand what each probe exercises
+
+**Posix** checks every path selected by its storage layout. It creates a temporary
+file, writes 4096 bytes, reads and compares them, and removes the file. Buffered
+I/O also calls `Sync`; Direct I/O uses the configured direct-open flag. A failed
+open, transfer, sync, comparison or removal makes the probe fail. For an NFS-backed
+path this exercises the mounted filesystem from that UCM process.
+
+**Mooncake** writes an eight-byte test value under a dedicated key, retrieves and
+compares it, then removes it. The implementation uses the real client on the
+transfer path and the RPC client on the scheduler path. This checks the configured
+client path; it is not a test of every model's KV layout or every remote replica.
+
+Health checks produce their own small objects. Do not count those files or keys as
+proof that a request saved reusable KV data.
+
+## Inspect state before aggregating
+
+The default vLLM connector export uses these metrics:
+
+| Backend | State Gauge | Probe Counters |
+| --- | --- | --- |
+| Posix | `ucm:posix_store_health` | `ucm:posix_healthy_count_total`, `ucm:posix_unhealthy_count_total` |
+| Mooncake | `ucm:mooncake_store_health` | `ucm:mooncake_healthy_count_total`, `ucm:mooncake_unhealthy_count_total` |
+
+The Gauge is 1 while the wrapper accepts work and 0 while it is blocked. Counters
+record probe outcomes, including timeouts, rather than breaker transitions.
+A single successful probe need not change a blocked Gauge back to 1.
+
+Start with individual series and their labels:
 
 ```promql
-min by (job, instance, model_name, engine) (
-  ucm:posix_store_health
-) == 0
+ucm:posix_store_health{job="vllm"}
 ```
 
-Configure a suitable `for` duration, such as 30 seconds, so a brief observation-side fluctuation does not immediately trigger a notification. The circuit breaker already filters individual probe failures through its sliding window, so the alert delay should not replace the breaker logic.
+Then inspect failures over a recent window:
 
-### 5.2 The Probe Failure Ratio Remains High
+```promql
+increase(ucm:posix_unhealthy_count_total{job="vllm"}[5m])
+```
 
-Use the failure ratio from section 3.4 and require enough failure samples in the window. For example, alert when the failure ratio exceeds 20% over 15 minutes and there are at least three failed probes. Tune the thresholds for the Store probe interval, Store count, and service tolerance.
+These queries assume your scrape job is named `vllm`. Preserve `instance`, model,
+engine and `worker_rank` labels when locating a failure. Scheduler observations use
+`worker_rank="scheduler"`. Multiple processes can probe the same backend, and the
+exported labels do not identify every physical mount or underlying pipeline
+object; series counts are not counts of failed disks.
 
-## 6. Troubleshooting
+The native probe thread and Prometheus scrape run on different schedules. In the
+vLLM connector path, native statistics reach the exporter through
+`get_kv_connector_stats()`. Check that collection is advancing before interpreting
+a repeated value or a missing series as the current backend state.
 
-When a Gauge is 0 or a failure Counter increases:
+## Investigate and confirm recovery
 
-1. Locate the affected process by `instance`, `engine`, and `worker_rank`.
-2. Search UCM logs for `Store health check` and `transitioned to UNHEALTHY/HEALTHY`.
-3. For Posix, check mount state, directory permissions, free space, and read/write/remove operations.
-4. For Mooncake, check the client, metadata/master services, network, and Put/Get/Remove path.
-5. Confirm that requests are triggering connector metric synchronization and that the Prometheus target is UP.
-6. After the backend recovers, verify consecutive successful probes and confirm that the Gauge returns to 1.
+1. Check the scrape target and identify the affected process from the labels.
+2. Find `Store health check` failures and `transitioned to UNHEALTHY` in its log;
+   the log includes the pipeline stage identifier and probe result window.
+3. For Posix, inspect that process's mount, permissions, available capacity and
+   read/write/remove errors. For Mooncake, inspect its configured client and
+   metadata/master connectivity and the reported operation error.
+4. Restore the failed dependency, then watch successful probes replace the failing
+   window. Confirm `transitioned to HEALTHY` and the corresponding Gauge update.
+5. Separately repeat the [external-cache verification](../quick_start/quickstart_vllm.md#verify-the-service-and-external-cache).
+   Recovery of a probe does not prove recovery of a particular request's cache.
 
-Import `examples/metrics/grafana_vllm.json` in Grafana to view healthy/fused Store counts and Posix/Mooncake probe trends in the bottom **Store Health Metrics** group.
+For metric units and export paths, see [Metrics reference](metrics-reference.md).
+The policy and operation behavior are defined in
+[`StoreHealthConfig`](https://github.com/ModelEngine-Group/unified-cache-management/blob/a336d69bc03a550d44bee3df9da7664e9edfe3a7/ucm/store/pipeline/cc/store_health_config.h)
+and [`HealthBreakerStore`](https://github.com/ModelEngine-Group/unified-cache-management/blob/a336d69bc03a550d44bee3df9da7664e9edfe3a7/ucm/store/pipeline/cc/health_breaker_store.cc).

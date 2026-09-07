@@ -9,6 +9,6 @@
 | PD 分离 | 分别运行 prefill 与 decode，并在两者间传输 KV 状态 | [PD 分离](pd-disaggregation/index.md) |
 | ReRoPE | 调整旋转位置处理方式以扩展上下文 | [ReRoPE](rerope.md) |
 
-组合能力前，请先完成[安装](../installation.md)和[引擎快速开始](../quick_start/index.md)。高级示例保留原版本要求和历史结果，不代表新引擎中的所有组合都已验证。
+组合能力前，请先完成[安装](../installation.md)和[引擎快速开始](../quick_start/index.md)。各篇指南说明当前实现、所需的引擎补丁与配置，以及针对实际负载验证该能力的方法。
 
 实现边界参见[能力设计原则](../../developer-guide/capability-principles.md)。

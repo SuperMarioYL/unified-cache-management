@@ -46,17 +46,15 @@
 
 ### 推理增强能力
 
-下表列出 Sparse Attention、ReRoPE 和 CacheBlend 在特定模型与框架版本中的支持情况。
+下表说明当前代码中存在的集成路径。模型名称匹配和被补丁修改的模型类只用于确定验证入口，不代表某个模型系列已经完成硬件验收。
 
-| 模型 | GsaOn设备<br>vLLM / vLLM-Ascend 0.11.0 | ReRoPE<br>vLLM 0.11.0 | CacheBlend<br>vLLM 0.9.2 |
-|-------|:-------------------------:|:------------------------:|:---------------------:|
-| DeepSeek V3/3.1 | ✅ | ✅ | ✅ |
-| DeepSeek R1 | ✅ | ✅ | ✅ |
-| DeepSeek V3.2 | ✅ | ✅ | ✅ |
-| Qwen2.5 | ✅ | ✅ | ✅ |
-| Qwen3 | ✅ | ✅ | ✅ |
+| 实现 | 引擎集成路径 | 模型与执行边界 |
+| --- | --- | --- |
+| [GSAOnDevice](../capabilities/sparse-attention/gsa.md) | vLLM / vLLM-Ascend 0.11.0 的自动稀疏补丁 | 有 CUDA/NPU 路径；按名称为 DeepSeek R1/V2、Qwen3 4B/32B/Coder 30B A3B、QwQ 32B 选择配置；仍须检查实际模型维度和激活阈值 |
+| [CacheBlend](../capabilities/sparse-attention/cacheblend.md) | vLLM 0.11.0 的自动稀疏钩子；另有 0.9.2 手动稀疏补丁 | 实验性 CUDA 路径，依赖 `llama`/`qwen2` 前向钩子及兼容的旋转位置缓存布局；不支持 chunked prefill 或原生 HBM Prefix Cache 复用 |
+| [ReRoPE](../capabilities/rerope.md) | vLLM 0.9.2 / 0.11.0 手动补丁 | 依赖 Triton attention 和经过补丁修改的 `qwen2`/`qwen3`/`qwen3_moe` 类；不会自动启用 ReRoPE，未建立 Ascend 集成路径 |
 
-> 对应版本的使用方式参见[稀疏注意力](../capabilities/sparse-attention/index.md)和 [ReRoPE](../capabilities/rerope.md)。
+较新引擎的 Prefix Cache 支持不代表这些注意力改动也受支持。请按对应指南准备环境，并验证具体的模型、引擎、平台和负载组合。
 
 ## 计算平台与设备
 

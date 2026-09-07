@@ -1,350 +1,133 @@
-# Centralized PD Disaggregation
+# Shared-store PD Disaggregation
 
-!!! note "Migrated reference and validation scope"
-    The original page does not pin a complete UCM and engine version pair; its commands require review against the version you deploy.
-    This guide preserves the [original repository reference](https://github.com/ModelEngine-Group/unified-cache-management/blob/a336d69bc03a550d44bee3df9da7664e9edfe3a7/docs/source/user-guide/pd-disaggregation/centralized_pd.md).
-    Performance tables and example logs are historical source material, not new measurements of this documentation version.
-    Start current installations from [Installation](../../installation.md) and check the [support matrix](../../support-matrix/index.md) before adapting the recipe.
+In a shared-store setup, prefill and decode run UCM against the same external
+cache. The request first visits prefill to compute and save prompt blocks, then
+visits decode with the original prompt. Decode discovers reusable blocks by
+lookup; it does not receive a peer address from UCM.
 
+The repository's `ucm/pd/toy_proxy_server.py` demonstrates this sequencing.
+The bundled Kubernetes PD profiles use a different path, described in
+[Transport with UCM](distributed.md).
 
-## Overview
-PD disaggregation can be implemented in two architectures: centralized and distributed. This document demonstrates how to run centralized PD disaggregation using UCM. In the centralized implementation, Prefill instances store KV Cache to a storage device accessible by all compute nodes via UCM, and Decode instances load KV Cache from that storage device to the GPU via UCM. No P2P communication is required between Prefill and Decode instances.
+## Before starting
+
+Use the [vLLM quickstart](../../quick_start/quickstart_vllm.md) to validate each
+engine independently. Select the engine image or package from
+[Installation](../../installation.md). This guide supplies the shared-store
+configuration and test sequence, rather than a second set of engine launch
+flags.
+
+Both instances must have:
+
+- The same weights, tokenizer, model-directory name, dtype, block size, and
+  compatible KV layout. Start with identical tensor-parallel settings.
+- Access to the same stored objects. Equal path strings on two local disks do
+  not provide shared storage.
+- Sufficient store permissions, capacity, and read-after-write visibility for
+  decode to observe completed prefill writes.
+- Distinct engine HTTP ports and explicit device allocation. A running process
+  on the wrong device is not a second independent instance.
 
 ## 1p1d
 
-This example demonstrates how to run unified-cache-management with disaggregated prefill using PipelineStore on a single node with a 1 prefiller + 1 decoder setup.
-
-### Prerequisites
-- UCM: Installed with reference to the Installation documentation.
-- Hardware: At least 2 GPUs or 2 NPUs
-- File System: When Prefill and Decode instances run on different nodes, all nodes must mount the same shared file system (e.g., NFS)
-
-### Prepare UCM Configuration File
-
-Create a UCM configuration file (e.g., `ucm_config_example.yaml`) with PipelineStore:
+Begin with one prefill and one decode instance, keeping their UCM configuration
+identical. This example uses Pipeline Store's `Cache|Posix` path:
 
 ```yaml
 ucm_connectors:
-  - ucm_connector_name: "UcmPipelineStore"
+  - ucm_connector_name: UcmPipelineStore
     ucm_connector_config:
-      store_pipeline: "Cache|Posix"
-      storage_backends: "/mnt/test1"
+      store_pipeline: Cache|Posix
+      storage_backends: /mnt/ucm-shared
       cache_buffer_capacity_gb: 32
 enable_event_sync: true
 use_layerwise: false
 ```
 
-Key configuration parameters:
-- **storage_backends**: The shared storage directory accessible from all nodes (e.g., NFS-mounted path).
+`/mnt/ucm-shared` is a site-supplied shared mount, not a directory this example
+creates. The buffer capacity is per process and must fit the host-memory
+budget. Configure direct I/O and other backend options for the actual mount;
+see [Pipeline Store](../prefix-cache/pipeline.md).
 
-> **Note**: For more configuration options, refer to [UCM PipelineStore Documentation](../prefix-cache/pipeline.md).
+Pass this file through `UCM_CONFIG_FILE` in each engine's
+`kv_connector_extra_config`, using `UCMConnector` with `kv_role: kv_both`, as
+shown in the quickstart. Confirm both engines' `/health` and `/v1/models`
+endpoints before introducing the proxy.
 
-### Start disaggregated service
-For illustration purposes, let us take GPU as an example and assume the model used is Qwen2.5-7B-Instruct.Using ASCEND_RT_VISIBLE_DEVICES instead of CUDA_VISIBLE_DEVICES to specify visible devices when starting service on Ascend platform.
+For two already-running local engines on ports 8100 and 8200, start the example
+proxy from the repository root:
 
-#### Run prefill server
-Prefiller Launch Command:
 ```bash
-export CUDA_VISIBLE_DEVICES=0
-vllm serve /home/models/Qwen2.5-7B-Instruct \
---max-model-len 20000 \
---tensor-parallel-size 1 \
---gpu_memory_utilization 0.87 \
---trust-remote-code \
---port 7800 \
---block-size 128 \
---kv-transfer-config \
-'{
-    "kv_connector": "UCMConnector",
-    "kv_role": "kv_both",
-    "kv_connector_module_path": "ucm.integration.vllm.ucm_connector",
-    "kv_connector_extra_config": {"UCM_CONFIG_FILE": "/vllm-workspace/unified-cache-management/examples/ucm_config_example.yaml"}
-}'
+python ucm/pd/toy_proxy_server.py \
+  --pd-disaggregation \
+  --host 127.0.0.1 --port 8000 \
+  --prefiller-hosts 127.0.0.1 --prefiller-ports 8100 \
+  --decoder-hosts 127.0.0.1 --decoder-ports 8200
 ```
 
-#### Run decode server
-Decoder Launch Command:
-```bash
-export CUDA_VISIBLE_DEVICES=0
-vllm serve /home/models/Qwen2.5-7B-Instruct \
---max-model-len 20000 \
---tensor-parallel-size 1 \
---gpu_memory_utilization 0.87 \
---trust-remote-code \
---port 7801 \
---block-size 128 \
---kv-transfer-config \
-'{
-    "kv_connector": "UCMConnector",
-    "kv_role": "kv_both",
-    "kv_connector_module_path": "ucm.integration.vllm.ucm_connector",
-    "kv_connector_extra_config": {"UCM_CONFIG_FILE": "/vllm-workspace/unified-cache-management/examples/ucm_config_example.yaml"}
-}'
-```
+The proxy accepts completions and chat-completions requests. It makes a
+non-streaming prefill request with `max_tokens: 1`, waits for its HTTP response,
+and forwards the original request to decode. It gives both stages the same
+request ID. When engine authentication is enabled, configure the proxy's
+`OPENAI_API_KEY` for that engine service.
 
-#### Run proxy server
-Make sure prefill nodes and decode nodes can connect to each other.
-```bash
-cd /vllm-workspace/unified-cache-management/ucm/pd
-python3 toy_proxy_server.py --pd-disaggregation --host localhost --port 7802 --prefiller-host <prefill-node-ip> --prefiller-port 7800 --decoder-host <decode-node-ip> --decoder-port 7801
-```
+### Verify the handoff
 
-### Testing and Benchmarking
-#### Basic Test
-After running all servers , you can test with a simple curl command:
-```bash
-curl http://localhost:7802/v1/completions \
-    -H "Content-Type: application/json" \
-    -d '{
-        "model": "/home/models/Qwen2.5-7B-Instruct",
-        "prompt": "What date is today?",
-        "max_tokens": 20,
-        "temperature": 0
-    }'
-```
-#### Benchmark Test
-Use the benchmark scripts provided by vLLM.
-```bash
-vllm bench serve \
-    --backend vllm \
-    --dataset-name random \
-    --random-input-len 4096 \
-    --random-output-len 100 \
-    --num-prompts 10 \
-    --ignore-eos \
-    --model /home/models/Qwen2.5-7B-Instruct \
-    --tokenizer /home/models/Qwen2.5-7B-Instruct \
-    --host localhost \
-    --port 7802 \
-    --endpoint /v1/completions \
-    --request-rate 1
-```
+1. Use a dedicated cache directory and a prompt long enough to span several
+   configured blocks and meet any persistence threshold.
+2. Send one deterministic request through the proxy and inspect both engine
+   logs. Confirm that prefill computes and submits cache writes.
+3. Check decode's UCM hit tokens and successful loads. Compare its output with
+   an independently validated full-compute request using the same settings.
+4. Repeat with changed prompt content to confirm that unrelated prefixes do
+   not appear as full external hits.
+5. Restart both engines while retaining the cache, then repeat the original
+   request to separate external reuse from engine-memory hits.
+
+A prefill HTTP response is the proxy's sequencing point; the proxy does not
+query a storage durability receipt. UCM dump work has its own completion
+lifecycle. If decode starts before blocks are visible, the request may still
+succeed by computing a missing prefix. Measure write completion and decode
+hits before claiming that this path transfers all prompt KV through storage.
+`enable_event_sync` coordinates device events; it is not a cross-server
+commit protocol.
 
 ## 1p1d with Different Platforms
 
-This document demonstrates how to run unified-cache-management with disaggregated prefill using PipelineStore on different platforms, with a setup of one prefiller node and one decoder node.
+Establish a same-platform baseline before changing hardware or parallelism.
+Matching `dtype` alone does not prove cache compatibility. The ordinary vLLM
+connector includes tensor-parallel size and rank in its block namespace, and
+the stored representation depends on the active cache layout.
 
-If you need additional nodes to support your PD-disaggregation system, please refer to the [XpYd](#xpyd) documentation.
-
-When deploying your disaggregated PD system, please ensure the following needs:
-- Environment Variable: Using  `ASCEND_RT_VISIBLE_DEVICES` instead of `CUDA_VISIBLE_DEVICES` to specify visible devices when starting service on Ascend platform.
-- Data Type Consistency: All vLLM service instances must be configured with the same data type (`dtype`).
-
-### Prerequisites
-- UCM: Installed with reference to the Installation documentation.
-- Hardware: At least 1 GPU and 1 NPU
-- File System: When Prefill and Decode instances run on different nodes, all nodes must mount the same shared file system (e.g., NFS)
-
-### Start disaggregated service
-For illustration purposes, let us assume that the model used is Qwen2.5-7B-Instruct and the prefill platform is ascend while decode platform is cuda.
-
-#### Run prefill server
-Prefiller Launch Command:
-```bash
-export ASCEND_RT_VISIBLE_DEVICES=0
-vllm serve /home/models/Qwen2.5-7B-Instruct \
---max-model-len 20000 \
---tensor-parallel-size 1 \
---gpu_memory_utilization 0.87 \
---trust-remote-code \
---port 7800 \
---block-size 128 \
---dtype bfloat16 \
---kv-transfer-config \
-'{
-    "kv_connector": "UCMConnector",
-    "kv_role": "kv_both",
-    "kv_connector_module_path": "ucm.integration.vllm.ucm_connector",
-    "kv_connector_extra_config": {"UCM_CONFIG_FILE": "/vllm-workspace/unified-cache-management/examples/ucm_config_example.yaml"}
-}'
-```
-
-#### Run decode server
-Decoder Launch Command:
-```bash
-export CUDA_VISIBLE_DEVICES=0
-vllm serve /home/models/Qwen2.5-7B-Instruct \
---max-model-len 20000 \
---tensor-parallel-size 1 \
---gpu_memory_utilization 0.87 \
---trust-remote-code \
---port 7801 \
---block-size 128 \
---dtype bfloat16 \
---kv-transfer-config \
-'{
-    "kv_connector": "UCMConnector",
-    "kv_role": "kv_both",
-    "kv_connector_module_path": "ucm.integration.vllm.ucm_connector",
-    "kv_connector_extra_config": {"UCM_CONFIG_FILE": "/vllm-workspace/unified-cache-management/examples/ucm_config_example.yaml"}
-}'
-```
-
-#### Run proxy server
-Make sure prefill nodes and decode nodes can connect to each other.
-```bash
-cd /vllm-workspace/unified-cache-management/ucm/pd
-python3 toy_proxy_server.py --host localhost --port 7802 --prefiller-host <prefill-node-ip> --prefiller-port 7800 --decoder-host <decode-node-ip> --decoder-port 7801
-```
-
-### Testing and Benchmarking
-#### Basic Test
-After running all servers , you can test with a simple curl command:
-```bash
-curl http://localhost:7802/v1/completions \
-    -H "Content-Type: application/json" \
-    -d '{
-        "model": "/home/models/Qwen2.5-7B-Instruct",
-        "prompt": "What date is today?",
-        "max_tokens": 20,
-        "temperature": 0
-    }'
-```
-#### Benchmark Test
-Use the benchmark scripts provided by vLLM.
-```bash
-vllm bench serve \
-    --backend vllm \
-    --dataset-name random \
-    --random-input-len 4096 \
-    --random-output-len 100 \
-    --num-prompts 10 \
-    --ignore-eos \
-    --model /home/models/Qwen2.5-7B-Instruct \
-    --tokenizer /home/models/Qwen2.5-7B-Instruct \
-    --host localhost \
-    --port 7802 \
-    --endpoint /v1/completions \
-    --request-rate 1
-```
+For a heterogeneous experiment, record both engine/device-runtime versions,
+weight and tokenizer revisions, block layout, and model-path basename. Verify
+decode-side external hits and answer correctness on that exact pair. If these
+checks do not pass, use independent caches until a compatible path has been
+established; do not report the response alone as a heterogeneous KV handoff.
 
 ## XpYd
 
-This example demonstrates how to run unified-cache-management with disaggregated prefill using PipelineStore on with multiple prefiller + multiple decoder instances.
+The example proxy accepts multiple hosts and ports for each role. Host and
+port lists must have equal lengths. It selects prefill and decode independently
+in round-robin order, so every selected decode must be able to read the blocks
+written by every selected prefill.
 
-### Prerequisites
-- UCM: Installed with reference to the Installation documentation.
-- Hardware: At least 4 GPUs (At least 2 GPUs for prefiller + 2 for decoder in 2d2p setup or 2 NPUs for prefiller + 2 for decoder in 2d2p setup)
-- File System: When Prefill and Decode instances run on different nodes, all nodes must mount the same shared file system (e.g., NFS)
+Increasing replicas raises shared-store load and may lower local memory-cache
+reuse. Measure store latency and capacity alongside endpoint latency. The
+example proxy does not provide health-aware scheduling, automatic retry, or
+in-flight request recovery. For a Kubernetes deployment with a transport-aware
+router, use [the distributed path](distributed.md) and validate its different
+handoff contract.
 
-### Start disaggregated service
-For illustration purposes, let us take GPU as an example and assume the model used is Qwen2.5-7B-Instruct.Using ASCEND_RT_VISIBLE_DEVICES instead of CUDA_VISIBLE_DEVICES to specify visible devices when starting service on Ascend platform.
+## Diagnose missing reuse
 
-#### Run prefill servers
-Prefiller1 Launch Command:
-```bash
-export CUDA_VISIBLE_DEVICES=0
-vllm serve /home/models/Qwen2.5-7B-Instruct \
---max-model-len 20000 \
---tensor-parallel-size 1 \
---gpu_memory_utilization 0.87 \
---trust-remote-code \
---port 7800 \
---block-size 128 \
---kv-transfer-config \
-'{
-    "kv_connector": "UCMConnector",
-    "kv_role": "kv_both",
-    "kv_connector_module_path": "ucm.integration.vllm.ucm_connector",
-    "kv_connector_extra_config": {"UCM_CONFIG_FILE": "/vllm-workspace/unified-cache-management/examples/ucm_config_example.yaml"}
-}'
-```
+- **No writes:** check persistence thresholds, the selected connector, and
+  store errors on prefill.
+- **Writes but no decode hits:** check shared mount identity, write visibility,
+  model/cache compatibility, and decode's effective UCM configuration.
+- **Hits but failed loads:** inspect UCM load errors and backend health before
+  comparing latency.
+- **Fast response without external hits:** check engine-memory hits and the
+  amount of recomputation; latency alone cannot identify the KV path.
 
-Prefiller2 Launch Command:
-```bash
-export CUDA_VISIBLE_DEVICES=1
-vllm serve /home/models/Qwen2.5-7B-Instruct \
---max-model-len 20000 \
---tensor-parallel-size 1 \
---gpu_memory_utilization 0.87 \
---trust-remote-code \
---port 7801 \
---block-size 128 \
---kv-transfer-config \
-'{
-    "kv_connector": "UCMConnector",
-    "kv_role": "kv_both",
-    "kv_connector_module_path": "ucm.integration.vllm.ucm_connector",
-    "kv_connector_extra_config": {"UCM_CONFIG_FILE": "/vllm-workspace/unified-cache-management/examples/ucm_config_example.yaml"}
-}'
-```
-
-#### Run decode servers
-Decoder1 Launch Command:
-```bash
-export PYTHONHASHSEED=123456
-export CUDA_VISIBLE_DEVICES=2
-vllm serve /home/models/Qwen2.5-7B-Instruct \
---max-model-len 20000 \
---tensor-parallel-size 1 \
---gpu_memory_utilization 0.87 \
---trust-remote-code \
---enforce-eager \
---port 7802 \
---block-size 128 \
---kv-transfer-config \
-'{
-    "kv_connector": "UCMConnector",
-    "kv_role": "kv_both",
-    "kv_connector_module_path": "ucm.integration.vllm.ucm_connector",
-    "kv_connector_extra_config": {"UCM_CONFIG_FILE": "/vllm-workspace/unified-cache-management/examples/ucm_config_example.yaml"}
-}'
-```
-Decoder2 Launch Command:
-```bash
-export PYTHONHASHSEED=123456
-export CUDA_VISIBLE_DEVICES=3
-vllm serve /home/models/Qwen2.5-7B-Instruct \
---max-model-len 20000 \
---tensor-parallel-size 1 \
---gpu_memory_utilization 0.87 \
---trust-remote-code \
---enforce-eager \
---port 7803 \
---block-size 128 \
---kv-transfer-config \
-'{
-    "kv_connector": "UCMConnector",
-    "kv_role": "kv_both",
-    "kv_connector_module_path": "ucm.integration.vllm.ucm_connector",
-    "kv_connector_extra_config": {"UCM_CONFIG_FILE": "/vllm-workspace/unified-cache-management/examples/ucm_config_example.yaml"}
-}'
-```
-
-#### Run proxy server
-Make sure prefill nodes and decode nodes can connect to each other. the number of prefill/decode hosts should be equal to the number of prefill/decode ports.
-```bash
-cd /vllm-workspace/unified-cache-management/ucm/pd
-python3 toy_proxy_server.py --pd-disaggregation --host localhost --port 7805 --prefiller-hosts <prefill-node-ip-1> <prefill-node-ip-2> --prefiller-port 7800 7801 --decoder-hosts <decoder-node-ip-1> <decoder-node-ip-2> --decoder-ports 7802 7803
-```
-
-### Testing and Benchmarking
-#### Basic Test
-After running all servers , you can test with a simple curl command:
-```bash
-curl http://localhost:7805/v1/completions \
-    -H "Content-Type: application/json" \
-    -d '{
-        "model": "/home/models/Qwen2.5-7B-Instruct",
-        "prompt": "What date is today?",
-        "max_tokens": 20,
-        "temperature": 0
-    }'
-```
-#### Benchmark Test
-Use the benchmark scripts provided by vLLM.
-```bash
-vllm bench serve \
-    --backend vllm \
-    --dataset-name random \
-    --random-input-len 4096 \
-    --random-output-len 100 \
-    --num-prompts 10 \
-    --ignore-eos \
-    --model /home/models/Qwen2.5-7B-Instruct \
-    --tokenizer /home/models/Qwen2.5-7B-Instruct \
-    --host localhost \
-    --port 7805 \
-    --endpoint /v1/completions \
-    --request-rate 1
-```
+Use [Metrics](../../observability/metrics.md) to collect each phase separately.

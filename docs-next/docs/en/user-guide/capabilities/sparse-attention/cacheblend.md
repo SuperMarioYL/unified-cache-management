@@ -1,105 +1,112 @@
-# CacheBlend: : Fast Large Language Model Serving for RAG with Cached Knowledge Fusion
+# CacheBlend
 
-!!! note "Migrated reference and validation scope"
-    The documented compatibility baseline is vLLM 0.9.2.
-    This guide preserves the [original repository reference](https://github.com/ModelEngine-Group/unified-cache-management/blob/a336d69bc03a550d44bee3df9da7664e9edfe3a7/docs/source/user-guide/sparse-attention/cacheblend.md).
-    Performance tables and example logs are historical source material, not new measurements of this documentation version.
-    Start current installations from [Installation](../../installation.md) and check the [support matrix](../../support-matrix/index.md) before adapting the recipe.
+CacheBlend reuses KV for document chunks even when those chunks appear at a
+new position in a RAG prompt. UCM's implementation loads the cached chunks,
+corrects their rotary positions and recomputes selected tokens before
+continuing the model forward pass. Use it to experiment with repeated document
+content whose preceding context changes between requests.
 
-<div align="center" markdown>
+## Integration boundary
 
-![blend_scheme.jpg](../../../../assets/images/blend_scheme.jpg)
+This is an experimental CUDA path built from two cooperating components:
+`UCMBlendConnector` manages chunk caching and `Blend` selects recomputation
+work. Selecting `Blend` with the ordinary `UCMConnector` does not provide the
+chunk metadata that the algorithm expects.
 
-**🚀 Knowledge Cached Fusion Algorithm | 📄 EuroSys 2025 Paper**
+The repository includes manual sparse patches for vLLM 0.9.2 and 0.11.0;
+the current automatic sparse hook path targets 0.11.0. Its model-forward
+patches cover the `llama` and `qwen2` modules. The connector also accesses
+`model.model.layers[0].self_attn.rotary_emb.cos_sin_cache`. Check these paths
+for the actual model class before testing another architecture. There is no
+basis here for claiming every Llama, Qwen or DeepSeek model is supported.
 
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/ModelEngine-Group/unified-cache-management/blob/main/LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
+Blend uses CUDA NVTX and a Triton position-correction kernel. This guide does
+not establish an Ascend path. Native HBM prefix caching must be disabled:
+the connector asserts that `num_computed_tokens` is zero. Chunked prefill is
+not supported by its metadata construction; configure the scheduler so that
+the tested prompt fits in one prefill step. Begin with eager execution.
 
-</div>
+## Prepare chunk caching
 
-## 🌟 What is CacheBlend?
+Follow [Installation](../../installation.md) or
+[Build from Source](../../../developer-guide/build_from_source.md), then the
+[sparse build and import settings](index.md#engine-and-build-prerequisites).
+Keep `VLLM_HASH_ATTENTION` unset for Blend; that switch selects GSA's hash-cache
+layout. Configure `UCMBlendConnector` from
+`ucm.integration.vllm.blend_connector`, with `kv_role=kv_both`, and a real
+[Store](../prefix-cache/index.md) accessible to its workers.
 
-**CacheBlend** is a cached fusion system that combines multiple pre-computed KV caches, when their corresponding texts
-are concatenated in the LLM input. By selectively recomputing the KV cache values of a small fraction of tokens,
-CacheBlend reduces TTFT by 2.2 ~ 3.3× and increases throughput by 2.8 ~ 5× under negligible quality drop.
-### 🎯 Key Component
+The algorithm configuration sits in `kv_connector_extra_config`. This fragment
+illustrates a recomputation rule for a model exposing the named layer:
 
-- **🔍 Loading Controller**: the Loading Controller orchestrates which KV caches to load, where from, and how much recomputation is needed.
-- **⚡ KV Cache Store**: the KV Cache Store manages persistent storage, lookup, and eviction of precomputed KV caches keyed by text-chunk identity.
-- **🎛️ Cache Fusor**: the Fusor merges multiple chunk-level caches into one coherent, cross-attention–correct KV cache, using minimal recomputation.
-
-### 🔥 Key Results
-- **2.2 ~ 3.3× speedup** of TTFT and **2.8 ~ 5× increase** of throughput for long sequences
-- **Preserve High quality** no more than (1% ~ 3%) quality drop compared to full KV recompute
-
-## 🧠 Ucm Implementation
-
-### Native Block-Wise Chunk KV Cache Dump, Load, PostProcess and Recompute
-1. **🔐 Chunk Hash Encoding**: Similar as prefix hash, blend connector encode the blocks of each chunk from the same hash meta beginning.
-2. **⚡ Combine Prefix Cache and Chunk Cache**: Since chunk cache and native prefix cache share the same hash space, they can be stored and shared in a single store.When look up chunk cache, Blend connector first performs prefix cache lookup to the fully reused part and then conduct chunk cache lookup to fetch the candidate cache for blending.
-3. **🎯 Delta-Rope PostProcess**: Rectify the loaded chunk cache according to their position in the new request.
-3. **🔍 Integrate Cache Blend and First Token Generation**: Construct compute mask of the HKVD tokens, cache miss tokens and suffix tokens, then modify attention metadata to support the combination of chunk cache blending, missing cache recomputing and first token generation.
-4. **🚀 Comprehensive Hook for LLM Forward Pipeline**: Based on and extended from ucm sparse, blend sparse module reduces the input tokens for all the computation kernel, not just the attention kernel.
-
-## 🚀 Quick Start
-
-### Installation
-
-Blend is part of the UCM Sparse Attention module. For installation instructions, please refer to the [UCM's top-level README](https://github.com/ModelEngine-Group/unified-cache-management). Once UCM is installed, Blend is naturally supported by running the following example python scripts.
-Currently, Blend only supports CUDA GPUs due to missing kernel implementations on other backends.
-```bash
-export ENABLE_SPARSE=TRUE
-export DATA_DIR=/home/data/kv_cache
-export MODEL_PATH=/home/models/mistralai/Mistral-7B-Instruct-v0.2
-export BLEND_DATASET_PATH=/home/datasets/LongBench/data/2wikimqa.jsonl
-python <ucm-repo>/examples/offline_inference_blend.py
-```
-
-### Basic Usage
-Similar to UCM's `offline_inference_esa.py` examples. We only need to specify `ucm_sparse_method` to be `Blend` and specify meta config, as shown below.
-You can refer to the offline_inference_blend.py example to get started.
-```python
-...
-ktc = KVTransferConfig(
-        kv_connector=name,
-        kv_connector_module_path=module_path,
-        kv_role="kv_both",
-        kv_connector_extra_config={
-            "ucm_connectors": [
-                {
-                    "ucm_connector_name": "UcmNfsStore",
-                    "ucm_connector_config": {
-                        "storage_backends": data_dir,
-                        "use_direct": False,
-                    },
-                }
-            ],
-            "ucm_sparse_config": {
-                "Blend": {
-                    "chunk_end_token_id": chunk_end_token_id,
-                    "compute_meta": {
-                        "model.layers.1.self_attn.attn": {
-                            "ratio": 0.2,
-                        },
-                    },
-                }
-            },
-        },
-    )
-...
-```
-
-## 📊 Supported Models
-Llama-based models and Qwen-based models now are available
-
-## 🎓 Citation
-
-```bibtex
-@inproceedings{yao2025cacheblend,
-  title={CacheBlend: Fast large language model serving for RAG with cached knowledge fusion},
-  author={Yao, Jiayi and Li, Hanchen and Liu, Yuhan and Ray, Siddhant and Cheng, Yihua and Zhang, Qizheng and Du, Kuntai and Lu, Shan and Jiang, Junchen},
-  booktitle={Proceedings of the Twentieth European Conference on Computer Systems},
-  pages={94--109},
-  year={2025}
+```json
+{
+  "ucm_sparse_config": {
+    "Blend": {
+      "chunk_end_token_id": 0,
+      "compute_meta": {
+        "model.layers.1.self_attn.attn": {"ratio": 0.2}
+      }
+    }
+  }
 }
 ```
+
+Replace `0` with the delimiter ID chosen for your tokenizer and input builder;
+it is not a universal delimiter. The layer name must match an actual attention
+layer. `ratio` determines the fraction of cached candidate tokens selected for
+recomputation at that layer. The value above is an experimental starting value,
+not an accuracy guarantee.
+
+## Construct requests in the order the connector expects
+
+1. Tokenize each reusable document chunk and pad it to the engine's block
+   size. End the chunk with `chunk_end_token_id` at a block boundary. The
+   connector inspects only the last token of each block for chunk delimiters.
+2. Submit those chunks individually to populate the Store. A block-aligned
+   request ending with the delimiter takes the chunk-cache build path.
+3. Build a query from the same padded chunk token sequences followed by a
+   question suffix. Preserve token IDs and boundaries; tokenizing a concatenated
+   text string again may change the chunk identity.
+4. Submit the combined request. The connector first checks the reusable prefix,
+   then looks up chunk hashes independently of their new positions. The current
+   minimum is **16 chunk-cache hit blocks**; fewer hits take the ordinary
+   prefix-cache path instead of blending.
+
+Use the same model, tokenizer, block size and Store across population and
+querying. An `Empty` pipeline cannot provide chunk hits. Do not mix this cache
+namespace with data produced under different model or positional settings.
+
+## What happens on a hit
+
+The connector sends chunk boundaries, hit masks and position offsets to the
+worker through KV connector metadata. After loading KV, it corrects cached
+keys for their new rotary positions. `Blend` compares cached and recomputed
+keys at each configured layer and selects the tokens with the largest absolute
+key differences.
+
+The resulting compute mask includes selected cache-hit tokens, all missing
+chunk tokens and the question suffix. Attention metadata and later layer/FFN
+inputs are shortened accordingly. These intermediate tensors require the
+sparse model hooks as well as the connector; external KV loading alone does
+not perform the blend.
+
+## Verify reuse and quality
+
+- In connector logs, inspect `req_stage`, `first chunk prefix hit`, and
+  `chunks cache total hit`. Confirm a query enters `CACHE_BLEND` after
+  population and has enough chunk hits.
+- Look for `[blend-attn] reduce attn tokens from ... to ...` at a configured
+  layer. A cache-hit log without token reduction does not prove recomputation
+  selection ran.
+- Compare cold requests, repeated documents in a different order, and partial
+  cache misses with full recomputation. Check answer quality and time to first
+  token using the same tokenized inputs and decoding settings.
+- Test the intended batch and prompt sizes. A successful short example does
+  not validate chunked prefill, another model layout or another accelerator.
+
+## Implementation references
+
+- [Chunk parsing, cache lookup and position correction](https://github.com/SuperMarioYL/unified-cache-management/blob/a4fc5ab41ab100366325b0f06498a49e4af27d38/ucm/integration/vllm/blend_connector.py)
+- [Recomputation mask and model hooks](https://github.com/SuperMarioYL/unified-cache-management/blob/a4fc5ab41ab100366325b0f06498a49e4af27d38/ucm/sparse/blend/blend.py)
+- [Tokenized chunk construction example](https://github.com/SuperMarioYL/unified-cache-management/blob/a4fc5ab41ab100366325b0f06498a49e4af27d38/examples/offline_inference_blend.py)

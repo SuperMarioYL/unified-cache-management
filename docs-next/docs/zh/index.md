@@ -13,7 +13,7 @@ hide:
 
 # Unified Cache Manager
 
-**Unified Cache Manager（UCM）** 通过持久化 LLM KVCache，减少重复计算。缓存复用效果取决于重复前缀、可用容量和存储延迟。[基准测试指南](benchmark/index.md)介绍测量方法，并保留带有环境说明的历史结果。
+**Unified Cache Manager（UCM）** 通过持久化 LLM KVCache，减少重复计算。缓存复用效果取决于重复前缀、可用容量和存储延迟。[基准测试指南](benchmark/index.md)提供测量工具与实验设计，帮助区分外部缓存复用和进程内缓存命中。
 
 <div align="center" markdown>
 

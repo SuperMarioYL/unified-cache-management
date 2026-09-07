@@ -1,14 +1,24 @@
 # Pipeline Store
 
-`UcmPipelineStore` composes registered Store implementations. The common
-`Cache|Posix` pipeline moves KV data between device memory, a host-memory cache,
-and a POSIX filesystem. Its Posix stage can use local SSDs or an existing NFS
-mount; Pipeline Store is not an in-memory-only backend.
+Use `Cache|Posix` when KV blocks should survive a serving-process restart on a
+local disk or mounted filesystem, while recently accessed blocks remain in host
+memory. `Cache` owns device-to-host transfers and the host buffer; `Posix` owns
+files, lookup, and filesystem I/O. The engine still owns its device KV cache.
+
+A pipeline is selected by a registered name, not assembled from arbitrary stage
+strings. Its Python builder loads the corresponding native libraries at startup.
+For the current vLLM integration, the public entry is `UcmPipelineStore`.
 
 ## Configure Cache and Posix
 
-In a vLLM UCM YAML file, connector-wide options belong at the root and storage
-options belong in `ucm_connector_config`:
+Start from [Installation](../../installation.md), or
+[build from source](../../../developer-guide/build_from_source.md) in the target
+engine environment. This pipeline requires the `ucmpipelinestore` extension,
+`libcachestore.so`, and `libposixstore.so`. A successful package import alone does
+not show that the selected pipeline can initialize.
+
+Create a dedicated writable directory, mount it into every process that needs
+access, and save this as a UCM YAML file:
 
 ```yaml
 ucm_connectors:
@@ -20,122 +30,100 @@ ucm_connectors:
       io_direct: false
       posix_io_engine: psync
       timeout_ms: 30000
-      store_health:
-        enabled: true
-        health_check_interval_s: 10
-        health_check_timeout_s: 3
-        health_window_size: 8
-        failure_threshold: 2
 use_layerwise: true
 enable_event_sync: true
 enable_metrics: true
 ```
 
-Create the storage directory and give the serving process read, write, and
-remove access. In a container, mount the directory persistently. Pass the YAML
-path through `kv_connector_extra_config.UCM_CONFIG_FILE`, as shown in the
-[vLLM quickstart](../../quick_start/quickstart_vllm.md).
+Connect the file through `kv_connector_extra_config.UCM_CONFIG_FILE` using the
+[vLLM quickstart](../../quick_start/quickstart_vllm.md), or its
+[Ascend counterpart](../../quick_start/quickstart_vllm_ascend.md). The connector
+supplies device IDs, block sizes, and tensor layout; do not copy these values
+from a different model's Store test.
 
-The 4 GiB capacity and buffered I/O above are explicit initial-test choices.
-Native Cache Store defaults to 256 GiB; the vLLM connector supplies 128 GiB when
-shared buffers are enabled and no capacity is set. Unshared workers allocate
-independently. Shared buffers default on for MLA, and their allocation must fit
-`/dev/shm`. Size the buffer for your topology instead of treating a default as
-available memory.
+The sample uses buffered synchronous I/O to establish a filesystem baseline.
+`io_direct` defaults to `true` in the native Cache and Posix stages. Switch to
+`posix_io_engine: aio` only with `io_direct: true` and a filesystem that supports
+the resulting aligned I/O. Put `timeout_ms` inside `ucm_connector_config`; it is
+a Store task timeout, not an HTTP request timeout.
 
-`io_direct` defaults to `true` in the native Cache and Posix Stores. Enable it
-when the filesystem and I/O alignment support it; `posix_io_engine: aio`
-requires direct I/O. `timeout_ms` defaults to 30000 inside the Store config;
-placing it at YAML root does not configure Store task timeouts.
+## Budget host memory
+
+The explicit 4 GiB sample is a starting budget, not a size valid for every model.
+Cache Store requires enough space for at least
+`max(1024, 2 * cache_load_exclusive_buffer_number)` shards; the default exclusive
+buffer count is 1024. Initialization reports the minimum required GiB when the
+chosen capacity is too small.
+
+| Allocation path without an explicit capacity | Effective default |
+| --- | --- |
+| Native Cache with shared buffers | 256 GiB |
+| Native Cache with `share_buffer_enable: false` | 32 GiB per worker |
+| Current vLLM connector with shared buffers | 128 GiB |
+
+The vLLM connector defaults `share_buffer_enable` to whether the model uses MLA.
+A positive `cache_buffer_capacity_gb` overrides the native defaults. Shared
+buffers need sufficient `/dev/shm`; unshared workers allocate separately, so
+multiply their budget by the number of workers on the host. Model weights,
+device KV cache, and other host allocations remain additional costs.
 
 ## Storage capacity and health
 
-`posix_capacity_gb: 0` is the default and disables capacity-driven garbage
-collection. A positive value defines the Store's capacity budget and triggers
-GC using the configured thresholds. Plan ownership when several instances
-share the storage namespace; account for files written by all of them. The
-vLLM connector selects its DP0 scheduler as the GC owner within an instance.
-Capacity configuration does not reserve filesystem space.
+`posix_capacity_gb: 0` disables capacity-driven garbage collection. A positive
+value supplies a capacity budget; it does not reserve filesystem space. The
+vLLM connector assigns Posix GC to its DP0 scheduler. When multiple serving
+instances share a directory, account for their combined data and retain the
+Posix coordination settings unless you have validated a different ownership
+arrangement.
 
-Pipeline health probes and circuit breaking are enabled by default for Store
-stages that support health checks. The default interval is 10 seconds, timeout
-3 seconds, window 8 samples, and failure threshold 2. Posix probes perform real
-small-file I/O, so a successful probe is stronger evidence than directory
-existence, but it is not evidence of a request's KV-cache hit. See
+Pipeline health checking is enabled by default, with a 10-second interval,
+3-second timeout, 8-sample window, and failure threshold of 2. Posix implements
+a write/read/compare/remove probe. A successful probe establishes filesystem
+health; only request-level hits and completed loads establish KV reuse. See
 [Health metrics](../../observability/health-metrics.md).
 
 ## Other registered pipelines
 
-Pipeline names are registered in `ucm/store/pipeline/connector.py`; they are not
-arbitrary combinations of stage names. The registry includes Cache/Posix,
-DS3FS, compression, Mooncake, YuanRong, and test pipelines. Each requires its
-own built components and configuration. Consult the relevant
-[backend guide](index.md#storage-backends).
+| Requirement | Selection |
+| --- | --- |
+| Existing vLLM NFS connector configuration | [NFS Store](nfs.md) |
+| 3FS client I/O | [`Cache\|Ds3fs`](ds3fs.md) |
+| Smaller stored BF16 payload, with a quality tradeoff | [`Cache\|Compress\|Posix`](compress.md) |
+| Shared Mooncake memory, optionally backed by files | [`Mooncake` or `Mooncake\|Posix`](mooncake.md) |
 
-SGLang supplies its own host cache and its UCM adapter selects `Posix` directly.
-Its configuration layout is described in the
-[SGLang quickstart](../../quick_start/quickstart_sglang.md).
+SGLang already manages a host cache, so its adapter selects the `Posix` stage
+directly. Use its [quickstart](../../quick_start/quickstart_sglang.md) rather than
+passing the vLLM YAML unchanged.
 
 ## Verify writes and reads
 
-Follow the [restart-and-replay check](../../quick_start/quickstart_vllm.md#verify-the-service-and-external-cache):
-write KV blocks on the first process, keep storage, restart with the same model
-and cache geometry, then confirm external-hit tokens and Posix reads on the
-second process. Distinguish cache files from temporary health-probe files.
-Use the [configuration reference](../../../reference/config-parameters.md) for
-other Store parameters and [troubleshooting](../../../reference/troubleshooting.md)
-when the cache is not populated or reused.
+1. Start with an empty test directory and record the model revision, KV dtype,
+   parallel layout, and effective Store configuration.
+2. Run a request with a reusable prefix long enough to produce complete blocks.
+   Check that dumps complete and committed cache files appear.
+3. Restart the serving process while retaining the directory, then replay the
+   same input and cache geometry. Follow the
+   [restart-and-replay procedure](../../quick_start/quickstart_vllm.md#verify-the-service-and-external-cache).
+4. Require external-hit tokens and Posix read activity on replay. A faster
+   second request in the same process may only have hit a memory cache.
 
-## Historical performance report { #historical-performance-report }
+If replay hits host memory, `cache_load_backend_only: true` can isolate the
+backend lookup/load path for a diagnostic run. For errors, first check the
+loaded stage names, directory permissions, buffer-size message, and Posix
+health state; then use the [troubleshooting guide](../../../reference/troubleshooting.md).
 
-The following tables are retained from the original Pipeline Store guide.
-They describe its recorded models, hardware, and 80% SSD-hit workload, not
-measurements of this documentation version. The source does not pin a complete
-UCM/engine revision pair, so reproduce with an explicitly recorded environment
-before using the numbers for a deployment decision.
+## Measure the storage benefit { #historical-performance-report }
 
-Source: [original Pipeline Store report](https://github.com/ModelEngine-Group/unified-cache-management/blob/a336d69bc03a550d44bee3df9da7664e9edfe3a7/docs/source/user-guide/prefix-cache/pipeline_store.md).
+Compare uncached prefill, storage replay, and warm-memory replay separately.
+Record external-hit tokens, Posix bytes read, host memory, TTFT, and throughput
+with the same model and input set. These measurements answer whether storage
+I/O is cheaper than recomputation for your workload. The
+[benchmark guide](../../../benchmark/index.md) describes how to report that
+comparison; this page does not provide performance figures for untested hardware.
 
+## Implementation references
 
-### Overview
-The following are the multi-concurrency performance test results of UCM in the Prefix Cache scenario under a CUDA environment, showing the performance improvements of UCM.
-During the tests, HBM cache was disabled, and KV Cache was retrieved and matched only from SSD.
-
-Here, Full Compute refers to pure VLLM inference, while SSD80% indicates that after UCM pooling, the SSD hit rate of the KV cache is 80%.
-
-The following table shows the results on the QwQ-32B model(**4 x H100 GPUs**):
-
-|      **QwQ-32B** |                |                      |                |               |
-| ---------------: | -------------: | -------------------: | -------------: | :------------ |
-| **Input length** | **Concurrent** | **Full Compute (ms)** | **SSD80% (ms)** | **Speedup (%)** |
-|            4 000 |              1 |              223.05 |         156.54 | **+42.5%**   |
-|            8 000 |              1 |              350.47 |         228.27 | **+53.5%**   |
-|           16 000 |              1 |              708.94 |         349.17 | **+103.0%**  |
-|           32 000 |              1 |             1512.04 |         635.18 | **+138.0%**  |
-|            4 000 |              8 |              908.52 |         625.92 | **+45.1%**   |
-|            8 000 |              8 |             1578.72 |         955.25 | **+65.3%**   |
-|           16 000 |              8 |             3139.03 |        1647.72 | **+90.5%**   |
-|           32 000 |              8 |             6735.25 |        3025.23 | **+122.6%**  |
-|            4 000 |             16 |             1509.79 |         919.53 | **+64.2%**   |
-|            8 000 |             16 |             2602.34 |        1480.30 | **+75.8%**   |
-|           16 000 |             16 |             5732.49 |        2393.54 | **+139.5%**  |
-|           32 000 |             16 |            11891.61 |        4790.00 | **+148.3%**  |
-
-
-The following table shows the results on the DeepSeek-R1-awq model (**8 × H100 GPUs**):
-
-|**DeepSeek-R1-awq**|                |                      |                |               |
-| -----------------:| -------------: | -------------------: | -------------: | :------------ |
-| **Input length**  | **Concurrent** | **Full Compute (ms)** | **SSD80% (ms)** | **Speedup (%)** |
-|             4 000 |              1 |               429.30 |        261.34 | **+64.3%**   |
-|             8 000 |              1 |               762.23 |        363.37 | **+109.8%**  |
-|            16 000 |              1 |              1426.06 |        586.17 | **+143.3%**  |
-|            32 000 |              1 |              3086.85 |       1073.25 | **+187.6%**  |
-|             4 000 |              8 |              1823.55 |       1017.72 | **+79.2%**   |
-|             8 000 |              8 |              3214.76 |       1511.16 | **+112.7%**  |
-|            16 000 |              8 |              6417.81 |       2596.70 | **+147.2%**  |
-|            32 000 |              8 |             14278.00 |       5111.67 | **+179.3%**  |
-|             4 000 |             16 |              3205.22 |       1534.00 | **+108.9%**  |
-|             8 000 |             16 |              5813.09 |       2208.60 | **+163.2%**  |
-|            16 000 |             16 |             11752.48 |       4000.46 | **+193.8%**  |
-|            32 000 |             16 |             38643.73 |      19910.41 | **+94.1%**   |
+- `ucm/store/pipeline/connector.py` defines the registered compositions and loaded libraries.
+- `ucm/store/cache/cc/cache_store.cc` owns buffer defaults and minimum-size checks.
+- `ucm/store/posix/cc/posix_store.cc` owns filesystem configuration and health probes.
+- `ucm/integration/vllm/ucm_connector.py` supplies layout, shared-buffer defaults, and GC ownership.

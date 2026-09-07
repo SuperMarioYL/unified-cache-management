@@ -138,7 +138,7 @@ unknown store pipeline: <name>
 
 1. 用 `free -h` 检查主机内存。
 2. 用 `df -h /dev/shm` 检查共享内存。
-3. 根据主机容量显式设置 `cache_buffer_capacity_gb`。原生 Cache Store 默认为 256 GiB；未设置容量时，vLLM 共享 buffer 路径使用 128 GiB。
+3. 根据主机容量显式设置正数 `cache_buffer_capacity_gb`。省略时，原生 Cache Store 的共享 buffer 默认为 256 GiB，非共享模式默认为每个 worker 32 GiB；vLLM 共享 buffer 路径会提供 128 GiB。非共享模式需计入主机上的每个 worker。
 4. 同节点运行多个 DP 实例时，按实例数量分配容量预算。
 
 #### 错误码 -50002（OsApiError）

@@ -127,7 +127,7 @@ unknown store pipeline: <name>
 **Solution**:
 1. Check system memory: `free -h`
 2. Check shared memory: `df -h /dev/shm`
-3. Set an explicit `cache_buffer_capacity_gb` appropriate to the host. Native Cache Store defaults to 256 GiB; the vLLM shared-buffer path defaults to 128 GiB when omitted.
+3. Set a positive explicit `cache_buffer_capacity_gb` appropriate to the host. Without one, native Cache Store uses 256 GiB with shared buffers or 32 GiB per unshared worker; the vLLM shared-buffer path supplies 128 GiB. Account for every unshared worker on the host.
 4. When running multiple DP instances on one node, reduce the value proportionally
 
 #### Error Code -50002 (OsApiError)

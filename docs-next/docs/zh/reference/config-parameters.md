@@ -35,7 +35,7 @@
 | `posix_open_concurrency` | 选填 | int | 默认 `32` | `aio` 下对文件进行 open 操作的线程数。`psync` 下不感知。 |
 | `posix_commit_concurrency` | 选填 | int | 默认 `4` | `aio` 下对文件进行 rename 操作的线程数。`psync` 下不感知。 |
 | `posix_lookup_concurrency` | 选填 | int | 默认 `16` | 在挂载点中查找文件是否存在的线程数。 |
-| `cache_buffer_capacity_gb` | 选填 | int | 见配置说明 | 原生 Cache Store 默认为 256 GiB。启用共享 buffer 且未显式设置容量时，vLLM connector 会设为 128 GiB。MLA 默认启用共享 buffer；未共享的 worker 独立分配。请根据部署资源显式设置容量。 |
+| `cache_buffer_capacity_gb` | 选填 | int | 见配置说明 | 原生 Cache Store 启用共享 buffer 时默认为 256 GiB，`share_buffer_enable` 为 false 时默认为每个 worker 32 GiB。启用共享 buffer 且省略容量时，vLLM connector 会提供 128 GiB。MLA 默认启用共享 buffer。显式设置正数容量会覆盖原生默认值；非共享模式需汇总主机上所有 worker 的预算。 |
 | `cache_sdma_direct` | 选填 | bool | 依据编译环境变量决定，`PLATFORM=ascend-a3` 时默认 `true`，其他默认 `false` | 启用 SDMA H2D/D2H 传输路径，仅在 A3 设备生效，推荐关闭。 |
 | `cache_load_backend_only` | 选填 | bool | 默认 `false` | 即使在 cache 层命中还是会强制从 SSD 上加载，仅供测试使用。 |
 | `cache_io_aggregation` | 选填 | bool | 默认 `false`，仅在 `PLATFORM=ascend` 且模型为 V4 时自动开启 | 启用 IO 聚合 h2d 传输，仅在 A2 设备生效。 |

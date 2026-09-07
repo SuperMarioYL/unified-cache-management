@@ -1,43 +1,91 @@
 # Sparse Attention
 
-!!! note "Migrated reference and validation scope"
-    The original page does not pin a complete UCM and engine version pair; its commands require review against the version you deploy.
-    This guide preserves the [original repository reference](https://github.com/ModelEngine-Group/unified-cache-management/blob/a336d69bc03a550d44bee3df9da7664e9edfe3a7/docs/source/user-guide/sparse-attention/index.md).
-    Performance tables and example logs are historical source material, not new measurements of this documentation version.
-    Start current installations from [Installation](../../installation.md) and check the [support matrix](../../support-matrix/index.md) before adapting the recipe.
+UCM's sparse integration lets an algorithm change which tokens participate in
+model execution. Use it when evaluating attention selection or partial prefill
+recomputation. For reuse of an unchanged prompt prefix, start with
+[Prefix Cache](../prefix-cache/index.md).
 
-## Motivations
-Attention mechanisms, especially in LLMs, are often the bottleneck in terms of latency during inference due to their computational complexity. Despite their importance in capturing contextual relationships, traditional attention requires processing all token interactions, leading to significant delays.
+## Choose an implementation
 
-![Attention Overhead](../../../../assets/images/attention_overhead.png)
+| Task | Implementation | What it changes |
+| --- | --- | --- |
+| Reduce attention work during long-context decoding | [GSAOnDevice](gsa.md) | Selects KV blocks using query/key hashes while retaining the full device KV cache |
+| Reuse document chunks at different positions in a RAG request | [CacheBlend](cacheblend.md) | Loads chunk KV and recomputes selected tokens during prefill |
+| Develop another sparse method | `UcmSparseBase` and `UcmSparseFactory` | Scheduler, model-runner, attention, layer and FFN hooks |
 
-Researchers have found that attention in LLM is highly dispersed:
-![Attention Sparsity](../../../../assets/images/attention_sparsity.png)
+The factory registers `ESA`, `GSAOnDevice`, `KVStarMultiStep`, and `Blend`.
+The separate `GSA` registration is disabled. A source directory or a registered
+name alone does not establish a tested engine/model/platform combination.
 
-This movitates them actively developing sparse attention algorithms to address the latency issue. These algorithms aim to reduce the number of token interactions by focusing only on the most relevant parts of the input, thereby lowering the computation and memory requirements.
-While promising, the gap between theoretical prototypes and practical implementations in inference frameworks remains a significant challenge.
+## Engine and build prerequisites
 
-Many existing frameworks, like vLLM, are optimized for traditional attention mechanisms. Adapting them for sparse attention can be complex and may require substantial modifications to the underlying architecture.
-Issues such as maintaining compatibility with existing model architectures, ensuring efficient memory usage, and leveraging hardware acceleration must be addressed to facilitate the adoption of sparse attention in real-world applications.
+The automatic sparse patch path in this revision targets **vLLM 0.11.0** and
+the corresponding **vLLM-Ascend 0.11.0** integration. Newer versions handled by
+UCM's prefix-cache patches do not receive these sparse hooks.
 
-We present an **unified sparse attention framework** under UCM. Proposing a unified framework can streamline the integration of various sparse attention algorithms into inference engines like vLLM. This framework could provide **standardized interfaces and utilities** to simplify the implementation process.
-By utilizing UCM, researchers can efficiently implement rapid prototyping and testing of different sparse attention algorithms without the need for extensive re-engineering of the inference engine. By leveraging shared optimizations within the framework, it can help ensure that the performance gains from sparse attention are realized in real-world scenarios.
+Use [Installation](../../installation.md) to inspect published artifacts. For
+development, follow [Build from Source](../../../developer-guide/build_from_source.md)
+in an environment with the intended engine and accelerator toolchain. Sparse
+native extensions are optional: set `ENABLE_SPARSE=true` before the build.
+The build parser accepts the word `true` case-insensitively; `1` does not
+enable `BUILD_UCM_SPARSE` through `setup.py`.
+
+For the automatic runtime path, set both variables **before importing vLLM**:
+
+```bash
+export ENABLE_UCM_PATCH=1
+export ENABLE_SPARSE=true
+```
+
+Then select one algorithm in `kv_connector_extra_config.ucm_sparse_config`.
+For example, the GSAOnDevice selection is:
+
+```json
+{
+  "ucm_sparse_config": {
+    "GSAOnDevice": {}
+  }
+}
+```
+
+This is a fragment of the KV transfer configuration. Each algorithm page
+describes the connector and additional settings it needs. The factory selects
+the first entry, so this mapping is not an algorithm-composition interface.
 
 ## Architecture
-### Overview
-The core concept of our UCMSparse attention framework is to offload the complete Key-Value (KV) cache to a dedicated KV cache storage. We then identify the crucial KV pairs relevant to the current context, as determined by our sparse attention algorithms, and selectively load only the necessary portions of the KV cache from storage into High Bandwidth Memory (HBM). This design significantly reduces the HBM footprint while accelerating generation speed.
-![Sparse Attn Arch](../../../../assets/images/sparse_attn_arch.png)
 
+The patched scheduler and each worker initialize their own sparse agent from
+the same configuration. The scheduler asks the algorithm for its allocation
+budget and reports request creation and completion. The worker prepares
+per-step metadata from scheduler output, input batches and attention metadata,
+then invokes algorithm hooks around model execution.
 
-### Key Concepts
-- UCMSparse in scheduler:  this instance locates in the same process as the `EnginerCore` and acts like a sparse attention budget controller. It estimates the number of slots required by a specific sparse attention algorithm. Then `KVCacheManager` allocates necessary blocks based on `num_slots_sparse`. For example, `ESA` only needs 20%~30% blocks of the normal attention.
-- UCMSparse in model_runner: this instance locates in the same process as the `Worker`.
-A typical sparse attention algorithm works like this:
-    1. In prefill, it dumps full KV Cache from HBM to storage.
-    2. In decode, it retrieves the most relevant blocks based on the context and loads the blocks from storage to HBM.
-    3. In decode, it also dumps new generated blocks to keep the latest context accessible.
-- By fine-grained task scheduling, retrieval and loading can be executed asynchronously and overlap with the model execution. Therefore, benefited from less computational load and fewer memory accesses, no overhead is introduced by UCMSparse and generation speed is boosted.
+Attention hooks can replace the tensors or block tables used by an attention
+call. Layer and FFN hooks also let Blend reduce later computation to selected
+tokens. Request-finished hooks release algorithm state when requests leave the
+batch. These hooks depend on the version-specific engine patch; adding a
+configuration key to an unpatched engine does not create the execution path.
 
+Storage behavior belongs to the selected algorithm and connector. In
+particular, GSAOnDevice uses device-resident hashes and KV, whereas Blend uses
+the Store to reload document chunks. Sparse selection is not a general promise
+of KV offloading or a smaller allocation.
 
-- [GSA: Hash-Aware Top-k Attention for Scalable Large Model Inference](gsa.md)
-- [CacheBlend: : Fast Large Language Model Serving for RAG with Cached Knowledge Fusion](cacheblend.md)
+## Verify an integration
+
+1. Record the UCM revision, engine versions, model, accelerator and build
+   options. Confirm the startup log includes `UCM patching vllm for sparse`
+   and `Creating sparse method with name:` for the intended method.
+2. Run the algorithm-specific activation case. A generated response only
+   proves that inference ran; short requests, cache misses or low concurrency
+   can leave the sparse path inactive.
+3. Compare against dense execution with identical inputs, sampling settings
+   and concurrency. Measure output quality, prefill/decode latency and device
+   memory separately.
+4. Exercise request completion, repeated requests and any batching mode you
+   intend to use before treating the integration as deployable.
+
+## Implementation references
+
+- [Patch selection and runtime switches](https://github.com/SuperMarioYL/unified-cache-management/blob/a4fc5ab41ab100366325b0f06498a49e4af27d38/ucm/integration/vllm/patch/apply_patch.py)
+- [Sparse factory](https://github.com/SuperMarioYL/unified-cache-management/blob/a4fc5ab41ab100366325b0f06498a49e4af27d38/ucm/sparse/factory.py), [state initialization](https://github.com/SuperMarioYL/unified-cache-management/blob/a4fc5ab41ab100366325b0f06498a49e4af27d38/ucm/sparse/state.py) and [hook interface](https://github.com/SuperMarioYL/unified-cache-management/blob/a4fc5ab41ab100366325b0f06498a49e4af27d38/ucm/sparse/base.py)

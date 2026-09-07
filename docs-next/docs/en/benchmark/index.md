@@ -51,16 +51,20 @@ parallelism, prompt/output lengths, concurrency, and dataset or trace source.
 Report cold and warm runs separately. Keep the same generation settings and
 traffic schedule, and disclose any changed cache or storage configuration.
 
-## Historical reports
+## Evaluation guides
 
-These are source reports retained with their recorded environments. They have
-not been rerun as part of this documentation migration.
+Choose a guide by the boundary you need to measure:
 
-- [GLM-5.1 on four Atlas A3 nodes](glm-5.1-a3-4node-pd.md): recorded
-  vLLM-Ascend 0.18.0rc1 and UCM v0.17.0 PD deployment.
-- [Pipeline Store](../user-guide/capabilities/prefix-cache/pipeline.md#historical-performance-report):
-  QwQ-32B and DeepSeek-R1-AWQ with an 80% SSD-hit workload.
-- [NFS](../user-guide/capabilities/prefix-cache/nfs.md),
-  [DS3FS](../user-guide/capabilities/prefix-cache/ds3fs.md), and
-  [compression](../user-guide/capabilities/prefix-cache/compress.md):
-  backend-specific reports with the limitations recorded on each page.
+- [GLM-5.1 PD on four Ascend nodes](glm-5.1-a3-4node-pd.md): prepare a
+  model-specific topology, compare cold and externally warm runs, and record
+  correctness and client latency with a fixed hardware budget.
+- [Pipeline Store](../user-guide/capabilities/prefix-cache/pipeline.md):
+  configure the storage path and verify reusable blocks before evaluating it.
+- [Shared-store PD](../user-guide/capabilities/pd-disaggregation/centralized.md):
+  distinguish prefill write visibility from decode-side external reuse.
+- [Transport with UCM](../user-guide/capabilities/pd-disaggregation/distributed.md):
+  measure prefill prefix reuse separately from the P-to-D transport.
+
+These guides describe how to produce new evidence on the selected deployment.
+They do not supply results for hardware or model configurations that have not
+been tested in that environment.

@@ -1,232 +1,109 @@
-# GSA: Hash-Aware Top-k Attention for Scalable Large Model Inference
+# GSAOnDevice
 
-!!! note "Migrated reference and validation scope"
-    The support matrix records GsaOnDevice on vLLM / vLLM-Ascend 0.11.0; use the exact sparse implementation and build selected by its recipe.
-    This guide preserves the [original repository reference](https://github.com/ModelEngine-Group/unified-cache-management/blob/a336d69bc03a550d44bee3df9da7664e9edfe3a7/docs/source/user-guide/sparse-attention/gsa.md).
-    Performance tables and example logs are historical source material, not new measurements of this documentation version.
-    Start current installations from [Installation](../../installation.md) and check the [support matrix](../../support-matrix/index.md) before adapting the recipe.
+GSAOnDevice selects KV blocks for long-context attention using compact hashes
+of queries and keys. It retains the full KV cache on the accelerator and adds
+key-hash buffers; the selected block table limits attention work during decode.
+Use this implementation to evaluate decode latency and answer quality under a
+smaller attention budget.
 
+## Check whether the model can use it
 
-<div align="center" markdown>
+The runtime name is **`GSAOnDevice`**, with that exact capitalization. The
+separate `GSA` implementation is not registered. The active automatic patch
+path is vLLM 0.11.0, including vLLM-Ascend 0.11.0 for NPU execution.
+The constructor accepts only `cuda` and `npu` device types.
 
-![GSA Scheme](../../../../assets/images/kvcomp_scheme.jpg)
+Configuration selection uses the model name or local model path, lowercased:
 
-**🚀 Hash-Aware Sparse Attention Algorithm | 📄 ACL 2025 Paper | ⚡ NPU/GPU Hardware-Efficient**
+| Name/path contains | Configuration selected |
+| --- | --- |
+| `deepseek` and `r1` | DeepSeek R1 AWQ |
+| `deepseek` and `v2` | DeepSeek V2 Lite |
+| `qwen3` and `32b`, without `coder` | Qwen3 32B |
+| `qwen3`, `30b`, and `coder` | Qwen3 Coder 30B A3B |
+| `qwen3` and `4b` | Qwen3 4B |
+| `qwq` and `32b` | QwQ 32B |
 
-[![Paper](https://img.shields.io/badge/Paper-ACL%202025-blue)](https://github.com/ModelEngine-Group/unified-cache-management/blob/a336d69bc03a550d44bee3df9da7664e9edfe3a7/docs/source/_static/paper/kvcomp-ACL-2025-paper.pdf)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/ModelEngine-Group/unified-cache-management/blob/main/LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
+Other names raise `Unsupported model for gsa_on_device`. A matching substring
+does not verify the architecture or weights: check the selected JSON against
+the actual model's layers, attention heads and MLA dimensions. Renaming an
+unrelated model directory is not a supported-model extension.
 
-</div>
+## Prepare the execution path
 
-## 🌟 What is GSA (HATA)?
+Start from [Installation](../../installation.md) or
+[Build from Source](../../../developer-guide/build_from_source.md), and apply
+the [sparse build and import settings](index.md#engine-and-build-prerequisites).
+CUDA execution imports the compiled Hamming-distance extension; NPU execution
+imports `ucm_custom_ops` and uses its Ascend operators. Installing Python
+sources alone does not supply missing native operators.
 
-**GSA** (Geometry Sparse Attention) is a groundbreaking sparse attention algorithm that revolutionizes large language model inference through **Hash-Aware Top-k Attention**. Published at ACL 2025, our method achieves unprecedented efficiency by intelligently selecting the most relevant kv cache blocks using trainable hash-based similarity computation.
+Set `VLLM_HASH_ATTENTION=1` before importing the engine. It enables the patched
+KV allocation/registration path that carries `(kv_cache, k_hash)` together.
+Select `UCMConnector` from `ucm.integration.vllm.ucm_connector`, with
+`kv_role=kv_both`, and add this to its extra configuration:
 
-### 🎯 Key Innovations
-
-- **🔍 Hash-Aware Similarity**: Uses trainable hash functions to compute attention relevance, which is significantly faster than exact attention score $QK$ computation
-- **⚡ Hardware-Efficient**: Optimized for both CUDA and NPU architectures with specialized kernels
-- **🎛️ Adaptive Sparsity**: Layer-wise sparsity ratios that adapt to model characteristics
-- **🔄 Dynamic Retrieval**: Real-time **query-aware** block selection based on query-key similarity
-- **💾 Memory-Efficient**: Dramatically reduces KV cache HBM peak usage by leveraing UCM's offloading capability
-
-### 🔥 Key Results
-- **3-5x speedup** in attention computation for long sequences
-- **Minimal accuracy loss** (< 2%) on downstream tasks
-- **Scalable to 128K+ context lengths** with linear complexity
-
-## 🏆 Performance Highlights
-
-<div align="center" markdown>
-
-### End-to-End Performance
-![End-to-End Performance](../../../../assets/images/kvcomp_end_to_end_performance.jpg)
-
-### Single Layer Performance
-![Single Layer Performance](../../../../assets/images/kvcomp_single_layer_performance.jpg)
-
-</div>
-
-## 📈 Accuracy Benchmarks
-
-
-<div align="center" markdown>
-
-### LongBench Evaluation
-![LongBench Results](../../../../assets/images/kvcomp_longbench.jpg)
-
-</div>
-
-
-
-## 🧠 How It Works
-
-### Core Algorithm
-
-GSA operates through a sophisticated three-stage process:
-
-1. **🔐 Hash Encoding**: Convert attention keys and queries into compact hash codes
-2. **🎯 Similarity Computation**: Use efficient hash-based similarity to identify relevant blocks
-3. **📦 Selective Loading**: Load only the top-k most relevant KV blocks for attention
-
-```python
-# Simplified algorithm flow
-def gsa_attention(query, key_cache, top_k_ratio):
-    # 1. Hash encoding
-    hash_query = hash_encoder.compute_hash(query)
-    hash_keys = hash_encoder.compute_hash(key_cache)
-
-    # 2. Similarity computation
-    scores = hamming_score(hash_query, hash_keys)
-
-    # 3. Top-k selection
-    topk_blocks = torch.topk(scores, int(len(key_cache) * top_k_ratio))
-
-    # 4. Selective attention
-    return attention(query, key_cache[topk_blocks], value_cache[topk_blocks])
-```
-
-
-### 🏗️ Architecture
-
-The algorithm maintains three critical windows:
-- **Initial Window**: First few blocks (always loaded)
-- **Sparse Window**: Top-k selected blocks (dynamically chosen)
-- **Local Window**: Recent blocks (always loaded)
-
-This design ensures both **efficiency** and **accuracy** by preserving essential context while sparsifying the middle range.
-
-## 🚀 Quick Start
-
-### Offline Inference
-
-GSA is part of the UCM Sparse Attention module. For installation instructions, please refer to the [UCM's top-level README](https://github.com/ModelEngine-Group/unified-cache-management). Once UCM is installed, GSA is naturally supported by running the following example python scripts.
-
-```bash
-export ENABLE_UCM_PATCH=TRUE
-python examples/offline_inference_gsaondevice.py
-```
-
-### Online Inference
-```bash
-export VLLM_USE_V1=1
-export ENABLE_SPARSE=TRUE
-export ENABLE_UCM_PATCH=1
-export VLLM_HASH_ATTENTION=1
-export PYTHONHASHSEED=123456
-
-vllm serve <path_to_Qwen3-32B> \
---served-model-name Qwen3-32B \
---tensor-parallel-size 8 \
---gpu_memory_utilization 0.85 \
---block_size 128 \
---distributed-executor-backend mp \
---trust-remote-code \
---port 8234 \
---no-enable-prefix-caching \
---compilation-config \
-'{
-"cudagraph_mode": "PIECEWISE"
-}' \
---kv-transfer-config \
-'{
-"kv_connector": "UCMConnector",
-"kv_role": "kv_both",
-"kv_connector_module_path": "ucm.integration.vllm.ucm_connector",
-"kv_connector_extra_config": {
-    "ucm_connectors": [
-        {
-            "ucm_connector_name": "UcmPipelineStore",
-            "ucm_connector_config": {
-                "store_pipeline": "Empty",
-                "share_buffer_enable": true
-            }
-        }
-    ],
-    "ucm_sparse_config": {"GSAOnDevice": {}}
-}
-}'  > Qwen3-32B_TP8_GSAonDevice.log 2>&1 &
-```
-
-### Configuration
-GSA needs a json configuration file. We have already included several configs in `configs` folder, including Deepseek-R1-AWQ, Deepseek-v2-lite, Qwen3-4B, Qwen3-32B, Qwen3-Coder-30B-A3B and QwQ-32B.
-
-```text
+```json
 {
-    "model_name": "Qwen/Qwen3-4B",
-    "is_mla": false,
-    "hash_weight_type": "random",
-    "num_hidden_layers": 36,
-    "gpu_seq_len_threshold": 2048,
-    "gpu_concurrency_threshold": 4,
-    "npu_seq_len_threshold": 2048,
-    "npu_concurrency_threshold": 4,
-    "chunk_size": 128,
-    "chunk_repre_method": "max",
-    "head_dim": 128,
-    "hash_bits": 128,
-    "top_k_ratio_per_layer": [1, 1, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 1, 1, 1],
-    "top_k_index_reuse": [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
-    "must_select_blocks": [0, -2, -1],
-    "hash_weight": null,
-    "kv_lora_rank": null,
-    "qk_rope_head_dim": null,
-    "hash_bits_kv_lora": null,
-    "hash_bits_qk_rope": null,
-    "hash_weight_kv_lora": null,
-    "hash_weight_qk_rope": null
+  "ucm_sparse_config": {
+    "GSAOnDevice": {}
+  }
 }
 ```
 
-## 📊 Supported Models
+Configure the Store independently. For an attention-only experiment the
+repository example uses `UcmPipelineStore` with an `Empty` pipeline. That
+choice isolates attention selection; it cannot demonstrate external KV
+persistence. Use a real Store for a separate prefix-cache reuse experiment.
 
-| Model | Size | Hash Bits | Top-k Ratio | Performance Gain |
-|-------|------|-----------|-------------|------------------|
-| Qwen3-4B | 4B | 128 | 0.3 | xx |
-| Qwen3-32B | 32B | 128 | 0.3 | xx |
-| QwQ-32B | 32B | 128 | 0.3 | xx |
-| DeepSeek-R1 | 671B | 512+64 | 0.3 | xx |
+The bundled configuration is loaded from
+`ucm/sparse/gsa_on_device/configs/` in the source tree or installed package.
+There is no config-path override consumed from the empty `GSAOnDevice` mapping.
+Changing the model routing or configuration requires a controlled source
+change and a new validation run.
 
-## 🔧 Advanced Features
+## Attention budget and activation
 
+`vllm_hash_attention_topk` is the token budget used by the current runtime.
+It must be divisible by the engine block size, no larger than `max_model_len`,
+and no larger than the selected platform's sequence-length threshold.
+The Qwen3 4B JSON, for example, uses a 2,048-token budget and threshold, with
+a concurrency threshold of four qualifying requests.
 
-### Custom Hash Weights
-```python
-# Use pre-trained hash weights
-config.set_hash_weight(custom_hash_weights)
-```
+At each step, GSA counts requests whose sequence length reaches the threshold.
+Selection is enabled only when that count reaches the concurrency threshold.
+Layer skip and rollback settings further control which layers select or
+restore block tables. A low-concurrency smoke test may therefore execute
+without sparse attention even after successful initialization.
 
-### Hardware Optimization
-- **CUDA**: Optimized kernels with bit-packing, hamming score, and top-k selection
-- **NPU**: Native `npu_sign_bits_pack` operations, optimized fused kernels for hamming_dist_top_k and kv_select.
-- **CPU**: SIMD-optimized implementations
+The worker hashes keys into device buffers and derives the selected block
+tables from query hashes. Prefix-cache hits require hashes to be rebuilt from
+the loaded KV. The allocator still reserves full-context KV blocks; its hash-cache accounting
+reduces the total available block count to make room for hashes. A smaller
+top-k budget must not be used as an estimate of memory freed for other requests.
 
+### Hash weights
 
+The current `HashEncoder` initializes a random projection using QR
+decomposition. Although the configuration class has `fixed` weight fields
+and setters, `GSAOnDevice` does not pass those fields into its encoders.
+Supplying trained weights in JSON alone does not activate them. A custom-weight
+experiment must connect weight loading to encoder initialization, preserve
+shape/dtype/device requirements, and verify the loaded weights before use.
 
+## Validate a run
 
-## 🎓 Citation
+- Confirm the logged model configuration path and the `GSAOnDevice initialized`
+  GQA/MLA variant match the intended model.
+- Begin with eager execution to inspect the activation state and selected
+  block tables. Compare cases below and above both activation thresholds.
+- Compare dense and sparse output quality on the same long-context inputs;
+  record the token budget, concurrency, decode latency and allocated memory.
+- If enabling graph execution, verify capture and replay for GSA-enabled and
+  GSA-disabled batches separately. Successful eager execution does not test
+  the additional graph path.
 
-If you use GSA in your research, please cite our ACL 2025 paper:
+## Implementation references
 
-```bibtex
-@inproceedings{kvcomp2025,
-  title={HATA: Trainable and Hardware-Efficient Hash-Aware Top-k Attention for Scalable Large Model Inference},
-  author={[Ping Gong, Jiawei Yi, Shengnan Wang, Juncheng Zhang, Zewen Jin, Ouxiang Zhou, Ruibo Liu, Guanbin Xu, Youhui Bai, Bowen Ye, Kun Yuan, Tong Yang, Gong Zhang, Renhai Chen, Feng Wu, Cheng Li]},
-  booktitle={Proceedings of ACL 2025},
-  year={2025}
-}
-```
-
-## 🤝 Contributing
-
-We welcome contributions! Please see the **How to contribute** section of **Developer Guide** for details.
-
-
----
-
-<div align="center" markdown>
-
-**🌟 Star [UCM](https://github.com/ModelEngine-Group/unified-cache-management) repository if you find GSA useful!**
-
-</div>
+- [Model routing, activation, cache layout and attention hooks](https://github.com/SuperMarioYL/unified-cache-management/blob/a4fc5ab41ab100366325b0f06498a49e4af27d38/ucm/sparse/gsa_on_device/gsa_on_device.py)
+- [Bundled configurations](https://github.com/SuperMarioYL/unified-cache-management/tree/a4fc5ab41ab100366325b0f06498a49e4af27d38/ucm/sparse/gsa_on_device/configs) and [hash encoder](https://github.com/SuperMarioYL/unified-cache-management/blob/a4fc5ab41ab100366325b0f06498a49e4af27d38/ucm/sparse/gsa_on_device/hash_encoder.py)

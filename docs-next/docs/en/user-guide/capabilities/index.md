@@ -13,8 +13,8 @@ version; see the [support matrix](../support-matrix/index.md).
 
 Start with [Installation](../installation.md) and an
 [engine quickstart](../quick_start/index.md) before combining capabilities.
-Advanced recipes retain their original version requirements and historical
-results; they do not certify all combinations in a newer engine.
+Each guide explains the current implementation, required engine patches and
+configuration, and checks for validating the capability on your workload.
 
 For implementation boundaries, read
 [Capability principles](../../developer-guide/capability-principles.md).
