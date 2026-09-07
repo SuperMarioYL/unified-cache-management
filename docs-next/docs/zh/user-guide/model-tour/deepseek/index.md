@@ -1,22 +1,21 @@
 # DeepSeek-V4-Flash
 
-Run DeepSeek-V4-Flash in one Docker container with UCM Prefix Cache. Choose the
-hardware tab below; CUDA and Ascend use different weight formats. These commands
-have not been executed on accelerator hardware as part of this documentation change.
+在一个 Docker 容器中部署 DeepSeek-V4-Flash，并接入 UCM Prefix Cache。
+按硬件选择下方标签；CUDA 和 Ascend 使用不同格式的权重。
+本次文档修改未在加速卡上实跑这些命令。
 
-## Deploy
+## 部署
 
-Use Linux with Docker and a working host accelerator driver. For CUDA, install the
-NVIDIA Container Toolkit; for Ascend, ensure the host driver and device files match
-the selected runtime. Download the complete model, including its tokenizer and
-configuration, using the link in your platform tab.
+准备 Linux、Docker 和可用的宿主机加速卡驱动。CUDA 需要 NVIDIA Container Toolkit；
+Ascend 的宿主机驱动、设备文件应与所选运行时匹配。
+通过对应平台标签中的链接下载完整模型，包括 tokenizer 和配置文件。
 
-Open [Installation](../../installation.md), select **Image**, and copy the published
-UCM runtime coordinate into `UCM_IMAGE`. The commands below target vLLM **0.28.0**
-on CUDA and vLLM-Ascend **0.25.1rc0 / A2** on Ascend. Select the matching architecture
-and backend; if that combination is absent, use a release that publishes it.
+打开[安装页](../../installation.md)，选择 **Image**，将已发布的 UCM 运行时镜像坐标
+填入 `UCM_IMAGE`。下方命令分别使用 CUDA 上的 vLLM **0.28.0** 和 Ascend 上的
+vLLM-Ascend **0.25.1rc0 / A2**。同时选择匹配的架构和后端；如果当前发布没有
+该组合，请切换到提供该组合的版本。
 
-Prepare the UCM configuration on the host:
+在宿主机准备 UCM 配置：
 
 ```bash
 export UCM_WORKDIR="$PWD/ucm-deepseek-v4"
@@ -34,18 +33,17 @@ ucm_connectors:
 YAML
 ```
 
-Reserve 128 GiB of host memory for UCM, split into two 64 GiB Stores, plus memory
-for the engine and model loading. The containers allow 160 GiB of shared memory.
-Cache data stays in the mounted host directory. Run one container at a time.
+为 UCM 预留 128 GiB 主机内存，平分给两个 64 GiB Store，并为引擎和模型加载
+另留内存。容器共享内存上限设为 160 GiB，缓存保存在宿主机挂载目录中。
+下方两个容器选择一个运行，避免占用同一服务端口。
 
 === "CUDA / vLLM"
 
-    Use one node with **8 B200 or B300 GPUs**, following the official
-    [single-node TP recipe](https://github.com/vllm-project/recipes/blob/main/models/deepseek-ai/DeepSeek-V4-Flash.yaml).
-    Download [deepseek-ai/DeepSeek-V4-Flash](https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash)
-    and set `MODEL_DIR` to its absolute local directory. This is the original
-    FP4-expert/FP8 checkpoint; these commands do not cover Hopper or the separate
-    `0731`/DSpark checkpoints.
+    使用单节点 **8 张 B200 或 B300 GPU**，拓扑依据官方
+    [单节点 TP 配方](https://github.com/vllm-project/recipes/blob/main/models/deepseek-ai/DeepSeek-V4-Flash.yaml)。
+    下载 [deepseek-ai/DeepSeek-V4-Flash](https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash)，
+    将 `MODEL_DIR` 设为模型所在的绝对路径。这里使用原始 FP4 专家权重与 FP8 权重
+    混合检查点；命令不覆盖 Hopper，也不适用于单独发布的 `0731` / DSpark 检查点。
 
     ```bash
     export UCM_IMAGE='<CUDA UCM image copied from Installation>'
@@ -87,12 +85,11 @@ Cache data stays in the mounted host directory. Run one container at a time.
 
 === "Ascend A2 / vLLM-Ascend"
 
-    Use one **Atlas 800 A2 node with 8 × 64 GB NPUs** and the quantized
-    [DeepSeek-V4-Flash-w8a8-mtp weights](https://www.modelscope.cn/models/Eco-Tech/DeepSeek-V4-Flash-w8a8-mtp).
-    Set `MODEL_DIR` to their absolute local directory. The checkpoint includes an
-    MTP head; this example does not enable speculative decoding. The command uses
-    the standard device and driver paths from the
-    [Ascend deployment guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeek-V4-Flash.html).
+    使用一台 **Atlas 800 A2，配置 8 × 64 GB NPU**，下载量化后的
+    [DeepSeek-V4-Flash-w8a8-mtp 权重](https://www.modelscope.cn/models/Eco-Tech/DeepSeek-V4-Flash-w8a8-mtp)。
+    将 `MODEL_DIR` 设为模型所在的绝对路径。权重包含 MTP head，本例不启用推测解码。
+    命令采用 [Ascend 部署指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeek-V4-Flash.html)
+    中的标准设备和驱动路径。
 
     ```bash
     export UCM_IMAGE='<Ascend A2 UCM image copied from Installation>'
@@ -147,13 +144,13 @@ Cache data stays in the mounted host directory. Run one container at a time.
     docker logs -f ucm-deepseek-ascend
     ```
 
-Wait for the server to finish loading. The UCM startup log should contain
-`Init UCM FAWA connector` and the `FAWA FA` / `FAWA WA` Store configurations.
-Press Ctrl+C to leave `docker logs`; the detached container keeps running.
+等待模型加载完成。UCM 启动日志应包含 `Init UCM FAWA connector`，以及
+`FAWA FA` / `FAWA WA` 两套 Store 配置。
+按 Ctrl+C 退出 `docker logs`；后台容器会继续运行。
 
-## Call
+## 调用
 
-From the same host, check readiness and send a completion request:
+在同一宿主机检查服务就绪状态，再发送一次文本续写请求：
 
 ```bash
 curl --fail http://127.0.0.1:8000/health
@@ -168,9 +165,9 @@ curl --fail http://127.0.0.1:8000/v1/completions \
   }'
 ```
 
-`/health` returns HTTP 200 when ready. The completion response contains generated
-text in `choices[0].text` and token usage in `usage`. This short request verifies
-the API call; it does not demonstrate an external-cache hit.
+服务就绪时，`/health` 返回 HTTP 200。续写响应在 `choices[0].text` 中返回
+生成文本，在 `usage` 中返回 token 用量。这条短请求只验证 API 调用成功，
+不能证明发生了外部缓存命中。
 
-For other hardware layouts, consult the [vLLM recipe](https://recipes.vllm.ai/deepseek-ai/DeepSeek-V4-Flash)
-or the [Ascend model guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeek-V4-Flash.html).
+其他硬件拓扑可参考 [vLLM 配方](https://recipes.vllm.ai/deepseek-ai/DeepSeek-V4-Flash)
+和 [Ascend 模型指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeek-V4-Flash.html)。

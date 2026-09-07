@@ -1,22 +1,14 @@
 # Qwen3.8-27B
 
-Run [Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) in a single Docker
-container with UCM Prefix Cache. This example serves text with BF16 weights,
-an 8,192-token context and up to eight concurrent sequences.
-These example commands have not been validated on accelerator hardware.
+以下示例命令尚未在加速卡上实跑验证。
 
-## Deploy
+在单个 Docker 容器中运行 [Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B)，接入 UCM Prefix Cache。本例使用 BF16 权重，提供文本服务，上下文长度为 8,192 token，最多同时处理 8 个序列。
 
-Download the complete model into a local directory first. Use a Linux host with
-Docker and either NVIDIA Container Toolkit or the Ascend driver required by the
-selected image. The tabs below use two 80 GB CUDA GPUs or one Atlas 800 A2 node
-with eight 64 GB NPUs; these are example allocations, not minimum requirements.
+## 部署
 
-Open [Installation](../../installation.md), select **Image**, your platform and
-host architecture, and copy the full image reference into `UCM_IMAGE`. Choose a
-published vLLM **0.28.0** runtime for CUDA or vLLM-Ascend **0.25.1rc0** for
-the A2 example. The image already includes UCM; use the complete reference from the
-selector. Set `UCM_MODEL_DIR` to the downloaded model directory, then run:
+先将完整模型下载到本地目录。Linux 主机需要安装 Docker，并准备 NVIDIA Container Toolkit，或与所选镜像匹配的 Ascend 驱动。下方命令分别使用两张 80 GB CUDA GPU，或一台配有八张 64 GB NPU 的 Atlas 800 A2；这些是示例资源配置，不代表最低要求。
+
+打开[安装页](../../installation.md)，选择 **Image**、计算平台和主机架构，将完整镜像地址复制到 `UCM_IMAGE`。CUDA 示例选择已发布的 vLLM **0.28.0** 运行时，A2 示例选择 vLLM-Ascend **0.25.1rc0** 运行时。镜像已包含 UCM，直接使用选择器给出的完整地址。将 `UCM_MODEL_DIR` 改为下载的模型目录，再执行：
 
 ```bash
 export UCM_MODEL_DIR=/srv/models/Qwen3.8-27B
@@ -26,22 +18,13 @@ mkdir -p "$UCM_WORK_DIR/cache"
 docker pull "$UCM_IMAGE"
 ```
 
-Each tab writes its UCM configuration before launching Docker. `Cache` transfers
-KV between the device and host memory; `Posix` persists it in the mounted
-directory. Budget **160 GiB** of host cache memory for CUDA TP2 or **256 GiB**
-for Ascend TP8, plus engine memory. If a different engine layout reports a
-larger minimum buffer capacity during initialization, increase the configured
-capacity accordingly. Both commands use host shared memory through `--ipc=host`.
+每个标签先写入对应的 UCM 配置，再启动 Docker。`Cache` 负责设备与主机内存之间的 KV 搬运，`Posix` 将数据持久化到挂载目录。CUDA TP2 需要预留 **160 GiB** 主机缓存内存，Ascend TP8 需要预留 **256 GiB**，另外还要留出引擎内存。如果更换引擎布局后，初始化提示更大的最低缓冲容量，请按提示调大配置。两条命令通过 `--ipc=host` 使用主机共享内存。
 
-Qwen3.8-27B mixes full attention and Gated DeltaNet. Keep the hybrid KV cache
-manager enabled and use `--mamba-cache-mode align` so UCM can restore attention
-KV and the corresponding recurrent state. `use_layerwise: false` selects bulk
-loading for this initial deployment.
+Qwen3.8-27B 混合使用全注意力和 Gated DeltaNet。保留混合 KV Cache 管理器，使用 `--mamba-cache-mode align`，让 UCM 同时恢复注意力 KV 和对应的递归状态。`use_layerwise: false` 为本例选择批量加载方式。
 
 === "CUDA · vLLM"
 
-    Select the CUDA image before running this tab. Devices 0 and 1 are exposed
-    to the container; the command uses TP2.
+    执行本标签前先选择 CUDA 镜像。命令向容器开放设备 0、1，使用 TP2。
 
     ```bash
     cat > "$UCM_WORK_DIR/ucm.yaml" <<'YAML'
@@ -79,10 +62,7 @@ loading for this initial deployment.
 
 === "Ascend · vLLM-Ascend"
 
-    Select an A2-compatible image before running this tab. The command exposes
-    devices 0–7 and the host driver to the container and uses TP8. Its driver
-    paths match the Atlas 800 A2 example; A3 hosts require their corresponding
-    image and device configuration.
+    执行本标签前先选择兼容 A2 的镜像。命令向容器开放设备 0–7 和主机驱动，使用 TP8。驱动路径按 Atlas 800 A2 示例填写；A3 主机需要使用对应镜像及设备配置。
 
     ```bash
     cat > "$UCM_WORK_DIR/ucm.yaml" <<'YAML'
@@ -129,13 +109,11 @@ loading for this initial deployment.
       --kv-transfer-config '{"kv_connector":"UCMConnector","kv_connector_module_path":"ucm.integration.vllm.ucm_connector","kv_role":"kv_both","kv_connector_extra_config":{"UCM_CONFIG_FILE":"/etc/ucm/ucm.yaml"}}'
     ```
 
-Inspect startup with `docker logs -f ucm-qwen38`. After the server is ready,
-leave the log view with Ctrl-C and use the same host terminal for the call below.
+使用 `docker logs -f ucm-qwen38` 查看启动日志。服务就绪后，按 Ctrl-C 退出日志查看，在同一主机终端调用服务。
 
-## Call
+## 调用
 
-Use `curl` and `jq` on the host. `/health` should return HTTP 200; the request
-then prints `choices[0].message.content` from the JSON response.
+在主机准备 `curl` 和 `jq`。`/health` 应返回 HTTP 200；随后发送一次请求，并从 JSON 响应中读取 `choices[0].message.content`。
 
 ```bash
 curl --fail http://127.0.0.1:8000/health
@@ -152,6 +130,4 @@ curl --fail-with-body --silent --show-error \
   }' | jq -r '.choices[0].message.content'
 ```
 
-Official references: [model and weights](https://huggingface.co/Qwen/Qwen3.8-27B),
-[vLLM recipe](https://recipes.vllm.ai/Qwen/Qwen3.8-27B),
-[vLLM-Ascend recipe](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3.8-27B.html).
+官方资料：[模型与权重](https://huggingface.co/Qwen/Qwen3.8-27B)、[vLLM 配方](https://recipes.vllm.ai/Qwen/Qwen3.8-27B)、[vLLM-Ascend 配方](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3.8-27B.html)。
