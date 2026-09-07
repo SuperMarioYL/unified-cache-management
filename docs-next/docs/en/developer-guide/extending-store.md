@@ -291,4 +291,4 @@ Production-ready implementation with maximum performance and resource control.
 
 ---
 
-**Next Steps**: Once your Store is implemented, see [Prefix Cache Guide](https://ucm.readthedocs.io/en/latest/user-guide/prefix-cache/index.html) for pipeline configuration.
+**Next Steps**: Once your Store is implemented, see [Prefix Cache Guide](../user-guide/capabilities/prefix-cache/index.md) for pipeline configuration.

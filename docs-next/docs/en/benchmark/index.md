@@ -1,42 +1,66 @@
 # Benchmark
 
-Reproducible UCM benchmark methodology, tooling, and reference results. This
-page is a placeholder — populate it per the spec below.
+Measure UCM with a fixed model, engine, workload, and storage configuration.
+Report service readiness, actual external-cache reuse, and performance as
+separate results. A warm engine-memory hit is not an external-store benchmark.
 
-## What to add
+## Existing tools
 
-**Reader goal**: how much faster is UCM, and how do I reproduce the number
-myself?
+| Tool | Use | Entry point |
+| --- | --- | --- |
+| Trace Replay | Replay timestamped requests or generate a workload from a dataset; report TTFT, TPOT, ITL, throughput, and end-to-end latency | `benchmarks/trace_replay.py` and its repository README |
+| POSIX AIO | Characterize the storage path independently of model serving | [POSIX AIO guide](../toolkit/user/posix-aio.md) |
+| UCM Metrics | Correlate hits, storage reads/writes, and errors with a serving run | [Metrics](../user-guide/observability/metrics.md) |
+| Trace Mode | Record request metadata for workload analysis | [Trace Mode](../user-guide/diagnostics/trace-mode.md) |
 
-**Required content**:
+From a UCM checkout, prepare the vLLM benchmark module required by Trace Replay
+and set `BENCHMARK_PATH` to that directory. Pin it to the engine environment you
+are testing. Then run against an already-running compatible server:
 
-- **Method**: test scenario design (prefix cache hit rate, concurrency,
-  input/output length), hardware, model, framework version. Reference the test
-  design already in [GLM-5.1 4-node PD](../user-guide/model-tour/index.md).
-- **Usage**: how to run — script/command, dataset, parameters, reproduction
-  steps.
-- **Data**: standard result tables (throughput token/s, TTFT, TPOT, speedup),
-  including comparison vs the "no-UCM full compute" baseline.
-- **Comparison**: cross-comparison tables across stores / engines / models to
-  aid selection.
+```bash
+export BENCHMARK_PATH=/path/to/vllm/benchmarks
+python benchmarks/trace_replay.py \
+  --model /models/your-model \
+  --backend vllm \
+  --trace-path /data/conversation_trace.jsonl \
+  --trace-mode trace \
+  --host 127.0.0.1 \
+  --port 7800 \
+  --save-result \
+  --save-prompts
+```
 
-**Don't**:
+The script depends on vLLM benchmark APIs; consult its `--help` and the
+[Trace Replay README](https://github.com/ModelEngine-Group/unified-cache-management/blob/a336d69bc03a550d44bee3df9da7664e9edfe3a7/benchmarks/README.md)
+for supported arguments, trace format, and dependencies. The example requires
+a user-supplied trace file; it does not include a fabricated measurement.
 
-- Don't duplicate all raw data from detail pages here; this is an aggregation
-  entry that links back to them.
-- Don't mark a result "verified" unless there is a reproducible script + hardware
-  record (review line 275).
+## Compare runs
 
-**Acceptance**:
+Record the exact UCM revision, engine and device-runtime versions, model and
+tokenizer revision, hardware, storage/mount options, cache capacity, block size,
+parallelism, prompt/output lengths, concurrency, and dataset or trace source.
 
-- A reader can reproduce one result by following the page.
-- Result tables label their source and whether they are verified.
+1. Run the same workload without UCM to establish full-compute behavior.
+2. Enable UCM, populate external storage, and record cache write completion.
+3. Restart the serving processes while keeping storage and replay the workload
+   to separate external reuse from engine-memory reuse.
+4. Record external-hit tokens, load/dump activity and errors alongside latency
+   percentiles, completed requests, throughput, and answer correctness.
 
-**Owner**: _(to be assigned)_
+Report cold and warm runs separately. Keep the same generation settings and
+traffic schedule, and disclose any changed cache or storage configuration.
 
-## Reference
+## Historical reports
 
-- [GLM-5.1 4-node PD results](../user-guide/model-tour/index.md) — a
-  worked benchmark table.
-- [Compatibility](../reference/api-parameters.md) — supported models and
-  platforms.
+These are source reports retained with their recorded environments. They have
+not been rerun as part of this documentation migration.
+
+- [GLM-5.1 on four Atlas A3 nodes](glm-5.1-a3-4node-pd.md): recorded
+  vLLM-Ascend 0.18.0rc1 and UCM v0.17.0 PD deployment.
+- [Pipeline Store](../user-guide/capabilities/prefix-cache/pipeline.md#historical-performance-report):
+  QwQ-32B and DeepSeek-R1-AWQ with an 80% SSD-hit workload.
+- [NFS](../user-guide/capabilities/prefix-cache/nfs.md),
+  [DS3FS](../user-guide/capabilities/prefix-cache/ds3fs.md), and
+  [compression](../user-guide/capabilities/prefix-cache/compress.md):
+  backend-specific reports with the limitations recorded on each page.

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "preserve": [
+    "UCM",
+    "Unified Cache Manager",
+    "KV Cache",
+    "KVCache",
+    "Prefill",
+    "Decode",
+    "PD",
+    "vLLM",
+    "vLLM Ascend",
+    "SGLang",
+    "MindIE",
+    "kthena",
+    "Kubernetes",
+    "Helm",
+    "GitHub Actions"
+  ],
+  "fixed": {
+    "Prefix Cache": "前缀缓存",
+    "Support Matrix": "支持矩阵",
+    "Model Tour": "模型示例",
+    "Troubleshooting": "故障排查"
+  }
+}

@@ -509,13 +509,8 @@ def test_v093_manifest_migration_reconstructs_exact_schema8_and_pages() -> None:
     assert "release-manifest-readback.json" in steps[upload_index]["run"]
     assert "cleanup.validate_manifest" in steps[upload_index]["run"]
 
-    stable = workflow["jobs"]["publish-stable-pages"]
-    latest = workflow["jobs"]["publish-latest-pages"]
-    assert stable["uses"] == "./.github/workflows/docs-pages.yml"
-    assert stable["with"]["mode"] == "stable"
-    assert stable["with"]["replace_existing"] is False
-    assert latest["needs"] == "publish-stable-pages"
-    assert latest["with"]["mode"] == "latest"
+    assert set(workflow["jobs"]) == {"migrate-manifest"}
+    assert "docs-pages.yml" not in text
 
 
 def test_handwritten_release_notes_start_with_status() -> None:
@@ -631,6 +626,7 @@ def test_tag_entry_only_classifies_four_release_types_and_calls_one_core() -> No
         ),
         "DOCKERHUB_USERNAME": "${{ secrets.DOCKERHUB_USERNAME }}",
         "DOCKERHUB_TOKEN": "${{ secrets.DOCKERHUB_TOKEN }}",
+        "RTD_API_TOKEN": "${{ secrets.RTD_API_TOKEN }}",
     }
 
 

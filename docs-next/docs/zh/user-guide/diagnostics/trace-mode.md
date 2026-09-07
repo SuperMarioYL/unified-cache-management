@@ -63,8 +63,8 @@ use_lite: true
 
 ```bash
 export UCM_LOG_PATH=/workspace/ucm-trace-logs
-export UCM_LOG_MAX_SIZE=256      # 每文件 256 MiB
-export UCM_LOG_MAX_FILES=50     # 每进程保留最多 50 个轮转文件
+export UCM_LOG_MAX_SIZE=256      # 256 MiB per file
+export UCM_LOG_MAX_FILES=50     # keep up to 50 rotated files per process
 export UCM_LOG_LEVEL=info
 ```
 
@@ -138,5 +138,3 @@ python benchmarks/auto_trace_analysis.py \
 - **请求生命周期**：请求的块保持可重用的时间长度（平均值、P90、P95）
 
 这些指标帮助您评估 UCM 是否适合您的工作负载，以及为每个存储层分配多少容量。
-
-有关完整的文档，请参阅原始 UCM 文档中的详细 Trace 模式指南。

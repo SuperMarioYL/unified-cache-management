@@ -13,13 +13,7 @@ hide:
 
 # Unified Cache Manager
 
-**Unified Cache Manager（UCM）** 通过持久化 LLM KVCache 替换冗余计算，与 vLLM 集成后，在多轮对话、
-长上下文推理等多种场景下可实现 **3-10 倍延迟降低**。
-
-!!! note "中文站点说明"
-
-    当前中文内容为 AI 自动生成的待评审样例，技术准确性以英文版本为准。后续将通过 AI Robot 在 PR 中
-    同步生成并评审完整中文内容。
+**Unified Cache Manager（UCM）** 通过持久化 LLM KVCache，减少重复计算。缓存复用效果取决于重复前缀、可用容量和存储延迟。[基准测试指南](benchmark/index.md)介绍测量方法，并保留带有环境说明的历史结果。
 
 <div align="center" markdown>
 
@@ -80,7 +74,12 @@ hide:
 
     将 UCM 与 vLLM、vLLM Ascend、SGLang、MindIE 集成。
 
-    [:octicons-arrow-right-24: 部署](user-guide/quick_start/quickstart_vllm.md)
+    [:octicons-arrow-right-24: 部署](user-guide/quick_start/index.md)
+
+    - [vLLM](user-guide/quick_start/quickstart_vllm.md)
+    - [vLLM Ascend](user-guide/quick_start/quickstart_vllm_ascend.md)
+    - [SGLang](user-guide/quick_start/quickstart_sglang.md)
+    - [MindIE](user-guide/quick_start/quickstart_mindie_llm.md)
 
 -   :material-view-grid-plus: **兼容性矩阵**
 
@@ -150,7 +149,5 @@ hide:
 
 ## 版本兼容性
 
-| 分支 | 状态 | vLLM 版本 | vLLM-Ascend 版本 |
-| --- | --- | --- | --- |
-| `main` | 维护中 | v0.27.1 | nightly-0.26.0 |
-| `develop` | 维护中 | v0.27.1 | nightly-0.26.0 |
+集成与功能覆盖范围见[支持矩阵](user-guide/support-matrix/index.md)。
+[安装选择器](user-guide/installation.md)列出所选 Release 实际发布的引擎版本与后端组合。

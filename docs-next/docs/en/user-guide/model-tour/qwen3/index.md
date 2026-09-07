@@ -28,16 +28,12 @@ Alibaba Qwen model tutorials currently published by vLLM Ascend.
 | Qwen3-ASR-1.7B | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-ASR-1.7B.html) |
 | Qwen2.5-Math-RM-72B | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen2.5-Math-RM-72B.html) |
 
-## Serving engine
+## Enable UCM with this model
 
-=== "vLLM"
-
-    --8<-- "docs/en/user-guide/model-tour/qwen3/vllm.md"
-
-=== "vLLM Ascend"
-
-    --8<-- "docs/en/user-guide/model-tour/qwen3/ascend.md"
-
-=== "SGLang"
-
-    --8<-- "docs/en/user-guide/model-tour/qwen3/sglang.md"
+Use the official recipe above for the model's engine settings, then follow the
+[vLLM](../../quick_start/quickstart_vllm.md),
+[vLLM-Ascend](../../quick_start/quickstart_vllm_ascend.md), or
+[SGLang](../../quick_start/quickstart_sglang.md) integration guide. Confirm the
+model and feature in the [support matrix](../../support-matrix/index.md).
+An official engine tutorial establishes engine usage; it does not independently
+verify UCM external-cache behavior for that model.

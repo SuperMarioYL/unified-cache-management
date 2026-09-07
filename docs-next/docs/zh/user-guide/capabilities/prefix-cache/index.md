@@ -1,27 +1,26 @@
-# 前缀缓存 (Prefix Cache)
+# Prefix Cache
 
-## Prefix Cache：KVCache 的基础加速组件及其在大语言模型推理中的架构考量
+## 前缀缓存与大模型推理架构
 
-作为 KVCache 最简单、最基础的加速特性，前缀缓存已在业界达成广泛共识。随着大语言模型（LLM）应用范围的扩大、序列长度的增长以及 Agent 类应用的普及，前缀缓存的性能优势更加明显。
+Prefix Cache 是 KVCache 复用的基础能力。大模型应用的序列长度不断增长，多轮对话和 Agent 应用经常重复使用相同前缀，使前缀缓存具有更多复用机会。
 
-前缀缓存的核心性能指标是命中率，缓存容量与命中率之间存在直接的正相关关系。以 DeepSeek 和 Kimi 公开发布的数据为例，需要相对较大的缓存容量才能达到"命中率最佳点"。在输入/输出（IO）特性方面，前缀缓存主要需求带宽密集型 IO，非常适合存储在固态硬盘（SSD）上。
+命中率是 Prefix Cache 的核心指标。当工作负载存在重复前缀时，增加容量可以扩大复用空间，但最终效果还取决于请求路由、淘汰策略、前缀分布和存储延迟，容量本身不能保证特定命中率。前缀缓存通常需要较高的 I/O 带宽，因此可以使用 SSD 等介质存储。
 
-前缀缓存可以利用多种存储介质，包括动态随机存取存储器（DRAM）、SSD 和专用存储系统（例如 DeepSeek 的 3fs，一个专为 KVCache 开发的存储系统）。基本设计理念涉及使用 DRAM、本地 SSD 和远程存储构建**多级缓存**层次结构。
+Prefix Cache 可以使用 DRAM、SSD 和专用存储系统（例如 DeepSeek 3FS），通过主机内存、本地 SSD 与远程存储构建**多级缓存**。
 
-在实践中，这种层次结构的实现可以大致分为两种架构方向：
+实践中主要有两种架构方向：
 
-- **分布式架构**：KVCache 以隔离方式为每个推理实例部署，每个 KVCache 分区属于不同的推理实例（或服务器）。这种分布式 KVCache 部署通常与上层 KVCache 感知的亲和性调度配对。此类调度的目标是将推理请求路由到 KVCache 命中率较高的实例，从而最大化整体系统性能。
+- **分散式架构**：每个推理实例或服务器拥有独立的 KVCache 分区。通常结合上层 KVCache-aware 亲和调度，将请求路由到更可能命中缓存的实例。
+- **集中式架构**：将 KVCache 放在集中式外部存储中，由计算节点共享。DeepSeek 3FS 采用这种设计，UCM 的 Prefix Cache 也优先考虑集中共享方式。
 
-- **集中式架构**：KVCache 存储在集中式外部存储系统中，并在所有计算节点之间共享。这种架构具有固有的简单性；DeepSeek 的 3fs 采用这种设计范式，UCM 的前缀缓存模块也倾向于优先采用这种集中式方法。
+## 存储后端 {#storage-backends}
 
-## 存储后端
+| 后端 | 职责 | 指南 |
+| --- | --- | --- |
+| Pipeline Store | 组合多个阶段；`Cache\|Posix` 将主机 buffer 与持久化文件系统连接起来 | [Pipeline Store](pipeline.md) |
+| NFS Store | 旧版 NFS 后端及其原有配置；当前文件系统接入使用 `Cache\|Posix` | [NFS 参考](nfs.md) |
+| DS3FS Store | 接入 DeepSeek 3FS 存储 | [DS3FS 参考](ds3fs.md) |
+| Mooncake Store | 使用 Mooncake 内存池，可组合 Posix 持久化 | [Mooncake 参考](mooncake.md) |
+| Compress Store | 增加压缩阶段，需要评估精度影响和 CPU 开销 | [压缩参考](compress.md) |
 
-UCM 支持多种存储后端用于前缀缓存：
-
-- **Pipeline Store**：使用流水线架构的内存存储
-- **NFS Store**：基于网络文件系统的存储
-- **DS3FS Store**：DeepSeek 的 3FS 存储系统
-- **Mooncake Store**：基于 Mooncake 的存储后端
-- **Compress Store**：压缩存储，减少存储占用
-
-每个后端具有不同的性能特征，适用于不同的部署场景。根据您的性能要求、可用基础设施和成本考虑选择合适的后端。
+先阅读 [Pipeline Store](pipeline.md)和[引擎快速开始](../../quick_start/index.md)。其他后端示例保留其原有要求和性能报告；请确认后端已包含在当前 UCM 构建中，并在实际环境验证外部读写。

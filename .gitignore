@@ -57,6 +57,7 @@ logs/
 result_outputs/
 results/
 .cache/
+_readthedocs/
 backup/
 $null
 *__pycache__/

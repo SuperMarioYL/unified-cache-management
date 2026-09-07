@@ -6,7 +6,7 @@ site_description: >-
 
 repo_url: https://github.com/ModelEngine-Group/unified-cache-management
 repo_name: ModelEngine-Group/ucm
-edit_uri: edit/develop/docs-next/docs/en/
+edit_uri: edit/develop/docs-next/docs/
 
 docs_dir: docs
 
@@ -17,6 +17,10 @@ extra_css:
 extra_javascript:
   - assets/manifest.js?v=20260829-schema8-4
   - assets/install.js?v=20260829-schema8-4
+  - assets/readthedocs.js
+
+hooks:
+  - tools/hooks.py
 
 theme:
   name: material
@@ -90,8 +94,16 @@ plugins:
             Capabilities: 核心能力
             Overview: 概览
             Prefix Cache: 前缀缓存
+            Pipeline Store: 存储流水线
+            Sparse Attention: 稀疏注意力
+            PD Disaggregation: PD 分离
+            Centralized: 集中式
+            Distributed: 分布式
+            Large-scale EP: 大规模 EP
             Observability: 观测能力
             Metrics: 指标监控
+            Metrics Reference: 指标参考
+            Storage Health: 存储健康检查
             Diagnostics: 诊断工具
             Trace Mode: Trace 模式
             Developer Guide: 开发者指南
@@ -105,7 +117,6 @@ plugins:
             Benchmark: 性能测试
             Toolkit: 工具集
             KV Cache Calculator: KV Cache 计算器
-            User Guide: 用户指南
             Precheck: 环境预检
             POSIX AIO: 带宽模拟
             Metrics View: 指标监控
@@ -152,8 +163,6 @@ extra:
       link: https://github.com/ModelEngine-Group/unified-cache-management
     - icon: fontawesome/brands/docker
       link: https://github.com/ModelEngine-Group/unified-cache-management/pkgs/container/unified-cache-manager
-  version:
-    provider: mike
 
 nav:
   - Home: index.md
@@ -188,10 +197,28 @@ nav:
               - user-guide/model-tour/kimi/index.md
       - Capabilities:
           - Overview: user-guide/capabilities/index.md
-          - Prefix Cache: user-guide/capabilities/prefix-cache/index.md
+          - Prefix Cache:
+              - Overview: user-guide/capabilities/prefix-cache/index.md
+              - Pipeline Store: user-guide/capabilities/prefix-cache/pipeline.md
+              - NFS: user-guide/capabilities/prefix-cache/nfs.md
+              - DS3FS: user-guide/capabilities/prefix-cache/ds3fs.md
+              - Mooncake: user-guide/capabilities/prefix-cache/mooncake.md
+              - Compress: user-guide/capabilities/prefix-cache/compress.md
+          - Sparse Attention:
+              - Overview: user-guide/capabilities/sparse-attention/index.md
+              - GSA: user-guide/capabilities/sparse-attention/gsa.md
+              - CacheBlend: user-guide/capabilities/sparse-attention/cacheblend.md
+          - PD Disaggregation:
+              - Overview: user-guide/capabilities/pd-disaggregation/index.md
+              - Centralized: user-guide/capabilities/pd-disaggregation/centralized.md
+              - Distributed: user-guide/capabilities/pd-disaggregation/distributed.md
+              - Large-scale EP: user-guide/capabilities/pd-disaggregation/large-scale-ep.md
+          - ReRoPE: user-guide/capabilities/rerope.md
       - Observability:
           - Overview: user-guide/observability/index.md
           - Metrics: user-guide/observability/metrics.md
+          - Storage Health: user-guide/observability/health-metrics.md
+          - Metrics Reference: user-guide/observability/metrics-reference.md
       - Diagnostics:
           - Overview: user-guide/diagnostics/index.md
           - Trace Mode: user-guide/diagnostics/trace-mode.md
@@ -207,7 +234,9 @@ nav:
       - API & Parameters: reference/api-parameters.md
       - Configuration Parameters: reference/config-parameters.md
       - Troubleshooting: reference/troubleshooting.md
-  - Benchmark: benchmark/index.md
+  - Benchmark:
+      - Overview: benchmark/index.md
+      - GLM-5.1 historical case: benchmark/glm-5.1-a3-4node-pd.md
   - Toolkit:
       - toolkit/index.md
       - KV Cache Calculator: toolkit/kv-cache-calculator.md

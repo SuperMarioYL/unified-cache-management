@@ -222,31 +222,3 @@ jobs:
           path: out/release/
           if-no-files-found: error
           retention-days: 90
-
-  publish-stable-pages:
-    name: Publish migrated Stable documentation
-    needs: migrate-manifest
-    if: >-
-      ${{
-        needs.migrate-manifest.outputs.migrated == 'true' &&
-        vars.UCM_PAGES_ENABLED == 'true'
-      }}
-    permissions:
-      contents: write
-    uses: ./.github/workflows/docs-pages.yml
-    with:
-      mode: stable
-      source_ref: ${{ github.sha }}
-      release_tag: ${{ needs.migrate-manifest.outputs.release_tag }}
-      replace_existing: false
-
-  publish-latest-pages:
-    name: Publish latest from Schema 8
-    needs: publish-stable-pages
-    permissions:
-      contents: write
-    uses: ./.github/workflows/docs-pages.yml
-    with:
-      mode: latest
-      source_ref: ${{ github.sha }}
-      release_tag: ""

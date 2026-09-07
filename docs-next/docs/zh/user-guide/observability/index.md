@@ -1,13 +1,18 @@
-# 观测能力
+# 可观测性
 
-UCM 提供全面的观测能力，用于监控和分析 KV 缓存管理系统的性能。
+通过 UCM 指标监控和分析 KV cache 的运行情况。
 
-## 核心特性
+## 主要能力
 
-- **Prometheus 指标**：通过 vLLM connector 导出详细指标
-- **Grafana 仪表板**：预置的可视化仪表板
-- **实时监控**：追踪缓存命中率、延迟、吞吐量等关键指标
+- **Prometheus 指标**：通过 vLLM connector 导出详细指标。
+- **Grafana 仪表盘**：使用现有仪表盘查看指标趋势。
+- **运行监控**：跟踪缓存命中率、延迟和吞吐量。
 
-## 相关文档
+## 使用指南
 
-- **[指标监控](metrics.md)**：使用 Prometheus 和 Grafana 配置 UCM 指标的完整指南
+- [指标](metrics.md)：配置 UCM 指标、Prometheus 和 Grafana。
+
+## 参考
+
+- [指标定义](metrics-reference.md)：指标目录及说明。
+- [健康指标](health-metrics.md)：Store 探测计数与熔断器状态。

@@ -6,9 +6,9 @@ As the simplest and most fundamental acceleration feature of KVCache, Prefix Cac
 With the expanding application scope of large language models (LLMs), the growth of sequence lengths, and the
 proliferation of Agent-based applications, the performance gains of Prefix Cache become even more pronounced.
 
-The core performance metric of Prefix Cache is the hit rate, and there exists a direct positive correlation between
-cache capacity and hit rate. Taking the publicly released data from DeepSeek and Kimi as examples, a relatively large
-cache capacity is required to reach the "hit rate sweet spot". In terms of input/output (IO) characteristics, Prefix
+The core performance metric of Prefix Cache is the hit rate, and capacity can improve reuse when the workload contains repeated prefixes.
+The result depends on request routing, eviction, prefix distribution, and storage latency;
+capacity alone does not guarantee a particular hit rate. In terms of input/output (IO) characteristics, Prefix
 Cache primarily demands bandwidth-intensive IO, making it well-suited for storage on Solid-State Drives (SSDs).
 
 Prefix Cache can leverage diverse storage media, including Dynamic Random-Access Memory (DRAM), SSDs, and dedicated
@@ -28,13 +28,15 @@ In practice, the implementation of this hierarchy can be roughly categorized int
 
 ## Storage Backends
 
-UCM supports multiple storage backends for Prefix Cache:
+| Backend | Role | Guide |
+| --- | --- | --- |
+| Pipeline Store | Composes stages; `Cache\|Posix` combines host buffering with persistent filesystem storage | [Pipeline Store](pipeline.md) |
+| NFS Store | Legacy NFS backend and its original recipe; use `Cache\|Posix` for the current filesystem path | [NFS reference](nfs.md) |
+| DS3FS Store | Integrates DeepSeek 3FS storage | [DS3FS reference](ds3fs.md) |
+| Mooncake Store | Uses a Mooncake memory pool, optionally with Posix persistence | [Mooncake reference](mooncake.md) |
+| Compress Store | Adds a compression stage with its own quality and CPU-cost considerations | [Compression reference](compress.md) |
 
-- **Pipeline Store**: In-memory storage using pipeline architecture
-- **NFS Store**: Network File System based storage
-- **DS3FS Store**: DeepSeek's 3FS storage system
-- **Mooncake Store**: Mooncake-based storage backend
-- **Compress Store**: Compressed storage for reduced footprint
-
-Each backend has different performance characteristics and is suitable for different deployment scenarios. Choose the
-appropriate backend based on your performance requirements, available infrastructure, and cost considerations.
+Start with [Pipeline Store](pipeline.md) and the
+[engine quickstart](../../quick_start/index.md). The other recipes retain their
+original requirements and reported performance; choose only a backend present
+in your UCM build and verify external reads and writes in your environment.

@@ -1,4 +1,4 @@
-# 原生UCM方案参数
+# UCM 配置参数
 
 ---
 
@@ -11,7 +11,6 @@
 | `use_layerwise` | 选填 | bool | 默认 `true` | 是否启用分层（逐层）加载和保存模式。推荐设置为 `true`，DeepSeek v4 系列模型推荐设置为 `false`。 |
 | `enable_event_sync` | 选填 | bool | 默认 `true` | 性能优化开关，推荐开启。 |
 | `persist_token_threshold` | 选填 | int | `0` | 当请求长度小于 `persist_token_threshold` 时，UCM 软件不对该请求进行处理。 |
-| `timeout_ms` | 选填 | int | >0，默认 `30000` | 显存和 DRAM/SHM 之间的拷贝以及读写盘的超时时间（单位：ms）。 |
 | `wa_dump_block_wise` | 选填 | bool | `true` | 仅在 FAWA connector 中使用。`true`: 每个 block 的 WA cache 都会被 dump（高频 dump）；`false`: 只 dump 每个 chunk prefill 最后 block 的 WA cache（低频 dump）。 |
 | `load_tokens_threshold` | 选填 | int | `0` | 设置触发 KV cache 加载的最小 token 阈值，仅在 DeepSeek V4 系列模型生效。当外部命中 tokens 数 > `load_tokens_threshold` 时触发 KV Cache 加载。 |
 | `enable_record_traces` | 选填 | bool | `false` | 用来记录请求信息（时间戳，输入长度，输出长度等信息）。 |
@@ -27,7 +26,8 @@
 
 | 配置项 | 是否必填 | 取值类型 | 取值范围 | 配置说明 |
 |---|---|---|---|---|
-| `store_pipeline` | 选填 | string | 见下方可选值 | 管线名称，决定 Cache 与 Store 的组合方式。默认使用 `Cache\|Posix`。 |
+| `store_pipeline` | **Pipeline Store 必填** | string | 见下方可选值 | 已注册的管线名称；在 vLLM YAML 中显式设置。SGLang 适配器会选择 `Posix`。 |
+| `timeout_ms` | 选填 | int | 默认 `30000` | 缓存传输与 Posix I/O 任务的超时时间（毫秒）。配置在 `ucm_connector_config` 内，不能放在 YAML 根节点。 |
 | `storage_backends` | **必填** | string | 自行配置，多个挂载点用冒号隔开 | 填写本地目录或者挂载点，如果有多个挂载点需要用冒号隔开。 |
 | `io_direct` | 选填 | bool | 默认 `true` | 是否启用直接 IO 模式（绕过操作系统页缓存）。`false`: 使用 PageCache；`true`: 跳过 PageCache，直接 IO。 |
 | `posix_io_engine` | 选填 | string | 默认 `psync` | 文件 IO 模式。`psync`：同步 io；`aio`：异步 io，要求 `io_direct` 配置为 `true`。 |
@@ -35,7 +35,7 @@
 | `posix_open_concurrency` | 选填 | int | 默认 `32` | `aio` 下对文件进行 open 操作的线程数。`psync` 下不感知。 |
 | `posix_commit_concurrency` | 选填 | int | 默认 `4` | `aio` 下对文件进行 rename 操作的线程数。`psync` 下不感知。 |
 | `posix_lookup_concurrency` | 选填 | int | 默认 `16` | 在挂载点中查找文件是否存在的线程数。 |
-| `cache_buffer_capacity_gb` | 选填 | int | 见配置说明 | 对于 GQA，默认值是每张卡会占 32GB DRAM 内存。对于 MLA，默认值是单机会占 128GB 的 shm 空间。目前建议全部使用默认值。 |
+| `cache_buffer_capacity_gb` | 选填 | int | 见配置说明 | 原生 Cache Store 默认为 256 GiB。启用共享 buffer 且未显式设置容量时，vLLM connector 会设为 128 GiB。MLA 默认启用共享 buffer；未共享的 worker 独立分配。请根据部署资源显式设置容量。 |
 | `cache_sdma_direct` | 选填 | bool | 依据编译环境变量决定，`PLATFORM=ascend-a3` 时默认 `true`，其他默认 `false` | 启用 SDMA H2D/D2H 传输路径，仅在 A3 设备生效，推荐关闭。 |
 | `cache_load_backend_only` | 选填 | bool | 默认 `false` | 即使在 cache 层命中还是会强制从 SSD 上加载，仅供测试使用。 |
 | `cache_io_aggregation` | 选填 | bool | 默认 `false`，仅在 `PLATFORM=ascend` 且模型为 V4 时自动开启 | 启用 IO 聚合 h2d 传输，仅在 A2 设备生效。 |
@@ -65,7 +65,7 @@
 | `YuanRong\|Posix` | 对接 YuanRong 内存池并支持落盘 |
 
 !!! note "storage_backends 须知"
-    若 `storage_backends` 参数填写挂载的文件系统，则不可设置 `posix_capacity_gb`。
+    只有负责该存储命名空间垃圾回收的实例才能设置容量。挂载文件系统本身并不排斥 GC；需要协调多实例的回收归属，并按实际文件系统容量设定上限。
 
 ---
 
@@ -75,10 +75,10 @@
 
 | 配置项 | 是否必填 | 取值类型 | 取值范围 | 配置说明 |
 |---|---|---|---|---|
-| `enabled` | 选填 | bool | 默认 `false` | 存储隔离机制总开关。开启后给磁盘 KV 缓存增加故障熔断器，磁盘读写频繁超时/报错时自动切断存储。 |
-| `health_check_interval_s` | 选填 | int | 默认 `5` | 缓存磁盘健康巡检周期（秒）。必须 >0 且 > `health_check_timeout_s`。 |
-| `health_check_timeout_s` | 选填 | int | 默认 `3` | 单次探测超时时间（秒）。必须 >0 且 < `health_check_interval_s`。 |
+| `enabled` | 选填 | bool | 默认 `true` | 存储隔离机制总开关。开启后给磁盘 KV 缓存增加故障熔断器，磁盘读写频繁超时/报错时自动切断存储。 |
+| `health_check_interval_s` | 选填 | number | 默认 `10` | 缓存磁盘健康巡检周期（秒）。必须 >0 且 > `health_check_timeout_s`。 |
+| `health_check_timeout_s` | 选填 | number | 默认 `3` | 单次探测超时时间（秒）。必须 >0 且 < `health_check_interval_s`。 |
 | `health_window_size` | 选填 | int | 默认 `8` | 故障统计窗口长度。必须为正整数且 >= `failure_threshold`。 |
 | `failure_threshold` | 选填 | int | 默认 `2` | 故障触发阈值。必须为正整数且 <= `health_window_size`。 |
 
-
+这些默认值来自 `ucm/store/cache/cc/global_config.h`、`ucm/store/posix/cc/global_config.h` 和 `ucm/store/pipeline/cc/store_health_config.h`。vLLM connector 在构造 Store 前应用共享 buffer 容量覆盖。完整示例参见 [Pipeline Store](../user-guide/capabilities/prefix-cache/pipeline.md)；探测行为和熔断器状态参见[健康指标](../user-guide/observability/health-metrics.md)。

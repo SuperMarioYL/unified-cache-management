@@ -1,6 +1,9 @@
 # Installation
 
-Choose only from artifacts published for this documentation version. Changing
+Choose from the completed release identified by this page. Tagged documentation
+uses its matching release; latest and PR previews use the latest eligible stable
+release from the same repository. The selector shows the actual install version.
+Changing
 an option selects the first valid published combination and produces one exact
 install command. Use the site version menu to switch UCM releases.
 
@@ -25,4 +28,4 @@ backend extra. Backend extras share the same `ucm` import namespace.
 - [vLLM on CUDA](quick_start/quickstart_vllm.md)
 - [vLLM-Ascend on NPU](quick_start/quickstart_vllm_ascend.md)
 - [Kubernetes deployment](frameworks/kubernetes.md)
-- [Build from source](../../developer-guide/build_from_source.md)
+- [Build from source](../developer-guide/build_from_source.md)

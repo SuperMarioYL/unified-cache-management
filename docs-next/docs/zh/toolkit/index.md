@@ -6,11 +6,12 @@
 
 | 工具 | 别名 | 类型 | 功能 | 详细文档 |
 | --- | --- | --- | --- | --- |
-| `dev-sandbox` | `dev_sandbox` | 需构建、可运行 | 测量主机内存到设备显存的拷贝带宽及磁盘 AIO 吞吐（C++ 测试程序，使用前需先构建），包含 `copy`、`trans`、`aio` 三个子功能。 | [dev-sandbox 文档](user/dev-sandbox.md) |
-| `posix-aio` | `posix_aio` | 可运行 | 运行 `ucm/store/test/e2e/posixstore_aio_test.py`，测试 POSIX AIO store 的 dump/load 性能。 | [posix-aio 文档](user/posix-aio.md) |
-| `nic-monitor` | `nic_monitor` | 可运行 | 监控物理网卡实时流量、后台采样落盘，并生成阶段统计。 | [nic-monitor 文档](user/nic-monitor.md) |
-| `metrics-view` | `metrics_view`, `terminal-metrics`, `terminal_metrics` | 可运行 | 采集 Prometheus/OpenMetrics 样本到 SQLite，并在终端查询聚合指标。 | [metrics-view 文档](user/metrics-view.md) |
 | `precheck` | `pre_check` | 可运行 | 在 UCM 部署前于宿主机本地运行环境预检，校验 serving-stack/uc-manager 版本、加速卡驱动（CUDA 算力或昇腾 HDK）、内核版本、`/dev/shm` 及 posix store 带宽，输出 `PASS`/`WARN`/`FAIL` 并对失败项给出修复建议（RFC #1208）。 | [precheck 文档](user/precheck.md) |
+| `posix-aio` | `posix_aio` | 可运行 | 运行 `ucm/store/test/e2e/posixstore_aio_test.py`，测试 POSIX AIO store 的 dump/load 性能。 | [posix-aio 文档](user/posix-aio.md) |
+| `metrics-view` | `metrics_view`, `terminal-metrics`, `terminal_metrics` | 可运行 | 采集 Prometheus/OpenMetrics 样本到 SQLite，并在终端查询聚合指标。 | [metrics-view 文档](user/metrics-view.md) |
+| `nic-monitor` | `nic_monitor` | 可运行 | 监控物理网卡实时流量、后台采样落盘，并生成阶段统计。 | [nic-monitor 文档](user/nic-monitor.md) |
+| `dev-sandbox` | `dev_sandbox` | 需构建、可运行 | 测量主机内存到设备显存的拷贝带宽及磁盘 AIO 吞吐（C++ 测试程序，使用前需先构建），包含 `copy`、`trans`、`aio` 三个子功能。 | [dev-sandbox 文档](user/dev-sandbox.md) |
+| KV Cache 计算器 | - | - | 根据模型配置估算 KV cache 内存占用。 | [KV Cache 计算器](kv-cache-calculator.md) |
 
 各子工具的依赖、参数、示例与常见问题都在各自文档中说明。
 

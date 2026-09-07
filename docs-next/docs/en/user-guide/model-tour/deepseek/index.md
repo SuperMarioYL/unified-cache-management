@@ -13,16 +13,12 @@ DeepSeek model tutorials currently published by vLLM Ascend.
 | DeepSeek-R1 | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeek-R1.html) |
 | DeepSeek-OCR-2 | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeekOCR2.html) |
 
-## Serving engine
+## Enable UCM with this model
 
-=== "vLLM"
-
-    --8<-- "docs/en/user-guide/model-tour/deepseek/vllm.md"
-
-=== "vLLM Ascend"
-
-    --8<-- "docs/en/user-guide/model-tour/deepseek/ascend.md"
-
-=== "SGLang"
-
-    --8<-- "docs/en/user-guide/model-tour/deepseek/sglang.md"
+Use the official recipe above for the model's engine settings, then follow the
+[vLLM](../../quick_start/quickstart_vllm.md),
+[vLLM-Ascend](../../quick_start/quickstart_vllm_ascend.md), or
+[SGLang](../../quick_start/quickstart_sglang.md) integration guide. Confirm the
+model and feature in the [support matrix](../../support-matrix/index.md).
+An official engine tutorial establishes engine usage; it does not independently
+verify UCM external-cache behavior for that model.

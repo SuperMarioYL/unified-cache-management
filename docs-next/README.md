@@ -1,121 +1,126 @@
-# docs-next
+# UCM documentation
 
-UCM 文档站的重建工程,基于 **MkDocs Material**。与现网 Sphinx 站(`../docs/`)隔离建设,三项评审模块(切到 MkDocs、AI 中文生成、内容调整)全部通过前不切换正式入口。
+文档使用 MkDocs Material，目标托管平台为 Read the Docs（RTD）。英文是内容来源，中文位于同路径的 `docs/zh/`。切换采用 Fork 预览 → 官方 `ucm` 的顺序；旧 Sphinx 历史版本和 GitHub Pages 历史下载入口继续保留。
 
-> 状态:本地预览可用;严格构建通过(中文镜像页缺失时 fallback 英文,有 WARNING 但不阻塞)。
+## 本地开发与验证
 
-## 快速开始
+使用 Python 3.12：
 
 ```bash
 cd docs-next
-pip install -r requirements.txt  # 首次
-mkdocs serve                    # 或: python tools/site.py serve
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt -r requirements-translation.txt
+python tools/site.py serve
 ```
 
-打开 http://127.0.0.1:8000 —— **英文在 `/`(默认语言无前缀),中文在 `/zh/`**。`Ctrl+C` 停。
-
-> 改普通 `.md` 是热更新(live reload);改了 `overrides/main.html` 这类主题模板后必须**重启** `mkdocs serve`(livereload 不重载模板)。
-
-## 更新文档
-
-日常更新就两步:**加 md + 登记到 nav**。
-
-### 1. 加 md 文件
-
-放到 `docs/en/<路径>.md`(英文)。中文镜像放 `docs/zh/` 同路径(不建则 fallback 显示英文)。文件名建议 kebab-case。
-
-### 2. 登记到导航
-
-在 `mkdocs.yml` 的 `nav:` 加条目,否则页面能直接访问但不进左侧导航树(mkdocs 会提示 "not included in nav"):
-
-```yaml
-nav:
-  - User Guide:
-      - My Page: user-guide/my-page.md   # 路径相对 docs/en/
-```
-
-### 3. 静态资源(图片等)
-
-- 图片放 `docs/assets/images/`,按当前 Markdown 文件位置使用相对路径引用，例如首页使用 `../assets/images/xxx.png`
-- 计算器 JS/HTML 在 `docs/assets/` 根,iframe 同样使用相对路径，避免版本目录和 project Pages 指向站点根
-
-### 写作注意点(踩过的坑)
-
-- **表格前必须有空行**:GFM 表格前一行若是段落,表格不渲染(会变成段落文字)
-- **HTML 容器带 `markdown` 属性**:`<div align="center" markdown>` 才渲染 div 里的 `![]()` 图片/徽章,没 `markdown` 属性则忽略
-- **折叠块**用 admonition `??? note "标题"` 而非 `<details>`
-- **图片宽度**用 attr_list `![](){ width=60% }` 而非 `<img width>`
-
-## 构建与校验
-
-| 命令 | 作用 |
-| --- | --- |
-| `mkdocs build` | 普通构建 |
-| `mkdocs build --strict` | 严格构建(WARNING 升错误) |
-| `python tools/site.py validate` | 全语言严格构建 |
-| `python tools/site.py build --lang en --strict` | 单语言严格构建 |
-
-严格构建通过(退出 0)。中文首页指向尚未创建的中文镜像页会产生若干 WARNING(i18n fallback 固有,不阻塞);AI 生成完整中文后 WARNING 消失。本地检查用 `mkdocs build` 即可。
-
-`tools/site.py` 子命令:`serve` / `build --lang {en,zh} [--strict] [--clean]` / `validate` / `translate --changed`(CI,本地未接通) / `generate`(占位)。
-
-## 多版本预览
-
-版本选择器可用一次性本地分支预览，不得直接改 `gh-pages`:
+开发服务的英文在 `/`，中文在 `/zh/`。默认不联网获取 Release，也不调用翻译模型。
 
 ```bash
-mike deploy preview latest -u --branch docs-preview --ignore-remote-status
-mike serve --branch docs-preview                    # 访问 /latest/
+# 与 RTD 相同的独立语言构建；输出 site/en 和 site/zh
+python tools/site.py validate
+python tools/site.py build --lang en --strict
+python tools/site.py build --lang zh --strict
+
+# 从指定仓库选择真实安装清单，或者传入本地已验证的 Schema 8 文件
+python tools/site.py build --lang en --strict --repository OWNER/REPO
+python tools/site.py build --lang zh --strict --manifest /path/to/release-manifest.json
+
+python -m pytest -q tests
+node --test tests/install-ui.test.cjs
+python tools/site.py translate check
 ```
 
-- `mkdocs serve`:dev 模式,有 live reload,**无版本选择器**
-- `mike serve`:多版本静态预览,有版本选择器,**无 live reload**(改内容后需重新 `mike deploy`)
-- `gh-pages` 的唯一写入口是 `tools/pages.py`;不要手工执行 `mike ... --push` 或直接提交该分支
-- 一次性清理使用 `python tools/pages.py initialize --repository OWNER/REPO`
-- latest 发布使用 `python tools/pages.py publish-latest --repository OWNER/REPO`
-- Stable 发布使用 `python tools/pages.py publish-stable --repository OWNER/REPO --manifest PATH`;仅迁移已有 Stable 时追加 `--replace-existing`
-- 正式命令由 Pages CI 调用;脚本内部运行不带 `--push` 的 Mike，最后只普通 push 一次
+`requirements.txt` 固定站点依赖；`requirements-dev.txt` 添加测试工具；`requirements-translation.txt` 添加 Co-op 的 Markdown 分块与重组 API。Co-op 的 Azure 传递依赖包含预发布版本，若使用 uv 安装这一组依赖，需要传入 `--prerelease=allow`。
 
-## 项目结构
+`build --lang` 真正选择一种语言。中文构建在临时目录中补入缺译英文页，并显示“英文原文”提示及同版本英文链接；它不会复制文件到仓库中文目录，也不会将回退内容登记为译文。严格构建负责页面与资源，中文覆盖由独立翻译检查负责。
 
+## 内容维护
+
+- 英文放在 `docs/en/`，中文使用 `docs/zh/` 下相同路径。新增公开页面登记到 `mkdocs.yml`；图片及脚本使用相对链接。
+- 安装包、镜像及 Chart 坐标只来自当前构建的发布清单；Quickstart 负责配置、运行与验证，链接 Installation，不另写裸 `pip install uc-manager` 或镜像 `latest`。
+- 参数参考以实际配置读取位置为依据。任务页引用参考，避免重复维护默认值。
+- 新页面必须有对读者有效的内容。内部待办留在任务或 Issue 中；无配方的模型页只提供官方教程及通用集成入口。
+- 高级能力和历史实验保留原版本、环境及证据范围；服务健康、外部缓存命中和性能测量分别说明。
+- `translation-required.txt` 是关键中文路径的唯一清单，共 28 页。关键页缺译或过期阻塞合入；其他页可明确回退英文，继续报告翻译状态。
+- 删除或迁移公开页面时更新 `redirects.json`。映射相对当前语言/版本根，生成跳转页，保留 query 和 fragment；不能覆盖实际正文、跳到不同版本或复制导航规则到 RTD 后台。
+
+## RTD 构建与安装清单
+
+根 `.readthedocs.yaml` 使用 Python 3.12，调用 `python docs-next/tools/site.py rtd`。构建读取 RTD 的语言、Git identifier、commit hash、canonical URL 和输出目录，生成一个语言/版本根。英文使用 `/en/<version>/`，中文 RTD 语言为 `zh-cn`，对应源码目录 `zh`。
+
+RTD Addons 提供版本、语言和线上搜索入口，本地保留 MkDocs 搜索。源码链接绑定实际仓库和 Git ref；PR 使用 commit hash，不使用 PR 编号作为分支名。
+
+安装器仍读取本版本根目录的 `release-manifest.json`：
+
+| 构建类型 | 清单来源 |
+| --- | --- |
+| Tag / Stable | 同仓库、对应 Git 标签的完整 Schema 8 Release；支持正式版和 RC |
+| Latest / PR | 同仓库最高版本、已完成且具有有效 Schema 8 清单的 Stable Release |
+| 没有合格 Release | 页面明确显示安装数据不可用，提供源码构建入口 |
+
+旧 Schema 6/7 不能驱动安装选择器，不做推测转换。已有清单损坏、标签/仓库不匹配、文件集合或下载 URL 与 Release 不一致时构建失败。Latest 页面显示实际安装制品的版本，避免把开发文档版本当作发布版本。
+
+RTD 可能在 Tag 推送时先于产物完成启动构建；此时返回 RTD 的取消码 `183`，不发布不完整页面。Release 流水线完成清单上传、回读及保留策略后，再触发中英文项目的对应 Tag 和 Latest；仅在 RTD 当前 active Stable 对应该 Tag 时重建 Stable，重建旧标签不会回退别名。
+
+## 自定义 AI 翻译
+
+翻译通过一个 GitHub workflow 直接调用所选 HTTP API。供应商和模型不设默认值，失败不切换服务。
+
+| 配置 | 保存位置 | 作用 |
+| --- | --- | --- |
+| `DOCS_TRANSLATION_API_FORMAT` | Repository Variable | 选择下表协议；留空时生成 job 跳过 |
+| `DOCS_TRANSLATION_BASE_URL` | Repository Variable | 包含版本前缀的 API root |
+| `DOCS_TRANSLATION_MODEL` | Repository Variable | 模型或部署名 |
+| `DOCS_TRANSLATION_API_KEY` | `docs-translation` Environment Secret | 仅模型调用步骤使用的密钥 |
+| `DOCS_TRANSLATION_APP_ID` | Repository Variable | 同仓 PR 写回的 GitHub App ID |
+| `DOCS_TRANSLATION_APP_PRIVATE_KEY` | Repository Secret | 仅交付 job 使用的 App 私钥 |
+
+| API 格式 | API root 示例 | 追加路径 |
+| --- | --- | --- |
+| `openai-chat-completions` | `https://api.openai.com/v1` | `/chat/completions` |
+| `openai-responses` | `https://api.openai.com/v1` | `/responses` |
+| `anthropic-messages` | `https://api.anthropic.com/v1` | `/messages` |
+| `gemini-generate-content` | `https://generativelanguage.googleapis.com/v1beta` | `/models/<model>:generateContent` |
+
+自建服务只需实现选定协议；API root 可以使用自定义主机及前缀。请求采用同步文本响应、120 秒超时和 16384 输出 token 上限。空结果、截断、HTTP 错误或无法解析的响应均导致本次任务失败，不重试或提交部分结果。
+
+执行链路为：可信代码选页并准备分块 → 配置的 API 翻译 → 确定性重组和校验 → 隔离交付。术语表和占位符规则进入系统指令，源文作为数据传入。模型不能操作仓库。没有分块时不会读取模型配置或发送请求；纯删除和状态整理仍能完成。
+
+```bash
+# 在真实 PR 上使用 base/head 和仓库 ID，不要用示例 ID 上线
+python tools/site.py translate prepare --changed \
+  --base-ref "$BASE_SHA" --head-sha "$HEAD_SHA" \
+  --base-repository-id "$BASE_REPOSITORY_ID" \
+  --head-repository-id "$HEAD_REPOSITORY_ID" --pr-number "$PR_NUMBER" \
+  --api-format "$DOCS_TRANSLATION_API_FORMAT" \
+  --model "$DOCS_TRANSLATION_MODEL" --base-url "$DOCS_TRANSLATION_BASE_URL" \
+  --output-dir /tmp/ucm-translation/task
+python tools/site.py translate generate \
+  --task-dir /tmp/ucm-translation/task --output-dir /tmp/ucm-translation/chunks
+python tools/site.py translate finalize \
+  --task-dir /tmp/ucm-translation/task --agent-output-dir /tmp/ucm-translation/chunks \
+  --output-dir /tmp/ucm-translation/validated
+python tools/site.py translate apply --artifact-dir /tmp/ucm-translation/validated
 ```
-docs-next/
-├── mkdocs.yml          站点配置:nav、Material 主题、i18n、markdown 扩展
-├── docs/               docs_dir(站点内容根)
-│   ├── en/             英文(默认语言,URL 无前缀)
-│   ├── zh/             中文镜像(缺失页面回退英文)
-│   └── assets/         共享静态资源(images、Manifest loader、安装 renderer、calculator)
-├── overrides/
-│   └── main.html       主题覆盖:KaTeX CDN + header 白色 + 字体分层(Jost 侧栏 / Inter 正文)
-├── tools/
-│   ├── site.py         统一入口(serve/build/validate/translate/generate)
-│   └── pages.py        gh-pages 唯一写入口(Mike、Manifest、历史 Index 保留、单次 push)
-├── tests/
-│   └── test_pages.py   Pages/Manifest/历史 Index 保留/双语安装页 focused tests
-├── requirements.txt    Python 依赖(MkDocs / Mike / packaging / pytest)
-├── .venv/              本地虚拟环境(不提交)
-└── site/               构建产物(不提交)
-```
 
-## 国际化(i18n)
+`prepare`、`generate`、`finalize` 可用同一个 `--instructions` 文件；默认指令位于 `tools/translation/instructions.md`。工作流使用仓库默认指令。
 
-- 插件 `mkdocs-static-i18n`,**folder 模式**(`docs/en/`、`docs/zh/`)
-- 英文默认语言,**URL 无前缀**(在 `/`,不是 `/en/`);中文在 `/zh/`
-- `fallback_to_default: true`:中文页缺失时回退英文内容
-- 共享静态资源按 Markdown 源文件位置使用相对路径，由 MkDocs/Mike 保持在各版本目录内
+- 作者在同一 PR 更新对应中文时尊重人工版本；机器人所有权与英文新鲜度分别判断，避免历史 stale 漏检。
+- 同仓 PR 由最小权限 App 写回，触发新 HEAD 的检查；Fork PR 获得绑定当前 HEAD 的 patch/产物。按机器人评论从基仓库已验证的 `BASE_SHA` 提取可信 apply 工具，再校验 HEAD 和目标文件原始哈希后应用；不执行 PR 中的脚本。
+- required gate 无模型密钥和 App 凭据；RTD 也不持有翻译密钥，只构建已经审阅的内容。
+- 手动补译触发 `docs-translation-generate.yml`，每批最多 5 页；常规 PR 单次最多 10 页，超过上限须拆分或先手工同步，不会默默处理一半。
+- GitHub App 仅安装到目标仓库，权限为 Contents 与 Pull requests 的读写。初次将可信工具合入基线、完成同仓/Fork canary 后，才把 `Docs translation synchronized` 设为必需检查。
 
-## 内容规范
+## Fork 验收及官方切换
 
-- **命令优先,非散文**:Model Tour / Engines / Deploy 尤其;先给可执行命令,再补说明
-- **参数单一事实源**:任务页只内联相关子集并链 `reference/api-parameters.md`;全量参数表只在 Reference 维护
-- **无 emoji**:表格状态用 `Yes` / `No` / `Untested`,评级用 `n/5`;架构图保留 ASCII 框线
-- **占位页**:待补页面在 md 里写 "What to add" 规范(读者意图/必含/不要做/验收/负责人),由模块负责人填内容;已有内容页不改
+1. 在 RTD 创建英文父项目及中文 Translation 项目，均绑定 Fork；预览阶段默认分支设为 `feature/docs-rtd`，使用本分支的根 RTD 配置，启用 PR Preview。
+2. 语言分别设置为 English 和 Simplified Chinese (`zh-cn`)，版本模式使用带翻译的多版本模式。启用 Addons 的版本/语言、搜索及 Preview 提示。
+3. 先验证中英文 Latest、真实 PR Preview、实际安装选择器、旧 URL、favicon 和计算器。记录 RTD build ID、源码 SHA 与公开 URL；取消构建不等于已部署。
+4. 配置翻译 API 和 GitHub App，验证一次真实调用、一次零请求重跑、同仓写回及 Fork patch。未配置凭据时只能报告契约测试通过。
+5. Fork 验收后，通过官方开发分支集成切换 `ucm` 项目；英文父项目仍使用现有 `ucm`，关联中文项目。新内容只维护 `docs-next`。
+6. GitHub Repository Variables 设置 `RTD_PROJECT_EN`、`RTD_PROJECT_ZH`，Repository Secret 设置 `RTD_API_TOKEN`。项目仓库必须与当前 Release 仓库一致。未配置项目时 Release 跳过 RTD 通知；配置不完整会明确失败。
+7. 官方先切换 Latest。首个包含新配置、完整 Schema 8 Release 且 RTD Tag 构建通过后启用 Stable。旧 Git 标签仍按原配置构建，不改写历史标签。
+8. 验收通过后停止新 Pages 发布，保留原 `gh-pages` 内容及自定义域名，尤其历史下载索引；本轮不修改 DNS。若正式切换失败，恢复上一版 RTD 配置即可继续旧站构建。
 
-## 数学公式
-
-KaTeX 经 `overrides/main.html` 注入(CDN),不随 i18n 静态资产走。正文用 `$$...$$`(块)或 `$...$`(行内)。
-
-## 相关文件
-
-- 重构技术评审:`../docs/ucm-mkdocs-site-rearchitecture-technical-review.md`(§4.7.3 定义六模块顶层导航与负责人矩阵)
-- 现网 Sphinx 站:`../docs/`——**切换前不动**
+RTD 管理、API Token、模型密钥及 App 私钥通过对应后台配置，不能写入源码、翻译状态或日志。

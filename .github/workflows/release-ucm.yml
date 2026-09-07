@@ -48,6 +48,8 @@ on:
         required: false
       DOCKERHUB_TOKEN:
         required: false
+      RTD_API_TOKEN:
+        required: false
 
 concurrency:
   group: ucm-release-${{ github.repository_id }}-${{ inputs.git_tag }}
@@ -1709,6 +1711,23 @@ jobs:
             --repository "${GH_REPO}" --current-tag "${RELEASE_TAG}" \
             --release-type "${RELEASE_TYPE}" --max-count "${max_count}" \
             --pypi-enabled "${pypi_enabled}"
+      - name: Rebuild RTD documentation after completed release readback
+        if: >-
+          ${{
+            steps.publish-manifest.outcome == 'success' &&
+            vars.RTD_PROJECT_EN != '' &&
+            (inputs.release_type == 'stable' || inputs.release_type == 'prerelease')
+          }}
+        env:
+          RTD_API_TOKEN: ${{ secrets.RTD_API_TOKEN }}
+          RTD_PROJECT_EN: ${{ vars.RTD_PROJECT_EN }}
+          RTD_PROJECT_ZH: ${{ vars.RTD_PROJECT_ZH }}
+        run: >-
+          python docs-next/tools/trigger_rtd.py
+          --repository "${GITHUB_REPOSITORY}"
+          --manifest out/release/release-manifest-readback.json
+          --project "${RTD_PROJECT_EN}"
+          --project "${RTD_PROJECT_ZH}"
       - name: Mark unreported finalization failure
         if: ${{ failure() && steps.publish-manifest.outcome != 'success' }}
         run: |

@@ -1,0 +1,6 @@
+-r requirements.txt
+
+# Only Markdown chunking, placeholder protection and reconstruction use Co-op.
+# Protocol calls use Python's standard HTTP library; no Agent CLI is installed.
+# 0.20.1 exposes link destination maps used by the integrity validator.
+co-op-translator==0.20.1

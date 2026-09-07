@@ -120,7 +120,10 @@ UCM 提供这些仪表板：
 | 文件 | 用途 |
 | --- | --- |
 | `examples/metrics/grafana_vllm.json` | vLLM 请求延迟、令牌吞吐量、调度器状态和缓存状态 |
-| `examples/metrics/grafana_ucm_overview.json` | vLLM/UCM 概览、输入和输出令牌计数、Store 健康状态和探测趋势 |
+| `examples/metrics/grafana_store.json` | Store 查找、加载、写出、带宽和缓存活动 |
 | `examples/metrics/grafana_connector.json` | Connector 查找/加载/保存请求计数、块计数、持续时间、吞吐量和错误 |
 
-有关完整的指标文档，请参阅原始 UCM 文档中的详细指标指南。
+## 参考
+
+- [指标定义](metrics-reference.md)
+- [Store 健康指标](health-metrics.md)

@@ -150,5 +150,3 @@ The analysis produces a comprehensive report including:
 
 These metrics help you evaluate whether UCM is suitable for your workload and how much capacity to allocate for each
 storage tier.
-
-For complete documentation, see the detailed Trace Mode guide in the original UCM documentation.

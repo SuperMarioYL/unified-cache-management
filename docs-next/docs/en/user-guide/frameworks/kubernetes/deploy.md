@@ -7,14 +7,11 @@ request path.
 
 ## Get and unpack the Chart
 
-Open the matching
-[GitHub Release](https://github.com/ModelEngine-Group/unified-cache-management/releases),
-copy the `unified-cache-chart` asset URL, and let Helm download and unpack it:
-
-```bash
-helm pull "<chart-url>" --untar
-cd unified-cache-chart
-```
+Open [Installation](../../installation.md), select Helm, and copy the exact
+Chart coordinate and version from its completed release manifest. Pull that
+coordinate using the generated version (add `--untar` to unpack it), then enter
+`unified-cache-chart`. Select the runtime image from the same installation
+page and set the profile's image to that exact published coordinate.
 
 When working from a source checkout instead, enter
 `charts/unified-cache-chart` directly. Helm loads the Chart's root
@@ -132,6 +129,12 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 
 `UCM_MODEL_RESOURCE` is `modelSpec.name`; `UCM_MODEL_NAME` is
 `modelSpec.modelName`.
+
+To verify UCM storage reuse, follow the
+[restart-and-replay procedure](../../quick_start/quickstart_vllm.md#verify-the-service-and-external-cache)
+with a dedicated test release. Preserve the PVC and identical runtime settings
+when restarting engine Pods. Check external-hit tokens and Posix I/O in the
+engine metrics; a successful chat request alone verifies only the serving path.
 
 ### PD access
 

@@ -1,115 +1,124 @@
-# Quickstart-vLLM-Ascend
-This document describes how to install unified-cache-management with vllm-ascend on ascend platform.
+# vLLM-Ascend on NPU
 
-## Prerequisites
-vllm-ascend: >=v0.9.1 (vllm == 0.9.2 to use the Sparse Feature)
+Run a model with UCM's `Cache|Posix` pipeline, then verify that a second process
+can read KV blocks persisted by the first process.
 
-**Please refer to the [vLLM-Ascend Installation](https://vllm-ascend.readthedocs.io/en/latest/installation.html#requirements) guide to meet the required dependencies, and prepare the corresponding version of the vllm-ascend environment as needed.**
+## Prepare the environment
 
-## UCM Installation
+Start with a working Ascend inference environment and a model that fits your
+device memory. Check the [support matrix](../support-matrix/index.md) for the
+integration scope; an engine supporting a model does not by itself verify every
+UCM feature.
 
-We offer 2 options to install UCM.
+Open [Installation](../installation.md) and copy the exact Wheel or Image command
+for the published combination you need. Choose the Ascend backend, architecture, and matching vLLM-Ascend runtime. The host driver, CANN environment, and device mounts must match that runtime. Wheel installation must include
+the selected backend extra; do not replace the generated command with a bare
+`pip install uc-manager`. The selector also preserves Fork package names and
+package-index settings. For a combination absent from the release, use
+[Build from source](../../developer-guide/build_from_source.md).
 
-If you want to build UCM from source code (e.g. for development or customization), see [Building and Installing UCM from Source](../../developer-guide/build_from_source.md).
+## Configure the cache
 
-### Option 1: Install by pip
-Install by pip or find the pre-build wheels on [Pypi](https://pypi.org/project/uc-manager/).
+Create a writable `/mnt/ucm-cache` directory, mounted persistently if running in
+a container. Save the following as `/etc/ucm/ucm.yaml`, readable by the engine:
+
+```yaml
+ucm_connectors:
+  - ucm_connector_name: UcmPipelineStore
+    ucm_connector_config:
+      store_pipeline: "Cache|Posix"
+      storage_backends: /mnt/ucm-cache
+      cache_buffer_capacity_gb: 4
+      timeout_ms: 30000
+      io_direct: false
+enable_metrics: true
 ```
-export PLATFORM=ascend
-pip install uc-manager
-```
-> **Note:** If installing via `pip install`, you need to manually add the `config.yaml` file, similar to the [ucm_config_example.yaml](https://github.com/ModelEngine-Group/unified-cache-management/blob/develop/examples/ucm_config_example.yaml), because PyPI packages do not include YAML files.
 
-### Enable UCM Integration
+The 4 GiB host cache is an explicit small-example setting, not the runtime
+default. Allow for one buffer per unshared worker, or shared-buffer allocation
+when the model uses it. `io_direct: false` keeps this initial filesystem check
+simple; select direct I/O and capacity settings for your actual storage using
+[Pipeline Store](../capabilities/prefix-cache/pipeline.md).
 
-UCM integrates with vLLM and vLLM-Ascend automatically at runtime — no manual patching of the source code is required.
+## Start the server
 
-Simply enable the patch hook by setting the following environment variable before launching vLLM-Ascend:
+Set `MODEL_ID` to your local model path or model repository ID. Adjust tensor
+parallelism and maximum model length to its hardware requirements.
+
 ```bash
+export MODEL_ID=/models/your-model
 export ENABLE_UCM_PATCH=1
-```
-
-UCM detects your vLLM and vLLM-Ascend versions and applies the required patches on the fly.
-
-### Option 2: Setup from docker
-
-#### Build image from pre-built package
-
-```bash
-# Update DEVICE according to your device (/dev/davinci[0-7])
-export DEVICE=/dev/davinci7
-# Update the vllm-ascend image
-docker run --rm \
-    --network=host \
-    --device $DEVICE \
-    --device /dev/davinci_manager \
-    --device /dev/devmm_svm \
-    --device /dev/hisi_hdc \
-    -v /usr/local/dcmi:/usr/local/dcmi \
-    -v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi \
-    -v /usr/local/Ascend/driver/lib64/:/usr/local/Ascend/driver/lib64/ \
-    -v /usr/local/Ascend/driver/version.info:/usr/local/Ascend/driver/version.info \
-    -v /etc/ascend_install.info:/etc/ascend_install.info \
-    -v /root/.cache:/root/.cache \
-    -v <path_to_your_models>:/app/model \
-    -v <path_to_your_storage>:/app/storage \
-    --name <name_of_your_container> \
-    -it <image_id> bash
-```
-
-## Launching Inference
-
-For online inference, vLLM with our connector can also be deployed as a server that implements the OpenAI API protocol.
-
-To start the vLLM server with the Qwen/Qwen2.5-14B-Instruct model, run:
-
-```bash
-export ENABLE_UCM_PATCH=1
-vllm serve Qwen/Qwen2.5-14B-Instruct \
---max-model-len 20000 \
---tensor-parallel-size 2 \
---gpu_memory_utilization 0.87 \
---block_size 128 \
---trust-remote-code \
---port 7800 \
---enforce-eager \
---kv-transfer-config \
-'{
+vllm serve "$MODEL_ID" \
+  --served-model-name ucm-example \
+  --tensor-parallel-size 1 \
+  --max-model-len 4096 \
+  --block-size 128 \
+  --port 7800 \
+  --enforce-eager \
+  --kv-transfer-config '{
     "kv_connector": "UCMConnector",
     "kv_connector_module_path": "ucm.integration.vllm.ucm_connector",
     "kv_role": "kv_both",
-    "kv_connector_extra_config": {"UCM_CONFIG_FILE": "/workspace/unified-cache-management/examples/ucm_config_example.yaml"}
-}'
-```
-**⚠️ Make sure to replace `Qwen/Qwen2.5-14B-Instruct` with your actual model path or Hugging Face repo ID.**
-
-**⚠️ Make sure to replace `"/workspace/unified-cache-management/examples/ucm_config_example.yaml"` with your actual config file path. For a sample configuration, see the [ucm_config_example.yaml](https://github.com/ModelEngine-Group/unified-cache-management/blob/develop/examples/ucm_config_example.yaml).**
-
-
-If you see log as below:
-
-```bash
-INFO:     Started server process [32890]
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-```
-
-Congratulations, you have successfully started the vLLM server with UCM!
-
-After successfully started the vLLM server，you can interact with the API as following:
-
-```bash
-curl http://localhost:7800/v1/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "Qwen/Qwen2.5-14B-Instruct",
-    "prompt": "You are a highly specialized assistant whose mission is to faithfully reproduce English literary texts verbatim, without any deviation, paraphrasing, or omission. Your primary responsibility is accuracy: every word, every punctuation mark, and every line must appear exactly as in the original source. Core Principles: Verbatim Reproduction: If the user asks for a passage, you must output the text word-for-word. Do not alter spelling, punctuation, capitalization, or line breaks. Do not paraphrase, summarize, modernize, or \"improve\" the language. Consistency: The same input must always yield the same output. Do not generate alternative versions or interpretations. Clarity of Scope: Your role is not to explain, interpret, or critique. You are not a storyteller or commentator, but a faithful copyist of English literary and cultural texts. Recognizability: Because texts must be reproduced exactly, they will carry their own cultural recognition. You should not add labels, introductions, or explanations before or after the text. Coverage: You must handle passages from classic literature, poetry, speeches, or cultural texts. Regardless of tone—solemn, visionary, poetic, persuasive—you must preserve the original form, structure, and rhythm by reproducing it precisely. Success Criteria: A human reader should be able to compare your output directly with the original and find zero differences. The measure of success is absolute textual fidelity. Your function can be summarized as follows: verbatim reproduction only, no paraphrase, no commentary, no embellishment, no omission. Please reproduce verbatim the opening sentence of the United States Declaration of Independence (1776), starting with \"When in the Course of human events\" and continuing word-for-word without paraphrasing.",
-    "max_tokens": 100,
-    "temperature": 0
+    "kv_connector_extra_config": {"UCM_CONFIG_FILE": "/etc/ucm/ucm.yaml"}
   }'
-
 ```
 
-### Running with Other Models
+The runtime patch hook and connector are both required. Confirm the startup log
+contains `create UcmPipelineStore with config:` and the expected storage path.
+Sparse Attention requires its separately supported build and runtime settings;
+this example enables Prefix Cache only.
 
-To run UCM with other models, first check which models are supported in the [Support Matrix](../support-matrix/support_matrix.md). Then refer to the official [vLLM Recipes](https://recipes.vllm.ai/) and [vLLM-Ascend Model Tutorials](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/index.html) for the specific model's serving command and parameters. You only need to add the `--kv-transfer-config` argument as shown in the example above to enable UCM integration.
+## Verify the service and external cache { #verify-the-service-and-external-cache }
+
+A ready HTTP server confirms service startup; it does not prove a UCM cache hit.
+
+```bash
+curl --fail http://127.0.0.1:7800/health
+curl --fail http://127.0.0.1:7800/v1/models
+```
+
+Generate a repeatable prompt longer than several 128-token blocks, then send it:
+
+```bash
+python - <<'PYREQUEST'
+import json
+from pathlib import Path
+Path('/tmp/ucm-request.json').write_text(json.dumps({
+    "model": "ucm-example",
+    "prompt": "Explain how a shared external cache reuses previous computation. " * 128,
+    "max_tokens": 32,
+    "temperature": 0,
+}))
+PYREQUEST
+curl --fail http://127.0.0.1:7800/v1/completions \
+  -H 'Content-Type: application/json' --data-binary @/tmp/ucm-request.json
+curl --fail http://127.0.0.1:7800/metrics | grep '^ucm:'
+```
+
+Check the storage directory for persisted KV block files after writes finish.
+Health probes create short-lived files too, so directory activity alone is not
+proof of KV persistence. Look for dump task observations in
+`ucm:posix_dump_task_duration_ms_count` and inspect the engine logs for errors.
+Task-duration observations show activity; require completed writes without
+errors and successful replay before treating them as persistence evidence.
+
+Stop the server normally, preserve `/mnt/ucm-cache`, then restart with the same
+model, tokenizer, tensor parallelism, block size, and UCM configuration. Send
+the same request again. Restarting removes engine HBM and host-memory hits from
+this check. Confirm `ucm:ucm_hit_tokens_total` increases and Posix load activity
+appears in `ucm:posix_load_task_duration_ms_count` or
+`ucm:cache_posix_load_success_shards_total`. Counters restart with the process;
+compare changes within each run, not absolute values across restarts.
+
+A shorter second request latency alone does not establish an external cache hit.
+See [Metrics](../observability/metrics.md) for request-driven metric synchronization
+and [Troubleshooting](../../reference/troubleshooting.md) for missing hits,
+permissions, and shared-memory failures. Stop the service when finished; retain
+or remove only the dedicated test-cache directory according to your storage policy.
+
+
+## Use another model
+
+Use the [Model Tour](../model-tour/index.md) for official engine recipes, then
+add the UCM connector configuration above without discarding model-specific
+engine settings.

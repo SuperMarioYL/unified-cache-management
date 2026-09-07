@@ -1,5 +1,10 @@
 {% extends "base.html" %}
 
+{% block site_meta %}
+  {{ super() }}
+  <meta name="readthedocs-addons-api-version" content="1">
+{% endblock %}
+
 <!-- KaTeX math rendering (CDN-loaded so it works under the i18n folder layout) -->
 {% block extrahead %}
   {{ super() }}

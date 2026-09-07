@@ -11,7 +11,6 @@
 | `use_layerwise` | Optional | bool | Default: `true` | Enable layer-wise (per-layer) load/save mode. Recommended `true`; DeepSeek V4 series recommends `false`. |
 | `enable_event_sync` | Optional | bool | Default: `true` | Performance optimization switch. Recommended to enable. |
 | `persist_token_threshold` | Optional | int | `0` | When request length < `persist_token_threshold`, UCM does not process the request. |
-| `timeout_ms` | Optional | int | >0, default `30000` | Timeout for memory/DRAM/SHM copies and disk read/write (ms). |
 | `wa_dump_block_wise` | Optional | bool | `true` | Only used in FAWA connector. `true`: every block's WA cache is dumped (high frequency); `false`: only dump last block's WA cache of each chunk prefill (low frequency). |
 | `load_tokens_threshold` | Optional | int | `0` | Minimum token threshold for triggering KV cache loading. Only effective for DeepSeek V4 series. When external hit tokens > `load_tokens_threshold`, triggers KV Cache loading. |
 | `enable_record_traces` | Optional | bool | `false` | Record request information (timestamps, input length, output length, etc.). |
@@ -27,7 +26,8 @@
 
 | Parameter | Required | Type | Value Range | Description |
 |---|---|---|---|---|
-| `store_pipeline` | Optional | string | See valid values below | Pipeline name. Default: `Cache\|Posix`. |
+| `store_pipeline` | **Required for Pipeline Store** | string | See valid values below | Registered pipeline name; set it explicitly in vLLM YAML. SGLang selects `Posix` in its adapter. |
+| `timeout_ms` | Optional | int | Default: `30000` | Cache transfer and Posix I/O task timeout in milliseconds. Place it inside `ucm_connector_config`, not at YAML root. |
 | `storage_backends` | **Required** | string | User-configured, multiple mount points separated by `:` | Local directory or mount point. Multiple mount points are separated by colons. |
 | `io_direct` | Optional | bool | Default: `true` | Enable Direct I/O (bypass OS page cache). `false`: uses PageCache; `true`: skips PageCache. |
 | `posix_io_engine` | Optional | string | Default: `psync` | File I/O mode. `psync`: synchronous; `aio`: asynchronous, requires `io_direct=true`. |
@@ -35,7 +35,7 @@
 | `posix_open_concurrency` | Optional | int | Default: `32` | File open threads in `aio` mode. Not applicable in `psync`. |
 | `posix_commit_concurrency` | Optional | int | Default: `4` | File rename threads in `aio` mode. Not applicable in `psync`. |
 | `posix_lookup_concurrency` | Optional | int | Default: `16` | Threads for checking file existence at mount point. |
-| `cache_buffer_capacity_gb` | Optional | int | See description | For GQA, default is 32GB DRAM per card. For MLA, default is 128GB shm space per node. Recommended to use defaults. |
+| `cache_buffer_capacity_gb` | Optional | int | See description | Native Cache Store default is 256 GiB. The vLLM connector sets 128 GiB when shared buffers are enabled and the value is omitted. Shared buffers default on for MLA; unshared workers allocate independently. Set an explicit budget for your deployment. |
 | `cache_sdma_direct` | Optional | bool | Depends on build env: `true` when `PLATFORM=ascend-a3`, `false` otherwise | Enable SDMA H2D/D2H transfer. Only effective on A3 devices. Recommended to disable. |
 | `cache_load_backend_only` | Optional | bool | Default: `false` | Force load from SSD even on cache hit. Test only. |
 | `cache_io_aggregation` | Optional | bool | Default: `false`, auto-enabled when `PLATFORM=ascend` and model is V4 | Enable IO aggregation H2D transfer. Only effective on A2 devices. |
@@ -65,7 +65,7 @@
 | `YuanRong\|Posix` | YuanRong memory pool with disk persistence |
 
 !!! note "storage_backends Note"
-    If `storage_backends` uses a mounted filesystem, do not set `posix_capacity_gb`.
+    Set capacity only when this deployment owns garbage collection for the storage namespace. A mounted filesystem is not inherently incompatible with GC; coordinate ownership across instances and size the limit for the actual filesystem.
 
 ---
 
@@ -75,10 +75,18 @@
 
 | Parameter | Required | Type | Value Range | Description |
 |---|---|---|---|---|
-| `enabled` | Optional | bool | Default: `false` | Master switch for storage isolation. Adds circuit breaker for disk KV cache. |
-| `health_check_interval_s` | Optional | int | Default: `5` | Disk health check interval (sec). Must be >0 and > `health_check_timeout_s`. |
-| `health_check_timeout_s` | Optional | int | Default: `3` | Single probe timeout (sec). Must be >0 and < `health_check_interval_s`. |
+| `enabled` | Optional | bool | Default: `true` | Master switch for storage isolation. Adds circuit breaker for disk KV cache. |
+| `health_check_interval_s` | Optional | number | Default: `10` | Disk health check interval (sec). Must be >0 and > `health_check_timeout_s`. |
+| `health_check_timeout_s` | Optional | number | Default: `3` | Single probe timeout (sec). Must be >0 and < `health_check_interval_s`. |
 | `health_window_size` | Optional | int | Default: `8` | Fault statistics window. Must be positive and >= `failure_threshold`. |
 | `failure_threshold` | Optional | int | Default: `2` | Fault trigger threshold. Must be positive and <= `health_window_size`. |
 
 
+
+These defaults follow `ucm/store/cache/cc/global_config.h`,
+`ucm/store/posix/cc/global_config.h`, and
+`ucm/store/pipeline/cc/store_health_config.h`. The vLLM connector applies its
+shared-buffer override before constructing the Store. See
+[Pipeline Store](../user-guide/capabilities/prefix-cache/pipeline.md) for a complete
+example and [Health metrics](../user-guide/observability/health-metrics.md) for
+probe behavior and circuit-breaker state.

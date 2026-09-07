@@ -14,8 +14,9 @@ hide:
 # Unified Cache Manager
 
 **Unified Cache Manager (UCM)** persists LLM KVCache to replace redundant computations.
-When integrated with vLLM, UCM achieves a **3-10x reduction** in inference latency across
-various scenarios, including multi-turn dialogue and long-context reasoning tasks.
+Reuse depends on repeated prefixes, available cache capacity, and storage latency.
+See the [benchmark guide](benchmark/index.md) for measurement methods and historical
+results with their recorded environments.
 
 <div align="center" markdown>
 
@@ -158,7 +159,6 @@ various scenarios, including multi-turn dialogue and long-context reasoning task
 
 ## Version Compatibility
 
-| Branch | Status | vLLM version | vLLM-Ascend version |
-| --- | --- | --- | --- |
-| `main` | Maintained | v0.27.1 | nightly-0.26.0 |
-| `develop` | Maintained | v0.27.1 | nightly-0.26.0 |
+See the [Support Matrix](user-guide/support-matrix/index.md) for integration and
+feature coverage. The [Installation](user-guide/installation.md) selector lists
+the engine versions and backend combinations actually published for its release.

@@ -1,13 +1,16 @@
 # Feature and Model Support Matrix
 
 This page provides an overview of UCM (Unified Cache Manager) compatibility across different models and inference frameworks.
-Use this matrix as a compatibility reference for model selection, deployment, and feature validation.
+Use this matrix as the repository's reported compatibility reference. The `main`
+columns describe integration development, not a pinned release test matrix.
+Check the selected release artifacts and engine recipe before deployment; this
+documentation migration does not constitute new hardware or model validation.
 
 ## Legend
 
 | Symbol | Description |
 |--------|-------------|
-| ✅ | Fully supported |
+| ✅ | Reported supported for the listed integration |
 | ❌ | Not supported |
 | 🟡 | Not tested or verified |
 
@@ -59,7 +62,8 @@ This section presents support information for inference enhancement features, in
 | Qwen2.5 | ✅ | ✅ | ✅ |
 | Qwen3 | ✅ | ✅ | ✅ |
 
-> **Note**: Inference enhancement features (Sparse Attention, ReRoPE, CacheBlend) are not covered in this documentation.
+> See [Sparse Attention](../capabilities/sparse-attention/index.md) and
+> [ReRoPE](../capabilities/rerope.md) for version-specific recipes.
 
 ## Supported Compute Platforms and Devices
 

@@ -10,16 +10,12 @@ Zhipu GLM model tutorials currently published by vLLM Ascend.
 | GLM-5 & GLM-5.1 | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/GLM5.html) |
 | GLM-5.2 | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/GLM5.2.html) |
 
-## Serving engine
+## Enable UCM with this model
 
-=== "vLLM"
-
-    --8<-- "docs/en/user-guide/model-tour/glm/vllm.md"
-
-=== "vLLM Ascend"
-
-    --8<-- "docs/en/user-guide/model-tour/glm/ascend.md"
-
-=== "SGLang"
-
-    --8<-- "docs/en/user-guide/model-tour/glm/sglang.md"
+Use the official recipe above for the model's engine settings, then follow the
+[vLLM](../../quick_start/quickstart_vllm.md),
+[vLLM-Ascend](../../quick_start/quickstart_vllm_ascend.md), or
+[SGLang](../../quick_start/quickstart_sglang.md) integration guide. Confirm the
+model and feature in the [support matrix](../../support-matrix/index.md).
+An official engine tutorial establishes engine usage; it does not independently
+verify UCM external-cache behavior for that model.
