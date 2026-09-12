@@ -42,7 +42,7 @@ For source development, `python -m pip install -e toolkit` remains supported fro
 
 ## Dependencies
 
-The base CLI only depends on the Python standard library and `setuptools`. Individual tools require additional system dependencies as summarized below (see each tool's documentation for details):
+The base CLI only depends on the Python standard library. Individual tools require additional system dependencies as summarized below (see each tool's documentation for details):
 
 | Feature | Dependencies |
 | --- | --- |

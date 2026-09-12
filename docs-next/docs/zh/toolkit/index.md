@@ -42,7 +42,7 @@ ucm-toolkit build dev-sandbox
 
 ## 依赖
 
-基础 CLI 只依赖 Python 标准库和 `setuptools`。不同工具还需要额外系统依赖，概览如下（详见各子工具文档）：
+基础 CLI 只依赖 Python 标准库。不同工具还需要额外系统依赖，概览如下（详见各子工具文档）：
 
 | 功能 | 依赖 |
 | --- | --- |
