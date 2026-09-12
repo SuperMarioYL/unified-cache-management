@@ -190,7 +190,11 @@ def wait_for_builds(
 def read_public(url: str) -> bytes:
     # Public readback deliberately sends no RTD API credentials.
     with urlopen(
-        Request(url, headers={"Cache-Control": "no-cache"}), timeout=30
+        Request(
+            url,
+            headers={"Cache-Control": "no-cache", "User-Agent": "ucm-docs-readback/1"},
+        ),
+        timeout=30,
     ) as response:
         return response.read()
 

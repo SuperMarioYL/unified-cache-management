@@ -150,3 +150,31 @@ def test_latest_build_tracks_default_branch_without_requiring_tag_sha(monkeypatc
         [{"project": "docs-en", "version": "latest", "build_id": 13}], "a" * 40
     )
     assert result[0]["commit"] == "b" * 40
+
+
+def test_public_readback_identifies_client_without_sending_api_credentials(monkeypatch):
+    monkeypatch.setenv("RTD_API_TOKEN", "private-rtd-token")
+    captured = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return b"public documentation"
+
+    def open_public(request, timeout):
+        captured.append(request)
+        return Response()
+
+    monkeypatch.setattr(trigger_rtd, "urlopen", open_public)
+    assert (
+        trigger_rtd.read_public("https://docs.example/en/latest/")
+        == b"public documentation"
+    )
+    headers = dict(captured[0].header_items())
+    assert headers["User-agent"] == "ucm-docs-readback/1"
+    assert "Authorization" not in headers
