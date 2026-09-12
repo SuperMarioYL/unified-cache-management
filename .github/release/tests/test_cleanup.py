@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
+import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -12,6 +14,21 @@ import pytest
 RELEASE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RELEASE_ROOT))
 cleanup = importlib.import_module("ucm_release.cleanup")
+
+
+@pytest.mark.parametrize("script", ["cleanup.py", "release.py"])
+def test_release_entrypoints_run_by_filename_without_pythonpath(tmp_path, script):
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [sys.executable, str(RELEASE_ROOT / "ucm_release" / script), "--help"],
+        cwd=tmp_path,
+        env=environment,
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "usage:" in result.stdout
 
 
 def _manifest(

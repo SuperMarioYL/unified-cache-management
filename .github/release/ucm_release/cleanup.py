@@ -21,6 +21,8 @@ if __package__:
     from .manifest import ManifestError as CleanupError
     from .manifest import validate_manifest
 else:
+    # Filename entry points also need the package parent for manifest imports.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from manifest import RELEASE_MANIFEST_FILENAME as MANIFEST_FILENAME
     from manifest import ManifestError as CleanupError
     from manifest import validate_manifest
