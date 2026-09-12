@@ -72,6 +72,7 @@ def test_workflow_notifies_rtd_only_after_manifest_readback():
         i for i, step in enumerate(steps) if "trigger_rtd.py" in step.get("run", "")
     )
     assert notification > readback
+    assert steps[notification]["env"]["GH_TOKEN"] == "${{ github.token }}"
     run = steps[notification]["run"]
     assert "--source-sha" in run and "--output out/docs-receipt.json" in run
     assert "RTD_PROJECT_EN" in run and "RTD_PROJECT_ZH" in run

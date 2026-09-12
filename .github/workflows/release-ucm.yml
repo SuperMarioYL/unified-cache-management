@@ -1814,6 +1814,7 @@ jobs:
             '.release.tag == $tag and .release.actions_run_id == $run' input/release/release-manifest.json
       - name: Build and verify both public language roots
         env:
+          GH_TOKEN: ${{ github.token }}
           RTD_API_TOKEN: ${{ secrets.RTD_API_TOKEN }}
           RTD_PROJECT_EN: ${{ vars.RTD_PROJECT_EN }}
           RTD_PROJECT_ZH: ${{ vars.RTD_PROJECT_ZH }}
