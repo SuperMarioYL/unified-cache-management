@@ -178,6 +178,28 @@ def test_member_receipt_barrier_uses_the_profile_target_validator() -> None:
     assert "_validated_receipt_targets" in release_module
 
 
+def test_release_state_entrypoints_install_their_dependencies() -> None:
+    for name, job in _load("release-ucm.yml")["jobs"].items():
+        steps = job.get("steps", [])
+        entrypoint = next(
+            (
+                index
+                for index, step in enumerate(steps)
+                if "ucm_release/release.py" in step.get("run", "")
+            ),
+            None,
+        )
+        if entrypoint is None:
+            continue
+        installs = "\n".join(
+            step.get("run", "")
+            for step in steps[:entrypoint]
+            if "pip install" in step.get("run", "")
+        )
+        assert "PyYAML==6.0.2" in installs, name
+        assert "packaging==24.2" in installs, name
+
+
 def test_only_open_and_successful_nightly_finalize_can_publicize_release() -> None:
     jobs = _load("release-ucm.yml")["jobs"]
     publicizers = []

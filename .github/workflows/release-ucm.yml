@@ -968,7 +968,7 @@ jobs:
           python-version: "3.12"
       - run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
-          --only-binary=:all: twine==6.1.0
+          --only-binary=:all: twine==6.1.0 PyYAML==6.0.2 packaging==24.2
       - uses: actions/download-artifact@v4.3.0
         with:
           name: ${{ needs.plan.outputs.plan_artifact }}
@@ -1122,6 +1122,12 @@ jobs:
         with:
           ref: ${{ inputs.source_sha }}
           persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: PyYAML==6.0.2 packaging==24.2
       - uses: actions/download-artifact@v4.3.0
         with:
           name: ${{ needs.plan.outputs.plan_artifact }}
