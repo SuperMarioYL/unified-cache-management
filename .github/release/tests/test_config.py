@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import importlib
+import shutil
 import subprocess
 import sys
+from email.parser import Parser
 from pathlib import Path
 
+import build
 import pytest
 import yaml
 
@@ -17,6 +20,39 @@ RELEASE_ROOT = REPO_ROOT / ".github" / "release"
 
 def _release_policy() -> dict[str, object]:
     return yaml.safe_load((RELEASE_ROOT / "release.yaml").read_text(encoding="utf-8"))
+
+
+def test_package_metadata_and_release_plan_read_the_same_dependencies(tmp_path):
+    policy = importlib.import_module("ucm_release.policy")
+    source = tmp_path / "source"
+    source.mkdir()
+    for filename in (
+        "setup.py",
+        "pyproject.toml",
+        "version.ini",
+        "README.md",
+        "LICENSE",
+    ):
+        shutil.copy2(REPO_ROOT / filename, source / filename)
+    project = source / "pyproject.toml"
+    project.write_text(project.read_text().replace("wrapt==1.17.2", "wrapt==1.17.1"))
+    bundle = policy.load(project_path=project)
+    metadata_dir = build.ProjectBuilder(str(source)).prepare(
+        "wheel", str(tmp_path / "metadata")
+    )
+    metadata = Parser().parsestr((Path(metadata_dir) / "METADATA").read_text())
+    assert metadata.get_all("Requires-Dist") == bundle["requirements"]["wheel_runtime"]
+    assert bundle["requirements"]["wheel_runtime"] == ["wrapt==1.17.1"]
+
+
+def test_builder_pins_must_satisfy_the_package_build_requirements(tmp_path):
+    policy = importlib.import_module("ucm_release.policy")
+    project = tmp_path / "pyproject.toml"
+    project.write_text(
+        (REPO_ROOT / "pyproject.toml").read_text().replace("cmake>=3.18", "cmake>=99")
+    )
+    with pytest.raises(ValueError, match="Builder pin does not satisfy.*cmake>=99"):
+        policy.load(project_path=project)
 
 
 @pytest.mark.parametrize("value", [-2, 0, True])

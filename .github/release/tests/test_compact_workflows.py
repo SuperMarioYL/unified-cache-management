@@ -196,8 +196,7 @@ def test_release_state_entrypoints_install_their_dependencies() -> None:
             for step in steps[:entrypoint]
             if "pip install" in step.get("run", "")
         )
-        assert "PyYAML==6.0.2" in installs, name
-        assert "packaging==24.2" in installs, name
+        assert "-r .github/release/requirements.txt" in installs, name
 
 
 def test_only_open_and_successful_nightly_finalize_can_publicize_release() -> None:

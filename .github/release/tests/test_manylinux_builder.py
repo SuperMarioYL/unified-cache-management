@@ -10,9 +10,9 @@ def test_wheel_builder_repairs_to_the_planned_manylinux_tag() -> None:
         ROOT / ".github" / "release" / "docker" / "Dockerfile.wheel"
     ).read_text(encoding="utf-8")
 
-    assert "auditwheel==6.7.0" in (
-        ROOT / ".github" / "release" / "requirements" / "wheel-build.txt"
-    ).read_text(encoding="utf-8")
+    assert "auditwheel==6.7.0" in (ROOT / "requirements" / "build.txt").read_text(
+        encoding="utf-8"
+    )
     assert "--outdir /tmp/ucm-raw-wheel" in dockerfile
     assert "mapfile -t auditwheel_excludes" in dockerfile
     assert 'repair_args+=(--exclude "${library}")' in dockerfile

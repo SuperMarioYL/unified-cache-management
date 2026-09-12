@@ -9,6 +9,7 @@ import copy
 import os
 import re
 import subprocess
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -24,8 +25,8 @@ RELEASE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RELEASE = RELEASE_ROOT / "release.yaml"
 DEFAULT_PLATFORMS = RELEASE_ROOT / "platforms.yaml"
 DEFAULT_SCHEMA = RELEASE_ROOT / "schemas" / "config.schema.json"
-DEFAULT_BUILD_REQUIREMENTS = RELEASE_ROOT / "requirements" / "wheel-build.txt"
-DEFAULT_RUNTIME_REQUIREMENTS = RELEASE_ROOT / "requirements" / "wheel-runtime.txt"
+DEFAULT_BUILD_REQUIREMENTS = REPO_ROOT / "requirements" / "build.txt"
+DEFAULT_PROJECT = REPO_ROOT / "pyproject.toml"
 OFFICIAL_REPOSITORY = "ModelEngine-Group/unified-cache-management"
 
 _MATRIX_LIMITS = {
@@ -151,11 +152,9 @@ def _companion_path(release_path: Path, explicit: Path | None, default: Path) ->
     return sibling if sibling.is_file() else default
 
 
-def _exact_requirements(path: Path) -> list[str]:
+def _exact_requirements(lines: list[str], context: str) -> list[str]:
     requirements: dict[str, str] = {}
-    for line_number, raw_line in enumerate(
-        path.read_text(encoding="utf-8").splitlines(), start=1
-    ):
+    for line_number, raw_line in enumerate(lines, start=1):
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
@@ -163,7 +162,7 @@ def _exact_requirements(path: Path) -> list[str]:
             requirement = Requirement(line)
         except InvalidRequirement as error:
             raise ValueError(
-                f"{path}:{line_number}: invalid requirement {line!r}"
+                f"{context}:{line_number}: invalid requirement {line!r}"
             ) from error
         specifiers = list(requirement.specifier)
         if (
@@ -175,21 +174,21 @@ def _exact_requirements(path: Path) -> list[str]:
             or "*" in specifiers[0].version
         ):
             raise ValueError(
-                f"{path}:{line_number}: requirement must be one unconditional exact pin"
+                f"{context}:{line_number}: requirement must be one unconditional exact pin"
             )
         try:
             version = str(Version(specifiers[0].version))
         except InvalidVersion as error:
             raise ValueError(
-                f"{path}:{line_number}: requirement version is invalid"
+                f"{context}:{line_number}: requirement version is invalid"
             ) from error
         name = canonicalize_name(requirement.name)
         normalized = f"{name}=={version}"
         if name in requirements:
-            raise ValueError(f"{path}:{line_number}: duplicate requirement {name!r}")
+            raise ValueError(f"{context}:{line_number}: duplicate requirement {name!r}")
         requirements[name] = normalized
     if not requirements:
-        raise ValueError(f"{path}: requirements file must not be empty")
+        raise ValueError(f"{context}: requirements must not be empty")
     return [requirements[name] for name in sorted(requirements)]
 
 
@@ -349,18 +348,33 @@ def load(
     platforms_path: Path | None = None,
     schema_path: Path = DEFAULT_SCHEMA,
     build_requirements_path: Path | None = None,
-    runtime_requirements_path: Path | None = None,
+    project_path: Path = DEFAULT_PROJECT,
 ) -> dict[str, Any]:
     """Load only the schema-v6 formal policy and its direct authorities."""
     resolved_platforms = _companion_path(
         release_path, platforms_path, DEFAULT_PLATFORMS
     )
-    resolved_build_requirements = _companion_path(
-        release_path, build_requirements_path, DEFAULT_BUILD_REQUIREMENTS
+    resolved_build_requirements = build_requirements_path or DEFAULT_BUILD_REQUIREMENTS
+    build_requirements = _exact_requirements(
+        resolved_build_requirements.read_text(encoding="utf-8").splitlines(),
+        str(resolved_build_requirements),
     )
-    resolved_runtime_requirements = _companion_path(
-        release_path, runtime_requirements_path, DEFAULT_RUNTIME_REQUIREMENTS
+    project = tomllib.loads(project_path.read_text(encoding="utf-8"))
+    runtime_requirements = _exact_requirements(
+        project["project"]["dependencies"], f"{project_path}:project.dependencies"
     )
+    locked_build = {
+        canonicalize_name(requirement.name): next(iter(requirement.specifier)).version
+        for requirement in map(Requirement, build_requirements)
+    }
+    for raw in project["build-system"]["requires"]:
+        requirement = Requirement(raw)
+        locked_version = locked_build.get(canonicalize_name(requirement.name))
+        if locked_version is None or locked_version not in requirement.specifier:
+            raise ValueError(
+                f"{resolved_build_requirements}: Builder pin does not satisfy {raw!r} "
+                f"from {project_path}"
+            )
     schema = serialization.load_json(schema_path)
     release = serialization.load_yaml(release_path)
     platforms = serialization.load_yaml(resolved_platforms)
@@ -376,8 +390,8 @@ def load(
         "release": release,
         "platforms": platforms,
         "requirements": {
-            "wheel_build": _exact_requirements(resolved_build_requirements),
-            "wheel_runtime": _exact_requirements(resolved_runtime_requirements),
+            "wheel_build": build_requirements,
+            "wheel_runtime": runtime_requirements,
         },
     }
 
@@ -394,7 +408,12 @@ def resolve(
     dockerhub_namespace: str | None = None,
 ) -> dict[str, Any]:
     """Resolve the two human policies into the formal runtime authority."""
-    bundle = load(release_path, platforms_path=platforms_path)
+    bundle = load(
+        release_path,
+        platforms_path=platforms_path,
+        project_path=repository_root / "pyproject.toml",
+        build_requirements_path=repository_root / "requirements" / "build.txt",
+    )
     release = copy.deepcopy(bundle["release"])
     platforms = copy.deepcopy(bundle["platforms"])
     resolved_repository = resolve_repository(

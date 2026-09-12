@@ -36,8 +36,14 @@ The human-maintained release authorities are:
   four fully expanded Release Profiles, retention, and Chart smoke inputs;
 - `platforms.yaml`: raw Builder registries, excluded variants, Builder checks,
   and supported or blocked UCM backends;
-- `requirements/wheel-build.txt` and `requirements/wheel-runtime.txt`: exact
-  Python dependencies.
+- Root `pyproject.toml`: package runtime dependencies and build-system requirements;
+- Root `requirements/build.txt`: exact Wheel Builder tool versions, validated
+  against `build-system.requires` before creating the release plan;
+- `.github/release/requirements.txt`: release script dependencies. Workflows
+  install this file; shared build tool pins come from `requirements/build.txt`.
+
+The release plan reads runtime dependencies directly from `project.dependencies`.
+The built Wheel metadata must match those declarations before publication.
 
 Each product selector is a canonical `X.Y` Minor range or an exact `X.Y.Z`
 Patch range. Every range is resolved independently from parsed Registry tags:
