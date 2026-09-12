@@ -71,8 +71,43 @@ def main():
                 "--cmake-arg=-DCUDA_ROOT=" + str(Path(directory) / "no-cuda-sdk"),
                 "--cmake-arg=-DASCEND_ROOT=" + str(Path(directory) / "no-ascend-sdk"),
             )
-            run("run", "dev-sandbox", "copy", "--help")
-            run("run", "dev-sandbox", "trans", "--help")
+            run("doctor", "dev-sandbox")
+            run(
+                "run",
+                "dev-sandbox",
+                "copy",
+                "-t",
+                "host_to_anonymous_memcpy",
+                "-s",
+                "1K",
+                "-n",
+                "1",
+                "-i",
+                "1",
+                "-d",
+                "1",
+            )
+            run(
+                "run",
+                "dev-sandbox",
+                "trans",
+                "-t",
+                "H2D",
+                "-H",
+                "normal",
+                "-D",
+                "normal",
+                "-M",
+                "memcpy",
+                "-s",
+                "1024",
+                "-n",
+                "1",
+                "-i",
+                "1",
+                "-d",
+                "1",
+            )
             run("clean", "dev-sandbox", "--dry-run")
             assert (Path(directory) / "native/CMakeCache.txt").is_file()
             run("clean", "dev-sandbox")

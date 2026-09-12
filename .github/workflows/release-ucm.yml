@@ -93,10 +93,10 @@ jobs:
           RTD_PROJECT_ZH: ${{ vars.RTD_PROJECT_ZH }}
           RTD_API_TOKEN: ${{ secrets.RTD_API_TOKEN }}
         run: |
-          test -n "${RTD_PROJECT_EN}" && test -n "${RTD_PROJECT_ZH}" && test -n "${RTD_API_TOKEN}" || {
+          if [ -z "${RTD_PROJECT_EN}" ] || [ -z "${RTD_PROJECT_ZH}" ] || [ -z "${RTD_API_TOKEN}" ]; then
             echo "::error::Configure RTD_PROJECT_EN, RTD_PROJECT_ZH and RTD_API_TOKEN before releasing."
             exit 1
-          }
+          fi
 
       - uses: actions/checkout@v4.2.2
         with:
