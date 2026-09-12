@@ -78,7 +78,7 @@
   <rect x="52" y="292" width="56" height="16" rx="4" fill="transparent" stroke="rgba(97,97,97,0.45)" stroke-width="0.8"/>
   <text x="80" y="304" fill="#616161" font-size="10" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PROFILE</text>
   <text x="132" y="340" fill="#212121" font-size="16" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">Helm input</text>
-  <text x="132" y="368" fill="#616161" font-size="12" font-family="'Geist Mono', monospace" text-anchor="middle">chart + values-site.yaml</text>
+  <text x="132" y="368" fill="#616161" font-size="12" font-family="'Geist Mono', monospace" text-anchor="middle">chart + model values</text>
 
   <!-- Helm-owned resource bundle -->
   <rect x="292" y="184" width="280" height="228" rx="8" fill="#fafaf7"/>

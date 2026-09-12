@@ -1,1 +1,0 @@
-"""UCM documentation translation package."""

@@ -1,74 +1,73 @@
-# 模型与能力支持矩阵
+# 支持矩阵
 
-本页汇总 UCM 在不同模型和推理框架中的兼容范围。它是仓库报告的兼容性参考；`main` 列描述集成开发状态，并非固定 Release 的测试矩阵。部署前仍需确认所选发布制品和引擎指南，本次文档迁移不代表进行了新的硬件或模型验证。
+<div class="ucm-support-matrix" markdown="1">
 
-## 图例
+本页展示各模型的 Prefix Cache 集成状态。三个引擎列均对应开发分支（main）的兼容性记录；具体发布组合见[安装](../quick_start/index.md)，目标环境仍需完成运行验证。
 
-| 标记 | 说明 |
-|--------|-------------|
-| ✅ | 所列集成报告为支持 |
-| ❌ | 不支持 |
-| 🟡 | 尚未测试或验证 |
+## 模型兼容性
 
-## 模型与能力兼容性
+<div class="ucm-matrix-legend"><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span><span class="ucm-matrix-status ucm-matrix-status--unsupported">不支持</span><span class="ucm-matrix-status ucm-matrix-status--unverified">待验证</span></div>
 
-### Prefix Cache 支持
+<div class="ucm-matrix-scroll" tabindex="0" role="region" aria-label="模型兼容性表，可横向滚动">
+<table class="ucm-support-table">
+<colgroup><col style="width:40%"><col style="width:20%"><col style="width:20%"><col style="width:20%"></colgroup>
+<thead><tr><th scope="col">模型</th><th scope="col">vLLM</th><th scope="col">vLLM-Ascend</th><th scope="col">SGLang</th></tr></thead>
+<tbody>
+<tr class="ucm-matrix-family"><th colspan="4" scope="rowgroup">DeepSeek</th></tr>
+<tr><th scope="row">DeepSeek V3/3.1</th><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td></tr>
+<tr><th scope="row">DeepSeek R1</th><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td></tr>
+<tr><th scope="row">DeepSeek V3.2</th><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td></tr>
+<tr><th scope="row">DeepSeek V4 Pro</th><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--unsupported">不支持</span></td></tr>
+<tr><th scope="row">DeepSeek V4 Flash</th><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--unsupported">不支持</span></td></tr>
+</tbody>
+<tbody>
+<tr class="ucm-matrix-family"><th colspan="4" scope="rowgroup">Qwen</th></tr>
+<tr><th scope="row">Qwen2.5</th><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td></tr>
+<tr><th scope="row">Qwen3</th><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td></tr>
+<tr><th scope="row">Qwen3-MoE</th><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td></tr>
+<tr><th scope="row">Qwen3-Next</th><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--unsupported">不支持</span></td></tr>
+<tr><th scope="row">Qwen3.5</th><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--unsupported">不支持</span></td></tr>
+<tr><th scope="row">Qwen3.6</th><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--unsupported">不支持</span></td></tr>
+<tr><th scope="row">Qwen3.8</th><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--unsupported">不支持</span></td></tr>
+<tr><th scope="row">Qwen3.8-Flash-Next</th><td><span class="ucm-matrix-status ucm-matrix-status--unverified">待验证</span></td><td><span class="ucm-matrix-status ucm-matrix-status--unverified">待验证</span></td><td><span class="ucm-matrix-status ucm-matrix-status--unsupported">不支持</span></td></tr>
+</tbody>
+<tbody>
+<tr class="ucm-matrix-family"><th colspan="4" scope="rowgroup">GLM</th></tr>
+<tr><th scope="row">GLM-4.x</th><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td></tr>
+<tr><th scope="row">GLM-5</th><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--unsupported">不支持</span></td></tr>
+<tr><th scope="row">GLM-5.1</th><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--unsupported">不支持</span></td></tr>
+<tr><th scope="row">GLM-5.2</th><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--unsupported">不支持</span></td></tr>
+<tr><th scope="row">GLM-5.3-Flash</th><td><span class="ucm-matrix-status ucm-matrix-status--unverified">待验证</span></td><td><span class="ucm-matrix-status ucm-matrix-status--unverified">待验证</span></td><td><span class="ucm-matrix-status ucm-matrix-status--unsupported">不支持</span></td></tr>
+</tbody>
+<tbody>
+<tr class="ucm-matrix-family"><th colspan="4" scope="rowgroup">MiniMax</th></tr>
+<tr><th scope="row">MiniMax-M2.5</th><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td></tr>
+<tr><th scope="row">MiniMax-M2.7</th><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td></tr>
+<tr><th scope="row">MiniMax-M3</th><td><span class="ucm-matrix-status ucm-matrix-status--unverified">待验证</span></td><td><span class="ucm-matrix-status ucm-matrix-status--unverified">待验证</span></td><td><span class="ucm-matrix-status ucm-matrix-status--unsupported">不支持</span></td></tr>
+</tbody>
+<tbody>
+<tr class="ucm-matrix-family"><th colspan="4" scope="rowgroup">Kimi</th></tr>
+<tr><th scope="row">Kimi-K2.5</th><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--supported">支持</span></td><td><span class="ucm-matrix-status ucm-matrix-status--unsupported">不支持</span></td></tr>
+<tr><th scope="row">Kimi-K3</th><td><span class="ucm-matrix-status ucm-matrix-status--unverified">待验证</span></td><td><span class="ucm-matrix-status ucm-matrix-status--unverified">待验证</span></td><td><span class="ucm-matrix-status ucm-matrix-status--unsupported">不支持</span></td></tr>
+</tbody>
+</table>
+</div>
 
-下表列出不同推理框架中报告的模型前缀缓存支持情况，供选择部署组合时参考。
-
-| 模型 | vLLM<br>(main) | vLLM-Ascend<br>(main) | SGLang<br>(main) |
-|-------|:-----------:|:------------------:|:------:|
-| DeepSeek V3/3.1 | ✅ | ✅ | ✅ |
-| DeepSeek R1 | ✅ | ✅ | ✅ |
-| DeepSeek V3.2 | ✅ | ✅ | ✅ |
-| DeepSeek V4 Pro | ✅ | ✅ | ❌ |
-| DeepSeek V4 Flash | ✅ | ✅ | ❌ |
-| Qwen2.5 | ✅ | ✅ | ✅ |
-| Qwen3 | ✅ | ✅ | ✅ |
-| Qwen3-MoE | ✅ | ✅ | ✅ |
-| Qwen3-Next | ✅ | ✅ | ❌ |
-| Qwen3.5 | ✅ | ✅ | ❌ |
-| Qwen3.6 | ✅ | ✅ | ❌ |
-| Qwen3.8 | ✅ | ✅ | ❌ |
-| Qwen3.8-Flash-Next | 🟡 | 🟡 | ❌ |
-| GLM-4.x | ✅ | ✅ | ✅ |
-| GLM-5 | ✅ | ✅ | ❌ |
-| GLM-5.1 | ✅ | ✅ | ❌ |
-| GLM-5.2 | ✅ | ✅ | ❌ |
-| GLM-5.3-Flash | 🟡 | 🟡 | ❌ |
-| MiniMax-M2.5 | ✅ | ✅ | ✅ |
-| MiniMax-M2.7 | ✅ | ✅ | ✅ |
-| MiniMax-M3 | 🟡 | 🟡 | ❌ |
-| Kimi-K2.5 | ✅ | ✅ | ❌ |
-| Kimi-K3 | 🟡 | 🟡 | ❌ |
-
-> 表中仅列出部分代表性模型。更多说明参见 [Prefix Cache](../capabilities/prefix-cache/index.md)。
-
-### 推理增强能力
-
-下表说明当前代码中存在的集成路径。模型名称匹配和被补丁修改的模型类只用于确定验证入口，不代表某个模型系列已经完成硬件验收。
-
-| 实现 | 引擎集成路径 | 模型与执行边界 |
-| --- | --- | --- |
-| [GSAOnDevice](../capabilities/sparse-attention/gsa.md) | vLLM / vLLM-Ascend 0.11.0 的自动稀疏补丁 | 有 CUDA/NPU 路径；按名称为 DeepSeek R1/V2、Qwen3 4B/32B/Coder 30B A3B、QwQ 32B 选择配置；仍须检查实际模型维度和激活阈值 |
-| [CacheBlend](../capabilities/sparse-attention/cacheblend.md) | vLLM 0.11.0 的自动稀疏钩子；另有 0.9.2 手动稀疏补丁 | 实验性 CUDA 路径，依赖 `llama`/`qwen2` 前向钩子及兼容的旋转位置缓存布局；不支持 chunked prefill 或原生 HBM Prefix Cache 复用 |
-| [ReRoPE](../capabilities/rerope.md) | vLLM 0.9.2 / 0.11.0 手动补丁 | 依赖 Triton attention 和经过补丁修改的 `qwen2`/`qwen3`/`qwen3_moe` 类；不会自动启用 ReRoPE，未建立 Ascend 集成路径 |
-
-较新引擎的 Prefix Cache 支持不代表这些注意力改动也受支持。请按对应指南准备环境，并验证具体的模型、引擎、平台和负载组合。
+各家族教程见 [Model Tour](../model-tour/index.md)。存储配置见[开发者指南](../../developer-guide/cache-configuration/index.md)。
 
 ## 计算平台与设备
 
-| 计算平台 | 厂商 | 设备 |
-|:----------------:|:------:|:------:|
-| CANN | Ascend | 910C, 910B |
-| CUDA | NVIDIA | H100, H20, L40, L20 |
-| MUSA | Mthreads | S5000 |
-| MACA | MetaX | C500 |
+<div class="ucm-matrix-scroll" tabindex="0" role="region" aria-label="计算平台与设备表">
+<table class="ucm-support-table ucm-platform-table">
+<colgroup><col style="width:25%"><col style="width:25%"><col style="width:50%"></colgroup>
+<thead><tr><th scope="col">计算平台</th><th scope="col">厂商</th><th scope="col">设备</th></tr></thead>
+<tbody>
+<tr><th scope="row">CANN</th><td>Ascend</td><td>910C, 910B</td></tr>
+<tr><th scope="row">CUDA</th><td>NVIDIA</td><td>H100, H20, L40, L20</td></tr>
+</tbody>
+</table>
+</div>
 
-> 表中仅列出部分平台。
+表中列出代表性模型和设备。实际行为受引擎版本、模型变体、运行参数及后端影响；“待验证”表示尚无对应验证结论。
 
-## 说明与限制
-
-- 矩阵仅用于参考本页所列配置的兼容范围。
-- 实际行为可能受硬件、运行参数、后端变化和模型变体影响。
-- 支持矩阵持续更新；最新集成进展请参阅 GitHub Issue 和 Pull Request。
+</div>

@@ -1,14 +1,44 @@
-# Qwen3.8-27B
+# Qwen
+
+Qwen 系列模型的 [vLLM Ascend 官方教程](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/index.html)。接入 UCM 可直接查看下方的 [Qwen3.8-27B 部署与调用示例](#qwen38-27b-ucm)。
+
+## vLLM Ascend 模型指南
+
+| 模型 | vLLM Ascend latest 指南 |
+| --- | --- |
+| Qwen3-Dense(0.6B/1.7B/4B/8B/14B/32B) | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-Dense.html) |
+| Qwen-VL-Dense(8B/32B) | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen-VL-Dense.html) |
+| Qwen3-30B-A3B | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-30B-A3B.html) |
+| Qwen3-235B-A22B | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-235B-A22B.html) |
+| Qwen3-VL-30B-A3B-Instruct | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-VL-30B-A3B-Instruct.html) |
+| Qwen3-VL-235B-A22B-Instruct | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-VL-235B-A22B-Instruct.html) |
+| Qwen3-Coder-30B-A3B | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-Coder-30B-A3B.html) |
+| Qwen3-Embedding | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-Embedding.html) |
+| Qwen3-VL-Embedding | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-VL-Embedding.html) |
+| Qwen3-Reranker | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-Reranker.html) |
+| Qwen3-VL-Reranker | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-VL-Reranker.html) |
+| Qwen3-Next | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-Next.html) |
+| Qwen3-Omni-30B-A3B-Thinking | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-Omni-30B-A3B-Thinking.html) |
+| Qwen3.5-27B & Qwen3.6-27B | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3.5-27B-Qwen3.6-27B.html) |
+| Qwen3.5-Dense (2B/4B/9B) | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3.5-Dense.html) |
+| Qwen3.5-397B-A17B | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3.5-397B-A17B.html) |
+| Qwen3.6-35B-A3B | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3.6-35B-A3B.html) |
+| Qwen3.8-2.4T-A95B | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3.8-2.4T-A95B.html) |
+| Qwen3.8-27B | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3.8-27B.html) |
+| Qwen3-ASR-1.7B | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-ASR-1.7B.html) |
+| Qwen2.5-Math-RM-72B | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen2.5-Math-RM-72B.html) |
+
+## Qwen3.8-27B UCM 示例 { #qwen38-27b-ucm }
 
 以下示例命令尚未在加速卡上实跑验证。
 
 在单个 Docker 容器中运行 [Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B)，接入 UCM Prefix Cache。本例使用 BF16 权重，提供文本服务，上下文长度为 8,192 token，最多同时处理 8 个序列。
 
-## 部署
+### 部署
 
 先将完整模型下载到本地目录。Linux 主机需要安装 Docker，并准备 NVIDIA Container Toolkit，或与所选镜像匹配的 Ascend 驱动。下方命令分别使用两张 80 GB CUDA GPU，或一台配有八张 64 GB NPU 的 Atlas 800 A2；这些是示例资源配置，不代表最低要求。
 
-打开[安装页](../../installation.md)，选择 **Image**、计算平台和主机架构，将完整镜像地址复制到 `UCM_IMAGE`。CUDA 示例选择已发布的 vLLM **0.28.0** 运行时，A2 示例选择 vLLM-Ascend **0.25.1rc0** 运行时。镜像已包含 UCM，直接使用选择器给出的完整地址。将 `UCM_MODEL_DIR` 改为下载的模型目录，再执行：
+打开[安装页](../../quick_start/index.md)，选择 **Image**、计算平台和主机架构，将完整镜像地址复制到 `UCM_IMAGE`。CUDA 示例选择已发布的 vLLM **0.28.0** 运行时，A2 示例选择 vLLM-Ascend **0.25.1rc0** 运行时。镜像已包含 UCM，直接使用选择器给出的完整地址。将 `UCM_MODEL_DIR` 改为下载的模型目录，再执行：
 
 ```bash
 export UCM_MODEL_DIR=/srv/models/Qwen3.8-27B
@@ -111,7 +141,7 @@ Qwen3.8-27B 混合使用全注意力和 Gated DeltaNet。保留混合 KV Cache �
 
 使用 `docker logs -f ucm-qwen38` 查看启动日志。服务就绪后，按 Ctrl-C 退出日志查看，在同一主机终端调用服务。
 
-## 调用
+### 调用
 
 在主机准备 `curl` 和 `jq`。`/health` 应返回 HTTP 200；随后发送一次请求，并从 JSON 响应中读取 `choices[0].message.content`。
 

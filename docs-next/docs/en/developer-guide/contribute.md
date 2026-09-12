@@ -72,7 +72,7 @@ It’s recommended to set up a local development environment and run the linter 
 
 # Choose a workspace dir (e.g., ~/vllm-project/) and set up venv (optional)
 cd ~/vllm-project/
-python3 -m venv .venv
+python3.12 -m venv .venv
 source ./.venv/bin/activate
 
 # Clone UCM and install
@@ -129,15 +129,14 @@ Once all requirements are satisfied, the “Squash and merge” button will beco
 ### Building the docs
 
 The new documentation site lives under `docs-next/` and is built with MkDocs
-Material. The legacy Sphinx site under `docs/` stays in place until the
-MkDocs site passes review.
+Material. Keep matching English/Chinese paths and update navigation and links together.
 
 ```shell
 # Install documentation dependencies.
 cd unified-cache-management/docs-next
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 
 # Serve the site locally with live reload.
 mkdocs serve

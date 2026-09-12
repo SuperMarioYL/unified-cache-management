@@ -20,6 +20,7 @@ from packaging.utils import (
 from packaging.version import InvalidVersion, Version
 
 from . import policy as release_policy
+from . import toolkit
 
 META_BASE_DISTRIBUTION = "uc-manager"
 META_TAG = "py3-none-any"
@@ -127,6 +128,7 @@ def validate_meta_package(plan: Mapping[str, Any]) -> dict[str, Any]:
     if version != plan_version:
         raise ValueError("meta package version must match release plan version")
 
+    toolkit_package = toolkit.planned_package(dict(plan))
     extras = _mapping(meta.get("extras"), "meta package extras")
     if not extras:
         raise ValueError("meta package extras must not be empty")
@@ -139,6 +141,12 @@ def validate_meta_package(plan: Mapping[str, Any]) -> dict[str, Any]:
             or canonicalize_name(raw_extra) != raw_extra
         ):
             raise ValueError(f"invalid canonical meta package extra: {raw_extra!r}")
+        if raw_extra == "toolkit" and toolkit_package is not None:
+            expected = f"{toolkit_package['distribution']}=={version}"
+            if raw_requirement != expected:
+                raise ValueError("toolkit extra must pin the planned toolkit package")
+            normalized_extras[raw_extra] = expected
+            continue
         backend_name, requirement = _canonical_exact_requirement(
             raw_requirement, f"meta package extra {raw_extra!r}", backend_prefix
         )
@@ -195,6 +203,8 @@ def validate_meta_package(plan: Mapping[str, Any]) -> dict[str, Any]:
             raise ValueError(
                 f"planned runtime variant {runtime_variant!r} maps to multiple backends"
             )
+    if toolkit_package is not None:
+        planned_extras["toolkit"] = f"{toolkit_package['distribution']}=={version}"
     expected_extras = {key: planned_extras[key] for key in sorted(planned_extras)}
     if normalized_extras != expected_extras or backend_names != planned_backends:
         missing = sorted(set(expected_extras.items()) - set(normalized_extras.items()))

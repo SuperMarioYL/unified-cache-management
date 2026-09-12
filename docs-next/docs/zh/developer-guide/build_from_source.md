@@ -1,6 +1,25 @@
 # 从源码构建 UCM
 
-开发、定制，或[安装](../user-guide/installation.md)中没有所需引擎与后端组合时，可以从源码构建。请在目标推理环境中构建，确保编译器、设备工具链、Python、PyTorch 和推理引擎彼此兼容。
+开发、定制，或[安装](../user-guide/quick_start/index.md)中没有所需引擎与后端组合时，可以从源码构建。请在目标推理环境中构建，确保编译器、设备工具链、Python、PyTorch 和推理引擎彼此兼容。
+
+## 用 Docker 准备构建环境 {#docker-build-environment}
+
+已有匹配引擎环境时直接进入下一节。使用容器构建时，先在 Linux 宿主机选择包含所需引擎与 CUDA 工具链的官方镜像。将 `<vllm-version>` 替换为目标集成所需版本；使用 SGLang 时将镜像替换为 `lmsysorg/sglang:v0.5.9`。将 `/srv/models` 替换为宿主机上的模型目录。
+
+```bash
+mkdir -p ucm-build/{source,cache,config}
+
+docker run --rm -it --name ucm-build-env \
+  --gpus all --network=host --ipc=host \
+  -v "$PWD/ucm-build/source:/workspace" \
+  -v /srv/models:/models:ro \
+  -v "$PWD/ucm-build/cache:/mnt/ucm-cache" \
+  -v "$PWD/ucm-build/config:/etc/ucm" \
+  --workdir /workspace \
+  --entrypoint /bin/bash 'vllm/vllm-openai:<vllm-version>' -i
+```
+
+随后在容器内执行下面的源码检出、依赖安装和编译命令；源码写入宿主机挂载目录，容器退出后仍保留。Ascend 使用匹配的 vLLM-Ascend 镜像，其设备和驱动挂载方式见[Ascend Docker 启动](../user-guide/quick_start/index.md#vllm-ascend-docker)。仅有推理运行库的镜像未必包含编译器，需要准备目标设备的开发工具链。
 
 ## 准备源码
 
@@ -27,7 +46,7 @@ python -m pip install -v -e . --no-build-isolation
 export ENABLE_UCM_PATCH=1
 ```
 
-继续按 [vLLM 快速开始](../user-guide/quick_start/quickstart_vllm.md)配置、启动服务，并验证外部缓存。
+继续按 [vLLM 快速开始](../user-guide/quick_start/index.md#vllm)配置、启动服务，并验证外部缓存。
 
 ## vLLM-Ascend { #vllm-ascend-ascend-platform }
 
@@ -40,7 +59,7 @@ python -m pip install -v -e . --no-build-isolation
 export ENABLE_UCM_PATCH=1
 ```
 
-继续阅读 [vLLM-Ascend 快速开始](../user-guide/quick_start/quickstart_vllm_ascend.md)。
+继续阅读 [vLLM-Ascend 快速开始](../user-guide/quick_start/index.md#vllm-ascend)。
 
 ## SGLang（CUDA） { #sglang-cuda-platform }
 
@@ -51,7 +70,7 @@ export PLATFORM=cuda
 python -m pip install -v -e . --no-build-isolation
 ```
 
-继续阅读 [SGLang 快速开始](../user-guide/quick_start/quickstart_sglang.md)。历史文件 `Dockerfile.ucm-sglang-cuda-v0.5.5` 对应另一引擎版本和补丁路径，成功构建它不代表验证了 0.5.9 的 HiCache 接入方式。
+继续阅读 [SGLang 快速开始](../user-guide/quick_start/index.md#sglang)。历史文件 `Dockerfile.ucm-sglang-cuda-v0.5.5` 对应另一引擎版本和补丁路径，成功构建它不代表验证了 0.5.9 的 HiCache 接入方式。
 
 ## MindIE-LLM（昇腾） { #mindie-llm-ascend-platform }
 
@@ -70,13 +89,8 @@ export UCM_CXX11_ABI=1  # Replace with the matching target ABI.
 python -m pip install -v -e . --no-build-isolation
 ```
 
-安装后的 hook 在首次导入 `mindie_llm` 时为 MindIE Python 模块应用补丁。此操作会修改已安装的引擎包，因此请使用专门的引擎环境。继续按 [MindIE 快速开始](../user-guide/quick_start/quickstart_mindie_llm.md)配置服务并验证 KV 写入和读取。
+安装后的 hook 在首次导入 `mindie_llm` 时为 MindIE Python 模块应用补丁。此操作会修改已安装的引擎包，因此请使用专门的引擎环境。继续按 [MindIE 快速开始](../user-guide/quick_start/index.md#mindie)配置服务并验证 KV 写入和读取。
 
-## 可选的稀疏注意力构建
-
-默认不启用 Sparse Attention。在受支持的引擎和平台上，源码构建前设置 `ENABLE_SPARSE=true`。构建参数解析不区分 `true` 的大小写；`ENABLE_SPARSE=1` 不是源码构建开关。
-
-运行时配置取决于具体算法。请按[稀疏注意力](../user-guide/capabilities/sparse-attention/index.md)或 [ReRoPE](../user-guide/capabilities/rerope.md)中的版本要求操作，不要将旧补丁应用到任意引擎版本。
 
 ## 从当前源码构建镜像
 
@@ -95,4 +109,4 @@ docker build -t ucm-local:dev -f "$UCM_DOCKERFILE" .
 
 当前修订提供基于 MindIE 2.3.0 的 `docker/Dockerfile.ucm-mindie-ascend.a2-v2`。它构建 MindIE 集成，并在镜像构建时应用补丁；需要时可用 `--build-arg UCM_CXX11_ABI=0` 覆盖默认 ABI。
 
-仓库 Dockerfile 和本地构建用于开发。只有[安装](../user-guide/installation.md)中列出的制品才有对应的发布记录。本地构建成功或成功导入 UCM，仍需在目标硬件上完成服务启动和外部缓存验证。
+仓库 Dockerfile 和本地构建用于开发。只有[安装](../user-guide/quick_start/index.md)中列出的制品才有对应的发布记录。本地构建成功或成功导入 UCM，仍需在目标硬件上完成服务启动和外部缓存验证。

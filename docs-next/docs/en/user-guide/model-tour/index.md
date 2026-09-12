@@ -1,24 +1,13 @@
 # Model Tour
 
-Deploy a model with UCM in Docker, then send your first API request. Each
-tutorial includes a UCM configuration and complete container commands, with
-separate tabs for CUDA and Ascend.
+Choose a model family. Qwen and DeepSeek have UCM deployment and API examples. GLM, MiniMax and Kimi retain separate sections and existing model resources for further integration content.
 
-## Docker tutorials
+| Model family | Tutorials and resources |
+| --- | --- |
+| [GLM](glm/index.md) | GLM model resources |
+| [Qwen](qwen3/index.md) | Qwen3.8-27B deployment and calls, with CUDA / Ascend tabs |
+| [DeepSeek](deepseek/index.md) | DeepSeek-V4-Flash deployment and calls, with CUDA / Ascend tabs |
+| [MiniMax](minimax/index.md) | MiniMax model resources |
+| [Kimi](kimi/index.md) | Kimi model resources |
 
-| Model | Platforms | Tutorial |
-| --- | --- | --- |
-| Qwen3.8-27B | CUDA / Ascend | [Deploy and call Qwen3.8-27B](qwen3/index.md) |
-| DeepSeek-V4-Flash | CUDA / Ascend | [Deploy and call DeepSeek-V4-Flash](deepseek/index.md) |
-
-Use [Installation](../installation.md) to select the UCM image for the engine
-version and hardware specified by the tutorial.
-
-## Other model references
-
-The [GLM](glm/index.md), [MiniMax](minimax/index.md), and [Kimi](kimi/index.md)
-pages collect official engine guides. They do not yet contain a UCM Docker
-tutorial.
-
-For the full upstream catalog, see
-[vLLM Ascend Model Tutorials](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/).
+Check the [support matrix](../support-matrix/index.md), then select matching artifacts in [installation](../quick_start/index.md). See the [engine quickstarts](../quick_start/index.md) for general UCM integration.

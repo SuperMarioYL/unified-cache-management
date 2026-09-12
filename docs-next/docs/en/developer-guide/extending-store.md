@@ -1,294 +1,114 @@
-# Extending UCM Store
+# Extend Store
 
-## Overview
+Choose whether the change implements the full Store interface or adds a stage to an existing Pipeline. Engine integration owns model layouts, block identifiers and device addresses. Store owns backend resources, movement and task completion.
 
-In the Unified Cache Manager (UCM) architecture, the **Store component** handles:
+## Choose the extension boundary
 
-- **Space Management**: Allocation and scaling of KV Cache storage
-- **Persistence**: Durable storage and recovery of KV Cache data
-- **Tiered Transfer**: Efficient data movement between storage hierarchies
-- **Data Processing**: Quantization, compression, and encoding transformations
+| Path | Implementation | Current references |
+| --- | --- | --- |
+| Python V1 Store | Implement `UcmKVStoreBaseV1` and construct it through the V1 factory | `ucm/store/pcstore/pcstore_connector_v1.py`, `ucm/store/pipeline/connector.py` |
+| Native Pipeline stage | Implement `UC::StoreV1`, export its factory and register a stage combination | `ucm/store/empty/` for interface shape, `ucm/store/posix/` for real I/O |
+| Python wrapper of a native library | Satisfy Python V1 and native resource-lifetime contracts | PcStore and Pipeline wrappers/bindings |
 
-### Built-in Store Ecosystem
+Choose based on existing libraries, data paths and resource control. Python wrappers can invoke native I/O; language alone does not establish throughput. `Empty` illustrates interfaces without persistence.
 
-UCM provides production-ready Store implementations with the following dependency architecture:
+## Python V1 interface
 
-![ucmstore](../../assets/images/ucm_store_architecture.png)
+`ucm/store/ucmstore_v1.py` is authoritative. The following table includes all current abstract methods; use the source for exact type annotations.
 
-### Extension Options
+| Method | Contract |
+| --- | --- |
+| `cc_store()` | Return the underlying native Store pointer as an integer; native callers require a valid compatible object, not a placeholder value |
+| `lookup(block_ids)` | Return per-block presence in input order |
+| `lookup_on_prefix(block_ids)` | Return the last contiguous-hit index, or `-1` when the first block misses |
+| `lookup_on_reverse(block_ids)` | Scan backward for an existing block and return its index, or `-1` if all are missing |
+| `prefetch(block_ids)` | Initiate prefetch |
+| `load(...)`, `dump(...)` | Submit tensor-described transfers and return an opaque `Task` |
+| `load_data(...)`, `dump_data(...)` | Submit address-described transfers; `dump_data` includes synchronization parameter `prerequisite_handle=0` |
+| `check(task)`, `wait(task)` | Poll completion or wait; preserve implementation errors for callers |
 
-Beyond built-in Stores, UCM supports three extension patterns:
+Implementing lookup/load/dump alone is insufficient. Native pointer access, reverse lookup and synchronization are also part of the current interface. A Python client missing these capabilities needs an explicit adaptation to the actual caller.
 
-|        Method         | Implementation |  Performance  |                   Use Case                    |    Rating     |   Reference Implementation   |
-| --------------------- | -------------- | ------------- | --------------------------------------------- | ------------- | ---------------------------- |
-| **Pure Python**       | Python only    | 3/5   | Prototyping, algorithm validation             | 2/5         | `UcmMooncakeStore`           |
-| **Python/C++ Hybrid** | Python + C++   | 4/5  | Complex logic with performance-critical paths | 3/5       | `UcmPCStore`                 |
-| **Pure C++**          | C++ only       | 5/5 | Production, high-performance scenarios        | 5/5 | `UC::CacheStore::CacheStore` |
+Register a complete, importable implementation during initialization. This illustrates registration; replace the module and class with the actual implementation:
 
----
+```python
+from ucm.store.factory_v1 import UcmConnectorFactoryV1
 
-## Pure Python Extension
-
-For rapid prototyping and algorithm validation where development speed outweighs runtime performance.
-
-### Implementation Steps
-
-1. **Inherit the base class**
-   ```python
-   from ucm.store.ucmstore_v1 import Task, UcmKVStoreBaseV1
-
-   class UcmCustomPythonStore(UcmKVStoreBaseV1):
-       def __init__(self, config: dict):
-           super().__init__(config)
-   ```
-
-2. **Implement required methods**
-   ```python
-    @abstractmethod
-    def lookup(self, block_ids: List[bytes]) -> List[bool]:
-        """Check presence of blocks in external storage."""
-        pass
-    @abstractmethod
-    def lookup_on_prefix(self, block_ids: List[bytes]) -> int:
-        """Check presence of blocks in external storage."""
-        pass
-    @abstractmethod
-    def prefetch(self, block_ids: List[bytes]) -> None:
-        """Asynchronously prefetch blocks into high-speed cache."""
-        pass
-    @abstractmethod
-    def load(self, block_ids: List[bytes], shard_index: List[int], dst_tensor: List[List[torch.Tensor]]) -> Task:
-        """Initiate transfer of KV cache from storage to device."""
-        pass
-    @abstractmethod
-    def dump(self, block_ids: List[bytes], shard_index: List[int], src_tensor: List[List[torch.Tensor]]) -> Task:
-        """Initiate transfer of KV cache from device to storage."""
-        pass
-    @abstractmethod
-    def load_data(self, block_ids: List[bytes], shard_index: List[int], dst_addr: List[List[int]] | np.ndarray) -> Task:
-        """Low-level fetch: copy KV data to device pointers."""
-        pass
-    @abstractmethod
-    def dump_data(self, block_ids: List[bytes], shard_index: List[int], src_addr: List[List[int]] | np.ndarray) -> Task:
-        """Low-level dump: copy KV data from device pointers."""
-        pass
-    @abstractmethod
-    def wait(self, task: Task) -> None:
-        """Block until the given transfer task completes."""
-        pass
-    @abstractmethod
-    def check(self, task: Task) -> bool:
-        """Non-blocking poll for task completion."""
-        pass
-   ```
-
-   > **Note**: Full interface specifications are in [`ucm/store/ucmstore_v1.py`](https://github.com/ModelEngine-Group/unified-cache-management/blob/develop/ucm/store/ucmstore_v1.py)
-
-3. **Register your Store**
-   ```python
-   # ucm/store/factory_v1.py
-   UcmConnectorFactoryV1.register_connector(
-       "UcmCustomPythonStore",
-       "ucm.store.custom.connector",
-       "UcmCustomPythonStore"
-   )
-   ```
-
-> **Performance Warning**: Python implementations are GIL-bound and unsuitable for high-throughput scenarios. Use only for development and testing.
-
----
-
-## Hybrid Python/C++ Extension
-
-Best for balancing productivity with performance—implement hot paths in C++, orchestrate with Python.
-
-### Architecture
-```
-┌─────────────────────────┐
-│  Python Wrapper Layer   │  ← Business logic, config, API surface
-│    (ucm/store/cpy/*)    │
-└────────────┬────────────┘
-             │ pybind11
-             ▼
-┌─────────────────────────┐
-│    C++ Core Layer       │  ← Performance-critical operations
-│    (ucm/store/cc/*)     │    Memory management, compute kernels
-└─────────────────────────┘
+UcmConnectorFactoryV1.register_connector(
+    "CustomStore", "your_package.store", "CustomStore"
+)
 ```
 
-### Implementation Steps
+The factory requires a subclass of `UcmKVStoreBaseV1`. Registration precedes construction; every process constructing the Store must be able to load it.
 
-1. **Implement C++ core** (`hybrid_store.cc`)
-   ```cpp
-   #include "ucm/store/ucmstore_v1.h"
+## Native Pipeline stage
 
-   namespace UC::HybridStore {
+`ucm/store/ucmstore_v1.h` defines `Setup`, `Readme`, `Lookup`, `LookupOnPrefix`, `LookupOnReverse`, `Prefetch`, `Load`, `Dump`, `Check` and `Wait`. `CheckHealth` defaults to success; override it for a real backend probe. Public methods must support concurrent calls.
 
-   class HybridStore : public StoreV1 {
-   public:
-       ~HybridStore() override;
-       Status Setup(const Detail::Dictionary& config) override;
-       std::string Readme() const override;
+A stage named `Custom` exports `MakeCustomStore`, returning `UC::StoreV1*`. The loader resolves `Make` + stage name + `Store`, constructs the object and calls `Setup`. Follow adjacent Store CMake definitions to build and install the shared library and its dependencies.
 
-       // Core operations
-       Expected<std::vector<uint8_t>> Lookup(const Detail::BlockId* blocks, size_t num) override;
-       Expected<ssize_t> LookupOnPrefix(const Detail::BlockId* blocks, size_t num) override;
-       void Prefetch(const Detail::BlockId* blocks, size_t num) override;
-       Expected<Detail::TaskHandle> Load(Detail::TaskDesc task) override;
-       Expected<Detail::TaskHandle> Dump(Detail::TaskDesc task) override;
-       Expected<bool> Check(Detail::TaskHandle taskId) override;
-       Status Wait(Detail::TaskHandle taskId) override;
-   };
+This shows registration only; implement the class and library first:
 
-   }  // namespace UC::HybridStore
-   ```
+```python
+from ucm.store.pipeline.connector import UcmPipelineStoreBuilder
 
-   > **Note**: Full interface specifications are in [`ucm/store/ucmstore_v1.h`](https://github.com/ModelEngine-Group/unified-cache-management/blob/develop/ucm/store/ucmstore_v1.h)
+def build_custom(config, pipeline):
+    pipeline.Stack("Custom", "/opt/ucm/libcustomstore.so", config)
 
-2. **Create Python bindings** (`hybrid_store.cpy.cc`)
-   ```cpp
-   #include <pybind11/pybind11.h>
+UcmPipelineStoreBuilder.register("Custom", build_custom)
+```
 
-   PYBIND11_MODULE(ucmhybridstore, m) {
-       py::class_<UC::HybridStore::HybridStore>(m, "HybridStore")
-           .def(py::init<const Config&>())
-           .def("Lookup", &UC::HybridStore::HybridStore::Lookup, py::arg("blocks_ids").noconvert())
-           .def("Load", &UC::HybridStore::HybridStore::Load)
-           ...; // other interface
-   }
-   ```
+Select it with `UcmPipelineStore` and `store_pipeline: Custom`. For combinations with Cache or other stages, follow an existing builder's ordering and native contracts rather than concatenating arbitrary names.
 
-3. **Python wrapper layer**
-   ```python
-   from ucmhybridstore import HybridStore
+## Tasks, buffers and errors
 
-   class UcmHybridStoreWrapper:
-       def __init__(self, config: dict):
-           self._store = HybridStore(config)
+A returned transfer task may still be moving data. Retain required resources until completion and honor source-buffer compute dependencies. `prerequisite_handle` passes such device dependencies to native saving. Callers use completion feedback to decide when buffers can be reused.
 
-       def lookup_with_retry(self, block_ids):
-           """Add Python-level retry logic"""
-           result = self._store.Lookup(block_ids)
-           if not result:
-               result = self._handle_miss(block_ids)
-           return result
-   ```
+Native `Load`/`Dump` return a handle or error, `Check` returns completion or error, and `Wait` returns final status. Python bindings must preserve error meaning. A lookup miss is an expected cache result; a failed transfer must not masquerade as usable loaded data. Health wrappers restrict new storage operations without taking over engine request recovery.
 
----
+## Verify the extension
 
-## Pure C++ Extension (Recommended)
+1. Verify library loading, symbols, configuration and factory selection in the target environment.
+2. Save and load known buffer contents, checking each block and task completion; cover a miss and one real error path.
+3. Check Prefix/Reverse index semantics, concurrent calls and buffer lifetime.
+4. Connect through an [engine quickstart](../user-guide/quick_start/index.md), [verify external reuse](../user-guide/observability/verify-cache.md), then measure performance under the same workload.
 
-Production-ready implementation with maximum performance and resource control.
+Use relevant cases in `ucm/store/test/`. A stub that always returns success does not verify persistence. Continue with [metrics development](add-metrics.md) to observe the backend.
 
-### Why C++?
+## Existing backend entry points {#backend-entrypoints}
 
-- **Zero-overhead abstraction**: Direct memory access, no Python runtime overhead
-- **Full resource control**: Explicit memory management and threading
-- **Seamless integration**: Stackable and chainable with built-in Stores
+The V1 factory maps `UcmNfsStore` to `UcmPcStoreV1`; the older `ucm.store.nfsstore` is a separate interface. Pipeline loads registered builders and native libraries by name.
 
-### Implementation Steps
+### pipeline
 
-1. **Define header** (`custom_store.h`)
-   ```cpp
-   #pragma once
-   #include "ucm/store/ucmstore_v1.h"
+- `ucm/store/pipeline/connector.py` defines the registered compositions and loaded libraries.
+- `ucm/store/cache/cc/cache_store.cc` owns buffer defaults and minimum-size checks.
+- `ucm/store/posix/cc/posix_store.cc` owns filesystem configuration and health probes.
+- `ucm/integration/vllm/ucm_connector.py` supplies layout, shared-buffer defaults, and GC ownership.
 
-   namespace UC::CustomStore {
+### nfs
 
-   class CustomStore : public StoreV1 {
-   public:
-       ~CustomStore() override;
-       Status Setup(const Detail::Dictionary& config) override;
-       std::string Readme() const override;
+- `ucm/store/factory_v1.py` maps the public connector name to `UcmPcStoreV1`.
+- `ucm/store/pcstore/pcstore_connector_v1.py` defines the accepted key mapping and tensor-size constraint.
+- `ucm/store/pcstore/cc/api/pcstore.h` defines native transfer defaults.
 
-       // Required interfaces
-       Expected<std::vector<uint8_t>> Lookup(const Detail::BlockId* blocks, size_t num) override;
-       Expected<ssize_t> LookupOnPrefix(const Detail::BlockId* blocks, size_t num) override;
-       void Prefetch(const Detail::BlockId* blocks, size_t num) override;
-       Expected<Detail::TaskHandle> Load(Detail::TaskDesc task) override;
-       Expected<Detail::TaskHandle> Dump(Detail::TaskDesc task) override;
-       Expected<bool> Check(Detail::TaskHandle taskId) override;
-       Status Wait(Detail::TaskHandle taskId) override;
-   };
+### ds3fs
 
-   }  // namespace UC::CustomStore
-   ```
-   > **Note**: Full interface specifications are in [`ucm/store/ucmstore_v1.h`](https://github.com/ModelEngine-Group/unified-cache-management/blob/develop/ucm/store/ucmstore_v1.h)
+- `ucm/store/ds3fs/CMakeLists.txt` defines the optional dependency discovery.
+- `ucm/store/pipeline/connector.py` defines `Cache|Ds3fs` and its transfer geometry.
+- `ucm/store/ds3fs/cc/ds3fs_store.cc` parses configuration and dispatches Store operations.
+- `ucm/store/ds3fs/cc/trans_queue.h` and `trans_queue.cc` implement 3FS client I/O.
 
-2. **Expose factory function** (`custom_store.cc`)
-   ```cpp
-   extern "C" UC::StoreV1* MakeCustomStore() { return new UC::CustomStore::CustomStore(); }
-   ```
+### mooncake
 
-3. **CMake configuration** (`CMakeLists.txt`)
-   ```cmake
-   file(GLOB_RECURSE UCM_CUSTOM_STORE_CC_SOURCE_FILES "./cc/*.cc")
-   add_library(customstore SHARED ${UCM_CUSTOM_STORE_CC_SOURCE_FILES})
-   target_include_directories(customstore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cc)
-   target_link_libraries(customstore PUBLIC storeintf)
+- `ucm/store/mooncakestore/CMakeLists.txt` owns the Ascend/Mooncake build requirements.
+- `ucm/store/pipeline/connector.py` registers both Mooncake pipeline names.
+- `ucm/store/mooncakestore/cc/mooncake_store.cc` parses sizes, performs lookup, and probes health.
+- `ucm/store/mooncakestore/cc/dump_queue.cc` and `load_queue.cc` implement tier transfers.
 
-   file(RELATIVE_PATH INSTALL_REL_PATH ${UCM_ROOT_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
-   install(TARGETS customstore LIBRARY DESTINATION ${INSTALL_REL_PATH} COMPONENT ucm)
-   ```
+### compress
 
-4. **Dynamic registration** (`custom_store.py`)
-   ```python
-   from ucm.store.pipeline.connector import UcmPipelineStoreBuilder
-
-   def _custom_pipeline_builder(config: Dict[str, object], pipeline: ucmpipelinestore.PipelineStore):
-       pipeline.Stack("Custom", str("custom/libcustomstore.so"), config)
-
-   UcmPipelineStoreBuilder.register("Custom", _custom_pipeline_builder)
-   ```
-
-5. **YAML configuration**
-   ```yaml
-   ucm_connectors:
-     - ucm_connector_name: "UcmPipelineStore"
-       ucm_connector_config:
-         store_pipeline: "Custom"
-         # ... custom config
-   ```
-
-### Best Practices
-
-- **Memory Management**: Use UCM smart pointers and memory pools—avoid raw `new`/`delete`
-- **Exception Safety**: Return `UC::Status` objects instead of throwing exceptions
-- **Thread Safety**: Implementations must be thread-safe; UCM calls from multiple threads concurrently
-- **Performance**: Annotate hot paths with `UCM_PROFILER_SCOPE`
-
----
-
-## Quick Decision Guide
-
-**Decision Matrix**
-
-|     Requirement     |  Pure Python  |   Hybrid    |   Pure C++    |
-| ------------------- | ------------- | ----------- | ------------- |
-| Development speed   | 5/5 | 4/5 | 3/5       |
-| Runtime performance | 3/5       | 4/5 | 5/5 |
-| Threading support   | No            | Partial         | Yes            |
-| Production ready    | No            | Partial         | Yes            |
-
----
-
-## Pre-implementation Checklist
-
-- [ ] Reviewed [`ucm/store/ucmstore_v1.h`](https://github.com/ModelEngine-Group/unified-cache-management/blob/develop/ucm/store/ucmstore_v1.h)
-- [ ] Reviewed [`ucm/store/ucmstore_v1.py`](https://github.com/ModelEngine-Group/unified-cache-management/blob/develop/ucm/store/ucmstore_v1.py)
-- [ ] Defined supported data types and compression algorithms
-- [ ] Estimated target QPS and latency SLOs
-- [ ] Prepared unit tests (reference: [`ucm/store/test/`](https://github.com/ModelEngine-Group/unified-cache-management/tree/develop/ucm/store/test))
-- [ ] Selected extension method based on performance requirements
-- [ ] Created stub implementation and validated registration
-
----
-
-## Getting Help
-
-- **Issues**: [Report bugs](https://github.com/ModelEngine-Group/unified-cache-management/issues)
-- **Examples**: See [`ucm/store/test/e2e`](https://github.com/ModelEngine-Group/unified-cache-management/tree/develop/ucm/store/test/e2e)
-
----
-
-**Next Steps**: Once your Store is implemented, see [Prefix Cache Guide](../user-guide/capabilities/prefix-cache/index.md) for pipeline configuration.
+- `ucm/store/pipeline/connector.py` defines composition and stored-size calculation.
+- `ucm/store/compress/cc/compressor_action.cc` accepts dtype/ratio settings and runs the codec.
+- `ucm/store/compress/cc/compress_lib/tunstall_bf16.cc` defines the lossy encoding and fallback.
+- `ucm/store/compress/cc/global_config.h` defines the stage defaults.

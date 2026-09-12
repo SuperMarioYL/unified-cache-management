@@ -1,60 +1,43 @@
 # Architecture
 
-UCM connects an inference engine's KV-cache lifecycle to external storage.
-The engine retains ownership of request scheduling, attention execution, and
-device KV-cache allocation. UCM locates reusable blocks, loads them into the
-engine's buffers, and persists completed blocks for later requests.
+Inference engines usually keep active-request KV Cache in device memory. Device capacity and process lifetime limit retention: a prefix computed before a process exits may need to be computed again. UCM obtains block identifiers and buffer layouts through engine integration, saves completed KV blocks to external storage and loads compatible blocks for later requests.
 
-## Follow one request
+## How components cooperate
 
-1. The engine loads its UCM integration: vLLM's `UCMConnector`, SGLang's dynamic
-   `UnifiedCacheStore`, or MindIE's patched mempool adapter.
-2. The integration reads configuration and derives block IDs, tensor layout,
-   device addresses, and process roles from the engine. The engine-specific
-   adapter owns this knowledge; storage backends should not infer it from models.
-3. The connector asks the Store for matching blocks. In the vLLM path the
-   scheduler decides how much computation can be reused and passes transfer
-   metadata to workers.
-4. Workers submit loads into engine-provided buffers and wait for the required
-   transfers before consuming data. Completed KV blocks are submitted for dump;
-   completion and error handling remain part of the connector lifecycle.
-5. Store metrics and connector metrics expose lookup, transfer, and failure
-   behavior. In vLLM they are synchronized to the engine's `/metrics` endpoint.
+The diagram retains the component names from the earlier architecture and shows how vLLM connectors access backends through UCM's storage interface. Dashed borders preserve the original planned-extension markers; current Store interfaces and engine entry points are described below.
 
-## Responsibility boundaries
+![UCM connector and storage architecture: inheritance and calls between connectors and Store, with each Store connected to its storage resources](../../assets/images/ucm-architecture-en.svg)
 
-| Layer | Responsibility | Source entry point |
+On the KV Cache reuse path, engine integration translates scheduling information into storage operations. Store receives block identifiers and transfer descriptions rather than inferring the model structure. The table below details component responsibilities along this path.
+
+| Component | Information it owns | Responsibility |
 | --- | --- | --- |
-| Engine integration | Engine hooks, layout, block identity, and transfer scheduling | `ucm/integration/vllm/ucm_connector.py`, `ucm/integration/sglang/unifiedcache_store.py`, `ucm/integration/mindie/unifiedcache_mempool.py` |
-| Store contract and factory | Lookup, prefetch, transfer tasks, completion, and backend construction | `ucm/store/ucmstore_v1.py`, `ucm/store/factory_v1.py` |
-| Pipeline composition | Registered stage chains, native library loading, and supported Store health wrappers | `ucm/store/pipeline/connector.py`, `ucm/store/pipeline/cpy/pipeline_store.py.cc` |
-| Native Stores | Memory cache, filesystem or remote-store I/O, and backend-specific resource lifetime | `ucm/store/cache/`, `ucm/store/posix/`, and other Store directories |
+| Inference engine | Requests, batches, model and device KV Cache | Schedule compute and buffers, execute Attention, manage request lifetime |
+| Engine integration / Connector | Hooks, layouts, block identifiers and device addresses | Find reusable blocks, build transfer metadata, load/save and handle completion |
+| Store interface and factory | Store names, configuration and task interfaces | Construct backends; expose lookup, prefetch, transfer and completion checks |
+| Pipeline | Registered stage combinations and native Store objects | Connect storage stages and optional health-check wrappers |
+| Storage stage | Host buffers or backend resources | Move data between devices, host memory, filesystems and remote stores |
 
-For `Cache|Posix`, Cache owns host buffering and device/host transfer while
-Posix owns host/filesystem I/O. SGLang already owns the host cache, so its
-adapter constructs the `Posix` pipeline without another UCM Cache stage.
+## Where reuse happens
 
-## Configuration and lifecycle
+In vLLM, the Scheduler-side Connector queries external blocks and reports additional reusable tokens. After the engine allocates destination KV blocks, the Connector maps UCM blocks to engine blocks using the scheduling result. The Worker receives that metadata and loads Store data into engine-provided buffers. The corresponding load must complete before Attention uses the data.
 
-Connector options and Store options are distinct. For example, vLLM's
-`use_layerwise` changes transfer scheduling, while
-`ucm_connectors[].ucm_connector_config.timeout_ms` configures Store tasks.
-The connector supplies runtime geometry rather than asking a user to manually
-calculate device pointers or tensor sizes.
+The engine computes the unmatched portion and the Connector submits complete blocks for saving. Lookup, computation and storage have separate completion conditions. Finding a block, completing its load and finishing its save are distinct events. See the [request lifecycle](request-lifecycle.md) for per-step and per-layer ordering.
 
-A successful lookup does not establish that a later load completed: data can
-be missing, a backend can become unhealthy, or a transfer can fail. The Store
-contract exposes task completion and errors so the integration can handle the
-engine's lifecycle correctly. See the
-[Integration API](../reference/api-parameters.md) and
-[Pipeline Store](../user-guide/capabilities/prefix-cache/pipeline.md).
+## Store and Pipeline
 
-## Read further
+`UcmKVStoreBaseV1` is the Python interface used by engine integration. The V1 factory currently registers `UcmPipelineStore` and the public name `UcmNfsStore`, which resolves to the `UcmPcStoreV1` wrapper. Pipeline is a Store implementation, not a mandatory extra layer for every backend.
 
-- [Capability principles](capability-principles.md) explains the distinction
-  between prefix reuse, sparse attention, and PD transfer.
-- [Extending Store](extending-store.md) describes the backend extension path.
-- [Metrics](../user-guide/observability/metrics.md) explains operational evidence.
-- [DeepWiki](https://deepwiki.com/ModelEngine-Group/unified-cache-management)
-  provides supplementary code exploration; verify its descriptions against the
-  repository revision you are reading.
+In `Cache|Posix`, Cache owns host buffers and device/host transfers, while Posix owns host/filesystem I/O. Pipeline loads a registered stage combination; names cannot be assembled arbitrarily. Other combinations support 3FS, compression or shared-memory storage. The [cache guide](cache-configuration/index.md) covers selection and configuration.
+
+A health wrapper can prevent unhealthy stages from accepting new operations. Engine integration still handles misses, transfer failures and request completion. The wrapper does not retry inference requests.
+
+## Engine-specific entry points
+
+| Engine | Entry point | Important difference |
+| --- | --- | --- |
+| vLLM / vLLM-Ascend | `ucm/integration/vllm/ucm_connector.py` | Scheduler/Worker roles; direct, layerwise or model-specific Connector selected by layout |
+| SGLang | `ucm/integration/sglang/unifiedcache_store.py` | HiCache owns host caching; the adapter uses Posix directly |
+| MindIE | `ucm/integration/mindie/unifiedcache_mempool.py` | Mempool adaptation and engine patches connect cache operations |
+
+A common Store interface does not give these engines identical hooks or configuration formats. A backend extension owns storage resources; an engine or cache-layout extension belongs in integration. Continue with [how caching works](capability-principles.md) and [Store extension](extending-store.md).

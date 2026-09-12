@@ -1,16 +1,33 @@
-# DeepSeek-V4-Flash
+# DeepSeek
+
+DeepSeek 系列模型的 [vLLM Ascend 官方教程](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/index.html)。接入 UCM 可直接查看下方的 [DeepSeek-V4-Flash 部署与调用示例](#deepseek-v4-flash-ucm)。
+
+## vLLM Ascend 模型指南
+
+| 模型 | vLLM Ascend latest 指南 |
+| --- | --- |
+| DeepSeek-V3 & 3.1 | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeek-V3.1.html) |
+| DeepSeek-V3.2 | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeek-V3.2.html) |
+| DeepSeek-V4-Flash | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeek-V4-Flash.html) |
+| DeepSeek-V4-Flash-Vision-Exp (Experimental) | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeek-V4-Flash-Vision.html) |
+| DeepSeek-V4.1-Flash | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeek-V4.1-Flash.html) |
+| DeepSeek-V4-Pro | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeek-V4-Pro.html) |
+| DeepSeek-R1 | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeek-R1.html) |
+| DeepSeek-OCR-2 | [官方指南](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeekOCR2.html) |
+
+## DeepSeek-V4-Flash UCM 示例 { #deepseek-v4-flash-ucm }
 
 在一个 Docker 容器中部署 DeepSeek-V4-Flash，并接入 UCM Prefix Cache。
 按硬件选择下方标签；CUDA 和 Ascend 使用不同格式的权重。
-本次文档修改未在加速卡上实跑这些命令。
+这些启动命令需要在目标加速卡上验证模型输出与外部缓存。
 
-## 部署
+### 部署
 
 准备 Linux、Docker 和可用的宿主机加速卡驱动。CUDA 需要 NVIDIA Container Toolkit；
 Ascend 的宿主机驱动、设备文件应与所选运行时匹配。
 通过对应平台标签中的链接下载完整模型，包括 tokenizer 和配置文件。
 
-打开[安装页](../../installation.md)，选择 **Image**，将已发布的 UCM 运行时镜像坐标
+打开[安装页](../../quick_start/index.md)，选择 **Image**，将已发布的 UCM 运行时镜像坐标
 填入 `UCM_IMAGE`。下方命令分别使用 CUDA 上的 vLLM **0.28.0** 和 Ascend 上的
 vLLM-Ascend **0.25.1rc0 / A2**。同时选择匹配的架构和后端；如果当前发布没有
 该组合，请切换到提供该组合的版本。
@@ -53,7 +70,6 @@ YAML
       --gpus all --shm-size 160g \
       -p 127.0.0.1:8000:8000 \
       -e ENABLE_UCM_PATCH=1 \
-      -e ENABLE_SPARSE=0 \
       -v "$MODEL_DIR:/models/DeepSeek-V4-Flash:ro" \
       -v "$UCM_WORKDIR/ucm.yaml:/etc/ucm/ucm.yaml:ro" \
       -v "$UCM_WORKDIR/cache/cuda:/mnt/ucm-cache" \
@@ -109,7 +125,7 @@ YAML
       -v /etc/ascend_install.info:/etc/ascend_install.info:ro \
       -v /etc/hccn.conf:/etc/hccn.conf:ro \
       -e ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
-      -e ENABLE_UCM_PATCH=1 -e ENABLE_SPARSE=0 \
+      -e ENABLE_UCM_PATCH=1 \
       -e OMP_PROC_BIND=false -e OMP_NUM_THREADS=10 \
       -e PYTORCH_NPU_ALLOC_CONF=expandable_segments:True \
       -e HCCL_BUFFSIZE=1024 -e HCCL_OP_EXPANSION_MODE=AIV \
@@ -148,7 +164,7 @@ YAML
 `FAWA FA` / `FAWA WA` 两套 Store 配置。
 按 Ctrl+C 退出 `docker logs`；后台容器会继续运行。
 
-## 调用
+### 调用
 
 在同一宿主机检查服务就绪状态，再发送一次文本续写请求：
 

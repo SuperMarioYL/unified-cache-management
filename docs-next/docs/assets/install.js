@@ -53,6 +53,7 @@
       copied: "Copied",
       copyFailed: "Copy failed",
       noCombination: "No published artifact matches this selection.",
+      noToolkit: "This release has no Toolkit package. Use the source installation command below.",
     },
     zh: {
       loading: "正在加载当前版本的 Release Manifest……",
@@ -73,6 +74,7 @@
       copied: "已复制",
       copyFailed: "复制失败",
       noCombination: "没有与当前选项匹配的已发布制品。",
+      noToolkit: "本次发布未提供 Toolkit 包，请使用下方的源码安装命令。",
     },
   };
 
@@ -183,19 +185,15 @@
   }
 
   function wheelCombination(wheel, manifest) {
-    var indexOption =
-      manifest.python.pypi &&
-      manifest.python.pypi.index_url !== "https://pypi.org/simple"
-        ? " --index-url " + manifest.python.pypi.index_url
-        : "";
-    var command =
-      "pip install" + indexOption + ' "' +
-      manifest.python.distribution +
-      "[" +
-      wheel.extra +
-      "]==" +
-      manifest.python.version +
-      '"';
+    var command;
+    if (manifest.python.pypi) {
+      var indexOption = manifest.python.pypi.index_url !== "https://pypi.org/simple"
+        ? " --index-url " + manifest.python.pypi.index_url : "";
+      command = "pip install" + indexOption + ' "' + manifest.python.distribution +
+        "[" + wheel.extra + "]==" + manifest.python.version + '"';
+    } else {
+      command = 'pip install "' + wheel.url + '"';
+    }
     return {
       method: "wheel",
       engine: wheel.product,
@@ -629,7 +627,38 @@
     return selection;
   }
 
+  function toolkitInstallCommands(manifest) {
+    if (!manifest.toolkit) return [];
+    var packageInfo = manifest.toolkit;
+    if (!manifest.python.pypi) return ['pip install "' + packageInfo.url + '"'];
+    var index = manifest.python.pypi.index_url;
+    var indexOption = index === "https://pypi.org/simple" ? "" : " --index-url " + index;
+    return [
+      'pip install' + indexOption + ' "' + packageInfo.distribution + '==' + packageInfo.version + '"',
+      'pip install' + indexOption + ' "' + manifest.python.distribution + '[toolkit]==' + packageInfo.version + '"'
+    ];
+  }
+
+  function initializeToolkit() {
+    var app = document.querySelector("[data-toolkit-install]");
+    if (!app || app.dataset.manifestLoading) return;
+    app.dataset.manifestLoading = "1";
+    var messages = TEXT[app.dataset.locale === "zh" ? "zh" : "en"];
+    Manifest.loadManifest(Manifest.defaultManifestUrl()).then(function (manifest) {
+      var commands = toolkitInstallCommands(manifest);
+      app.replaceChildren();
+      if (!commands.length) {
+        app.appendChild(element("p", "", messages.noToolkit));
+        return;
+      }
+      app.appendChild(directLink(manifest.release.url, messages.release + ": " + manifest.release.version));
+      commands.forEach(function (command) { app.appendChild(commandBlock(command, messages)); });
+      app.dataset.manifestReady = "1";
+    }).catch(function () { app.textContent = messages.unavailable; });
+  }
+
   function initialize() {
+    initializeToolkit();
     var app = document.getElementById("ucm-install-app");
     if (!app || app.dataset.manifestLoading === "1" || app.dataset.manifestReady === "1") {
       return;
@@ -670,6 +699,7 @@
     computeLabelParts: computeLabelParts,
     displayEngineVersion: displayEngineVersion,
     engineVersionOptions: engineVersionOptions,
+    toolkitInstallCommands: toolkitInstallCommands,
     selectedComputeValue: selectedComputeValue,
     buildSelectorModel: buildSelectorModel,
     deriveSelection: deriveSelection,

@@ -62,7 +62,7 @@ def test_wheel_workflow_materializes_external_roots_for_the_builder() -> None:
     assert "UCM_TARGET_PLATFORM_TAG=$(jq -r '.target_platform_tag'" in workflow
     assert "auditwheel==6.4.2" not in workflow
     assert "python -m auditwheel -v show" not in workflow
-    assert "compact record-wheel-result" in workflow
+    assert "wheel record-result" in workflow
     assert "test -s out/wheel/auditwheel-repair.txt" in workflow
     assert "test -s out/wheel/auditwheel-show.txt" in workflow
 

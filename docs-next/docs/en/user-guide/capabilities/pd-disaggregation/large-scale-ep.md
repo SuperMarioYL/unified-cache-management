@@ -10,6 +10,12 @@ Start with a functioning [transport-based PD deployment](distributed.md).
 This guide explains how the current Chart represents a larger topology and
 which evidence to collect before treating it as a performance improvement.
 
+## Original manual deployment guide
+
+For deployment without Helm, the [complete manual procedure at this source revision](https://github.com/ModelEngine-Group/unified-cache-management/blob/a336d69bc03a550d44bee3df9da7664e9edfe3a7/docs/source/user-guide/pd-disaggregation/large_scale_ep.md) retains Mooncake master startup, configuration, Prefill/Decode scripts, multi-DP process launch and proxy commands. Use that route separately from the cluster configuration described below.
+
+Those commands belong to the model, network and engine environment in the original guide. Check connector and parallel arguments before using another vLLM-Ascend version. Their compatibility with newer engines has not been verified here.
+
 ## Describe the topology before changing arguments
 
 Three replica settings have different meanings:
@@ -116,7 +122,3 @@ queue at the router, storage reads are slow, or transfer waits for decode.
 Likewise, increasing expert-parallel capacity can improve compute utilization
 while increasing communication cost. Use per-stage timing and endpoint metrics
 to identify which stage changed; do not attribute every speedup to UCM.
-
-The [four-node GLM evaluation design](../../../benchmark/glm-5.1-a3-4node-pd.md)
-shows how to record an experiment with a fixed hardware budget. It supplies a
-measurement protocol, not a measured EP result or a universal model recipe.

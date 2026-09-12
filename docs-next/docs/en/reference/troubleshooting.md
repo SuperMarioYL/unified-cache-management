@@ -1,26 +1,13 @@
 # Troubleshooting
 
-This page lists common error codes, log messages, and troubleshooting steps for UCM.
+Start with the stage that failed. Read its logs, then check the relevant configuration and dependencies.
 
-## Error Codes
-
-UCM uses the following error codes in its underlying C++ stores. These codes appear in log messages and exception outputs.
-
-| Error Code | Name | Meaning | Common Cause |
-|------------|------|---------|--------------|
-| **0** | `OK` | Success | Operation completed normally |
-| **-1** | `Error` | General error | Unclassified error, check the attached message |
-| **-50000** | `InvalidParam` | Invalid parameter | Parameter is illegal, empty, or has wrong format |
-| **-50001** | `OutOfMemory` | Out of memory | Memory allocation failed |
-| **-50002** | `OsApiError` | OS API error | System call failed (e.g. file I/O, thread operation) |
-| **-50003** | `DuplicateKey` | Duplicate key | Attempting to insert a key that already exists |
-| **-50004** | `Retry` | Retry required | Transient error, retry recommended |
-| **-50005** | `NotFound` | Not found | Requested object or resource does not exist |
-| **-50006** | `SerializeFailed` | Serialization failed | Error during data serialization |
-| **-50007** | `DeserializeFailed` | Deserialization failed | Error during data deserialization |
-| **-50008** | `Unsupported` | Unsupported operation | Feature or operation not supported in current context |
-| **-50009** | `NoSpace` | No space | Storage space (disk/cache) is full |
-| **-50010** | `Timeout` | Timeout | Operation timed out |
+| Symptom | Start here |
+| --- | --- |
+| Installation or initialization fails | Installation and configuration issues below |
+| Service works but cache is not reused | [External-cache verification](../user-guide/observability/verify-cache.md) |
+| Storage operations are blocked | [Storage health](../user-guide/observability/health-metrics.md) |
+| Only an error code is available | [Error code reference](error-codes.md) |
 
 ## Common Issues
 
@@ -57,7 +44,7 @@ pip install -v -e . --no-build-isolation
 
 **Cause**: Building C++ extensions requires a proper compiler environment. On some systems, `--no-build-isolation` may fail if the build toolchain is not set up.
 
-**Solution**: Select a published runtime image or a Wheel with its backend extra from [Installation](../user-guide/installation.md).
+**Solution**: Select a published runtime image or a Wheel with its backend extra from [Installation](../user-guide/quick_start/index.md).
 
 ---
 
@@ -77,7 +64,7 @@ invalid param ... InvalidParam(...)
 
 **Solution**:
 1. Check YAML syntax: validate with `python -c "import yaml; yaml.safe_load(open('your_config.yaml'))"`
-2. Verify parameter names match the [Pipeline Store](../user-guide/capabilities/prefix-cache/pipeline.md) or [NFS Store](../user-guide/capabilities/prefix-cache/nfs.md) documentation
+2. Verify parameter names match the [Pipeline Store](../developer-guide/cache-configuration/pipeline.md) or [NFS Store](../developer-guide/cache-configuration/nfs.md) documentation
 3. Ensure `storage_backends` path is a valid string, not empty
 
 #### `UCM_CONFIG_FILE` not found
@@ -184,7 +171,7 @@ request_id: xxx, total_blocks_num: N, hit hbm: 0, hit external: 0
 
 **Solution**:
 1. Verify the `UCM_CONFIG_FILE` path and effective Store configuration in the startup log.
-2. Check completed writes and replay an identical multi-block prompt after restarting the engine while preserving storage. See the [external-cache check](../user-guide/quick_start/quickstart_vllm.md#verify-the-service-and-external-cache).
+2. Check completed writes and replay an identical multi-block prompt after restarting the engine while preserving storage. See the [external-cache check](../user-guide/quick_start/index.md#vllm-verify-the-service-and-external-cache).
 3. Inspect UCM hit tokens and load activity separately from native HBM cache hits; native prefix caching and external UCM reuse are distinct paths.
 
 #### `Unsupported device platform for UCMDirectConnector`
@@ -211,7 +198,7 @@ submit dump task failed. <error>
    [UC][D] Cache task(...) dispatching.
    [UC][D] Posix task(...) dispatching.
    ```
-3. Check if the error code matches one from the [Error Codes](#error-codes) table above
+3. Check if the error code matches one from the [error code reference](error-codes.md)
 
 ---
 

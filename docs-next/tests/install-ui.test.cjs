@@ -79,8 +79,6 @@ function refreshPythonAssets(manifest) {
     "release-manifest.json",
     manifest.chart.filename,
     ...manifest.wheels.map((item) => item.filename),
-    manifest.python.filename,
-    ...(manifest.python.pypi === null ? [] : ["pypi-receipt.json"]),
   ].sort();
   return manifest;
 }
@@ -88,7 +86,7 @@ function refreshPythonAssets(manifest) {
 function fixture({ pypi = true } = {}) {
   const manifest = {
     kind: "ucm-release-manifest",
-    schema_version: 8,
+    schema_version: 9,
     release: {
       tag: "v0.9.3",
       type: "stable",
@@ -99,10 +97,6 @@ function fixture({ pypi = true } = {}) {
     python: {
       distribution: "uc-manager",
       version: "0.9.3",
-      filename: "uc_manager-0.9.3-py3-none-any.whl",
-      url: "https://github.com/example/ucm/releases/download/v0.9.3/uc_manager.whl",
-      sha256: "b".repeat(64),
-      tags: ["py3-none-any"],
       extras: {},
       pypi: pypi
         ? {
@@ -165,63 +159,14 @@ function option(row, value) {
   return row.options.find((candidate) => candidate.value === value);
 }
 
-test("loader accepts only the exact Schema 8 public contract", () => {
-  const schema7 = fixture();
-  schema7.schema_version = 7;
-  delete schema7.python;
-  assert.throws(() => Manifest.validateManifest(schema7), /must be 8/);
-
-  const withoutChartOci = fixture();
-  withoutChartOci.chart.oci = null;
-  assert.equal(Manifest.validateManifest(withoutChartOci).chart.oci, null);
-  const invalid = fixture();
-  invalid.release.legacy_catalog = "install-catalog.json";
-  assert.throws(() => Manifest.validateManifest(invalid), /unexpected fields/);
-  const invalidSingleArchitecture = fixture();
-  invalidSingleArchitecture.images[1].publications.ghcr.members[0].reference +=
-    "-different";
-  assert.throws(
-    () => Manifest.validateManifest(invalidSingleArchitecture),
-    /must equal the single member reference/
-  );
-});
-
-test("Schema 8 loader validates the meta package and backend extras", () => {
+test("loader accepts current data and reports unsupported or incomplete data", () => {
   const manifest = fixture();
-  assert.equal(Manifest.validateManifest(manifest).schema_version, 8);
-  assert.equal(Manifest.SCHEMA_VERSION, 8);
-
-  const wrongBackend = structuredClone(manifest);
-  wrongBackend.wheels[0].distribution = "uc-manager-cuda-wrong";
-  assert.throws(() => Manifest.validateManifest(wrongBackend), /Python extra/);
-
-  const missingMeta = structuredClone(manifest);
-  missingMeta.github_release_assets = missingMeta.github_release_assets.filter(
-    (item) => item !== missingMeta.python.filename
-  );
-  assert.throws(() => Manifest.validateManifest(missingMeta), /is missing/);
-
-  const missingReceipt = structuredClone(manifest);
-  missingReceipt.github_release_assets = missingReceipt.github_release_assets.filter(
-    (item) => item !== "pypi-receipt.json"
-  );
-  assert.throws(() => Manifest.validateManifest(missingReceipt), /PyPI receipt/);
-
-  const wrongProject = structuredClone(manifest);
-  wrongProject.python.pypi.project_url =
-    "https://pypi.org/project/uc-manager/99.0/";
-  assert.throws(() => Manifest.validateManifest(wrongProject), /exact release PyPI/);
-
-  const emptyPlatform = structuredClone(manifest);
-  emptyPlatform.wheels[0].platform_tags = [];
-  assert.throws(() => Manifest.validateManifest(emptyPlatform), /must not be empty/);
-
-  const mismatchedPlatform = structuredClone(manifest);
-  mismatchedPlatform.wheels[0].platform_tags = ["manylinux_2_34_x86_64"];
-  assert.throws(() => Manifest.validateManifest(mismatchedPlatform), /filename/);
+  assert.equal(Manifest.validateManifest(manifest), manifest);
+  assert.throws(() => Manifest.validateManifest({...manifest, schema_version: 8}), /must be 9/);
+  assert.throws(() => Manifest.validateManifest({...manifest, wheels: null}), /incomplete/);
 });
 
-test("Schema 8 Wheel shows the PyPI extra contract in official and fork docs", () => {
+test("Schema 9 Wheel shows the PyPI extra contract in official and fork docs", () => {
   const manifest = fixture();
   const model = Selector.buildSelectorModel(manifest);
   const cuda = Selector.deriveSelection(model, {
@@ -272,13 +217,13 @@ test("Schema 8 Wheel shows the PyPI extra contract in official and fork docs", (
   assert.equal(unpublishedCuda.state.method, "wheel");
   assert.equal(
     unpublishedCuda.command,
-    'pip install "uc-manager[cu130]==0.9.3"'
+    'pip install "' + fixture().wheels[0].url + '"'
   );
   assert.equal(
     unpublishedAscend.command,
-    'pip install "uc-manager[cann901-a2]==0.9.3"'
+    'pip install "' + fixture().wheels[1].url + '"'
   );
-  assert.equal(unpublishedCuda.command.includes("github.com"), false);
+  assert.equal(unpublishedCuda.command.includes("github.com"), true);
   assert.equal(unpublishedCuda.command.includes("/whl/"), false);
 });
 
@@ -575,4 +520,18 @@ test("Helm hides unrelated rows and emits only the Release Chart command", () =>
     assert.equal(selected.rows[row].visible, false);
   }
   assert.equal(selected.command, "helm install ucm " + manifest.chart.url);
+});
+
+test("Toolkit install commands use this release's namespace, version and index", () => {
+  const manifest = {
+    toolkit: {distribution: "supermarioyl-ucm-toolkit", version: "0.7.0rc10", url: "https://github.com/example/toolkit.whl"},
+    python: {distribution: "supermarioyl-uc-manager", pypi: {index_url: "https://test.pypi.org/simple"}}
+  };
+  assert.deepEqual(Selector.toolkitInstallCommands(manifest), [
+    'pip install --index-url https://test.pypi.org/simple "supermarioyl-ucm-toolkit==0.7.0rc10"',
+    'pip install --index-url https://test.pypi.org/simple "supermarioyl-uc-manager[toolkit]==0.7.0rc10"'
+  ]);
+  assert.deepEqual(Selector.toolkitInstallCommands({python: manifest.python}), []);
+  manifest.python.pypi = null;
+  assert.deepEqual(Selector.toolkitInstallCommands(manifest), ['pip install "https://github.com/example/toolkit.whl"']);
 });

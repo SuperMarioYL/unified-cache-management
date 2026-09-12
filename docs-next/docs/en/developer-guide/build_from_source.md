@@ -1,9 +1,28 @@
 # Build UCM from source
 
 Use a source build for development or an engine/backend combination that is
-not published in [Installation](../user-guide/installation.md). Build inside
+not published in [Installation](../user-guide/quick_start/index.md). Build inside
 the target inference environment: the compiler, device toolkit, Python,
 PyTorch, and engine must be compatible with one another.
+
+## Prepare a build environment with Docker {#docker-build-environment}
+
+If a matching engine environment is already available, continue below. Otherwise select an official image containing the engine and CUDA toolchain on the Linux host. Replace `<vllm-version>` with the version required by your integration, or use `lmsysorg/sglang:v0.5.9` for SGLang. Replace `/srv/models` with your host model directory.
+
+```bash
+mkdir -p ucm-build/{source,cache,config}
+
+docker run --rm -it --name ucm-build-env \
+  --gpus all --network=host --ipc=host \
+  -v "$PWD/ucm-build/source:/workspace" \
+  -v /srv/models:/models:ro \
+  -v "$PWD/ucm-build/cache:/mnt/ucm-cache" \
+  -v "$PWD/ucm-build/config:/etc/ucm" \
+  --workdir /workspace \
+  --entrypoint /bin/bash 'vllm/vllm-openai:<vllm-version>' -i
+```
+
+Run checkout, dependency installation and compilation below inside the container. The mounted source survives container exit. For Ascend, use a matching vLLM-Ascend image and the [Ascend device/driver mounts](../user-guide/quick_start/index.md#vllm-ascend-docker). A runtime-only image may lack compilers; prepare the target device development toolchain.
 
 ## Prepare a checkout
 
@@ -32,7 +51,7 @@ python -m pip install -v -e . --no-build-isolation
 export ENABLE_UCM_PATCH=1
 ```
 
-Continue with the [vLLM quickstart](../user-guide/quick_start/quickstart_vllm.md)
+Continue with the [vLLM quickstart](../user-guide/quick_start/index.md#vllm)
 for configuration, service startup, and external-cache verification.
 
 ## vLLM-Ascend { #vllm-ascend-ascend-platform }
@@ -47,7 +66,7 @@ python -m pip install -v -e . --no-build-isolation
 export ENABLE_UCM_PATCH=1
 ```
 
-Continue with the [vLLM-Ascend quickstart](../user-guide/quick_start/quickstart_vllm_ascend.md).
+Continue with the [vLLM-Ascend quickstart](../user-guide/quick_start/index.md#vllm-ascend).
 
 ## SGLang on CUDA { #sglang-cuda-platform }
 
@@ -59,7 +78,7 @@ export PLATFORM=cuda
 python -m pip install -v -e . --no-build-isolation
 ```
 
-Continue with the [SGLang quickstart](../user-guide/quick_start/quickstart_sglang.md).
+Continue with the [SGLang quickstart](../user-guide/quick_start/index.md#sglang).
 The historical `Dockerfile.ucm-sglang-cuda-v0.5.5` targets a different engine
 and patch path; building it does not validate the 0.5.9 HiCache recipe.
 
@@ -86,18 +105,9 @@ python -m pip install -v -e . --no-build-isolation
 The installed hook patches MindIE's Python modules when `mindie_llm` is first
 imported. This modifies the installed engine package; use a dedicated engine
 environment. Continue with the
-[MindIE quickstart](../user-guide/quick_start/quickstart_mindie_llm.md) to configure
+[MindIE quickstart](../user-guide/quick_start/index.md#mindie) to configure
 the service and verify KV writes and reads.
 
-## Optional sparse build
-
-Sparse Attention is not enabled by default. On a supported engine/platform,
-set `ENABLE_SPARSE=true` before the source build. The build parser accepts
-`true` case-insensitively; `ENABLE_SPARSE=1` is not the source-build switch.
-Runtime configuration is algorithm-specific. Follow
-[Sparse Attention](../user-guide/capabilities/sparse-attention/index.md) or
-[ReRoPE](../user-guide/capabilities/rerope.md) with its recorded version constraints.
-Do not apply an old patch to an arbitrary engine version.
 
 ## Build an image from the checkout
 
@@ -122,6 +132,6 @@ MindIE integration and applies the patch during image construction;
 `--build-arg UCM_CXX11_ABI=0` overrides its ABI default when required.
 
 Repository Dockerfiles and local builds are development inputs. Only artifacts
-listed by [Installation](../user-guide/installation.md) have the corresponding
+listed by [Installation](../user-guide/quick_start/index.md) have the corresponding
 release publication record. Building or importing UCM locally does not replace
 a service startup and external-cache check on the target hardware.

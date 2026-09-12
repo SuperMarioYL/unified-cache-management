@@ -50,7 +50,7 @@ enable_metrics: true
 ```
 
 Keep the model, mount and cache settings appropriate to your deployment; see
-[Pipeline Store](../capabilities/prefix-cache/pipeline.md). The example's 4 GiB
+[Pipeline Store](../../developer-guide/cache-configuration/pipeline.md). The example's 4 GiB
 cache allocation is explicit, not a default.
 
 | Field | Meaning |
@@ -131,7 +131,7 @@ a repeated value or a missing series as the current backend state.
    metadata/master connectivity and the reported operation error.
 4. Restore the failed dependency, then watch successful probes replace the failing
    window. Confirm `transitioned to HEALTHY` and the corresponding Gauge update.
-5. Separately repeat the [external-cache verification](../quick_start/quickstart_vllm.md#verify-the-service-and-external-cache).
+5. Separately repeat the [external-cache verification](../quick_start/index.md#vllm-verify-the-service-and-external-cache).
    Recovery of a probe does not prove recovery of a particular request's cache.
 
 For metric units and export paths, see [Metrics reference](metrics-reference.md).

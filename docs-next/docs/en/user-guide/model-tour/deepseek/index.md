@@ -1,17 +1,33 @@
-# DeepSeek-V4-Flash
+# DeepSeek
+
+[Official vLLM Ascend tutorials](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/index.html) for the DeepSeek family. To use UCM, jump to the [DeepSeek-V4-Flash deployment and API example](#deepseek-v4-flash-ucm) below.
+
+## vLLM Ascend model guides
+
+| Model | vLLM Ascend latest guide |
+| --- | --- |
+| DeepSeek-V3 & 3.1 | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeek-V3.1.html) |
+| DeepSeek-V3.2 | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeek-V3.2.html) |
+| DeepSeek-V4-Flash | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeek-V4-Flash.html) |
+| DeepSeek-V4-Flash-Vision-Exp (Experimental) | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeek-V4-Flash-Vision.html) |
+| DeepSeek-V4.1-Flash | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeek-V4.1-Flash.html) |
+| DeepSeek-V4-Pro | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeek-V4-Pro.html) |
+| DeepSeek-R1 | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeek-R1.html) |
+| DeepSeek-OCR-2 | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeekOCR2.html) |
+
+## DeepSeek-V4-Flash UCM example { #deepseek-v4-flash-ucm }
 
 Run DeepSeek-V4-Flash in one Docker container with UCM Prefix Cache. Choose the
-hardware tab below; CUDA and Ascend use different weight formats. These commands
-have not been executed on accelerator hardware as part of this documentation change.
+hardware tab below; CUDA and Ascend use different weight formats. Validate model output and external reuse on the target accelerator hardware.
 
-## Deploy
+### Deploy
 
 Use Linux with Docker and a working host accelerator driver. For CUDA, install the
 NVIDIA Container Toolkit; for Ascend, ensure the host driver and device files match
 the selected runtime. Download the complete model, including its tokenizer and
 configuration, using the link in your platform tab.
 
-Open [Installation](../../installation.md), select **Image**, and copy the published
+Open [Installation](../../quick_start/index.md), select **Image**, and copy the published
 UCM runtime coordinate into `UCM_IMAGE`. The commands below target vLLM **0.28.0**
 on CUDA and vLLM-Ascend **0.25.1rc0 / A2** on Ascend. Select the matching architecture
 and backend; if that combination is absent, use a release that publishes it.
@@ -55,7 +71,6 @@ Cache data stays in the mounted host directory. Run one container at a time.
       --gpus all --shm-size 160g \
       -p 127.0.0.1:8000:8000 \
       -e ENABLE_UCM_PATCH=1 \
-      -e ENABLE_SPARSE=0 \
       -v "$MODEL_DIR:/models/DeepSeek-V4-Flash:ro" \
       -v "$UCM_WORKDIR/ucm.yaml:/etc/ucm/ucm.yaml:ro" \
       -v "$UCM_WORKDIR/cache/cuda:/mnt/ucm-cache" \
@@ -112,7 +127,7 @@ Cache data stays in the mounted host directory. Run one container at a time.
       -v /etc/ascend_install.info:/etc/ascend_install.info:ro \
       -v /etc/hccn.conf:/etc/hccn.conf:ro \
       -e ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
-      -e ENABLE_UCM_PATCH=1 -e ENABLE_SPARSE=0 \
+      -e ENABLE_UCM_PATCH=1 \
       -e OMP_PROC_BIND=false -e OMP_NUM_THREADS=10 \
       -e PYTORCH_NPU_ALLOC_CONF=expandable_segments:True \
       -e HCCL_BUFFSIZE=1024 -e HCCL_OP_EXPANSION_MODE=AIV \
@@ -151,7 +166,7 @@ Wait for the server to finish loading. The UCM startup log should contain
 `Init UCM FAWA connector` and the `FAWA FA` / `FAWA WA` Store configurations.
 Press Ctrl+C to leave `docker logs`; the detached container keeps running.
 
-## Call
+### Call
 
 From the same host, check readiness and send a completion request:
 

@@ -67,7 +67,7 @@ jobs:
           jq -e '(.publish.ghcr.enabled == true) or
                  (.publish.dockerhub.enabled == true)' "${plan}" >/dev/null
           mkdir -p out/receipts context
-          PYTHONPATH=.github/release python -m ucm_release compact select \
+          PYTHONPATH=.github/release python -m ucm_release plan select \
             --plan "${plan}" --kind image --id "${IMAGE_ID}" \
             --output out/image-task.json >/dev/null
           wheel_id="$(jq -r '.wheel_id' out/image-task.json)"

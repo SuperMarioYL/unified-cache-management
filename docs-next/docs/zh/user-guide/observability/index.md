@@ -1,18 +1,14 @@
-# 可观测性
+# 运行与排障
 
-通过 UCM 指标监控和分析 KV cache 的运行情况。
+先确认请求能够完成，再检查外部缓存是否复用，最后分析性能与故障。不同信号回答的问题不同：服务健康反映引擎状态，缓存命中反映匹配结果，传输与错误指标反映存储操作。
 
-## 主要能力
+| 当前问题 | 操作入口 |
+| --- | --- |
+| 配置是否真正启用了外部复用？ | [验证外部缓存](verify-cache.md) |
+| 怎样采集和查看运行指标？ | [接入指标监控](metrics.md) |
+| 后端为何停止接收缓存操作？ | [存储健康检查](health-metrics.md) |
+| 上线前怎样分析前缀复用机会？ | [Trace 模式](../diagnostics/trace-mode.md) |
+| 出现错误日志或初始化失败？ | [故障排查](../../reference/troubleshooting.md) |
+| 指标的单位、标签和分母是什么？ | [指标与统计口径](metrics-reference.md) |
 
-- **Prometheus 指标**：通过 vLLM connector 导出详细指标。
-- **Grafana 仪表盘**：使用现有仪表盘查看指标趋势。
-- **运行监控**：跟踪缓存命中率、延迟和吞吐量。
-
-## 使用指南
-
-- [指标](metrics.md)：配置 UCM 指标、Prometheus 和 Grafana。
-
-## 参考
-
-- [指标定义](metrics-reference.md)：指标目录及说明。
-- [健康指标](health-metrics.md)：Store 探测计数与熔断器状态。
+比较延迟或吞吐时，保持输入与负载一致。临时查看指标或网卡流量，可以使用[工具集](../../toolkit/index.md)。

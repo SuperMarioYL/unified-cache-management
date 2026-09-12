@@ -38,7 +38,7 @@ ucm_connectors:
 enable_metrics: true
 ```
 
-模型、挂载和缓存参数仍须符合实际部署，详见[存储流水线](../capabilities/prefix-cache/pipeline.md)。示例中的 4 GiB 缓存容量是显式选择的数值，不是默认值。
+模型、挂载和缓存参数仍须符合实际部署，详见[存储流水线](../../developer-guide/cache-configuration/pipeline.md)。示例中的 4 GiB 缓存容量是显式选择的数值，不是默认值。
 
 | 字段 | 含义 |
 | --- | --- |
@@ -93,7 +93,7 @@ increase(ucm:posix_unhealthy_count_total{job="vllm"}[5m])
 2. 在其日志中查找 `Store health check` 失败和 `transitioned to UNHEALTHY`；日志会给出流水线阶段标识及探测结果窗口。
 3. Posix 检查该进程的挂载、权限、可用容量及读写删除错误；Mooncake 检查客户端、metadata/master 连接和具体操作错误。
 4. 修复依赖后，观察成功探测逐步替换失败窗口，并确认 `transitioned to HEALTHY` 及对应 Gauge 更新。
-5. 单独重做[外部缓存验证](../quick_start/quickstart_vllm.md#verify-the-service-and-external-cache)。探测恢复不能证明某个请求的缓存恢复。
+5. 单独重做[外部缓存验证](../quick_start/index.md#vllm-verify-the-service-and-external-cache)。探测恢复不能证明某个请求的缓存恢复。
 
 指标单位和导出路径见[指标参考](metrics-reference.md)。策略和操作行为分别定义在
 [`StoreHealthConfig`](https://github.com/ModelEngine-Group/unified-cache-management/blob/a336d69bc03a550d44bee3df9da7664e9edfe3a7/ucm/store/pipeline/cc/store_health_config.h)

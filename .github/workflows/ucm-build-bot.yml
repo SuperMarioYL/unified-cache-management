@@ -516,12 +516,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
-          PYTHONPATH=.github/release python -m ucm_release compact plan \
+          PYTHONPATH=.github/release python -m ucm_release plan create \
             --runtime-selection input/selection/runtime-selection.json \
             --builder-catalog input/builders/builder-catalog.json --route pr \
             --output out/release-plan.json >/dev/null
           if [ "${SUBCOMMAND}" = all ]; then
-            PYTHONPATH=.github/release python -m ucm_release compact retag-pr \
+            PYTHONPATH=.github/release python -m ucm_release plan retag-pr \
               --plan out/release-plan.json \
               --pr-number "${{ needs.permission-check.outputs.pr-number }}" \
               --author "${{ needs.permission-check.outputs.pr-author }}" \
@@ -615,7 +615,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
-          PYTHONPATH=.github/release python -m ucm_release compact plan \
+          PYTHONPATH=.github/release python -m ucm_release plan create \
             --runtime-selection input/selection/runtime-selection.json \
             --builder-catalog input/builders/builder-catalog.json --route pr \
             --output out/release-plan.json >/dev/null

@@ -6,6 +6,26 @@ select the five publication channels and retention limits. The pipeline never
 reads vLLM or vLLM-Ascend source branches to decide versions or Builder
 capabilities.
 
+
+## Module ownership
+
+`version_config` owns version parsing, Tag classification and materialization;
+`policy` loads the current release/platform configuration and resolves publication
+channels. `registry` reads OCI facts, `runtime` owns probe contracts and image
+coordinates, `upstream` selects Runtime versions, and `builders` resolves raw
+Builders and synchronizes checked mirrors. `plan` only combines these results
+into build tasks. `wheel` and `meta` prepare and record their own artifacts.
+
+`release` aggregates publication state and renders release notes. `manifest`
+owns the public Schema 9 contract shared with documentation and cleanup;
+`cleanup` projects resources directly from it. The package import has no CLI
+side effects; `python -m ucm_release` dispatches through `__main__`.
+
+Use `plan create/select/retag-pr`, `wheel prepare-source/record-result`, and
+`meta materialize-source/record-result`. The Catalog planner, old Wheel authority
+commands and parameter aliases are not supported. Existing Sphinx documentation,
+manual `scripts/build_*.sh` packaging and root Dockerfiles remain independent.
+
 ## Maintained policy
 
 The human-maintained release authorities are:
@@ -143,13 +163,27 @@ stages:
 6. the final state becomes `complete`, `images-failed`, or
    `publication-failed`.
 
+Chart packaging runs `python -m ucm_release chart prepare` against the release
+plan. It copies the source Chart, fills `images.image` with the latest stable
+vLLM CUDA image, and adds commented alternatives for every runtime family and
+architecture beside that setting. The upstream default CUDA tag is preferred;
+otherwise the highest CUDA and OS versions break ties. Both the default and
+alternatives prefer Docker Hub when enabled, then GHCR, using the same address
+mapping as publication. The source values and their comments are preserved.
+Without stable CUDA candidates the default remains empty; PR and image-disabled
+plans leave the source values unchanged. Packaging reads the values back from
+the archive and renders the CUDA profile without an image override. Planned
+addresses become usable only after their existing publication checks succeed.
+
 `release-state.json` remains the rich internal staging file in the
 `ucm-release-stage-run-<run>` Actions artifact. Only after all enabled channels
-succeed, a public `release-manifest.json` Schema 8 is uploaded and read back.
-It projects the meta package and extras, backend Wheels, PyPI publication
-status, Runtime image families, Chart, and exact GitHub Release assets needed
-by installation documentation and cleanup. Historical Schema 6 and Schema 7
-manifests remain readable for retention and cleanup.
+succeed, a public `release-manifest.json` Schema 9 is uploaded and read back.
+The pure `ucm_release.manifest` module generates and validates this contract
+for publication, cleanup and documentation. It records Python package identity,
+extras and published index URLs, backend Wheels, Runtime image families, Chart
+and exact GitHub Release assets. Meta Wheels and publication receipts remain
+internal; neither is required as a public Release attachment. Enumeration skips
+unsupported manifests; exact unsupported Tag operations fail without migration.
 
 If image publication is disabled while other channels remain enabled, the image
 stages are skipped and publication continues only through those enabled
@@ -532,3 +566,28 @@ git diff --check
 Local checks are preflight only. Forward-compatible matrix and staged Release
 acceptance must be demonstrated by GitHub Actions on `feature/cicd_v5`, with
 run URL/SHA/job/artifact evidence and Registry/Release readback.
+
+## Toolkit and complete release delivery
+
+The same release plan now includes a portable `ucm-toolkit` Wheel and the exact
+`toolkit` extra on the meta package. Forks use the existing owner prefix on both
+packages and publish to TestPyPI. Toolkit sources and runtime resources are
+bundled; dev-sandbox compilation remains an explicit user action.
+
+`_build-toolkit.yml` is shared by PR checks and releases. Index verification
+checks standalone Toolkit, the Toolkit-only meta extra and each backend combined
+with Toolkit. Pip reports must identify files from the publication receipt.
+
+Stable and prerelease runs require `RTD_PROJECT_EN`, `RTD_PROJECT_ZH` and
+`RTD_API_TOKEN` before building. The projects must use the release repository,
+English and Simplified Chinese respectively, and the Chinese project must be a
+translation of the English project. For Fork validation, both projects' default
+branch is `feature/rc-release-validation`. The workflow waits for RC and Latest
+builds, requires the RC build to match the release source SHA, and verifies public
+version roots and manifests. Latest keeps the project default-branch source.
+
+The published Chart is downloaded from GitHub Release and OCI and compared with
+the original package digest. Every packaged default/candidate image is checked
+against publication receipts and Registry architecture metadata. Final acceptance
+is stored only as `ucm-release-acceptance-run-<run_id>` in Actions artifacts. A docs
+or delivery-check failure can be retried without rebuilding published packages.

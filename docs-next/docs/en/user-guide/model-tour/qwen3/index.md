@@ -1,18 +1,48 @@
-# Qwen3.8-27B
+# Qwen
+
+[Official vLLM Ascend tutorials](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/index.html) for the Qwen family. To use UCM, jump to the [Qwen3.8-27B deployment and API example](#qwen38-27b-ucm) below.
+
+## vLLM Ascend model guides
+
+| Model | vLLM Ascend latest guide |
+| --- | --- |
+| Qwen3-Dense(0.6B/1.7B/4B/8B/14B/32B) | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-Dense.html) |
+| Qwen-VL-Dense(8B/32B) | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen-VL-Dense.html) |
+| Qwen3-30B-A3B | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-30B-A3B.html) |
+| Qwen3-235B-A22B | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-235B-A22B.html) |
+| Qwen3-VL-30B-A3B-Instruct | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-VL-30B-A3B-Instruct.html) |
+| Qwen3-VL-235B-A22B-Instruct | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-VL-235B-A22B-Instruct.html) |
+| Qwen3-Coder-30B-A3B | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-Coder-30B-A3B.html) |
+| Qwen3-Embedding | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-Embedding.html) |
+| Qwen3-VL-Embedding | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-VL-Embedding.html) |
+| Qwen3-Reranker | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-Reranker.html) |
+| Qwen3-VL-Reranker | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-VL-Reranker.html) |
+| Qwen3-Next | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-Next.html) |
+| Qwen3-Omni-30B-A3B-Thinking | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-Omni-30B-A3B-Thinking.html) |
+| Qwen3.5-27B & Qwen3.6-27B | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3.5-27B-Qwen3.6-27B.html) |
+| Qwen3.5-Dense (2B/4B/9B) | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3.5-Dense.html) |
+| Qwen3.5-397B-A17B | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3.5-397B-A17B.html) |
+| Qwen3.6-35B-A3B | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3.6-35B-A3B.html) |
+| Qwen3.8-2.4T-A95B | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3.8-2.4T-A95B.html) |
+| Qwen3.8-27B | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3.8-27B.html) |
+| Qwen3-ASR-1.7B | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3-ASR-1.7B.html) |
+| Qwen2.5-Math-RM-72B | [Official guide](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen2.5-Math-RM-72B.html) |
+
+## Qwen3.8-27B UCM example { #qwen38-27b-ucm }
 
 Run [Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) in a single Docker
 container with UCM Prefix Cache. This example serves text with BF16 weights,
 an 8,192-token context and up to eight concurrent sequences.
 These example commands have not been validated on accelerator hardware.
 
-## Deploy
+### Deploy
 
 Download the complete model into a local directory first. Use a Linux host with
 Docker and either NVIDIA Container Toolkit or the Ascend driver required by the
 selected image. The tabs below use two 80 GB CUDA GPUs or one Atlas 800 A2 node
 with eight 64 GB NPUs; these are example allocations, not minimum requirements.
 
-Open [Installation](../../installation.md), select **Image**, your platform and
+Open [Installation](../../quick_start/index.md), select **Image**, your platform and
 host architecture, and copy the full image reference into `UCM_IMAGE`. Choose a
 published vLLM **0.28.0** runtime for CUDA or vLLM-Ascend **0.25.1rc0** for
 the A2 example. The image already includes UCM; use the complete reference from the
@@ -132,7 +162,7 @@ loading for this initial deployment.
 Inspect startup with `docker logs -f ucm-qwen38`. After the server is ready,
 leave the log view with Ctrl-C and use the same host terminal for the call below.
 
-## Call
+### Call
 
 Use `curl` and `jq` on the host. `/health` should return HTTP 200; the request
 then prints `choices[0].message.content` from the JSON response.

@@ -5,31 +5,24 @@ Mooncake sends the request's KV to decode, while UCM loads and saves reusable
 prefix blocks in external storage. Decode runs the transport consumer alone.
 This allows prefix reuse on prefill without making decode read the UCM store.
 
-## Request and cache flow
+See [PD integration](../../../developer-guide/pd-integration.md) for request ordering and initialization identifiers.
 
-1. The router identifies prefill and decode endpoints using `ModelServer`
-   labels and its configured `mooncake` protocol.
-2. Prefill's UCM connector looks up reusable prompt blocks and loads available
-   KV; the engine computes the remaining prompt tokens.
-3. The producer transport makes the request's KV available to the decode
-   consumer. The router and engine transport own this handoff.
-4. Decode generates output. UCM save activity on prefill supplies cache blocks
-   for future requests; it is separate from the current transfer.
 
-A UCM hit is optional for a valid cold request. A functioning UCM store cannot
-compensate for an unreachable consumer, mismatched connector protocol, or
-incorrect transport identity.
+## Original manual deployment guide
+
+For deployment without Helm, the [complete manual procedure at this source revision](https://github.com/ModelEngine-Group/unified-cache-management/blob/a336d69bc03a550d44bee3df9da7664e9edfe3a7/docs/source/user-guide/pd-disaggregation/distributed_pd.md) retains Mooncake master startup, configuration, Prefill/Decode scripts, multi-DP process launch and proxy commands. Use that route separately from the cluster configuration described below.
+
+Those commands belong to the model, network and engine environment in the original guide. Check connector and parallel arguments before using another vLLM-Ascend version. Their compatibility with newer engines has not been verified here.
 
 ## Choose a profile
 
 Start from `models/ascend/values-qwen3-0p6b-1p1-1d1.yaml` in the unpacked Chart.
 It defines one prefill and one decode role, a Mooncake master, and routing
-resources. Use the [Kubernetes prerequisites](../../frameworks/kubernetes/prerequisites.md)
-and [deployment workflow](../../frameworks/kubernetes/deploy.md) to prepare
+resources. Use the [Helm deployment guide](../../frameworks/kubernetes/deploy.md) to prepare
 site values, render, and install.
 
 The profile is a configuration example. Replace the engine image using
-[Installation](../../installation.md), mount the intended model, and set
+[Installation](../../quick_start/index.md), mount the intended model, and set
 resources, storage, networking, and scheduler values for the target cluster.
 The profile's placeholder StorageClass must be replaced. Its host mounts and
 RDMA resource names also require actual cluster support.
@@ -63,23 +56,6 @@ cache mounts while retaining the PD transport. The image's `ENABLE_UCM_PATCH`
 environment variable is independently configured. Record it explicitly in
 baseline comparisons.
 
-## Resolve identities at startup
-
-The Chart emits a KV template and metadata for each role. At Pod startup,
-`resolve-kv-transfer-config.py` uses the serving-group and role-replica labels
-to produce concrete engine IDs and Mooncake port bases. Entry and worker
-processes belonging to one logical role instance share that identity.
-
-`engineIdBase`, `kvPortBase`, and `instanceStride` are allocation inputs, not
-HTTP port settings. The stride must cover the configured parallel-port span.
-The Chart validates this bound and the final port range. Do not replace the
-resolver with offsets derived from Pod names or worker indices.
-
-For several releases sharing host networking, assign non-overlapping ranges
-where instances can coexist on one host. Inspect the resolved arguments and
-Pod placement when diagnosing a bind failure; a successful Helm render does
-not prove that runtime endpoints are reachable.
-
 ## Validate in three stages
 
 **Serving and transfer.** Check prefill/decode readiness and routing objects,
@@ -95,7 +71,7 @@ from engine-memory hits. Decode need not show UCM hits in this topology.
 **Performance.** Replay the same traffic with UCM disabled, UCM cold, and UCM
 externally warm. Keep transport, P/D counts, output lengths, and generation
 settings fixed. Collect failures, answer correctness, client TTFT, TPOT,
-throughput, and store/transport timings. See [Benchmark](../../../benchmark/index.md).
+throughput, and store/transport timings.
 
 ## Diagnose by boundary
 

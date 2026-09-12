@@ -11,28 +11,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import release_manifest as releases
-from test_manifest import _manifest_v8
+from manifest_fixtures import published_release
 
 REPOSITORY = "example/ucm"
 API = f"https://api.github.com/repos/{REPOSITORY}/releases"
-
-
-def published_release(version="0.9.3", *, prerelease=False):
-    manifest = _manifest_v8([], version)
-    manifest["release"]["type"] = "prerelease" if prerelease else "stable"
-    download = f"https://github.com/{REPOSITORY}/releases/download/v{version}/"
-    for artifact in [manifest["python"], *manifest["wheels"], manifest["chart"]]:
-        artifact["url"] = download + artifact["filename"]
-    metadata = {
-        "tag_name": f"v{version}",
-        "draft": False,
-        "prerelease": prerelease,
-        "assets": [
-            {"name": name, "browser_download_url": download + name}
-            for name in manifest["github_release_assets"]
-        ],
-    }
-    return metadata, manifest
 
 
 def install_responses(monkeypatch, pairs):
@@ -67,7 +49,7 @@ def test_exact_tag_uses_its_own_completed_stable_or_rc_manifest(
     ]
 
 
-def test_latest_selects_highest_completed_schema8_stable_not_api_order(monkeypatch):
+def test_latest_selects_highest_completed_schema9_stable_not_api_order(monkeypatch):
     newest_legacy = published_release("0.9.5")
     newest_legacy[1]["schema_version"] = 6
     newer_legacy = published_release("0.9.4")
@@ -126,7 +108,6 @@ def test_damaged_latest_manifest_fails_instead_of_hiding_behind_older_release(
         ("tag", "another tag"),
         ("repository", "another repository"),
         ("wheel-url", "download URL differs"),
-        ("python-url", "download URL differs"),
         ("chart-url", "download URL differs"),
         ("assets", "assets differ"),
     ],
@@ -154,3 +135,14 @@ def test_exact_release_rejects_mismatched_provenance(monkeypatch, mismatch, mess
     install_responses(monkeypatch, [(metadata, manifest)])
     with pytest.raises(releases.ManifestError, match=message):
         releases.resolve_manifest(REPOSITORY, tag="v0.9.3")
+
+
+def test_exact_unsupported_manifest_is_an_error_not_pending(monkeypatch):
+    pair = published_release()
+    pair[1]["schema_version"] = 8
+    install_responses(monkeypatch, [pair])
+    with pytest.raises(
+        releases.ManifestError, match="schema_version must be 9"
+    ) as error:
+        releases.resolve_manifest(REPOSITORY, tag="v0.9.3")
+    assert not isinstance(error.value, releases.ReleasePending)

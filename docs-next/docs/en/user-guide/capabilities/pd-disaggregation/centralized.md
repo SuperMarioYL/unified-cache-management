@@ -11,11 +11,9 @@ The bundled Kubernetes PD profiles use a different path, described in
 
 ## Before starting
 
-Use the [vLLM quickstart](../../quick_start/quickstart_vllm.md) to validate each
+Use the [vLLM quickstart](../../quick_start/index.md#vllm) to validate each
 engine independently. Select the engine image or package from
-[Installation](../../installation.md). This guide supplies the shared-store
-configuration and test sequence, rather than a second set of engine launch
-flags.
+[Installation](../../quick_start/index.md). This guide provides shared-store configuration, both engine commands, proxy startup and request verification.
 
 Both instances must have:
 
@@ -47,15 +45,67 @@ use_layerwise: false
 `/mnt/ucm-shared` is a site-supplied shared mount, not a directory this example
 creates. The buffer capacity is per process and must fit the host-memory
 budget. Configure direct I/O and other backend options for the actual mount;
-see [Pipeline Store](../prefix-cache/pipeline.md).
+see [Pipeline Store](../../../developer-guide/cache-configuration/pipeline.md).
 
 Pass this file through `UCM_CONFIG_FILE` in each engine's
 `kv_connector_extra_config`, using `UCMConnector` with `kv_role: kv_both`, as
 shown in the quickstart. Confirm both engines' `/health` and `/v1/models`
 endpoints before introducing the proxy.
 
-For two already-running local engines on ports 8100 and 8200, start the example
-proxy from the repository root:
+### Start Prefill and Decode
+
+Save the YAML above as `/etc/ucm/pd.yaml` in both engine environments. This single-node CUDA example needs two GPUs, each able to run the model, and shared access to `/mnt/ucm-shared`. Start services in separate terminals with the same model, dtype, TP and block size.
+
+**Terminal 1: Prefill on GPU 0, port 8100.**
+
+```bash
+export MODEL_ID=/models/your-model
+export CUDA_VISIBLE_DEVICES=0
+export ENABLE_UCM_PATCH=1
+vllm serve "$MODEL_ID" \
+  --served-model-name ucm-pd \
+  --host 127.0.0.1 --port 8100 \
+  --tensor-parallel-size 1 --dtype bfloat16 \
+  --max-model-len 4096 --block-size 128 --enforce-eager \
+  --kv-transfer-config '{
+    "kv_connector": "UCMConnector",
+    "kv_connector_module_path": "ucm.integration.vllm.ucm_connector",
+    "kv_role": "kv_both",
+    "kv_connector_extra_config": {"UCM_CONFIG_FILE": "/etc/ucm/pd.yaml"}
+  }'
+```
+
+**Terminal 2: Decode on GPU 1, port 8200.**
+
+```bash
+export MODEL_ID=/models/your-model
+export CUDA_VISIBLE_DEVICES=1
+export ENABLE_UCM_PATCH=1
+vllm serve "$MODEL_ID" \
+  --served-model-name ucm-pd \
+  --host 127.0.0.1 --port 8200 \
+  --tensor-parallel-size 1 --dtype bfloat16 \
+  --max-model-len 4096 --block-size 128 --enforce-eager \
+  --kv-transfer-config '{
+    "kv_connector": "UCMConnector",
+    "kv_connector_module_path": "ucm.integration.vllm.ucm_connector",
+    "kv_role": "kv_both",
+    "kv_connector_extra_config": {"UCM_CONFIG_FILE": "/etc/ucm/pd.yaml"}
+  }'
+```
+
+Docker deployments need distinct container names, correct device access and the same shared cache mount. In an Ascend engine environment, use `ASCEND_RT_VISIBLE_DEVICES` to select exposed NPUs. Cross-platform reuse still requires the compatibility checks below.
+
+### Start the proxy
+
+In a third terminal, check both engines:
+
+```bash
+curl --fail http://127.0.0.1:8100/health
+curl --fail http://127.0.0.1:8200/health
+```
+
+Then start the proxy from the UCM checkout root:
 
 ```bash
 python ucm/pd/toy_proxy_server.py \
@@ -70,6 +120,26 @@ non-streaming prefill request with `max_tokens: 1`, waits for its HTTP response,
 and forwards the original request to decode. It gives both stages the same
 request ID. When engine authentication is enabled, configure the proxy's
 `OPENAI_API_KEY` for that engine service.
+
+### Send a request
+
+Keep the proxy running and submit a prompt spanning multiple complete blocks from another terminal:
+
+```bash
+python3 - <<'PYREQUEST'
+import json
+from pathlib import Path
+Path('/tmp/ucm-pd-request.json').write_text(json.dumps({
+    "model": "ucm-pd",
+    "prompt": "Explain how shared storage can reuse a computed prefix. " * 128,
+    "max_tokens": 32,
+    "temperature": 0,
+}))
+PYREQUEST
+curl --fail http://127.0.0.1:8000/v1/completions \
+  -H 'Content-Type: application/json' \
+  --data-binary @/tmp/ucm-pd-request.json
+```
 
 ### Verify the handoff
 
@@ -111,6 +181,15 @@ The example proxy accepts multiple hosts and ports for each role. Host and
 port lists must have equal lengths. It selects prefill and decode independently
 in round-robin order, so every selected decode must be able to read the blocks
 written by every selected prefill.
+
+For example, after preparing Prefill engines on 8100/8110 and Decode engines on 8200/8210 using the commands above, replace the single-pair proxy with:
+
+```bash
+python3 ucm/pd/toy_proxy_server.py \
+  --pd-disaggregation --host 127.0.0.1 --port 8000 \
+  --prefiller-hosts 127.0.0.1 127.0.0.1 --prefiller-ports 8100 8110 \
+  --decoder-hosts 127.0.0.1 127.0.0.1 --decoder-ports 8200 8210
+```
 
 Increasing replicas raises shared-store load and may lower local memory-cache
 reuse. Measure store latency and capacity alongside endpoint latency. The

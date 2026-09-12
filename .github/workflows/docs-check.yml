@@ -4,11 +4,23 @@ on:
   pull_request:
     paths:
       - docs-next/**
+      - .github/release/**
+      - .github/workflows/release*.yml
+      - .github/workflows/_build*.yml
+      - .github/workflows/sync-builders.yml
+      - .github/workflows/ucm-build-bot.yml
+      - scripts/materialize_version.py
       - .readthedocs.yaml
       - .github/workflows/docs-check.yml
   push:
     paths:
       - docs-next/**
+      - .github/release/**
+      - .github/workflows/release*.yml
+      - .github/workflows/_build*.yml
+      - .github/workflows/sync-builders.yml
+      - .github/workflows/ucm-build-bot.yml
+      - scripts/materialize_version.py
       - .readthedocs.yaml
       - .github/workflows/docs-check.yml
   workflow_dispatch:
@@ -21,6 +33,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  release:
+    name: Release · Contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Install release test dependencies
+        run: python -m pip install pytest==9.1.1 PyYAML==6.0.2 packaging==24.2 -r .github/release/requirements/wheel-build.txt
+      - name: Test release behavior
+        run: python -m pytest -q .github/release/tests
   check:
     name: Docs · Build and contracts
     runs-on: ubuntu-24.04
@@ -33,17 +60,11 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install documentation and test dependencies
-        run: python -m pip install -r docs-next/requirements-dev.txt -r docs-next/requirements-translation.txt
-      - name: Test documentation and translation contracts
+        run: python -m pip install -r docs-next/requirements-dev.txt
+      - name: Test documentation contracts
         run: python -m pytest -q docs-next/tests
       - name: Test installation renderer
         run: node --test docs-next/tests/install-ui.test.cjs
-      - name: Test release manifest contracts
-        run: >-
-          python -m pytest -q
-          .github/release/tests/test_release_manifest.py
-          .github/release/tests/test_cleanup.py
-          .github/release/tests/test_compact_workflows.py
       - name: Build both RTD language roots with real published installation data
         env:
           GH_TOKEN: ${{ github.token }}

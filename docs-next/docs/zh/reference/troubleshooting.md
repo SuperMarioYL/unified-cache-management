@@ -1,26 +1,13 @@
 # 故障排查
 
-本页汇总 UCM 常见错误码、日志及排查步骤。
+从失败发生的阶段开始排查，先看实际日志，再核对对应配置和依赖。
 
-## 错误码 { #error-codes }
-
-以下错误码来自底层 C++ Store，会出现在日志和异常输出中。
-
-| 错误码 | 名称 | 含义 | 常见原因 |
-| --- | --- | --- | --- |
-| **0** | `OK` | 成功 | 操作正常完成 |
-| **-1** | `Error` | 一般错误 | 未分类错误，需检查附带信息 |
-| **-50000** | `InvalidParam` | 参数无效 | 参数非法、为空或格式错误 |
-| **-50001** | `OutOfMemory` | 内存不足 | 内存分配失败 |
-| **-50002** | `OsApiError` | 操作系统 API 错误 | 文件 I/O、线程等系统调用失败 |
-| **-50003** | `DuplicateKey` | 键重复 | 插入已存在的键 |
-| **-50004** | `Retry` | 需要重试 | 暂时性错误，建议重试 |
-| **-50005** | `NotFound` | 未找到 | 对象或资源不存在 |
-| **-50006** | `SerializeFailed` | 序列化失败 | 数据序列化出错 |
-| **-50007** | `DeserializeFailed` | 反序列化失败 | 数据反序列化出错 |
-| **-50008** | `Unsupported` | 不支持 | 当前环境不支持所需功能或操作 |
-| **-50009** | `NoSpace` | 空间不足 | 磁盘或缓存空间已满 |
-| **-50010** | `Timeout` | 超时 | 操作未在时限内完成 |
+| 现象 | 检查入口 |
+| --- | --- |
+| 安装或初始化失败 | 当前页的安装、配置问题 |
+| 服务可用但没有缓存复用 | [外部缓存验证](../user-guide/observability/verify-cache.md) |
+| 存储操作被阻止 | [存储健康检查](../user-guide/observability/health-metrics.md) |
+| 只有错误码 | [错误码参考](error-codes.md) |
 
 ## 常见问题
 
@@ -60,7 +47,7 @@ pip install -v -e . --no-build-isolation
 
 **原因**：C++ 扩展需要完整的编译环境。使用 `--no-build-isolation` 时，当前环境仍必须具备所需构建工具。
 
-**处理方法**：从[安装](../user-guide/installation.md)选择已发布的运行时镜像，或包含对应 backend extra 的 Wheel。
+**处理方法**：从[安装](../user-guide/quick_start/index.md)选择已发布的运行时镜像，或包含对应 backend extra 的 Wheel。
 
 ---
 
@@ -83,7 +70,7 @@ invalid param ... InvalidParam(...)
 **处理方法**：
 
 1. 用 `python -c "import yaml; yaml.safe_load(open('your_config.yaml'))"` 检查 YAML 语法。
-2. 根据 [Pipeline Store](../user-guide/capabilities/prefix-cache/pipeline.md)或 [NFS Store](../user-guide/capabilities/prefix-cache/nfs.md)核对参数名。
+2. 根据 [Pipeline Store](../developer-guide/cache-configuration/pipeline.md)或 [NFS Store](../developer-guide/cache-configuration/nfs.md)核对参数名。
 3. 确保 `storage_backends` 是有效且非空的路径字符串。
 
 #### 找不到 `UCM_CONFIG_FILE`
@@ -203,7 +190,7 @@ request_id: xxx, total_blocks_num: N, hit hbm: 0, hit external: 0
 **处理方法**：
 
 1. 核对 `UCM_CONFIG_FILE` 路径及启动日志中的生效 Store 配置。
-2. 确认写入完成，保留存储并重启引擎，再发送完全相同的多块提示词。参见[外部缓存验证](../user-guide/quick_start/quickstart_vllm.md#verify-the-service-and-external-cache)。
+2. 确认写入完成，保留存储并重启引擎，再发送完全相同的多块提示词。参见[外部缓存验证](../user-guide/quick_start/index.md#vllm-verify-the-service-and-external-cache)。
 3. 分别检查 UCM 命中 token、load 活动和原生 HBM 缓存命中；原生前缀缓存与外部 UCM 复用是不同路径。
 
 #### `Unsupported device platform for UCMDirectConnector`
@@ -232,7 +219,7 @@ submit dump task failed. <error>
    [UC][D] Cache task(...) dispatching.
    [UC][D] Posix task(...) dispatching.
    ```
-3. 按本页[错误码](#error-codes)表定位具体错误。
+3. 按[错误码参考](error-codes.md)定位具体错误。
 
 ---
 

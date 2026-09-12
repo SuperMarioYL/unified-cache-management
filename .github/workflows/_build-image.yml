@@ -57,7 +57,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out context
-          PYTHONPATH=.github/release python -m ucm_release compact select \
+          PYTHONPATH=.github/release python -m ucm_release plan select \
             --plan input/plan/release-plan.json --kind image --id "${IMAGE_ID}" \
             --output out/image-task.json >/dev/null
           wheel_id="$(jq -r '.wheel_id' out/image-task.json)"

@@ -1,10 +1,9 @@
-"""Exercise one-language builds, source immutability and legacy browser routes."""
+"""Exercise one-language builds, source immutability and current language roots."""
 
 from __future__ import annotations
 
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import urljoin
@@ -14,7 +13,7 @@ import pytest
 DOCS_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(DOCS_ROOT / "tools"))
 import site_build  # noqa: E402
-from test_release_resolution import published_release  # noqa: E402
+from manifest_fixtures import published_release  # noqa: E402
 
 
 def snapshot(root):
@@ -33,14 +32,10 @@ def small_docs(tmp_path):
         "docs/en/guide.md": "# English guide\n\n![Diagram](../assets/logo.svg)\n",
         "docs/en/translated.md": "# Translated guide\n",
         "docs/zh/index.md": "# 首页\n\n[指南](guide.md)\n",
+        "docs/zh/guide.md": "# 中文指南\n\n![Diagram](../assets/logo.svg)\n",
         "docs/zh/translated.md": "# 已翻译指南\n",
         "docs/assets/logo.svg": '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20"/></svg>',
         "docs/assets/manifest.js": (DOCS_ROOT / "docs/assets/manifest.js").read_text(),
-        "translation-state.json": '{"schema_version":2,"pages":{}}\n',
-        "redirects.json": json.dumps(
-            {"legacy/guide.html": "guide/", "old-guide/": "guide/"}
-        ),
-        "tools/hooks.py": (DOCS_ROOT / "tools/hooks.py").read_text(),
         "mkdocs.yml": """site_name: Fixture documentation
 site_url: https://docs.example.invalid/
 repo_url: https://github.com/example/ucm
@@ -50,12 +45,11 @@ theme:
   favicon: assets/logo.svg
   features: [content.action.edit]
 extra_javascript: [assets/manifest.js]
-hooks: [tools/hooks.py]
 plugins:
   - search
   - i18n:
       docs_structure: folder
-      fallback_to_default: true
+      fallback_to_default: false
       reconfigure_material: true
       reconfigure_search: true
       languages:
@@ -111,7 +105,6 @@ def test_single_language_build_preserves_sources_and_publishes_version_root(
     assert (output / "assets/logo.svg").is_file()
     home = (output / "index.html").read_text()
     guide = (output / "guide/index.html").read_text()
-    translated = (output / "translated/index.html").read_text()
     assert f'<link rel="canonical" href="{canonical}">' in home
     assert (
         f"https://github.com/example/ucm/edit/v0.9.3/docs-next/docs/{language}/index.md"
@@ -122,18 +115,11 @@ def test_single_language_build_preserves_sources_and_publishes_version_root(
     image_url = re.search(r'<img(?=[^>]*alt="Diagram")[^>]+src="([^"]+)"', guide)
     assert image_url is not None
     assert urljoin(canonical + "guide/", image_url[1]) == canonical + "assets/logo.svg"
-    notice = "本页尚未提供中文翻译"
-    assert (notice in guide) is (language == "zh")
-    assert notice not in translated
-    if language == "zh":
-        assert 'href="https://docs.example.invalid/en/v0.9.3/guide/"' in guide
-        assert "edit/v0.9.3/docs-next/docs/en/guide.md" in guide
-        assert "edit/v0.9.3/docs-next/docs/zh/guide.md" not in guide
-        assert "已翻译指南" in translated
+    expected = "中文指南" if language == "zh" else "English guide"
+    assert expected in guide
+    assert f"edit/v0.9.3/docs-next/docs/{language}/guide.md" in guide
     search = json.loads((output / "search/search_index.json").read_text())
-    assert any(
-        "English guide" in item["title"] + item["text"] for item in search["docs"]
-    )
+    assert any(expected in item["title"] + item["text"] for item in search["docs"])
 
 
 def test_pr_ref_is_commit_hash_instead_of_pr_number(monkeypatch):
@@ -141,6 +127,55 @@ def test_pr_ref_is_commit_hash_instead_of_pr_number(monkeypatch):
     monkeypatch.setenv("READTHEDOCS_GIT_IDENTIFIER", "123")
     monkeypatch.setenv("READTHEDOCS_GIT_COMMIT_HASH", "f" * 40)
     assert site_build.current_ref() == "f" * 40
+
+
+def test_bilingual_preview_shares_assets_without_translating_missing_pages(
+    tmp_path, small_docs
+):
+    from mkdocs.commands.build import build
+    from mkdocs.config import load_config
+
+    config_path = small_docs / "mkdocs.yml"
+    overrides = small_docs / "overrides"
+    overrides.mkdir()
+    (overrides / "calculator.html").write_text(
+        (DOCS_ROOT / "overrides/calculator.html").read_text()
+    )
+    config_path.write_text(
+        config_path.read_text().replace(
+            "  name: material", f"  name: material\n  custom_dir: {overrides}"
+        )
+        + f"\nhooks:\n  - {DOCS_ROOT / 'tools/shared_assets.py'}\n"
+    )
+    for language in ("en", "zh"):
+        (small_docs / f"docs/{language}/calculator.md").write_text(
+            "---\ntemplate: calculator.html\n---\n# Calculator\n"
+        )
+    (small_docs / "docs/assets/kv_cache_calculator.html").write_text(
+        "<!doctype html><title>Calculator</title>"
+    )
+    (small_docs / "docs/en/only-en.md").write_text("# English only\n")
+    output = tmp_path / "preview"
+    config = load_config(
+        config_file=str(config_path), site_dir=str(output), strict=True
+    )
+    config.plugins.on_startup(command="build", dirty=False)
+    try:
+        build(config)
+    finally:
+        config.plugins.on_shutdown()
+    page = (output / "zh/guide/index.html").read_text()
+    source = re.search(r'<img(?=[^>]*alt="Diagram")[^>]+src="([^"]+)"', page)[1]
+    image_url = urljoin("https://example.test/zh/guide/", source)
+    assert image_url == "https://example.test/assets/logo.svg"
+    assert (output / "assets/logo.svg").is_file()
+    assert not (output / "zh/only-en/index.html").exists()
+    for prefix in ("", "zh/"):
+        page = (output / prefix / "calculator/index.html").read_text()
+        source = re.search(r'<iframe src="([^"]+)"', page)[1]
+        assert urljoin(f"https://example.test/{prefix}calculator/", source) == (
+            "https://example.test/assets/kv_cache_calculator.html"
+        )
 
 
 def test_rtd_build_passes_exact_tag_and_canonical_environment(monkeypatch, tmp_path):
@@ -185,37 +220,3 @@ def test_rtd_tag_rejects_a_checkout_from_another_commit(monkeypatch):
         site_build.ManifestError, match="does not match the release tag"
     ):
         site_build.build_readthedocs()
-
-
-@pytest.mark.parametrize(
-    "language,source", [("en", "legacy/guide.html"), ("zh-cn", "old-guide/")]
-)
-def test_redirect_browser_keeps_language_version_query_and_fragment(
-    tmp_path, language, source
-):
-    destination = tmp_path / "guide/index.html"
-    destination.parent.mkdir(parents=True)
-    destination.write_text("<h1>Existing page</h1>")
-    site_build.write_redirects(tmp_path, {source: "guide/"})
-    redirect = (
-        tmp_path / source / "index.html" if source.endswith("/") else tmp_path / source
-    )
-    script = re.search(r"<script>(.*?)</script>", redirect.read_text(), re.S)[1]
-    old_url = f"https://docs.example.invalid/{language}/v0.9.3/{source}?x=1#section"
-    javascript = f"""
-      const current = new URL({json.dumps(old_url)});
-      globalThis.location = {{href: current.href, search: current.search, hash: current.hash,
-                              replace: (url) => console.log(url)}};
-      {script}
-    """
-    result = subprocess.run(
-        ["node", "-e", javascript], text=True, capture_output=True, check=True
-    )
-    assert (
-        result.stdout.strip()
-        == f"https://docs.example.invalid/{language}/v0.9.3/guide/?x=1#section"
-    )
-    assert destination.read_text() == "<h1>Existing page</h1>"
-    with pytest.raises(ValueError, match="replace a documentation page"):
-        site_build.write_redirects(tmp_path, {"guide/": "guide/"})
-    assert destination.read_text() == "<h1>Existing page</h1>"
