@@ -350,7 +350,7 @@ def test_meta_wheel_rejects_package_payload(tmp_path: Path) -> None:
         meta.record_meta_wheel(_plan(), wheel_path)
 
 
-def test_toolkit_extra_is_separate_from_backend_family():
+def test_toolkit_extra_is_separate_from_backend_family(tmp_path):
     plan = _fork_plan()
     plan["toolkit_package"] = {
         "distribution": "supermarioyl-ucm-toolkit",
@@ -361,6 +361,24 @@ def test_toolkit_extra_is_separate_from_backend_family():
         meta.validate_meta_package(plan)["extras"]["toolkit"]
         == f"supermarioyl-ucm-toolkit=={VERSION}"
     )
+    source = tmp_path / "source"
+    meta.materialize_meta_source(plan, source)
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "build",
+            "--no-isolation",
+            "--wheel",
+            "--outdir",
+            str(tmp_path / "dist"),
+            str(source),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    result = meta.record_meta_wheel(plan, next((tmp_path / "dist").glob("*.whl")))
+    assert result["extras"] == plan["meta_package"]["extras"]
     plan["meta_package"]["extras"]["toolkit"] = "supermarioyl-ucm-toolkit==0.0.1"
     with pytest.raises(ValueError, match="toolkit extra"):
         meta.validate_meta_package(plan)

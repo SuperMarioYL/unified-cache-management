@@ -117,6 +117,7 @@ def test_default_and_all_alternatives_use_preferred_publication(plan, channel):
 
 def test_default_without_upstream_default_uses_highest_cuda_and_os(plan):
     plan["families"].pop(1)
+    plan["families"][1]["runtime"]["os_version"] = "unreported"
     newest_os = copy.deepcopy(plan["families"][1])
     newest_os["runtime"]["os_version"] = "24.04"
     newest_os["published_reference"] += "-ubuntu2404"
@@ -257,3 +258,13 @@ def test_packaged_chart_defaults_overrides_and_ascend_profiles(plan, tmp_path):
             )
         )
         assert set(_images(rendered)) == {"example.com/ascend:v1"}
+
+
+def test_unreported_os_versions_do_not_block_chart_packaging(plan):
+    for family in plan["families"]:
+        family["runtime"]["os_version"] = "unreported"
+    rendered = chart.render_values(plan, (CHART / "values.yaml").read_text())
+    expected = runtime.image_publication_targets(
+        plan, plan["families"][1]["published_reference"]
+    )["dockerhub"]
+    assert yaml.safe_load(rendered)["images"]["image"] == expected

@@ -273,7 +273,7 @@ def _single_header(message: Any, name: str, context: str) -> str:
     return values[0]
 
 
-def _canonical_metadata_requirement(value: str, backend_prefix: str) -> str:
+def _canonical_metadata_requirement(value: str, planned_requirements: set[str]) -> str:
     try:
         requirement = Requirement(value)
     except InvalidRequirement as error:
@@ -282,9 +282,9 @@ def _canonical_metadata_requirement(value: str, backend_prefix: str) -> str:
         ) from error
     marker = requirement.marker
     requirement.marker = None
-    _, canonical = _canonical_exact_requirement(
-        str(requirement), "meta Wheel METADATA Requires-Dist", backend_prefix
-    )
+    canonical = str(requirement)
+    if canonical not in planned_requirements:
+        raise ValueError("meta Wheel METADATA Requires-Dist must pin a planned package")
     if marker is None:
         raise ValueError("meta Wheel dependencies must be guarded by one extra")
     return f"{canonical}; {marker}"
@@ -375,7 +375,7 @@ def record_meta_wheel(plan: Mapping[str, Any], wheel_path: Path) -> dict[str, An
             raise ValueError("meta Wheel Provides-Extra does not match the plan")
         raw_requirements = metadata.get_all("Requires-Dist", [])
         actual_requirements = sorted(
-            _canonical_metadata_requirement(requirement, f"{meta['distribution']}-")
+            _canonical_metadata_requirement(requirement, set(meta["extras"].values()))
             for requirement in raw_requirements
         )
         expected_requirements = _metadata_requirements(meta)

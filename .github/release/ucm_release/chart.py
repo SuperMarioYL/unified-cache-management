@@ -34,7 +34,13 @@ def _default_family(families: list[dict[str, Any]]) -> dict[str, Any] | None:
             Version(family["runtime"]["version"]),
             family["runtime"]["tag"] == f"v{family['runtime']['version']}",
             Version(family["runtime"]["accelerator_runtime"].removeprefix("cuda-")),
-            Version(family["runtime"]["os_version"]),
+            # Missing OCI OS labels remain valid candidates, below reported OS
+            # versions only when the other default-selection criteria tie.
+            (
+                ()
+                if family["runtime"]["os_version"] == "unreported"
+                else Version(family["runtime"]["os_version"]).release
+            ),
             family["published_reference"],
         ),
         default=None,
