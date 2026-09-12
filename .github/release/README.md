@@ -219,6 +219,13 @@ the Wheel column keeps its architecture-specific GitHub Release links. The
 strict publication check still downloads exact receipt-bound files before
 installing ordinary dependencies from production PyPI.
 
+Release notes preserve the existing body and append pipeline status and artifact
+tables in a section delimited by `<!-- ucm-release:begin -->` and
+`<!-- ucm-release:end -->`. Later stages, failure reports, and reruns replace only
+that section, preserving manual notes before and after it. Existing text without
+these markers is kept as-is; it is never inferred to be disposable pipeline output.
+Keep manually maintained content outside the markers.
+
 Python distribution names are repository-owned and deterministic. The official
 repository publishes canonical `uc-manager*` names. A Fork always prefixes the
 same family with its losslessly normalized GitHub owner, independent of whether
@@ -588,7 +595,7 @@ Stable and prerelease runs require `RTD_PROJECT_EN`, `RTD_PROJECT_ZH` and
 `RTD_API_TOKEN` before building. The projects must use the release repository,
 English and Simplified Chinese respectively, and the Chinese project must be a
 translation of the English project. For Fork validation, both projects' default
-branch is `feature/rc-release-validation`. The workflow waits for RC and Latest
+branch is `feature/docs_v2`. The workflow waits for RC and Latest
 builds, requires the RC build to match the release source SHA, and verifies public
 version roots and manifests. Latest keeps the project default-branch source.
 

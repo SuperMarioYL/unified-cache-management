@@ -247,6 +247,9 @@ jobs:
       RELEASE_TAG: ${{ inputs.git_tag }}
       IS_PRERELEASE: ${{ inputs.is_prerelease }}
     steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
       - id: opened
         name: Create or reuse exact Tag Release
         run: |
@@ -298,7 +301,8 @@ jobs:
             jq -e '
               .[0] |
               ([.assets[].name] | index("release-manifest.json")) == null and
-              ((.assets | length) == 0 or
+               ((.assets | length) == 0 or
+               ((.body // "") | contains("<!-- ucm-release:begin -->")) or
                ((.body // "") | test(
                  "^Status: `(release-open|artifacts-ready|artifacts-failed|images-failed|publication-failed)`"
                )))
@@ -307,6 +311,8 @@ jobs:
               exit 2
             }
           fi
+          python3 .github/release/ucm_release/release_body.py \
+            --release <(jq '.[0] // {}' <<<"${releases}") --notes "${notes}"
           if [ "${count}" -eq 0 ]; then
             args=("${tag}" --verify-tag --title "${tag}" --notes-file "${notes}")
             if [ "${RELEASE_TYPE}" = draft ] || [ "${RELEASE_TYPE}" = nightly ]; then
@@ -694,6 +700,9 @@ jobs:
       PLAN_OUTCOME: ${{ needs.plan.result }}
       RELEASE_TAG: ${{ inputs.git_tag }}
     steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
       - name: Mark the opened Release as failed
         run: |
           set -euo pipefail
@@ -714,6 +723,8 @@ jobs:
             "Runtime/Builder resolution: ${RESOLVE_OUTCOME}" \
             "Builder synchronization: ${BUILDER_OUTCOME}" \
             "Release plan: ${PLAN_OUTCOME}" >"${notes}"
+          python3 .github/release/ucm_release/release_body.py \
+            --release <(jq '.[0]' <<<"${releases}") --notes "${notes}"
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
             -f "tag_name=${tag}" \
             -f "body=$(<"${notes}")" >/dev/null
@@ -916,6 +927,9 @@ jobs:
       RELEASE_TAG: ${{ inputs.git_tag }}
       RELEASE_TYPE: ${{ inputs.release_type }}
     steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
       - name: Report failed Wheel, Runtime validation, or Chart build
         if: >-
           ${{
@@ -955,13 +969,12 @@ jobs:
             "Toolkit outcome: ${TOOLKIT_OUTCOME}" \
             "Runtime validation outcome: ${RUNTIME_VALIDATION_OUTCOME}" \
             "Chart outcome: ${CHART_OUTCOME}" >"${notes}"
+          python3 .github/release/ucm_release/release_body.py \
+            --release <(jq '.[0]' <<<"${releases}") --notes "${notes}"
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
             -f "tag_name=${tag}" \
             -f "body=$(<"${notes}")" >/dev/null
           exit 1
-      - uses: actions/checkout@v4.2.2
-        with:
-          persist-credentials: false
       - uses: actions/setup-python@v5.6.0
         with:
           python-version: "3.12"
@@ -1096,6 +1109,8 @@ jobs:
             "" \
             "Wheel, Chart, or config validation/upload failed. Retry the failed job to " \
             "complete the staged assets." >"${notes}"
+          python3 .github/release/ucm_release/release_body.py \
+            --release <(jq '.[0]' <<<"${releases}") --notes "${notes}"
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
             -f "tag_name=${tag}" \
             -f "body=$(<"${notes}")" >/dev/null
@@ -1785,6 +1800,8 @@ jobs:
               "" \
               "Backend and Chart artifacts remain available, but final publication " \
               "or manifest readback failed." >"${notes}"
+            python3 .github/release/ucm_release/release_body.py \
+              --release "${release_json}" --notes "${notes}"
           fi
           gh api --method PATCH "/repos/${GH_REPO}/releases/${release_id}" \
             -f "tag_name=${tag}" \

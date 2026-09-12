@@ -530,6 +530,7 @@ def test_artifacts_and_image_receipts_form_one_mapping(tmp_path: Path) -> None:
         json.dumps(
             {
                 "tag_name": "v0.7.62rc1",
+                "body": "## 更新说明\n\n保留人工维护的变更记录。\n",
                 "assets": [
                     {"name": name, "browser_download_url": url}
                     for name, url in asset_urls.items()
@@ -552,9 +553,19 @@ def test_artifacts_and_image_receipts_form_one_mapping(tmp_path: Path) -> None:
         ]
     )
     command.func(command)
-    assert (notes_output / "release-notes.md").read_text(encoding="utf-8") == (
-        final_notes
+    body = (notes_output / "release-notes.md").read_text(encoding="utf-8")
+    assert body == (
+        "## 更新说明\n\n保留人工维护的变更记录。\n\n"
+        "<!-- ucm-release:begin -->\n"
+        f"{final_notes.rstrip()}\n"
+        "<!-- ucm-release:end -->\n"
     )
+    release_document = json.loads(release_path.read_text(encoding="utf-8"))
+    # The workflow's shell command substitution removes trailing newlines.
+    release_document["body"] = body.rstrip("\n")
+    release_path.write_text(json.dumps(release_document), encoding="utf-8")
+    command.func(command)
+    assert (notes_output / "release-notes.md").read_text(encoding="utf-8") == body
 
 
 def test_disabled_image_publication_completes_with_wheels_and_chart(

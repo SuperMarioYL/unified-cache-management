@@ -13,12 +13,13 @@ from urllib.parse import quote, urlparse
 
 if __package__:
     from . import manifest as public_manifest
-    from . import runtime, toolkit, wheel_audit
+    from . import release_body, runtime, toolkit, wheel_audit
 else:
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     import manifest as public_manifest
+    import release_body
     import runtime
     import wheel_audit
     from ucm_release import toolkit
@@ -1148,13 +1149,14 @@ def _notes(arguments: argparse.Namespace) -> None:
         _load_json(arguments.release), "GitHub Release document"
     )
     asset_urls = public_manifest.asset_urls(manifest, release_document)
+    notes = render_notes(
+        manifest,
+        repository=arguments.repository,
+        asset_urls=asset_urls,
+        link_assets=release_document.get("draft") is not True,
+    )
     (arguments.output / "release-notes.md").write_text(
-        render_notes(
-            manifest,
-            repository=arguments.repository,
-            asset_urls=asset_urls,
-            link_assets=release_document.get("draft") is not True,
-        ),
+        release_body.merge_body(release_document.get("body"), notes),
         encoding="utf-8",
     )
 
