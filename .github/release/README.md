@@ -207,17 +207,16 @@ Missing backend Wheels are uploaded and read back first, the meta Wheel is
 uploaded last, and exact extras metadata plus all filenames, versions, and
 SHA256 digests are persisted in the internal `pypi-receipt.json` Actions
 artifact. It is not attached to the public GitHub Release. Fresh-environment
-install validation downloads the exact receipt-bound meta/backend URLs,
-verifies their SHA256 digests, and uses production PyPI only for ordinary
-dependencies; index ordering never chooses the UCM distributions. GitHub
+install validation resolves the requested extra through pip, then checks the
+selected UCM filenames and SHA256 digests against the receipt. Fork installs
+use TestPyPI for the UCM packages and enable production PyPI for ordinary
+dependencies. GitHub
 Release notes show version-pinned installation commands only after a complete
 Python-index publication receipt is available. Each Runtime capability then
 shows one meta-package extra in the Wheel column. Official PyPI commands use the
-default index; Fork commands name the frozen TestPyPI simple index. Package
+default index; Fork commands include both index URLs. Package
 names, versions, and extras come from the receipt. Without a complete receipt,
-the Wheel column keeps its architecture-specific GitHub Release links. The
-strict publication check still downloads exact receipt-bound files before
-installing ordinary dependencies from production PyPI.
+the Wheel column keeps its architecture-specific GitHub Release links.
 
 Release notes preserve the existing body and append pipeline status and artifact
 tables in a section delimited by `<!-- ucm-release:begin -->` and

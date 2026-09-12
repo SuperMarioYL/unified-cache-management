@@ -187,8 +187,10 @@
   function wheelCombination(wheel, manifest) {
     var command;
     if (manifest.python.pypi) {
-      var indexOption = manifest.python.pypi.index_url !== "https://pypi.org/simple"
-        ? " --index-url " + manifest.python.pypi.index_url : "";
+      var dependencyIndex = "https://pypi.org/simple";
+      var indexOption = manifest.python.pypi.index_url !== dependencyIndex
+        ? " --index-url " + manifest.python.pypi.index_url +
+          " --extra-index-url " + dependencyIndex : "";
       command = "pip install" + indexOption + ' "' + manifest.python.distribution +
         "[" + wheel.extra + "]==" + manifest.python.version + '"';
     } else {

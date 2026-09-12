@@ -901,11 +901,10 @@ def test_release_notes_show_testpypi_installation_in_the_wheel_column() -> None:
     assert f"https://test.pypi.org/project/{meta_project}/{version}/" in notes
     assert (
         f"pip install --index-url {simple_index} "
+        "--extra-index-url https://pypi.org/simple/ "
         f'"{meta_project}[{extra}]=={version}"'
     ) in notes
     assert "python -m" not in notes
-    assert "--extra-index-url" not in notes
-    assert "https://pypi.org/simple/" not in notes
     assert "uc_manager_cuda-amd64.whl" not in notes
     assert "<details>" not in notes
     assert "mktemp" not in notes

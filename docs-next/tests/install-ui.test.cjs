@@ -201,7 +201,7 @@ test("Schema 9 Wheel shows the PyPI extra contract in official and fork docs", (
   });
   assert.equal(
     forkCuda.command,
-    'pip install --index-url https://test.pypi.org/simple "supermarioyl-uc-manager[cu130]==0.9.3"'
+    'pip install --index-url https://test.pypi.org/simple --extra-index-url https://pypi.org/simple "supermarioyl-uc-manager[cu130]==0.9.3"'
   );
 
   const unpublished = Selector.buildSelectorModel(fixture({ pypi: false }));

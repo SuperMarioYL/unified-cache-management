@@ -807,7 +807,14 @@ def _published_python_installs(manifest: dict[str, Any]) -> dict[str, str]:
         f"{quote(meta_project, safe='')}/{quote(version, safe='')}/"
     )
     label = "PyPI" if target == "pypi" else "TestPyPI"
-    index_option = "" if target == "pypi" else f" --index-url {simple_index}"
+    index_option = ""
+    if target == "testpypi":
+        dependency_index = publication.get(
+            "dependency_index", "https://pypi.org/simple/"
+        )
+        index_option = (
+            f" --index-url {simple_index} --extra-index-url {dependency_index}"
+        )
     return {
         str(extra): (
             f"[{label}]({project_url})<br>"
