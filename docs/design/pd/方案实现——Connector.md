@@ -15,7 +15,7 @@ P 要恢复历史 KV 才能计算新增输入，D 要接回 P 的结果才能继
 
 P、D 都在 `KVTransferConfig` 中配置 `UCMConnector`。外层读取启动字段 `kv_connector_extra_config.pd_connector`：取值为 `MooncakeConnector` 时创建 `UCMMooncakePDConnector`，取值为 `MooncakeLayerwiseConnector` 时创建 `UCMMooncakeLayerwisePDConnector`，再把引擎调用转交给选中的实现。两个 UCM 类分别继承对应父类。父类保存原有 Scheduler/Worker、metadata 和收发状态，UCM 为新增来源单独保存计划与任务。
 
-普通 Mooncake 由 D 发起接收请求，P 使用 TE WRITE 发送请求级结果；Ascend 先回传 D 的接收参数，再由 P 在每层 `save_kv_layer()` 中发送。两个子类都通过 `super()` 保留这些行为，Store 加载方式不改变父类 P→D 的粒度。
+普通 Mooncake 由 D 发起接收请求，P 使用 Transfer Engine WRITE 发送请求级结果；Ascend 先回传 D 的接收参数，再由 P 在每层 `save_kv_layer()` 中发送。两个子类都通过 `super()` 保留这些行为，Store 加载方式不改变父类 P→D 的粒度。
 
 ```mermaid
 sequenceDiagram
@@ -34,7 +34,7 @@ sequenceDiagram
     C->>C: UCM 新增<br/>建立 Store 与远端历史地址视图
     alt 普通 Mooncake
         D->>P: 原生接收请求与目标信息
-        P->>D: 父类通过 TE 远端写入（WRITE）<br/>发送请求级 KV
+        P->>D: 父类通过 Transfer Engine 远端写入（WRITE）<br/>发送请求级 KV
     else Ascend 逐层传输（Layerwise）
         D-->>P: 经 metaserver<br/>交付原生目标参数
         loop P 每层计算
@@ -55,7 +55,7 @@ sequenceDiagram
 | `start_load_kv()` | 用 `super()` 启动已准备好的父类动作，再处理新增动作；未携带 UCM 扩展的请求直接沿原生路径执行 |
 | `save_kv_layer()` | Ascend 在原有每层回调中调用 `super()` 执行发送，再记录新增 Store 保存；普通父类此处为 no-op |
 | `wait_for_save()` | 保留父类调用，等待本次 forward 确实需要完成的 UCM 保存；不改变原生 P→D 的发送时点 |
-| `shutdown()` | 停止新增任务并排空相关传输，再由所有者关闭共享资源；两个顶层父类此入口都是 Base no-op，底层 TE 的实际关闭责任仍需接到其原有资源管理 |
+| `shutdown()` | 停止新增任务并排空相关传输，再由所有者关闭共享资源；两个顶层父类此入口都是 Base no-op，底层 Transfer Engine 的实际关闭责任仍需接到其原有资源管理 |
 
 未设置 `pd_connector` 时沿用现有 UCM 实现选择；设置后，在启动时选择上述两个既定 PD 实现，不动态改变类的继承关系，也不使用 Store 的 `use_layerwise` 推断 PD Connector 类型。外层的布局选择也要转发给具体实现，固定 vLLM v0.26.0 普通父类要求 HND，MLA 返回 `None`。Store 配置继续走现有入口，`UCM_CONFIG_FILE` 的解析结果不能覆盖 `pd_connector` 的选择。新增六个字段直接放在现有 `kv_transfer_params` 字典中。完整字段、组合与 D/P 示例见 [请求级 KV 参数设计](%E6%96%B9%E6%A1%88%E5%AE%9E%E7%8E%B0%E2%80%94%E2%80%94Router.md#ucm-pd-params)；父类 `transfer_id`、bootstrap、metaserver 参数与全局 producer/consumer 角色保留。
 
@@ -72,7 +72,7 @@ sequenceDiagram
 
 使用 Ascend 逐层实现时，将 `pd_connector` 改为 `MooncakeLayerwiseConnector`。同一 P/D 组合使用相同的 PD Connector 类型。此字段确定原生 P→D 的协议与实现；两种实现都可扩展 Store→D→P 的逐层恢复，六个请求参数继续单独控制本轮动作。
 
-共享 TE、地址注册复用与后台提交继续作为性能工作。Store 的地址账本仍记录实际可访问区间，新增任务持有共享实例的强引用；共享实例的所有者在关闭时确认所有相关操作已排空后再释放资源，单个请求结束只解除该请求的引用。Scatter 或其他窄绑定只补足已有接口无法表达的新增读取和排空能力。`direct_pd` 使用 P 本地或 UCM Store prefix cache 后接父类 P→D，仍是优化后的直接路径。
+共享 Transfer Engine、地址注册复用与后台提交继续作为性能工作。Store 的地址账本仍记录实际可访问区间，新增任务持有共享实例的强引用；共享实例的所有者在关闭时确认所有相关操作已排空后再释放资源，单个请求结束只解除该请求的引用。Scatter 或其他窄绑定只补足已有接口无法表达的新增读取和排空能力。`direct_pd` 使用 P 本地或 UCM Store prefix cache 后接父类 P→D，仍是优化后的直接路径。
 
 ### 六个扁平参数如何进入 Connector
 
@@ -84,7 +84,7 @@ sequenceDiagram
 | `do_read_remote_history` → `get_num_new_matched_tokens()`、`start_load_kv()` | 消费端按下面三个定位字段查询指定 D，确认当前请求可用的历史或同轮供数计划，再发起 D→P；开关本身不表示历史已存在 |
 | `do_recompute_history` → `get_num_new_matched_tokens()` | 首版保留本地 APC，跳过本次全部外部历史读取，返回外部增量 `(0, False)`；D 仍正常接收父类 P→D。该请求不同时启用 Store 或远端历史读取 |
 | `remote_history_engine_id` → 来源核实 | 定位源 D 的实际 engine/KV 池，与当前前缀、模型上下文和布局一起核实；相同主机或 HTTP 地址不等于同一 KV 池 |
-| `remote_history_host`、`remote_history_port` → history 客户端 | 使用源 D 明确公布的 history 服务地址；不根据父类 bootstrap、KV 侧通道或 TE 端口猜测这个入口 |
+| `remote_history_host`、`remote_history_port` → history 客户端 | 使用源 D 明确公布的 history 服务地址；不根据父类 bootstrap、KV 侧通道或 Transfer Engine 端口猜测这个入口 |
 
 普通同轮请求继续用原生 `transfer_id` 及已有请求 ID 关联 P、D；Ascend 沿父类回调中的请求 ID 和实际 engine/core 映射定位。PD 后端需要新增 history 服务并公布地址：它可以查询同一原生请求记录下的 Store 供数计划，也可以按当前请求前缀和上下文查找该 D 已有效的热历史。返回的实际可恢复范围、块映射和读取持有描述均为 Connector 内部信息，不新增用户填写的请求 ID 或引用参数。
 
@@ -94,7 +94,7 @@ sequenceDiagram
 | `update_state_after_alloc()` | 将引擎实际分配的本地 blocks 接入已确认的供数计划；P 的分配在命中查询后发生，不列入 D 计划就绪的前提 |
 | `build_connector_meta()` | 根据 D 已有效 L、Store 负责 S 确定 P 发送 `K \ (L ∪ S)`。普通连续前缀场景裁剪 D 的接收列表，再复用父类取 P 后缀；Ascend 使用内部范围适配，接收期望随实际任务一致 |
 | `bind_connector_metadata()` | 将父类兼容 metadata 与新增任务信息交给 Worker，真实 rank 地址仍由 Worker 握手交换 |
-| `start_load_kv()` | 执行已核实的 Store/历史读取任务；D 后台逐层供数，P 接入自己的目的地址，实际 KV payload 由 Store 与 TE 搬运 |
+| `start_load_kv()` | 执行已核实的 Store/历史读取任务；D 后台逐层供数，P 接入自己的目的地址，实际 KV payload 由 Store 与 Transfer Engine 搬运 |
 | `wait_for_layer_load()` | 等待本层实际可读后放行 attention；`relay_plan_ready` 和各层 ready 是执行结果，不是这六个请求参数 |
 
 Store→D→P 使用两份独立参数：D 开启 `do_load_store=true`；P 关闭 Store 直读，开启 `do_read_remote_history=true` 并指向这台 D。双方 `do_recompute_history=false`，其余父类字段仍由原生流程生成。P 读取的历史与 P 最后把结果交给谁分别定位：热回读可指向 `D_source`，原生 P→D 参数仍指向 `D_target`。
@@ -311,7 +311,7 @@ sequenceDiagram
 | `update_state_after_alloc()` | 一次使用引擎实际 blocks 建立两个来源的目的映射。按本次阶段接入分配，避免异步加载前后两次回调重复提交 |
 | `build_connector_meta()` | 先按逻辑范围计算 `K \ (L ∪ S)`；普通连续前缀场景筛选 D 的后缀目的列表，Ascend 保留原目标列表并附加内部 mask。S 包括在途任务，接收期望与实际任务一致 |
 | 普通父类 `_build_transfer_params()` | 直接复用各组 `local_group[-n_remote:]` 的后缀配对；只在已确认是连续前缀排除后的场景使用，UCM 不重写父类地址与布局算法 |
-| 普通父类 `_send_blocks()` | 保留 TE WRITE 与父类统计；调用它的父类传输流程继续处理完成响应和源块释放，零传输也保留原生结束通知 |
+| 普通父类 `_send_blocks()` | 保留 Transfer Engine WRITE 与父类统计；调用它的父类传输流程继续处理完成响应和源块释放，零传输也保留原生结束通知 |
 | Ascend `_get_kv_split_metadata()` | 保留真实 `remote_cached_tokens`（内部 `remote_cache_tokens`）与已发送进度的原生起点计算；在这条逻辑位置到 block/地址映射路径接入 UCM Store 范围 mask，再交原生逐层发送，不直接缩短 `remote_block_ids` |
 | `start_load_kv()` | forward 前准备本步恢复与父类发送，和 D 的 Store 任务各写指定范围；父类原有全命中通知、取消与释放动作保留 |
 | `wait_for_layer_load()` | P 在本层所需历史就绪后进入计算，保持加载范围与来源计划一致 |
