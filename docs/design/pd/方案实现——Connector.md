@@ -5,7 +5,7 @@ P 要恢复历史 KV 才能计算新增输入，D 要接回 P 的结果才能继
 
 下面按五个技术点展开实现。架构与性能目标见 [总方案](%E8%B0%83%E5%BA%A6%E6%96%B9%E6%A1%88.md)，请求派发见 [Router 具体实现方案](%E6%96%B9%E6%A1%88%E5%AE%9E%E7%8E%B0%E2%80%94%E2%80%94Router.md)。时序图中标记“UCM 新增”的事件是待实现的协调或数据操作，其余函数名对应已有入口。
 
-![技术规划 - Router、P 与 D](img/pd-new-capabilities.png)
+![pd-new-capabilities](https://cdn.jsdelivr.net/gh/SuperMarioYL/ImageHostingService@master/resources/blogs/pd-new-capabilities.png)
 
 两个实现各自继承父类 P→D，在此基础上增加 Store 恢复、D→P 和多来源处理。[编辑源图](img/pd-new-capabilities.excalidraw)
 
