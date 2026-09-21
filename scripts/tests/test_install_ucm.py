@@ -150,6 +150,12 @@ def test_explicit_rc_and_extra_are_honored(catalog):
     assert result["backend_requirement"] == "uc-manager-cuda-cu129==0.9.0rc1"
 
 
+def test_equivalent_version_input_reports_the_published_version(catalog):
+    result = installer.resolve(catalog, environment(), "0.7", "cann910-a2")
+    assert result["version"] == "0.7.0"
+    assert result["requirement"] == "uc-manager[cann910-a2]==0.7.0"
+
+
 @pytest.mark.parametrize(
     "failure",
     [

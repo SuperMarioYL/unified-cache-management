@@ -355,6 +355,7 @@ def resolve(pypi, environment, version, extra):
             diagnostic(f"skip {candidate}: no compatible uc-manager wheel")
             continue
         _, metadata = meta_wheel
+        candidate = Version(metadata["Version"])
         available = []
         for value in metadata.get_all("Provides-Extra", []):
             value = canonicalize_name(value)

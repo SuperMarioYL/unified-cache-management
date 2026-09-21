@@ -95,8 +95,9 @@ jobs:
             "${RUNTIME_IMAGE}" -se <<'SH'
           set -euo pipefail
           if [ "${EXPECTED_FAMILY}" = cuda ]; then
-            apt-get update -qq
-            apt-get install -y --no-install-recommends python3 python3-venv
+            apt-get update -qq </dev/null
+            # Package configuration must not consume the remaining bash script.
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-venv </dev/null
           fi
           python3 -m venv /tmp/installer-check
           export PYTHON=/tmp/installer-check/bin/python
@@ -107,15 +108,20 @@ jobs:
           import json
           import os
           from importlib.metadata import version
+          from pathlib import Path
 
           selected = json.load(open('/result/selection.json'))
           assert selected['extra'].startswith('cu') if os.environ['EXPECTED_FAMILY'] == 'cuda' else selected['extra'].endswith('-' + os.environ['EXPECTED_FAMILY'])
+          installed = {}
           for requirement in ('uc-manager==' + selected['version'], selected['backend_requirement']):
               name, expected = requirement.split('==')
               assert version(name) == expected, (name, version(name), expected)
+              installed[name] = version(name)
+          Path('/result/installed.json').write_text(json.dumps(installed, indent=2))
           print(json.dumps(selected, indent=2))
           PY
           SH
+          test -s installer-results/installed.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
