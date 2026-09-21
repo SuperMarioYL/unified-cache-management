@@ -17,7 +17,7 @@ curl --fail --location \
 bash install_ucm.sh
 ```
 
-默认参数为 `--version latest --extra auto`。`latest` 指当前环境具有兼容元包和后端 wheel 的最新 UCM 稳定版，不是最新源码标签。脚本始终不进行源码构建。
+默认参数为 `--version latest --extra auto`。`latest` 指当前环境具有兼容元包和后端 wheel 的最高已发布 UCM 版本，包含 RC 等预发布版本；排除 dev/nightly 版本和撤回文件。版本按 PEP 440 排序，例如 `0.7.0 < 0.8.0rc1 < 0.8.0rc2 < 0.8.0`。源码标签不决定包是否可用，脚本始终不进行源码构建。
 
 ## 使用参数
 

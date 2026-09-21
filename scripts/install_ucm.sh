@@ -340,11 +340,7 @@ def resolve(pypi, environment, version, extra):
             if item["filename"].endswith(".whl") and not item.get("yanked")
         }
         versions = sorted(
-            (
-                value
-                for value in versions
-                if not value.is_prerelease and not value.is_devrelease
-            ),
+            (value for value in versions if not value.is_devrelease),
             reverse=True,
         )
     else:
@@ -409,7 +405,7 @@ def main():
     parser.add_argument(
         "--version",
         default="latest",
-        help="latest stable (default) or an exact published version",
+        help="latest published release, including RC (default), or an exact version",
     )
     parser.add_argument(
         "--extra", default="auto", help="auto (default) or one published backend extra"

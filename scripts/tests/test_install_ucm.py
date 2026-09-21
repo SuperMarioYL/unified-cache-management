@@ -94,7 +94,7 @@ class Catalog:
 @pytest.fixture
 def catalog():
     result = Catalog()
-    for version in ("0.7.0", "0.8.0", "0.9.0rc1"):
+    for version in ("0.7.0", "0.8.0"):
         result.release(
             version, ["cann901-a2", "cann910-a2", "cann910-a3", "cu129", "cu130"]
         )
@@ -118,9 +118,7 @@ def catalog():
         ("cuda", (14, 0), "cu130"),
     ],
 )
-def test_latest_stable_backend_and_architecture(
-    catalog, arch, family, runtime, expected
-):
+def test_latest_backend_and_architecture(catalog, arch, family, runtime, expected):
     result = installer.resolve(
         catalog, environment(arch, family, runtime), "latest", "auto"
     )
@@ -145,9 +143,38 @@ def test_new_release_and_backend_use_published_dependencies(catalog):
 
 
 def test_explicit_rc_and_extra_are_honored(catalog):
+    catalog.release("0.9.0rc1", ["cu129"])
     result = installer.resolve(catalog, environment(), "0.9.0rc1", "cu129")
     assert result["requirement"] == "uc-manager[cu129]==0.9.0rc1"
     assert result["backend_requirement"] == "uc-manager-cuda-cu129==0.9.0rc1"
+
+
+def test_latest_includes_rc_in_version_order_but_excludes_dev(catalog):
+    for version in ("0.9.0rc1", "0.9.0rc10", "0.9.0rc2", "0.10.0.dev20260921"):
+        catalog.release(version, ["cann910-a2"])
+    result = installer.resolve(catalog, environment(), "latest", "auto")
+    assert result["requirement"] == "uc-manager[cann910-a2]==0.9.0rc10"
+
+    catalog.release("0.9.0", ["cann910-a2"])
+    result = installer.resolve(catalog, environment(), "latest", "auto")
+    assert result["version"] == "0.9.0"
+
+
+def test_latest_rc_still_requires_a_compatible_non_yanked_wheel(catalog):
+    catalog.release("0.9.0rc1", ["cann910-a2"], architectures=("aarch64",))
+    assert (
+        installer.resolve(catalog, environment(), "latest", "auto")["version"]
+        == "0.8.0"
+    )
+    assert (
+        installer.resolve(catalog, environment("aarch64"), "latest", "auto")["version"]
+        == "0.9.0rc1"
+    )
+    catalog.projects["uc-manager"][-1]["yanked"] = True
+    assert (
+        installer.resolve(catalog, environment("aarch64"), "latest", "auto")["version"]
+        == "0.8.0"
+    )
 
 
 def test_equivalent_version_input_reports_the_published_version(catalog):

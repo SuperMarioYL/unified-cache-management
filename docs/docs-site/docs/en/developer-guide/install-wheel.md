@@ -17,7 +17,7 @@ curl --fail --location \
 bash install_ucm.sh
 ```
 
-The default is `--version latest --extra auto`. `latest` means the newest stable UCM release with compatible meta and backend wheels for the current environment, not the newest source tag. The installer never builds from source.
+The default is `--version latest --extra auto`. `latest` means the highest published UCM version with compatible meta and backend wheels for the current environment, including prereleases such as RC. Development/nightly versions and yanked files are excluded. Versions follow PEP 440 ordering: `0.7.0 < 0.8.0rc1 < 0.8.0rc2 < 0.8.0`. Source tags do not determine availability, and the installer never builds from source.
 
 ## Choose parameters
 
