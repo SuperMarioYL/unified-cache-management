@@ -2,7 +2,7 @@
 
 Use UCM's standalone `scripts/install_ucm.sh` to install a published wheel in a user environment or a downstream project's image build. UCM owns environment detection and package selection; the integrating project only downloads the script, passes parameters, and chooses when to run it.
 
-The script needs Bash, Python 3.10 or newer, and pip in that interpreter. It uses pip's bundled packaging library and does not need a checkout, an existing UCM installation, a GPU/NPU, or Docker. Supported installation targets are Linux AMD64/ARM64 with glibc, including Ubuntu and openEuler, **where compatible wheels have actually been published**. For example, a package's `Requires-Python: >=3.10` does not make its `cp312` backend wheel usable with Python 3.10.
+The script needs Bash, Python 3.10 or newer, and pip in that interpreter. It uses pip's bundled packaging library and does not need a checkout, an existing UCM installation, a GPU/NPU, or Docker. Installation targets use Linux and glibc; architecture availability is determined by **actually published, compatible wheel tags**, not an architecture allowlist. AMD64/ARM64 on Ubuntu and openEuler are covered by the installation checks. For example, a package's `Requires-Python: >=3.10` does not make its `cp312` backend wheel usable with Python 3.10.
 
 ## Obtain one file
 
@@ -68,6 +68,10 @@ Within the selected release, the installer first retains backends with compatibl
 | Above the available range | Highest backend |
 
 CANN compares major/minor/patch; CUDA compares major/minor and follows the same range rule, including possible selection across CUDA major versions. These rules select a package only. They do not install or change a Toolkit or driver, and do not establish that native libraries will load or that GPU/NPU operations will work. The selected mapping is printed for review.
+
+When maintaining the installer, keep environment facts, PyPI access, candidate discovery and backend ranking separate. `candidate_versions` defines the release policy; `compatible_backends` follows published dependencies and checks wheel compatibility; `select_backend` applies the range rule without network or installation side effects. Backend candidates distinguish the Toolkit version from the UCM package version explicitly.
+
+Toolkit paths, SoC family mappings and extra-name encoding remain external interface conventions. PyPI currently does not provide a SoC mapping or a separate Toolkit-version field: `extra_runtime` decodes compact names such as `cann910-a2` and `cu129`, whose published minor/patch components currently use one digit. Changing that encoding requires a publication-contract change, not a new hardcoded version list. Fixed CI images are reproducible test inputs and do not participate in package selection.
 
 ## Call from a Docker build
 

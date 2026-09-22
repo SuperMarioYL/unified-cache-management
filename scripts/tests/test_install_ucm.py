@@ -30,15 +30,15 @@ def environment(architecture="x86_64", family="a2", runtime=(9, 1, 0)):
     )
     from pip._vendor.packaging.tags import Tag
 
-    return {
-        "markers": markers,
-        "tags": [
-            Tag("cp312", "cp312", f"manylinux_2_{floor}_{architecture}")
-            for floor in range(34, 16, -1)
-        ]
-        + [Tag("py3", "none", "any")],
-        "accelerator": (family, runtime),
-    }
+    tags = [
+        Tag("cp312", "cp312", f"manylinux_2_{floor}_{architecture}")
+        for floor in range(34, 16, -1)
+    ] + [Tag("py3", "none", "any")]
+    return installer.TargetEnvironment(
+        markers=markers,
+        tags=tuple(tags),
+        accelerator=installer.AcceleratorRuntime(family, runtime),
+    )
 
 
 class Catalog:
@@ -140,6 +140,13 @@ def test_new_release_and_backend_use_published_dependencies(catalog):
     )
     assert result["requirement"] == "uc-manager[cann1020-a2]==2.0.0"
     assert result["backend_requirement"] == "uc-manager-next-backend==2.0.1"
+
+
+def test_published_wheel_drives_architecture_support(catalog):
+    catalog.release("2.0.0", ["cann910-a2"], architectures=("ppc64le",))
+    result = installer.resolve(catalog, environment("ppc64le"), "latest", "auto")
+    assert result["version"] == "2.0.0"
+    assert result["wheel"].endswith("_ppc64le.whl")
 
 
 def test_explicit_rc_and_extra_are_honored(catalog):
@@ -327,7 +334,9 @@ def test_soc_detection(monkeypatch, soc, family):
     monkeypatch.setattr(installer, "cann_version", lambda: (9, 1, 0))
     monkeypatch.setattr(installer, "cuda_version", lambda: None)
     monkeypatch.setenv("SOC_VERSION", soc)
-    assert installer.detect_accelerator() == (family, (9, 1, 0))
+    assert installer.detect_accelerator() == installer.AcceleratorRuntime(
+        family, (9, 1, 0)
+    )
 
 
 @pytest.mark.parametrize(
@@ -347,7 +356,7 @@ def test_ambiguous_accelerator_reports_explicit_extra(monkeypatch, cann, cuda, s
 
 
 @pytest.mark.parametrize("distro", ["Ubuntu 22.04", "openEuler 24.03"])
-@pytest.mark.parametrize("arch", ["x86_64", "aarch64"])
+@pytest.mark.parametrize("arch", ["x86_64", "aarch64", "ppc64le"])
 def test_probe_without_accelerator_with_explicit_extra(monkeypatch, distro, arch):
     monkeypatch.setattr(installer.sys, "platform", "linux")
     monkeypatch.setattr(installer.platform, "machine", lambda: arch)
@@ -355,20 +364,19 @@ def test_probe_without_accelerator_with_explicit_extra(monkeypatch, distro, arch
     monkeypatch.setattr(
         installer.platform, "freedesktop_os_release", lambda: {"PRETTY_NAME": distro}
     )
-    monkeypatch.setattr(installer, "sys_tags", lambda: iter(environment(arch)["tags"]))
+    monkeypatch.setattr(installer, "sys_tags", lambda: iter(environment(arch).tags))
     monkeypatch.setattr(
         installer,
         "detect_accelerator",
         lambda: pytest.fail("explicit extra must not need hardware detection"),
     )
-    assert installer.probe_environment(False)["accelerator"] is None
+    assert installer.probe_environment(False).accelerator is None
 
 
 @pytest.mark.parametrize(
     "system,arch,libc",
     [
         ("darwin", "aarch64", ("", "")),
-        ("linux", "ppc64le", ("glibc", "2.35")),
         ("linux", "x86_64", ("musl", "1.2")),
     ],
 )
@@ -381,15 +389,32 @@ def test_unsupported_platform_fails(monkeypatch, system, arch, libc):
 
 
 @pytest.mark.parametrize(
-    "error", [URLError("offline"), HTTPError("url", 503, "unavailable", {}, None)]
+    "error,expected_type",
+    [
+        (URLError("offline"), RuntimeError),
+        (HTTPError("url", 503, "unavailable", {}, None), HTTPError),
+    ],
 )
-def test_network_errors_are_not_missing_candidates(monkeypatch, error):
+def test_network_errors_are_not_missing_candidates(monkeypatch, error, expected_type):
     def unavailable(*args, **kwargs):
         raise error
 
     monkeypatch.setattr(installer, "urlopen", unavailable)
-    with pytest.raises(RuntimeError, match="cannot read"):
+    with pytest.raises(expected_type):
         installer.PyPI().files("uc-manager")
+
+
+def test_missing_project_is_empty_but_missing_wheel_metadata_is_an_error(monkeypatch):
+    def missing(request, **kwargs):
+        raise HTTPError(request.full_url, 404, "not found", {}, None)
+
+    monkeypatch.setattr(installer, "urlopen", missing)
+    pypi = installer.PyPI()
+    assert pypi.files("uc-manager-missing") == []
+    with pytest.raises(HTTPError):
+        pypi.wheel_metadata(
+            {"url": "https://files.pythonhosted.org/missing.whl", "core-metadata": True}
+        )
 
 
 @pytest.mark.parametrize("sidecar", [True, False])

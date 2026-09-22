@@ -2,7 +2,7 @@
 
 使用 UCM 独立脚本 `scripts/install_ucm.sh`，在用户环境或接入项目的镜像构建中安装已发布 wheel。环境探测和选包逻辑由 UCM 维护，接入项目只负责获取脚本、传递参数和安排调用位置。
 
-脚本需要 Bash、Python 3.10 及以上，以及该解释器中的 pip。它复用 pip 随附的 packaging，不需要克隆仓库、预装 UCM、GPU/NPU 或 Docker。安装目标为使用 glibc 的 Linux AMD64/ARM64，包括 Ubuntu、openEuler，**以实际发布的兼容 wheel 为准**。例如，包声明 `Requires-Python: >=3.10`，不代表它的 `cp312` 后端 wheel 可以用于 Python 3.10。
+脚本需要 Bash、Python 3.10 及以上，以及该解释器中的 pip。它复用 pip 随附的 packaging，不需要克隆仓库、预装 UCM、GPU/NPU 或 Docker。安装目标使用 Linux 和 glibc，CPU 架构是否可用由**实际发布的兼容 wheel 标签**决定，不另设架构白名单。安装检查覆盖 Ubuntu、openEuler 的 AMD64/ARM64 环境。例如，包声明 `Requires-Python: >=3.10`，不代表它的 `cp312` 后端 wheel 可以用于 Python 3.10。
 
 ## 获取单个脚本
 
@@ -68,6 +68,10 @@ CUDA 通过 `CUDA_HOME`、`CUDA_PATH` 定位活动 Toolkit；未设置时检查 
 | 高于可选范围 | 最高档 |
 
 CANN 比较主、次、补丁版本；CUDA 比较主、次版本，采用相同区间规则，也可能跨 CUDA 主版本选档。这些规则只决定安装哪个包，不安装或改变 Toolkit、驱动，也不保证原生库能加载或 GPU/NPU 功能能运行。脚本会输出实际选档关系，便于检查。
+
+维护脚本时，环境事实、PyPI 读取、候选发现和后端选档分别负责自己的逻辑。`candidate_versions` 定义发布版本策略；`compatible_backends` 跟随发布依赖并检查 wheel 兼容性；`select_backend` 只执行区间选档，不联网、不安装。后端候选用明确字段区分 Toolkit 版本与 UCM 包版本。
+
+Toolkit 路径、SoC 家族映射和 extra 名称编码仍属于外部接口约定。PyPI 当前没有提供 SoC 对应关系或独立的 Toolkit 版本字段：`extra_runtime` 解析 `cann910-a2`、`cu129` 这样的紧凑名称，现有发布名称中的次版本和补丁版本使用一位数字。修改这种编码需要调整发布协议，不能靠新增版本白名单解决。CI 中固定的镜像只是可复现的测试输入，不参与安装时的选包。
 
 ## 在 Docker 构建中调用
 
