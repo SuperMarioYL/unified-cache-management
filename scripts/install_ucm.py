@@ -1,9 +1,5 @@
-#!/usr/bin/env bash
+#!/usr/bin/env python3
 # Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
-# Install published UCM wheels. This file is standalone; it needs Python and pip.
-set -euo pipefail
-
-exec "${PYTHON:-python3}" - "$@" <<'PYTHON'
 """Install published UCM wheels without importing UCM.
 
 The flow is: probe the target, discover compatible published backends, choose
@@ -30,8 +26,8 @@ from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-if sys.version_info < (3, 10):
-    sys.exit("UCM: select Python 3.10 or newer with PYTHON=/path/to/python.")
+if sys.version_info < (3, 10):  # noqa: UP036 - standalone interpreter check
+    sys.exit("UCM: run install_ucm.py with Python 3.10 or newer.")
 
 try:
     from pip._vendor.packaging.markers import default_environment
@@ -67,6 +63,14 @@ class AcceleratorRuntime:
     def version_text(self) -> str:
         return ".".join(map(str, self.toolkit_version))
 
+    @property
+    def extra(self) -> str:
+        """Encode the release publisher's Toolkit coordinates without guessing ranges."""
+        version = "".join(map(str, self.toolkit_version))
+        return (
+            f"cu{version}" if self.family == "cuda" else f"cann{version}-{self.family}"
+        )
+
 
 @dataclass(frozen=True)
 class TargetEnvironment:
@@ -81,13 +85,73 @@ class TargetEnvironment:
             self.markers["python_full_version"], prereleases=True
         )
 
+    def to_json(self) -> dict:
+        return {
+            "markers": self.markers,
+            "tags": [str(tag) for tag in self.tags],
+            "accelerator": (
+                {
+                    "family": self.accelerator.family,
+                    "toolkit_version": list(self.accelerator.toolkit_version),
+                }
+                if self.accelerator
+                else None
+            ),
+        }
+
+    @classmethod
+    def from_json(cls, data: dict) -> "TargetEnvironment":
+        """Load probe facts without filling missing fields from the resolver host."""
+        if not isinstance(data, dict):
+            raise TypeError("runtime probe must be a JSON object")
+        markers = data["markers"]
+        if (
+            not isinstance(markers, dict)
+            or not set(default_environment()).issubset(markers)
+            or any(not isinstance(value, str) for value in markers.values())
+            or markers["sys_platform"] != "linux"
+        ):
+            raise ValueError(
+                "runtime markers must contain the complete Linux probe environment"
+            )
+        raw_tags = data["tags"]
+        if (
+            not isinstance(raw_tags, list)
+            or not raw_tags
+            or any(
+                not isinstance(tag, str) or len(tag.split("-")) != 3 for tag in raw_tags
+            )
+        ):
+            raise ValueError(
+                "runtime tags must be a non-empty array of wheel tag strings"
+            )
+        accelerator = data["accelerator"]
+        if accelerator is not None:
+            if not isinstance(accelerator, dict):
+                raise ValueError("runtime accelerator must be an object or null")
+            family = accelerator["family"]
+            version = accelerator["toolkit_version"]
+            if (
+                not isinstance(family, str)
+                or re.fullmatch(r"cuda|a\d+", family) is None
+                or not isinstance(version, list)
+                or len(version) != (2 if family == "cuda" else 3)
+                or any(type(part) is not int or part < 0 for part in version)
+            ):
+                raise ValueError(
+                    "runtime accelerator must contain a family and Toolkit coordinates"
+                )
+            accelerator = AcceleratorRuntime(family, tuple(version))
+        return cls(
+            markers, tuple(Tag(*tag.split("-")) for tag in raw_tags), accelerator
+        )
+
 
 @dataclass(frozen=True)
 class BackendCandidate:
     """A metadata-declared backend with a wheel compatible with the target."""
 
     extra: str
-    toolkit_version: tuple[int, ...]
     package_name: str
     package_version: Version
     wheel_filename: str
@@ -103,7 +167,7 @@ def diagnostic(message: str) -> None:
 
 def runtime_version(value: str, source: str) -> tuple[int, int, int]:
     """Toolkit build suffixes do not change the published backend coordinates."""
-    match = re.match(r"(\d+)\.(\d+)(?:\.(\d+)|\.RC\d+)?(?:\D|$)", value, re.I)
+    match = re.match(r"(\d+)\.(\d+)(?:\.(\d+)|\.RC\d+)?(?:\D|$)", value, re.IGNORECASE)
     if not match:
         raise ValueError(f"cannot read a Toolkit version from {source}: {value!r}")
     return tuple(int(part or 0) for part in match.groups())
@@ -146,7 +210,7 @@ def cann_version() -> tuple[int, ...] | None:
                 match = re.match(
                     r"\s*(?:version|cann_version)\s*[:=]\s*[\"']?([^\s\"']+)",
                     line,
-                    re.I,
+                    re.IGNORECASE,
                 )
                 if match:
                     sources.append((str(path), match[1]))
@@ -342,32 +406,6 @@ def usable_wheel(
     return None
 
 
-def extra_runtime(extra: str) -> AcceleratorRuntime | None:
-    """Decode the publisher's compact extra names, not a catalogue of versions.
-
-    wheel_variant in the release code omits dots: cann910-a2, cu129. Existing
-    published profiles use single-digit minor/patch coordinates; metadata has no
-    separate Toolkit-version field. SoC detection is independent of parsing the
-    published family name; an unknown SoC needs --extra.
-    """
-    cann = re.fullmatch(
-        r"cann(?P<major>\d+)(?P<minor>\d)(?P<patch>\d)-(?P<family>a\d+)", extra
-    )
-    if cann:
-        return AcceleratorRuntime(
-            family=cann["family"],
-            toolkit_version=tuple(
-                int(cann[part]) for part in ("major", "minor", "patch")
-            ),
-        )
-    cuda = re.fullmatch(r"cu(?P<major>\d+)(?P<minor>\d)", extra)
-    if cuda:
-        return AcceleratorRuntime(
-            family="cuda", toolkit_version=(int(cuda["major"]), int(cuda["minor"]))
-        )
-    return None
-
-
 def backend_requirement(
     metadata: Message, extra: str, markers: dict[str, str]
 ) -> tuple[str, Version] | None:
@@ -425,11 +463,11 @@ def compatible_backends(
     candidates = []
     for declared_extra in metadata.get_all("Provides-Extra", []):
         declared_extra = canonicalize_name(declared_extra)
-        runtime = extra_runtime(declared_extra)
         if extra == "auto":
-            if runtime is None or environment.accelerator is None:
-                continue
-            if runtime.family != environment.accelerator.family:
+            if (
+                environment.accelerator is None
+                or declared_extra != environment.accelerator.extra
+            ):
                 continue
         elif declared_extra != extra:
             continue
@@ -445,7 +483,6 @@ def compatible_backends(
         candidates.append(
             BackendCandidate(
                 extra=declared_extra,
-                toolkit_version=runtime.toolkit_version if runtime else (),
                 package_name=package_name,
                 package_version=package_version,
                 wheel_filename=artifact["filename"],
@@ -454,75 +491,76 @@ def compatible_backends(
     return candidates
 
 
-def select_backend(
-    candidates: list[BackendCandidate], toolkit_version: tuple[int, ...]
-) -> BackendCandidate:
-    """Choose exact/floor, clamped to the available range, without doing I/O.
-
-    Candidates are non-empty, wheel-compatible, and from the same accelerator
-    family. Both CANN and CUDA use this policy; explicit extras bypass it.
-    """
-    ordered = sorted(
-        candidates, key=lambda candidate: (candidate.toolkit_version, candidate.extra)
-    )
-    not_newer = [
-        candidate
-        for candidate in ordered
-        if candidate.toolkit_version <= toolkit_version
-    ]
-    return not_newer[-1] if not_newer else ordered[0]
-
-
 def resolve(
-    pypi: PyPI, environment: TargetEnvironment, version: str, extra: str
-) -> dict[str, str]:
-    """Find the newest usable release, then choose a backend within that release."""
-    runtime = environment.accelerator
-    if extra == "auto" and runtime is None:
+    pypi: PyPI, environments: list[TargetEnvironment], version: str, extra: str
+) -> dict:
+    """Find the newest release and backend usable by every target environment."""
+    if not environments:
+        raise ValueError("at least one runtime environment is required")
+    if extra == "auto" and any(target.accelerator is None for target in environments):
         raise ValueError(
             "automatic backend selection requires a Toolkit; specify --extra"
         )
     for candidate_version in candidate_versions(pypi.files(META_PACKAGE), version):
-        meta_wheel = usable_wheel(pypi, META_PACKAGE, candidate_version, environment)
-        if meta_wheel is None:
-            diagnostic(f"skip {candidate_version}: no compatible {META_PACKAGE} wheel")
-            continue
-        _artifact, metadata = meta_wheel
-        candidates = compatible_backends(pypi, metadata, environment, extra)
-        if not candidates:
+        selected = []
+        published_version = str(candidate_version)
+        for environment in environments:
+            meta_wheel = usable_wheel(
+                pypi, META_PACKAGE, candidate_version, environment
+            )
+            if meta_wheel is None:
+                break
+            _artifact, metadata = meta_wheel
+            candidates = compatible_backends(pypi, metadata, environment, extra)
+            if not candidates:
+                break
+            selected.append(candidates[0])
+            published_version = str(Version(metadata["Version"]))
+        if (
+            len(selected) != len(environments)
+            or len({(backend.extra, backend.requirement) for backend in selected}) != 1
+        ):
             diagnostic(
-                f"skip {candidate_version}: no compatible backend wheel for {extra}"
+                f"skip {candidate_version}: no common compatible backend wheel for {extra}"
             )
             continue
 
-        if extra == "auto":
-            selected = select_backend(candidates, runtime.toolkit_version)
-            diagnostic(
-                f"Toolkit {runtime.version_text} -> {selected.extra} "
-                "(package selection only; hardware compatibility is not verified)"
-            )
-        else:
-            selected = candidates[0]
-            diagnostic(
-                f"explicit backend {extra}; automatic Toolkit detection is bypassed"
-            )
-        published_version = str(Version(metadata["Version"]))
-        return {
+        backend = selected[0]
+        diagnostic(
+            f"selected {published_version} / {backend.extra} for {len(environments)} runtime(s)"
+        )
+        selection = {
             "version": published_version,
-            "extra": selected.extra,
-            "requirement": f"{META_PACKAGE}[{selected.extra}]=={published_version}",
-            "backend_requirement": selected.requirement,
-            "wheel": selected.wheel_filename,
+            "extra": backend.extra,
+            "requirement": f"{META_PACKAGE}[{backend.extra}]=={published_version}",
+            "backend_requirement": backend.requirement,
         }
+        if len(environments) == 1:
+            selection["wheel"] = backend.wheel_filename
+        else:
+            selection["wheels"] = [
+                {
+                    "architecture": environment.markers["platform_machine"],
+                    "python": environment.markers["python_full_version"],
+                    "wheel": backend.wheel_filename,
+                }
+                for environment, backend in zip(environments, selected)
+            ]
+        return selection
+    targets = ", ".join(
+        f"{target.markers['platform_machine']} Python {target.markers['python_full_version']}"
+        + (f" {target.accelerator.extra}" if target.accelerator else "")
+        for target in environments
+    )
     raise ValueError(
         f"no published, non-yanked UCM wheel matches version={version}, extra={extra}, "
-        f"Python {environment.markers['python_full_version']} and this platform's ABI/glibc tags"
+        f"all runtime targets ({targets}) and their ABI/glibc tags"
     )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Install published UCM wheels for the current Python, architecture and Toolkit. Set PYTHON to choose the interpreter."
+        description="Install published UCM wheels for this Python interpreter, architecture and Toolkit."
     )
     parser.add_argument(
         "--version",
@@ -532,19 +570,51 @@ def main() -> None:
     parser.add_argument(
         "--extra", default="auto", help="auto (default) or one published backend extra"
     )
-    parser.add_argument(
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument(
         "--resolve",
         action="store_true",
         help="print the selection as JSON without installing",
+    )
+    action.add_argument(
+        "--probe",
+        action="store_true",
+        help="print this runtime's environment as JSON without network access",
+    )
+    parser.add_argument(
+        "--runtime",
+        type=Path,
+        action="append",
+        default=[],
+        help="use a --probe JSON file for --resolve; repeat for a common selection",
+    )
+    parser.add_argument(
+        "--report", help="pass an installation report path to pip --report"
     )
     args = parser.parse_args()
     if not args.version or not args.extra or "," in args.extra:
         parser.error("--version must be non-empty and --extra must select one backend")
     if args.version != "latest":
         Version(args.version)
+    if args.runtime and not args.resolve:
+        parser.error(
+            "--runtime requires --resolve; installation must run in the target environment"
+        )
+    if args.report and (args.resolve or args.probe):
+        parser.error("--report is only available when installing")
     extra = canonicalize_name(args.extra)
-    environment = probe_environment(extra == "auto")
-    selection = resolve(PyPI(), environment, args.version, extra)
+    if args.probe:
+        print(json.dumps(probe_environment(extra == "auto").to_json()))
+        return
+    environments = (
+        [
+            TargetEnvironment.from_json(json.loads(path.read_text()))
+            for path in args.runtime
+        ]
+        if args.runtime
+        else [probe_environment(extra == "auto")]
+    )
+    selection = resolve(PyPI(), environments, args.version, extra)
     if args.resolve:
         print(json.dumps(selection))
         return
@@ -556,6 +626,7 @@ def main() -> None:
             "pip",
             "install",
             "--only-binary=:all:",
+            *(["--report", args.report] if args.report else []),
             selection["requirement"],
         ],
         check=True,
@@ -581,4 +652,3 @@ if __name__ == "__main__":
     ) as error:
         diagnostic(str(error))
         sys.exit(1)
-PYTHON

@@ -1,11 +1,11 @@
 """Exercise the standalone installer's published-package contract without hardware."""
 
 import hashlib
+import importlib.util
 import io
 import json
 import subprocess
 import sys
-import types
 import zipfile
 from email.message import Message
 from pathlib import Path
@@ -13,10 +13,12 @@ from urllib.error import HTTPError, URLError
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[1] / "install_ucm.sh"
-SOURCE = SCRIPT.read_text().split("<<'PYTHON'\n", 1)[1].rsplit("\nPYTHON", 1)[0]
-installer = types.ModuleType("installer")
-exec(compile(SOURCE, str(SCRIPT), "exec"), installer.__dict__)
+SCRIPT = Path(__file__).resolve().parents[1] / "install_ucm.py"
+SPEC = importlib.util.spec_from_file_location("ucm_installer", SCRIPT)
+assert SPEC is not None and SPEC.loader is not None
+installer = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = installer
+SPEC.loader.exec_module(installer)
 
 
 def environment(architecture="x86_64", family="a2", runtime=(9, 1, 0)):
@@ -105,26 +107,82 @@ def catalog():
 @pytest.mark.parametrize(
     "family,runtime,expected",
     [
-        ("a2", (8, 3, 0), "cann901-a2"),
+        ("a2", (8, 3, 0), None),
         ("a2", (9, 0, 1), "cann901-a2"),
-        ("a2", (9, 0, 2), "cann901-a2"),
+        ("a2", (9, 0, 2), None),
         ("a2", (9, 1, 0), "cann910-a2"),
-        ("a2", (10, 2, 0), "cann910-a2"),
-        ("a3", (9, 0, 1), "cann910-a3"),
-        ("cuda", (11, 8), "cu129"),
+        ("a2", (10, 2, 0), None),
+        ("a3", (9, 0, 1), None),
+        ("a3", (9, 1, 0), "cann910-a3"),
+        ("cuda", (11, 8), None),
         ("cuda", (12, 9), "cu129"),
-        ("cuda", (12, 10), "cu129"),
+        ("cuda", (12, 10), None),
         ("cuda", (13, 0), "cu130"),
-        ("cuda", (14, 0), "cu130"),
+        ("cuda", (14, 0), None),
     ],
 )
-def test_latest_backend_and_architecture(catalog, arch, family, runtime, expected):
+def test_latest_requires_exact_toolkit_and_family(
+    catalog, arch, family, runtime, expected
+):
+    if expected is None:
+        with pytest.raises(ValueError, match="no published"):
+            installer.resolve(
+                catalog, [environment(arch, family, runtime)], "latest", "auto"
+            )
+        return
     result = installer.resolve(
-        catalog, environment(arch, family, runtime), "latest", "auto"
+        catalog, [environment(arch, family, runtime)], "latest", "auto"
     )
     assert result["version"] == "0.8.0"
     assert result["extra"] == expected
     assert result["wheel"].endswith(f"_{arch}.whl")
+
+
+def test_latest_requires_a_common_release_for_all_architectures(catalog):
+    catalog.release("0.9.0rc1", ["cann910-a2"])
+    catalog.release("0.9.0rc2", ["cann910-a2"], architectures=("aarch64",))
+    targets = [environment("x86_64"), environment("aarch64")]
+    result = installer.resolve(catalog, targets, "latest", "auto")
+    assert result["version"] == "0.9.0rc1"
+    assert result["extra"] == "cann910-a2"
+    assert result["wheels"] == [
+        {
+            "architecture": arch,
+            "python": "3.12.4",
+            "wheel": f"uc_manager_cann910_a2-0.9.0rc1-cp312-cp312-manylinux_2_34_{arch}.whl",
+        }
+        for arch in ("x86_64", "aarch64")
+    ]
+    assert "wheel" not in result
+    with pytest.raises(ValueError, match="all runtime targets"):
+        installer.resolve(catalog, targets, "0.9.0rc2", "auto")
+
+
+def test_latest_skips_release_without_exact_toolkit(catalog):
+    catalog.release("0.9.0rc1", ["cann901-a2"])
+    assert (
+        installer.resolve(catalog, [environment()], "latest", "auto")["version"]
+        == "0.8.0"
+    )
+
+
+def test_runtime_group_requires_the_same_extra_and_backend_pin(catalog):
+    with pytest.raises(ValueError, match="no published"):
+        installer.resolve(
+            catalog, [environment(), environment(family="a3")], "latest", "auto"
+        )
+    meta = catalog.metadata[catalog.projects["uc-manager"][1]["url"]]
+    del meta["Requires-Dist"]
+    meta["Requires-Dist"] = (
+        'uc-manager-cann910-a2==0.8.0; extra == "cann910-a2" and platform_machine == "x86_64"'
+    )
+    meta["Requires-Dist"] = (
+        'uc-manager-cann910-a2==0.7.0; extra == "cann910-a2" and platform_machine == "aarch64"'
+    )
+    with pytest.raises(ValueError, match="no published"):
+        installer.resolve(
+            catalog, [environment(), environment("aarch64")], "0.8.0", "auto"
+        )
 
 
 def test_new_release_and_backend_use_published_dependencies(catalog):
@@ -136,7 +194,7 @@ def test_new_release_and_backend_use_published_dependencies(catalog):
         dependencies=['uc-manager-next-backend==2.0.1; extra == "cann1020-a2"'],
     )
     result = installer.resolve(
-        catalog, environment(runtime=(10, 2, 0)), "latest", "auto"
+        catalog, [environment(runtime=(10, 2, 0))], "latest", "auto"
     )
     assert result["requirement"] == "uc-manager[cann1020-a2]==2.0.0"
     assert result["backend_requirement"] == "uc-manager-next-backend==2.0.1"
@@ -144,14 +202,14 @@ def test_new_release_and_backend_use_published_dependencies(catalog):
 
 def test_published_wheel_drives_architecture_support(catalog):
     catalog.release("2.0.0", ["cann910-a2"], architectures=("ppc64le",))
-    result = installer.resolve(catalog, environment("ppc64le"), "latest", "auto")
+    result = installer.resolve(catalog, [environment("ppc64le")], "latest", "auto")
     assert result["version"] == "2.0.0"
     assert result["wheel"].endswith("_ppc64le.whl")
 
 
 def test_explicit_rc_and_extra_are_honored(catalog):
     catalog.release("0.9.0rc1", ["cu129"])
-    result = installer.resolve(catalog, environment(), "0.9.0rc1", "cu129")
+    result = installer.resolve(catalog, [environment()], "0.9.0rc1", "cu129")
     assert result["requirement"] == "uc-manager[cu129]==0.9.0rc1"
     assert result["backend_requirement"] == "uc-manager-cuda-cu129==0.9.0rc1"
 
@@ -159,33 +217,37 @@ def test_explicit_rc_and_extra_are_honored(catalog):
 def test_latest_includes_rc_in_version_order_but_excludes_dev(catalog):
     for version in ("0.9.0rc1", "0.9.0rc10", "0.9.0rc2", "0.10.0.dev20260921"):
         catalog.release(version, ["cann910-a2"])
-    result = installer.resolve(catalog, environment(), "latest", "auto")
+    result = installer.resolve(catalog, [environment()], "latest", "auto")
     assert result["requirement"] == "uc-manager[cann910-a2]==0.9.0rc10"
 
     catalog.release("0.9.0", ["cann910-a2"])
-    result = installer.resolve(catalog, environment(), "latest", "auto")
+    result = installer.resolve(catalog, [environment()], "latest", "auto")
     assert result["version"] == "0.9.0"
 
 
 def test_latest_rc_still_requires_a_compatible_non_yanked_wheel(catalog):
     catalog.release("0.9.0rc1", ["cann910-a2"], architectures=("aarch64",))
     assert (
-        installer.resolve(catalog, environment(), "latest", "auto")["version"]
+        installer.resolve(catalog, [environment()], "latest", "auto")["version"]
         == "0.8.0"
     )
     assert (
-        installer.resolve(catalog, environment("aarch64"), "latest", "auto")["version"]
+        installer.resolve(catalog, [environment("aarch64")], "latest", "auto")[
+            "version"
+        ]
         == "0.9.0rc1"
     )
     catalog.projects["uc-manager"][-1]["yanked"] = True
     assert (
-        installer.resolve(catalog, environment("aarch64"), "latest", "auto")["version"]
+        installer.resolve(catalog, [environment("aarch64")], "latest", "auto")[
+            "version"
+        ]
         == "0.8.0"
     )
 
 
 def test_equivalent_version_input_reports_the_published_version(catalog):
-    result = installer.resolve(catalog, environment(), "0.7", "cann910-a2")
+    result = installer.resolve(catalog, [environment()], "0.7", "cann910-a2")
     assert result["version"] == "0.7.0"
     assert result["requirement"] == "uc-manager[cann910-a2]==0.7.0"
 
@@ -227,22 +289,22 @@ def test_incompatible_latest_falls_back_but_exact_version_fails(catalog, failure
             }[failure]
             artifact["filename"] = artifact["filename"].replace(before, after)
     assert (
-        installer.resolve(catalog, environment(), "latest", "cann910-a2")["version"]
+        installer.resolve(catalog, [environment()], "latest", "cann910-a2")["version"]
         == "0.7.0"
     )
     with pytest.raises(ValueError, match="no published"):
-        installer.resolve(catalog, environment(), "0.8.0", "cann910-a2")
+        installer.resolve(catalog, [environment()], "0.8.0", "cann910-a2")
 
 
 def test_missing_extra_and_legacy_metadata_do_not_install_empty_meta(catalog):
     catalog.add("uc-manager", "3.0.0")
     assert (
-        installer.resolve(catalog, environment(), "latest", "auto")["version"]
+        installer.resolve(catalog, [environment()], "latest", "auto")["version"]
         == "0.8.0"
     )
     for version, extra in (("3.0.0", "auto"), ("0.8.0", "toolkit"), ("8.0.0", "auto")):
         with pytest.raises(ValueError, match="no published"):
-            installer.resolve(catalog, environment(), version, extra)
+            installer.resolve(catalog, [environment()], version, extra)
 
 
 def test_dependency_markers_use_target_environment(catalog):
@@ -251,15 +313,15 @@ def test_dependency_markers_use_target_environment(catalog):
     meta["Requires-Dist"] = (
         'uc-manager-cann910-a2==0.8.0; extra == "cann910-a2" and platform_machine == "aarch64"'
     )
-    assert installer.resolve(catalog, environment("aarch64"), "0.8.0", "cann910-a2")
+    assert installer.resolve(catalog, [environment("aarch64")], "0.8.0", "cann910-a2")
     with pytest.raises(ValueError, match="no published"):
-        installer.resolve(catalog, environment(), "0.8.0", "cann910-a2")
+        installer.resolve(catalog, [environment()], "0.8.0", "cann910-a2")
 
 
 def test_yanked_meta_wheel_is_never_selected(catalog):
     catalog.projects["uc-manager"][1]["yanked"] = True
     assert (
-        installer.resolve(catalog, environment(), "latest", "auto")["version"]
+        installer.resolve(catalog, [environment()], "latest", "auto")["version"]
         == "0.7.0"
     )
 
@@ -485,16 +547,104 @@ def test_cli_resolve_and_install_contract(monkeypatch, catalog, capsys, resolve_
         ]
 
 
+def test_probe_round_trip_without_network_or_install(monkeypatch, capsys):
+    target = environment("aarch64")
+    monkeypatch.setattr(installer, "probe_environment", lambda automatic: target)
+    monkeypatch.setattr(
+        installer, "PyPI", lambda: pytest.fail("probe must not access PyPI")
+    )
+    monkeypatch.setattr(installer.sys, "argv", ["-", "--probe"])
+    installer.main()
+    data = json.loads(capsys.readouterr().out)
+    assert data["accelerator"] == {"family": "a2", "toolkit_version": [9, 1, 0]}
+    assert data["tags"][0] == "cp312-cp312-manylinux_2_34_aarch64"
+    assert installer.TargetEnvironment.from_json(data) == target
+
+
+def test_runtime_probe_does_not_fill_missing_markers_from_host():
+    data = environment().to_json()
+    del data["markers"]["platform_machine"]
+    with pytest.raises(ValueError, match="complete Linux probe"):
+        installer.TargetEnvironment.from_json(data)
+
+
+def test_cli_resolves_runtime_files_without_probing_the_host(
+    monkeypatch, catalog, capsys, tmp_path
+):
+    args = ["-", "--resolve"]
+    for arch in ("x86_64", "aarch64"):
+        path = tmp_path / f"{arch}.json"
+        path.write_text(json.dumps(environment(arch).to_json()))
+        args.extend(["--runtime", str(path)])
+    monkeypatch.setattr(installer.sys, "argv", args)
+    monkeypatch.setattr(installer, "PyPI", lambda: catalog)
+    monkeypatch.setattr(
+        installer,
+        "probe_environment",
+        lambda automatic: pytest.fail("host is not a target"),
+    )
+    installer.main()
+    selection = json.loads(capsys.readouterr().out)
+    assert selection["version"] == "0.8.0"
+    assert [wheel["architecture"] for wheel in selection["wheels"]] == [
+        "x86_64",
+        "aarch64",
+    ]
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--runtime", "runtime.json"],
+        ["--resolve", "--report", "report.json"],
+        ["--probe", "--report", "report.json"],
+    ],
+)
+def test_cli_rejects_installation_with_runtime_files_or_reports_in_read_only_modes(
+    monkeypatch, args
+):
+    monkeypatch.setattr(installer.sys, "argv", ["-", *args])
+    monkeypatch.setattr(
+        installer, "PyPI", lambda: pytest.fail("invalid options must not access PyPI")
+    )
+    with pytest.raises(SystemExit) as error:
+        installer.main()
+    assert error.value.code == 2
+
+
+def test_cli_passes_report_path_to_pip(monkeypatch, catalog, tmp_path):
+    report = str(tmp_path / "install report.json")
+    monkeypatch.setattr(installer.sys, "argv", ["-", "--report", report])
+    monkeypatch.setattr(installer, "PyPI", lambda: catalog)
+    monkeypatch.setattr(installer, "probe_environment", lambda automatic: environment())
+    commands = []
+    monkeypatch.setattr(
+        installer.subprocess, "run", lambda command, **kwargs: commands.append(command)
+    )
+    installer.main()
+    assert commands == [
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--only-binary=:all:",
+            "--report",
+            report,
+            "uc-manager[cann910-a2]==0.8.0",
+        ]
+    ]
+
+
 def test_downloaded_file_starts_with_only_pip(tmp_path):
     python = tmp_path / "venv/bin/python"
     subprocess.run(
         [sys.executable, "-m", "venv", str(python.parent.parent)], check=True
     )
-    script = tmp_path / "install_ucm.sh"
+    script = tmp_path / "install_ucm.py"
     script.write_text(SCRIPT.read_text())
     result = subprocess.run(
-        ["bash", str(script), "--help"],
-        env={**installer.os.environ, "PYTHON": str(python)},
+        [str(python), str(script), "--help"],
         cwd=tmp_path,
         text=True,
         capture_output=True,

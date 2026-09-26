@@ -3,12 +3,12 @@ name: UCM Wheel Installer
 on:
   push:
     paths:
-      - scripts/install_ucm.sh
+      - scripts/install_ucm.py
       - scripts/tests/**
       - .github/workflows/install-ucm.yml
   pull_request:
     paths:
-      - scripts/install_ucm.sh
+      - scripts/install_ucm.py
       - scripts/tests/**
       - .github/workflows/install-ucm.yml
   workflow_dispatch:
@@ -30,10 +30,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Check shell and selection behavior
+      - name: Check Python and selection behavior
         run: |
-          bash -n scripts/install_ucm.sh
-          shellcheck scripts/install_ucm.sh
+          python -m py_compile scripts/install_ucm.py
           python -m pip install pytest
           python -m pytest -q scripts/tests
 
@@ -79,9 +78,9 @@ jobs:
         run: |
           mkdir -p installer-results
           curl --fail --location \
-            "https://raw.githubusercontent.com/${INSTALLER_REPOSITORY}/${INSTALLER_COMMIT}/scripts/install_ucm.sh" \
-            --output installer-results/install_ucm.sh
-          cmp scripts/install_ucm.sh installer-results/install_ucm.sh
+            "https://raw.githubusercontent.com/${INSTALLER_REPOSITORY}/${INSTALLER_COMMIT}/scripts/install_ucm.py" \
+            --output installer-results/install_ucm.py
+          cmp scripts/install_ucm.py installer-results/install_ucm.py
       - name: Resolve and install published wheels without accelerator devices
         env:
           RUNTIME_IMAGE: ${{ matrix.runtime.image }}
@@ -100,15 +99,17 @@ jobs:
             DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-venv </dev/null
           fi
           python3 -m venv /tmp/installer-check
-          export PYTHON=/tmp/installer-check/bin/python
-          bash /result/install_ucm.sh --resolve > /result/selection.json
-          version="$(${PYTHON} -c 'import json; print(json.load(open("/result/selection.json"))["version"])')"
-          bash /result/install_ucm.sh --version "${version}"
-          "${PYTHON}" - <<'PY'
+          installer_python=/tmp/installer-check/bin/python
+          "${installer_python}" /result/install_ucm.py --probe > /result/runtime.json
+          "${installer_python}" /result/install_ucm.py --resolve --runtime /result/runtime.json > /result/selection.json
+          version="$("${installer_python}" -c 'import json; print(json.load(open("/result/selection.json"))["version"])')"
+          "${installer_python}" /result/install_ucm.py --version "${version}" --report /result/pip-report.json
+          "${installer_python}" - <<'PY'
           import json
           import os
           from importlib.metadata import version
           from pathlib import Path
+          from urllib.parse import unquote, urlparse
 
           selected = json.load(open('/result/selection.json'))
           assert selected['extra'].startswith('cu') if os.environ['EXPECTED_FAMILY'] == 'cuda' else selected['extra'].endswith('-' + os.environ['EXPECTED_FAMILY'])
@@ -117,6 +118,10 @@ jobs:
               name, expected = requirement.split('==')
               assert version(name) == expected, (name, version(name), expected)
               installed[name] = version(name)
+          report = json.load(open('/result/pip-report.json'))
+          backend_name = selected['backend_requirement'].split('==')[0]
+          backend = next(item for item in report['install'] if item['metadata']['name'].replace('_', '-') == backend_name)
+          assert Path(unquote(urlparse(backend['download_info']['url']).path)).name == selected['wheel']
           Path('/result/installed.json').write_text(json.dumps(installed, indent=2))
           print(json.dumps(selected, indent=2))
           PY
@@ -127,4 +132,44 @@ jobs:
         with:
           name: installer-${{ matrix.runtime.family }}-${{ matrix.arch.name }}
           path: installer-results/
+          retention-days: 14
+
+  resolve-runtimes:
+    name: Resolve common release · ${{ matrix.family }}
+    needs: install
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [a2, a3, cuda]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installer-${{ matrix.family }}-*
+          path: input
+      - name: Select one published release for both probed architectures
+        run: |
+          shopt -s nullglob
+          runtimes=(input/*/runtime.json)
+          test "${#runtimes[@]}" -eq 2
+          args=()
+          for runtime in "${runtimes[@]}"; do
+            args+=(--runtime "${runtime}")
+          done
+          python scripts/install_ucm.py --resolve "${args[@]}" > selection.json
+          python - <<'PY'
+          import json
+          selection = json.load(open('selection.json'))
+          assert len(selection['wheels']) == 2
+          assert {wheel['architecture'] for wheel in selection['wheels']} == {'x86_64', 'aarch64'}
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-common-${{ matrix.family }}
+          path: selection.json
           retention-days: 14
