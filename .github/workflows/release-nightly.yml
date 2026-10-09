@@ -1,10 +1,16 @@
+# Acceptance source only. Install on an isolated Fork fixture branch at
+# .github/workflows/release-nightly.yml; never include in the production PR.
 name: UCM Nightly Release · Shanghai 02:00
+run-name: Nightly cleanup fixture · ${{ inputs.outcome }}
 
 on:
-  schedule:
-    # GitHub cron 使用 UTC；18:00 对应上海次日 02:00。
-    - cron: "0 18 * * *"
   workflow_dispatch:
+    inputs:
+      outcome:
+        description: Actual source workflow conclusion to exercise
+        type: choice
+        required: true
+        options: [success, failure, cancel]
 
 concurrency:
   group: ucm-nightly-${{ github.repository_id }}
@@ -15,36 +21,25 @@ permissions:
   contents: read
 
 jobs:
-  prepare-nightly:
-    name: Select or create immutable Nightly Tag
-    if: >-
-      ${{
-        github.ref == 'refs/heads/develop' &&
-        (github.event_name == 'workflow_dispatch' ||
-         github.repository == 'ModelEngine-Group/unified-cache-management')
-      }}
+  prepare-fixture:
+    name: Persist source-bound Nightly fixture
+    if: ${{ github.repository == 'SuperMarioYL/unified-cache-management' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
+      actions: write
     outputs:
-      git_tag: ${{ steps.prepare.outputs.git_tag }}
-      release_type: ${{ steps.prepare.outputs.release_type }}
-      release_kind: ${{ steps.prepare.outputs.release_kind }}
-      version: ${{ steps.prepare.outputs.version }}
-      chart_version: ${{ steps.prepare.outputs.chart_version }}
-      image_version: ${{ steps.prepare.outputs.image_version }}
-      is_prerelease: ${{ steps.prepare.outputs.is_prerelease }}
-      source_sha: ${{ steps.prepare.outputs.source_sha }}
+      tag: ${{ steps.prepare.outputs.tag }}
+      release_id: ${{ steps.prepare.outputs.release_id }}
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
+      FIXTURE_OUTCOME: ${{ inputs.outcome }}
     steps:
       - uses: actions/checkout@v4.2.2
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
-          fetch-tags: true
           persist-credentials: false
       - uses: actions/setup-python@v5.6.0
         with:
@@ -53,95 +48,119 @@ jobs:
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: -r .github/release/requirements.txt
       - id: prepare
-        name: Reuse an incomplete same-SHA Tag or create the next sequence
+        name: Create fixture Tag and Draft with verified cleanup asset
         run: |
           set -euo pipefail
-          source_sha="$(git rev-parse HEAD)"
-          shanghai_date="$(TZ=Asia/Shanghai date +%Y%m%d)"
-          tags_file="${RUNNER_TEMP}/ucm-tags.txt"
-          git tag --list >"${tags_file}"
-          next="$(python scripts/materialize_version.py --next-nightly \
-            --tags-file "${tags_file}" --date "${shanghai_date}" \
-            --version-config version.ini)"
-          next_tag="$(jq -r '.git_tag' <<<"${next}")"
-          prefix="${next_tag%-*}-"
-          selected_tag=""
-          while IFS= read -r candidate; do
-            [ -n "${candidate}" ] || continue
-            [ "$(git rev-list -n 1 "${candidate}")" = "${source_sha}" ] || continue
-            releases="$(gh api --paginate --slurp \
-              "/repos/${GH_REPO}/releases?per_page=100" \
-              | jq -ce --arg tag "${candidate}" \
-                '[.[][] | select(
-                  (.tag_name == $tag) or
-                  (.name == $tag and .draft == true and
-                   ((.tag_name // "") | startswith("untagged-"))))]')"
-            test "$(jq 'length' <<<"${releases}")" -le 1
-            if [ "$(jq 'length' <<<"${releases}")" -eq 0 ] || \
-               ! jq -e '.[0] | .draft == false and .prerelease == true and
-                         (.assets | any(.name == "release-manifest.json"))' \
-                 <<<"${releases}" >/dev/null; then
-              selected_tag="${candidate}"
-              break
-            fi
-          done < <(git tag --list "${prefix}*" --sort=-version:refname)
-
-          create_tag=false
-          if [ -z "${selected_tag}" ]; then
-            selected_tag="${next_tag}"
-            create_tag=true
-          fi
+          test "${GH_REPO}" = SuperMarioYL/unified-cache-management
+          test "${GITHUB_EVENT_NAME}" = workflow_dispatch
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          case "${FIXTURE_OUTCOME}" in
+            success) sequence=101 ;;
+            failure) sequence=102 ;;
+            cancel) sequence=103 ;;
+            *) echo 'Unsupported fixture outcome' >&2; exit 1 ;;
+          esac
+          tag="nightly/v0.8.0-20261009-${sequence}"
           mkdir -p out/nightly
+          record=out/nightly/release-cleanup.json
+          # Bind before creating remote resources so an interrupted prepare
+          # still leaves recovery evidence through the always-uploaded artifact.
           python .github/release/ucm_release/cleanup.py record \
-            --repository "${GH_REPO}" --tag "${selected_tag}" \
-            --source-sha "${source_sha}" --run-id "${GITHUB_RUN_ID}" \
-            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
-            --output out/nightly/release-cleanup.json
-
-          if [ "${create_tag}" = true ]; then
-            if ! gh api --method POST "/repos/${GH_REPO}/git/refs" \
-              -f "ref=refs/tags/${selected_tag}" -f "sha=${source_sha}" >/dev/null; then
-              git fetch --force origin "refs/tags/${selected_tag}:refs/tags/${selected_tag}"
-              test "$(git rev-list -n 1 "${selected_tag}")" = "${source_sha}"
-            fi
-          fi
-
-          classification="$(python scripts/materialize_version.py \
-            --tag "${selected_tag}" --classify --version-config version.ini)"
+            --repository "${GH_REPO}" --tag "${tag}" \
+            --source-sha "${GITHUB_SHA}" --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" --output "${record}"
+          # Deliberately fail on a collision; the fixture must not replace any
+          # pre-existing Tag, Release, or cleanup binding.
+          gh api --method POST "/repos/${GH_REPO}/git/refs" \
+            -f "ref=refs/tags/${tag}" -f "sha=${GITHUB_SHA}" >/dev/null
+          # shellcheck disable=SC2016
+          body="$(printf 'Status: `release-open`\n\nNightly cleanup hosted acceptance fixture: %s.\nNo Wheels, Builder images, Runtime images, Chart or public Manifest are published.\n' \
+            "${FIXTURE_OUTCOME}")"
+          jq -n --arg tag "${tag}" --arg source "${GITHUB_SHA}" --arg body "${body}" \
+            '{tag_name:$tag,target_commitish:$source,name:$tag,body:$body,
+              draft:true,prerelease:true,make_latest:"false"}' \
+            >"${RUNNER_TEMP}/fixture-release-request.json"
+          gh api --method POST "/repos/${GH_REPO}/releases" \
+            --input "${RUNNER_TEMP}/fixture-release-request.json" \
+            >"${RUNNER_TEMP}/fixture-release-response.json"
+          release_id="$(jq -er '.id' "${RUNNER_TEMP}/fixture-release-response.json")"
+          python .github/release/ucm_release/cleanup.py record \
+            --repository "${GH_REPO}" --tag "${tag}" \
+            --source-sha "${GITHUB_SHA}" --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" --release-id "${release_id}" \
+            --previous "${record}" --output "${record}"
+          gh release upload "${tag}" "${record}"
+          gh api "/repos/${GH_REPO}/releases/${release_id}" \
+            >"${RUNNER_TEMP}/fixture-release-readback.json"
+          asset_id="$(jq -er '[.assets[] | select(.name == "release-cleanup.json")] |
+            if length == 1 then .[0].id else error("cleanup asset missing or duplicated") end' \
+            "${RUNNER_TEMP}/fixture-release-readback.json")"
+          gh api -H 'Accept: application/octet-stream' \
+            "/repos/${GH_REPO}/releases/assets/${asset_id}" \
+            >"${RUNNER_TEMP}/fixture-cleanup-readback.json"
+          cmp "${record}" "${RUNNER_TEMP}/fixture-cleanup-readback.json"
+          jq -e --arg repository "${GH_REPO}" --arg tag "${tag}" --arg sha "${GITHUB_SHA}" \
+            --argjson run "${GITHUB_RUN_ID}" --argjson attempt "${GITHUB_RUN_ATTEMPT}" \
+            --argjson release "${release_id}" \
+            '.kind == "ucm-release-cleanup" and .schema_version == 1 and
+             .repository == $repository and .tag == $tag and .source_sha == $sha and
+             .release_ids == [$release] and
+             any(.runs[]; .id == $run and .attempt == $attempt) and .resources == []' \
+            "${RUNNER_TEMP}/fixture-cleanup-readback.json" >/dev/null
           {
-            echo "source_sha=${source_sha}"
-            echo "git_tag=$(jq -r '.git_tag' <<<"${classification}")"
-            echo "release_type=$(jq -r '.release_type' <<<"${classification}")"
-            echo "release_kind=$(jq -r '.release_kind' <<<"${classification}")"
-            echo "version=$(jq -r '.version' <<<"${classification}")"
-            echo "chart_version=$(jq -r '.chart_version' <<<"${classification}")"
-            echo "image_version=$(jq -r '.image_version' <<<"${classification}")"
-            echo "is_prerelease=$(jq -r '.is_prerelease' <<<"${classification}")"
+            echo "tag=${tag}"
+            echo "release_id=${release_id}"
           } >>"${GITHUB_OUTPUT}"
+          echo "FIXTURE_READY tag=${tag} release_id=${release_id} run_id=${GITHUB_RUN_ID} attempt=${GITHUB_RUN_ATTEMPT}"
+          {
+            echo '### Nightly cleanup acceptance fixture'
+            echo
+            echo "Requested source conclusion: ${FIXTURE_OUTCOME}"
+            echo "Tag: ${tag}"
+            echo "Release ID: ${release_id}"
+            echo "Source SHA: ${GITHUB_SHA}"
+            echo 'Cleanup asset upload and readback: confirmed identical.'
+          } >>"${GITHUB_STEP_SUMMARY}"
       - uses: actions/upload-artifact@v4.6.2
         if: ${{ always() && hashFiles('out/nightly/release-cleanup.json') != '' }}
         with:
           name: ucm-nightly-cleanup-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: out/nightly/release-cleanup.json
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 7
 
-  release:
-    name: Run common Release core
-    needs: prepare-nightly
+  conclude-fixture:
+    name: Produce the requested terminal conclusion
+    needs: prepare-fixture
+    if: ${{ github.repository == 'SuperMarioYL/unified-cache-management' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
-      actions: write
-      contents: write
-      packages: write
-    uses: ./.github/workflows/release-ucm.yml
-    with:
-      git_tag: ${{ needs.prepare-nightly.outputs.git_tag }}
-      release_type: ${{ needs.prepare-nightly.outputs.release_type }}
-      version: ${{ needs.prepare-nightly.outputs.version }}
-      chart_version: ${{ needs.prepare-nightly.outputs.chart_version }}
-      image_version: ${{ needs.prepare-nightly.outputs.image_version }}
-      release_kind: ${{ needs.prepare-nightly.outputs.release_kind }}
-      is_prerelease: ${{ needs.prepare-nightly.outputs.is_prerelease == 'true' }}
-      source_sha: ${{ needs.prepare-nightly.outputs.source_sha }}
-      publication_scope: ${{ github.repository == 'ModelEngine-Group/unified-cache-management' && 'official' || 'fork' }}
-    secrets: inherit
+      contents: read
+    env:
+      FIXTURE_OUTCOME: ${{ inputs.outcome }}
+      FIXTURE_TAG: ${{ needs.prepare-fixture.outputs.tag }}
+      FIXTURE_RELEASE_ID: ${{ needs.prepare-fixture.outputs.release_id }}
+    steps:
+      - name: Source result or external cancellation window
+        run: |
+          set -euo pipefail
+          echo "Prepared ${FIXTURE_TAG}; Release ${FIXTURE_RELEASE_ID}."
+          case "${FIXTURE_OUTCOME}" in
+            success)
+              echo 'Complete the source workflow successfully.'
+              ;;
+            failure)
+              echo 'Intentional source workflow failure after durable fixture evidence.' >&2
+              exit 1
+              ;;
+            cancel)
+              echo 'CANCEL_WINDOW_OPEN: cancel this workflow run externally now.'
+              # The driver cancels only after this job starts, proving that the
+              # Release asset and binding artifact survived preparation.
+              sleep 900
+              echo 'External cancellation did not arrive within the window.' >&2
+              exit 1
+              ;;
+            *) exit 1 ;;
+          esac
