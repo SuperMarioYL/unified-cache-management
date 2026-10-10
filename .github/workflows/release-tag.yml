@@ -6,8 +6,6 @@ on:
   push:
     tags:
       - draft/v0.8.0-9101
-      - draft/v0.8.0-9102
-      - draft/v0.8.0-9103
 
 concurrency:
   group: ucm-release-retention-${{ github.repository_id }}-draft
@@ -34,7 +32,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2
         with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Checkout this Tag's isolated fixture helper
+        uses: actions/checkout@v4.2.2
+        with:
           ref: ${{ github.sha }}
+          path: fixture-helper
+          sparse-checkout: .github/release/tests/hosted_cleanup.py
+          sparse-checkout-cone-mode: false
           persist-credentials: false
       - uses: actions/setup-python@v5.6.0
         with:
@@ -55,8 +61,7 @@ jobs:
           set -euo pipefail
           test "${GH_REPO}" = SuperMarioYL/unified-cache-management
           test "${GITHUB_EVENT_NAME}" = push
-          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
-          python .github/release/tests/hosted_cleanup.py prepare \
+          python fixture-helper/.github/release/tests/hosted_cleanup.py prepare \
             --production-root . --tag "${FIXTURE_TAG}" \
             --ledger-dir out/ledger --open-dir out/open --plan-dir out/plan
       - uses: actions/upload-artifact@v4.6.2
@@ -84,11 +89,6 @@ jobs:
         run: |
           set -euo pipefail
           echo "FIXTURE_READY tag=${FIXTURE_TAG} run_id=${GITHUB_RUN_ID} attempt=${GITHUB_RUN_ATTEMPT}"
-          case "${FIXTURE_TAG}" in
-            draft/v0.8.0-9101|draft/v0.8.0-9103)
-              echo 'Intentional Draft source failure after durable publication evidence.' >&2
-              exit 1
-              ;;
-            draft/v0.8.0-9102) echo 'Draft source completed successfully.' ;;
-            *) exit 1 ;;
-          esac
+          test "${FIXTURE_TAG}" = draft/v0.8.0-9101
+          echo 'Intentional Draft source failure after durable publication evidence.' >&2
+          exit 1

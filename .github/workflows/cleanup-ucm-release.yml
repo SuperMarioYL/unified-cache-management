@@ -1,15 +1,15 @@
 # Fork acceptance closure. Keep this workflow on the isolated fixture branch.
 name: Cleanup one UCM Tag Release
-run-name: Fork cleanup acceptance closure
+run-name: Fork GHCR skip acceptance closure
 
 on:
   workflow_dispatch:
     inputs:
-      tags:
-        description: JSON array of the three exact Draft fixture Tags
+      tag:
+        description: Exact disposable Draft fixture Tag
         type: string
         required: true
-        default: '["draft/v0.8.0-9101","draft/v0.8.0-9102","draft/v0.8.0-9103"]'
+        default: draft/v0.8.0-9101
       fixture_ref:
         description: Isolated fixture branch containing the acceptance helper
         type: string
@@ -26,7 +26,7 @@ permissions:
 
 jobs:
   closure:
-    name: Verify real deletion and preserve unrelated Nightlies
+    name: Verify GHCR HTTP 400 is nonfatal and preserve eleven baseline Releases
     if: ${{ github.repository == 'SuperMarioYL/unified-cache-management' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -38,7 +38,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      FIXTURE_TAGS: ${{ inputs.tags }}
+      FIXTURE_TAG: ${{ inputs.tag }}
     steps:
       # Deletion always uses the deployed default-branch production modules.
       - uses: actions/checkout@v4.2.2
@@ -67,49 +67,45 @@ jobs:
             https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
             | tar -xz -C "${RUNNER_TEMP}/crane" crane
           echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
-      - name: Download ledgers from completed fixture source runs
+      - name: Download the ledger from the completed fixture source run
         run: |
           set -euo pipefail
           test "${GH_REPO}" = SuperMarioYL/unified-cache-management
-          expected='["draft/v0.8.0-9101","draft/v0.8.0-9102","draft/v0.8.0-9103"]'
-          jq -e --argjson expected "${expected}" \
-            'type == "array" and (sort == ($expected | sort))' \
-            <<<"${FIXTURE_TAGS}" >/dev/null
+          test "${FIXTURE_TAG}" = draft/v0.8.0-9101
           mkdir -p in/ledgers out/hosted
           echo "PRODUCTION_SHA=$(git rev-parse HEAD)"
-          while IFS= read -r tag; do
-            runs="$(gh api --method GET --paginate --slurp \
-              "/repos/${GH_REPO}/actions/workflows/release-tag.yml/runs" \
-              -f branch="${tag}" -f event=push -f per_page=100 \
-              | jq -ce --arg tag "${tag}" \
-                '[.[] | .workflow_runs[] |
-                  select(.head_branch == $tag and .event == "push")]')"
-            test "$(jq 'length' <<<"${runs}")" = 1
-            test "$(jq -er '.[0].status' <<<"${runs}")" = completed
-            run_id="$(jq -er '.[0].id' <<<"${runs}")"
-            artifacts="$(gh api --paginate --slurp \
-              "/repos/${GH_REPO}/actions/runs/${run_id}/artifacts?per_page=100" \
-              | jq -ce --arg name "fixture-ledger-run-${run_id}" \
-                '[.[] | .artifacts[] | select(.name == $name and .expired == false)]')"
-            test "$(jq 'length' <<<"${artifacts}")" = 1
-            artifact_id="$(jq -er '.[0].id' <<<"${artifacts}")"
-            archive="${RUNNER_TEMP}/fixture-ledger-${run_id}.zip"
-            gh api "/repos/${GH_REPO}/actions/artifacts/${artifact_id}/zip" >"${archive}"
-            ledger_name="$(unzip -Z1 "${archive}")"
-            [[ "${ledger_name}" =~ ^[A-Za-z0-9._-]+\.json$ ]]
-            mkdir -p "in/ledgers/${run_id}"
-            unzip -p "${archive}" "${ledger_name}" >"in/ledgers/${run_id}/${ledger_name}"
-          done < <(jq -r '.[]' <<<"${FIXTURE_TAGS}")
-      - name: Prove failure recovery, retention and exact resource absence
+          tag="${FIXTURE_TAG}"
+          runs="$(gh api --method GET --paginate --slurp \
+            "/repos/${GH_REPO}/actions/workflows/release-tag.yml/runs" \
+            -f branch="${tag}" -f event=push -f per_page=100 \
+            | jq -ce --arg tag "${tag}" \
+              '[.[] | .workflow_runs[] |
+                select(.head_branch == $tag and .event == "push")]')"
+          test "$(jq 'length' <<<"${runs}")" = 1
+          test "$(jq -er '.[0].status' <<<"${runs}")" = completed
+          run_id="$(jq -er '.[0].id' <<<"${runs}")"
+          artifacts="$(gh api --paginate --slurp \
+            "/repos/${GH_REPO}/actions/runs/${run_id}/artifacts?per_page=100" \
+            | jq -ce --arg name "fixture-ledger-run-${run_id}" \
+              '[.[] | .artifacts[] | select(.name == $name and .expired == false)]')"
+          test "$(jq 'length' <<<"${artifacts}")" = 1
+          artifact_id="$(jq -er '.[0].id' <<<"${artifacts}")"
+          archive="${RUNNER_TEMP}/fixture-ledger-${run_id}.zip"
+          gh api "/repos/${GH_REPO}/actions/artifacts/${artifact_id}/zip" >"${archive}"
+          ledger_name="$(unzip -Z1 "${archive}")"
+          [[ "${ledger_name}" =~ ^[A-Za-z0-9._-]+\.json$ ]]
+          mkdir -p "in/ledgers/${run_id}"
+          unzip -p "${archive}" "${ledger_name}" >"in/ledgers/${run_id}/${ledger_name}"
+      - name: Prove partial cleanup, rediscovery and explicit fixture teardown
         run: |
           set -euo pipefail
           python fixture-helper/.github/release/tests/hosted_cleanup.py closure \
             --production-root . --ledger-dir in/ledgers --output-dir out/hosted \
-            --expected-tags "${FIXTURE_TAGS}"
+            --tag "${FIXTURE_TAG}"
       - uses: actions/upload-artifact@v4.6.2
         if: ${{ always() }}
         with:
-          name: hosted-cleanup-closure-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: hosted-ghcr-skip-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: |
             out/hosted/
             in/ledgers/
