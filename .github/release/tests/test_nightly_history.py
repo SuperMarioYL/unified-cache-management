@@ -9,7 +9,7 @@ from pathlib import Path
 
 RELEASE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RELEASE_ROOT))
-records = importlib.import_module("ucm_release.cleanup_records")
+domain = importlib.import_module("ucm_release.cleanup_records")
 INVENTORY = RELEASE_ROOT / "history/nightly-20261009.json"
 REPOSITORY = "ModelEngine-Group/unified-cache-management"
 
@@ -23,9 +23,9 @@ def test_historical_targets_have_valid_identity_and_provenance():
     assert document["kind"] == "ucm-nightly-cleanup-inventory"
     assert document["schema_version"] == 1
     assert document["repository"] == REPOSITORY
-    records = records.merge_records(
+    records = domain.merge_records(
         [
-            records.decode_legacy_record(value, REPOSITORY)
+            domain.decode_legacy_record(value, REPOSITORY)
             for value in document["targets"]
         ],
         REPOSITORY,
@@ -47,8 +47,8 @@ def test_snapshot_applies_one_quota_to_successful_and_failed_releases():
         )
     ]
     assert len(live) == 22
-    selection = records.select_retention(
-        [records.decode_legacy_record(value, REPOSITORY) for value in live], 7
+    selection = domain.select_retention(
+        [domain.decode_legacy_record(value, REPOSITORY) for value in live], 7
     )
     assert [record["tag"] for record in selection.kept] == [
         f"nightly/v0.9.0-202610{day:02d}-1" for day in (9, 8, 7, 6, 5, 4, 3)
