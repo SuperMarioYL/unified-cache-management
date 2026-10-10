@@ -1,20 +1,23 @@
+# Fork acceptance closure. Keep this workflow on the isolated fixture branch.
 name: Cleanup one UCM Tag Release
+run-name: Fork cleanup acceptance closure
 
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: Exact Stable, Prerelease, Draft, or Nightly Tag
+      tags:
+        description: JSON array of the three exact Draft fixture Tags
         type: string
         required: true
-      fail_resource:
-        description: Optional exact resource for three synthetic HTTP 503 attempts
+        default: '["draft/v0.8.0-9101","draft/v0.8.0-9102","draft/v0.8.0-9103"]'
+      fixture_ref:
+        description: Isolated fixture branch containing the acceptance helper
         type: string
-        required: false
-        default: ""
+        required: true
+        default: feature/cleanup-hosted-fixtures-20261010
 
 concurrency:
-  group: ${{ startsWith(inputs.tag, 'nightly/') && format('ucm-nightly-{0}', github.repository_id) || format('ucm-release-cleanup-{0}-{1}', github.repository_id, inputs.tag) }}
+  group: ucm-release-retention-${{ github.repository_id }}-draft
   queue: max
   cancel-in-progress: false
 
@@ -22,26 +25,33 @@ permissions:
   contents: read
 
 jobs:
-  cleanup:
-    name: Cleanup · ${{ inputs.tag }}
+  closure:
+    name: Verify real deletion and preserve unrelated Nightlies
+    if: ${{ github.repository == 'SuperMarioYL/unified-cache-management' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    environment: ${{ github.repository == 'ModelEngine-Group/unified-cache-management' && 'release-production' || 'fork-preview' }}
+    timeout-minutes: 30
+    environment: fork-preview
     permissions:
-      actions: write
       contents: write
+      actions: write
       packages: write
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-      CLEANUP_TAG: ${{ inputs.tag }}
-      FAIL_RESOURCE: ${{ inputs.fail_resource }}
+      FIXTURE_TAGS: ${{ inputs.tags }}
     steps:
+      # Deletion always uses the deployed default-branch production modules.
       - uses: actions/checkout@v4.2.2
         with:
           ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Checkout only the fixture helper
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ inputs.fixture_ref }}
+          path: fixture-helper
+          sparse-checkout: .github/release/tests/hosted_cleanup.py
+          sparse-checkout-cone-mode: false
           persist-credentials: false
       - uses: actions/setup-python@v5.6.0
         with:
@@ -57,26 +67,51 @@ jobs:
             https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
             | tar -xz -C "${RUNNER_TEMP}/crane" crane
           echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
-      - name: Validate Docker Hub credentials when configured
-        if: ${{ env.DOCKERHUB_USERNAME != '' || env.DOCKERHUB_TOKEN != '' }}
+      - name: Download ledgers from completed fixture source runs
         run: |
           set -euo pipefail
-          test -n "${DOCKERHUB_USERNAME}" && test -n "${DOCKERHUB_TOKEN}"
-      - name: Authenticate to DockerHub when configured
-        if: >-
-          ${{
-            env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
-          }}
+          test "${GH_REPO}" = SuperMarioYL/unified-cache-management
+          expected='["draft/v0.8.0-9101","draft/v0.8.0-9102","draft/v0.8.0-9103"]'
+          jq -e --argjson expected "${expected}" \
+            'type == "array" and (sort == ($expected | sort))' \
+            <<<"${FIXTURE_TAGS}" >/dev/null
+          mkdir -p in/ledgers out/hosted
+          echo "PRODUCTION_SHA=$(git rev-parse HEAD)"
+          while IFS= read -r tag; do
+            runs="$(gh api --method GET --paginate --slurp \
+              "/repos/${GH_REPO}/actions/workflows/release-tag.yml/runs" \
+              -f branch="${tag}" -f event=push -f per_page=100 \
+              | jq -ce --arg tag "${tag}" \
+                '[.[] | .workflow_runs[] |
+                  select(.head_branch == $tag and .event == "push")]')"
+            test "$(jq 'length' <<<"${runs}")" = 1
+            test "$(jq -er '.[0].status' <<<"${runs}")" = completed
+            run_id="$(jq -er '.[0].id' <<<"${runs}")"
+            artifacts="$(gh api --paginate --slurp \
+              "/repos/${GH_REPO}/actions/runs/${run_id}/artifacts?per_page=100" \
+              | jq -ce --arg name "fixture-ledger-run-${run_id}" \
+                '[.[] | .artifacts[] | select(.name == $name and .expired == false)]')"
+            test "$(jq 'length' <<<"${artifacts}")" = 1
+            artifact_id="$(jq -er '.[0].id' <<<"${artifacts}")"
+            archive="${RUNNER_TEMP}/fixture-ledger-${run_id}.zip"
+            gh api "/repos/${GH_REPO}/actions/artifacts/${artifact_id}/zip" >"${archive}"
+            ledger_name="$(unzip -Z1 "${archive}")"
+            [[ "${ledger_name}" =~ ^[A-Za-z0-9._-]+\.json$ ]]
+            mkdir -p "in/ledgers/${run_id}"
+            unzip -p "${archive}" "${ledger_name}" >"in/ledgers/${run_id}/${ledger_name}"
+          done < <(jq -r '.[]' <<<"${FIXTURE_TAGS}")
+      - name: Prove failure recovery, retention and exact resource absence
         run: |
           set -euo pipefail
-          printf '%s' "${DOCKERHUB_TOKEN}" | docker login docker.io \
-            --username "${DOCKERHUB_USERNAME}" --password-stdin
-      - name: Delete manifest resources in recovery-preserving phases
-        run: |
-          set -euo pipefail
-          test "${GH_REPO}" = "${GITHUB_REPOSITORY}"
-          args=(tag --repository "${GH_REPO}" --tag "${CLEANUP_TAG}")
-          if [ -n "${FAIL_RESOURCE}" ]; then
-            args+=(--fail-resource "${FAIL_RESOURCE}")
-          fi
-          python .github/release/ucm_release/cleanup.py "${args[@]}"
+          python fixture-helper/.github/release/tests/hosted_cleanup.py closure \
+            --production-root . --ledger-dir in/ledgers --output-dir out/hosted \
+            --expected-tags "${FIXTURE_TAGS}"
+      - uses: actions/upload-artifact@v4.6.2
+        if: ${{ always() }}
+        with:
+          name: hosted-cleanup-closure-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: |
+            out/hosted/
+            in/ledgers/
+          if-no-files-found: warn
+          retention-days: 7

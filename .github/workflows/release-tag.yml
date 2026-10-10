@@ -1,11 +1,16 @@
+# Fork acceptance source. Keep this workflow on the isolated fixture branch.
 name: UCM Tag Release · Stable, Prerelease, Draft, and Nightly
+run-name: Draft cleanup fixture · ${{ github.ref_name }}
 
 on:
   push:
-    tags: ["v*", "draft/v*", "nightly/v*"]
+    tags:
+      - draft/v0.8.0-9101
+      - draft/v0.8.0-9102
+      - draft/v0.8.0-9103
 
 concurrency:
-  group: ${{ startsWith(github.ref, 'refs/tags/nightly/') && format('ucm-nightly-{0}', github.repository_id) || format('ucm-tag-wrapper-{0}', github.run_id) }}
+  group: ucm-release-retention-${{ github.repository_id }}-draft
   queue: max
   cancel-in-progress: false
 
@@ -13,25 +18,23 @@ permissions:
   contents: read
 
 jobs:
-  classify-tag:
-    name: Classify immutable Release Tag
+  prepare-fixture:
+    name: Publish one tiny source-bound Draft target
+    if: ${{ github.repository == 'SuperMarioYL/unified-cache-management' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 15
     permissions:
-      contents: read
-    outputs:
-      git_tag: ${{ steps.classify.outputs.git_tag }}
-      release_type: ${{ steps.classify.outputs.release_type }}
-      release_kind: ${{ steps.classify.outputs.release_kind }}
-      version: ${{ steps.classify.outputs.version }}
-      chart_version: ${{ steps.classify.outputs.chart_version }}
-      image_version: ${{ steps.classify.outputs.image_version }}
-      is_prerelease: ${{ steps.classify.outputs.is_prerelease }}
-      publication_scope: ${{ steps.classify.outputs.publication_scope }}
+      contents: write
+      actions: write
+      packages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      FIXTURE_TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v4.2.2
         with:
-          fetch-depth: 1
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@v5.6.0
         with:
@@ -39,65 +42,53 @@ jobs:
       - run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: -r .github/release/requirements.txt
-      - id: classify
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
+      - name: Install Crane
         run: |
           set -euo pipefail
-          classification="$(python scripts/materialize_version.py \
-            --tag "${RELEASE_TAG}" --classify --version-config version.ini)"
-          if [ "$(jq -r '.release_type' <<<"${classification}")" = nightly ]; then
-            python .github/release/ucm_release/cleanup.py record \
-              --repository "${GITHUB_REPOSITORY}" --tag "${RELEASE_TAG}" \
-              --source-sha "${GITHUB_SHA}" --run-id "${GITHUB_RUN_ID}" \
-              --run-attempt "${GITHUB_RUN_ATTEMPT}" \
-              --output-dir out/cleanup
-          fi
-          repository="${GITHUB_REPOSITORY,,}"
-          if [ "${repository}" = modelengine-group/unified-cache-management ]; then
-            publication_scope=official
-          else
-            publication_scope=fork
-          fi
-          {
-            echo "git_tag=$(jq -r '.git_tag' <<<"${classification}")"
-            echo "release_type=$(jq -r '.release_type' <<<"${classification}")"
-            echo "release_kind=$(jq -r '.release_kind' <<<"${classification}")"
-            echo "version=$(jq -r '.version' <<<"${classification}")"
-            echo "chart_version=$(jq -r '.chart_version' <<<"${classification}")"
-            echo "image_version=$(jq -r '.image_version' <<<"${classification}")"
-            echo "is_prerelease=$(jq -r '.is_prerelease' <<<"${classification}")"
-            echo "publication_scope=${publication_scope}"
-          } >>"${GITHUB_OUTPUT}"
+          mkdir -p "${RUNNER_TEMP}/crane"
+          curl -fsSL --retry 3 \
+            https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
+            | tar -xz -C "${RUNNER_TEMP}/crane" crane
+          echo "${RUNNER_TEMP}/crane" >>"${GITHUB_PATH}"
+      - name: Persist both snapshots and publish the exact registry target
+        run: |
+          set -euo pipefail
+          test "${GH_REPO}" = SuperMarioYL/unified-cache-management
+          test "${GITHUB_EVENT_NAME}" = push
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          python .github/release/tests/hosted_cleanup.py prepare \
+            --production-root . --tag "${FIXTURE_TAG}" \
+            --ledger-dir out/ledger --open-dir out/open --plan-dir out/plan
       - uses: actions/upload-artifact@v4.6.2
-        if: ${{ always() && hashFiles('out/cleanup/*.json') != '' }}
+        if: ${{ always() && hashFiles('out/open/*.json') != '' }}
         with:
-          name: ucm-release-cleanup-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: out/cleanup/*.json
+          name: ucm-release-cleanup-open-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: out/open/*.json
           if-no-files-found: error
-          retention-days: 90
-
-  release:
-    name: Run Release core
-    needs: classify-tag
-    permissions:
-      actions: write
-      contents: write
-      packages: write
-    uses: ./.github/workflows/release-ucm.yml
-    with:
-      git_tag: ${{ needs.classify-tag.outputs.git_tag }}
-      release_type: ${{ needs.classify-tag.outputs.release_type }}
-      version: ${{ needs.classify-tag.outputs.version }}
-      chart_version: ${{ needs.classify-tag.outputs.chart_version }}
-      image_version: ${{ needs.classify-tag.outputs.image_version }}
-      release_kind: ${{ needs.classify-tag.outputs.release_kind }}
-      is_prerelease: ${{ needs.classify-tag.outputs.is_prerelease == 'true' }}
-      source_sha: ${{ github.sha }}
-      publication_scope: ${{ needs.classify-tag.outputs.publication_scope }}
-    secrets:
-      PYPI_API_TOKEN: ${{ needs.classify-tag.outputs.publication_scope == 'official' && secrets.PYPI_API_TOKEN || '' }}
-      TEST_PYPI_API_TOKEN: ${{ needs.classify-tag.outputs.publication_scope == 'fork' && secrets.TEST_PYPI_API_TOKEN || '' }}
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-      RTD_API_TOKEN: ${{ secrets.RTD_API_TOKEN }}
+          retention-days: 7
+      - uses: actions/upload-artifact@v4.6.2
+        if: ${{ always() && hashFiles('out/plan/*.json') != '' }}
+        with:
+          name: ucm-release-cleanup-plan-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: out/plan/*.json
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4.6.2
+        if: ${{ always() && hashFiles('out/ledger/*.json') != '' }}
+        with:
+          name: fixture-ledger-run-${{ github.run_id }}
+          path: out/ledger/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Finish the source after its recovery evidence is saved
+        run: |
+          set -euo pipefail
+          echo "FIXTURE_READY tag=${FIXTURE_TAG} run_id=${GITHUB_RUN_ID} attempt=${GITHUB_RUN_ATTEMPT}"
+          case "${FIXTURE_TAG}" in
+            draft/v0.8.0-9101|draft/v0.8.0-9103)
+              echo 'Intentional Draft source failure after durable publication evidence.' >&2
+              exit 1
+              ;;
+            draft/v0.8.0-9102) echo 'Draft source completed successfully.' ;;
+            *) exit 1 ;;
+          esac
