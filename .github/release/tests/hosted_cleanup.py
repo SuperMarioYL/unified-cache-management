@@ -313,6 +313,136 @@ def readback(remote, ledger, absent):
     return readings
 
 
+def guard_version(remote, ledger):
+    """Publish or reuse one independently tagged version in our disposable package.
+
+    GHCR cannot delete a package's last tagged version. A second, distinct fixture
+    digest lets the unchanged production cleaner exercise version deletion. This
+    helper later removes its own entire package after validating its exact scope.
+    """
+    package = f"ucm-cleanup-fixture-{ledger['tag'].rsplit('-', 1)[-1]}-run-{ledger['source_run_id']}"
+    package_path = f"/users/SuperMarioYL/packages/container/{package}"
+    repository = f"ghcr.io/supermarioyl/{package}"
+    guard_tag = f"hosted-guard-run-{ledger['source_run_id']}"
+    reference = f"{repository}:{guard_tag}"
+    labels = {
+        "org.opencontainers.image.source": f"https://github.com/{REPOSITORY}",
+        "ucm.hosted.cleanup.guard": "true",
+        "ucm.hosted.cleanup.source_run": str(ledger["source_run_id"]),
+        "ucm.hosted.cleanup.source_sha": ledger["source_sha"],
+        "ucm.hosted.cleanup.tag": ledger["tag"],
+    }
+    versions = remote.list_pages(package_path + "/versions")
+    matching = [v for v in versions if guard_tag in v["metadata"]["container"]["tags"]]
+    require(len(matching) <= 1, "Fixture guard Tag resolves to multiple versions")
+    allowed = {ledger["ghcr_version_id"]} | {v["id"] for v in matching}
+    require(
+        {v["id"] for v in versions} <= allowed,
+        "Fixture package has an unrelated version; refusing to publish or overwrite a guard",
+    )
+    if not matching:
+        require(
+            any(v["id"] == ledger["ghcr_version_id"] for v in versions),
+            "Target and guard are both missing; refusing to recreate the package",
+        )
+        with tempfile.TemporaryDirectory(prefix="ucm-hosted-guard-") as directory:
+            context = Path(directory)
+            (context / "marker").write_text(
+                f"HOSTED GUARD\n{ledger['tag']}\n{ledger['source_run_id']}\n{ledger['source_sha']}\n"
+            )
+            (context / "Dockerfile").write_text(
+                "FROM scratch\nCOPY marker /fixture-guard-marker\n"
+            )
+            command = [
+                "docker",
+                "build",
+                "--platform",
+                "linux/amd64",
+                "--tag",
+                reference,
+            ]
+            for key, value in labels.items():
+                command.extend(["--label", f"{key}={value}"])
+            subprocess.run([*command, directory], check=True)
+            subprocess.run(["docker", "push", reference], check=True)
+        for delay in (0, 2, 5):
+            if delay:
+                time.sleep(delay)
+            versions = remote.list_pages(package_path + "/versions")
+            matching = [
+                v for v in versions if guard_tag in v["metadata"]["container"]["tags"]
+            ]
+            if matching:
+                break
+    require(len(matching) == 1, "Published guard has no unique readable GHCR version")
+    guard = matching[0]
+    require(
+        guard["id"] != ledger["ghcr_version_id"],
+        "Guard must have a distinct digest/version from the cleanup target",
+    )
+    require(
+        set(guard["metadata"]["container"]["tags"]) == {guard_tag},
+        "Guard version has an unknown additional Tag",
+    )
+    require(
+        {v["id"] for v in versions} <= {ledger["ghcr_version_id"], guard["id"]},
+        "Fixture package gained an unrelated version",
+    )
+    config = json.loads(
+        subprocess.run(
+            ["crane", "config", reference], text=True, capture_output=True, check=True
+        ).stdout
+    )
+    actual_labels = config.get("config", {}).get("Labels", {})
+    require(
+        all(actual_labels.get(key) == value for key, value in labels.items()),
+        "Existing guard Tag is not our exact source fixture; refusing to adopt or overwrite it",
+    )
+    return {
+        "package": package,
+        "package_path": package_path,
+        "reference": reference,
+        "tag": guard_tag,
+        "version_id": guard["id"],
+        "version_path": f"{package_path}/versions/{guard['id']}",
+        "target_version_id": ledger["ghcr_version_id"],
+    }
+
+
+def remove_guard_package(remote, guard):
+    """Delete only our exclusive fixture package after its target version is gone."""
+    from ucm_release.cleanup_remote import RemoteError
+
+    try:
+        get_json(
+            remote, f"{guard['package_path']}/versions/{guard['target_version_id']}"
+        )
+    except RemoteError as error:
+        require(
+            error.is_missing,
+            f"Target version readback failed before package teardown: {error}",
+        )
+    else:
+        raise RuntimeError(
+            "The production target version still exists; refusing package teardown"
+        )
+    versions = remote.list_pages(guard["package_path"] + "/versions")
+    require(
+        len(versions) == 1
+        and versions[0]["id"] == guard["version_id"]
+        and set(versions[0]["metadata"]["container"]["tags"]) == {guard["tag"]},
+        "Package teardown requires exactly our guard version and Tag; additional versions must remain untouched",
+    )
+    remote.json_request("DELETE", guard["package_path"])
+    try:
+        get_json(remote, guard["package_path"])
+    except RemoteError as error:
+        require(error.is_missing, f"Package teardown readback failed: {error}")
+    else:
+        raise RuntimeError("Fixture package still exists after explicit teardown")
+    return {"path": guard["package_path"], "status": 404}
+
+
 def closure(arguments):
     from ucm_release.cleanup_inventory import collect_catalog
 
@@ -395,6 +525,24 @@ def closure(arguments):
             == {ledger["registry_reference"]},
             "Resolved fixture includes resources not created by this test",
         )
+    subprocess.run(
+        [
+            "docker",
+            "login",
+            "ghcr.io",
+            "--username",
+            "SuperMarioYL",
+            "--password-stdin",
+        ],
+        input=remote.token + "\n",
+        text=True,
+        check=True,
+    )
+    proof["guards"] = []
+    write_json(proof_path, proof)
+    for ledger in ledgers:
+        proof["guards"].append(guard_version(remote, ledger))
+        write_json(proof_path, proof)
     ledgers.sort(key=lambda ledger: ledger["release_id"])
     oldest, *kept = ledgers
     call_cleanup(
@@ -465,19 +613,6 @@ def closure(arguments):
     }
     # An exact package-version GET is primary proof; Crane independently checks the OCI references.
     proof["registry_readback"] = {}
-    subprocess.run(
-        [
-            "docker",
-            "login",
-            "ghcr.io",
-            "--username",
-            "SuperMarioYL",
-            "--password-stdin",
-        ],
-        input=remote.token + "\n",
-        text=True,
-        check=True,
-    )
     for ledger in ledgers:
         completed = subprocess.run(
             ["crane", "digest", ledger["registry_reference"]],
@@ -494,6 +629,14 @@ def closure(arguments):
             "status": 404,
             "detail": (completed.stderr or completed.stdout).strip(),
         }
+    # This fixture-only teardown is deliberately separate from production version deletion.
+    proof["fixture_package_teardown"] = {}
+    write_json(proof_path, proof)
+    for guard in proof["guards"]:
+        proof["fixture_package_teardown"][guard["package"]] = remove_guard_package(
+            remote, guard
+        )
+        write_json(proof_path, proof)
     proof["baseline_readback"] = baseline(remote)
     require(
         proof["baseline_readback"] == original_baseline,
