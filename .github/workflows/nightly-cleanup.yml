@@ -97,13 +97,15 @@ jobs:
           source_tag="$(jq -er '.workflow_run.head_branch' "${GITHUB_EVENT_PATH}")"
           classification="$(python scripts/materialize_version.py --tag "${source_tag}" --classify)"
           test "$(jq -er '.release_type' <<<"${classification}")" = nightly
-          artifact_prefix="ucm-nightly-cleanup-run-${run_id}-attempt-"
+          artifact_prefix="ucm-release-cleanup-run-${run_id}-attempt-"
+          legacy_prefix="ucm-nightly-cleanup-run-${run_id}-attempt-"
           artifacts="$(gh api --paginate --slurp \
             "/repos/${GH_REPO}/actions/runs/${run_id}/artifacts?per_page=100" \
-            | jq -ce --arg prefix "${artifact_prefix}" --argjson attempt "${attempt}" \
+            | jq -ce --arg prefix "${artifact_prefix}" --arg legacy_prefix "${legacy_prefix}" \
+              --argjson attempt "${attempt}" \
               '[.[] | .artifacts[] |
-                select((.name | startswith($prefix)) and .expired == false) |
-                . + {binding_attempt:(.name | ltrimstr($prefix) | tonumber)} |
+                select((.name | startswith($prefix) or startswith($legacy_prefix)) and .expired == false) |
+                . + {binding_attempt:(.name | split("-attempt-")[1] | tonumber)} |
                 select(.binding_attempt <= $attempt)] | sort_by(.binding_attempt)')"
           count="$(jq 'length' <<<"${artifacts}")"
           if [ "${count}" = 0 ]; then
@@ -119,21 +121,17 @@ jobs:
           artifact_id="$(jq -er '.[-1].id' <<<"${artifacts}")"
           gh api "/repos/${GH_REPO}/actions/artifacts/${artifact_id}/zip" \
             >out/cleanup/source-binding.zip
-          unzip -p out/cleanup/source-binding.zip release-cleanup.json \
-            >out/cleanup/source-binding.json
-          tag="$(jq -er '.tag' out/cleanup/source-binding.json)"
-          test "${tag}" = "${source_tag}"
-          jq -e --arg repository "${GH_REPO}" --arg sha "${source_sha}" \
-            --argjson run "${run_id}" --argjson attempt "${binding_attempt}" \
-            '.kind == "ucm-release-cleanup" and .schema_version == 1 and
-             .repository == $repository and .source_sha == $sha and
-             any(.runs[]; .id == $run and .attempt == $attempt)' \
-            out/cleanup/source-binding.json >/dev/null
-          python .github/release/ucm_release/cleanup.py record \
-            --repository "${GH_REPO}" --tag "${tag}" --source-sha "${source_sha}" \
-            --run-id "${run_id}" --run-attempt "${attempt}" \
-            --previous out/cleanup/source-binding.json \
-            --output out/cleanup/validated-binding.json
+          binding_name="$(unzip -Z1 out/cleanup/source-binding.zip)"
+          case "${binding_name}" in
+            release-cleanup.json|"release-cleanup-${run_id}-${binding_attempt}-opened.json"|"release-cleanup-${run_id}-${binding_attempt}-planned.json") ;;
+            *) echo 'Cleanup binding artifact has an unexpected filename or shape' >&2; exit 1 ;;
+          esac
+          unzip -p out/cleanup/source-binding.zip "${binding_name}" \
+            >"out/cleanup/${binding_name}"
+          python .github/release/ucm_release/cleanup.py validate-record \
+            --repository "${GH_REPO}" --tag "${source_tag}" --source-sha "${source_sha}" \
+            --run-id "${run_id}" --run-attempt "${binding_attempt}" \
+            --input "out/cleanup/${binding_name}"
           echo "eligible=true" >>"${GITHUB_OUTPUT}"
       - name: Install Crane
         if: ${{ steps.source.outputs.eligible == 'true' }}

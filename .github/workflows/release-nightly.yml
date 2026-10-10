@@ -91,12 +91,11 @@ jobs:
             selected_tag="${next_tag}"
             create_tag=true
           fi
-          mkdir -p out/nightly
           python .github/release/ucm_release/cleanup.py record \
             --repository "${GH_REPO}" --tag "${selected_tag}" \
             --source-sha "${source_sha}" --run-id "${GITHUB_RUN_ID}" \
             --run-attempt "${GITHUB_RUN_ATTEMPT}" \
-            --output out/nightly/release-cleanup.json
+            --output-dir out/cleanup
 
           if [ "${create_tag}" = true ]; then
             if ! gh api --method POST "/repos/${GH_REPO}/git/refs" \
@@ -119,10 +118,10 @@ jobs:
             echo "is_prerelease=$(jq -r '.is_prerelease' <<<"${classification}")"
           } >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@v4.6.2
-        if: ${{ always() && hashFiles('out/nightly/release-cleanup.json') != '' }}
+        if: ${{ always() && hashFiles('out/cleanup/*.json') != '' }}
         with:
-          name: ucm-nightly-cleanup-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: out/nightly/release-cleanup.json
+          name: ucm-release-cleanup-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: out/cleanup/*.json
           if-no-files-found: error
           retention-days: 90
 

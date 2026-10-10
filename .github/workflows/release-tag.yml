@@ -47,12 +47,11 @@ jobs:
           classification="$(python scripts/materialize_version.py \
             --tag "${RELEASE_TAG}" --classify --version-config version.ini)"
           if [ "$(jq -r '.release_type' <<<"${classification}")" = nightly ]; then
-            mkdir -p out/nightly
             python .github/release/ucm_release/cleanup.py record \
               --repository "${GITHUB_REPOSITORY}" --tag "${RELEASE_TAG}" \
               --source-sha "${GITHUB_SHA}" --run-id "${GITHUB_RUN_ID}" \
               --run-attempt "${GITHUB_RUN_ATTEMPT}" \
-              --output out/nightly/release-cleanup.json
+              --output-dir out/cleanup
           fi
           repository="${GITHUB_REPOSITORY,,}"
           if [ "${repository}" = modelengine-group/unified-cache-management ]; then
@@ -71,10 +70,10 @@ jobs:
             echo "publication_scope=${publication_scope}"
           } >>"${GITHUB_OUTPUT}"
       - uses: actions/upload-artifact@v4.6.2
-        if: ${{ always() && hashFiles('out/nightly/release-cleanup.json') != '' }}
+        if: ${{ always() && hashFiles('out/cleanup/*.json') != '' }}
         with:
-          name: ucm-nightly-cleanup-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: out/nightly/release-cleanup.json
+          name: ucm-release-cleanup-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: out/cleanup/*.json
           if-no-files-found: error
           retention-days: 90
 

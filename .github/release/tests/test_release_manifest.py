@@ -707,9 +707,9 @@ def test_disabled_channels_finalize_with_wheels_only_regardless_of_release_type(
     assert public["schema_version"] == 9
     assert public["chart"] is None
     assert public["images"] == []
-    from ucm_release import cleanup
+    from ucm_release import cleanup_records
 
-    assert cleanup.registry_resources(public) == []
+    assert cleanup_records.registry_resources(public) == []
     assert public["github_release_assets"] == sorted(
         [filename, "release-manifest.json"]
     )
@@ -836,10 +836,10 @@ def test_public_manifest_is_exact_schema_v9_and_uses_published_targets(
     assert not any(
         "py3-none-any" in name for name in pypi_manifest["github_release_assets"]
     )
-    from ucm_release import cleanup
+    from ucm_release import cleanup_records
 
-    assert cleanup.validate_manifest(pypi_manifest) == pypi_manifest
-    assert cleanup.registry_resources(pypi_manifest)
+    assert public_manifest.validate_manifest(pypi_manifest) == pypi_manifest
+    assert cleanup_records.registry_resources(pypi_manifest)
     sys.path.insert(0, str(ROOT / "docs/docs-site/tools"))
     import release_manifest as docs_manifest
 

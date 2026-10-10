@@ -241,8 +241,8 @@ jobs:
           retention-days: 90
 
   open-release:
-    name: Release · Open after Runtime selection
-    needs: [release-preflight, select-runtime-candidates]
+    name: Release · Open and record run ownership
+    needs: release-preflight
     if: ${{ needs.release-preflight.outputs.enabled == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -251,6 +251,7 @@ jobs:
       enabled: ${{ steps.opened.outputs.enabled }}
       release_id: ${{ steps.opened.outputs.release_id }}
     permissions:
+      actions: read
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
@@ -264,11 +265,9 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions/setup-python@v5.6.0
-        if: ${{ inputs.release_type == 'nightly' }}
         with:
           python-version: "3.12"
-      - if: ${{ inputs.release_type == 'nightly' }}
-        run: >-
+      - run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: -r .github/release/requirements.txt
       - id: opened
@@ -368,52 +367,18 @@ jobs:
               '.[0].draft == false and .[0].prerelease == $prerelease' \
               <<<"${releases}" >/dev/null
           fi
+          python .github/release/ucm_release/cleanup.py record-targets \
+            --repository "${GH_REPO}" --tag "${RELEASE_TAG}" \
+            --release-type "${RELEASE_TYPE}" --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" --source-sha "${SOURCE_SHA}" \
+            --release-id "${release_id}" --output-dir out/cleanup
           echo "enabled=true" >>"${GITHUB_OUTPUT}"
           echo "release_id=${release_id}" >>"${GITHUB_OUTPUT}"
-      - name: Persist Nightly ownership on the exact Release ID
-        if: ${{ inputs.release_type == 'nightly' }}
-        env:
-          RELEASE_ID: ${{ steps.opened.outputs.release_id }}
-        run: |
-          set -euo pipefail
-          mkdir -p out/nightly
-          gh api "/repos/${GH_REPO}/releases/${RELEASE_ID}" \
-            >out/nightly/github-release.json
-          jq -e --arg tag "${RELEASE_TAG}" \
-            '.tag_name == $tag or (.draft == true and .name == $tag)' \
-            out/nightly/github-release.json >/dev/null
-          old_asset="$(jq -er \
-            '[.assets[] | select(.name == "release-cleanup.json")] |
-             if length <= 1 then (.[0].id // "") else error("cleanup asset is ambiguous") end' \
-            out/nightly/github-release.json)"
-          args=(record --repository "${GH_REPO}" --tag "${RELEASE_TAG}"
-                --source-sha "${SOURCE_SHA}" --release-id "${RELEASE_ID}"
-                --run-id "${GITHUB_RUN_ID}" --run-attempt "${GITHUB_RUN_ATTEMPT}"
-                --output out/nightly/release-cleanup.json)
-          if [ -n "${old_asset}" ]; then
-            gh api -H 'Accept: application/octet-stream' \
-              "/repos/${GH_REPO}/releases/assets/${old_asset}" \
-              >out/nightly/previous-cleanup.json
-            args+=(--previous out/nightly/previous-cleanup.json)
-          fi
-          python .github/release/ucm_release/cleanup.py "${args[@]}"
-          if [ -n "${old_asset}" ]; then
-            gh api --method DELETE "/repos/${GH_REPO}/releases/assets/${old_asset}"
-          fi
-          gh api --hostname uploads.github.com --method POST \
-            -H 'Content-Type: application/json' \
-            "/repos/${GH_REPO}/releases/${RELEASE_ID}/assets?name=release-cleanup.json" \
-            --input out/nightly/release-cleanup.json >out/nightly/upload.json
-          asset_id="$(jq -er '.id' out/nightly/upload.json)"
-          gh api -H 'Accept: application/octet-stream' \
-            "/repos/${GH_REPO}/releases/assets/${asset_id}" \
-            >out/nightly/release-cleanup-readback.json
-          cmp out/nightly/release-cleanup.json out/nightly/release-cleanup-readback.json
       - uses: actions/upload-artifact@v4.6.2
-        if: ${{ always() && hashFiles('out/nightly/release-cleanup.json') != '' }}
+        if: ${{ always() && hashFiles('out/cleanup/*.json') != '' }}
         with:
-          name: ucm-nightly-cleanup-open-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: out/nightly/release-cleanup.json
+          name: ucm-release-cleanup-open-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: out/cleanup/*.json
           if-no-files-found: error
           retention-days: 90
 
@@ -596,7 +561,12 @@ jobs:
     timeout-minutes: 15
     environment: ${{ inputs.publication_scope == 'official' && 'release-production' || 'fork-preview' }}
     permissions:
+      actions: read
       contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
     outputs:
       route: ${{ steps.plan.outputs.route }}
       release_kind: ${{ steps.plan.outputs.release_kind }}
@@ -646,6 +616,7 @@ jobs:
       - id: plan
         name: Generate final build matrices
         env:
+          RELEASE_ID: ${{ needs.open-release.outputs.release_id }}
           RELEASE_TAG: ${{ inputs.git_tag }}
           RELEASE_TYPE: ${{ inputs.release_type }}
           RELEASE_VERSION: ${{ inputs.version }}
@@ -661,6 +632,7 @@ jobs:
           DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
         run: |
           set -euo pipefail
+          test "${GH_REPO}" = "${GITHUB_REPOSITORY}"
           test "${IMAGE_VERSION}" = "${RELEASE_VERSION}"
           python scripts/materialize_version.py \
             --version "${RELEASE_VERSION}" >/dev/null
@@ -689,12 +661,22 @@ jobs:
             --arg repository "${REPOSITORY}" \
             '.publication_scope == $scope and
              (.repository | ascii_downcase) == ($repository | ascii_downcase) and
-             .git_tag == $tag and .release_type == $type and
+             .route == "release" and .git_tag == $tag and .release_type == $type and
              .release_kind == $kind and .version == $version and
              .image_version == $version and .chart.app_version == $version and
              .chart.version == $chart_version and
              ([.wheels[].wheel_version] | all(. == $version))' \
             out/plan/release-plan.json >/dev/null
+          # Persist exact cleanup targets before publishers can use this plan.
+          if jq -e '.route == "release" and .publish.github_release.enabled == true' \
+               out/plan/release-plan.json >/dev/null; then
+            python .github/release/ucm_release/cleanup.py record-targets \
+              --repository "${GH_REPO}" --tag "${RELEASE_TAG}" \
+              --release-type "${RELEASE_TYPE}" --run-id "${GITHUB_RUN_ID}" \
+              --run-attempt "${GITHUB_RUN_ATTEMPT}" --source-sha "${SOURCE_SHA}" \
+              --release-id "${RELEASE_ID}" --plan out/plan/release-plan.json \
+              --output-dir out/cleanup
+          fi
           artifact="ucm-release-plan-run-${GITHUB_RUN_ID}"
           index_matrix="$(jq -ce \
             '{include:[.families[]|select(.create_index)|
@@ -729,49 +711,11 @@ jobs:
             echo "image_index_matrix=${index_matrix}"
             echo "has_image_indexes=${has_image_indexes}"
           } >>"${GITHUB_OUTPUT}"
-      - name: Persist exact Nightly targets before publication
-        if: ${{ inputs.release_type == 'nightly' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ inputs.git_tag }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
-          RELEASE_ID: ${{ needs.open-release.outputs.release_id }}
-        run: |
-          set -euo pipefail
-          gh api "/repos/${GH_REPO}/releases/${RELEASE_ID}" \
-            >out/plan/github-release.json
-          jq -e --arg tag "${RELEASE_TAG}" \
-            '.tag_name == $tag or (.draft == true and .name == $tag)' \
-            out/plan/github-release.json >/dev/null
-          old_asset="$(jq -er \
-            '[.assets[] | select(.name == "release-cleanup.json")] |
-             if length == 1 then .[0].id else error("cleanup asset is missing or ambiguous") end' \
-            out/plan/github-release.json)"
-          gh api -H 'Accept: application/octet-stream' \
-            "/repos/${GH_REPO}/releases/assets/${old_asset}" \
-            >out/plan/previous-cleanup.json
-          python .github/release/ucm_release/cleanup.py record \
-            --repository "${GH_REPO}" --tag "${RELEASE_TAG}" \
-            --source-sha "${SOURCE_SHA}" --release-id "${RELEASE_ID}" \
-            --run-id "${GITHUB_RUN_ID}" --run-attempt "${GITHUB_RUN_ATTEMPT}" \
-            --previous out/plan/previous-cleanup.json \
-            --plan out/plan/release-plan.json --output out/plan/release-cleanup.json
-          gh api --method DELETE "/repos/${GH_REPO}/releases/assets/${old_asset}"
-          gh api --hostname uploads.github.com --method POST \
-            -H 'Content-Type: application/json' \
-            "/repos/${GH_REPO}/releases/${RELEASE_ID}/assets?name=release-cleanup.json" \
-            --input out/plan/release-cleanup.json >out/plan/cleanup-upload.json
-          asset_id="$(jq -er '.id' out/plan/cleanup-upload.json)"
-          gh api -H 'Accept: application/octet-stream' \
-            "/repos/${GH_REPO}/releases/assets/${asset_id}" \
-            >out/plan/release-cleanup-readback.json
-          cmp out/plan/release-cleanup.json out/plan/release-cleanup-readback.json
       - uses: actions/upload-artifact@v4.6.2
-        if: ${{ always() && hashFiles('out/plan/release-cleanup.json') != '' }}
+        if: ${{ always() && hashFiles('out/cleanup/*.json') != '' }}
         with:
-          name: ucm-nightly-cleanup-plan-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: out/plan/release-cleanup.json
+          name: ucm-release-cleanup-plan-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: out/cleanup/*.json
           if-no-files-found: error
           retention-days: 90
       - name: Report shared publication decisions
@@ -1890,40 +1834,6 @@ jobs:
             --repository "${GH_REPO}" --output out/release/readback
           cmp out/release/release-notes.md \
             out/release/readback/release-notes.md
-      - id: retention
-        name: Retain only the configured same-type Releases
-        if: ${{ inputs.release_type != 'nightly' }}
-        run: |
-          set -euo pipefail
-          resolved="$(PYTHONPATH=.github/release python -c \
-            'import json, sys; from ucm_release import policy; print(json.dumps(policy.resolve(release_type=sys.argv[1])))' \
-            "${RELEASE_TYPE}")"
-          jq -e --arg scope "${{ inputs.publication_scope }}" \
-            --arg repository "${GITHUB_REPOSITORY}" \
-            '.publication_scope == $scope and
-             (.repository | ascii_downcase) == ($repository | ascii_downcase)' \
-            <<<"${resolved}" >/dev/null
-          profile="$(jq -c '.release_profile' <<<"${resolved}")"
-          max_count="$(jq -er '.max_count' <<<"${profile}")"
-          pypi_enabled="$(jq -r '.publish.pypi.enabled' \
-            input/plan/release-plan.json)"
-          if [ "${max_count}" != -1 ] && [ "${pypi_enabled}" = false ]; then
-            mkdir -p "${RUNNER_TEMP}/crane"
-            curl -fsSL --retry 3 \
-              https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
-              | tar -xz -C "${RUNNER_TEMP}/crane" crane
-            export PATH="${RUNNER_TEMP}/crane:${PATH}"
-            if [ "$(jq -r '.publish.dockerhub.enabled' \
-                 input/plan/release-plan.json)" = true ]; then
-              test -n "${DOCKERHUB_USERNAME}" && test -n "${DOCKERHUB_TOKEN}"
-              printf '%s' "${DOCKERHUB_TOKEN}" | docker login docker.io \
-                --username "${DOCKERHUB_USERNAME}" --password-stdin
-            fi
-          fi
-          python .github/release/ucm_release/cleanup.py retention \
-            --repository "${GH_REPO}" --current-tag "${RELEASE_TAG}" \
-            --release-type "${RELEASE_TYPE}" --max-count "${max_count}" \
-            --pypi-enabled "${pypi_enabled}"
       - uses: actions/upload-artifact@v4.6.2
         if: ${{ steps.publish-manifest.outcome == 'success' }}
         with:
@@ -2161,3 +2071,86 @@ jobs:
           name: ucm-release-acceptance-run-${{ github.run_id }}
           path: out/acceptance.json
           retention-days: 90
+
+  retain-releases:
+    name: Cleanup · Retain the configured same-type Releases
+    concurrency:
+      group: ucm-release-retention-${{ github.repository_id }}-${{ inputs.release_type }}
+      queue: max
+      cancel-in-progress: false
+    # Wait for publication and failure-note writers, including partially failed jobs.
+    needs:
+      - release-preflight
+      - open-release
+      - report-planning-failure
+      - publish-release-artifacts
+      - build-images
+      - publish-image-indexes
+      - publish-pypi
+      - publish-chart-oci
+      - update-release-images
+      - verify-release-delivery
+    # Planning, publication, and manifest failures must not bypass retention.
+    if: >-
+      ${{
+        always() && inputs.release_type != 'nightly' &&
+        needs.release-preflight.result == 'success' &&
+        needs.release-preflight.outputs.enabled == 'true'
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: ${{ inputs.publication_scope == 'official' && 'release-production' || 'fork-preview' }}
+    permissions:
+      actions: write
+      contents: write
+      packages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.git_tag }}
+      RELEASE_TYPE: ${{ inputs.release_type }}
+      FORK_TEST_PYPI: ${{ needs.release-preflight.outputs.fork_test_pypi }}
+      DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install --disable-pip-version-check --no-cache-dir
+          --only-binary=:all: -r .github/release/requirements.txt
+      - id: retention
+        name: Apply retention to completed successful and failed Releases
+        run: |
+          set -euo pipefail
+          test "${GH_REPO}" = "${GITHUB_REPOSITORY}"
+          resolved="$(PYTHONPATH=.github/release python -c \
+            'import json, sys; from ucm_release import policy; print(json.dumps(policy.resolve(release_type=sys.argv[1], fork_test_pypi=sys.argv[2] == "true", dockerhub_namespace=sys.argv[3] or None)))' \
+            "${RELEASE_TYPE}" "${FORK_TEST_PYPI}" "${DOCKERHUB_NAMESPACE}")"
+          jq -e --arg scope "${{ inputs.publication_scope }}" \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            '.publication_scope == $scope and
+             (.repository | ascii_downcase) == ($repository | ascii_downcase)' \
+            <<<"${resolved}" >/dev/null
+          max_count="$(jq -er '.release_profile.max_count' <<<"${resolved}")"
+          pypi_enabled="$(jq -r '.publish.pypi.enabled' <<<"${resolved}")"
+          if [ "${max_count}" != -1 ] && [ "${pypi_enabled}" = false ]; then
+            mkdir -p "${RUNNER_TEMP}/crane"
+            curl -fsSL --retry 3 \
+              https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
+              | tar -xz -C "${RUNNER_TEMP}/crane" crane
+            export PATH="${RUNNER_TEMP}/crane:${PATH}"
+            if [ "$(jq -r '.publish.dockerhub.enabled' <<<"${resolved}")" = true ]; then
+              test -n "${DOCKERHUB_USERNAME}" && test -n "${DOCKERHUB_TOKEN}"
+              printf '%s' "${DOCKERHUB_TOKEN}" | docker login docker.io \
+                --username "${DOCKERHUB_USERNAME}" --password-stdin
+            fi
+          fi
+          python .github/release/ucm_release/cleanup.py retention \
+            --repository "${GH_REPO}" --current-tag "${RELEASE_TAG}" \
+            --release-type "${RELEASE_TYPE}" --max-count "${max_count}" \
+            --pypi-enabled "${pypi_enabled}"

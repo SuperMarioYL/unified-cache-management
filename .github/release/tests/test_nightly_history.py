@@ -9,7 +9,7 @@ from pathlib import Path
 
 RELEASE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RELEASE_ROOT))
-nightly = importlib.import_module("ucm_release.nightly_cleanup")
+records = importlib.import_module("ucm_release.cleanup_records")
 INVENTORY = RELEASE_ROOT / "history/nightly-20261009.json"
 REPOSITORY = "ModelEngine-Group/unified-cache-management"
 
@@ -23,7 +23,13 @@ def test_historical_targets_have_valid_identity_and_provenance():
     assert document["kind"] == "ucm-nightly-cleanup-inventory"
     assert document["schema_version"] == 1
     assert document["repository"] == REPOSITORY
-    records = nightly.merge_records(document["targets"], REPOSITORY)
+    records = records.merge_records(
+        [
+            records.decode_legacy_record(value, REPOSITORY)
+            for value in document["targets"]
+        ],
+        REPOSITORY,
+    )
     assert len(records) == len(document["targets"]) == 30
     assert set(document["evidence"]) == {record["tag"] for record in records}
     assert all(document["evidence"][record["tag"]] for record in records)
@@ -41,7 +47,9 @@ def test_snapshot_applies_one_quota_to_successful_and_failed_releases():
         )
     ]
     assert len(live) == 22
-    selection = nightly.select_retention(live, 7)
+    selection = records.select_retention(
+        [records.decode_legacy_record(value, REPOSITORY) for value in live], 7
+    )
     assert [record["tag"] for record in selection.kept] == [
         f"nightly/v0.9.0-202610{day:02d}-1" for day in (9, 8, 7, 6, 5, 4, 3)
     ]

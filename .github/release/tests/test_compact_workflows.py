@@ -271,17 +271,24 @@ def test_remote_writers_use_environment_and_minimum_permissions() -> None:
     )
     for name in (
         "open-release",
+        "plan",
         "publish-release-artifacts",
         "publish-image-members",
         "publish-image-indexes",
         "publish-pypi",
         "publish-chart-oci",
         "update-release-images",
+        "retain-releases",
     ):
         assert jobs[name]["environment"] == scoped_environment
         assert jobs[name]["permissions"]["contents"] in {"read", "write"}
     assert jobs["release-preflight"]["environment"] == scoped_environment
     assert jobs["release-preflight"]["permissions"] == {"contents": "read"}
+    for name in ("open-release", "plan"):
+        assert jobs[name]["permissions"] == {
+            "actions": "read",
+            "contents": "write",
+        }
     assert "packages" not in jobs["publish-pypi"]["permissions"]
     assert jobs["publish-chart-oci"]["permissions"]["packages"] == "write"
     assert "packages" not in jobs["publish-image-members"]["permissions"]
@@ -421,37 +428,156 @@ def test_cross_job_artifact_names_survive_failed_job_reruns() -> None:
                 artifact = step.get("with", {}).get("name", "")
                 if "github.run_attempt" in artifact:
                     # Evidence is scoped to an attempt; downstream build inputs stay run-scoped.
-                    assert artifact.startswith("ucm-nightly-cleanup-")
+                    assert artifact.startswith("ucm-release-cleanup-")
     assert "GITHUB_RUN_ATTEMPT" in text  # candidate Builder tags remain retry-scoped.
 
 
-def test_completed_release_runs_retention_and_manual_cleanup_reuses_the_module() -> (
-    None
-):
-    finalize = _load("release-ucm.yml")["jobs"]["update-release-images"]
-    steps = finalize["steps"]
-    manifest_index = next(
-        index
-        for index, step in enumerate(steps)
-        if step.get("id") == "publish-manifest"
+def test_release_ownership_does_not_depend_on_runtime_discovery_success() -> None:
+    jobs = _load("release-ucm.yml")["jobs"]
+    opened = jobs["open-release"]
+    assert opened["needs"] == "release-preflight"
+    assert opened["if"] == "${{ needs.release-preflight.outputs.enabled == 'true' }}"
+    assert jobs["select-runtime-candidates"]["needs"] == "release-preflight"
+    assert set(jobs["inspect-runtimes"]["needs"]) == {
+        "open-release",
+        "select-runtime-candidates",
+    }
+    steps = opened["steps"]
+    run = next(step["run"] for step in steps if step.get("id") == "opened")
+    create = run.index('gh release create "${args[@]}"')
+    record = run.index("cleanup.py record-targets")
+    enabled = run.index('echo "enabled=true"')
+    assert create < record < enabled
+    assert run.startswith("set -euo pipefail")
+    assert 'if [ "${RELEASE_TYPE}" != nightly ]; then' not in run
+    assert '--source-sha "${SOURCE_SHA}"' in run
+    assert '--run-id "${GITHUB_RUN_ID}"' in run
+    assert '--run-attempt "${GITHUB_RUN_ATTEMPT}"' in run
+    assert '--release-id "${release_id}"' in run
+    assert "--output-dir out/cleanup" in run
+    assert "--plan" not in run
+    assert opened["env"]["SOURCE_SHA"] == "${{ inputs.source_sha }}"
+    assert any(
+        ".github/release/requirements.txt" in step.get("run", "") for step in steps
     )
-    retention_index, retention = next(
-        (index, step)
-        for index, step in enumerate(steps)
-        if step.get("id") == "retention"
+    assert "needs.open-release.result == 'success'" in jobs["plan"]["if"]
+
+
+def test_plan_records_cleanup_targets_before_enabling_publishers() -> None:
+    jobs = _load("release-ucm.yml")["jobs"]
+    plan = jobs["plan"]
+    step = next(step for step in plan["steps"] if step.get("id") == "plan")
+    run = step["run"]
+    validate = run.index("jq -e --arg tag")
+    record = run.index("cleanup.py record-targets")
+    outputs = run.index('echo "route=release"')
+    assert validate < record < outputs
+    assert '.route == "release" and .publish.github_release.enabled == true' in run
+    assert 'if [ "${RELEASE_TYPE}" != nightly ] &&' not in run
+    assert "--plan out/plan/release-plan.json" in run
+    assert '--source-sha "${SOURCE_SHA}"' in run
+    assert '--run-id "${GITHUB_RUN_ID}"' in run
+    assert '--run-attempt "${GITHUB_RUN_ATTEMPT}"' in run
+    assert '--release-id "${RELEASE_ID}"' in run
+    assert "--output-dir out/cleanup" in run
+    assert step["env"]["RELEASE_ID"] == "${{ needs.open-release.outputs.release_id }}"
+    assert run.startswith("set -euo pipefail")
+    assert not step.get("continue-on-error", False)
+    assert plan["env"] == {
+        "GH_TOKEN": "${{ github.token }}",
+        "GH_REPO": "${{ github.repository }}",
+        "SOURCE_SHA": "${{ inputs.source_sha }}",
+    }
+    assert 'test "${GH_REPO}" = "${GITHUB_REPOSITORY}"' in run
+    assert "needs.plan.result == 'success'" in jobs["build-images"]["if"]
+    assert "needs.plan.result == 'success'" in jobs["publish-release-artifacts"]["if"]
+    # Chart/PyPI outputs are absent if writing the cleanup record fails first.
+    assert 'echo "publish_chart_oci=' in run[outputs:]
+    assert 'echo "publish_pypi=' in run[outputs:]
+
+
+def test_retention_runs_after_failed_planning_artifacts_or_finalization() -> None:
+    workflow = _load("release-ucm.yml")
+    jobs = workflow["jobs"]
+    cleanup = jobs["retain-releases"]
+    assert cleanup["concurrency"] == {
+        "group": (
+            "ucm-release-retention-${{ github.repository_id }}-${{ inputs.release_type }}"
+        ),
+        "queue": "max",
+        "cancel-in-progress": False,
+    }
+    assert workflow["concurrency"] == {
+        "group": "ucm-release-${{ github.repository_id }}-${{ inputs.git_tag }}",
+        "cancel-in-progress": False,
+    }
+    # Only validated release inputs gate retention: failed or skipped downstream
+    # jobs, and a missing cleanup manifest, do not suppress this job.
+    assert " ".join(cleanup["if"].split()) == (
+        "${{ always() && inputs.release_type != 'nightly' && "
+        "needs.release-preflight.result == 'success' && needs.release-preflight.outputs.enabled == 'true' }}"
     )
-    assert manifest_index < retention_index
+    retention_steps = [
+        (name, step)
+        for name, job in jobs.items()
+        for step in job.get("steps", [])
+        if "cleanup.py retention" in step.get("run", "")
+    ]
+    assert len(retention_steps) == 1
+    name, retention = retention_steps[0]
+    assert name == "retain-releases"
     assert "cleanup.py retention" in retention["run"]
-    assert retention["if"] == "${{ inputs.release_type != 'nightly' }}"
-    assert "release_profile" in retention["run"]
+    assert ".release_profile.max_count" in retention["run"]
     assert 'pypi_enabled="$(jq -r' in retention["run"]
     assert 'pypi_enabled="$(jq -er' not in retention["run"]
-    assert finalize["permissions"] == {
+    assert '<<<"${resolved}"' in retention["run"]
+    assert "fork_test_pypi=sys.argv[2]" in retention["run"]
+    assert "dockerhub_namespace=sys.argv[3]" in retention["run"]
+    assert "release-plan.json" not in yaml.safe_dump(cleanup)
+    assert "release-manifest.json" not in yaml.safe_dump(cleanup)
+    assert "actions/download-artifact@" not in yaml.safe_dump(cleanup)
+    assert cleanup["permissions"] == {
         "actions": "write",
         "contents": "write",
         "packages": "write",
     }
+    assert cleanup["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert cleanup["env"]["DOCKERHUB_TOKEN"] == "${{ secrets.DOCKERHUB_TOKEN }}"
 
+
+def test_retention_waits_for_resource_writers_and_failure_reports() -> None:
+    jobs = _load("release-ucm.yml")["jobs"]
+    pending = list(jobs["retain-releases"]["needs"])
+    ancestors = set()
+    while pending:
+        name = pending.pop()
+        if name in ancestors:
+            continue
+        ancestors.add(name)
+        dependencies = jobs[name].get("needs", [])
+        pending.extend(
+            [dependencies] if isinstance(dependencies, str) else dependencies
+        )
+    assert {
+        "open-release",
+        "plan",
+        "report-planning-failure",
+        "sync-builders",
+        "build-images",
+        "publish-release-artifacts",
+        "publish-image-indexes",
+        "publish-pypi",
+        "publish-chart-oci",
+        "update-release-images",
+        "verify-release-docs",
+        "verify-release-delivery",
+    } <= ancestors
+    # Retention failure is reported separately from channel finalization and delivery.
+    for job in jobs.values():
+        assert "retain-releases" not in job.get("needs", [])
+
+
+def test_manual_cleanup_reuses_the_release_cleanup_module() -> None:
     workflow = _load("cleanup-ucm-release.yml")
     assert set(workflow["on"]) == {"workflow_dispatch"}
     assert set(workflow["on"]["workflow_dispatch"]["inputs"]) == {
@@ -467,6 +593,21 @@ def test_completed_release_runs_retention_and_manual_cleanup_reuses_the_module()
     text = yaml.safe_dump(job)
     assert "cleanup.py" in text and "--fail-resource" in text
     assert "0 5 15" not in text  # retry policy has one Python owner.
+    steps = job["steps"]
+    setup_python = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("uses", "").startswith("actions/setup-python@")
+    )
+    dependencies = next(
+        index
+        for index, step in enumerate(steps)
+        if ".github/release/requirements.txt" in step.get("run", "")
+    )
+    delete = next(
+        index for index, step in enumerate(steps) if "cleanup.py" in step.get("run", "")
+    )
+    assert setup_python < dependencies < delete
 
 
 def test_pr_gate_runs_the_native_wheel_matrix_behind_one_stable_check() -> None:

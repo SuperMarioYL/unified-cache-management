@@ -98,6 +98,16 @@ def test_workflow_open_failure_and_rerun_preserve_release_body(tmp_path: Path) -
         encoding="utf-8",
     )
     gh.chmod(0o755)
+    python = tmp_path / "python"
+    python.write_text(
+        f"#!{sys.executable}\n"
+        "import sys\n"
+        "args = sys.argv[1:]\n"
+        "if args[:2] != ['.github/release/ucm_release/cleanup.py', 'record-targets']:\n"
+        "    raise SystemExit(f'Unexpected python call: {args}')\n",
+        encoding="utf-8",
+    )
+    python.chmod(0o755)
     env = {
         **os.environ,
         "PATH": f"{tmp_path}:{os.environ['PATH']}",
@@ -107,6 +117,9 @@ def test_workflow_open_failure_and_rerun_preserve_release_body(tmp_path: Path) -
         "RELEASE_TAG": "v1.0.0",
         "RELEASE_TYPE": "stable",
         "IS_PRERELEASE": "false",
+        "SOURCE_SHA": "a" * 40,
+        "GITHUB_RUN_ID": "123",
+        "GITHUB_RUN_ATTEMPT": "1",
         "RUNNER_TEMP": str(tmp_path),
         "GITHUB_OUTPUT": str(tmp_path / "output"),
         **{
