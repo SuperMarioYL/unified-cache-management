@@ -48,10 +48,13 @@ class ResourceFailure:
 
 @dataclass(frozen=True)
 class CleanupReport:
+    """Confirm full deletion, or distinguish fatal failures from nonfatal GHCR skips."""
+
     tag: str
     completed: bool
     stopped_phase: int | None
     failures: tuple[ResourceFailure, ...]
+    skipped: tuple[ResourceFailure, ...] = ()
 
 
 class ActiveRelease(CleanupError):

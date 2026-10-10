@@ -18,6 +18,8 @@ records_ops = importlib.import_module("ucm_release.cleanup_records")
 remote_ops = importlib.import_module("ucm_release.cleanup_remote")
 manifest_ops = importlib.import_module("ucm_release.manifest")
 inventory_ops = importlib.import_module("ucm_release.cleanup_inventory")
+runtime_ops = importlib.import_module("ucm_release.runtime")
+version_ops = importlib.import_module("ucm_release.version_config")
 
 
 @pytest.mark.parametrize("script", ["cleanup.py", "release.py"])
@@ -367,7 +369,7 @@ def test_404_is_idempotent_and_permanent_errors_do_not_retry() -> None:
         assert sleeps == []
 
 
-def test_synthetic_503_attempts_three_times_and_stage_one_continues_then_blocks() -> (
+def test_dockerhub_503_attempts_three_times_and_stage_one_continues_then_blocks() -> (
     None
 ):
     manifest = _manifest(dockerhub_members=["docker.io/release-org/vllm:v1"])
@@ -376,7 +378,9 @@ def test_synthetic_503_attempts_three_times_and_stage_one_continues_then_blocks(
     release = cleanup.Resource("github-release", f"{tag}#99", 99)
     present = {item.reference for item in phase_one} | {run, tag, release.reference}
     remote = FakeRemote(present=present, releases=[release])
-    target = phase_one[0].reference
+    target = next(
+        item.reference for item in phase_one if item.kind.startswith("dockerhub-")
+    )
     sleeps: list[float] = []
 
     report = cleanup.execute_cleanup(
@@ -390,7 +394,8 @@ def test_synthetic_503_attempts_three_times_and_stage_one_continues_then_blocks(
     assert report.stopped_phase == 1
     assert report.failures[0].resource.reference == target
     assert report.failures[0].attempts == 3
-    assert remote.probe_calls.count(target) == 3
+    # DockerHub retries retain the first resolved digest instead of probing the Tag again.
+    assert remote.probe_calls.count(target) == 1
     assert target not in remote.delete_calls
     assert all(
         item.reference in remote.delete_calls
@@ -400,6 +405,264 @@ def test_synthetic_503_attempts_three_times_and_stage_one_continues_then_blocks(
     assert run not in remote.probe_calls
     assert tag in remote.present and release.reference in remote.present
     assert sleeps == [5.0, 15.0]
+
+
+def _recovery_fixture(release_type, kind="ghcr-member"):
+    tag = "draft/v0.8.0-3" if release_type == "draft" else "nightly/v0.8.0-20261010-1"
+    coordinates = version_ops.classify_tag(tag)
+    image_tag = f"v1-ucm-{runtime_ops.oci_tag_version(coordinates['version'])}"
+    reference = (
+        f"ghcr.io/release-org/charts/unified-cache-chart:{coordinates['chart_version']}"
+        if kind == "chart-oci"
+        else f"ghcr.io/release-org/vllm-openai:{image_tag}"
+    )
+    registry = (
+        cleanup.Resource(kind, reference),
+        cleanup.Resource(
+            "dockerhub-member", f"docker.io/release-org/vllm-openai:{image_tag}"
+        ),
+    )
+    actions = tuple(
+        cleanup.Resource(
+            "actions-run",
+            f"https://github.com/release-org/unified-cache-management/actions/runs/{run_id}",
+            run_id,
+            holds_recovery_data=run_id == 12346,
+        )
+        for run_id in (12345, 12346)
+    )
+    releases = tuple(
+        cleanup.Resource(
+            "github-release",
+            f"{tag}#{release_id}",
+            release_id,
+            holds_recovery_data=release_id == 2,
+        )
+        for release_id in (1, 2)
+    )
+    target = cleanup.CleanupTarget(tag, registry, actions, releases)
+    record = records_ops.record_for_tag(
+        FakeRemote.repository, tag, "a" * 40, 12345, 1, 2
+    )
+    record["runs"].append({"id": 12346, "attempt": 1})
+    record["release_ids"].append(1)
+    record["resources"] = [
+        {"kind": resource.kind, "reference": resource.reference}
+        for resource in registry
+    ]
+    record = records_ops.validate_record(record, FakeRemote.repository)
+    resources = (*registry, *actions, *releases)
+    remote = FakeRemote(
+        present={tag} | {resource.reference for resource in resources},
+        releases=list(releases),
+    )
+    return record, target, remote
+
+
+@pytest.mark.parametrize("release_type", ["draft", "nightly"])
+@pytest.mark.parametrize(
+    "kind,fault",
+    [
+        ("chart-oci", "probe-400"),
+        ("ghcr-member", "delete-403"),
+        ("ghcr-index", "readback-503"),
+        ("ghcr-member", "shared-tag"),
+    ],
+)
+def test_ghcr_failures_skip_only_that_resource_and_preserve_recovery_for_retry(
+    release_type, kind, fault
+):
+    _, target, remote = _recovery_fixture(release_type, kind)
+    ghcr, dockerhub = target.registry
+    if fault == "probe-400":
+        remote.probe_errors[ghcr.reference] = [
+            cleanup.RemoteError("HTTP 400", status=400)
+        ]
+    elif fault == "delete-403":
+        remote.delete_errors[ghcr.reference] = [
+            cleanup.RemoteError("HTTP 403", status=403)
+        ]
+    elif fault == "shared-tag":
+        remote.probe_errors[ghcr.reference] = [
+            remote_ops.UnsafePackageVersion(ghcr.reference, ["shared-latest"])
+        ]
+    else:
+
+        class ReadbackUnavailableRemote(FakeRemote):
+            def is_absent(self, resource, state):
+                if resource.reference == ghcr.reference:
+                    # DELETE removed the version, but neither confirmation nor
+                    # subsequent probes can establish absence during this attempt.
+                    self.probe_errors[ghcr.reference] = [
+                        cleanup.RemoteError("HTTP 503 read unavailable", status=503)
+                        for _ in range(2)
+                    ]
+                    raise cleanup.RemoteError(
+                        "HTTP 503 readback unavailable", status=503
+                    )
+                return super().is_absent(resource, state)
+
+        remote = ReadbackUnavailableRemote(
+            present=remote.present, releases=remote.releases
+        )
+    sleeps = []
+
+    report = cleanup.execute_cleanup(target, remote, sleeper=sleeps.append)
+
+    assert report.completed is False
+    assert report.stopped_phase is None
+    assert report.failures == ()
+    assert len(report.skipped) == 1
+    skipped = report.skipped[0]
+    assert skipped.resource == ghcr
+    assert skipped.attempts == (3 if fault == "readback-503" else 1)
+    assert sleeps == ([5.0, 15.0] if fault == "readback-503" else [])
+    assert dockerhub.reference not in remote.present
+    assert target.tag not in remote.present
+    for resource in (*target.actions, *target.releases):
+        if resource.holds_recovery_data:
+            assert resource.reference in remote.present
+            assert resource.reference not in remote.probe_calls
+        else:
+            assert resource.reference not in remote.present
+    if fault in {"probe-400", "shared-tag"}:
+        assert ghcr.reference not in remote.delete_calls
+    if fault == "readback-503":
+        assert remote.probe_calls.count(ghcr.reference) == 3
+        assert remote.delete_calls.count(ghcr.reference) == 1
+        assert ghcr.reference not in remote.present
+
+    retry = cleanup.execute_cleanup(target, remote, sleeper=lambda _: None)
+
+    assert retry.completed is True
+    assert retry.failures == retry.skipped == ()
+    assert remote.present == set()
+
+
+def test_dockerhub_failure_remains_blocking_when_ghcr_is_skipped(tmp_path, monkeypatch):
+    record, target, remote = _recovery_fixture("draft")
+    ghcr, dockerhub = target.registry
+    remote.probe_errors[ghcr.reference] = [
+        cleanup.RemoteError("GHCR HTTP 403", status=403)
+    ]
+    remote.delete_errors[dockerhub.reference] = [
+        cleanup.RemoteError("DockerHub HTTP 403", status=403)
+    ]
+
+    report = cleanup.execute_cleanup(target, remote, sleeper=lambda _: None)
+
+    assert report.completed is False
+    assert report.stopped_phase == 1
+    assert [failure.resource for failure in report.failures] == [dockerhub]
+    assert [failure.resource for failure in report.skipped] == [ghcr]
+    assert all(
+        resource.reference in remote.present
+        for resource in (*target.actions, *target.releases)
+    )
+    assert target.tag in remote.present
+
+    remote.delete_calls.clear()
+    remote.probe_errors[ghcr.reference] = [
+        cleanup.RemoteError("GHCR HTTP 403", status=403)
+    ]
+    remote.delete_errors[dockerhub.reference] = [
+        cleanup.RemoteError("DockerHub HTTP 403", status=403)
+    ]
+    _install_recovery_inventory(monkeypatch, record, target, remote, [])
+    report_path = tmp_path / "report.json"
+
+    assert cleanup.main(["tag", "--tag", target.tag, "--report", str(report_path)]) == 1
+
+    result = json.loads(report_path.read_text())
+    assert result["status"] == "failed"
+    assert result["results"][0]["status"] == "blocked"
+    assert [issue["reference"] for issue in result["results"][0]["failures"]] == [
+        dockerhub.reference
+    ]
+    assert [issue["reference"] for issue in result["results"][0]["skipped"]] == [
+        ghcr.reference
+    ]
+
+
+def _install_recovery_inventory(monkeypatch, record, target, remote, saved):
+    class SelectedInventory:
+        def __init__(self, client):
+            assert client is remote
+
+        def resolve_record(self, selected):
+            assert selected == record
+            return inventory_ops.CleanupResolution(target)
+
+        def persist_recovery(self, resolution):
+            assert remote.delete_calls == []
+            saved.append(resolution)
+
+    monkeypatch.setattr(cleanup, "_production_remote", lambda _: remote)
+    monkeypatch.setattr(cleanup, "ReleaseInventory", SelectedInventory)
+    monkeypatch.setattr(
+        cleanup,
+        "collect_catalog",
+        lambda *args, **kwargs: SimpleNamespace(
+            records=[record], orphans=[], active_tags=set(), blocked={}
+        ),
+    )
+
+
+@pytest.mark.parametrize("release_type", ["draft", "nightly"])
+@pytest.mark.parametrize("dry_run", [False, True], ids=["partial", "preview"])
+def test_ghcr_skip_cli_succeeds_and_reports_the_unconfirmed_resource(
+    tmp_path, monkeypatch, release_type, dry_run
+):
+    record, target, remote = _recovery_fixture(release_type)
+    ghcr, dockerhub = target.registry
+    remote.probe_errors[ghcr.reference] = [
+        cleanup.RemoteError("HTTP 403 denied", status=403)
+    ]
+    saved = []
+    _install_recovery_inventory(monkeypatch, record, target, remote, saved)
+    report_path, summary_path = tmp_path / "report.json", tmp_path / "summary.md"
+    original = remote.present.copy()
+    arguments = [
+        "tag",
+        "--repository",
+        remote.repository,
+        "--tag",
+        target.tag,
+        "--report",
+        str(report_path),
+        "--summary",
+        str(summary_path),
+    ]
+    if dry_run:
+        arguments.append("--dry-run")
+
+    assert cleanup.main(arguments) == 0
+
+    report = json.loads(report_path.read_text())
+    assert report["status"] == ("dry-run" if dry_run else "partial")
+    result = report["results"][0]
+    assert result["status"] == ("would-delete" if dry_run else "partial")
+    assert result.get("failures", []) == []
+    assert result["skipped"] == [
+        {
+            "kind": ghcr.kind,
+            "reference": ghcr.reference,
+            "attempts": 1,
+            "error": "HTTP 403 denied",
+        }
+    ]
+    summary = summary_path.read_text()
+    assert "skipped GHCR resources" in summary
+    assert ghcr.reference in summary and "HTTP 403 denied" in summary
+    if dry_run:
+        assert saved == []
+        assert remote.delete_calls == []
+        assert remote.present == original
+        assert dockerhub.reference in remote.probe_calls
+    else:
+        assert len(saved) == 1
+        assert dockerhub.reference not in remote.present
+        assert target.tag not in remote.present
 
 
 def test_actions_failure_blocks_tag_and_releases() -> None:

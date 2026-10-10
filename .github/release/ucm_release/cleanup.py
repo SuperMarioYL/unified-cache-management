@@ -36,28 +36,45 @@ def execute_cleanup(
     sleeper=time.sleep,
     fail_resource: str | None = None,
 ) -> CleanupReport:
-    """Delete resources in order; stop before destroying evidence after failure.
+    """Delete resources in order, preserving evidence for failures or GHCR skips.
 
     All source formats must first identify concrete Actions and Release resources.
     Objects holding the full recovery inventory are deleted last. Publication
     status is read again before every phase; active or queued runs defer cleanup.
     Every DELETE requires a readback proving the exact ID/digest is absent.
+    GHCR errors are nonfatal: other resources proceed, but recovery holders stay
+    available for a later retry. Skipped resources are never reported as deleted.
     """
+    remote.ensure_idle(target.run_ids)
+    registry_failures = _run_phase(
+        remote, target.registry, sleeper=sleeper, fail_resource=fail_resource
+    )
+    skipped = tuple(
+        failure
+        for failure in registry_failures
+        if failure.resource.reference.startswith("ghcr.io/")
+    )
+    blocking = tuple(
+        failure
+        for failure in registry_failures
+        if not failure.resource.reference.startswith("ghcr.io/")
+    )
+    if blocking:
+        return CleanupReport(target.tag, False, 1, blocking, skipped)
     early_actions = tuple(
         action for action in target.actions if not action.holds_recovery_data
     )
     stages = (
-        target.registry,
         early_actions,
         (Resource("git-tag", target.tag, target.tag),),
     )
-    for phase, resources in enumerate(stages, start=1):
+    for phase, resources in enumerate(stages, start=2):
         remote.ensure_idle(target.run_ids)
         failures = _run_phase(
             remote, resources, sleeper=sleeper, fail_resource=fail_resource
         )
         if failures:
-            return CleanupReport(target.tag, False, phase, tuple(failures))
+            return CleanupReport(target.tag, False, phase, tuple(failures), skipped)
     remote.ensure_idle(target.run_ids)
     unbacked = tuple(
         release for release in target.releases if not release.holds_recovery_data
@@ -66,7 +83,9 @@ def execute_cleanup(
         remote, unbacked, sleeper=sleeper, fail_resource=fail_resource
     )
     if failures:
-        return CleanupReport(target.tag, False, 4, tuple(failures))
+        return CleanupReport(target.tag, False, 4, tuple(failures), skipped)
+    if skipped:
+        return CleanupReport(target.tag, False, None, (), skipped)
     holders = tuple(
         release for release in target.releases if release.holds_recovery_data
     )
@@ -153,16 +172,16 @@ def _run_phase(
     return failures
 
 
-def render_failure_summary(failures: Sequence[ResourceFailure]) -> str:
-    """Render final failures for the GitHub job summary."""
-    if not failures:
+def render_resource_summary(issues: Sequence[ResourceFailure], title: str) -> str:
+    """Render failures or nonfatal GHCR skips for the GitHub job summary."""
+    if not issues:
         return ""
 
     def cell(value: object) -> str:
         return " ".join(str(value).split()).replace("|", "\\|")
 
     lines = [
-        "## UCM release cleanup final failures",
+        f"## UCM release cleanup {title}",
         "",
         "| Resource type | Reference | Final error |",
         "| --- | --- | --- |",
@@ -170,15 +189,15 @@ def render_failure_summary(failures: Sequence[ResourceFailure]) -> str:
     lines.extend(
         f"| {cell(item.resource.kind)} | {cell(item.resource.reference)} | "
         f"{cell(item.final_error)} |"
-        for item in failures
+        for item in issues
     )
     return "\n".join(lines) + "\n"
 
 
-def append_failure_summary(
-    path: Path | None, failures: Sequence[ResourceFailure]
+def append_resource_summary(
+    path: Path | None, issues: Sequence[ResourceFailure], title: str
 ) -> None:
-    summary = render_failure_summary(failures)
+    summary = render_resource_summary(issues, title)
     if path is not None and summary:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as output:
@@ -400,6 +419,18 @@ def _record_result(
     return result
 
 
+def _resource_issues(issues: Sequence[ResourceFailure]) -> list[dict[str, Any]]:
+    return [
+        {
+            "kind": issue.resource.kind,
+            "reference": issue.resource.reference,
+            "attempts": issue.attempts,
+            "error": issue.final_error,
+        }
+        for issue in issues
+    ]
+
+
 def _run_targets(
     arguments: argparse.Namespace,
     remote: ProductionRemote,
@@ -412,6 +443,7 @@ def _run_targets(
     """Resolve, preserve and delete selected versions through one lifecycle."""
     inventory = ReleaseInventory(remote)
     failures: list[ResourceFailure] = []
+    skipped: list[ResourceFailure] = []
     results = [_record_result(item, "kept", blocked.get(item["tag"])) for item in kept]
     for record in deferred:
         reason = blocked.get(record["tag"])
@@ -438,9 +470,19 @@ def _run_targets(
             resolution = inventory.resolve_record(record)
             target = resolution.target
             if dry_run:
-                for resource in resolution.target.registry:
-                    remote.probe(resource)
-                results.append(_record_result(record, "would-delete", target=target))
+                preview_skips = []
+                for resource in target.registry:
+                    try:
+                        remote.probe(resource)
+                    except CleanupError as error:
+                        if not resource.reference.startswith("ghcr.io/"):
+                            raise
+                        preview_skips.append(resource_failure(resource, 1, error))
+                result = _record_result(record, "would-delete", target=target)
+                if preview_skips:
+                    result["skipped"] = _resource_issues(preview_skips)
+                    skipped.extend(preview_skips)
+                results.append(result)
                 continue
             inventory.persist_recovery(resolution)
             report = execute_cleanup(
@@ -458,38 +500,51 @@ def _run_targets(
             results.append(_record_result(record, "blocked", str(error), target=target))
             continue
         failures.extend(report.failures)
+        skipped.extend(report.skipped)
         result = _record_result(
-            record, "deleted" if report.completed else "blocked", target=target
+            record,
+            (
+                "blocked"
+                if report.failures
+                else "partial" if report.skipped else "deleted"
+            ),
+            target=target,
         )
         if report.failures:
-            result["failures"] = [
-                {
-                    "kind": failure.resource.kind,
-                    "reference": failure.resource.reference,
-                    "attempts": failure.attempts,
-                    "error": failure.final_error,
-                }
-                for failure in report.failures
-            ]
+            result["failures"] = _resource_issues(report.failures)
+        if report.skipped:
+            result["skipped"] = _resource_issues(report.skipped)
         results.append(result)
     deferred_versions = any(result["status"] == "deferred" for result in results)
+    if failures:
+        status = "failed"
+    elif dry_run:
+        status = "dry-run"
+    elif skipped:
+        status = "partial"
+    elif deferred_versions:
+        status = "deferred"
+    else:
+        status = "complete"
     _write_document(
         getattr(arguments, "report", None),
         {
             "repository": remote.repository,
             "max_count": getattr(arguments, "max_count", None),
-            "status": (
-                "failed"
-                if failures
-                else (
-                    "dry-run"
-                    if dry_run
-                    else "deferred" if deferred_versions else "complete"
-                )
-            ),
+            "status": status,
             "results": results,
         },
     )
+    summary = getattr(arguments, "summary", None)
+    append_resource_summary(
+        Path(summary) if summary else None, skipped, "skipped GHCR resources"
+    )
+    for issue in skipped:
+        print(
+            f"cleanup skipped resource_type={issue.resource.kind} "
+            f"reference={issue.resource.reference}: {issue.final_error}",
+            file=sys.stderr,
+        )
     for result in results:
         print(
             f"cleanup {result['status']}: {result['tag']}"
@@ -585,7 +640,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             else _run_retention(arguments, remote)
         )
         summary = Path(arguments.summary) if arguments.summary else None
-        append_failure_summary(summary, failures)
+        append_resource_summary(summary, failures, "final failures")
         if failures:
             for failure in failures:
                 print(

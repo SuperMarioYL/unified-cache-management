@@ -566,11 +566,15 @@ phases: registry, Actions run, Tag, then Releases holding the recovery inventory
 If no live Release attachment covers the full inventory, the artifact-holding
 run is also retained until the last phase. Each resource is probed and deleted
 with up to three attempts, waiting 0, 5 and 15 seconds, followed by an exact
-ID/digest readback. Only confirmed absence is success. Failed phases preserve
-later recovery holders; independent resources and versions continue to be
-attempted. GHCR package versions with non-target Tags are refused. Missing
-ownership evidence or permissions is an explicit blocker, never a silent quota
-exemption or a successful deletion.
+ID/digest readback. Only confirmed absence is a successful deletion. GHCR errors,
+including denied access, a last tagged version, and versions with non-target
+Tags, are recorded as nonfatal skips after the applicable retries. Cleanup
+continues with other registry targets, non-recovery Actions runs, the Tag and
+non-recovery Releases. Releases or runs holding the recovery inventory remain
+available for retry. The job succeeds if GHCR skips are its only errors; it never
+falls back to deleting an entire package. Other failed phases preserve later
+recovery holders and fail the job; independent resources and versions continue
+to be attempted. Missing or conflicting publication ownership remains a blocker.
 
 Preview the configured quota without deleting:
 
@@ -587,9 +591,14 @@ ownership for older failed Drafts and already deleted GitHub objects; these
 registry-only leftovers are cleaned separately from the live quota. Keep this
 recovery evidence until registry cleanup is confirmed. No references are guessed
 from a prefix.
-The JSON report distinguishes kept, would-delete, deleted, deferred and blocked
-versions. API 403 or an unresolved resource keeps the result failed; reruns are
-idempotent when resources have already been removed.
+The JSON report distinguishes kept, would-delete, deleted, partial, deferred and
+blocked versions. A `partial` result lists each GHCR skip with its reference,
+attempt count and final error; the Actions summary also lists these warnings.
+Dry-run records GHCR probe errors as skips without remote writes. Non-GHCR API
+errors or an unresolved publication keep the result failed. Retained recovery
+objects remain in the quota. Manual `tag` cleanup can retry them even after the
+Tag is gone; retention retries them when they are selected as excess versions.
+Reruns are idempotent when resources have already been removed.
 
 Every published Runtime image also contains the same Tag's example config at
 `/workspace/ucm_config_example.yaml`. It is not selected automatically; callers
