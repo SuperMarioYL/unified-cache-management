@@ -1,0 +1,44 @@
+{
+  "observer_run_id": 38407658373,
+  "observer_source_sha": "7a7f1733a64c0d2d051de4eef3aec85f651f1dfb",
+  "observer_job_permissions": {
+    "contents": "read",
+    "actions": "read",
+    "packages": "read"
+  },
+  "original_artifact_check": {
+    "check": "preserve Release/assets/body/ref draft/v0.8.2-1",
+    "observed": null
+  },
+  "original_release_or_ref_http_status": "not retained by original script; it collapses non-200 to observed=null",
+  "original_http_limitation": "Cannot honestly assert original App GET was404 from retained artifact. At least one release/ref response was not200. Future observer must retain both read_api results before fingerprint equality.",
+  "current_human_requests": [
+    {
+      "credential_class": "existing human gh session",
+      "path": "/repos/SuperMarioYL/unified-cache-management/releases/411606028",
+      "status": 200,
+      "response_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/diagnostics/draft-observer-read-permissions/human-release-response.json",
+      "observed_at": "2026-10-13T14:23:41.330046+00:00"
+    },
+    {
+      "credential_class": "existing human gh session",
+      "path": "/repos/SuperMarioYL/unified-cache-management/git/ref/tags/draft/v0.8.2-1",
+      "status": 200,
+      "response_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/diagnostics/draft-observer-read-permissions/human-ref-response.json",
+      "observed_at": "2026-10-13T14:23:41.872347+00:00"
+    }
+  ],
+  "current_human_fingerprint_matches_frozen": true,
+  "official_sources": [
+    {
+      "url": "https://docs.github.com/en/rest/releases/releases#list-releases",
+      "supported_claim": "Only users with push access will receive listings for draft releases."
+    },
+    {
+      "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions",
+      "supported_claim": "Contents read is general repository read access; contents write permits release creation and is the smallest GITHUB_TOKEN contents level that provides write/push capability."
+    }
+  ],
+  "diagnosis": "Strongly supported Draft visibility boundary for a read-only GitHub Actions installation token; precise original HTTP status was discarded, so final contents-write GET readback is needed as controlled confirmation.",
+  "minimum_followup": "Only isolated evidence job contents:write; keep actions:read/packages:read and pure GET implementation. Preserve original release/ref status/value in observer output. Do not modify normal artifacts or developP2."
+}

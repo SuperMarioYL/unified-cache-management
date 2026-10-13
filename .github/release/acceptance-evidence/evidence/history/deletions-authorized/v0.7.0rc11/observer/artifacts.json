@@ -1,0 +1,25 @@
+{
+  "total_count": 1,
+  "artifacts": [
+    {
+      "id": 11824876225,
+      "node_id": "MDg6QXJ0aWZhY3QxMTgyNDg3NjIyNQ==",
+      "name": "hosted-closure-run-38415967255-attempt-1",
+      "size_in_bytes": 6180,
+      "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/actions/artifacts/11824876225",
+      "archive_download_url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/actions/artifacts/11824876225/zip",
+      "expired": false,
+      "digest": "sha256:ba471be1cd77b4d1aa74f7b6c66618527eb719c13d4f3e972db2d85aa65443ab",
+      "created_at": "2026-10-13T14:44:49Z",
+      "updated_at": "2026-10-13T14:44:49Z",
+      "expires_at": "2027-01-11T14:44:30Z",
+      "workflow_run": {
+        "id": 38415967255,
+        "repository_id": 1177693657,
+        "head_repository_id": 1177693657,
+        "head_branch": "feature/history-version-metadata-20261013",
+        "head_sha": "776bfbb1cdad7fd30d6beb2a794ae9aedd87a708"
+      }
+    }
+  ]
+}

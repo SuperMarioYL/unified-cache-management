@@ -1,0 +1,18 @@
+{
+  "max_count": null,
+  "repository": "SuperMarioYL/unified-cache-management",
+  "results": [
+    {
+      "registry_references": 169,
+      "release_ids": [
+        387579666
+      ],
+      "run_ids": [
+        34696454025
+      ],
+      "status": "deleted",
+      "tag": "v0.7.0rc14"
+    }
+  ],
+  "status": "complete"
+}

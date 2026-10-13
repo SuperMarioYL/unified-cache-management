@@ -11,7 +11,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
-      contents: read
+      # GitHub requires push access to observe a Draft Release; the helper only GETs.
+      contents: write
       actions: read
       packages: read
     env:

@@ -1,0 +1,8 @@
+{
+  "window": 2,
+  "status": "active",
+  "operation": "apply",
+  "observed_at": "2026-10-13T14:33:25.581998+00:00",
+  "full_writable_body_matches_reviewed_payload": true,
+  "evidence_path": "/Users/yulei/workspace/ucm-release-acceptance/20261013/history/ruleset-exception/windows/2"
+}

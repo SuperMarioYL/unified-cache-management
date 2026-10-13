@@ -1,0 +1,137 @@
+{
+  "total_count": 1,
+  "jobs": [
+    {
+      "id": 115349207166,
+      "run_id": 38412788662,
+      "workflow_name": "Cleanup one UCM Tag Release",
+      "head_branch": "develop",
+      "run_url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/actions/runs/38412788662",
+      "run_attempt": 1,
+      "node_id": "CR_kwDORjIt2c8AAAAa21k4fg",
+      "head_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+      "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/actions/jobs/115349207166",
+      "html_url": "https://github.com/SuperMarioYL/unified-cache-management/actions/runs/38412788662/job/115349207166",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-13T14:22:31Z",
+      "started_at": "2026-10-13T14:22:33Z",
+      "completed_at": "2026-10-13T14:24:29Z",
+      "name": "Cleanup \u00b7 v0.7.0rc12",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-13T14:22:34Z",
+          "completed_at": "2026-10-13T14:22:35Z"
+        },
+        {
+          "name": "Run actions/checkout@v4.2.2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-13T14:22:35Z",
+          "completed_at": "2026-10-13T14:22:36Z"
+        },
+        {
+          "name": "Record the cleanup implementation",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-13T14:22:36Z",
+          "completed_at": "2026-10-13T14:22:36Z"
+        },
+        {
+          "name": "Run actions/setup-python@v5.6.0",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-13T14:22:36Z",
+          "completed_at": "2026-10-13T14:22:36Z"
+        },
+        {
+          "name": "Run python -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: -r .github/release/requirements.txt",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-13T14:22:36Z",
+          "completed_at": "2026-10-13T14:22:42Z"
+        },
+        {
+          "name": "Install Crane",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-13T14:22:42Z",
+          "completed_at": "2026-10-13T14:22:42Z"
+        },
+        {
+          "name": "Validate Docker Hub credentials when configured",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-13T14:22:42Z",
+          "completed_at": "2026-10-13T14:22:42Z"
+        },
+        {
+          "name": "Authenticate to DockerHub when configured",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-13T14:22:42Z",
+          "completed_at": "2026-10-13T14:22:43Z"
+        },
+        {
+          "name": "Delete manifest resources in recovery-preserving phases",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-13T14:22:43Z",
+          "completed_at": "2026-10-13T14:24:26Z"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4.6.2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-10-13T14:24:26Z",
+          "completed_at": "2026-10-13T14:24:27Z"
+        },
+        {
+          "name": "Post Run actions/setup-python@v5.6.0",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-10-13T14:24:27Z",
+          "completed_at": "2026-10-13T14:24:27Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v4.2.2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-10-13T14:24:27Z",
+          "completed_at": "2026-10-13T14:24:27Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-10-13T14:24:27Z",
+          "completed_at": "2026-10-13T14:24:27Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/check-runs/115349207166",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "runner_id": 1000027654,
+      "runner_name": "GitHub Actions 1000027654",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    }
+  ]
+}

@@ -1,0 +1,525 @@
+﻿2026-10-13T14:25:50.1376579Z Current runner version: '2.337.0'
+2026-10-13T14:25:50.1397757Z ##[group]Runner Image Provisioner
+2026-10-13T14:25:50.1398479Z Hosted Compute Agent
+2026-10-13T14:25:50.1399028Z Version: 20261002.596
+2026-10-13T14:25:50.1399563Z Commit: c3d12f3313a95f25162a1503be624f3b0617f8c0
+2026-10-13T14:25:50.1400162Z Build Date: 2026-10-02T22:28:27Z
+2026-10-13T14:25:50.1400837Z Worker ID: {c5e606c8-4cc4-4f29-8514-d0a7791d77de}
+2026-10-13T14:25:50.1401443Z Region: northcentralus
+2026-10-13T14:25:50.1401966Z Cloud: Azure
+2026-10-13T14:25:50.1402439Z ##[endgroup]
+2026-10-13T14:25:50.1403511Z ##[group]Operating System
+2026-10-13T14:25:50.1404146Z Ubuntu
+2026-10-13T14:25:50.1404593Z 24.04.5
+2026-10-13T14:25:50.1405054Z LTS
+2026-10-13T14:25:50.1405506Z ##[endgroup]
+2026-10-13T14:25:50.1406000Z ##[group]Runner Image
+2026-10-13T14:25:50.1406576Z Image: ubuntu-24.04
+2026-10-13T14:25:50.1407188Z Version: 20261004.327.1
+2026-10-13T14:25:50.1408285Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261004.327/images/ubuntu/Ubuntu2404-Readme.md
+2026-10-13T14:25:50.1409621Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261004.327
+2026-10-13T14:25:50.1410500Z ##[endgroup]
+2026-10-13T14:25:50.1411572Z ##[group]GITHUB_TOKEN Permissions
+2026-10-13T14:25:50.1413374Z Actions: write
+2026-10-13T14:25:50.1413900Z Contents: write
+2026-10-13T14:25:50.1414443Z Metadata: read
+2026-10-13T14:25:50.1414916Z Packages: write
+2026-10-13T14:25:50.1415445Z ##[endgroup]
+2026-10-13T14:25:50.1417234Z Secret source: Actions
+2026-10-13T14:25:50.1418104Z Cache mode: write
+2026-10-13T14:25:50.1418683Z Prepare workflow directory
+2026-10-13T14:25:50.1827969Z Prepare all required actions
+2026-10-13T14:25:50.1865790Z Getting action download info
+2026-10-13T14:25:50.4128481Z Download action repository 'actions/checkout@v4.2.2' (SHA:11bd71901bbe5b1630ceea73d27597364c9af683)
+2026-10-13T14:25:50.5182796Z Download action repository 'actions/setup-python@v5.6.0' (SHA:a26af69be951a213d495a4c3e4e4022e16d87065)
+2026-10-13T14:25:50.6272732Z Download action repository 'actions/upload-artifact@v4.6.2' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-10-13T14:25:50.8492178Z Complete job name: closure
+2026-10-13T14:25:50.9085763Z ##[group]Run actions/checkout@v4.2.2
+2026-10-13T14:25:50.9086437Z with:
+2026-10-13T14:25:50.9086915Z   ref: develop
+2026-10-13T14:25:50.9087284Z   persist-credentials: false
+2026-10-13T14:25:50.9087751Z   repository: SuperMarioYL/unified-cache-management
+2026-10-13T14:25:50.9090735Z   token: ***
+2026-10-13T14:25:50.9091091Z   ssh-strict: true
+2026-10-13T14:25:50.9091447Z   ssh-user: git
+2026-10-13T14:25:50.9091792Z   clean: true
+2026-10-13T14:25:50.9092154Z   sparse-checkout-cone-mode: true
+2026-10-13T14:25:50.9092572Z   fetch-depth: 1
+2026-10-13T14:25:50.9092925Z   fetch-tags: false
+2026-10-13T14:25:50.9093279Z   show-progress: true
+2026-10-13T14:25:50.9093642Z   lfs: false
+2026-10-13T14:25:50.9093976Z   submodules: false
+2026-10-13T14:25:50.9094331Z   set-safe-directory: true
+2026-10-13T14:25:50.9094886Z env:
+2026-10-13T14:25:50.9097794Z   GH_TOKEN: ***
+2026-10-13T14:25:50.9098221Z   PRODUCTION_SHA: f66366538b35faa51507452ae1ad676b10994a4d
+2026-10-13T14:25:50.9098757Z   SOURCE_RUN_ID: 34693636766
+2026-10-13T14:25:50.9099158Z   SCENARIO: history-readback
+2026-10-13T14:25:50.9099549Z   PREVIEW_TAG: v0.7.0rc12
+2026-10-13T14:25:50.9099955Z   DOCKERHUB_USERNAME: ***
+2026-10-13T14:25:50.9100415Z   DOCKERHUB_TOKEN: ***
+2026-10-13T14:25:50.9100784Z ##[endgroup]
+2026-10-13T14:25:50.9948350Z Syncing repository: SuperMarioYL/unified-cache-management
+2026-10-13T14:25:50.9950499Z ##[group]Getting Git version info
+2026-10-13T14:25:50.9951634Z Working directory is '/home/runner/work/unified-cache-management/unified-cache-management'
+2026-10-13T14:25:50.9953221Z [command]/usr/bin/git version
+2026-10-13T14:25:50.9996509Z git version 2.55.0
+2026-10-13T14:25:51.0012719Z ##[endgroup]
+2026-10-13T14:25:51.0023985Z Temporarily overriding HOME='/home/runner/work/_temp/d4d19282-a927-4bbe-941d-18fb62385b0c' before making global git config changes
+2026-10-13T14:25:51.0026065Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-13T14:25:51.0029009Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/unified-cache-management/unified-cache-management
+2026-10-13T14:25:51.0073313Z Deleting the contents of '/home/runner/work/unified-cache-management/unified-cache-management'
+2026-10-13T14:25:51.0076282Z ##[group]Initializing the repository
+2026-10-13T14:25:51.0079691Z [command]/usr/bin/git init /home/runner/work/unified-cache-management/unified-cache-management
+2026-10-13T14:25:51.0281790Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-10-13T14:25:51.0283552Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-10-13T14:25:51.0284936Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-10-13T14:25:51.0286036Z hint: call:
+2026-10-13T14:25:51.0286738Z hint:
+2026-10-13T14:25:51.0287758Z hint: 	git config --global init.defaultBranch <name>
+2026-10-13T14:25:51.0288397Z hint:
+2026-10-13T14:25:51.0289011Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-10-13T14:25:51.0289876Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-10-13T14:25:51.0290589Z hint:
+2026-10-13T14:25:51.0291047Z hint: 	git branch -m <name>
+2026-10-13T14:25:51.0291600Z hint:
+2026-10-13T14:25:51.0292343Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-10-13T14:25:51.0293659Z Initialized empty Git repository in /home/runner/work/unified-cache-management/unified-cache-management/.git/
+2026-10-13T14:25:51.0295622Z [command]/usr/bin/git remote add origin https://github.com/SuperMarioYL/unified-cache-management
+2026-10-13T14:25:51.0343865Z ##[endgroup]
+2026-10-13T14:25:51.0344868Z ##[group]Disabling automatic garbage collection
+2026-10-13T14:25:51.0347287Z [command]/usr/bin/git config --local gc.auto 0
+2026-10-13T14:25:51.0374291Z ##[endgroup]
+2026-10-13T14:25:51.0375216Z ##[group]Setting up auth
+2026-10-13T14:25:51.0380302Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-13T14:25:51.0408880Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-13T14:25:51.0728309Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-13T14:25:51.0758070Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-13T14:25:51.0949958Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-10-13T14:25:51.0986173Z ##[endgroup]
+2026-10-13T14:25:51.0986991Z ##[group]Fetching the repository
+2026-10-13T14:25:51.0993366Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +refs/heads/develop*:refs/remotes/origin/develop* +refs/tags/develop*:refs/tags/develop*
+2026-10-13T14:25:52.5238851Z From https://github.com/SuperMarioYL/unified-cache-management
+2026-10-13T14:25:52.5240293Z  * [new branch]      develop    -> origin/develop
+2026-10-13T14:25:52.5243335Z ##[endgroup]
+2026-10-13T14:25:52.5244531Z ##[group]Determining the checkout info
+2026-10-13T14:25:52.5251113Z [command]/usr/bin/git branch --list --remote origin/develop
+2026-10-13T14:25:52.5277397Z   origin/develop
+2026-10-13T14:25:52.5281273Z ##[endgroup]
+2026-10-13T14:25:52.5284609Z [command]/usr/bin/git sparse-checkout disable
+2026-10-13T14:25:52.5328718Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-10-13T14:25:52.5356302Z ##[group]Checking out the ref
+2026-10-13T14:25:52.5359042Z [command]/usr/bin/git checkout --progress --force -B develop refs/remotes/origin/develop
+2026-10-13T14:25:52.6956430Z Switched to a new branch 'develop'
+2026-10-13T14:25:52.6960497Z branch 'develop' set up to track 'origin/develop'.
+2026-10-13T14:25:52.6970340Z ##[endgroup]
+2026-10-13T14:25:52.7016123Z [command]/usr/bin/git log -1 --format=%H
+2026-10-13T14:25:52.7040955Z f66366538b35faa51507452ae1ad676b10994a4d
+2026-10-13T14:25:52.7048830Z ##[group]Removing auth
+2026-10-13T14:25:52.7051229Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-13T14:25:52.7078475Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-13T14:25:52.7301994Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-13T14:25:52.7327836Z http.https://github.com/.extraheader
+2026-10-13T14:25:52.7335174Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-10-13T14:25:52.7369082Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-13T14:25:52.7621121Z ##[endgroup]
+2026-10-13T14:25:52.8032993Z ##[group]Run actions/checkout@v4.2.2
+2026-10-13T14:25:52.8034099Z with:
+2026-10-13T14:25:52.8035009Z   ref: 776bfbb1cdad7fd30d6beb2a794ae9aedd87a708
+2026-10-13T14:25:52.8036283Z   path: fixture-helper
+2026-10-13T14:25:52.8037253Z   sparse-checkout: .github/release/tests
+2026-10-13T14:25:52.8038363Z   sparse-checkout-cone-mode: false
+2026-10-13T14:25:52.8039265Z   persist-credentials: false
+2026-10-13T14:25:52.8040584Z   repository: SuperMarioYL/unified-cache-management
+2026-10-13T14:25:52.8049068Z   token: ***
+2026-10-13T14:25:52.8049846Z   ssh-strict: true
+2026-10-13T14:25:52.8050835Z   ssh-user: git
+2026-10-13T14:25:52.8051618Z   clean: true
+2026-10-13T14:25:52.8052628Z   fetch-depth: 1
+2026-10-13T14:25:52.8053437Z   fetch-tags: false
+2026-10-13T14:25:52.8054172Z   show-progress: true
+2026-10-13T14:25:52.8054902Z   lfs: false
+2026-10-13T14:25:52.8055579Z   submodules: false
+2026-10-13T14:25:52.8056320Z   set-safe-directory: true
+2026-10-13T14:25:52.8057172Z env:
+2026-10-13T14:25:52.8062643Z   GH_TOKEN: ***
+2026-10-13T14:25:52.8063511Z   PRODUCTION_SHA: f66366538b35faa51507452ae1ad676b10994a4d
+2026-10-13T14:25:52.8064519Z   SOURCE_RUN_ID: 34693636766
+2026-10-13T14:25:52.8065329Z   SCENARIO: history-readback
+2026-10-13T14:25:52.8066142Z   PREVIEW_TAG: v0.7.0rc12
+2026-10-13T14:25:52.8067032Z   DOCKERHUB_USERNAME: ***
+2026-10-13T14:25:52.8067964Z   DOCKERHUB_TOKEN: ***
+2026-10-13T14:25:52.8068707Z ##[endgroup]
+2026-10-13T14:25:52.8773618Z Syncing repository: SuperMarioYL/unified-cache-management
+2026-10-13T14:25:52.8776226Z ##[group]Getting Git version info
+2026-10-13T14:25:52.8778775Z Working directory is '/home/runner/work/unified-cache-management/unified-cache-management/fixture-helper'
+2026-10-13T14:25:52.8810183Z [command]/usr/bin/git version
+2026-10-13T14:25:52.8845862Z git version 2.55.0
+2026-10-13T14:25:52.8869702Z ##[endgroup]
+2026-10-13T14:25:52.8874708Z Temporarily overriding HOME='/home/runner/work/_temp/86bfdf1d-4ae5-408a-abe9-f68d89dfa34a' before making global git config changes
+2026-10-13T14:25:52.8877566Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-13T14:25:52.8880565Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/unified-cache-management/unified-cache-management/fixture-helper
+2026-10-13T14:25:52.8907721Z ##[group]Initializing the repository
+2026-10-13T14:25:52.8911727Z [command]/usr/bin/git init /home/runner/work/unified-cache-management/unified-cache-management/fixture-helper
+2026-10-13T14:25:52.8951607Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-10-13T14:25:52.8953559Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-10-13T14:25:52.8956486Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-10-13T14:25:52.8958394Z hint: call:
+2026-10-13T14:25:52.8959288Z hint:
+2026-10-13T14:25:52.8960279Z hint: 	git config --global init.defaultBranch <name>
+2026-10-13T14:25:52.8961370Z hint:
+2026-10-13T14:25:52.8962439Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-10-13T14:25:52.8964197Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-10-13T14:25:52.8966087Z hint:
+2026-10-13T14:25:52.8967285Z hint: 	git branch -m <name>
+2026-10-13T14:25:52.8968574Z hint:
+2026-10-13T14:25:52.8970154Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-10-13T14:25:52.8973359Z Initialized empty Git repository in /home/runner/work/unified-cache-management/unified-cache-management/fixture-helper/.git/
+2026-10-13T14:25:52.8978520Z [command]/usr/bin/git remote add origin https://github.com/SuperMarioYL/unified-cache-management
+2026-10-13T14:25:52.9151970Z ##[endgroup]
+2026-10-13T14:25:52.9153244Z ##[group]Disabling automatic garbage collection
+2026-10-13T14:25:52.9155983Z [command]/usr/bin/git config --local gc.auto 0
+2026-10-13T14:25:52.9194004Z ##[endgroup]
+2026-10-13T14:25:52.9195378Z ##[group]Setting up auth
+2026-10-13T14:25:52.9196998Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-13T14:25:52.9222806Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-13T14:25:52.9430807Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-13T14:25:52.9463790Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-13T14:25:52.9672647Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-10-13T14:25:52.9708556Z ##[endgroup]
+2026-10-13T14:25:52.9709843Z ##[group]Fetching the repository
+2026-10-13T14:25:52.9717105Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --filter=blob:none --depth=1 origin 776bfbb1cdad7fd30d6beb2a794ae9aedd87a708
+2026-10-13T14:25:53.3156655Z From https://github.com/SuperMarioYL/unified-cache-management
+2026-10-13T14:25:53.3157939Z  * branch            776bfbb1cdad7fd30d6beb2a794ae9aedd87a708 -> FETCH_HEAD
+2026-10-13T14:25:53.3169519Z ##[endgroup]
+2026-10-13T14:25:53.3170322Z ##[group]Determining the checkout info
+2026-10-13T14:25:53.3171164Z ##[endgroup]
+2026-10-13T14:25:53.3171841Z ##[group]Setting up sparse checkout
+2026-10-13T14:25:53.3172478Z [command]/usr/bin/git config core.sparseCheckout true
+2026-10-13T14:25:53.3203428Z [command]/usr/bin/git rev-parse --git-path info/sparse-checkout
+2026-10-13T14:25:53.3224153Z .git/info/sparse-checkout
+2026-10-13T14:25:53.3230312Z ##[endgroup]
+2026-10-13T14:25:53.3234307Z ##[group]Checking out the ref
+2026-10-13T14:25:53.3234762Z [command]/usr/bin/git checkout --progress --force 776bfbb1cdad7fd30d6beb2a794ae9aedd87a708
+2026-10-13T14:25:53.7044621Z Note: switching to '776bfbb1cdad7fd30d6beb2a794ae9aedd87a708'.
+2026-10-13T14:25:53.7045060Z 
+2026-10-13T14:25:53.7045290Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-10-13T14:25:53.7045778Z changes and commit them, and you can discard any commits you make in this
+2026-10-13T14:25:53.7046223Z state without impacting any branches by switching back to a branch.
+2026-10-13T14:25:53.7046468Z 
+2026-10-13T14:25:53.7046649Z If you want to create a new branch to retain commits you create, you may
+2026-10-13T14:25:53.7047416Z do so (now or later) by using -c with the switch command. Example:
+2026-10-13T14:25:53.7047681Z 
+2026-10-13T14:25:53.7047801Z   git switch -c <new-branch-name>
+2026-10-13T14:25:53.7047987Z 
+2026-10-13T14:25:53.7048453Z Or undo this operation with:
+2026-10-13T14:25:53.7048651Z 
+2026-10-13T14:25:53.7048755Z   git switch -
+2026-10-13T14:25:53.7048881Z 
+2026-10-13T14:25:53.7049193Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-10-13T14:25:53.7049615Z 
+2026-10-13T14:25:53.7049907Z HEAD is now at 776bfbb Save exact historical registry version metadata in observer
+2026-10-13T14:25:53.7050944Z ##[endgroup]
+2026-10-13T14:25:53.7095081Z [command]/usr/bin/git log -1 --format=%H
+2026-10-13T14:25:53.7118078Z 776bfbb1cdad7fd30d6beb2a794ae9aedd87a708
+2026-10-13T14:25:53.7125308Z ##[group]Removing auth
+2026-10-13T14:25:53.7128448Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-13T14:25:53.7155776Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-13T14:25:53.7353069Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-13T14:25:53.7371026Z http.https://github.com/.extraheader
+2026-10-13T14:25:53.7377668Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-10-13T14:25:53.7406954Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-13T14:25:53.7591180Z ##[endgroup]
+2026-10-13T14:25:53.7752050Z ##[group]Run actions/setup-python@v5.6.0
+2026-10-13T14:25:53.7752356Z with:
+2026-10-13T14:25:53.7752572Z   python-version: 3.12
+2026-10-13T14:25:53.7752810Z   check-latest: false
+2026-10-13T14:25:53.7754653Z   token: ***
+2026-10-13T14:25:53.7754878Z   update-environment: true
+2026-10-13T14:25:53.7755132Z   allow-prereleases: false
+2026-10-13T14:25:53.7755378Z   freethreaded: false
+2026-10-13T14:25:53.7755593Z env:
+2026-10-13T14:25:53.7757521Z   GH_TOKEN: ***
+2026-10-13T14:25:53.7757815Z   PRODUCTION_SHA: f66366538b35faa51507452ae1ad676b10994a4d
+2026-10-13T14:25:53.7758129Z   SOURCE_RUN_ID: 34693636766
+2026-10-13T14:25:53.7758376Z   SCENARIO: history-readback
+2026-10-13T14:25:53.7758619Z   PREVIEW_TAG: v0.7.0rc12
+2026-10-13T14:25:53.7758884Z   DOCKERHUB_USERNAME: ***
+2026-10-13T14:25:53.7759176Z   DOCKERHUB_TOKEN: ***
+2026-10-13T14:25:53.7759400Z ##[endgroup]
+2026-10-13T14:25:53.8786083Z ##[group]Installed versions
+2026-10-13T14:25:53.8860313Z (node:2275) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-10-13T14:25:53.8861257Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-10-13T14:25:53.8861655Z Successfully set up CPython (3.12.15)
+2026-10-13T14:25:53.8862107Z ##[endgroup]
+2026-10-13T14:25:53.9028183Z ##[group]Run python -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: -r .github/release/requirements.txt
+2026-10-13T14:25:53.9029162Z [36;1mpython -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: -r .github/release/requirements.txt[0m
+2026-10-13T14:25:53.9548564Z shell: /usr/bin/bash -e {0}
+2026-10-13T14:25:53.9548871Z env:
+2026-10-13T14:25:53.9551033Z   GH_TOKEN: ***
+2026-10-13T14:25:53.9551327Z   PRODUCTION_SHA: f66366538b35faa51507452ae1ad676b10994a4d
+2026-10-13T14:25:53.9551646Z   SOURCE_RUN_ID: 34693636766
+2026-10-13T14:25:53.9551910Z   SCENARIO: history-readback
+2026-10-13T14:25:53.9552151Z   PREVIEW_TAG: v0.7.0rc12
+2026-10-13T14:25:53.9552422Z   DOCKERHUB_USERNAME: ***
+2026-10-13T14:25:53.9552715Z   DOCKERHUB_TOKEN: ***
+2026-10-13T14:25:53.9552999Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:25:53.9553426Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib/pkgconfig
+2026-10-13T14:25:53.9553879Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:25:53.9554253Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:25:53.9554808Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:25:53.9555167Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib
+2026-10-13T14:25:53.9555477Z ##[endgroup]
+2026-10-13T14:25:55.2854426Z Collecting build (from -r .github/release/requirements.txt (line 4))
+2026-10-13T14:25:55.3219818Z   Downloading build-1.3.0-py3-none-any.whl.metadata (5.6 kB)
+2026-10-13T14:25:55.3305311Z Collecting packaging (from -r .github/release/requirements.txt (line 5))
+2026-10-13T14:25:55.3332442Z   Downloading packaging-24.2-py3-none-any.whl.metadata (3.2 kB)
+2026-10-13T14:25:55.3612628Z Collecting PyYAML (from -r .github/release/requirements.txt (line 6))
+2026-10-13T14:25:55.3642124Z   Downloading PyYAML-6.0.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (2.1 kB)
+2026-10-13T14:25:55.4146710Z Collecting setuptools (from -r .github/release/requirements.txt (line 7))
+2026-10-13T14:25:55.4175718Z   Downloading setuptools-75.8.2-py3-none-any.whl.metadata (6.7 kB)
+2026-10-13T14:25:55.4290054Z Collecting wheel (from -r .github/release/requirements.txt (line 8))
+2026-10-13T14:25:55.4316600Z   Downloading wheel-0.45.1-py3-none-any.whl.metadata (2.3 kB)
+2026-10-13T14:25:55.4392951Z Collecting twine==6.1.0 (from -r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.4420668Z   Downloading twine-6.1.0-py3-none-any.whl.metadata (3.7 kB)
+2026-10-13T14:25:55.4493386Z Collecting readme-renderer>=35.0 (from twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.4520841Z   Downloading readme_renderer-46.0-py3-none-any.whl.metadata (3.0 kB)
+2026-10-13T14:25:55.4634392Z Collecting requests>=2.20 (from twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.4662097Z   Downloading requests-2.34.2-py3-none-any.whl.metadata (4.8 kB)
+2026-10-13T14:25:55.4721164Z Collecting requests-toolbelt!=0.9.0,>=0.8.0 (from twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.4746291Z   Downloading requests_toolbelt-1.0.0-py2.py3-none-any.whl.metadata (14 kB)
+2026-10-13T14:25:55.4941975Z Collecting urllib3>=1.26.0 (from twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.4969135Z   Downloading urllib3-2.8.0-py3-none-any.whl.metadata (7.4 kB)
+2026-10-13T14:25:55.5116460Z Collecting keyring>=15.1 (from twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.5146247Z   Downloading keyring-25.7.0-py3-none-any.whl.metadata (21 kB)
+2026-10-13T14:25:55.5221315Z Collecting rfc3986>=1.4.0 (from twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.5252629Z   Downloading rfc3986-2.0.0-py2.py3-none-any.whl.metadata (6.6 kB)
+2026-10-13T14:25:55.5413474Z Collecting rich>=12.0.0 (from twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.5440806Z   Downloading rich-15.0.0-py3-none-any.whl.metadata (18 kB)
+2026-10-13T14:25:55.5508712Z Collecting id (from twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.5536661Z   Downloading id-1.6.1-py3-none-any.whl.metadata (5.1 kB)
+2026-10-13T14:25:55.5600153Z Collecting pyproject_hooks (from build->-r .github/release/requirements.txt (line 4))
+2026-10-13T14:25:55.5626852Z   Downloading pyproject_hooks-1.2.0-py3-none-any.whl.metadata (1.3 kB)
+2026-10-13T14:25:55.5691281Z Collecting SecretStorage>=3.2 (from keyring>=15.1->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.5717040Z   Downloading secretstorage-3.5.0-py3-none-any.whl.metadata (4.0 kB)
+2026-10-13T14:25:55.5773426Z Collecting jeepney>=0.4.2 (from keyring>=15.1->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.5799976Z   Downloading jeepney-0.9.0-py3-none-any.whl.metadata (1.2 kB)
+2026-10-13T14:25:55.5859314Z Collecting jaraco.classes (from keyring>=15.1->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.5890021Z   Downloading jaraco.classes-3.4.0-py3-none-any.whl.metadata (2.6 kB)
+2026-10-13T14:25:55.5971468Z Collecting jaraco.functools (from keyring>=15.1->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.5999222Z   Downloading jaraco_functools-4.6.0-py3-none-any.whl.metadata (2.9 kB)
+2026-10-13T14:25:55.6066532Z Collecting jaraco.context (from keyring>=15.1->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.6093633Z   Downloading jaraco_context-6.1.2-py3-none-any.whl.metadata (4.2 kB)
+2026-10-13T14:25:55.6346141Z Collecting nh3>=0.2.14 (from readme-renderer>=35.0->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.6373488Z   Downloading nh3-0.3.7-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (2.0 kB)
+2026-10-13T14:25:55.6445904Z Collecting docutils>=0.21.2 (from readme-renderer>=35.0->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.6471846Z   Downloading docutils-0.23-py3-none-any.whl.metadata (15 kB)
+2026-10-13T14:25:55.6570163Z Collecting Pygments>=2.5.1 (from readme-renderer>=35.0->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.6596405Z   Downloading pygments-2.21.0-py3-none-any.whl.metadata (2.5 kB)
+2026-10-13T14:25:55.7421935Z Collecting charset_normalizer<4,>=2 (from requests>=2.20->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.7452175Z   Downloading charset_normalizer-3.5.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (46 kB)
+2026-10-13T14:25:55.7541642Z Collecting idna<4,>=2.5 (from requests>=2.20->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.7570016Z   Downloading idna-3.20-py3-none-any.whl.metadata (7.2 kB)
+2026-10-13T14:25:55.7671347Z Collecting certifi>=2023.5.7 (from requests>=2.20->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.7697514Z   Downloading certifi-2026.7.22-py3-none-any.whl.metadata (2.5 kB)
+2026-10-13T14:25:55.7798750Z Collecting markdown-it-py>=2.2.0 (from rich>=12.0.0->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.7824292Z   Downloading markdown_it_py-4.2.0-py3-none-any.whl.metadata (7.4 kB)
+2026-10-13T14:25:55.7898369Z Collecting mdurl~=0.1 (from markdown-it-py>=2.2.0->rich>=12.0.0->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.7924606Z   Downloading mdurl-0.1.2-py3-none-any.whl.metadata (1.6 kB)
+2026-10-13T14:25:55.9158373Z Collecting cryptography>=2.0 (from SecretStorage>=3.2->keyring>=15.1->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.9188221Z   Downloading cryptography-50.0.2-cp311-abi3-manylinux_2_34_x86_64.whl.metadata (4.4 kB)
+2026-10-13T14:25:55.9858023Z Collecting cffi>=2.0.0 (from cryptography>=2.0->SecretStorage>=3.2->keyring>=15.1->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.9888649Z   Downloading cffi-2.1.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (2.5 kB)
+2026-10-13T14:25:55.9945348Z Collecting pycparser (from cffi>=2.0.0->cryptography>=2.0->SecretStorage>=3.2->keyring>=15.1->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:55.9972043Z   Downloading pycparser-3.11-py3-none-any.whl.metadata (8.2 kB)
+2026-10-13T14:25:56.0072192Z Collecting more-itertools (from jaraco.classes->keyring>=15.1->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+2026-10-13T14:25:56.0099308Z   Downloading more_itertools-11.1.0-py3-none-any.whl.metadata (41 kB)
+2026-10-13T14:25:56.0162516Z Downloading twine-6.1.0-py3-none-any.whl (40 kB)
+2026-10-13T14:25:56.0189297Z Downloading build-1.3.0-py3-none-any.whl (23 kB)
+2026-10-13T14:25:56.0215268Z Downloading packaging-24.2-py3-none-any.whl (65 kB)
+2026-10-13T14:25:56.0242282Z Downloading PyYAML-6.0.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (767 kB)
+2026-10-13T14:25:56.0345573Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 767.5/767.5 kB 107.3 MB/s  0:00:00
+2026-10-13T14:25:56.0379326Z Downloading setuptools-75.8.2-py3-none-any.whl (1.2 MB)
+2026-10-13T14:25:56.0460473Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.2/1.2 MB 186.9 MB/s  0:00:00
+2026-10-13T14:25:56.0488354Z Downloading wheel-0.45.1-py3-none-any.whl (72 kB)
+2026-10-13T14:25:56.0516450Z Downloading keyring-25.7.0-py3-none-any.whl (39 kB)
+2026-10-13T14:25:56.0543486Z Downloading jeepney-0.9.0-py3-none-any.whl (49 kB)
+2026-10-13T14:25:56.0570196Z Downloading readme_renderer-46.0-py3-none-any.whl (14 kB)
+2026-10-13T14:25:56.0596230Z Downloading docutils-0.23-py3-none-any.whl (634 kB)
+2026-10-13T14:25:56.0624219Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 634.7/634.7 kB 279.7 MB/s  0:00:00
+2026-10-13T14:25:56.0650865Z Downloading nh3-0.3.7-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (832 kB)
+2026-10-13T14:25:56.0681087Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 832.2/832.2 kB 350.8 MB/s  0:00:00
+2026-10-13T14:25:56.0707539Z Downloading pygments-2.21.0-py3-none-any.whl (1.3 MB)
+2026-10-13T14:25:56.0752760Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.3/1.3 MB 347.4 MB/s  0:00:00
+2026-10-13T14:25:56.0781245Z Downloading requests-2.34.2-py3-none-any.whl (73 kB)
+2026-10-13T14:25:56.0808728Z Downloading charset_normalizer-3.5.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (257 kB)
+2026-10-13T14:25:56.0836194Z Downloading idna-3.20-py3-none-any.whl (69 kB)
+2026-10-13T14:25:56.0863242Z Downloading urllib3-2.8.0-py3-none-any.whl (135 kB)
+2026-10-13T14:25:56.0890940Z Downloading certifi-2026.7.22-py3-none-any.whl (136 kB)
+2026-10-13T14:25:56.0919626Z Downloading requests_toolbelt-1.0.0-py2.py3-none-any.whl (54 kB)
+2026-10-13T14:25:56.0945722Z Downloading rfc3986-2.0.0-py2.py3-none-any.whl (31 kB)
+2026-10-13T14:25:56.0971951Z Downloading rich-15.0.0-py3-none-any.whl (310 kB)
+2026-10-13T14:25:56.1001286Z Downloading markdown_it_py-4.2.0-py3-none-any.whl (91 kB)
+2026-10-13T14:25:56.1027998Z Downloading mdurl-0.1.2-py3-none-any.whl (10.0 kB)
+2026-10-13T14:25:56.1053315Z Downloading secretstorage-3.5.0-py3-none-any.whl (15 kB)
+2026-10-13T14:25:56.1080494Z Downloading cryptography-50.0.2-cp311-abi3-manylinux_2_34_x86_64.whl (4.8 MB)
+2026-10-13T14:25:56.1155263Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.8/4.8 MB 762.8 MB/s  0:00:00
+2026-10-13T14:25:56.1182237Z Downloading cffi-2.1.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (221 kB)
+2026-10-13T14:25:56.1209664Z Downloading id-1.6.1-py3-none-any.whl (14 kB)
+2026-10-13T14:25:56.1235327Z Downloading jaraco.classes-3.4.0-py3-none-any.whl (6.8 kB)
+2026-10-13T14:25:56.1260521Z Downloading jaraco_context-6.1.2-py3-none-any.whl (7.9 kB)
+2026-10-13T14:25:56.1288428Z Downloading jaraco_functools-4.6.0-py3-none-any.whl (11 kB)
+2026-10-13T14:25:56.1314602Z Downloading more_itertools-11.1.0-py3-none-any.whl (72 kB)
+2026-10-13T14:25:56.1340895Z Downloading pycparser-3.11-py3-none-any.whl (51 kB)
+2026-10-13T14:25:56.1366965Z Downloading pyproject_hooks-1.2.0-py3-none-any.whl (10 kB)
+2026-10-13T14:25:56.3363358Z Installing collected packages: wheel, urllib3, setuptools, rfc3986, PyYAML, pyproject_hooks, Pygments, pycparser, packaging, nh3, more-itertools, mdurl, jeepney, jaraco.context, idna, docutils, charset_normalizer, certifi, requests, readme-renderer, markdown-it-py, jaraco.functools, jaraco.classes, id, cffi, build, rich, requests-toolbelt, cryptography, SecretStorage, keyring, twine
+2026-10-13T14:26:00.1188301Z 
+2026-10-13T14:26:00.1211110Z Successfully installed PyYAML-6.0.2 Pygments-2.21.0 SecretStorage-3.5.0 build-1.3.0 certifi-2026.7.22 cffi-2.1.1 charset_normalizer-3.5.2 cryptography-50.0.2 docutils-0.23 id-1.6.1 idna-3.20 jaraco.classes-3.4.0 jaraco.context-6.1.2 jaraco.functools-4.6.0 jeepney-0.9.0 keyring-25.7.0 markdown-it-py-4.2.0 mdurl-0.1.2 more-itertools-11.1.0 nh3-0.3.7 packaging-24.2 pycparser-3.11 pyproject_hooks-1.2.0 readme-renderer-46.0 requests-2.34.2 requests-toolbelt-1.0.0 rfc3986-2.0.0 rich-15.0.0 setuptools-75.8.2 twine-6.1.0 urllib3-2.8.0 wheel-0.45.1
+2026-10-13T14:26:00.1888533Z Prepare all required actions
+2026-10-13T14:26:00.1916564Z ##[group]Run ./.github/actions/setup-crane
+2026-10-13T14:26:00.1917124Z env:
+2026-10-13T14:26:00.1918974Z   GH_TOKEN: ***
+2026-10-13T14:26:00.1919212Z   PRODUCTION_SHA: f66366538b35faa51507452ae1ad676b10994a4d
+2026-10-13T14:26:00.1919484Z   SOURCE_RUN_ID: 34693636766
+2026-10-13T14:26:00.1919690Z   SCENARIO: history-readback
+2026-10-13T14:26:00.1919885Z   PREVIEW_TAG: v0.7.0rc12
+2026-10-13T14:26:00.1920101Z   DOCKERHUB_USERNAME: ***
+2026-10-13T14:26:00.1920345Z   DOCKERHUB_TOKEN: ***
+2026-10-13T14:26:00.1920572Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:26:00.1920915Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib/pkgconfig
+2026-10-13T14:26:00.1921254Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:26:00.1921557Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:26:00.1921885Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:26:00.1922186Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib
+2026-10-13T14:26:00.1922445Z ##[endgroup]
+2026-10-13T14:26:00.1965935Z ##[start-action display=Install crane;id=__self.__run]
+2026-10-13T14:26:00.1988350Z ##[group]Run set -euo pipefail
+2026-10-13T14:26:00.1988616Z [36;1mset -euo pipefail[0m
+2026-10-13T14:26:00.1988837Z [36;1minstall_dir="${RUNNER_TEMP}/crane"[0m
+2026-10-13T14:26:00.1989144Z [36;1mbash "${GITHUB_ACTION_PATH}/install-crane.sh" "${install_dir}"[0m
+2026-10-13T14:26:00.1989480Z [36;1mprintf '%s\n' "${install_dir}" >>"${GITHUB_PATH}"[0m
+2026-10-13T14:26:00.2049554Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-13T14:26:00.2049942Z env:
+2026-10-13T14:26:00.2052020Z   GH_TOKEN: ***
+2026-10-13T14:26:00.2052263Z   PRODUCTION_SHA: f66366538b35faa51507452ae1ad676b10994a4d
+2026-10-13T14:26:00.2052543Z   SOURCE_RUN_ID: 34693636766
+2026-10-13T14:26:00.2052749Z   SCENARIO: history-readback
+2026-10-13T14:26:00.2052975Z   PREVIEW_TAG: v0.7.0rc12
+2026-10-13T14:26:00.2053199Z   DOCKERHUB_USERNAME: ***
+2026-10-13T14:26:00.2053457Z   DOCKERHUB_TOKEN: ***
+2026-10-13T14:26:00.2053710Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:26:00.2054050Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib/pkgconfig
+2026-10-13T14:26:00.2054388Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:26:00.2054690Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:26:00.2054989Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:26:00.2055281Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib
+2026-10-13T14:26:00.2055537Z ##[endgroup]
+2026-10-13T14:26:00.6432650Z ##[end-action id=__self.__run;outcome=success;conclusion=success;duration_ms=446]
+2026-10-13T14:26:00.6490115Z ##[group]Run set -euo pipefail
+2026-10-13T14:26:00.6490375Z [36;1mset -euo pipefail[0m
+2026-10-13T14:26:00.6490696Z [36;1mpython fixture-helper/.github/release/tests/historical_readback.py readback \[0m
+2026-10-13T14:26:00.6491119Z [36;1m  --production-root . --production-sha "${PRODUCTION_SHA}" \[0m
+2026-10-13T14:26:00.6491443Z [36;1m  --tag "${PREVIEW_TAG}"[0m
+2026-10-13T14:26:00.6549578Z shell: /usr/bin/bash -e {0}
+2026-10-13T14:26:00.6549790Z env:
+2026-10-13T14:26:00.6551635Z   GH_TOKEN: ***
+2026-10-13T14:26:00.6551875Z   PRODUCTION_SHA: f66366538b35faa51507452ae1ad676b10994a4d
+2026-10-13T14:26:00.6552149Z   SOURCE_RUN_ID: 34693636766
+2026-10-13T14:26:00.6552350Z   SCENARIO: history-readback
+2026-10-13T14:26:00.6552542Z   PREVIEW_TAG: v0.7.0rc12
+2026-10-13T14:26:00.6552745Z   DOCKERHUB_USERNAME: ***
+2026-10-13T14:26:00.6552987Z   DOCKERHUB_TOKEN: ***
+2026-10-13T14:26:00.6553216Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:26:00.6553591Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib/pkgconfig
+2026-10-13T14:26:00.6553933Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:26:00.6554232Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:26:00.6554529Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:26:00.6554975Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib
+2026-10-13T14:26:00.6555234Z ##[endgroup]
+2026-10-13T14:26:13.4409844Z Traceback (most recent call last):
+2026-10-13T14:26:13.4415286Z   File "/home/runner/work/unified-cache-management/unified-cache-management/.github/release/ucm_release/cleanup_remote.py", line 164, in request
+2026-10-13T14:26:13.4415928Z     with self._opener.open(request, timeout=60) as response:
+2026-10-13T14:26:13.4416215Z          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-10-13T14:26:13.4416652Z   File "/opt/hostedtoolcache/Python/3.12.15/x64/lib/python3.12/urllib/request.py", line 521, in open
+2026-10-13T14:26:13.4514101Z     response = meth(req, response)
+2026-10-13T14:26:13.4514429Z                ^^^^^^^^^^^^^^^^^^^
+2026-10-13T14:26:13.4514925Z   File "/opt/hostedtoolcache/Python/3.12.15/x64/lib/python3.12/urllib/request.py", line 630, in http_response
+2026-10-13T14:26:13.4515604Z     response = self.parent.error(
+2026-10-13T14:26:13.4515841Z                ^^^^^^^^^^^^^^^^^^
+2026-10-13T14:26:13.4516210Z   File "/opt/hostedtoolcache/Python/3.12.15/x64/lib/python3.12/urllib/request.py", line 559, in error
+2026-10-13T14:26:13.4516701Z     return self._call_chain(*args)
+2026-10-13T14:26:13.4517176Z            ^^^^^^^^^^^^^^^^^^^^^^^
+2026-10-13T14:26:13.4517615Z   File "/opt/hostedtoolcache/Python/3.12.15/x64/lib/python3.12/urllib/request.py", line 492, in _call_chain
+2026-10-13T14:26:13.4518497Z     result = func(*args)
+2026-10-13T14:26:13.4518787Z              ^^^^^^^^^^^
+2026-10-13T14:26:13.4519251Z   File "/opt/hostedtoolcache/Python/3.12.15/x64/lib/python3.12/urllib/request.py", line 639, in http_error_default
+2026-10-13T14:26:13.4520214Z     raise HTTPError(req.full_url, code, msg, hdrs, fp)
+2026-10-13T14:26:13.4520854Z urllib.error.HTTPError: HTTP Error 504: Gateway Timeout
+2026-10-13T14:26:13.4521206Z 
+2026-10-13T14:26:13.4521448Z The above exception was the direct cause of the following exception:
+2026-10-13T14:26:13.4521819Z 
+2026-10-13T14:26:13.4521972Z Traceback (most recent call last):
+2026-10-13T14:26:13.4522991Z   File "/home/runner/work/unified-cache-management/unified-cache-management/fixture-helper/.github/release/tests/historical_readback.py", line 201, in <module>
+2026-10-13T14:26:13.4523892Z     main()
+2026-10-13T14:26:13.4557969Z   File "/home/runner/work/unified-cache-management/unified-cache-management/fixture-helper/.github/release/tests/historical_readback.py", line 144, in main
+2026-10-13T14:26:13.4558906Z     baseline = acceptance.baseline(remote)
+2026-10-13T14:26:13.4559276Z                ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-10-13T14:26:13.4560544Z   File "/home/runner/work/unified-cache-management/unified-cache-management/fixture-helper/.github/release/tests/hosted_cleanup.py", line 118, in baseline
+2026-10-13T14:26:13.4561322Z     ref = remote.json_request(
+2026-10-13T14:26:13.4561583Z           ^^^^^^^^^^^^^^^^^^^^
+2026-10-13T14:26:13.4562359Z   File "/home/runner/work/unified-cache-management/unified-cache-management/.github/release/ucm_release/cleanup_remote.py", line 179, in json_request
+2026-10-13T14:26:13.4563154Z     raw = self.request(method, path)
+2026-10-13T14:26:13.4563450Z           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-10-13T14:26:13.4564210Z   File "/home/runner/work/unified-cache-management/unified-cache-management/.github/release/ucm_release/cleanup_remote.py", line 171, in request
+2026-10-13T14:26:13.4564979Z     raise RemoteError(
+2026-10-13T14:26:13.4565994Z ucm_release.cleanup_remote.RemoteError: GitHub API HTTP 504: {"message": "We couldn't respond to your request in time. Sorry about that. Please try resubmitting your request and contact us if the problem persists."}
+2026-10-13T14:26:13.4682209Z ##[error]Process completed with exit code 1.
+2026-10-13T14:26:13.4790972Z ##[group]Run actions/upload-artifact@v4.6.2
+2026-10-13T14:26:13.4791224Z with:
+2026-10-13T14:26:13.4791429Z   name: hosted-closure-run-38413260354-attempt-1
+2026-10-13T14:26:13.4791688Z   path: out/hosted/
+2026-10-13T14:26:13.4791873Z   if-no-files-found: warn
+2026-10-13T14:26:13.4792222Z   retention-days: 90
+2026-10-13T14:26:13.4792407Z   compression-level: 6
+2026-10-13T14:26:13.4792598Z   overwrite: false
+2026-10-13T14:26:13.4792780Z   include-hidden-files: false
+2026-10-13T14:26:13.4792976Z env:
+2026-10-13T14:26:13.4794867Z   GH_TOKEN: ***
+2026-10-13T14:26:13.4795109Z   PRODUCTION_SHA: f66366538b35faa51507452ae1ad676b10994a4d
+2026-10-13T14:26:13.4795381Z   SOURCE_RUN_ID: 34693636766
+2026-10-13T14:26:13.4795585Z   SCENARIO: history-readback
+2026-10-13T14:26:13.4795782Z   PREVIEW_TAG: v0.7.0rc12
+2026-10-13T14:26:13.4796003Z   DOCKERHUB_USERNAME: ***
+2026-10-13T14:26:13.4796243Z   DOCKERHUB_TOKEN: ***
+2026-10-13T14:26:13.4796507Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:26:13.4797055Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib/pkgconfig
+2026-10-13T14:26:13.4797389Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:26:13.4797696Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:26:13.4797997Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:26:13.4798293Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib
+2026-10-13T14:26:13.4798552Z ##[endgroup]
+2026-10-13T14:26:13.6106426Z (node:2333) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-10-13T14:26:13.6107480Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-10-13T14:26:13.6157450Z ##[warning]No files were found with the provided path: out/hosted/. No artifacts will be uploaded.
+2026-10-13T14:26:13.6350056Z Post job cleanup.
+2026-10-13T14:26:13.7076390Z [command]/usr/bin/git version
+2026-10-13T14:26:13.7110962Z git version 2.55.0
+2026-10-13T14:26:13.7138880Z Temporarily overriding HOME='/home/runner/work/_temp/080267e2-7e38-4be7-8776-42ae934a19ee' before making global git config changes
+2026-10-13T14:26:13.7139960Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-13T14:26:13.7145436Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/unified-cache-management/unified-cache-management/fixture-helper
+2026-10-13T14:26:13.7173154Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-13T14:26:13.7200879Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-13T14:26:13.7415684Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-13T14:26:13.7443925Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-13T14:26:13.7810416Z Post job cleanup.
+2026-10-13T14:26:13.8483563Z [command]/usr/bin/git version
+2026-10-13T14:26:13.8537451Z git version 2.55.0
+2026-10-13T14:26:13.8577742Z Temporarily overriding HOME='/home/runner/work/_temp/5332dc05-1b8a-4e89-9ee5-24cf496415e1' before making global git config changes
+2026-10-13T14:26:13.8578978Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-13T14:26:13.8594016Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/unified-cache-management/unified-cache-management
+2026-10-13T14:26:13.8641776Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-13T14:26:13.8643306Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-13T14:26:13.8887787Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-13T14:26:13.8949644Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-13T14:26:13.9345729Z Cleaning up orphan processes
+2026-10-13T14:26:13.9610786Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4.2.2, actions/setup-python@v5.6.0, actions/upload-artifact@v4.6.2. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

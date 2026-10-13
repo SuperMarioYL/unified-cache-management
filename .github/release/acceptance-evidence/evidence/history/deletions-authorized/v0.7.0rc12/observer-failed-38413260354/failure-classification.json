@@ -1,0 +1,10 @@
+{
+  "run_id": 38413260354,
+  "phase": "initial protected-baseline GET before precise resource readbacks",
+  "http_status": 504,
+  "error": "GitHub Gateway Timeout",
+  "exact_readbacks_reached": false,
+  "rule_window_restored_before_retry": true,
+  "production_cleanup_report_status": "complete; independent closure still pending",
+  "bounded_readonly_retry_planned": 1
+}

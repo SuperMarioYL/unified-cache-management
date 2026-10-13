@@ -1,0 +1,33 @@
+{
+  "ruleset_id": 20626631,
+  "changed_json_paths": [
+    "/conditions/ref_name/exclude"
+  ],
+  "added_exact_refs": [
+    "refs/tags/v0.7.0rc10",
+    "refs/tags/v0.7.0rc11",
+    "refs/tags/v0.7.0rc12",
+    "refs/tags/v0.7.0rc14"
+  ],
+  "unchanged_writable_fields": [
+    "name",
+    "target",
+    "enforcement",
+    "bypass_actors",
+    "conditions",
+    "rules"
+  ],
+  "original_excludes": [],
+  "exceptions_affect_rules": [
+    "deletion",
+    "update"
+  ],
+  "no_remote_mutation_performed": true,
+  "sha256": {
+    "ruleset-get.raw.json": "f463613ceaaaf60b489949f0374395eaa333a913f063dd6d54ff7d0cf035129d",
+    "ruleset-original.full.json": "ef2d5d461a9fe7dd60e628aaebff97f073e18eebc8bc9ac9ab7c2628de6aaaf8",
+    "ruleset-restore.put.json": "0f39099e67f8fd7a86a7c19026c0ff277b19f1909812266a11ac9eca0fadd75a",
+    "ruleset-exception.put.json": "25b94c5b5edbe18fac410e2cdb4cff902249e356506f68dbd07d8ba1907dca27",
+    "ruleset-exception.diff": "f3d6673c2744730fc688e12ba4afec892e44c3cb26d06c25f44ce815f984789b"
+  }
+}

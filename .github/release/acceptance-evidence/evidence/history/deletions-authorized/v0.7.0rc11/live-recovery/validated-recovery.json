@@ -1,0 +1,712 @@
+{
+  "tag": "v0.7.0rc11",
+  "release_id": 387556353,
+  "recovery_asset_id": 637318096,
+  "asset_name": "release-cleanup-34692329616-1-planned.json",
+  "resources": 169,
+  "coordinates_match_original": true,
+  "record": {
+    "kind": "ucm-release-cleanup",
+    "schema_version": 1,
+    "repository": "SuperMarioYL/unified-cache-management",
+    "tag": "v0.7.0rc11",
+    "source_sha": "cc298f2c12838d2fb71c3de38d0c5fdff02a1a5d",
+    "release_ids": [
+      387556353
+    ],
+    "runs": [
+      {
+        "id": 34692329616,
+        "attempt": 1
+      }
+    ],
+    "resources": [
+      {
+        "kind": "chart-oci",
+        "reference": "ghcr.io/supermarioyl/charts/unified-cache-chart:0.7.0-rc.11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-openeuler-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-openeuler-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-a3-openeuler-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-a3-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-openeuler-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ubuntu2404-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ubuntu2404-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ubuntu2404-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-index",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-openeuler-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-openeuler-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-openeuler-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-openeuler-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-a3-openeuler-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-a3-openeuler-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-a3-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-a3-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-openeuler-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-openeuler-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ubuntu2404-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ubuntu2404-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ubuntu2404-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ubuntu2404-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ubuntu2404-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ubuntu2404-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "ghcr-member",
+        "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-a3-openeuler-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-a3-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-openeuler-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc1-a3-openeuler-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc1-a3-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc1-openeuler-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc1-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-cu129-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-ubuntu2404-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-cu129-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-ubuntu2404-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-cu129-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-ubuntu2404-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-index",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-ucm-0.7.0rc11"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-a3-openeuler-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-a3-openeuler-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-a3-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-a3-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-openeuler-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-openeuler-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc1-a3-openeuler-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc1-a3-openeuler-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc1-a3-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc1-a3-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc1-openeuler-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc1-openeuler-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc1-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc1-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-cu129-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-cu129-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-ubuntu2404-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-ubuntu2404-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-cu129-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-cu129-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-ubuntu2404-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-ubuntu2404-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-cu129-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-cu129-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-ubuntu2404-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-ubuntu2404-ucm-0.7.0rc11-arm64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-ucm-0.7.0rc11-amd64"
+      },
+      {
+        "kind": "dockerhub-member",
+        "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-ucm-0.7.0rc11-arm64"
+      }
+    ],
+    "attempt_sources": [
+      {
+        "id": 34692329616,
+        "attempt": 1,
+        "source_sha": "cc298f2c12838d2fb71c3de38d0c5fdff02a1a5d"
+      }
+    ],
+    "versions": [
+      "0.7.0rc11"
+    ]
+  }
+}

@@ -1,0 +1,685 @@
+{
+  "tag": "v0.7.0rc10",
+  "production": {
+    "sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+    "module_hashes": {
+      "cleanup.py": "9e610fe42b1038b00eecd41148c0c29c63190b21e5b6ee27ec949556053ba585",
+      "cleanup_records.py": "186a1e05b02ea77ddd2360a1162620d7f86917bc512e7e39a5209fd2484aaba7",
+      "cleanup_inventory.py": "52d23639d541736691d01b24f7eaa4f6b48056839f90b617770ba2dd547dc6ad",
+      "cleanup_remote.py": "442374438d4cee304620ae67619c9a18f35b2d9d31be09416e848842ab3bbdb0"
+    }
+  },
+  "resources": [
+    {
+      "kind": "release",
+      "path": "/repos/SuperMarioYL/unified-cache-management/releases/387548975",
+      "status": 404,
+      "error": null
+    },
+    {
+      "kind": "tag",
+      "path": "/repos/SuperMarioYL/unified-cache-management/git/ref/tags/v0.7.0rc10",
+      "status": 404,
+      "error": null
+    },
+    {
+      "kind": "source_run",
+      "path": "/repos/SuperMarioYL/unified-cache-management/actions/runs/34691047256",
+      "status": 404,
+      "error": null
+    }
+  ],
+  "status": "complete",
+  "baseline": {
+    "v0.8.0rc2": {
+      "release_id": 391393808,
+      "tag_name": "v0.8.0rc2",
+      "draft": false,
+      "prerelease": true,
+      "name": "v0.8.0rc2",
+      "body_sha256": "10f66208afd31462406acbfcfc831b8cd717eab6886dbeb73722cffd96fc2e78",
+      "assets": [
+        {
+          "id": 572453305,
+          "name": "supermarioyl_uc_manager_cann901_a2-0.8.0rc2-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5561107,
+          "digest": "sha256:ff12e48b1c6a1b4e1a8d37e1890b46a026b128f6d6dbaa6a85b029509056cfcb"
+        },
+        {
+          "id": 572453306,
+          "name": "supermarioyl_uc_manager_cann901_a2-0.8.0rc2-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5165634,
+          "digest": "sha256:6911c45a8a17c8501aa3ed752aecd418a7b1172ec4c68aa89f61f4688080a557"
+        },
+        {
+          "id": 572453307,
+          "name": "supermarioyl_uc_manager_cann910_a2-0.8.0rc2-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5561123,
+          "digest": "sha256:b01e973ede3eaeb867e941d2220ffa1d485cbf831794b5f75d3104c679b069d1"
+        },
+        {
+          "id": 572453308,
+          "name": "supermarioyl_uc_manager_cann901_a3-0.8.0rc2-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5128369,
+          "digest": "sha256:a02814a12fcdcefd0bacda0bac37fd5d84e46a2a3a348ea8b9d075afa27bffdb"
+        },
+        {
+          "id": 572453309,
+          "name": "supermarioyl_uc_manager_cann901_a3-0.8.0rc2-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5502187,
+          "digest": "sha256:f28d2b5a4401cddb42fb4bd1188c3fa77f74ed1fa930bb8516bf9da223b05071"
+        },
+        {
+          "id": 572453331,
+          "name": "supermarioyl_uc_manager_cann910_a3-0.8.0rc2-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5128580,
+          "digest": "sha256:e3fa749448e4bde2e019a274a102efe46380434dc11f720f4965a5ed5a357c71"
+        },
+        {
+          "id": 572453332,
+          "name": "supermarioyl_uc_manager_cann910_a2-0.8.0rc2-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5165849,
+          "digest": "sha256:466ef49baa4f8dcad436e39c60414d1ba0304498da3b896505b14e3bb1b0d547"
+        },
+        {
+          "id": 572453333,
+          "name": "supermarioyl_uc_manager_cuda_cu129-0.8.0rc2-cp312-cp312-manylinux_2_28_x86_64.whl",
+          "size": 4541857,
+          "digest": "sha256:13699f9e97e6d6c2252bfa433718d2b69ea0eb80892f36f017700c2608deb460"
+        },
+        {
+          "id": 572453334,
+          "name": "supermarioyl_uc_manager_cann910_a3-0.8.0rc2-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5502197,
+          "digest": "sha256:7d637160e2d397e159de2ef821cb59c2fd60b6dc437b4619ce942c32d17338a6"
+        },
+        {
+          "id": 572453335,
+          "name": "supermarioyl_uc_manager_cuda_cu129-0.8.0rc2-cp312-cp312-manylinux_2_28_aarch64.whl",
+          "size": 4291720,
+          "digest": "sha256:432c211c63c19c25a0700178e67bc085eb8b51f73757e8380ced653cefdb0005"
+        },
+        {
+          "id": 572453346,
+          "name": "supermarioyl_uc_manager_cuda_cu130-0.8.0rc2-cp312-cp312-manylinux_2_28_x86_64.whl",
+          "size": 4549044,
+          "digest": "sha256:6ce41094144fbb4d1bdc163dd684ccf04a674be54ae5dc4cd96d1db529581d42"
+        },
+        {
+          "id": 572453348,
+          "name": "supermarioyl_ucm_toolkit-0.8.0rc2-py3-none-any.whl",
+          "size": 997160,
+          "digest": "sha256:161b241dd91e8cbcec104f3d019a4374aef2919516273ffa4259aa970455ac20"
+        },
+        {
+          "id": 572453350,
+          "name": "supermarioyl_uc_manager_cuda_cu130-0.8.0rc2-cp312-cp312-manylinux_2_28_aarch64.whl",
+          "size": 4299371,
+          "digest": "sha256:57103d85efc0f6be7e3cc16e41e86fe739150ae1c33d3da221829d68f5c2a921"
+        },
+        {
+          "id": 572453351,
+          "name": "unified-cache-chart-0.8.0-rc.2.tgz",
+          "size": 61160,
+          "digest": "sha256:aa85ad18986e76d5e670432fbe5ecbc1e148228de6a0cec0afedb3e788fd5c01"
+        },
+        {
+          "id": 572453352,
+          "name": "ucm_config_example.yaml",
+          "size": 795,
+          "digest": "sha256:e93e272b49efcfdd2e9160899e95a360b7bd50b336a02a6b04b1768e2ca4d7df"
+        },
+        {
+          "id": 572529466,
+          "name": "release-manifest.json",
+          "size": 56242,
+          "digest": "sha256:210e74e7fc237af7313487e0a18e5e7c7d3b138d91bfd3ac88632d0351982db3"
+        }
+      ],
+      "ref_object": {
+        "sha": "741fb68f49f1d541785fcb865656ecc4590c7489",
+        "type": "commit",
+        "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/commits/741fb68f49f1d541785fcb865656ecc4590c7489"
+      }
+    },
+    "nightly/v0.8.0-20260918-2": {
+      "release_id": 391382617,
+      "tag_name": "nightly/v0.8.0-20260918-2",
+      "draft": false,
+      "prerelease": true,
+      "name": "nightly/v0.8.0-20260918-2",
+      "body_sha256": "3a65750f04709d300870447f6ffa92f5eea5d77ce4f202f7899605ae9e0caead",
+      "assets": [
+        {
+          "id": 572401056,
+          "name": "supermarioyl_uc_manager_cann910_a2-0.8.0.dev20260918002-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5561287,
+          "digest": "sha256:b97748d37617af2e750ee86fbf74b76223b8d07950bfa10d1723d61c57242ea8"
+        },
+        {
+          "id": 572401059,
+          "name": "supermarioyl_uc_manager_cann901_a3-0.8.0.dev20260918002-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5502349,
+          "digest": "sha256:eec5be92a41c2e044040291bca3f79ce09ac44bb3a7a1e067f330c5d62a17d9f"
+        },
+        {
+          "id": 572401060,
+          "name": "supermarioyl_uc_manager_cann901_a2-0.8.0.dev20260918002-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5165798,
+          "digest": "sha256:228633ba2fd2f1c4df1fd93ca796db078c53820982224b1c3ed87109fd1ad2f4"
+        },
+        {
+          "id": 572401061,
+          "name": "supermarioyl_uc_manager_cann901_a2-0.8.0.dev20260918002-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5561270,
+          "digest": "sha256:056c2f81031d250c607f1999762af91c8e80ad3dec0fc3be5bdaa80eeef2a94b"
+        },
+        {
+          "id": 572401062,
+          "name": "supermarioyl_uc_manager_cann901_a3-0.8.0.dev20260918002-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5128532,
+          "digest": "sha256:e46f05f59cc65645191f214b0705e5dbf24a07435ed76c034cf16a844d21185f"
+        },
+        {
+          "id": 572401096,
+          "name": "supermarioyl_uc_manager_cann910_a2-0.8.0.dev20260918002-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5166015,
+          "digest": "sha256:4512c3d5c24291f45fa2ce0815f715955a301dbff1a5b4373837600612b36441"
+        },
+        {
+          "id": 572401098,
+          "name": "supermarioyl_uc_manager_cann910_a3-0.8.0.dev20260918002-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5502363,
+          "digest": "sha256:59c718cf271e804da83bbc8d07842dbac1b563e6a806dd4814b3a80da5ca3901"
+        },
+        {
+          "id": 572401099,
+          "name": "supermarioyl_uc_manager_cuda_cu129-0.8.0.dev20260918002-cp312-cp312-manylinux_2_28_x86_64.whl",
+          "size": 4542022,
+          "digest": "sha256:b9cbff21ef1f58fde4e88f4c60a25e7deaf599871e5059a1400083b9e73e0bfd"
+        },
+        {
+          "id": 572401100,
+          "name": "supermarioyl_uc_manager_cann910_a3-0.8.0.dev20260918002-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5128745,
+          "digest": "sha256:f03a4df0a4aea7e2d20c77420e57a5d343b6d4075c687e1a08f89fcc0021ff02"
+        },
+        {
+          "id": 572401101,
+          "name": "supermarioyl_uc_manager_cuda_cu129-0.8.0.dev20260918002-cp312-cp312-manylinux_2_28_aarch64.whl",
+          "size": 4291884,
+          "digest": "sha256:c383ccf626678596dd61833fd9d8c1ce196e92d5294d10137fe5b03d1615a6cc"
+        },
+        {
+          "id": 572401114,
+          "name": "supermarioyl_uc_manager_cuda_cu130-0.8.0.dev20260918002-cp312-cp312-manylinux_2_28_x86_64.whl",
+          "size": 4549208,
+          "digest": "sha256:c70d60dcb5f8ec923d6083ebdca531d31fd4093999724a1149e285b5ca76621d"
+        },
+        {
+          "id": 572401122,
+          "name": "supermarioyl_uc_manager_cuda_cu130-0.8.0.dev20260918002-cp312-cp312-manylinux_2_28_aarch64.whl",
+          "size": 4299535,
+          "digest": "sha256:00c92088f22b6086d3c8cdc8502469e55ad049dffe89b3ebf074157484e61646"
+        },
+        {
+          "id": 572401123,
+          "name": "supermarioyl_ucm_toolkit-0.8.0.dev20260918002-py3-none-any.whl",
+          "size": 997309,
+          "digest": "sha256:1f39c32a3ce15efa9fc655392f201476c63e76c7f2f4353c1b7bdb1118d91646"
+        },
+        {
+          "id": 572401873,
+          "name": "release-manifest.json",
+          "size": 13828,
+          "digest": "sha256:3e4b82f5f1be6a18e288a2b14cf8773940a41bf8643b8f52db3100f36ce3f46d"
+        }
+      ],
+      "ref_object": {
+        "sha": "741fb68f49f1d541785fcb865656ecc4590c7489",
+        "type": "commit",
+        "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/commits/741fb68f49f1d541785fcb865656ecc4590c7489"
+      }
+    },
+    "nightly/v0.8.0-20260918-1": {
+      "release_id": 391366814,
+      "tag_name": "nightly/v0.8.0-20260918-1",
+      "draft": false,
+      "prerelease": true,
+      "name": "nightly/v0.8.0-20260918-1",
+      "body_sha256": "9f8fb50634ab14bbe712b656018a7d8838ea6cd8629cb04fac4f9561a0af2b6e",
+      "assets": [
+        {
+          "id": 572361781,
+          "name": "supermarioyl_uc_manager_cann910_a2-0.8.0.dev20260918001-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5561293,
+          "digest": "sha256:29823471b8d0a71512b034083cfeb0b543e6b4279b6ae37284f314b7a371c3f5"
+        },
+        {
+          "id": 572361782,
+          "name": "supermarioyl_uc_manager_cann901_a2-0.8.0.dev20260918001-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5561276,
+          "digest": "sha256:a74daed80e48f80375e0bb322a24b002d95dbfae323af9366b5782b5fff9806c"
+        },
+        {
+          "id": 572361784,
+          "name": "supermarioyl_uc_manager_cann901_a2-0.8.0.dev20260918001-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5165806,
+          "digest": "sha256:922287e79ad35b8cddf9c53bd6b237e12fd371db98ae20e5fa206b78d4bc4b8e"
+        },
+        {
+          "id": 572361785,
+          "name": "supermarioyl_uc_manager_cann901_a3-0.8.0.dev20260918001-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5128541,
+          "digest": "sha256:6cd94338b3228b0e9d63c3c9f97a7417541b4f21d7bf5055d9f70499753c71ee"
+        },
+        {
+          "id": 572361786,
+          "name": "supermarioyl_uc_manager_cann901_a3-0.8.0.dev20260918001-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5502356,
+          "digest": "sha256:e7de027be7c6b1c47de4398400bdeff66a90e234972f4a2ee2b9af2bec40fdea"
+        },
+        {
+          "id": 572361809,
+          "name": "supermarioyl_uc_manager_cann910_a2-0.8.0.dev20260918001-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5166022,
+          "digest": "sha256:ec678a403f39a1a49df09d1f60a23e8d900e1d19e67277618d1c9213c92b46ae"
+        },
+        {
+          "id": 572361810,
+          "name": "supermarioyl_uc_manager_cann910_a3-0.8.0.dev20260918001-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5502369,
+          "digest": "sha256:5f73d760130662c1640a541eb4eb511ea3a79de1d3ec20caa1c2e76356be5ddc"
+        },
+        {
+          "id": 572361815,
+          "name": "supermarioyl_uc_manager_cann910_a3-0.8.0.dev20260918001-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5128752,
+          "digest": "sha256:36771f6f9d8ade7ff782cc9fc0634726c409430deda69699f4d65b6547f3c4ec"
+        },
+        {
+          "id": 572361816,
+          "name": "supermarioyl_uc_manager_cuda_cu129-0.8.0.dev20260918001-cp312-cp312-manylinux_2_28_x86_64.whl",
+          "size": 4542028,
+          "digest": "sha256:633e135618c4c31ad9598b295cfc0a0cd480ea939ea27b9d7cc4624adf116dc2"
+        },
+        {
+          "id": 572361817,
+          "name": "supermarioyl_uc_manager_cuda_cu129-0.8.0.dev20260918001-cp312-cp312-manylinux_2_28_aarch64.whl",
+          "size": 4291889,
+          "digest": "sha256:c21751683d0568e334a48e87f46b93a0b951e40fb095d2f8bea07b5ab96beb75"
+        },
+        {
+          "id": 572361839,
+          "name": "supermarioyl_uc_manager_cuda_cu130-0.8.0.dev20260918001-cp312-cp312-manylinux_2_28_x86_64.whl",
+          "size": 4549212,
+          "digest": "sha256:31725a21f955da8dd325ee7926dd14d2568d4fc7db32bf87c0d990975fb2e47e"
+        },
+        {
+          "id": 572361840,
+          "name": "supermarioyl_uc_manager_cuda_cu130-0.8.0.dev20260918001-cp312-cp312-manylinux_2_28_aarch64.whl",
+          "size": 4299541,
+          "digest": "sha256:1d17b6e93bf8be4c9c76fa8cc45bf9aa370f2dd36c7d2e78b5e48747ca4041dc"
+        },
+        {
+          "id": 572361850,
+          "name": "supermarioyl_ucm_toolkit-0.8.0.dev20260918001-py3-none-any.whl",
+          "size": 997310,
+          "digest": "sha256:d1aa9066dacda3d2693245047ce3136e6f74c504cd88c130170dcef2c956b42b"
+        },
+        {
+          "id": 572362529,
+          "name": "release-manifest.json",
+          "size": 13884,
+          "digest": "sha256:c565b2ecf70590f2d2a312635ee764617b24b2de4805455e41ee9f06b3af45b7"
+        }
+      ],
+      "ref_object": {
+        "sha": "9029899f18ed371f9d119da4410f7f8bcc9cbab9",
+        "type": "commit",
+        "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/commits/9029899f18ed371f9d119da4410f7f8bcc9cbab9"
+      }
+    },
+    "v0.7.0rc17": {
+      "release_id": 388853306,
+      "tag_name": "v0.7.0rc17",
+      "draft": false,
+      "prerelease": true,
+      "name": "v0.7.0rc17",
+      "body_sha256": "4674496d49a382e729864dd5892418e4fbfa09553e20c3b8652d5c33d4c53487",
+      "assets": [
+        {
+          "id": 564849332,
+          "name": "supermarioyl_uc_manager_cann901_a3-0.7.0rc17-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5061693,
+          "digest": "sha256:5f0192d318b8425cf0d309df30cea22670ad90f9fdedf657ee2e2dcb3d729687"
+        },
+        {
+          "id": 564849333,
+          "name": "supermarioyl_uc_manager_cann901_a2-0.7.0rc17-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5476481,
+          "digest": "sha256:75ec9945f2af92851019960bf089ccad0c51d8e5535800b44cd6d31613c54b1f"
+        },
+        {
+          "id": 564849334,
+          "name": "supermarioyl_uc_manager_cann910_a2-0.7.0rc17-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5476494,
+          "digest": "sha256:eaa38eed51f98d43593f608777b0d3112e8d970b10a110d0dae5a5fcf5a368aa"
+        },
+        {
+          "id": 564849335,
+          "name": "supermarioyl_uc_manager_cann901_a3-0.7.0rc17-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5417997,
+          "digest": "sha256:c6e9f9a93041c4ced77f39b36fe02c47719932fdeb9dc84b14ab531a4ed02d64"
+        },
+        {
+          "id": 564849338,
+          "name": "supermarioyl_uc_manager_cann901_a2-0.7.0rc17-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5099326,
+          "digest": "sha256:18dbe838f394b09578c12d4d2c06c2d303c49192eee8e015e5ae78e59af51d71"
+        },
+        {
+          "id": 564849344,
+          "name": "supermarioyl_uc_manager_cann910_a2-0.7.0rc17-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5099545,
+          "digest": "sha256:e584499543449bdc071213cec0e69c16a87e7bf5116f6fb01c33a2021152e116"
+        },
+        {
+          "id": 564849346,
+          "name": "supermarioyl_uc_manager_cann910_a3-0.7.0rc17-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5418006,
+          "digest": "sha256:39458ef091640d6386e17661bac05925fea9b4344f7aab7bee95599761d55426"
+        },
+        {
+          "id": 564849348,
+          "name": "supermarioyl_uc_manager_cann910_a3-0.7.0rc17-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5061900,
+          "digest": "sha256:7c6295b75798145ab649c8338c1771795611f6341e65f60c511934e54c853661"
+        },
+        {
+          "id": 564849349,
+          "name": "supermarioyl_uc_manager_cuda_cu129-0.7.0rc17-cp312-cp312-manylinux_2_28_x86_64.whl",
+          "size": 4484544,
+          "digest": "sha256:c6546898b6c802682c566b4ad3e20567e052ecec5cac1a84c704e9003caf03e8"
+        },
+        {
+          "id": 564849350,
+          "name": "supermarioyl_uc_manager_cuda_cu129-0.7.0rc17-cp312-cp312-manylinux_2_28_aarch64.whl",
+          "size": 4242464,
+          "digest": "sha256:f2d08423cf15063538d2cd3842481948eb4a77e49c03714fc07fac28bd6f7975"
+        },
+        {
+          "id": 564849355,
+          "name": "supermarioyl_uc_manager_cuda_cu130-0.7.0rc17-cp312-cp312-manylinux_2_28_x86_64.whl",
+          "size": 4491753,
+          "digest": "sha256:2915f81b36cc75eed16ee6d4d199ce339cf5cf2b67a5c56e37e83ac6f8d8aaa6"
+        },
+        {
+          "id": 564849356,
+          "name": "supermarioyl_uc_manager_cuda_cu130-0.7.0rc17-cp312-cp312-manylinux_2_28_aarch64.whl",
+          "size": 4250269,
+          "digest": "sha256:982a4c8004c9a136be392e7b53fdbced4f8ab86e1c62c4e5219ae50995307c8a"
+        },
+        {
+          "id": 564849357,
+          "name": "unified-cache-chart-0.7.0-rc.17.tgz",
+          "size": 59485,
+          "digest": "sha256:7772129a6c6db99caedff6a71360a25aec13033ee3f8f6246a71774e4b0dc8be"
+        },
+        {
+          "id": 564849358,
+          "name": "ucm_config_example.yaml",
+          "size": 795,
+          "digest": "sha256:e93e272b49efcfdd2e9160899e95a360b7bd50b336a02a6b04b1768e2ca4d7df"
+        },
+        {
+          "id": 564922859,
+          "name": "release-manifest.json",
+          "size": 17539,
+          "digest": "sha256:f068329f406f941c1c53f8b8b04845cb24d7e638ce5daa61af289cb094d18d78"
+        }
+      ],
+      "ref_object": {
+        "sha": "647ca349a8f00a2240eae1b045bf937e169a9ea7",
+        "type": "tag",
+        "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/tags/647ca349a8f00a2240eae1b045bf937e169a9ea7"
+      }
+    },
+    "v0.7.0rc16": {
+      "release_id": 387633035,
+      "tag_name": "v0.7.0rc16",
+      "draft": false,
+      "prerelease": true,
+      "name": "v0.7.0rc16",
+      "body_sha256": "fd485025d11919968d73525ad865f210e91503111253a9ac6d62673b332b9f81",
+      "assets": [
+        {
+          "id": 559612882,
+          "name": "supermarioyl_uc_manager_cann901_a2-0.7.0rc16-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5466174,
+          "digest": "sha256:72f413678ffd5a2e876af54b35fb91f80697c461f60ef348f83204af9b628369"
+        },
+        {
+          "id": 559612883,
+          "name": "supermarioyl_uc_manager_cann901_a2-0.7.0rc16-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5089607,
+          "digest": "sha256:0030621cdcfaa95f33c6e8d7ca028f56cdbc13056cc2545f0f19811458c7a18d"
+        },
+        {
+          "id": 559612884,
+          "name": "supermarioyl_uc_manager_cann910_a2-0.7.0rc16-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5466186,
+          "digest": "sha256:fd1d63a19d8eefb7d69db6a55ee7bf638dc433a1c4bf55a08a5ef68afb1a9585"
+        },
+        {
+          "id": 559612885,
+          "name": "supermarioyl_uc_manager_cann901_a3-0.7.0rc16-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5051967,
+          "digest": "sha256:2649b515c30acc169813267683eedfb2f1f48e6f7b89c7fd360301458a6c397b"
+        },
+        {
+          "id": 559612888,
+          "name": "supermarioyl_uc_manager_cann901_a3-0.7.0rc16-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5407682,
+          "digest": "sha256:5d88a475dd31be7c3fe5bfd7246c1cfac2155c93dfb75cabbd7576c0ef3e35cd"
+        },
+        {
+          "id": 559612904,
+          "name": "supermarioyl_uc_manager_cann910_a2-0.7.0rc16-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5089826,
+          "digest": "sha256:60401e9d4ee0599d1ec5932c1262bf7e48d6307c3ecf3177cfa433d8cfc812e8"
+        },
+        {
+          "id": 559612907,
+          "name": "supermarioyl_uc_manager_cann910_a3-0.7.0rc16-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5407691,
+          "digest": "sha256:37bf9c0ff159ffa1afa48bd8e3014988a87c726ba298ebe7bca9fb8771545ebd"
+        },
+        {
+          "id": 559612914,
+          "name": "supermarioyl_uc_manager_cann910_a3-0.7.0rc16-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5052174,
+          "digest": "sha256:338b2d5b8bff3399f45e92c3d469f0be035f5dfe101c33579638ad9c61242d60"
+        },
+        {
+          "id": 559612915,
+          "name": "supermarioyl_uc_manager_cuda_cu129-0.7.0rc16-cp312-cp312-manylinux_2_28_aarch64.whl",
+          "size": 4232573,
+          "digest": "sha256:30af511fa0baa7c95d97881635846c0fc1609b5476c086bd64ce3563aff18682"
+        },
+        {
+          "id": 559612917,
+          "name": "supermarioyl_uc_manager_cuda_cu129-0.7.0rc16-cp312-cp312-manylinux_2_28_x86_64.whl",
+          "size": 4474695,
+          "digest": "sha256:554fb3d55b545021315d9db0f65e0cc7ea6b27f29801308eb955b17f784ef545"
+        },
+        {
+          "id": 559612925,
+          "name": "supermarioyl_uc_manager_cuda_cu130-0.7.0rc16-cp312-cp312-manylinux_2_28_x86_64.whl",
+          "size": 4481906,
+          "digest": "sha256:4c001f814d9c8f6ce044a0649b6ceca93885ec5a5ba751f46f2c600711f232fd"
+        },
+        {
+          "id": 559612926,
+          "name": "supermarioyl_uc_manager_cuda_cu130-0.7.0rc16-cp312-cp312-manylinux_2_28_aarch64.whl",
+          "size": 4240387,
+          "digest": "sha256:cda1c917a9d8c9ffd31786dde4423631e850efcbf6865f73827157720577266d"
+        },
+        {
+          "id": 559612927,
+          "name": "unified-cache-chart-0.7.0-rc.16.tgz",
+          "size": 61218,
+          "digest": "sha256:7b4ac3fe5b67dcbbf9e448d8deb7c937e30848bf8b07f18ff26417daec8d6b20"
+        },
+        {
+          "id": 559612930,
+          "name": "supermarioyl_ucm_toolkit-0.7.0rc16-py3-none-any.whl",
+          "size": 997175,
+          "digest": "sha256:5855987d676564b3c2d08e7669dd8582981bf214440a8ac9961716751c9e2ad1"
+        },
+        {
+          "id": 559612934,
+          "name": "ucm_config_example.yaml",
+          "size": 795,
+          "digest": "sha256:e93e272b49efcfdd2e9160899e95a360b7bd50b336a02a6b04b1768e2ca4d7df"
+        },
+        {
+          "id": 559680236,
+          "name": "release-manifest.json",
+          "size": 56486,
+          "digest": "sha256:bfe01ed7c70ccab643bfd0f7a736c08def19c11114a63f87dd717842d66003cf"
+        }
+      ],
+      "ref_object": {
+        "sha": "20a5443a79f7a6835f1917feeb5cfb995a52432f",
+        "type": "commit",
+        "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/commits/20a5443a79f7a6835f1917feeb5cfb995a52432f"
+      }
+    },
+    "v0.7.0rc15": {
+      "release_id": 387595446,
+      "tag_name": "v0.7.0rc15",
+      "draft": false,
+      "prerelease": true,
+      "name": "v0.7.0rc15",
+      "body_sha256": "e863f49eaf60f9abcad1de9ecafcca9010fbedaa670a5acb7388a3ad0139c875",
+      "assets": [
+        {
+          "id": 559432634,
+          "name": "supermarioyl_uc_manager_cann901_a3-0.7.0rc15-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5407677,
+          "digest": "sha256:7e157c1dfe329caac4b32247eed63633685730585b9ffe853ce574cf3b695a5b"
+        },
+        {
+          "id": 559432635,
+          "name": "supermarioyl_uc_manager_cann910_a2-0.7.0rc15-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5466178,
+          "digest": "sha256:76bd750f358090b79fbfd971c8a7667afc1ed75b4213c70673a148e66d3454c8"
+        },
+        {
+          "id": 559432636,
+          "name": "supermarioyl_uc_manager_cann901_a2-0.7.0rc15-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5466166,
+          "digest": "sha256:d47b599d47d108927d06bc6049568786a36f52ef4879378ab1223cd252d93fb9"
+        },
+        {
+          "id": 559432637,
+          "name": "supermarioyl_uc_manager_cann901_a3-0.7.0rc15-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5051978,
+          "digest": "sha256:962d3f86dc1839d1ca56785e4a5a866393246c29b09a6c5ca75f3a0b30d82f01"
+        },
+        {
+          "id": 559432638,
+          "name": "supermarioyl_uc_manager_cann901_a2-0.7.0rc15-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5089613,
+          "digest": "sha256:361c8e32059faf68144de7c5125a8203038574bccc111f58881145b2926efd5e"
+        },
+        {
+          "id": 559432661,
+          "name": "supermarioyl_uc_manager_cann910_a2-0.7.0rc15-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5089833,
+          "digest": "sha256:95fa91af7e7f60e15f9fd9a73c32b51bb846ec4b2c93cdefd1c974694e144c85"
+        },
+        {
+          "id": 559432662,
+          "name": "supermarioyl_uc_manager_cann910_a3-0.7.0rc15-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "size": 5407685,
+          "digest": "sha256:b5ab408d12e51ff5af4f8c49894942f723dbae44be069eb90f2da87f947e5a05"
+        },
+        {
+          "id": 559432665,
+          "name": "supermarioyl_uc_manager_cann910_a3-0.7.0rc15-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "size": 5052183,
+          "digest": "sha256:e1140e5097c68d19fe84a872e1421afbcbd02fcf71a831ab4a08c2145a061547"
+        },
+        {
+          "id": 559432667,
+          "name": "supermarioyl_uc_manager_cuda_cu129-0.7.0rc15-cp312-cp312-manylinux_2_28_x86_64.whl",
+          "size": 4474687,
+          "digest": "sha256:2fe48ce5217604ef58a70fe04c3d888c58e57b75c2d94c900a3740a0b87b415c"
+        },
+        {
+          "id": 559432669,
+          "name": "supermarioyl_uc_manager_cuda_cu129-0.7.0rc15-cp312-cp312-manylinux_2_28_aarch64.whl",
+          "size": 4232573,
+          "digest": "sha256:c4517d9fc2d2538553c8ee5ed61292265578cd1d6f4108cb8f57f3359a45bfbc"
+        },
+        {
+          "id": 559432680,
+          "name": "supermarioyl_uc_manager_cuda_cu130-0.7.0rc15-cp312-cp312-manylinux_2_28_x86_64.whl",
+          "size": 4481904,
+          "digest": "sha256:92ede447cc20269c49aa1ba241b697b24338156c0296b582224ed5916dd39f57"
+        },
+        {
+          "id": 559432682,
+          "name": "supermarioyl_uc_manager_cuda_cu130-0.7.0rc15-cp312-cp312-manylinux_2_28_aarch64.whl",
+          "size": 4240379,
+          "digest": "sha256:22a6cacb033235e5b866f2bf3cbf87238e2ec8db2c9b92542411b03d69addb86"
+        },
+        {
+          "id": 559432683,
+          "name": "ucm_config_example.yaml",
+          "size": 795,
+          "digest": "sha256:e93e272b49efcfdd2e9160899e95a360b7bd50b336a02a6b04b1768e2ca4d7df"
+        },
+        {
+          "id": 559432684,
+          "name": "unified-cache-chart-0.7.0-rc.15.tgz",
+          "size": 61219,
+          "digest": "sha256:ff91ab25e9d0050763839a3568594e23acd7991c897e4fcd44f919694128a30f"
+        },
+        {
+          "id": 559432685,
+          "name": "supermarioyl_ucm_toolkit-0.7.0rc15-py3-none-any.whl",
+          "size": 997173,
+          "digest": "sha256:6867d016790ee4a04d4774627da012885db4c38f7958c8c92aa62569b80f8461"
+        },
+        {
+          "id": 559502060,
+          "name": "release-manifest.json",
+          "size": 56486,
+          "digest": "sha256:ccb3de0b391235694b66f215d23153707ebbc083e1cee1e6c61334aa63d8b542"
+        }
+      ],
+      "ref_object": {
+        "sha": "3586a7c84762a1e714e8b9cb1b3f9ea3c29bbbda",
+        "type": "commit",
+        "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/commits/3586a7c84762a1e714e8b9cb1b3f9ea3c29bbbda"
+      }
+    },
+    "v0.7.0rc13": {
+      "release_id": 387573061,
+      "tag_name": "v0.7.0rc13",
+      "draft": false,
+      "prerelease": true,
+      "name": "v0.7.0rc13",
+      "body_sha256": "3b1773d94331ba12c598b71a44264abecd16b587283b93d65b75da7570e70c11",
+      "assets": [],
+      "ref_object": {
+        "sha": "eae5575c011452ac6ce35d4e2a6e1870221d21b9",
+        "type": "commit",
+        "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/commits/eae5575c011452ac6ce35d4e2a6e1870221d21b9"
+      }
+    }
+  }
+}

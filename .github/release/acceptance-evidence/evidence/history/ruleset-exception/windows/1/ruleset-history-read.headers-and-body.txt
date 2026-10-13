@@ -1,0 +1,28 @@
+HTTP/2.0 200 OK
+Access-Control-Allow-Origin: *
+Access-Control-Expose-Headers: ETag, Link, Location, Retry-After, X-GitHub-OTP, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Used, X-RateLimit-Resource, X-RateLimit-Reset, X-OAuth-Scopes, X-Accepted-OAuth-Scopes, X-Poll-Interval, X-GitHub-Media-Type, X-GitHub-SSO, X-GitHub-Request-Id, Deprecation, Sunset, Warning
+Cache-Control: private, max-age=60, s-maxage=60
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Date: Tue, 13 Oct 2026 12:19:40 GMT
+Etag: W/"3f594495874ebae0651ee4e8810a40e47b0a1302c8ae47395712640a233a92d9"
+Referrer-Policy: origin-when-cross-origin, strict-origin-when-cross-origin
+Server: github.com
+Strict-Transport-Security: max-age=31536000; includeSubdomains; preload
+Vary: Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With
+X-Accepted-Oauth-Scopes: 
+X-Content-Type-Options: nosniff
+X-Frame-Options: deny
+X-Github-Api-Version-Selected: 2022-11-28
+X-Github-Edge-Region: southeastasia
+X-Github-Media-Type: github.v3; format=json
+X-Github-Request-Id: DC50:2C2284:891D8:D3048:6ACE21DB
+X-Oauth-Scopes: repo, user, workflow
+X-Ratelimit-Limit: 5000
+X-Ratelimit-Remaining: 4968
+X-Ratelimit-Reset: 1791897025
+X-Ratelimit-Resource: core
+X-Ratelimit-Used: 32
+X-Xss-Protection: 0
+
+[{"version_id":47100072,"updated_at":"2026-08-20T23:52:12.675+08:00","actor":{"id":20982600,"type":"User"}},{"version_id":46120710,"updated_at":"2026-08-11T02:09:31.105+08:00","actor":{"id":20982600,"type":"User"}},{"version_id":46120701,"updated_at":"2026-08-11T02:09:22.755+08:00","actor":{"id":20982600,"type":"User"}},{"version_id":46111323,"updated_at":"2026-08-11T00:13:05.746+08:00","actor":{"id":20982600,"type":"User"}},{"version_id":46111308,"updated_at":"2026-08-11T00:12:56.286+08:00","actor":{"id":20982600,"type":"User"}},{"version_id":46095668,"updated_at":"2026-08-10T22:37:50.373+08:00","actor":{"id":20982600,"type":"User"}},{"version_id":46095661,"updated_at":"2026-08-10T22:37:44.194+08:00","actor":{"id":20982600,"type":"User"}},{"version_id":46088746,"updated_at":"2026-08-10T21:43:49.770+08:00","actor":{"id":20982600,"type":"User"}},{"version_id":46088731,"updated_at":"2026-08-10T21:43:44.177+08:00","actor":{"id":20982600,"type":"User"}},{"version_id":46081383,"updated_at":"2026-08-10T20:38:01.530+08:00","actor":{"id":20982600,"type":"User"}},{"version_id":46081369,"updated_at":"2026-08-10T20:37:52.465+08:00","actor":{"id":20982600,"type":"User"}},{"version_id":46075463,"updated_at":"2026-08-10T19:07:54.500+08:00","actor":{"id":20982600,"type":"User"}},{"version_id":46075438,"updated_at":"2026-08-10T19:07:47.248+08:00","actor":{"id":20982600,"type":"User"}},{"version_id":46054282,"updated_at":"2026-08-10T14:53:00.033+08:00","actor":{"id":20982600,"type":"User"}}]

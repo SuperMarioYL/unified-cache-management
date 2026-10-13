@@ -1,0 +1,29 @@
+HTTP/2.0 200 OK
+Access-Control-Allow-Origin: *
+Access-Control-Expose-Headers: ETag, Link, Location, Retry-After, X-GitHub-OTP, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Used, X-RateLimit-Resource, X-RateLimit-Reset, X-OAuth-Scopes, X-Accepted-OAuth-Scopes, X-Poll-Interval, X-GitHub-Media-Type, X-GitHub-SSO, X-GitHub-Request-Id, Deprecation, Sunset, Warning
+Cache-Control: private, max-age=60, s-maxage=60
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Date: Tue, 13 Oct 2026 14:36:29 GMT
+Etag: W/"dbf3974002619db0c6d5b0c406457842912e963630adc6341d6e8e6e11a1d025"
+Last-Modified: Tue, 13 Oct 2026 14:36:22 GMT
+Referrer-Policy: origin-when-cross-origin, strict-origin-when-cross-origin
+Server: github.com
+Strict-Transport-Security: max-age=31536000; includeSubdomains; preload
+Vary: Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With
+X-Accepted-Oauth-Scopes: repo
+X-Content-Type-Options: nosniff
+X-Frame-Options: deny
+X-Github-Api-Version-Selected: 2022-11-28
+X-Github-Edge-Region: southeastasia
+X-Github-Media-Type: github.v3; format=json
+X-Github-Request-Id: 9476:27C135:9B307:F0AF2:6ACE41ED
+X-Oauth-Scopes: repo, user, workflow
+X-Ratelimit-Limit: 5000
+X-Ratelimit-Remaining: 4872
+X-Ratelimit-Reset: 1791904500
+X-Ratelimit-Resource: core
+X-Ratelimit-Used: 128
+X-Xss-Protection: 0
+
+{"url":"https://api.github.com/repos/SuperMarioYL/unified-cache-management/releases/387548975","assets_url":"https://api.github.com/repos/SuperMarioYL/unified-cache-management/releases/387548975/assets","upload_url":"https://uploads.github.com/repos/SuperMarioYL/unified-cache-management/releases/387548975/assets{?name,label}","html_url":"https://github.com/SuperMarioYL/unified-cache-management/releases/tag/v0.7.0rc10","id":387548975,"author":{"login":"github-actions[bot]","id":41898282,"node_id":"MDM6Qm90NDE4OTgyODI=","avatar_url":"https://avatars.githubusercontent.com/in/15368?v=4","gravatar_id":"","url":"https://api.github.com/users/github-actions%5Bbot%5D","html_url":"https://github.com/apps/github-actions","followers_url":"https://api.github.com/users/github-actions%5Bbot%5D/followers","following_url":"https://api.github.com/users/github-actions%5Bbot%5D/following{/other_user}","gists_url":"https://api.github.com/users/github-actions%5Bbot%5D/gists{/gist_id}","starred_url":"https://api.github.com/users/github-actions%5Bbot%5D/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/github-actions%5Bbot%5D/subscriptions","organizations_url":"https://api.github.com/users/github-actions%5Bbot%5D/orgs","repos_url":"https://api.github.com/users/github-actions%5Bbot%5D/repos","events_url":"https://api.github.com/users/github-actions%5Bbot%5D/events{/privacy}","received_events_url":"https://api.github.com/users/github-actions%5Bbot%5D/received_events","type":"Bot","user_view_type":"public","site_admin":false},"node_id":"RE_kwDORjIt2c4XGYcv","tag_name":"v0.7.0rc10","target_commitish":"develop","name":"v0.7.0rc10","draft":false,"immutable":false,"prerelease":true,"created_at":"2026-09-12T11:13:17Z","updated_at":"2026-10-13T14:36:22Z","published_at":"2026-09-12T11:26:50Z","assets":[{"url":"https://api.github.com/repos/SuperMarioYL/unified-cache-management/releases/assets/637302756","id":637302756,"node_id":"RA_kwDORjIt2c4l_Hfk","name":"release-cleanup-34691047256-1-planned.json","label":"","uploader":{"login":"github-actions[bot]","id":41898282,"node_id":"MDM6Qm90NDE4OTgyODI=","avatar_url":"https://avatars.githubusercontent.com/in/15368?v=4","gravatar_id":"","url":"https://api.github.com/users/github-actions%5Bbot%5D","html_url":"https://github.com/apps/github-actions","followers_url":"https://api.github.com/users/github-actions%5Bbot%5D/followers","following_url":"https://api.github.com/users/github-actions%5Bbot%5D/following{/other_user}","gists_url":"https://api.github.com/users/github-actions%5Bbot%5D/gists{/gist_id}","starred_url":"https://api.github.com/users/github-actions%5Bbot%5D/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/github-actions%5Bbot%5D/subscriptions","organizations_url":"https://api.github.com/users/github-actions%5Bbot%5D/orgs","repos_url":"https://api.github.com/users/github-actions%5Bbot%5D/repos","events_url":"https://api.github.com/users/github-actions%5Bbot%5D/events{/privacy}","received_events_url":"https://api.github.com/users/github-actions%5Bbot%5D/received_events","type":"Bot","user_view_type":"public","site_admin":false},"content_type":"application/json","state":"uploaded","size":25436,"digest":"sha256:f660745597b350fcac5507e4e02fdccdb299e871340457e8e40a46b56b04cccb","download_count":0,"created_at":"2026-10-13T14:36:22Z","updated_at":"2026-10-13T14:36:22Z","browser_download_url":"https://github.com/SuperMarioYL/unified-cache-management/releases/download/v0.7.0rc10/release-cleanup-34691047256-1-planned.json"}],"tarball_url":"https://api.github.com/repos/SuperMarioYL/unified-cache-management/tarball/v0.7.0rc10","zipball_url":"https://api.github.com/repos/SuperMarioYL/unified-cache-management/zipball/v0.7.0rc10","body":"Status: `artifacts-failed`\n\nThis RC did not publish release artifacts. Validation failed because the meta Wheel reader still required every dependency to be a native backend, and Helm default-image selection tried to parse the valid `unreported` OS label as a version.\n\nThe run was cancelled after these failures were identified. The tag remains at its original source commit; fixes will be validated with a new RC tag.\n\n[Workflow evidence](https://github.com/SuperMarioYL/unified-cache-management/actions/runs/34691047256)\n"}

@@ -1,0 +1,59 @@
+﻿2026-10-13T14:26:00.6490109Z ##[group]Run set -euo pipefail
+2026-10-13T14:26:00.6490373Z [36;1mset -euo pipefail[0m
+2026-10-13T14:26:00.6490694Z [36;1mpython fixture-helper/.github/release/tests/historical_readback.py readback \[0m
+2026-10-13T14:26:00.6491117Z [36;1m  --production-root . --production-sha "${PRODUCTION_SHA}" \[0m
+2026-10-13T14:26:00.6491441Z [36;1m  --tag "${PREVIEW_TAG}"[0m
+2026-10-13T14:26:00.6549572Z shell: /usr/bin/bash -e {0}
+2026-10-13T14:26:00.6549788Z env:
+2026-10-13T14:26:00.6551633Z   GH_TOKEN: ***
+2026-10-13T14:26:00.6551873Z   PRODUCTION_SHA: f66366538b35faa51507452ae1ad676b10994a4d
+2026-10-13T14:26:00.6552147Z   SOURCE_RUN_ID: 34693636766
+2026-10-13T14:26:00.6552349Z   SCENARIO: history-readback
+2026-10-13T14:26:00.6552540Z   PREVIEW_TAG: v0.7.0rc12
+2026-10-13T14:26:00.6552744Z   DOCKERHUB_USERNAME: ***
+2026-10-13T14:26:00.6552986Z   DOCKERHUB_TOKEN: ***
+2026-10-13T14:26:00.6553215Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:26:00.6553554Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib/pkgconfig
+2026-10-13T14:26:00.6553931Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:26:00.6554231Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:26:00.6554521Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T14:26:00.6554973Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib
+2026-10-13T14:26:00.6555232Z ##[endgroup]
+2026-10-13T14:26:13.4409805Z Traceback (most recent call last):
+2026-10-13T14:26:13.4415277Z   File "/home/runner/work/unified-cache-management/unified-cache-management/.github/release/ucm_release/cleanup_remote.py", line 164, in request
+2026-10-13T14:26:13.4415926Z     with self._opener.open(request, timeout=60) as response:
+2026-10-13T14:26:13.4416213Z          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-10-13T14:26:13.4416649Z   File "/opt/hostedtoolcache/Python/3.12.15/x64/lib/python3.12/urllib/request.py", line 521, in open
+2026-10-13T14:26:13.4514027Z     response = meth(req, response)
+2026-10-13T14:26:13.4514428Z                ^^^^^^^^^^^^^^^^^^^
+2026-10-13T14:26:13.4514921Z   File "/opt/hostedtoolcache/Python/3.12.15/x64/lib/python3.12/urllib/request.py", line 630, in http_response
+2026-10-13T14:26:13.4515601Z     response = self.parent.error(
+2026-10-13T14:26:13.4515840Z                ^^^^^^^^^^^^^^^^^^
+2026-10-13T14:26:13.4516207Z   File "/opt/hostedtoolcache/Python/3.12.15/x64/lib/python3.12/urllib/request.py", line 559, in error
+2026-10-13T14:26:13.4516698Z     return self._call_chain(*args)
+2026-10-13T14:26:13.4517174Z            ^^^^^^^^^^^^^^^^^^^^^^^
+2026-10-13T14:26:13.4517612Z   File "/opt/hostedtoolcache/Python/3.12.15/x64/lib/python3.12/urllib/request.py", line 492, in _call_chain
+2026-10-13T14:26:13.4518494Z     result = func(*args)
+2026-10-13T14:26:13.4518783Z              ^^^^^^^^^^^
+2026-10-13T14:26:13.4519248Z   File "/opt/hostedtoolcache/Python/3.12.15/x64/lib/python3.12/urllib/request.py", line 639, in http_error_default
+2026-10-13T14:26:13.4520208Z     raise HTTPError(req.full_url, code, msg, hdrs, fp)
+2026-10-13T14:26:13.4520840Z urllib.error.HTTPError: HTTP Error 504: Gateway Timeout
+2026-10-13T14:26:13.4521202Z 
+2026-10-13T14:26:13.4521445Z The above exception was the direct cause of the following exception:
+2026-10-13T14:26:13.4521816Z 
+2026-10-13T14:26:13.4521969Z Traceback (most recent call last):
+2026-10-13T14:26:13.4522986Z   File "/home/runner/work/unified-cache-management/unified-cache-management/fixture-helper/.github/release/tests/historical_readback.py", line 201, in <module>
+2026-10-13T14:26:13.4523888Z     main()
+2026-10-13T14:26:13.4557946Z   File "/home/runner/work/unified-cache-management/unified-cache-management/fixture-helper/.github/release/tests/historical_readback.py", line 144, in main
+2026-10-13T14:26:13.4558901Z     baseline = acceptance.baseline(remote)
+2026-10-13T14:26:13.4559273Z                ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-10-13T14:26:13.4560141Z   File "/home/runner/work/unified-cache-management/unified-cache-management/fixture-helper/.github/release/tests/hosted_cleanup.py", line 118, in baseline
+2026-10-13T14:26:13.4561319Z     ref = remote.json_request(
+2026-10-13T14:26:13.4561580Z           ^^^^^^^^^^^^^^^^^^^^
+2026-10-13T14:26:13.4562355Z   File "/home/runner/work/unified-cache-management/unified-cache-management/.github/release/ucm_release/cleanup_remote.py", line 179, in json_request
+2026-10-13T14:26:13.4563150Z     raw = self.request(method, path)
+2026-10-13T14:26:13.4563447Z           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-10-13T14:26:13.4564207Z   File "/home/runner/work/unified-cache-management/unified-cache-management/.github/release/ucm_release/cleanup_remote.py", line 171, in request
+2026-10-13T14:26:13.4564976Z     raise RemoteError(
+2026-10-13T14:26:13.4565988Z ucm_release.cleanup_remote.RemoteError: GitHub API HTTP 504: {"message": "We couldn't respond to your request in time. Sorry about that. Please try resubmitting your request and contact us if the problem persists."}
+2026-10-13T14:26:13.4682185Z ##[error]Process completed with exit code 1.

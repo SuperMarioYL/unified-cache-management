@@ -1,0 +1,25 @@
+{
+  "total_count": 1,
+  "artifacts": [
+    {
+      "id": 11823202555,
+      "node_id": "MDg6QXJ0aWZhY3QxMTgyMzIwMjU1NQ==",
+      "name": "ucm-tag-cleanup-run-38412788662-attempt-1",
+      "size_in_bytes": 1814,
+      "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/actions/artifacts/11823202555",
+      "archive_download_url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/actions/artifacts/11823202555/zip",
+      "expired": false,
+      "digest": "sha256:13dcd0d3398b8a33092b58fb24cf3a36e3d67ffdf21723bbe2efa7810c6394e2",
+      "created_at": "2026-10-13T14:24:27Z",
+      "updated_at": "2026-10-13T14:24:27Z",
+      "expires_at": "2027-01-11T14:22:30Z",
+      "workflow_run": {
+        "id": 38412788662,
+        "repository_id": 1177693657,
+        "head_repository_id": 1177693657,
+        "head_branch": "develop",
+        "head_sha": "f66366538b35faa51507452ae1ad676b10994a4d"
+      }
+    }
+  ]
+}

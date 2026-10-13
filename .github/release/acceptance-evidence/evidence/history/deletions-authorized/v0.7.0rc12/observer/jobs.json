@@ -1,0 +1,209 @@
+{
+  "total_count": 1,
+  "jobs": [
+    {
+      "id": 115352943426,
+      "run_id": 38413855557,
+      "workflow_name": "Fork cleanup closure \u00b7 history-readback \u00b7 source 34693636766",
+      "head_branch": "feature/history-version-metadata-20261013",
+      "run_url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/actions/runs/38413855557",
+      "run_attempt": 1,
+      "node_id": "CR_kwDORjIt2c8AAAAa25I7Qg",
+      "head_sha": "776bfbb1cdad7fd30d6beb2a794ae9aedd87a708",
+      "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/actions/jobs/115352943426",
+      "html_url": "https://github.com/SuperMarioYL/unified-cache-management/actions/runs/38413855557/job/115352943426",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-13T14:29:53Z",
+      "started_at": "2026-10-13T14:29:57Z",
+      "completed_at": "2026-10-13T14:30:20Z",
+      "name": "closure",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-13T14:29:58Z",
+          "completed_at": "2026-10-13T14:29:59Z"
+        },
+        {
+          "name": "Run actions/checkout@v4.2.2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-13T14:29:59Z",
+          "completed_at": "2026-10-13T14:30:01Z"
+        },
+        {
+          "name": "Run actions/checkout@v4.2.2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-13T14:30:01Z",
+          "completed_at": "2026-10-13T14:30:02Z"
+        },
+        {
+          "name": "Run actions/setup-python@v5.6.0",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-13T14:30:02Z",
+          "completed_at": "2026-10-13T14:30:02Z"
+        },
+        {
+          "name": "Run python -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: -r .github/release/requirements.txt",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-13T14:30:02Z",
+          "completed_at": "2026-10-13T14:30:07Z"
+        },
+        {
+          "name": "Run ./.github/actions/setup-crane",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-13T14:30:07Z",
+          "completed_at": "2026-10-13T14:30:08Z"
+        },
+        {
+          "name": "Authenticate read-only registry preflight",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 7,
+          "started_at": "2026-10-13T14:30:08Z",
+          "completed_at": "2026-10-13T14:30:08Z"
+        },
+        {
+          "name": "Preview only the four reviewed historical Tags using production CLI",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 8,
+          "started_at": "2026-10-13T14:30:08Z",
+          "completed_at": "2026-10-13T14:30:08Z"
+        },
+        {
+          "name": "Compare registry authentication and manifest routes without exposing tokens",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 9,
+          "started_at": "2026-10-13T14:30:08Z",
+          "completed_at": "2026-10-13T14:30:08Z"
+        },
+        {
+          "name": "Freeze exact historical identities using authenticated HEAD without GET fallback",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 10,
+          "started_at": "2026-10-13T14:30:08Z",
+          "completed_at": "2026-10-13T14:30:08Z"
+        },
+        {
+          "name": "Archive only the reviewed resource-free fixture source",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 11,
+          "started_at": "2026-10-13T14:30:08Z",
+          "completed_at": "2026-10-13T14:30:08Z"
+        },
+        {
+          "name": "Independently read exact deleted historical identities",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-10-13T14:30:08Z",
+          "completed_at": "2026-10-13T14:30:15Z"
+        },
+        {
+          "name": "Capture durable source ledger in this independent closure run",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 13,
+          "started_at": "2026-10-13T14:30:15Z",
+          "completed_at": "2026-10-13T14:30:15Z"
+        },
+        {
+          "name": "Publish capture acknowledgement before source cancellation or completion",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 14,
+          "started_at": "2026-10-13T14:30:15Z",
+          "completed_at": "2026-10-13T14:30:15Z"
+        },
+        {
+          "name": "Prove active source is deferred before acknowledging its terminal step",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 15,
+          "started_at": "2026-10-13T14:30:15Z",
+          "completed_at": "2026-10-13T14:30:15Z"
+        },
+        {
+          "name": "Publish independently verified active acknowledgement",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 16,
+          "started_at": "2026-10-13T14:30:15Z",
+          "completed_at": "2026-10-13T14:30:15Z"
+        },
+        {
+          "name": "Observe terminal source and prove deployed cleanup behavior",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 17,
+          "started_at": "2026-10-13T14:30:15Z",
+          "completed_at": "2026-10-13T14:30:15Z"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4.6.2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-10-13T14:30:15Z",
+          "completed_at": "2026-10-13T14:30:17Z"
+        },
+        {
+          "name": "Post Run actions/setup-python@v5.6.0",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 34,
+          "started_at": "2026-10-13T14:30:17Z",
+          "completed_at": "2026-10-13T14:30:17Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v4.2.2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 35,
+          "started_at": "2026-10-13T14:30:17Z",
+          "completed_at": "2026-10-13T14:30:17Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v4.2.2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 36,
+          "started_at": "2026-10-13T14:30:17Z",
+          "completed_at": "2026-10-13T14:30:17Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 37,
+          "started_at": "2026-10-13T14:30:17Z",
+          "completed_at": "2026-10-13T14:30:17Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/check-runs/115352943426",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "runner_id": 1000027656,
+      "runner_name": "GitHub Actions 1000027656",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    }
+  ]
+}

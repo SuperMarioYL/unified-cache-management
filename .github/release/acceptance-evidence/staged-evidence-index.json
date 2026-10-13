@@ -1,13 +1,13 @@
 [
   {
     "path": "evidence/ACCEPTANCE.md",
-    "bytes": 7673,
-    "sha256": "9910441b8db018412fddbf57082ff7217064e8b2a62e4b22bc4da666e4dab94b"
+    "bytes": 7376,
+    "sha256": "c1f3c59996256139c6b55022431deac7e3691877d6e453e4d6b6fb8f8d000faa"
   },
   {
     "path": "evidence/acceptance-status.json",
-    "bytes": 2512,
-    "sha256": "56a56e0ea8ffe6c00ec2de459a6efbcec7c58799e448fb28936cec1a2205f997"
+    "bytes": 2123,
+    "sha256": "545a982da77116e39b01b58867d5e715e8cfa5f8c25e541f494cbe1b6366e17e"
   },
   {
     "path": "evidence/archive-artifacts.json",
@@ -50,6 +50,11 @@
     "sha256": "4732c2a3d0563940e9cf427b4e2e283691ed422fcbd51d3dacdd3b187a81527d"
   },
   {
+    "path": "evidence/history/authorized-history-summary.json",
+    "bytes": 161727,
+    "sha256": "3d6f82686bc900eac5dfa4ae34f4b6d155b3b69936127dec1a5fdf5b29980db1"
+  },
+  {
     "path": "evidence/history/deletions/v0.7.0rc12/recovery-snapshot-readback.json",
     "bytes": 213,
     "sha256": "b27349ff2f80aa18289da3ac9ca94aceb8a9ffcff17583638285622d87500e2c"
@@ -63,6 +68,721 @@
     "path": "evidence/history/deletions/v0.7.0rc12/tag-422-response.json",
     "bytes": 184,
     "sha256": "83f2d57d305d9ed8a2e31ab96f02b0fa55371232f617b85507474e476fb656f8"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/cleanup/artifacts.json",
+    "bytes": 952,
+    "sha256": "812a97709a467cfce80f5e7e8f671760cd4a464f71a30c45fd1c734e7fcdd2e7"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/cleanup/dispatch-after.json",
+    "bytes": 699651,
+    "sha256": "93bc6c70b0142e5cfe7e6016980fb034b958e55e176912d966eec171311f7e3e"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/cleanup/dispatch-before.json",
+    "bytes": 699912,
+    "sha256": "cfb88e944899508b36e22922860d9c01cf34a706ac8754d008b04fc2f1e34f0e"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/cleanup/dispatch-ledger.json",
+    "bytes": 1244,
+    "sha256": "38173dd77b3b7a3877da4728cfa823255103ad1232bb74d544678973d1d75789"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/cleanup/files/cleanup.log",
+    "bytes": 25807,
+    "sha256": "2121e562d002e26259c7a09fcd88c78bfd82f4bee61ccb89b4dedaf36420a03e"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/cleanup/files/implementation-files.sha256",
+    "bytes": 445,
+    "sha256": "bb91e43997f0f7e0740ad30d95d2e7c50271fe249a8f647b37f13eafa3d3ea03"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/cleanup/files/implementation-sha.txt",
+    "bytes": 41,
+    "sha256": "16e41598ba327c1282ed0ccbd4768017c7678f491478f4b32f8390b2f40117ca"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/cleanup/files/release-cleanup-34691047256-1-planned.json",
+    "bytes": 25436,
+    "sha256": "f660745597b350fcac5507e4e02fdccdb299e871340457e8e40a46b56b04cccb"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/cleanup/files/report.json",
+    "bytes": 322,
+    "sha256": "0372d177fbc93a2414302e28934bef35ec16b27090311039707e6c180e52218f"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/cleanup/jobs.json",
+    "bytes": 4750,
+    "sha256": "9e05ccb5504076574d8461441c9335715e1febcafae191d9c0a366f54c556fdb"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/cleanup/run.json",
+    "bytes": 15236,
+    "sha256": "9933df0cf1d850e75ff8ea589d2039c04fb9972184ae193c8405c5b27b601f7e"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/cleanup/validation.json",
+    "bytes": 1123,
+    "sha256": "ddef539a619d9831a6b148badcd144711878ca5c985a34f16bd4682e3fe98e8a"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/exact-admin-readback/readbacks.json",
+    "bytes": 1490,
+    "sha256": "961186fa689ae67421c53807d6ee6cf1b4cf91875b67ccbd4ec7142c9f5cfd67"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--actions--runs--34691047256.http.txt",
+    "bytes": 1293,
+    "sha256": "722200af3538c7e4b5df8ba0a7ab1b594049d05dcb6655698fff60a6c1a6fee4"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--git--ref--tags--v0.7.0rc10.http.txt",
+    "bytes": 1300,
+    "sha256": "a2354b709bd741488ab5d0ee4ab5201c631b0a89202e535cfe5c62549f5e00e0"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--387548975.http.txt",
+    "bytes": 1289,
+    "sha256": "109905279ed25ba610670e296dea86e629efb642e41ce4367c1affe6bceed1e6"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--assets--637302756.http.txt",
+    "bytes": 1293,
+    "sha256": "5f7807829e1d388e481ef05117d41a9333e6a6a5af52f05b514070b98ea8a6f1"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/live-recovery/last-release.http.txt",
+    "bytes": 5663,
+    "sha256": "25f5b4dcb7af25deebb6515dd023a2431a81b1e64ed488a179bc03e3cf71967a"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/live-recovery/recovery-asset.metadata.json",
+    "bytes": 1895,
+    "sha256": "1926f6378bef1b34dd5999078e419d1ce69fdf88588dd742a3ed251bfcc9681c"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/live-recovery/release-cleanup-34691047256-1-planned.json",
+    "bytes": 25436,
+    "sha256": "f660745597b350fcac5507e4e02fdccdb299e871340457e8e40a46b56b04cccb"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/live-recovery/release-with-recovery.http.txt",
+    "bytes": 5663,
+    "sha256": "25f5b4dcb7af25deebb6515dd023a2431a81b1e64ed488a179bc03e3cf71967a"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/live-recovery/validated-recovery.json",
+    "bytes": 27275,
+    "sha256": "440b7e4a8e543a1c68b354fca36ab7dbda4259f8da606519361817b8867e1e68"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/observer/artifacts.json",
+    "bytes": 985,
+    "sha256": "11a30dec26d91415290af1f001d5a10e2fba2cf9992846f076a47ce20f9b95e1"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/observer/dispatch-after.json",
+    "bytes": 699641,
+    "sha256": "2e8b37227e06862ad228ee4e5deabd9341adf567a0f1528eb0085c14a18be02f"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/observer/dispatch-before.json",
+    "bytes": 699659,
+    "sha256": "8f3901004eb6b992f6ad4735a7c18b1f5c57c4d3efe204c93b471dfee49b8f2c"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/observer/dispatch-ledger.json",
+    "bytes": 1279,
+    "sha256": "b3da26748306fcdf66a1d74f059410b7c364f616e53ac42345a6eb34f15f79ba"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/observer/files/historical-readback.json",
+    "bytes": 29035,
+    "sha256": "5b9e4b218d4bf9862643fa11ebc401219d6f01b3f86472a8019026817b2d95c8"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/observer/jobs.json",
+    "bytes": 7486,
+    "sha256": "66cd2e244b8c81c5507dd103ffc1e4043f391298c6db9be1635ed655ff27b61f"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/observer/run.json",
+    "bytes": 15360,
+    "sha256": "2d0a6911dc419888191cd20124c96095cc89208c2e6679ddf71dd58f7b6ff774"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc10/observer/validation.json",
+    "bytes": 30727,
+    "sha256": "0075c6f50e14150b13839dc364cadbdf9aa4daff24fadd61445ef3121204d54c"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/cleanup/artifacts.json",
+    "bytes": 952,
+    "sha256": "c268ca1e278ed890b72c91ab23477cfb2be9670fdd334da3e1b175fdd598065a"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/cleanup/dispatch-after.json",
+    "bytes": 699518,
+    "sha256": "0a78fbdd993a444d90e54c9cb05a803fe6c17e3393962e85790b92c30fd526e0"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/cleanup/dispatch-before.json",
+    "bytes": 699644,
+    "sha256": "cf4d81ec2f0cb0c531002afddabd168a4f08048760179471418bd8d31b90b963"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/cleanup/dispatch-ledger.json",
+    "bytes": 1244,
+    "sha256": "1ff9d7086cba08dd52b645dc1e1d452d51bded647fc3d26208fb21c92b80f30c"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/cleanup/files/cleanup.log",
+    "bytes": 25807,
+    "sha256": "bf314d552e5d44821d41ad531b3e7197160b01b4b3772d00f84dc6ba290855ff"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/cleanup/files/implementation-files.sha256",
+    "bytes": 445,
+    "sha256": "bb91e43997f0f7e0740ad30d95d2e7c50271fe249a8f647b37f13eafa3d3ea03"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/cleanup/files/implementation-sha.txt",
+    "bytes": 41,
+    "sha256": "16e41598ba327c1282ed0ccbd4768017c7678f491478f4b32f8390b2f40117ca"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/cleanup/files/release-cleanup-34692329616-1-planned.json",
+    "bytes": 25436,
+    "sha256": "fe06dafb729f6b0c3181cb203233f0881e48d56dae8c493bfb47007764925958"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/cleanup/files/report.json",
+    "bytes": 322,
+    "sha256": "bf783464b2eb32578eb7ae40322a4d401b1d04b15ddc6de22b4dfa7450314b9c"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/cleanup/jobs.json",
+    "bytes": 4750,
+    "sha256": "d155a6dcbb7405b2f0ad6214b724f90a8bf37b537e74abe8e11d2574bff4f9ff"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/cleanup/run.json",
+    "bytes": 15236,
+    "sha256": "44f2a4f057753711b5ac9acc3ec88eaf371e67005db2b15a7d5343d385056ab4"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/cleanup/validation.json",
+    "bytes": 1123,
+    "sha256": "08664f44e0496524c729cfe58107812ab486ed2c1ba9bbe8d885a832ee9e569c"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/exact-admin-readback/readbacks.json",
+    "bytes": 1490,
+    "sha256": "13f352dd74143acb9f284f1699372b3d33be6af39f9ff9985504db4b4395b962"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--actions--runs--34692329616.http.txt",
+    "bytes": 1294,
+    "sha256": "8c95a8cf7a21288cd53178c13e9a240a0951b48bd2c183eec0b8c4d962888992"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--git--ref--tags--v0.7.0rc11.http.txt",
+    "bytes": 1302,
+    "sha256": "26b03c62287ba90b3c7f2b40f109ffa06055c6f1f10eb85a70743660558327b3"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--387556353.http.txt",
+    "bytes": 1289,
+    "sha256": "5bbdc09600229219299b4e7fb3c0cc0ab899011cffde86f6d7ee5bd17428d202"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--assets--637318096.http.txt",
+    "bytes": 1293,
+    "sha256": "e3c9f0be5653bb437ea4b6c0c394dbd66c2d73cab89bcf0746c51f7fa1882593"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/live-recovery/last-release.http.txt",
+    "bytes": 5644,
+    "sha256": "d814a6861a0049f64a97c2e185c5ebf402be8495cb33ead9babc8e30aa49c151"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/live-recovery/recovery-asset.metadata.json",
+    "bytes": 1895,
+    "sha256": "fad417351caff7c01aa95572e03f4eb15d11eb8e2a686c2666cd1f15463a8b86"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/live-recovery/release-cleanup-34692329616-1-planned.json",
+    "bytes": 25436,
+    "sha256": "fe06dafb729f6b0c3181cb203233f0881e48d56dae8c493bfb47007764925958"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/live-recovery/release-with-recovery.http.txt",
+    "bytes": 5644,
+    "sha256": "d814a6861a0049f64a97c2e185c5ebf402be8495cb33ead9babc8e30aa49c151"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/live-recovery/validated-recovery.json",
+    "bytes": 27275,
+    "sha256": "3d26728ff18864bf63aec499dbec33de6c47bf9c4e0e274fd732e54b350d0bb9"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/observer/artifacts.json",
+    "bytes": 985,
+    "sha256": "deff087a904d15df8ac96aa952cce403a5b239e30a35ee2ab3c8703c59e9ec89"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/observer/dispatch-after.json",
+    "bytes": 699503,
+    "sha256": "3fdb6bf64040e2c982be2870c0b9a1fb1c76331160c48e5f843f1040e5be87d0"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/observer/dispatch-before.json",
+    "bytes": 699521,
+    "sha256": "1c196395e3911aafcb8e00c60783a63e29fbacd5b4a04f328d64af117098491e"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/observer/dispatch-ledger.json",
+    "bytes": 1279,
+    "sha256": "282d04a98898f89b9900e89055bfc0054e04b79f979439b2ad69c54ec75ba6e5"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/observer/files/historical-readback.json",
+    "bytes": 29035,
+    "sha256": "9d18f7b9e86ff2f89f28d7453a059a9013297871da847d2a5903deaaf23621c3"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/observer/jobs.json",
+    "bytes": 7486,
+    "sha256": "f99ac221b08f4fa6c09fe2478681c9f57e2ba6f9f61a44507ed6923fad5ec4cb"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/observer/run.json",
+    "bytes": 15360,
+    "sha256": "f126e31a00bd5b2e808b299c55e2124fc5c6adf59ea7185267357fa32f2c2b15"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc11/observer/validation.json",
+    "bytes": 30727,
+    "sha256": "ccbb6b30787317be6d38c4f8c937ec18141d080902659ebedfa3b7713e7f32b6"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/cleanup/artifacts.json",
+    "bytes": 952,
+    "sha256": "ccd6bc3d4d0b1dbcf3c929719eeddcfb2d5673b0e29945f988b811b19506ea95"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/cleanup/files/cleanup.log",
+    "bytes": 25807,
+    "sha256": "ad0748a6479322219f089a9d91f9dc81de72a06ff96dbe251fe9fd421c9f87ca"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/cleanup/files/implementation-files.sha256",
+    "bytes": 445,
+    "sha256": "bb91e43997f0f7e0740ad30d95d2e7c50271fe249a8f647b37f13eafa3d3ea03"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/cleanup/files/implementation-sha.txt",
+    "bytes": 41,
+    "sha256": "16e41598ba327c1282ed0ccbd4768017c7678f491478f4b32f8390b2f40117ca"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/cleanup/files/report.json",
+    "bytes": 322,
+    "sha256": "bcf393271673b3a9b309f0e3f36ff6fc17cc41e82f21d258e869a09700f09ee7"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/cleanup/jobs.json",
+    "bytes": 4750,
+    "sha256": "947470be5c21b701da50c872f6788aa57e94411658b768bb9584c8c990de1787"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/cleanup/run.json",
+    "bytes": 15236,
+    "sha256": "8cf5998c5ea4b8b5d310e699930994d9ee75775b489216c9bee2db8532d240fd"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/cleanup/validation.json",
+    "bytes": 1123,
+    "sha256": "09fffa3508f67f8b53e17d40a7b4e5708b46cb72955db36c72df99cfc812be95"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/dispatch-after.json",
+    "bytes": 699804,
+    "sha256": "9fb40298074ed66c79236bef80b9ed17d42ef2ba40549f27585dab41dd5b21c2"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/dispatch-before.json",
+    "bytes": 699903,
+    "sha256": "d9f54781b9cb67964f3d2ec086da975b890be674fb240c7e178824f345540b6e"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/dispatch-ledger.json",
+    "bytes": 1226,
+    "sha256": "ae044b8ff82dbaafb650f3b6592e4986492d0ba85d057453e04c5b9789c6c013"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/exact-admin-readback/actions--runs--34693636766.http.txt",
+    "bytes": 1292,
+    "sha256": "ac4fb86d936c2819ac5b5b00644273da4582ca6328228ce9ec6f620e2d92d878"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/exact-admin-readback/git--ref--tags--v0.7.0rc12.http.txt",
+    "bytes": 1302,
+    "sha256": "2f2620858504b59912332a7710da73660e76811e986e95aae923e572a5c6b94b"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/exact-admin-readback/readbacks.json",
+    "bytes": 1490,
+    "sha256": "63d7e9577d03716c4549b49a6853c75d02ad5e6e20b6995e2fc80ef9752a4cbe"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/exact-admin-readback/releases--387563734.http.txt",
+    "bytes": 1287,
+    "sha256": "66fba210bb97c0598e929a147358a799d48033b33709b2402969e9221de182e9"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/exact-admin-readback/releases--assets--636877581.http.txt",
+    "bytes": 1290,
+    "sha256": "969732c5c9e2ac2b808952d7bbc48aac5615ead85f38ae4985bb99a3bce79681"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--actions--runs--34693636766.http.txt",
+    "bytes": 1294,
+    "sha256": "46f8da799e884e1eca5c515bfa01e95f9c2c54c91a9a61b650e37942e8d26aa5"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--git--ref--tags--v0.7.0rc12.http.txt",
+    "bytes": 1301,
+    "sha256": "977c5fe1925bd616aca1af9374eed92ed6035c51658a9cf579e12f66b819b5d3"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--387563734.http.txt",
+    "bytes": 1289,
+    "sha256": "91f27310a6c0a8604604e3234118560280b4059d8fa692137ec84aba7fed143d"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--assets--636877581.http.txt",
+    "bytes": 1293,
+    "sha256": "f2eb9eac6816834d486f9382dd35dbef1d2a74251c29d77e7f46a3655cbdea4e"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/observer/artifacts.json",
+    "bytes": 985,
+    "sha256": "382f89a0d826a533b6d7d797a0dde0c3e6db858c8f36619c251bf7914fd1ad4f"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/observer/dispatch-after.json",
+    "bytes": 699904,
+    "sha256": "4136f566610c33c420cfb9c9b4144d600042f7bcff07933b0f1ea2b889a1d6f5"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/observer/dispatch-before.json",
+    "bytes": 699815,
+    "sha256": "4b824550569708fe76e6cb251276040907621e5b3645ae12f8179a44194dd31e"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/observer/dispatch-ledger.json",
+    "bytes": 1279,
+    "sha256": "b7b9ef714255bbed431c47450ce612f27a6a53bd97b7f432fe06951590ad787e"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/observer/files/historical-readback.json",
+    "bytes": 29035,
+    "sha256": "1070a179f7c0e537df71a7553fd1d3b06e14232d6b43e0f635894c339ff063c7"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/observer/jobs.json",
+    "bytes": 7486,
+    "sha256": "1784c52bc7375966ea8ae56dde14b14b6e4d58b8c58588da054036d862280c40"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/observer/run.json",
+    "bytes": 15360,
+    "sha256": "15bfacfbaa39681b09e83448bd75261d99efac02762dee3977f1f62aa82741f4"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/observer/validation.json",
+    "bytes": 30727,
+    "sha256": "2a80840a8bbbe44c440803683d02893bc03b8dc623c993454f849d35364adc6d"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/observer-failed-38413260354/0_closure.txt.txt",
+    "bytes": 46108,
+    "sha256": "34f36bd0458d84986a281d7c9eac817db2c1011513a56b7de0f42ada159ad4ef"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/observer-failed-38413260354/12_Independently read exact deleted historical identities.txt.txt",
+    "bytes": 5181,
+    "sha256": "cd3807a077a18e614d7846bca6cdd68ed934f130bb9cb9d2399fc8fee08faf01"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/observer-failed-38413260354/artifacts.json",
+    "bytes": 42,
+    "sha256": "f7417e1fb877d3f5934f143cc38ad9e2905476e8f5ac6776507d09441efcd6f6"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/observer-failed-38413260354/dispatch-after.json",
+    "bytes": 699812,
+    "sha256": "7a834bb814600e11bdd2e6b0d5272d8c0996e6e5e08850d9dd030e2f4c56485c"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/observer-failed-38413260354/dispatch-before.json",
+    "bytes": 699807,
+    "sha256": "3dbf240fbe1c1233850817c97ac8e89651c11d379fc660638a85af666f830df4"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/observer-failed-38413260354/dispatch-ledger.json",
+    "bytes": 1279,
+    "sha256": "df3fb4c26b058b960fdc53082c08aaad5978e0c7f0d4642e740ccbd907dedb02"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/observer-failed-38413260354/failure-classification.json",
+    "bytes": 371,
+    "sha256": "f2b0356999459389d99a1f67df946b05255611a4715860d1e89d433178c84fb9"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/observer-failed-38413260354/jobs.json",
+    "bytes": 7486,
+    "sha256": "ba36552b538daee829aedb5d1f0eb2e83276592eab0abffd4363c239b5db0e40"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/observer-failed-38413260354/run.json",
+    "bytes": 15360,
+    "sha256": "2fc81f92bb3ec3697f29cd76c9d8062bb06e7ad87b102e41c04530e5ae8a90c1"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc12/run-status.json",
+    "bytes": 15233,
+    "sha256": "05c9dd5fa38e073713994b678909e3a8bffc22b31c8953a8e0b7de1603629f3b"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/cleanup/artifacts.json",
+    "bytes": 952,
+    "sha256": "0b484e8c85358ba6a2522add830cd484fc67de0680e3f3fa9002da5e9270d819"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/cleanup/dispatch-after.json",
+    "bytes": 699375,
+    "sha256": "d5f34ad59fc2311c63318bfc9b80257cf3d1e394a04549d5b564f3b3daf1e589"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/cleanup/dispatch-before.json",
+    "bytes": 699506,
+    "sha256": "4a988e3a5f48d601455e570196ead448057dec8dbbca90ba6d43a80c75b671ad"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/cleanup/dispatch-ledger.json",
+    "bytes": 1244,
+    "sha256": "ade8e15c82e950ba6222eaa266130a9bde38515d69745582e2a48dffab238115"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/cleanup/files/cleanup.log",
+    "bytes": 25807,
+    "sha256": "af7980def2b8e8ae160fcd64e07431da659e059b5b81aacce839ba374a3af740"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/cleanup/files/implementation-files.sha256",
+    "bytes": 445,
+    "sha256": "bb91e43997f0f7e0740ad30d95d2e7c50271fe249a8f647b37f13eafa3d3ea03"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/cleanup/files/implementation-sha.txt",
+    "bytes": 41,
+    "sha256": "16e41598ba327c1282ed0ccbd4768017c7678f491478f4b32f8390b2f40117ca"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/cleanup/files/release-cleanup-34696454025-1-planned.json",
+    "bytes": 25436,
+    "sha256": "d01a2a97ac919c292e753895659c46a54b370b91ede0722cf937ebcdf69f0560"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/cleanup/files/report.json",
+    "bytes": 322,
+    "sha256": "4005ec0e49bf2bf6dd10ba81efcd58a6b2533d30be0f79e2a8f28901519eb4ce"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/cleanup/jobs.json",
+    "bytes": 4750,
+    "sha256": "4f603a863e72af284b9653bd31c9f293037b1e2ec0d1e6517d5291f058840c36"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/cleanup/run.json",
+    "bytes": 15236,
+    "sha256": "81d98cf1ca4aa002fe2869bc16d3a0cbf61abd8cb7d36ea2a1e44c099dde1e93"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/cleanup/validation.json",
+    "bytes": 1123,
+    "sha256": "4d1470528d204705f0342fcb7b802c968e32892187bf8ee0c9c2d3258267990e"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/exact-admin-readback/readbacks.json",
+    "bytes": 6742,
+    "sha256": "c671b91883275b456e07757fa52dacb7032ac587a8ed396fdfc6b46b1b4290ac"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--actions--runs--34696454025.http.txt",
+    "bytes": 1295,
+    "sha256": "e0a8e8207acc7d61ab4e208e47271e234e04b9e26b68df4b1869b7944fe1da0e"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--git--ref--tags--v0.7.0rc14.http.txt",
+    "bytes": 1303,
+    "sha256": "d2f853971cac8bf0c4c530f8b806aa05d7158c40106de238b00ce019715d44dc"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--387579666.http.txt",
+    "bytes": 1289,
+    "sha256": "c21bd53203403b7143d293b207e7f00c8b1a24e8d2d4b6b538dbd5f2d566ba5c"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--assets--559338482.http.txt",
+    "bytes": 1294,
+    "sha256": "1674e7d3e1b7985e543ab676b3093b82e4d707c55e3ec4bf23ccb04a14d49c2c"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--assets--559338483.http.txt",
+    "bytes": 1294,
+    "sha256": "e82c556a062574ab3904d570ceec7aa39316d525062269d50abf16f6f1435749"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--assets--559338484.http.txt",
+    "bytes": 1294,
+    "sha256": "815b36742c021b2884f2a54c4fdaa00efc466f2fcb4361b6887f59ecf5a88516"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--assets--559338485.http.txt",
+    "bytes": 1294,
+    "sha256": "c2da03ffb2df2a67613fdcb5bf5440d5013cfc251cb2e77e5ae4f259639d2a2f"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--assets--559338488.http.txt",
+    "bytes": 1294,
+    "sha256": "a42606c65af5f636a5538d7145dfc9609798393f02ca5934ea7cca5134be3cd7"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--assets--559338498.http.txt",
+    "bytes": 1293,
+    "sha256": "2a4071982fe7d3e89f575b24b52e3b35ca36fb7ae3b2e686ca7694a91a0fcea6"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--assets--559338500.http.txt",
+    "bytes": 1294,
+    "sha256": "d659ac4ee2c4b29d37d945902f2a7595fe1d453db17c28b04b0b692b9123cc74"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--assets--559338502.http.txt",
+    "bytes": 1294,
+    "sha256": "9adabcd806d66cd9b264e55f31e830d27810fb5cec15cf89c1570b73a48e3efb"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--assets--559338503.http.txt",
+    "bytes": 1294,
+    "sha256": "948432b65b395b686ab0533e8dc56c4fbd7fccf91d6ba104f7e96b22b0db9a1a"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--assets--559338506.http.txt",
+    "bytes": 1294,
+    "sha256": "d8af22dd0b729152119daf97a48aa98d0f31f69dad166a9b33cb6c40fd9c2c9f"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--assets--559338508.http.txt",
+    "bytes": 1294,
+    "sha256": "9e42d1e5421bf8a027ecf08035ac5c97380d0b95e2ac21ee186c941f8643160f"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--assets--559338512.http.txt",
+    "bytes": 1294,
+    "sha256": "9e8dd9c108287ea0a147f81956b60d62f25c23aff6dc113fc339abd4f131cfaa"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--assets--559338513.http.txt",
+    "bytes": 1294,
+    "sha256": "2b8827f4e8ad2807d4cd0e8675ac499500c1fe2e048682c7b6c4f7c248f535d6"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--assets--559338514.http.txt",
+    "bytes": 1294,
+    "sha256": "eab640769898216356c9993776b9708b3ceaa4cf9f39dedb58ad3a74b05c0b6e"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--assets--559338515.http.txt",
+    "bytes": 1293,
+    "sha256": "24cb2c36d84c5dff92e666415e066e1a37ea6b71faa024d666560ed6015492b0"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/exact-admin-readback/repos--SuperMarioYL--unified-cache-management--releases--assets--637333538.http.txt",
+    "bytes": 1294,
+    "sha256": "5ef8e7ae1bd962ae15a6967101d3d8fe261ab58d65d05c842430d0c1ce6f6372"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/live-recovery/last-release.http.txt",
+    "bytes": 37491,
+    "sha256": "71c8e6ea3a73a8ee3bbf9573c475fa45b6c1ba3058b44f694a23b854480e9282"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/live-recovery/recovery-asset.metadata.json",
+    "bytes": 1895,
+    "sha256": "29081097a1148fb51543ff70a9ba4298d2b600a450b79320caa1bf7564447f16"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/live-recovery/release-cleanup-34696454025-1-planned.json",
+    "bytes": 25436,
+    "sha256": "d01a2a97ac919c292e753895659c46a54b370b91ede0722cf937ebcdf69f0560"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/live-recovery/release-with-recovery.http.txt",
+    "bytes": 37491,
+    "sha256": "71c8e6ea3a73a8ee3bbf9573c475fa45b6c1ba3058b44f694a23b854480e9282"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/live-recovery/validated-recovery.json",
+    "bytes": 27275,
+    "sha256": "33fa5e4e522a580aa347f95712eb05c8d488f23aa53b0709c1523a7df4d1b707"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/observer/artifacts.json",
+    "bytes": 985,
+    "sha256": "087812437d476f9d1de9875e26e5f10e1bc61caa751a973e9a58a92489bf6d37"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/observer/dispatch-after.json",
+    "bytes": 699378,
+    "sha256": "f4f41f887d8869739b73ab51b61e3927d4e0b808b45740ec207a8b04bd1e2cd5"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/observer/dispatch-before.json",
+    "bytes": 699383,
+    "sha256": "1998a4555019324b40c0a3534abb5df13c570c243c1f6a5faea861ca9e6bc0c5"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/observer/dispatch-ledger.json",
+    "bytes": 1279,
+    "sha256": "6688f617d2187f8235535afb1760de3f0b5858fab9f4a826211ccd325245bdc7"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/observer/files/historical-readback.json",
+    "bytes": 31703,
+    "sha256": "5a85a2362a773efd85e401e499eb38913bf86f4ccf3cff28791399077b6cee8f"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/observer/jobs.json",
+    "bytes": 7486,
+    "sha256": "37a996bc9135834c163364aa1c3962a27ffc251c5905b2e3eaa5f03a1e652072"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/observer/run.json",
+    "bytes": 15360,
+    "sha256": "affb50a977f77ff62bfcc44319aaa360c9b5d0ca4a5900ee01fa93d91f0ffd15"
+  },
+  {
+    "path": "evidence/history/deletions-authorized/v0.7.0rc14/observer/validation.json",
+    "bytes": 33587,
+    "sha256": "b79a382a3a30c233b6a1fd0794354979286378cd82939fecc4f4f8526adb844a"
   },
   {
     "path": "evidence/history/head-previews/head-census-summary.json",
@@ -90,6 +810,16 @@
     "sha256": "f8556bd9f78df8f5ef8d6d2cad6f200eb8aa335287b7f5f423ec1e692ccb0759"
   },
   {
+    "path": "evidence/history/ruleset-exception/closure-execution/protected-expected.json",
+    "bytes": 46042,
+    "sha256": "6067ce83d4a37056268f64ad12ebdebed14e5e6d840bd8b775a9a616a910f9c1"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/closure-execution/protected-final.json",
+    "bytes": 46042,
+    "sha256": "038be4010aab9a97b2d63d713585cdc2d265c4bca2a4e561f19076ef1041399b"
+  },
+  {
     "path": "evidence/history/ruleset-exception/ruleset-exception.diff",
     "bytes": 375,
     "sha256": "f3d6673c2744730fc688e12ba4afec892e44c3cb26d06c25f44ce815f984789b"
@@ -108,6 +838,286 @@
     "path": "evidence/history/ruleset-exception/ruleset-restore.put.json",
     "bytes": 396,
     "sha256": "0f39099e67f8fd7a86a7c19026c0ff277b19f1909812266a11ac9eca0fadd75a"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/authorized-before-exception.context.json",
+    "bytes": 357,
+    "sha256": "5170cda85350dc251706296f4def986374194c15b597cb65bac4b57e845cbf21"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/authorized-before-exception.full.json",
+    "bytes": 935,
+    "sha256": "ef2d5d461a9fe7dd60e628aaebff97f073e18eebc8bc9ac9ab7c2628de6aaaf8"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/authorized-before-exception.response.txt",
+    "bytes": 2053,
+    "sha256": "99a980361bf5f5a55b6770455b9e8655442aa4ff1c64cb719944892dd39fed02"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/authorized-before-restore.context.json",
+    "bytes": 357,
+    "sha256": "0dffbd97e73f8a67618ab4a1976b7ac88d15b2751e7298332449cb94dc43c7ea"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/authorized-before-restore.full.json",
+    "bytes": 1069,
+    "sha256": "acdcd8080ea200b7655f229c540b6acddbd73837d303db3d5afbe2dc97a97b2e"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/authorized-before-restore.response.txt",
+    "bytes": 2144,
+    "sha256": "f69bbd6e9d8aec5d4636b90a8a940add93f88690a59d0edecebb144c769d0189"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/authorized-final-before-exception.context.json",
+    "bytes": 357,
+    "sha256": "a6241a8515411c31b9f1f29eb00b6f350ce45e94bbd0bd93a322c045446cbc40"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/authorized-final-before-exception.full.json",
+    "bytes": 935,
+    "sha256": "ef2d5d461a9fe7dd60e628aaebff97f073e18eebc8bc9ac9ab7c2628de6aaaf8"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/authorized-final-before-exception.response.txt",
+    "bytes": 2052,
+    "sha256": "7db9b0a9b243ef6c39865dab6ea395c6d07230d9f7bbd1013e7d74b541490c5d"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/authorized-window.json",
+    "bytes": 480,
+    "sha256": "9e6739211fd24b0cf5d6031c159078c466707e77f83d56a16d83428858c75178"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/edit-permission-evidence.json",
+    "bytes": 508,
+    "sha256": "4dc767145534ab87cd07ea5d5380ec7fd05e3209c06e48eea274847a32002447"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/exception-put-response.json",
+    "bytes": 817,
+    "sha256": "b4a068e581cd70d7374d92467cf7c32f95c83ef2f335c57934f687bf50a92190"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/exception-put.http.txt",
+    "bytes": 2139,
+    "sha256": "1c69af1e09e08fc12a52e3656058501289c76bdf0af36ef48a92af2415b89f86"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/exception-put.stderr.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/exception-readback.context.json",
+    "bytes": 357,
+    "sha256": "647d6ce0048821b1031511430ce3c3876ff91d3fa3eff1cd97b0368680930eea"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/exception-readback.full.json",
+    "bytes": 1069,
+    "sha256": "acdcd8080ea200b7655f229c540b6acddbd73837d303db3d5afbe2dc97a97b2e"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/exception-readback.response.txt",
+    "bytes": 2143,
+    "sha256": "42c1dbe8d4bb8536f5ac65e80ce3fe3c245ff766064b40f9a523e4bc2c09c72a"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/get-context.json",
+    "bytes": 304,
+    "sha256": "56cbb8adcfe5d92ab85a092790891f1ddd0898c1a5fa8798bceb965a215a2513"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/payload-validation.json",
+    "bytes": 1017,
+    "sha256": "c54f24aa86f45b24e0da9d3ee7735cc76e7796c7001f05562b50c08c44877402"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/prepared-readonly-check.context.json",
+    "bytes": 357,
+    "sha256": "bef99caf219628c4c34ec7548b52a3f3cfb3928b2fbc357bdf553a4a4caf36b4"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/prepared-readonly-check.full.json",
+    "bytes": 935,
+    "sha256": "ef2d5d461a9fe7dd60e628aaebff97f073e18eebc8bc9ac9ab7c2628de6aaaf8"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/prepared-readonly-check.response.txt",
+    "bytes": 2053,
+    "sha256": "42038c4f163750c202152819df0a156ec902eb0ba56f9234fc95c01b4fbcd711"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/restore-put-response.json",
+    "bytes": 726,
+    "sha256": "b10b45aae6060cd05676c1029c332db5ac1a51701d1756d5171732ad8aa0e900"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/restore-put.http.txt",
+    "bytes": 2048,
+    "sha256": "6a98c21f9f59dcf01c2f3392dd98f4a6a0184c82dfa990291d879dccd55d83ed"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/restore-put.stderr.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/restore-readback.context.json",
+    "bytes": 357,
+    "sha256": "425fdb92a2df7be29c18dc6c131e853b027c96a26d979f51f00bd3411c3c74ec"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/restore-readback.full.json",
+    "bytes": 935,
+    "sha256": "e2249440ca982d6f228b105eea935cbd3f0a89f9c25c6d0fa75c1c7ba570c4c7"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/restore-readback.response.txt",
+    "bytes": 2052,
+    "sha256": "672370185db306f106781e554cc87584cc049eba03bcd483923143fc7361e7bc"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/ruleset-exception.diff",
+    "bytes": 375,
+    "sha256": "f3d6673c2744730fc688e12ba4afec892e44c3cb26d06c25f44ce815f984789b"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/ruleset-exception.put.json",
+    "bytes": 530,
+    "sha256": "25b94c5b5edbe18fac410e2cdb4cff902249e356506f68dbd07d8ba1907dca27"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/ruleset-get.headers.txt",
+    "bytes": 1349,
+    "sha256": "7ea8aafe11617d17098fd2955388ee226212a53b84ab5ba9f2aee47f71428a37"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/ruleset-get.raw.json",
+    "bytes": 726,
+    "sha256": "f463613ceaaaf60b489949f0374395eaa333a913f063dd6d54ff7d0cf035129d"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/ruleset-history-read.headers-and-body.txt",
+    "bytes": 2821,
+    "sha256": "2516eccfb07c4dc7d0329173824a7fdf112e7b79a456c84b00ad7fbb14d227c8"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/ruleset-original.full.json",
+    "bytes": 935,
+    "sha256": "ef2d5d461a9fe7dd60e628aaebff97f073e18eebc8bc9ac9ab7c2628de6aaaf8"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/ruleset-restore.put.json",
+    "bytes": 396,
+    "sha256": "0f39099e67f8fd7a86a7c19026c0ff277b19f1909812266a11ac9eca0fadd75a"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/1/verify-ruleset-get.py",
+    "bytes": 2990,
+    "sha256": "eae7f39c1164f34150cb97400261da2b948a9ebfb2a57c9353f5dc0850b73c1d"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/2/apply-put-response.json",
+    "bytes": 817,
+    "sha256": "2e694fbf13aec512e16edcd496eca076bb2f158afecbc13c228a83eab4bd2d19"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/2/apply-put.http.txt",
+    "bytes": 2139,
+    "sha256": "5d935b7436ca58a2ea7fd6c7f28ada5a68280d8e91cf224c69353c82df7f8ef4"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/2/apply-put.stderr.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/2/apply-readback.context.json",
+    "bytes": 357,
+    "sha256": "0f022fbd64b2c60717ea17bd635b60a2c5d0a8fc0439addf2ea4da6e0420b09e"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/2/apply-readback.full.json",
+    "bytes": 1069,
+    "sha256": "c964462d721895c58ff791264851b1a5d96f33a8a8fc775da03635c8cbd83482"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/2/apply-readback.response.txt",
+    "bytes": 2143,
+    "sha256": "f11b123b34818e2f2a9b49cf846f7b926e9b718734fd837e83b4decf3882d9b6"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/2/apply-verified.json",
+    "bytes": 285,
+    "sha256": "8eff683a0eaeb835d2905270d3d82083e18737ff529d870b93b95467500cbb9f"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/2/before-apply.context.json",
+    "bytes": 357,
+    "sha256": "5e07a7d4507ca882e54a60fa21b82703e7e1ac4f025d9b41e6c12f053e08f7c5"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/2/before-apply.full.json",
+    "bytes": 935,
+    "sha256": "e2249440ca982d6f228b105eea935cbd3f0a89f9c25c6d0fa75c1c7ba570c4c7"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/2/before-apply.response.txt",
+    "bytes": 2053,
+    "sha256": "b54e66f391519c50605370769a19590422a87b1cabc0a01a72861963684816f4"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/2/before-restore.context.json",
+    "bytes": 357,
+    "sha256": "d93e05d86227ac0fb1b1aaf3f115444a0dd518432a0c35668906aad6e4570342"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/2/before-restore.full.json",
+    "bytes": 1069,
+    "sha256": "c964462d721895c58ff791264851b1a5d96f33a8a8fc775da03635c8cbd83482"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/2/before-restore.response.txt",
+    "bytes": 2145,
+    "sha256": "46c03e349f706535ef7f248d2eebc8d2ed619f8f6408a47d6220a4db49d7f2a5"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/2/restore-put-response.json",
+    "bytes": 726,
+    "sha256": "1baa3764e8634e0d3e501bc17e07ce7b9cc8e8a9a8011a57873b9a4414582c71"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/2/restore-put.http.txt",
+    "bytes": 2051,
+    "sha256": "aa5aafddee64fcb5d197b9a1f874ac1e50a789e04398944b8c9b581faca3f24d"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/2/restore-put.stderr.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/2/restore-readback.context.json",
+    "bytes": 357,
+    "sha256": "f47f94e558d0e8aa8f22571659d9e960fbb5dc74efbe3a2827f083ebc4de86c5"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/2/restore-readback.full.json",
+    "bytes": 935,
+    "sha256": "7dd9e100d78cc2419eedb77fa525a24288680db9b9d3f1966e0237007069cf14"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/2/restore-readback.response.txt",
+    "bytes": 2055,
+    "sha256": "b99d5cb0dca17e4eee0e9f70a75c064fb5c767484a31f1f5b087c574d222776b"
+  },
+  {
+    "path": "evidence/history/ruleset-exception/windows/2/restore-verified.json",
+    "bytes": 289,
+    "sha256": "5e4aa46910db78864821098f81e66b7a4235c7495cb80f5ecbeed934b65d2f04"
   },
   {
     "path": "evidence/history/ruleset-exception-plan.md",
@@ -453,6 +1463,11 @@
     "path": "evidence/publication/acceptance-summary.md",
     "bytes": 4341,
     "sha256": "cb2a33351cfca8be84b36284bb0ce262b56b58b6df45d65929749465b704a58a"
+  },
+  {
+    "path": "evidence/publication/diagnostics/draft-observer-read-permissions/diagnosis.json",
+    "bytes": 2564,
+    "sha256": "82bda3be2dd8d5986bf07f5a1835882a529767aa07686ad8900e2bc8483305bb"
   },
   {
     "path": "evidence/publication/draft/attempt-2/artifacts/ucm-release-plan-run-38390192146/release-plan.json",

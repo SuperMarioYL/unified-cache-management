@@ -1,0 +1,34 @@
+{
+  "tag": "v0.7.0rc12",
+  "mode": "cleanup",
+  "run_id": 38412788662,
+  "head_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+  "run_conclusion": "success",
+  "artifact_id": 11823202555,
+  "artifact_sha256": "13dcd0d3398b8a33092b58fb24cf3a36e3d67ffdf21723bbe2efa7810c6394e2",
+  "status": "production-complete-awaiting-independent-readback",
+  "raw_report": {
+    "max_count": null,
+    "repository": "SuperMarioYL/unified-cache-management",
+    "results": [
+      {
+        "registry_references": 169,
+        "release_ids": [
+          387563734
+        ],
+        "run_ids": [
+          34693636766
+        ],
+        "status": "deleted",
+        "tag": "v0.7.0rc12"
+      }
+    ],
+    "status": "complete"
+  },
+  "production_module_hashes": {
+    "cleanup.py": "9e610fe42b1038b00eecd41148c0c29c63190b21e5b6ee27ec949556053ba585",
+    "cleanup_records.py": "186a1e05b02ea77ddd2360a1162620d7f86917bc512e7e39a5209fd2484aaba7",
+    "cleanup_inventory.py": "52d23639d541736691d01b24f7eaa4f6b48056839f90b617770ba2dd547dc6ad",
+    "cleanup_remote.py": "442374438d4cee304620ae67619c9a18f35b2d9d31be09416e848842ab3bbdb0"
+  }
+}

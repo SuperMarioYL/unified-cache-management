@@ -1,0 +1,17 @@
+{
+  "repository": "SuperMarioYL/unified-cache-management",
+  "authenticated_repository_permissions": {
+    "admin": true,
+    "maintain": true,
+    "push": true,
+    "triage": true,
+    "pull": true
+  },
+  "current_user_can_bypass": "never",
+  "rule_id": 20626631,
+  "rule_updated_at": "2026-08-20T23:52:12.590+08:00",
+  "ruleset_bypass_actors_property_present": true,
+  "administration_write_history_endpoint_get_status": "HTTP/2.0 200 OK",
+  "history_entries_returned": 14,
+  "mutation_not_tested": true
+}

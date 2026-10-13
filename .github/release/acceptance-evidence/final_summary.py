@@ -103,7 +103,11 @@ def main():
         actual = None
         if release["status"] == ref["status"] == 200:
             actual = fingerprint(release["value"], ref["value"])
-        check(actual == frozen, f"preserve Release/assets/body/ref {tag}", actual)
+        check(
+            actual == frozen,
+            f"preserve Release/assets/body/ref {tag}",
+            {"release": release, "ref": ref, "fingerprint": actual},
+        )
 
     for item in expected["source_runs"]:
         run = read_api(f"/repos/{REPOSITORY}/actions/runs/{item['id']}")

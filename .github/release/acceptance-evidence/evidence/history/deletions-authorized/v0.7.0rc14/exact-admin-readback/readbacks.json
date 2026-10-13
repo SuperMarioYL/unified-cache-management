@@ -1,0 +1,217 @@
+{
+  "tag": "v0.7.0rc14",
+  "observed_at": "2026-10-13T14:51:05.370033+00:00",
+  "original_asset_ids": [
+    559338482,
+    559338483,
+    559338484,
+    559338485,
+    559338488,
+    559338498,
+    559338500,
+    559338502,
+    559338503,
+    559338506,
+    559338508,
+    559338512,
+    559338513,
+    559338514,
+    559338515
+  ],
+  "recovery_asset_ids": [
+    637333538
+  ],
+  "resources": [
+    {
+      "kind": "release",
+      "path": "/repos/SuperMarioYL/unified-cache-management/releases/387579666",
+      "status": 404,
+      "response": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/releases/releases#get-a-release",
+        "status": "404"
+      }
+    },
+    {
+      "kind": "tag",
+      "path": "/repos/SuperMarioYL/unified-cache-management/git/ref/tags/v0.7.0rc14",
+      "status": 404,
+      "response": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/git/refs#get-a-reference",
+        "status": "404"
+      }
+    },
+    {
+      "kind": "source_run",
+      "path": "/repos/SuperMarioYL/unified-cache-management/actions/runs/34696454025",
+      "status": 404,
+      "response": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/actions/workflow-runs#get-a-workflow-run",
+        "status": "404"
+      }
+    },
+    {
+      "kind": "original_asset",
+      "path": "/repos/SuperMarioYL/unified-cache-management/releases/assets/559338482",
+      "status": 404,
+      "response": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/releases/assets#get-a-release-asset",
+        "status": "404"
+      }
+    },
+    {
+      "kind": "original_asset",
+      "path": "/repos/SuperMarioYL/unified-cache-management/releases/assets/559338483",
+      "status": 404,
+      "response": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/releases/assets#get-a-release-asset",
+        "status": "404"
+      }
+    },
+    {
+      "kind": "original_asset",
+      "path": "/repos/SuperMarioYL/unified-cache-management/releases/assets/559338484",
+      "status": 404,
+      "response": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/releases/assets#get-a-release-asset",
+        "status": "404"
+      }
+    },
+    {
+      "kind": "original_asset",
+      "path": "/repos/SuperMarioYL/unified-cache-management/releases/assets/559338485",
+      "status": 404,
+      "response": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/releases/assets#get-a-release-asset",
+        "status": "404"
+      }
+    },
+    {
+      "kind": "original_asset",
+      "path": "/repos/SuperMarioYL/unified-cache-management/releases/assets/559338488",
+      "status": 404,
+      "response": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/releases/assets#get-a-release-asset",
+        "status": "404"
+      }
+    },
+    {
+      "kind": "original_asset",
+      "path": "/repos/SuperMarioYL/unified-cache-management/releases/assets/559338498",
+      "status": 404,
+      "response": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/releases/assets#get-a-release-asset",
+        "status": "404"
+      }
+    },
+    {
+      "kind": "original_asset",
+      "path": "/repos/SuperMarioYL/unified-cache-management/releases/assets/559338500",
+      "status": 404,
+      "response": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/releases/assets#get-a-release-asset",
+        "status": "404"
+      }
+    },
+    {
+      "kind": "original_asset",
+      "path": "/repos/SuperMarioYL/unified-cache-management/releases/assets/559338502",
+      "status": 404,
+      "response": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/releases/assets#get-a-release-asset",
+        "status": "404"
+      }
+    },
+    {
+      "kind": "original_asset",
+      "path": "/repos/SuperMarioYL/unified-cache-management/releases/assets/559338503",
+      "status": 404,
+      "response": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/releases/assets#get-a-release-asset",
+        "status": "404"
+      }
+    },
+    {
+      "kind": "original_asset",
+      "path": "/repos/SuperMarioYL/unified-cache-management/releases/assets/559338506",
+      "status": 404,
+      "response": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/releases/assets#get-a-release-asset",
+        "status": "404"
+      }
+    },
+    {
+      "kind": "original_asset",
+      "path": "/repos/SuperMarioYL/unified-cache-management/releases/assets/559338508",
+      "status": 404,
+      "response": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/releases/assets#get-a-release-asset",
+        "status": "404"
+      }
+    },
+    {
+      "kind": "original_asset",
+      "path": "/repos/SuperMarioYL/unified-cache-management/releases/assets/559338512",
+      "status": 404,
+      "response": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/releases/assets#get-a-release-asset",
+        "status": "404"
+      }
+    },
+    {
+      "kind": "original_asset",
+      "path": "/repos/SuperMarioYL/unified-cache-management/releases/assets/559338513",
+      "status": 404,
+      "response": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/releases/assets#get-a-release-asset",
+        "status": "404"
+      }
+    },
+    {
+      "kind": "original_asset",
+      "path": "/repos/SuperMarioYL/unified-cache-management/releases/assets/559338514",
+      "status": 404,
+      "response": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/releases/assets#get-a-release-asset",
+        "status": "404"
+      }
+    },
+    {
+      "kind": "original_asset",
+      "path": "/repos/SuperMarioYL/unified-cache-management/releases/assets/559338515",
+      "status": 404,
+      "response": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/releases/assets#get-a-release-asset",
+        "status": "404"
+      }
+    },
+    {
+      "kind": "recovery_asset",
+      "path": "/repos/SuperMarioYL/unified-cache-management/releases/assets/637333538",
+      "status": 404,
+      "response": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/releases/assets#get-a-release-asset",
+        "status": "404"
+      }
+    }
+  ],
+  "all_404": true
+}

@@ -1,63 +1,53 @@
-# UCM 发布工程 Fork 验收记录
+# UCM 发布修复与 Fork 验收结果
 
-仓库：`SuperMarioYL/unified-cache-management`。只修改和发布 Fork；官方仓库未修改。
+当前状态：**complete**。目标仓库为 `SuperMarioYL/unified-cache-management`，最终生产代码 P2 已部署到默认分支 `develop`。官方仓库没有修改。本批正常发布产物、TestPyPI 版本和共享 package 保留；隔离测试产物及四个已确认失败或取消的历史对象均完成精确清理。
 
-最终生产提交 P2 为 `f66366538b35faa51507452ae1ad676b10994a4d`，部署在 `develop`。P1 为 `776110b2524bf43eb5e197dcdb96315f9c6c3d8c`。四模块清理边界保持；普通 Schema 9 使用 Manifest 精确历史坐标，新发布仍绑定 Tag。此次实际 hosted preview 发现 Docker Hub 404 probe 没有归一化为缺失，因此补入 P2，并保留 403 等真实错误。
+## 代码与检查
 
-## 本地与 Fork 检查
+修复分支 `feature/release-cleanup-closure-20261013`，P1=`776110b2524bf43eb5e197dcdb96315f9c6c3d8c`，最终 P2=`f66366538b35faa51507452ae1ad676b10994a4d`。补齐共用 Crane 安装与精确 Release 查询，保留 GHCR skipped/partial 恢复语义及普通 Schema 9 历史 Manifest 坐标恢复；Schema 6/Nightly 约束及新发布 Tag 绑定保留。四模块清理边界没有改写。P2 根据实际 hosted preview 修复 Docker Hub probe 的 404 缺失归一化；403 等真实错误继续阻断。清理与 callback 输出日志、JSON report、实际实现 SHA/四模块 hash，独立 artifact 保留证据。
 
-最终 release suite：610 passed、4 skipped；docs Python 契约：57 passed；Node 契约：16 passed。双语严格文档构建、actionlint、ShellCheck、Black、isort、Ruff 已通过。原始日志在 `local/`；最终 P2 默认分支与修复分支 Push/Docs 四个 CI 均成功，记录在 `runs/production-p2-ci.json`。无关 `.DS_Store` 与原空 `out/` 样例保留为未跟踪本地文件。
+本地 release suite **610 passed、4 skipped**，docs Python **57 passed**，Node **16 passed**；双语严格文档构建、actionlint、ShellCheck、Black/isort/Ruff 通过。P2 默认分支及修复分支的四个 Push/Docs CI 通过，原始记录在 `runs/production-p2-ci.json`、`local/`。原无关 `.DS_Store` 与空 `out/` 样例仍为未跟踪本地文件。
 
-## 正常真实发布
+## 四类真实正常发布
 
-| 类型 | Tag | source SHA | Run | 状态 |
-| --- | --- | --- | --- | --- |
-| Nightly | nightly/v0.8.0-20261013-1 | 776110b2524bf43eb5e197dcdb96315f9c6c3d8c | 38375348617 attempt 1 | complete |
-| Prerelease | v0.8.2rc1 | 4858aef86456f712da6fd59ecb224235841ebdac | 38377675294 attempt 2 | complete |
-| Stable | v0.8.2 | 3d6a11b01167c40b28ee6a08c7d7454d23940674 | 38383412316 attempt 2 | complete |
-| Draft | draft/v0.8.2-1 | 3d6a11b01167c40b28ee6a08c7d7454d23940674 | 38390192146 attempt 2 | complete |
+| 类型 | Tag | Run / attempt | 实际 source / code |
+| --- | --- | --- | --- |
+| Nightly | nightly/v0.8.0-20261013-1 | 38375348617 / 1 | P1 / P1 |
+| Prerelease | v0.8.2rc1 | 38377675294 / 2 | V1 / P1 |
+| Stable | v0.8.2 | 38383412316 / 2 | V2 / P2 |
+| Draft | draft/v0.8.2-1 | 38390192146 / 2 | V2 / P2 |
 
-B=0.8.2 在发布前经 GitHub、TestPyPI 和目标 Registry 查重。Nightly/Prerelease 使用 P1；Stable/Draft 使用 P2，源码版本差异和实际 code binding 分开记录。正常产物保留，TestPyPI 版本不删除。Draft 的生产 workflow 未启用 hosted Chart delivery 检查，故另外执行独立拉包及本地 Helm delivery/render 核验；此项明确标为本地证据。Prerelease、Stable 和 Draft 各遇一个第三方 free-disk setup 超时；只重试失败 job，实际 attempt audit 为一个镜像重跑，原生构建及 PyPI 均未重复。正常发布逐渠道证据由 `publication/acceptance-summary.json` 和对应类型目录保存。
+V1=`4858aef86456f712da6fd59ecb224235841ebdac`，V2=`3d6a11b01167c40b28ee6a08c7d7454d23940674`，相对对应 code 的文件差异仅为 `version.ini`。B=0.8.2 经各目标渠道查重后选择。P1/P2 两代运行分别保留实际绑定，不将本批全部归为同一 SHA。
 
-## 失败、恢复与保留验证
+四类均完成十二个 backend wheel 的实际 Linux build/runtime install，以及 Toolkit Python 3.9/3.12 安装。RC/Stable 各核验 TestPyPI 八 projects、十四 files、十三个 public-index 安装及全部168个 OCI 引用（84 GHCR、84 Docker Hub）；Draft 全84 GHCR引用通过。三类 Chart 的 OCI/GitHub 包字节 SHA 一致。RC/Stable hosted Chart 检查覆盖84个引用；Draft 原 profile 跳过该 hosted job，额外保存224份真实 Registry 响应，交相同 verify 函数及十九个实际 Helm 命令完成本地架构/render 核验。
 
-真实 CMake 故障 source SHA 为 `5e92e86a036b248cb2843ca0cc6061340d9b7369`，仅隔离分支加入确定性 CMake 错误，未部署默认分支。每类 12 个原生构建实际失败，24 处故障日志匹配，恢复 snapshot 已保存，未产生完成 Manifest。
+RC/Stable RTD 英/中 versioned/latest 回执与公开 manifest 已核验；Stable 完成后 latest 按预期转向 Stable，RC versioned 仍为 RC。匿名响应 cookie 已脱敏，body SHA 保留。三类首轮各有一个第三方磁盘准备步骤五分钟超时，先保存失败证据，再仅重试失败及依赖 job；各实际新增一个 image 执行，native/PyPI重跑均零。五分钟配置保留，后续可单独评估该准备步骤耗时。
 
-| 类型 | Release ID | 源 Run | P2 清理 Run | 独立回读 Run | 状态 |
+完整渠道、安装、源码差异、最终 body/assets/ref/manifest 指纹见 `publication/acceptance-summary.json`、`publication/acceptance-summary.md`。正常产物均 kept。没有运行 GPU/NPU 推理或性能基准。
+
+## 新失败、恢复及配额
+
+确定性 CMake 故障仅位于隔离 source F=`5e92e86a036b248cb2843ca0cc6061340d9b7369`。Draft/Nightly 各十二个原生 job 实际失败、二十四处故障日志匹配，恢复 snapshot 已保存，未产生完成 Manifest。两类 Release、Tag、源 Run 与原 snapshot assets 共十个端点独立404；十二个共享 Builder 原 digest 保持200且一致。Draft 的85计划 Registry坐标清理前全部不存在，Nightly无启用 Registry，不能将它们算作85个已发布镜像删除。证据在 `real-failures/real-failures-closure-summary.json`。
+
+隔离 fixture 验证 active/deferred、真实取消 callback、三次 synthetic503失败后 holder 保留、Tag 已删除时重新发现与重试，以及真实 GHCR last-tagged-version400的 partial 非阻断与最终闭环。只有验收 helper 在确认整包独占后删除临时 package；生产没有整包删除兜底。Nightly max_count=7保持，success/failure/cancel超额目标经实际callback删除。源日志和回读由独立 observer先保存，再删除源 Run，见 `fixtures/evidence/execution/case-results.json`。
+
+Draft 按 Release ID排序。为保护先创建的正常 Draft，最小配额构造使用一个已保存恢复资料、尚未创建 Release 的失败版本及六个真实 Release fillers。生产入口实测8→7，唯一失败候选属于本批allowlist，正常Draft当时active且kept；随后六个fillers精确清理，目录回到唯一正常Draft。三十三端点中，三十二个已分配资源404，另一项是从未创建的 Release-by-tag404。此项不宣称quota删除已存在的Release ID；实际失败Draft Release删除由前述CMake案例独立证明。见 `draft-quota-evidence/case-result.json`、`README.md`。
+
+固定时间窗、旧workflow commit ref权限、quota配置初始化、观察器契约误用及汇总打包遗漏等 harness 失败均保留原始记录，修正后重新验真，不算作P2缺陷或通过证据。
+
+## 历史四项与保护恢复
+
+| Tag | 原 Release ID | 原 Source Run | P2 cleanup Run | 独立 observer Run | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| Draft | 411498895 | 38375710915 | 38394213842 | 38394506414 | complete |
-| Nightly | 411510905 | 38375711251 | 38394510840 | 38394857789 | complete |
+| v0.7.0rc12 | 387563734 | 34693636766 | 38412788662 | 38413855557 | complete |
+| v0.7.0rc10 | 387548975 | 34691047256 | 38414533508 | 38415134558 | complete |
+| v0.7.0rc11 | 387556353 | 34692329616 | 38415489855 | 38415967255 | complete |
+| v0.7.0rc14 | 387579666 | 34696454025 | 38416268574 | 38416905738 | complete |
 
-两类 Release、Tag、源 Run、原 snapshot 附件共十个精确端点均返回 404。Draft 85 个计划 Registry 坐标在清理前全部不存在，Nightly 无启用 Registry 坐标；不能将它们算作实际发布后删除的 85 个镜像。12 个共享 Builder 原 digest 均保持 200 且一致。原日志、计划及回读在 `real-failures/real-failures-closure-summary.json` 与对应目录。
+四项均先核验实际失败或取消 Run、精确 Tag/SHA、归属、原始备份和全量 census。四次原169计划坐标中，675项原已不存在，只有rc14 Chart version1240791935原存在，现独立404。原body、计划、全部attempts/jobs、日志和rc14十五原附件均完整备份；恢复snapshot先在原正确Release ID上传、回读169原坐标，再删源Run。四项原Release/Tag/Run及原/恢复assets、Chart共三十二个精确已分配资源独立404。Stable/Prerelease不限自动保留，本次证明的是手动精确Tag清理。PyPI已发布记录保持。
 
-隔离 fixture 验证 active/deferred、取消 callback、三次 synthetic 503 失败后恢复 holder 保留、Tag 已删除时 rediscovery/retry、真实 GHCR last-tagged-version 400 的 partial 非阻断及后续完整闭环。Nightly max_count 保持 7，success/failure/cancel 三个超额目标经真实 callback 删除并独立 404。仅验收 helper 对证实独占的临时 GHCR package 整包删除，生产没有整包兜底。证据在 `fixtures/evidence/execution/case-results.json`。初版固定时间窗失效与旧 fixture SHA 的 ref 写入 403 均保留原证据，不计为通过。
+初次rc12因规则集20626631的v*删除保护返回422，holder安全保留。用户明确批准四精确Tag临时例外；执行前/恢复前逐次完整body、ETag、updated_at核验。第一窗口在观察器GitHub504后立即恢复原规则，只读重试取到精确404后才重开第二窗口。最后全部写入完成立即恢复；独立Admin GET确认原可写body完全一致、exclude=[]、active、bypass=[]。原七个对象及本批四类正常产物的二十二次final GET指纹全部一致。服务端时间戳按实际更新记录，不声称回退。见 `history/authorized-history-summary.json`、`history/ruleset-exception/windows/`。
 
-Draft quota 的生产 retention 验证已通过，六个 fillers 清理及最后独立回读已完成，目录从八项到七项，再回到唯一正常 Draft。汇总记录在 `draft-quota-evidence/case-result.json`，独立 Run 38403852436、artifact 11815579887。三十三端点包含三十二个已分配资源的删除 404 和一个从未创建的 Release-by-tag 404。实际 Draft 按 Release ID 排序，新建旧 Tag 不会变成旧 Release；为保护先创建的正常 Draft，使用一项已保存恢复资料但尚未创建 Release 的失败 fixture 加六个真实 Release fillers，验证总八项、唯一 own 失败候选与清理后七项。此项不宣称 quota 删除一个已存在的 Release ID；真实 Draft Release ID 删除由前述 CMake 失败场景独立证明。
+历史原始独立archive：Run38400311597 / artifact11814193992，约67MB。再次下载核验92文件SHA/size、ZIP CRC及十五附件60,519,936字节，见 `archive-independent-readback.json`；唯一证据没有留在已删除源Run内。
 
-## 历史失败对象
-
-| Tag | Release ID | 源 Run | 原结论 | 状态 |
-| --- | --- | --- | --- | --- |
-| v0.7.0rc12 | 387563734 | 34693636766 | failure | blocked - v* Tag protection |
-| v0.7.0rc10 | 387548975 | 34691047256 | cancelled | blocked - v* Tag protection |
-| v0.7.0rc11 | 387556353 | 34692329616 | failure | blocked - v* Tag protection |
-| v0.7.0rc14 | 387579666 | 34696454025 | cancelled | blocked - v* Tag protection |
-
-四项原 body、全部 attempts/jobs、计划与日志已独立备份；rc14 十五附件共 60,519,936 字节逐项验证 size/SHA256。每项 169 个计划坐标已在实际 runner 做精确 census：前三项均不存在，rc14 仅 Chart version 1240791935 存在。PyPI 已发布版本排除出清理范围。历史 Prerelease retention 无限制，本次仅手动精确 Tag 清理。
-
-rc12 的 P2 清理 38392917716 已完成 Registry 阶段及源 Run 删除，Tag 删除因既有规则集 20626631 返回 422，恢复 Release 与完整计划 snapshot 保留。四个 Tag 精确临时例外及立即恢复原规则的请求已准备，尚未执行，等待明确授权；详见 `history/ruleset-exception-plan.md`。保护规则不会为了重试长期停用，也不会加入通配例外。
-
-历史原始证据另独立归档在 Run 38400311597、artifact 11814193992（约 67 MB），包含四项原始计划、日志和 jobs，以及 rc14 全部十五附件的新下载/size/SHA 回读。
-
-代码修复、四类真实发布、两例真实 CMake 失败清理、GHCR/503/active/cancel 与两类 quota 验收均已完成。整体状态为 **blocked**：仅四项历史 Tag 清理因原规则阻断，需要明确批准已准备的四 Tag 临时例外。rc12 已完成 Registry 阶段与源 Run 删除，但 Tag、恢复 Release 保留；其他三项尚未删除。当前记录不将 partial/blocked 或绿色 workflow 单独视作全部删除完成。
-
-## 独立证据入口
-
-- 正常四类渠道、安装及最终指纹：`publication/acceptance-summary.json`、`publication/acceptance-summary.md`。
-- 真实 CMake 失败：`real-failures/real-failures-closure-summary.json`。
-- GHCR、手动恢复及 Nightly quota：`fixtures/evidence/execution/case-results.json`。
-- Draft quota 和 teardown：`draft-quota-evidence/case-result.json`、`draft-quota-evidence/README.md`。
-- 历史完整原始证据独立 archive：Run 38400311597 / artifact 11814193992；本地再次下载验证 92 个文件、全部原附件 size/SHA 和 ZIP CRC，记录 `archive-independent-readback.json`。
-- 历史保护配置变更的具体请求：`history/ruleset-exception-plan.md`；目前没有执行任何规则变更。
-
-Draft Chart 的额外架构/render 检查使用 224 份真实 Registry 命令响应和相同生产 verify 函数，再执行十九个实际 Helm 命令，属于本地验证。Nightly/Prerelease 使用 P1，Stable/Draft 使用 P2；没有将本批所有运行归成同一个实现 SHA。三次第三方磁盘准备步骤超时由一次 failed-only retry 解决，五分钟配置保留，可另行评估准备步骤耗时。没有运行 GPU/NPU 推理或性能基准。
+最后聚合观察器独立回读完成后，其Run/artifact链接与原始JSON将记录到 `final-evidence-delivery.json`。
