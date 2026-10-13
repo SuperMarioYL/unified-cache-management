@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.18)
+message(FATAL_ERROR "Fork release cleanup acceptance - deliberate native build failure")
 project(unified-cache-management VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
