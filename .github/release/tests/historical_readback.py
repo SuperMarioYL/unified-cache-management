@@ -169,6 +169,9 @@ def main():
                 "status": 200,
                 "id": value.get("id") if isinstance(value, dict) else None,
             }
+            if kind == "registry_version":
+                # A version deletion removes every Tag alias on that digest.
+                entry["metadata"] = value
         except RemoteError as error:
             entry = {
                 "kind": kind,
