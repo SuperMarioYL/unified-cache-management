@@ -26,7 +26,7 @@ on:
       scenario:
         type: choice
         required: true
-        options: [ghcr, manual, retention, kept, history-preview, history-readback, registry-route]
+        options: [ghcr, manual, retention, kept, history-preview, history-readback, registry-route, history-head-preview, orphan-archive]
 
 permissions:
   contents: read
@@ -69,7 +69,7 @@ jobs:
           --only-binary=:all: -r .github/release/requirements.txt
       - uses: ./.github/actions/setup-crane
       - name: Authenticate read-only registry preflight
-        if: ${{ inputs.scenario == 'history-preview' || inputs.scenario == 'registry-route' }}
+        if: ${{ inputs.scenario == 'history-preview' || inputs.scenario == 'registry-route' || inputs.scenario == 'history-head-preview' }}
         run: |
           set -euo pipefail
           python fixture-helper/.github/release/tests/historical_readback.py auth
@@ -85,6 +85,16 @@ jobs:
         run: |
           set -euo pipefail
           python fixture-helper/.github/release/tests/registry_route.py
+      - name: Freeze exact historical identities using authenticated HEAD without GET fallback
+        if: ${{ inputs.scenario == 'history-head-preview' }}
+        run: |
+          set -euo pipefail
+          python fixture-helper/.github/release/tests/historical_head.py
+      - name: Archive only the reviewed resource-free fixture source
+        if: ${{ inputs.scenario == 'orphan-archive' }}
+        run: |
+          set -euo pipefail
+          python fixture-helper/.github/release/tests/orphan_archive.py
       - name: Independently read exact deleted historical identities
         if: ${{ inputs.scenario == 'history-readback' }}
         run: |
@@ -93,14 +103,14 @@ jobs:
             --production-root . --production-sha "${PRODUCTION_SHA}" \
             --tag "${PREVIEW_TAG}"
       - name: Capture durable source ledger in this independent closure run
-        if: ${{ inputs.scenario != 'history-preview' && inputs.scenario != 'history-readback' && inputs.scenario != 'registry-route' }}
+        if: ${{ inputs.scenario != 'history-preview' && inputs.scenario != 'history-readback' && inputs.scenario != 'registry-route' && inputs.scenario != 'history-head-preview' && inputs.scenario != 'orphan-archive' }}
         run: |
           set -euo pipefail
           python fixture-helper/.github/release/tests/hosted_cleanup.py capture \
             --production-root . --production-sha "${PRODUCTION_SHA}" \
             --source-run-id "${SOURCE_RUN_ID}"
       - name: Publish capture acknowledgement before source cancellation or completion
-        if: ${{ inputs.scenario != 'history-preview' && inputs.scenario != 'history-readback' && inputs.scenario != 'registry-route' }}
+        if: ${{ inputs.scenario != 'history-preview' && inputs.scenario != 'history-readback' && inputs.scenario != 'registry-route' && inputs.scenario != 'history-head-preview' && inputs.scenario != 'orphan-archive' }}
         uses: actions/upload-artifact@v4.6.2
         with:
           name: acceptance-capture-run-${{ github.run_id }}
@@ -122,7 +132,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - name: Observe terminal source and prove deployed cleanup behavior
-        if: ${{ inputs.scenario != 'history-preview' && inputs.scenario != 'history-readback' && inputs.scenario != 'registry-route' }}
+        if: ${{ inputs.scenario != 'history-preview' && inputs.scenario != 'history-readback' && inputs.scenario != 'registry-route' && inputs.scenario != 'history-head-preview' && inputs.scenario != 'orphan-archive' }}
         run: |
           set -euo pipefail
           python fixture-helper/.github/release/tests/hosted_cleanup.py observe \
