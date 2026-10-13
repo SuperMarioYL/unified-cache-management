@@ -533,11 +533,23 @@ def apply(arguments, remote, acceptance, production):
 
 def readback(arguments, remote, acceptance, production):
     run_id = arguments.quota_run_id
-    source_run = remote.read_release_run(run_id)
+    require(run_id == CONFIG["approved_quota_run_id"], "Unreviewed quota observer ID")
+    # A cleanup observer is not a publication source. Keep the production
+    # source ownership API strict and validate this exact observer separately.
+    source_run = remote.json_request(
+        "GET", f"/repos/{remote.repository}/actions/runs/{run_id}"
+    )
     require(
-        source_run
-        and source_run["head_sha"] == arguments.helper_sha
-        and source_run["conclusion"] == "success",
+        source_run["id"] == run_id
+        and source_run["head_sha"] == CONFIG["approved_quota_helper_sha"]
+        and source_run["head_branch"] == CONFIG["approved_quota_branch"]
+        and source_run["path"].split("@", 1)[0]
+        == ".github/workflows/cleanup-ucm-release.yml"
+        and source_run["event"] == "workflow_dispatch"
+        and source_run["status"] == "completed"
+        and source_run["conclusion"] == "success"
+        and source_run["head_repository"]["full_name"].casefold()
+        == remote.repository.casefold(),
         "Quota observer binding or conclusion differs",
     )
     before, archive = archived_before(
@@ -552,7 +564,7 @@ def readback(arguments, remote, acceptance, production):
     for tag, ledger in before["sources"].items():
         require(
             tag in CONFIG["fixture_tags"]
-            and ledger["source_sha"] == arguments.helper_sha,
+            and ledger["source_sha"] == source_run["head_sha"],
             "Teardown source is outside the frozen quota allowlist",
         )
         paths = [
@@ -592,6 +604,10 @@ def readback(arguments, remote, acceptance, production):
             "status": "complete",
             "production": production,
             "quota_run_id": run_id,
+            "quota_helper_sha": source_run["head_sha"],
+            "observer_code_binding": json.loads(
+                (OUTPUT / "code-binding.json").read_text()
+            ),
             "archived_quota_evidence": archive,
             "fixture_readbacks": result,
             "actual_draft_count_after_teardown": 1,

@@ -72,5 +72,8 @@
       "tag": "draft/v0.8.0-202610139106",
       "source_sha": "d76bc091893535acb70a05edc961b5cb99750ead"
     }
-  }
+  },
+  "approved_quota_run_id": 38400199879,
+  "approved_quota_helper_sha": "9462df4168fca541912755fc4fb745cd798f800c",
+  "approved_quota_branch": "feature/release-cleanup-draft-quota-20261013"
 }
