@@ -56,6 +56,61 @@ def main():
         and list(target.run_ids) == [expected["source_run_id"]],
         "Historical exact IDs differ",
     )
+    expected_count = expected["registry_count"]
+    acceptance.require(
+        len(target.registry) == expected_count,
+        "Resolved registry targets differ from the frozen planned count",
+    )
+    release = remote.json_request(
+        "GET", f"/repos/{acceptance.REPOSITORY}/releases/{expected['release_id']}"
+    )
+    acceptance.require(
+        sorted(asset["id"] for asset in release["assets"])
+        == sorted(expected["asset_ids"]),
+        "Release assets differ from the frozen backup",
+    )
+    source = remote.read_release_run(expected["source_run_id"])
+    acceptance.require(
+        source is not None and source["status"] == "completed",
+        "Source is not completed",
+    )
+    if "source_sha" in expected:
+        acceptance.require(
+            source["head_sha"] == expected["source_sha"]
+            and source["conclusion"] == "failure"
+            and source["event"] == "push"
+            and source["head_branch"] == tag
+            and source["path"].split("@", 1)[0] == ".github/workflows/release-tag.yml",
+            "Real CMake failure source identity differs from the frozen backup",
+        )
+        acceptance.require(
+            "Status: `artifacts-failed`" in (release.get("body") or "")
+            and "Wheel outcome: failure" in release["body"]
+            and not any(
+                asset["name"] == "release-manifest.json" for asset in release["assets"]
+            ),
+            "Real failed Release lost its detailed outcome or gained a public manifest",
+        )
+        jobs = remote.list_pages(
+            f"/repos/{acceptance.REPOSITORY}/actions/runs/{source['id']}/jobs",
+            key="jobs",
+        )
+        by_name = {job["name"]: job for job in jobs}
+        acceptance.require(
+            all(
+                by_name[name]["conclusion"] == "failure"
+                for name in expected["native_job_names"]
+            )
+            and len(expected["native_job_names"]) == expected["native_failed_jobs"],
+            "Actual native build job outcomes differ from the frozen backup",
+        )
+        acceptance.require(
+            all(
+                by_name[name]["conclusion"] == "skipped"
+                for name in expected["publisher_job_names"]
+            ),
+            "A side-effect publication stage ran after the real CMake failure",
+        )
     out = Path("out/hosted")
     out.mkdir(parents=True, exist_ok=True)
     tokens = {}
@@ -66,6 +121,20 @@ def main():
         "release_ids": [r.identifier for r in target.releases],
         "run_ids": list(target.run_ids),
         "registry_planned": len(target.registry),
+        "registry_expected": expected_count,
+        "source": {
+            key: source[key]
+            for key in (
+                "id",
+                "head_sha",
+                "event",
+                "status",
+                "conclusion",
+                "run_attempt",
+            )
+        },
+        "asset_ids": sorted(asset["id"] for asset in release["assets"]),
+        "source_evidence": expected.get("evidence", "historical-release"),
         "resources": rows,
     }
     for resource in target.registry:
@@ -147,7 +216,12 @@ def main():
     proof["baseline"] = acceptance.baseline(remote, baseline)
     proof["status"] = (
         "complete"
-        if len(rows) == 169 and all(item["presence"] != "error" for item in rows)
+        if len(rows) == expected_count
+        and all(item["presence"] != "error" for item in rows)
+        and (
+            expected.get("evidence") != "real-cmake-build-failure"
+            or all(item["presence"] == "absent" for item in rows)
+        )
         else "blocked"
     )
     (out / "historical-head-census.json").write_text(json.dumps(proof, indent=2) + "\n")

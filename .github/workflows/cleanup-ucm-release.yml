@@ -68,8 +68,20 @@ jobs:
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: -r .github/release/requirements.txt
       - uses: ./.github/actions/setup-crane
+      - id: target-policy
+        name: Read the frozen target's registry requirements
+        if: ${{ inputs.scenario == 'history-head-preview' }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          targets = json.loads(Path('fixture-helper/.github/release/tests/historical_targets.json').read_text())
+          target = targets[os.environ['PREVIEW_TAG']]
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('dockerhub_required=' + str(target['dockerhub_count'] > 0).lower() + '\n')
+          PY
       - name: Authenticate read-only registry preflight
-        if: ${{ inputs.scenario == 'history-preview' || inputs.scenario == 'registry-route' || inputs.scenario == 'history-head-preview' }}
+        if: ${{ inputs.scenario == 'history-preview' || inputs.scenario == 'registry-route' || (inputs.scenario == 'history-head-preview' && steps.target-policy.outputs.dockerhub_required == 'true') }}
         run: |
           set -euo pipefail
           python fixture-helper/.github/release/tests/historical_readback.py auth

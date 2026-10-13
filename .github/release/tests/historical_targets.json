@@ -1,25 +1,101 @@
 {
+  "draft/v0.8.0-1013101": {
+    "asset_ids": [
+      636522747,
+      636547285
+    ],
+    "dockerhub_count": 0,
+    "evidence": "real-cmake-build-failure",
+    "native_failed_jobs": 12,
+    "native_job_names": [
+      "Run Release core / Wheel \u00b7 cann901-a3 \u00b7 cp312 \u00b7 arm64 / Build",
+      "Run Release core / Wheel \u00b7 cann910-a2 \u00b7 cp312 \u00b7 amd64 / Build",
+      "Run Release core / Wheel \u00b7 cann901-a2 \u00b7 cp312 \u00b7 amd64 / Build",
+      "Run Release core / Wheel \u00b7 cann910-a2 \u00b7 cp312 \u00b7 arm64 / Build",
+      "Run Release core / Wheel \u00b7 cann910-a3 \u00b7 cp312 \u00b7 arm64 / Build",
+      "Run Release core / Wheel \u00b7 cann901-a3 \u00b7 cp312 \u00b7 amd64 / Build",
+      "Run Release core / Wheel \u00b7 cann910-a3 \u00b7 cp312 \u00b7 amd64 / Build",
+      "Run Release core / Wheel \u00b7 cann901-a2 \u00b7 cp312 \u00b7 arm64 / Build",
+      "Run Release core / Wheel \u00b7 cu130 \u00b7 cp312 \u00b7 amd64 / Build",
+      "Run Release core / Wheel \u00b7 cu129 \u00b7 cp312 \u00b7 arm64 / Build",
+      "Run Release core / Wheel \u00b7 cu130 \u00b7 cp312 \u00b7 arm64 / Build",
+      "Run Release core / Wheel \u00b7 cu129 \u00b7 cp312 \u00b7 amd64 / Build"
+    ],
+    "native_log_matches": 24,
+    "planned_snapshot_sha256": "eccfc171e5cbb68bf766fc77911c51021b21bc15eb820bd065e08388d2e35e17",
+    "publisher_job_names": [
+      "Run Release core / Tag Image \u00b7 ${{ matrix.label }}",
+      "Run Release core / Publish \u00b7 Chart OCI",
+      "Run Release core / Publish index \u00b7 ${{ matrix.label }}",
+      "Run Release core / Release \u00b7 Finalize all channels"
+    ],
+    "registry_count": 85,
+    "registry_version_paths": [],
+    "release_id": 411498895,
+    "source_run_id": 38375710915,
+    "source_sha": "5e92e86a036b248cb2843ca0cc6061340d9b7369"
+  },
+  "nightly/v0.8.0-20261013-2": {
+    "asset_ids": [
+      636556754,
+      636562860
+    ],
+    "dockerhub_count": 0,
+    "evidence": "real-cmake-build-failure",
+    "native_failed_jobs": 12,
+    "native_job_names": [
+      "Run Release core / Wheel \u00b7 cann910-a3 \u00b7 cp312 \u00b7 arm64 / Build",
+      "Run Release core / Wheel \u00b7 cu129 \u00b7 cp312 \u00b7 arm64 / Build",
+      "Run Release core / Wheel \u00b7 cu129 \u00b7 cp312 \u00b7 amd64 / Build",
+      "Run Release core / Wheel \u00b7 cann901-a2 \u00b7 cp312 \u00b7 amd64 / Build",
+      "Run Release core / Wheel \u00b7 cu130 \u00b7 cp312 \u00b7 arm64 / Build",
+      "Run Release core / Wheel \u00b7 cann910-a2 \u00b7 cp312 \u00b7 arm64 / Build",
+      "Run Release core / Wheel \u00b7 cann910-a2 \u00b7 cp312 \u00b7 amd64 / Build",
+      "Run Release core / Wheel \u00b7 cann901-a3 \u00b7 cp312 \u00b7 amd64 / Build",
+      "Run Release core / Wheel \u00b7 cann901-a3 \u00b7 cp312 \u00b7 arm64 / Build",
+      "Run Release core / Wheel \u00b7 cann910-a3 \u00b7 cp312 \u00b7 amd64 / Build",
+      "Run Release core / Wheel \u00b7 cu130 \u00b7 cp312 \u00b7 amd64 / Build",
+      "Run Release core / Wheel \u00b7 cann901-a2 \u00b7 cp312 \u00b7 arm64 / Build"
+    ],
+    "native_log_matches": 24,
+    "planned_snapshot_sha256": "61a2e06949685b68043cd12714ffc9968c65ffa29701b4f1798d22d8fb13cb6c",
+    "publisher_job_names": [
+      "Run Release core / Publish \u00b7 Chart OCI",
+      "Run Release core / Tag Image \u00b7 ${{ matrix.label }}",
+      "Run Release core / Publish index \u00b7 ${{ matrix.label }}",
+      "Run Release core / Release \u00b7 Finalize all channels"
+    ],
+    "registry_count": 0,
+    "registry_version_paths": [],
+    "release_id": 411510905,
+    "source_run_id": 38375711251,
+    "source_sha": "5e92e86a036b248cb2843ca0cc6061340d9b7369"
+  },
   "v0.7.0rc10": {
-    "release_id": 387548975,
-    "source_run_id": 34691047256,
     "asset_ids": [],
-    "registry_version_paths": []
+    "dockerhub_count": 84,
+    "registry_count": 169,
+    "registry_version_paths": [],
+    "release_id": 387548975,
+    "source_run_id": 34691047256
   },
   "v0.7.0rc11": {
-    "release_id": 387556353,
-    "source_run_id": 34692329616,
     "asset_ids": [],
-    "registry_version_paths": []
+    "dockerhub_count": 84,
+    "registry_count": 169,
+    "registry_version_paths": [],
+    "release_id": 387556353,
+    "source_run_id": 34692329616
   },
   "v0.7.0rc12": {
-    "release_id": 387563734,
-    "source_run_id": 34693636766,
     "asset_ids": [],
-    "registry_version_paths": []
+    "dockerhub_count": 84,
+    "registry_count": 169,
+    "registry_version_paths": [],
+    "release_id": 387563734,
+    "source_run_id": 34693636766
   },
   "v0.7.0rc14": {
-    "release_id": 387579666,
-    "source_run_id": 34696454025,
     "asset_ids": [
       559338513,
       559338485,
@@ -37,8 +113,12 @@
       559338515,
       559338514
     ],
+    "dockerhub_count": 84,
+    "registry_count": 169,
     "registry_version_paths": [
       "/users/SuperMarioYL/packages/container/charts%2Funified-cache-chart/versions/1240791935"
-    ]
+    ],
+    "release_id": 387579666,
+    "source_run_id": 34696454025
   }
 }
