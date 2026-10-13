@@ -1,32 +1,22 @@
-# Keep this workflow on the isolated fixture branch. It never replaces a publisher.
 name: Cleanup one UCM Tag Release
-run-name: Fork cleanup closure · ${{ inputs.scenario }} · source ${{ inputs.source_run_id }}
+run-name: Fork Draft quota · ${{ inputs.stage }}
 
 on:
   workflow_dispatch:
     inputs:
-      production_sha:
-        description: Fixed repaired commit on Fork default develop
-        type: string
-        required: true
       helper_ref:
-        description: Exact immutable fixture commit containing reviewed helper and config
         type: string
         required: true
-      source_run_id:
-        description: Source whose durable ledger is captured before deletion
-        type: number
-        required: false
-        default: 0
-      tag:
-        description: Exact reviewed historical Tag for read-only preflight
-        type: string
-        required: false
-        default: ''
-      scenario:
+      stage:
         type: choice
         required: true
-        options: [ghcr, manual, retention, kept, history-preview, history-readback, registry-route, history-head-preview, orphan-archive]
+        options: [quota, readback]
+      source_run_ids:
+        type: string
+        required: false
+      quota_run_id:
+        type: number
+        default: 0
 
 permissions:
   contents: read
@@ -37,18 +27,19 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     environment: fork-preview
+    concurrency:
+      group: ucm-release-retention-${{ github.repository_id }}-draft
+      queue: max
+      cancel-in-progress: false
     permissions:
       contents: write
       actions: write
-      packages: write
+      packages: read
     env:
       GH_TOKEN: ${{ github.token }}
-      PRODUCTION_SHA: ${{ inputs.production_sha }}
-      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
-      SCENARIO: ${{ inputs.scenario }}
-      PREVIEW_TAG: ${{ inputs.tag }}
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      HELPER_SHA: ${{ inputs.helper_ref }}
+      SOURCE_RUN_IDS: ${{ inputs.source_run_ids }}
+      QUOTA_RUN_ID: ${{ inputs.quota_run_id }}
     steps:
       - uses: actions/checkout@v4.2.2
         with:
@@ -67,93 +58,51 @@ jobs:
       - run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: -r .github/release/requirements.txt
-      - uses: ./.github/actions/setup-crane
-      - id: target-policy
-        name: Read the frozen target's registry requirements
-        if: ${{ inputs.scenario == 'history-head-preview' }}
-        run: |
-          python3 - <<'PY'
-          import json, os
-          from pathlib import Path
-          targets = json.loads(Path('fixture-helper/.github/release/tests/historical_targets.json').read_text())
-          target = targets[os.environ['PREVIEW_TAG']]
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write('dockerhub_required=' + str(target['dockerhub_count'] > 0).lower() + '\n')
-          PY
-      - name: Authenticate read-only registry preflight
-        if: ${{ inputs.scenario == 'history-preview' || inputs.scenario == 'registry-route' || (inputs.scenario == 'history-head-preview' && steps.target-policy.outputs.dockerhub_required == 'true') }}
+      - name: Bind fixed production code while holding the existing Draft retention queue
         run: |
           set -euo pipefail
-          python fixture-helper/.github/release/tests/historical_readback.py auth
-      - name: Preview only the four reviewed historical Tags using production CLI
-        if: ${{ inputs.scenario == 'history-preview' }}
-        run: |
-          set -euo pipefail
-          python fixture-helper/.github/release/tests/hosted_cleanup.py history-preview \
-            --production-root . --production-sha "${PRODUCTION_SHA}" \
-            --tag "${PREVIEW_TAG}"
-      - name: Compare registry authentication and manifest routes without exposing tokens
-        if: ${{ inputs.scenario == 'registry-route' }}
-        run: |
-          set -euo pipefail
-          python fixture-helper/.github/release/tests/registry_route.py
-      - name: Freeze exact historical identities using authenticated HEAD without GET fallback
-        if: ${{ inputs.scenario == 'history-head-preview' }}
-        run: |
-          set -euo pipefail
-          python fixture-helper/.github/release/tests/historical_head.py
-      - name: Archive only the reviewed resource-free fixture source
-        if: ${{ inputs.scenario == 'orphan-archive' }}
-        run: |
-          set -euo pipefail
-          python fixture-helper/.github/release/tests/orphan_archive.py
-      - name: Independently read exact deleted historical identities
-        if: ${{ inputs.scenario == 'history-readback' }}
-        run: |
-          set -euo pipefail
-          python fixture-helper/.github/release/tests/historical_readback.py readback \
-            --production-root . --production-sha "${PRODUCTION_SHA}" \
-            --tag "${PREVIEW_TAG}"
-      - name: Capture durable source ledger in this independent closure run
-        if: ${{ inputs.scenario != 'history-preview' && inputs.scenario != 'history-readback' && inputs.scenario != 'registry-route' && inputs.scenario != 'history-head-preview' && inputs.scenario != 'orphan-archive' }}
-        run: |
-          set -euo pipefail
-          python fixture-helper/.github/release/tests/hosted_cleanup.py capture \
-            --production-root . --production-sha "${PRODUCTION_SHA}" \
-            --source-run-id "${SOURCE_RUN_ID}"
-      - name: Publish capture acknowledgement before source cancellation or completion
-        if: ${{ inputs.scenario != 'history-preview' && inputs.scenario != 'history-readback' && inputs.scenario != 'registry-route' && inputs.scenario != 'history-head-preview' && inputs.scenario != 'orphan-archive' }}
-        uses: actions/upload-artifact@v4.6.2
+          python fixture-helper/.github/release/tests/draft_quota.py binding \
+            --production-root . --production-sha f66366538b35faa51507452ae1ad676b10994a4d \
+            --helper-sha "${HELPER_SHA}"
+      - uses: actions/upload-artifact@v4.6.2
+        if: ${{ inputs.stage == 'quota' }}
         with:
-          name: acceptance-capture-run-${{ github.run_id }}
-          path: out/hosted/
+          name: draft-quota-lock-run-${{ github.run_id }}
+          path: out/draft-quota/code-binding.json
           if-no-files-found: error
           retention-days: 90
-      - name: Prove active source is deferred before acknowledging its terminal step
-        if: ${{ inputs.scenario == 'manual' }}
+      - name: Capture terminal sources and actual quota selection without mutation
+        if: ${{ inputs.stage == 'quota' }}
         run: |
           set -euo pipefail
-          python fixture-helper/.github/release/tests/hosted_cleanup.py active-manual \
-            --production-root . --production-sha "${PRODUCTION_SHA}"
-      - name: Publish independently verified active acknowledgement
-        if: ${{ inputs.scenario == 'manual' }}
-        uses: actions/upload-artifact@v4.6.2
+          python fixture-helper/.github/release/tests/draft_quota.py capture \
+            --production-root . --production-sha f66366538b35faa51507452ae1ad676b10994a4d \
+            --helper-sha "${HELPER_SHA}" --source-run-ids "${SOURCE_RUN_IDS}"
+      - uses: actions/upload-artifact@v4.6.2
+        if: ${{ inputs.stage == 'quota' }}
         with:
-          name: acceptance-active-run-${{ github.run_id }}
-          path: out/hosted/active-proof.json
+          name: draft-quota-capture-run-${{ github.run_id }}
+          path: out/draft-quota/
           if-no-files-found: error
           retention-days: 90
-      - name: Observe terminal source and prove deployed cleanup behavior
-        if: ${{ inputs.scenario != 'history-preview' && inputs.scenario != 'history-readback' && inputs.scenario != 'registry-route' && inputs.scenario != 'history-head-preview' && inputs.scenario != 'orphan-archive' }}
+      - name: Verify independent archive before invoking fixed production retention
+        if: ${{ inputs.stage == 'quota' }}
         run: |
           set -euo pipefail
-          python fixture-helper/.github/release/tests/hosted_cleanup.py observe \
-            --production-root . --production-sha "${PRODUCTION_SHA}" \
-            --scenario "${SCENARIO}"
+          python fixture-helper/.github/release/tests/draft_quota.py apply \
+            --production-root . --production-sha f66366538b35faa51507452ae1ad676b10994a4d \
+            --helper-sha "${HELPER_SHA}" 2>&1 | tee out/draft-quota/production-retention.log
+      - name: Independently read every exact fixture after default production teardown
+        if: ${{ inputs.stage == 'readback' }}
+        run: |
+          set -euo pipefail
+          python fixture-helper/.github/release/tests/draft_quota.py readback \
+            --production-root . --production-sha f66366538b35faa51507452ae1ad676b10994a4d \
+            --helper-sha "${HELPER_SHA}" --quota-run-id "${QUOTA_RUN_ID}"
       - uses: actions/upload-artifact@v4.6.2
         if: ${{ always() }}
         with:
-          name: hosted-closure-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: out/hosted/
+          name: draft-quota-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: out/draft-quota/
           if-no-files-found: warn
           retention-days: 90

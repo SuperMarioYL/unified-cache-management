@@ -1,15 +1,16 @@
-# Isolated Fork fixture Tag only. Default develop keeps all genuine Tag publishers.
 name: UCM Tag Release · Stable, Prerelease, Draft, and Nightly
-run-name: Fork GHCR disposable source · ${{ github.ref_name }}
+run-name: Fork Draft quota source · ${{ github.ref_name }}
 
 on:
   push:
-    tags: ['draft/v0.8.0-202610139001', 'draft/v0.8.0-202610139003']
-
-concurrency:
-  group: ucm-release-retention-${{ github.repository_id }}-draft
-  queue: max
-  cancel-in-progress: false
+    tags:
+      - draft/v0.8.0-202610139101
+      - draft/v0.8.0-202610139102
+      - draft/v0.8.0-202610139103
+      - draft/v0.8.0-202610139104
+      - draft/v0.8.0-202610139105
+      - draft/v0.8.0-202610139106
+      - draft/v0.8.0-202610139107
 
 permissions:
   contents: read
@@ -18,12 +19,13 @@ jobs:
   prepare-fixture:
     if: ${{ github.repository == 'SuperMarioYL/unified-cache-management' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 15
     environment: fork-preview
     permissions:
       contents: write
-      actions: write
-      packages: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4.2.2
         with:
@@ -42,58 +44,34 @@ jobs:
       - run: >-
           python -m pip install --disable-pip-version-check --no-cache-dir
           --only-binary=:all: -r .github/release/requirements.txt
-      - uses: ./.github/actions/setup-crane
-      - name: Prepare manual Draft or exclusive tiny GHCR fixture using deployed code
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Save production recovery records for an exact disposable Draft
         run: |
           set -euo pipefail
-          config=fixture-helper/.github/release/tests/acceptance-config.json
-          production_sha="$(jq -er '.production_sha' "${config}")"
-          if [ "${GITHUB_REF_NAME}" = "$(jq -er '.draft_tag' "${config}")" ]; then
-            operation=prepare-ghcr
-          elif [ "${GITHUB_REF_NAME}" = "$(jq -er '.manual_draft_tag' "${config}")" ]; then
-            operation=prepare-draft
-          else
-            echo 'Tag is outside both reviewed fixture coordinates.' >&2
-            exit 2
-          fi
-          python fixture-helper/.github/release/tests/hosted_cleanup.py "${operation}" \
-            --production-root . --production-sha "${production_sha}"
+          python fixture-helper/.github/release/tests/draft_quota.py prepare \
+            --production-root . --production-sha f66366538b35faa51507452ae1ad676b10994a4d
       - uses: actions/upload-artifact@v4.6.2
         if: ${{ always() && hashFiles('out/open/*.json') != '' }}
         with:
           name: ucm-release-cleanup-open-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: out/open/*.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 90
       - uses: actions/upload-artifact@v4.6.2
         if: ${{ always() && hashFiles('out/plan/*.json') != '' }}
         with:
           name: ucm-release-cleanup-plan-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: out/plan/*.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 90
       - uses: actions/upload-artifact@v4.6.2
         if: ${{ always() && hashFiles('out/ledger/*.json') != '' }}
         with:
           name: fixture-ledger-run-${{ github.run_id }}
           path: out/ledger/
           if-no-files-found: error
-          retention-days: 7
-      - name: Capture window before the intentionally failed source conclusion
-        env:
-          GH_TOKEN: ${{ github.token }}
+          retention-days: 90
+      - name: Stop the victim before a Release is ever allocated
+        if: ${{ github.ref_name == 'draft/v0.8.0-202610139101' }}
         run: |
-          set -euo pipefail
-          config=fixture-helper/.github/release/tests/acceptance-config.json
-          production_sha="$(jq -er '.production_sha' "${config}")"
-          echo 'SOURCE_CAPTURE_WINDOW_OPEN: ownership ledger is durable.'
-          if [ "${GITHUB_REF_NAME}" = "$(jq -er '.manual_draft_tag' "${config}")" ]; then
-            python fixture-helper/.github/release/tests/hosted_cleanup.py await-manual-ack \
-              --production-root . --production-sha "${production_sha}"
-          else
-            sleep 180
-          fi
-          echo 'Intentional fixture failure after actual GHCR publication.' >&2
+          echo 'Intentional protocol failure after real recovery artifacts, before Release allocation.' >&2
           exit 1

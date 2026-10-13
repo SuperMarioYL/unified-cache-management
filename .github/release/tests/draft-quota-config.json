@@ -1,0 +1,50 @@
+{
+  "repository": "SuperMarioYL/unified-cache-management",
+  "production_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+  "max_count": 7,
+  "fixture_tags": [
+    "draft/v0.8.0-202610139101",
+    "draft/v0.8.0-202610139102",
+    "draft/v0.8.0-202610139103",
+    "draft/v0.8.0-202610139104",
+    "draft/v0.8.0-202610139105",
+    "draft/v0.8.0-202610139106",
+    "draft/v0.8.0-202610139107"
+  ],
+  "victim_tag": "draft/v0.8.0-202610139101",
+  "current_tag": "draft/v0.8.0-202610139107",
+  "normal_releases": {
+    "v0.8.2": {
+      "release_id": 411560226,
+      "ref_object": {
+        "sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+        "type": "commit",
+        "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/commits/3d6a11b01167c40b28ee6a08c7d7454d23940674"
+      }
+    },
+    "v0.8.2rc1": {
+      "release_id": 411512107,
+      "ref_object": {
+        "sha": "4858aef86456f712da6fd59ecb224235841ebdac",
+        "type": "commit",
+        "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/commits/4858aef86456f712da6fd59ecb224235841ebdac"
+      }
+    },
+    "draft/v0.8.2-1": {
+      "release_id": 411606028,
+      "ref_object": {
+        "sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+        "type": "commit",
+        "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/commits/3d6a11b01167c40b28ee6a08c7d7454d23940674"
+      }
+    },
+    "nightly/v0.8.0-20261013-1": {
+      "release_id": 411496372,
+      "ref_object": {
+        "sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+        "type": "commit",
+        "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/commits/776110b2524bf43eb5e197dcdb96315f9c6c3d8c"
+      }
+    }
+  }
+}
