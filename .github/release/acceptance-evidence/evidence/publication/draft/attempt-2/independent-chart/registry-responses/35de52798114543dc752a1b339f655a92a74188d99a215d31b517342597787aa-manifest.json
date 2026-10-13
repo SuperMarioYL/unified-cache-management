@@ -1,0 +1,12 @@
+{
+  "args": [
+    "crane",
+    "manifest",
+    "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ubuntu2404-ucm-0.8.2.dev1"
+  ],
+  "exit_code": 0,
+  "observed_at": "2026-10-13T13:27:17.146695+00:00",
+  "stdout": "{\n  \"schemaVersion\": 2,\n  \"mediaType\": \"application/vnd.oci.image.index.v1+json\",\n  \"manifests\": [\n    {\n      \"mediaType\": \"application/vnd.oci.image.manifest.v1+json\",\n      \"digest\": \"sha256:40e1940bbb8252d12d7e8077568eea2ef9cccb16f7ef8e1c1e765dda6277e22a\",\n      \"size\": 7159,\n      \"platform\": {\n        \"architecture\": \"amd64\",\n        \"os\": \"linux\"\n      }\n    },\n    {\n      \"mediaType\": \"application/vnd.oci.image.manifest.v1+json\",\n      \"digest\": \"sha256:ca2ca8f3bd1363e932f2ae8700691aa1f6d9ba8b9276f55cead58e52f3883545\",\n      \"size\": 7158,\n      \"platform\": {\n        \"architecture\": \"arm64\",\n        \"os\": \"linux\"\n      }\n    }\n  ]\n}",
+  "stderr": "",
+  "stdout_sha256": "6a50fedcf01d81b05d1d29843ccf6290f292cde51753d490172e9eb6abc5a024"
+}

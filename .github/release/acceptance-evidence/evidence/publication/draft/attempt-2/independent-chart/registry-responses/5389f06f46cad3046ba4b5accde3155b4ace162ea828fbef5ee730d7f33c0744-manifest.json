@@ -1,0 +1,12 @@
+{
+  "args": [
+    "crane",
+    "manifest",
+    "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.8.2.dev1"
+  ],
+  "exit_code": 0,
+  "observed_at": "2026-10-13T13:26:31.989975+00:00",
+  "stdout": "{\n  \"schemaVersion\": 2,\n  \"mediaType\": \"application/vnd.oci.image.index.v1+json\",\n  \"manifests\": [\n    {\n      \"mediaType\": \"application/vnd.oci.image.manifest.v1+json\",\n      \"digest\": \"sha256:787f647fc5ebd2343403641e9236327ebd3738f786da6afc2cea523438bdee2f\",\n      \"size\": 3934,\n      \"platform\": {\n        \"architecture\": \"amd64\",\n        \"os\": \"linux\"\n      }\n    },\n    {\n      \"mediaType\": \"application/vnd.oci.image.manifest.v1+json\",\n      \"digest\": \"sha256:10dc2c0fc5c98816409835eb04588fe4cd16b9606b78d65b64f799ed122157d2\",\n      \"size\": 3933,\n      \"platform\": {\n        \"architecture\": \"arm64\",\n        \"os\": \"linux\"\n      }\n    }\n  ]\n}",
+  "stderr": "",
+  "stdout_sha256": "133ae6f0920141936cc500a87857cf024d544201e3b9b76da97fbec2ceecc484"
+}

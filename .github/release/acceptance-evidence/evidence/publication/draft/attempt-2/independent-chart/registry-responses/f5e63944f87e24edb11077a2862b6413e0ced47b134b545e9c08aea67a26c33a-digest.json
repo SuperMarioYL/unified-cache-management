@@ -1,0 +1,12 @@
+{
+  "args": [
+    "crane",
+    "digest",
+    "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ucm-0.8.2.dev1-arm64"
+  ],
+  "exit_code": 0,
+  "observed_at": "2026-10-13T13:27:44.856590+00:00",
+  "stdout": "sha256:12404f671cdda6eb7888107ad9485227db2e45a3baab4dbb09f49705c86f9e41\n",
+  "stderr": "",
+  "stdout_sha256": "fc57294eec4734e1c5282103db2a206fb922c785d40e0a71ee7f8563eb851f4c"
+}

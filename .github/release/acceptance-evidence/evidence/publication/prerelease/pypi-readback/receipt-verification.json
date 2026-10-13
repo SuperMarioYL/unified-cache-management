@@ -1,0 +1,8 @@
+{
+  "status": "verified",
+  "target": "testpypi",
+  "version": "0.8.2rc1",
+  "projects": 8,
+  "files": 14,
+  "method": "Independent project/version JSON exact filename set and SHA256 match against hosted receipt; receipt digests carry sha256 prefix"
+}

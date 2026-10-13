@@ -1,0 +1,51 @@
+{
+  "max_count": 7,
+  "repository": "SuperMarioYL/unified-cache-management",
+  "results": [
+    {
+      "registry_references": 0,
+      "release_ids": [
+        411510905
+      ],
+      "run_ids": [
+        38375711251
+      ],
+      "status": "kept",
+      "tag": "nightly/v0.8.0-20261013-2"
+    },
+    {
+      "registry_references": 0,
+      "release_ids": [
+        411496372
+      ],
+      "run_ids": [
+        38375348617
+      ],
+      "status": "kept",
+      "tag": "nightly/v0.8.0-20261013-1"
+    },
+    {
+      "registry_references": 0,
+      "release_ids": [
+        391382617
+      ],
+      "run_ids": [
+        35333981552
+      ],
+      "status": "kept",
+      "tag": "nightly/v0.8.0-20260918-2"
+    },
+    {
+      "registry_references": 0,
+      "release_ids": [
+        391366814
+      ],
+      "run_ids": [
+        35331587232
+      ],
+      "status": "kept",
+      "tag": "nightly/v0.8.0-20260918-1"
+    }
+  ],
+  "status": "complete"
+}

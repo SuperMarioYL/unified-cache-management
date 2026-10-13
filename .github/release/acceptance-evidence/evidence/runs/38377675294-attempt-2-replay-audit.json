@@ -1,0 +1,257 @@
+{
+  "run_id": 38377675294,
+  "attempt": 2,
+  "requested_at": "2026-10-13T10:58:40.010670+00:00",
+  "total_rows": 158,
+  "new_native_execution_count": 0,
+  "new_pypi_execution_count": 0,
+  "new_image_execution_count": 1,
+  "executed_since_retry": [
+    {
+      "job_id": 115261279029,
+      "name": "Run Release core / Tag Image \u00b7 vLLM 0.26.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T10:58:51Z"
+    },
+    {
+      "job_id": 115266302310,
+      "name": "Run Release core / Verify directly published image members",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:12:17Z"
+    },
+    {
+      "job_id": 115266548793,
+      "name": "Run Release core / Publish index \u00b7 vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A2 \u00b7 openeuler unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:12:57Z"
+    },
+    {
+      "job_id": 115266548826,
+      "name": "Run Release core / Publish index \u00b7 vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A3 \u00b7 linux unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:14:34Z"
+    },
+    {
+      "job_id": 115266548844,
+      "name": "Run Release core / Publish index \u00b7 vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A2 \u00b7 linux unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:16:45Z"
+    },
+    {
+      "job_id": 115266548863,
+      "name": "Run Release core / Publish index \u00b7 vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A3 \u00b7 openeuler unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:24:03Z"
+    },
+    {
+      "job_id": 115266548907,
+      "name": "Run Release core / Publish index \u00b7 vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A2 \u00b7 openeuler unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:23:01Z"
+    },
+    {
+      "job_id": 115266548925,
+      "name": "Run Release core / Publish index \u00b7 vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A3 \u00b7 linux unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:19:54Z"
+    },
+    {
+      "job_id": 115266548935,
+      "name": "Run Release core / Publish index \u00b7 vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A2 \u00b7 linux unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:28:33Z"
+    },
+    {
+      "job_id": 115266548956,
+      "name": "Run Release core / Publish index \u00b7 vLLM 0.26.0 \u00b7 CUDA 13.0 \u00b7 linux unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:33:38Z"
+    },
+    {
+      "job_id": 115266548957,
+      "name": "Run Release core / Publish index \u00b7 vLLM 0.27.1 \u00b7 CUDA 12.9 \u00b7 linux unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:17:42Z"
+    },
+    {
+      "job_id": 115266548982,
+      "name": "Run Release core / Publish index \u00b7 vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A3 \u00b7 linux unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:21:02Z"
+    },
+    {
+      "job_id": 115266548998,
+      "name": "Run Release core / Publish index \u00b7 vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A3 \u00b7 openeuler unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:25:42Z"
+    },
+    {
+      "job_id": 115266549005,
+      "name": "Run Release core / Publish index \u00b7 vLLM Ascend 0.26.0rc2 \u00b7 CANN 9.1.0 A2 \u00b7 linux unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:23:41Z"
+    },
+    {
+      "job_id": 115266549033,
+      "name": "Run Release core / Publish index \u00b7 vLLM Ascend 0.26.0rc2 \u00b7 CANN 9.1.0 A3 \u00b7 linux unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:21:28Z"
+    },
+    {
+      "job_id": 115266549036,
+      "name": "Run Release core / Publish index \u00b7 vLLM 0.26.0 \u00b7 CUDA 12.9 \u00b7 linux unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:28:16Z"
+    },
+    {
+      "job_id": 115266549039,
+      "name": "Run Release core / Publish index \u00b7 vLLM Ascend 0.26.0rc2 \u00b7 CANN 9.1.0 A3 \u00b7 openeuler unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:25:35Z"
+    },
+    {
+      "job_id": 115266549040,
+      "name": "Run Release core / Publish index \u00b7 vLLM Ascend 0.26.0rc2 \u00b7 CANN 9.1.0 A2 \u00b7 openeuler unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:25:18Z"
+    },
+    {
+      "job_id": 115266549043,
+      "name": "Run Release core / Publish index \u00b7 vLLM 0.27.1 \u00b7 CUDA 12.9 \u00b7 linux unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:28:39Z"
+    },
+    {
+      "job_id": 115266549054,
+      "name": "Run Release core / Publish index \u00b7 vLLM 0.27.1 \u00b7 CUDA 13.0 \u00b7 linux unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:32:10Z"
+    },
+    {
+      "job_id": 115266549064,
+      "name": "Run Release core / Publish index \u00b7 vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A2 \u00b7 openeuler unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:24:18Z"
+    },
+    {
+      "job_id": 115266549068,
+      "name": "Run Release core / Publish index \u00b7 vLLM 0.26.0 \u00b7 CUDA 12.9 \u00b7 linux unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:23:25Z"
+    },
+    {
+      "job_id": 115266549098,
+      "name": "Run Release core / Publish index \u00b7 vLLM 0.28.0 \u00b7 CUDA 13.0 \u00b7 linux unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:18:34Z"
+    },
+    {
+      "job_id": 115266549106,
+      "name": "Run Release core / Publish index \u00b7 vLLM 0.28.0 \u00b7 CUDA 12.9 \u00b7 linux unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:24:51Z"
+    },
+    {
+      "job_id": 115266549152,
+      "name": "Run Release core / Publish index \u00b7 vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A2 \u00b7 linux unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:34:31Z"
+    },
+    {
+      "job_id": 115266549186,
+      "name": "Run Release core / Publish index \u00b7 vLLM 0.27.1 \u00b7 CUDA 13.0 \u00b7 linux unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:24:12Z"
+    },
+    {
+      "job_id": 115266549249,
+      "name": "Run Release core / Publish index \u00b7 vLLM 0.26.0 \u00b7 CUDA 13.0 \u00b7 linux unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:34:04Z"
+    },
+    {
+      "job_id": 115266549282,
+      "name": "Run Release core / Publish index \u00b7 vLLM 0.28.0 \u00b7 CUDA 12.9 \u00b7 linux unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:32:32Z"
+    },
+    {
+      "job_id": 115266549292,
+      "name": "Run Release core / Publish index \u00b7 vLLM 0.28.0 \u00b7 CUDA 13.0 \u00b7 linux unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:33:08Z"
+    },
+    {
+      "job_id": 115266550039,
+      "name": "Run Release core / Publish index \u00b7 vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A3 \u00b7 openeuler unreported",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:34:50Z"
+    },
+    {
+      "job_id": 115275233895,
+      "name": "Run Release core / Release \u00b7 Finalize all channels",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:35:25Z"
+    },
+    {
+      "job_id": 115275518285,
+      "name": "Run Release core / Verify \u00b7 Published bilingual documentation",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:35:54Z"
+    },
+    {
+      "job_id": 115275518541,
+      "name": "Run Release core / Verify \u00b7 Published Helm package and image tags",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:35:54Z"
+    },
+    {
+      "job_id": 115276335169,
+      "name": "Run Release core / Verify \u00b7 Complete RC delivery",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:38:32Z"
+    },
+    {
+      "job_id": 115276597358,
+      "name": "Run Release core / Cleanup \u00b7 Retain the configured same-type Releases",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-13T11:39:06Z"
+    }
+  ],
+  "queued_since_retry": []
+}

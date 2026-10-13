@@ -1,0 +1,12 @@
+{
+  "args": [
+    "helm",
+    "lint",
+    "/var/folders/y6/1gqlrpy15xx2k5l_cksbsfd80000gn/T/ucm-chart-readback-38udhic_/unified-cache-chart"
+  ],
+  "exit_code": 0,
+  "stdout": "==> Linting /var/folders/y6/1gqlrpy15xx2k5l_cksbsfd80000gn/T/ucm-chart-readback-38udhic_/unified-cache-chart\n[INFO] Chart.yaml: icon is recommended\n[WARNING] templates/kthena/modelserving.yaml: object name does not conform to Kubernetes naming requirements: \"test-release-%!s(<nil>)\": metadata.name: Invalid value: \"test-release-%!s(<nil>)\": a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character (e.g. 'example.com', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*')\n[WARNING] templates/kthena/service-engine.yaml: object name does not conform to Kubernetes naming requirements: \"test-release-%!s(<nil>)\": metadata.name: Invalid value: \"test-release-%!s(<nil>)\": a DNS-1035 label must consist of lower case alphanumeric characters or '-', start with an alphabetic character, and end with an alphanumeric character (e.g. 'my-name',  or 'abc-123', regex used for validation is '[a-z]([-a-z0-9]*[a-z0-9])?')\n\n1 chart(s) linted, 0 chart(s) failed\n",
+  "stderr": "engine.go:227: [INFO] Fail: \u9700\u8981 servingEngineSpec.modelSpec.roles[]\uff08\u5355/\u53cc\u673a=1 role name engine\uff1bPD=\u591a role + modelSpec.pd \u914d\u5bf9\uff09\n",
+  "observed_at": "2026-10-13T13:27:56.039608+00:00",
+  "expected_negative_case": null
+}

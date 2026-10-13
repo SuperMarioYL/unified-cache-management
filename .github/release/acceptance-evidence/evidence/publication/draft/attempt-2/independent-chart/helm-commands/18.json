@@ -1,0 +1,15 @@
+{
+  "args": [
+    "helm",
+    "template",
+    "ucm",
+    "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/attempt-2/independent-chart/github/unified-cache-chart-0.8.2-draft.1.tgz",
+    "-f",
+    "/var/folders/y6/1gqlrpy15xx2k5l_cksbsfd80000gn/T/ucm-chart-readback-38udhic_/unified-cache-chart/models/ascend/values-qwen3-235b-multi.yaml"
+  ],
+  "exit_code": 1,
+  "stdout": "",
+  "stderr": "Error: execution error at (unified-cache-chart/templates/kthena/modelserving.yaml:571:10): images.image or servingEngineSpec.modelSpec.image is required; set it to a public vLLM/UCM runtime image\n\nUse --debug flag to render out invalid YAML\n",
+  "observed_at": "2026-10-13T13:27:57.163595+00:00",
+  "expected_negative_case": "Ascend model profile must reject inherited CUDA default without an explicit image"
+}

@@ -1,0 +1,12 @@
+{
+  "args": [
+    "crane",
+    "manifest",
+    "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ucm-0.8.2.dev1"
+  ],
+  "exit_code": 0,
+  "observed_at": "2026-10-13T13:27:28.688428+00:00",
+  "stdout": "{\n  \"schemaVersion\": 2,\n  \"mediaType\": \"application/vnd.oci.image.index.v1+json\",\n  \"manifests\": [\n    {\n      \"mediaType\": \"application/vnd.oci.image.manifest.v1+json\",\n      \"digest\": \"sha256:bdcc99d83f756661c83afc35dc51ae3754db1007fcee6792b889e04632135cd7\",\n      \"size\": 7347,\n      \"platform\": {\n        \"architecture\": \"amd64\",\n        \"os\": \"linux\"\n      }\n    },\n    {\n      \"mediaType\": \"application/vnd.oci.image.manifest.v1+json\",\n      \"digest\": \"sha256:dfff11ac07f6fd2fd2c47754810a51b767a4c6d5f128f3740e1d4abce5c83418\",\n      \"size\": 7347,\n      \"platform\": {\n        \"architecture\": \"arm64\",\n        \"os\": \"linux\"\n      }\n    }\n  ]\n}",
+  "stderr": "",
+  "stdout_sha256": "9ef2ca181b8a960b2b37ffe3d6415d61905081040ce1f85fe72e0c54f3b4ff43"
+}

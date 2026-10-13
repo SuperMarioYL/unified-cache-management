@@ -1,0 +1,12 @@
+{
+  "args": [
+    "crane",
+    "manifest",
+    "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-openeuler-ucm-0.8.2.dev1"
+  ],
+  "exit_code": 0,
+  "observed_at": "2026-10-13T13:26:50.544330+00:00",
+  "stdout": "{\n  \"schemaVersion\": 2,\n  \"mediaType\": \"application/vnd.oci.image.index.v1+json\",\n  \"manifests\": [\n    {\n      \"mediaType\": \"application/vnd.oci.image.manifest.v1+json\",\n      \"digest\": \"sha256:3ae8a88e258f9b41bbf3688447fc4cec083e6bc5a07fcf18e1d8e853f3fb8bf4\",\n      \"size\": 4121,\n      \"platform\": {\n        \"architecture\": \"amd64\",\n        \"os\": \"linux\"\n      }\n    },\n    {\n      \"mediaType\": \"application/vnd.oci.image.manifest.v1+json\",\n      \"digest\": \"sha256:3c2c3d588891a1a979c91979bfbdafeaf791f868ea1c321d7ad6a90ec38c6bf1\",\n      \"size\": 4121,\n      \"platform\": {\n        \"architecture\": \"arm64\",\n        \"os\": \"linux\"\n      }\n    }\n  ]\n}",
+  "stderr": "",
+  "stdout_sha256": "8cc922c2d750705c977d34147d1cc445be59165fb828e26ffbef81d22ab4b780"
+}

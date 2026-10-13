@@ -1,0 +1,17 @@
+{
+  "run_id": 38390192146,
+  "from_attempt": 1,
+  "requested_at": "2026-10-13T12:50:49.786030+00:00",
+  "mode": "failed-and-dependent-only",
+  "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+  "code_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+  "root_cause_job": 115286324315,
+  "root_cause": "free-disk-space five-minute timeout before build/verify",
+  "downstream_failure_job": 115303735470,
+  "downstream_failure_step": "Require complete image publication",
+  "failure_backup": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/failures/attempt-1",
+  "successful_image_members_preserved": 55,
+  "successful_built_wheel_runtime_checks": 12,
+  "successful_toolkit_installed_checks": 2,
+  "pypi_enabled": false
+}

@@ -1,0 +1,2 @@
+Pulled: ghcr.io/supermarioyl/charts/unified-cache-chart:0.8.2-draft.1
+Digest: sha256:6c776164b8f6a2a1cbe7f6fcf2701d0115f251714082ecb76e5809ed9888b098

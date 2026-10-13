@@ -1,0 +1,1658 @@
+{
+  "chart": {
+    "filename": "unified-cache-chart-0.8.2-rc.1.tgz",
+    "name": "unified-cache-chart",
+    "oci": "ghcr.io/supermarioyl/charts/unified-cache-chart:0.8.2-rc.1",
+    "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/v0.8.2rc1/unified-cache-chart-0.8.2-rc.1.tgz",
+    "version": "0.8.2-rc.1"
+  },
+  "github_release_assets": [
+    "release-cleanup-38377675294-1-opened.json",
+    "release-cleanup-38377675294-1-planned.json",
+    "release-manifest.json",
+    "supermarioyl_uc_manager_cann901_a2-0.8.2rc1-cp312-cp312-manylinux_2_34_aarch64.whl",
+    "supermarioyl_uc_manager_cann901_a2-0.8.2rc1-cp312-cp312-manylinux_2_34_x86_64.whl",
+    "supermarioyl_uc_manager_cann901_a3-0.8.2rc1-cp312-cp312-manylinux_2_34_aarch64.whl",
+    "supermarioyl_uc_manager_cann901_a3-0.8.2rc1-cp312-cp312-manylinux_2_34_x86_64.whl",
+    "supermarioyl_uc_manager_cann910_a2-0.8.2rc1-cp312-cp312-manylinux_2_34_aarch64.whl",
+    "supermarioyl_uc_manager_cann910_a2-0.8.2rc1-cp312-cp312-manylinux_2_34_x86_64.whl",
+    "supermarioyl_uc_manager_cann910_a3-0.8.2rc1-cp312-cp312-manylinux_2_34_aarch64.whl",
+    "supermarioyl_uc_manager_cann910_a3-0.8.2rc1-cp312-cp312-manylinux_2_34_x86_64.whl",
+    "supermarioyl_uc_manager_cuda_cu129-0.8.2rc1-cp312-cp312-manylinux_2_28_aarch64.whl",
+    "supermarioyl_uc_manager_cuda_cu129-0.8.2rc1-cp312-cp312-manylinux_2_28_x86_64.whl",
+    "supermarioyl_uc_manager_cuda_cu130-0.8.2rc1-cp312-cp312-manylinux_2_28_aarch64.whl",
+    "supermarioyl_uc_manager_cuda_cu130-0.8.2rc1-cp312-cp312-manylinux_2_28_x86_64.whl",
+    "supermarioyl_ucm_toolkit-0.8.2rc1-py3-none-any.whl",
+    "ucm_config_example.yaml",
+    "unified-cache-chart-0.8.2-rc.1.tgz"
+  ],
+  "images": [
+    {
+      "accelerator": {
+        "runtime": "cann-9.0.1",
+        "soc_version": "ascend910b1",
+        "variant": "a2"
+      },
+      "id": "vllm-ascend-nightly-releases-v0.24.0rc",
+      "os": {
+        "id": "linux",
+        "version": "unreported"
+      },
+      "product": "vllm-ascend",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "nightly",
+        "version": "0.24.0rc"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.0.1",
+        "soc_version": "ascend910_9391",
+        "variant": "a3"
+      },
+      "id": "vllm-ascend-nightly-releases-v0.24.0rc-a3",
+      "os": {
+        "id": "linux",
+        "version": "unreported"
+      },
+      "product": "vllm-ascend",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "nightly",
+        "version": "0.24.0rc"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.0.1",
+        "soc_version": "ascend910_9391",
+        "variant": "a3"
+      },
+      "id": "vllm-ascend-nightly-releases-v0.24.0rc-a3-openeuler",
+      "os": {
+        "id": "openeuler",
+        "version": "unreported"
+      },
+      "product": "vllm-ascend",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "nightly",
+        "version": "0.24.0rc"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.0.1",
+        "soc_version": "ascend910b1",
+        "variant": "a2"
+      },
+      "id": "vllm-ascend-nightly-releases-v0.24.0rc-openeuler",
+      "os": {
+        "id": "openeuler",
+        "version": "unreported"
+      },
+      "product": "vllm-ascend",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "nightly",
+        "version": "0.24.0rc"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.0.1",
+        "soc_version": "ascend910b1",
+        "variant": "a2"
+      },
+      "id": "vllm-ascend-nightly-releases-v0.25.1rc",
+      "os": {
+        "id": "linux",
+        "version": "unreported"
+      },
+      "product": "vllm-ascend",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "nightly",
+        "version": "0.25.1rc"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.0.1",
+        "soc_version": "ascend910_9391",
+        "variant": "a3"
+      },
+      "id": "vllm-ascend-nightly-releases-v0.25.1rc-a3",
+      "os": {
+        "id": "linux",
+        "version": "unreported"
+      },
+      "product": "vllm-ascend",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "nightly",
+        "version": "0.25.1rc"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.0.1",
+        "soc_version": "ascend910_9391",
+        "variant": "a3"
+      },
+      "id": "vllm-ascend-nightly-releases-v0.25.1rc-a3-openeuler",
+      "os": {
+        "id": "openeuler",
+        "version": "unreported"
+      },
+      "product": "vllm-ascend",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "nightly",
+        "version": "0.25.1rc"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.0.1",
+        "soc_version": "ascend910b1",
+        "variant": "a2"
+      },
+      "id": "vllm-ascend-nightly-releases-v0.25.1rc-openeuler",
+      "os": {
+        "id": "openeuler",
+        "version": "unreported"
+      },
+      "product": "vllm-ascend",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "nightly",
+        "version": "0.25.1rc"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.1.0",
+        "soc_version": "ascend910b1",
+        "variant": "a2"
+      },
+      "id": "vllm-ascend-v0.23.0",
+      "os": {
+        "id": "linux",
+        "version": "unreported"
+      },
+      "product": "vllm-ascend",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "stable",
+        "version": "0.23.0"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.1.0",
+        "soc_version": "ascend910_9391",
+        "variant": "a3"
+      },
+      "id": "vllm-ascend-v0.23.0-a3",
+      "os": {
+        "id": "linux",
+        "version": "unreported"
+      },
+      "product": "vllm-ascend",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-a3-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-a3-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-a3-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "stable",
+        "version": "0.23.0"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.1.0",
+        "soc_version": "ascend910_9391",
+        "variant": "a3"
+      },
+      "id": "vllm-ascend-v0.23.0-a3-openeuler",
+      "os": {
+        "id": "openeuler",
+        "version": "unreported"
+      },
+      "product": "vllm-ascend",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-a3-openeuler-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-a3-openeuler-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-a3-openeuler-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-openeuler-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-openeuler-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-openeuler-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "stable",
+        "version": "0.23.0"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.1.0",
+        "soc_version": "ascend910b1",
+        "variant": "a2"
+      },
+      "id": "vllm-ascend-v0.23.0-openeuler",
+      "os": {
+        "id": "openeuler",
+        "version": "unreported"
+      },
+      "product": "vllm-ascend",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-openeuler-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-openeuler-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.23.0-openeuler-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-openeuler-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-openeuler-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-openeuler-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "stable",
+        "version": "0.23.0"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.1.0",
+        "soc_version": "ascend910b1",
+        "variant": "a2"
+      },
+      "id": "vllm-ascend-v0.26.0rc2",
+      "os": {
+        "id": "linux",
+        "version": "unreported"
+      },
+      "product": "vllm-ascend",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc2-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc2-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc2-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "rc",
+        "version": "0.26.0rc2"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.1.0",
+        "soc_version": "ascend910_9391",
+        "variant": "a3"
+      },
+      "id": "vllm-ascend-v0.26.0rc2-a3",
+      "os": {
+        "id": "linux",
+        "version": "unreported"
+      },
+      "product": "vllm-ascend",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc2-a3-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc2-a3-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc2-a3-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-a3-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-a3-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-a3-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "rc",
+        "version": "0.26.0rc2"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.1.0",
+        "soc_version": "ascend910_9391",
+        "variant": "a3"
+      },
+      "id": "vllm-ascend-v0.26.0rc2-a3-openeuler",
+      "os": {
+        "id": "openeuler",
+        "version": "unreported"
+      },
+      "product": "vllm-ascend",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc2-a3-openeuler-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc2-a3-openeuler-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc2-a3-openeuler-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-a3-openeuler-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-a3-openeuler-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-a3-openeuler-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "rc",
+        "version": "0.26.0rc2"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.1.0",
+        "soc_version": "ascend910b1",
+        "variant": "a2"
+      },
+      "id": "vllm-ascend-v0.26.0rc2-openeuler",
+      "os": {
+        "id": "openeuler",
+        "version": "unreported"
+      },
+      "product": "vllm-ascend",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc2-openeuler-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc2-openeuler-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-ascend:supermarioyl-v0.26.0rc2-openeuler-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-openeuler-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-openeuler-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-openeuler-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "rc",
+        "version": "0.26.0rc2"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cuda-13.0",
+        "soc_version": "na",
+        "variant": "default"
+      },
+      "id": "vllm-v0.26.0",
+      "os": {
+        "id": "linux",
+        "version": "unreported"
+      },
+      "product": "vllm",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "stable",
+        "version": "0.26.0"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cuda-12.9",
+        "soc_version": "na",
+        "variant": "default"
+      },
+      "id": "vllm-v0.26.0-cu129",
+      "os": {
+        "id": "linux",
+        "version": "unreported"
+      },
+      "product": "vllm",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-cu129-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-cu129-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-cu129-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "stable",
+        "version": "0.26.0"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cuda-12.9",
+        "soc_version": "na",
+        "variant": "default"
+      },
+      "id": "vllm-v0.26.0-cu129-ubuntu2404",
+      "os": {
+        "id": "linux",
+        "version": "unreported"
+      },
+      "product": "vllm",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "stable",
+        "version": "0.26.0"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cuda-13.0",
+        "soc_version": "na",
+        "variant": "default"
+      },
+      "id": "vllm-v0.26.0-ubuntu2404",
+      "os": {
+        "id": "linux",
+        "version": "unreported"
+      },
+      "product": "vllm",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-ubuntu2404-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-ubuntu2404-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-ubuntu2404-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ubuntu2404-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ubuntu2404-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ubuntu2404-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "stable",
+        "version": "0.26.0"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cuda-13.0",
+        "soc_version": "na",
+        "variant": "default"
+      },
+      "id": "vllm-v0.27.1",
+      "os": {
+        "id": "linux",
+        "version": "unreported"
+      },
+      "product": "vllm",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "stable",
+        "version": "0.27.1"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cuda-12.9",
+        "soc_version": "na",
+        "variant": "default"
+      },
+      "id": "vllm-v0.27.1-cu129",
+      "os": {
+        "id": "linux",
+        "version": "unreported"
+      },
+      "product": "vllm",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-cu129-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-cu129-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-cu129-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "stable",
+        "version": "0.27.1"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cuda-12.9",
+        "soc_version": "na",
+        "variant": "default"
+      },
+      "id": "vllm-v0.27.1-cu129-ubuntu2404",
+      "os": {
+        "id": "linux",
+        "version": "unreported"
+      },
+      "product": "vllm",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "stable",
+        "version": "0.27.1"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cuda-13.0",
+        "soc_version": "na",
+        "variant": "default"
+      },
+      "id": "vllm-v0.27.1-ubuntu2404",
+      "os": {
+        "id": "linux",
+        "version": "unreported"
+      },
+      "product": "vllm",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-ubuntu2404-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-ubuntu2404-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-openai:supermarioyl-v0.27.1-ubuntu2404-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ubuntu2404-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ubuntu2404-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ubuntu2404-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "stable",
+        "version": "0.27.1"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cuda-13.0",
+        "soc_version": "na",
+        "variant": "default"
+      },
+      "id": "vllm-v0.28.0",
+      "os": {
+        "id": "linux",
+        "version": "unreported"
+      },
+      "product": "vllm",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "stable",
+        "version": "0.28.0"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cuda-12.9",
+        "soc_version": "na",
+        "variant": "default"
+      },
+      "id": "vllm-v0.28.0-cu129",
+      "os": {
+        "id": "linux",
+        "version": "unreported"
+      },
+      "product": "vllm",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-cu129-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-cu129-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-cu129-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "stable",
+        "version": "0.28.0"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cuda-12.9",
+        "soc_version": "na",
+        "variant": "default"
+      },
+      "id": "vllm-v0.28.0-cu129-ubuntu2404",
+      "os": {
+        "id": "linux",
+        "version": "unreported"
+      },
+      "product": "vllm",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "stable",
+        "version": "0.28.0"
+      }
+    },
+    {
+      "accelerator": {
+        "runtime": "cuda-13.0",
+        "soc_version": "na",
+        "variant": "default"
+      },
+      "id": "vllm-v0.28.0-ubuntu2404",
+      "os": {
+        "id": "linux",
+        "version": "unreported"
+      },
+      "product": "vllm",
+      "publications": {
+        "dockerhub": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-ubuntu2404-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-ubuntu2404-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "docker.io/lei6393/vllm-openai:supermarioyl-v0.28.0-ubuntu2404-ucm-0.8.2rc1"
+        },
+        "ghcr": {
+          "members": [
+            {
+              "architecture": "amd64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ubuntu2404-ucm-0.8.2rc1-amd64"
+            },
+            {
+              "architecture": "arm64",
+              "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ubuntu2404-ucm-0.8.2rc1-arm64"
+            }
+          ],
+          "multi_arch": true,
+          "pull": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ubuntu2404-ucm-0.8.2rc1"
+        }
+      },
+      "upstream": {
+        "channel": "stable",
+        "version": "0.28.0"
+      }
+    }
+  ],
+  "kind": "ucm-release-manifest",
+  "python": {
+    "distribution": "supermarioyl-uc-manager",
+    "extras": {
+      "cann901-a2": "supermarioyl-uc-manager-cann901-a2",
+      "cann901-a3": "supermarioyl-uc-manager-cann901-a3",
+      "cann910-a2": "supermarioyl-uc-manager-cann910-a2",
+      "cann910-a3": "supermarioyl-uc-manager-cann910-a3",
+      "cu129": "supermarioyl-uc-manager-cuda-cu129",
+      "cu130": "supermarioyl-uc-manager-cuda-cu130",
+      "toolkit": "supermarioyl-ucm-toolkit"
+    },
+    "pypi": {
+      "index_url": "https://test.pypi.org/simple",
+      "project_url": "https://test.pypi.org/project/supermarioyl-uc-manager/0.8.2rc1/"
+    },
+    "version": "0.8.2rc1"
+  },
+  "release": {
+    "actions_run_id": 38377675294,
+    "tag": "v0.8.2rc1",
+    "type": "prerelease",
+    "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/tag/v0.8.2rc1",
+    "version": "0.8.2rc1"
+  },
+  "schema_version": 9,
+  "toolkit": {
+    "distribution": "supermarioyl-ucm-toolkit",
+    "filename": "supermarioyl_ucm_toolkit-0.8.2rc1-py3-none-any.whl",
+    "sha256": "c0404aa13bc731e0aac946d3846ea56b6c20e5a5aaa90d4a7a93876a5d7b2ab1",
+    "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/v0.8.2rc1/supermarioyl_ucm_toolkit-0.8.2rc1-py3-none-any.whl",
+    "version": "0.8.2rc1"
+  },
+  "wheels": [
+    {
+      "accelerator": {
+        "runtime": "cann-9.0.1",
+        "soc_version": "ascend910b1",
+        "variant": "a2"
+      },
+      "architecture": "amd64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cann901-a2",
+      "extra": "cann901-a2",
+      "filename": "supermarioyl_uc_manager_cann901_a2-0.8.2rc1-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "id": "cann901-a2-cp312-amd64",
+      "platform_tags": [
+        "manylinux_2_34_x86_64"
+      ],
+      "product": "vllm-ascend",
+      "python_abi": "cp312",
+      "sha256": "f9a19a1d6587fecfd9661f573c4a35da7a43228f74551f6bda312c5169868994",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/v0.8.2rc1/supermarioyl_uc_manager_cann901_a2-0.8.2rc1-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "version": "0.8.2rc1"
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.0.1",
+        "soc_version": "ascend910b1",
+        "variant": "a2"
+      },
+      "architecture": "arm64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cann901-a2",
+      "extra": "cann901-a2",
+      "filename": "supermarioyl_uc_manager_cann901_a2-0.8.2rc1-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "id": "cann901-a2-cp312-arm64",
+      "platform_tags": [
+        "manylinux_2_34_aarch64"
+      ],
+      "product": "vllm-ascend",
+      "python_abi": "cp312",
+      "sha256": "803c5120d52570008c17be422847f03b7c6c93df37b35bcbef185892d71a9ef0",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/v0.8.2rc1/supermarioyl_uc_manager_cann901_a2-0.8.2rc1-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "version": "0.8.2rc1"
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.0.1",
+        "soc_version": "ascend910_9391",
+        "variant": "a3"
+      },
+      "architecture": "amd64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cann901-a3",
+      "extra": "cann901-a3",
+      "filename": "supermarioyl_uc_manager_cann901_a3-0.8.2rc1-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "id": "cann901-a3-cp312-amd64",
+      "platform_tags": [
+        "manylinux_2_34_x86_64"
+      ],
+      "product": "vllm-ascend",
+      "python_abi": "cp312",
+      "sha256": "79e7db831355496c7e1f6c94f612ed3aa23d6103f26692f0565ad4558ecc7d3d",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/v0.8.2rc1/supermarioyl_uc_manager_cann901_a3-0.8.2rc1-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "version": "0.8.2rc1"
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.0.1",
+        "soc_version": "ascend910_9391",
+        "variant": "a3"
+      },
+      "architecture": "arm64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cann901-a3",
+      "extra": "cann901-a3",
+      "filename": "supermarioyl_uc_manager_cann901_a3-0.8.2rc1-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "id": "cann901-a3-cp312-arm64",
+      "platform_tags": [
+        "manylinux_2_34_aarch64"
+      ],
+      "product": "vllm-ascend",
+      "python_abi": "cp312",
+      "sha256": "98a75b79ec15d79a6921018969708fcbb3095707cb34923d3e19edae47d8016d",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/v0.8.2rc1/supermarioyl_uc_manager_cann901_a3-0.8.2rc1-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "version": "0.8.2rc1"
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.1.0",
+        "soc_version": "ascend910b1",
+        "variant": "a2"
+      },
+      "architecture": "amd64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cann910-a2",
+      "extra": "cann910-a2",
+      "filename": "supermarioyl_uc_manager_cann910_a2-0.8.2rc1-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "id": "cann910-a2-cp312-amd64",
+      "platform_tags": [
+        "manylinux_2_34_x86_64"
+      ],
+      "product": "vllm-ascend",
+      "python_abi": "cp312",
+      "sha256": "0aff1889d13a89a6c915ef205bce8ad3f768eb968fa31f62e3e863509a8dbe5a",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/v0.8.2rc1/supermarioyl_uc_manager_cann910_a2-0.8.2rc1-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "version": "0.8.2rc1"
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.1.0",
+        "soc_version": "ascend910b1",
+        "variant": "a2"
+      },
+      "architecture": "arm64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cann910-a2",
+      "extra": "cann910-a2",
+      "filename": "supermarioyl_uc_manager_cann910_a2-0.8.2rc1-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "id": "cann910-a2-cp312-arm64",
+      "platform_tags": [
+        "manylinux_2_34_aarch64"
+      ],
+      "product": "vllm-ascend",
+      "python_abi": "cp312",
+      "sha256": "6f777c7a93b1b0730b92b6879068d74bbb095693d7c188f181e9422683531800",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/v0.8.2rc1/supermarioyl_uc_manager_cann910_a2-0.8.2rc1-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "version": "0.8.2rc1"
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.1.0",
+        "soc_version": "ascend910_9391",
+        "variant": "a3"
+      },
+      "architecture": "amd64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cann910-a3",
+      "extra": "cann910-a3",
+      "filename": "supermarioyl_uc_manager_cann910_a3-0.8.2rc1-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "id": "cann910-a3-cp312-amd64",
+      "platform_tags": [
+        "manylinux_2_34_x86_64"
+      ],
+      "product": "vllm-ascend",
+      "python_abi": "cp312",
+      "sha256": "077d525dd3f651ef39d74e14faf806ed89ff102e8d013debee2cff1cce623fee",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/v0.8.2rc1/supermarioyl_uc_manager_cann910_a3-0.8.2rc1-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "version": "0.8.2rc1"
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.1.0",
+        "soc_version": "ascend910_9391",
+        "variant": "a3"
+      },
+      "architecture": "arm64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cann910-a3",
+      "extra": "cann910-a3",
+      "filename": "supermarioyl_uc_manager_cann910_a3-0.8.2rc1-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "id": "cann910-a3-cp312-arm64",
+      "platform_tags": [
+        "manylinux_2_34_aarch64"
+      ],
+      "product": "vllm-ascend",
+      "python_abi": "cp312",
+      "sha256": "20566d3750c44542f0bf7e1d52d9f353f7aa0f967af8181937968d4e1b4ad63b",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/v0.8.2rc1/supermarioyl_uc_manager_cann910_a3-0.8.2rc1-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "version": "0.8.2rc1"
+    },
+    {
+      "accelerator": {
+        "runtime": "cuda-12.9",
+        "soc_version": "na",
+        "variant": "default"
+      },
+      "architecture": "amd64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cuda-cu129",
+      "extra": "cu129",
+      "filename": "supermarioyl_uc_manager_cuda_cu129-0.8.2rc1-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "id": "cu129-cp312-amd64",
+      "platform_tags": [
+        "manylinux_2_28_x86_64"
+      ],
+      "product": "vllm",
+      "python_abi": "cp312",
+      "sha256": "2066be378624c82a92559689d69af2d93c794b2e90a6e376dd6fdaff0e9c2829",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/v0.8.2rc1/supermarioyl_uc_manager_cuda_cu129-0.8.2rc1-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "version": "0.8.2rc1"
+    },
+    {
+      "accelerator": {
+        "runtime": "cuda-12.9",
+        "soc_version": "na",
+        "variant": "default"
+      },
+      "architecture": "arm64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cuda-cu129",
+      "extra": "cu129",
+      "filename": "supermarioyl_uc_manager_cuda_cu129-0.8.2rc1-cp312-cp312-manylinux_2_28_aarch64.whl",
+      "id": "cu129-cp312-arm64",
+      "platform_tags": [
+        "manylinux_2_28_aarch64"
+      ],
+      "product": "vllm",
+      "python_abi": "cp312",
+      "sha256": "85f7388b5137b4a59a607083b1d78a174ffb941701147b6f8ad318a68a10d04a",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/v0.8.2rc1/supermarioyl_uc_manager_cuda_cu129-0.8.2rc1-cp312-cp312-manylinux_2_28_aarch64.whl",
+      "version": "0.8.2rc1"
+    },
+    {
+      "accelerator": {
+        "runtime": "cuda-13.0",
+        "soc_version": "na",
+        "variant": "default"
+      },
+      "architecture": "amd64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cuda-cu130",
+      "extra": "cu130",
+      "filename": "supermarioyl_uc_manager_cuda_cu130-0.8.2rc1-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "id": "cu130-cp312-amd64",
+      "platform_tags": [
+        "manylinux_2_28_x86_64"
+      ],
+      "product": "vllm",
+      "python_abi": "cp312",
+      "sha256": "3aef041ee71af24484933b89a166a812f5ea235bc0e318ff32111fd1fae667f0",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/v0.8.2rc1/supermarioyl_uc_manager_cuda_cu130-0.8.2rc1-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "version": "0.8.2rc1"
+    },
+    {
+      "accelerator": {
+        "runtime": "cuda-13.0",
+        "soc_version": "na",
+        "variant": "default"
+      },
+      "architecture": "arm64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cuda-cu130",
+      "extra": "cu130",
+      "filename": "supermarioyl_uc_manager_cuda_cu130-0.8.2rc1-cp312-cp312-manylinux_2_28_aarch64.whl",
+      "id": "cu130-cp312-arm64",
+      "platform_tags": [
+        "manylinux_2_28_aarch64"
+      ],
+      "product": "vllm",
+      "python_abi": "cp312",
+      "sha256": "af1bd1e81dab3ef037300725839fc8d2977d2f025ad2599576623e2e20f57769",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/v0.8.2rc1/supermarioyl_uc_manager_cuda_cu130-0.8.2rc1-cp312-cp312-manylinux_2_28_aarch64.whl",
+      "version": "0.8.2rc1"
+    }
+  ]
+}

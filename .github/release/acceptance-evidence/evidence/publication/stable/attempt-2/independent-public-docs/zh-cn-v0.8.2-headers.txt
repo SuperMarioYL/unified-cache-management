@@ -1,0 +1,37 @@
+HTTP/1.1 200 Connection established
+
+HTTP/2 200 
+date: Tue, 13 Oct 2026 12:53:06 GMT
+content-type: application/json
+cf-ray: a49e7c3e6c81cdd2-SIN
+cf-cache-status: HIT
+access-control-allow-origin: *
+age: 1103
+cache-control: max-age=1200
+set-cookie: [redacted-sensitive-header]
+etag: W/"4a90e4dc87aa47c1bd74a886f91d93e2"
+last-modified: Tue, 13 Oct 2026 12:34:21 GMT
+server: cloudflare
+strict-transport-security: max-age=31536000; includeSubDomains; preload
+vary: Accept-Encoding
+access-control-allow-methods: HEAD, OPTIONS, GET
+cdn-cache-control: public
+cross-origin-opener-policy: same-origin
+referrer-policy: no-referrer-when-downgrade
+x-amz-id-2: /bqO5Z8xCTbBCf43DmEVQT5XM1N+dPjomGTuGxg7/wz9MFeGVLEXTigFeDQu3Lb4kKYR5ckvgx3v1XUrT7I6TIT4tFF3PREY
+x-amz-meta-mtime: 1791894860.319130592
+x-amz-request-id: PNES1Y5CNXA92TC2
+x-amz-server-side-encryption: AES256
+x-backend: web-i-0b9ab55b2b5c87257
+x-content-type-options: nosniff
+x-rtd-domain: supermarioyl-ucm.readthedocs.io
+x-rtd-force-addons: true
+x-rtd-path: /proxito/html/supermarioyl-ucm-zh/v0.8.2/release-manifest.json
+x-rtd-project: supermarioyl-ucm-zh
+x-rtd-project-method: public_domain
+x-rtd-resolver-filename: /release-manifest.json
+x-rtd-version: v0.8.2
+x-rtd-version-method: path
+x-served: Nginx-Proxito-Sendfile
+alt-svc: h3=":443"; ma=86400
+

@@ -1,0 +1,86 @@
+{
+  "run_id": 38383412316,
+  "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+  "code_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+  "checks": [
+    {
+      "job_id": 115263178650,
+      "name": "Run Release core / Verify PyPI \u00b7 Toolkit and optional extra",
+      "status": "success",
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/install-logs/115263178650.log"
+    },
+    {
+      "job_id": 115263178703,
+      "name": "Run Release core / Verify PyPI \u00b7 cu129 \u00b7 arm64",
+      "status": "success",
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/install-logs/115263178703.log"
+    },
+    {
+      "job_id": 115263178708,
+      "name": "Run Release core / Verify PyPI \u00b7 cann910-a2 \u00b7 amd64",
+      "status": "success",
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/install-logs/115263178708.log"
+    },
+    {
+      "job_id": 115263178739,
+      "name": "Run Release core / Verify PyPI \u00b7 cann910-a2 \u00b7 arm64",
+      "status": "success",
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/install-logs/115263178739.log"
+    },
+    {
+      "job_id": 115263178742,
+      "name": "Run Release core / Verify PyPI \u00b7 cu130 \u00b7 arm64",
+      "status": "success",
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/install-logs/115263178742.log"
+    },
+    {
+      "job_id": 115263178775,
+      "name": "Run Release core / Verify PyPI \u00b7 cu129 \u00b7 amd64",
+      "status": "success",
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/install-logs/115263178775.log"
+    },
+    {
+      "job_id": 115263178798,
+      "name": "Run Release core / Verify PyPI \u00b7 cann901-a3 \u00b7 arm64",
+      "status": "success",
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/install-logs/115263178798.log"
+    },
+    {
+      "job_id": 115263178819,
+      "name": "Run Release core / Verify PyPI \u00b7 cu130 \u00b7 amd64",
+      "status": "success",
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/install-logs/115263178819.log"
+    },
+    {
+      "job_id": 115263178828,
+      "name": "Run Release core / Verify PyPI \u00b7 cann901-a2 \u00b7 amd64",
+      "status": "success",
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/install-logs/115263178828.log"
+    },
+    {
+      "job_id": 115263178833,
+      "name": "Run Release core / Verify PyPI \u00b7 cann901-a2 \u00b7 arm64",
+      "status": "success",
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/install-logs/115263178833.log"
+    },
+    {
+      "job_id": 115263178900,
+      "name": "Run Release core / Verify PyPI \u00b7 cann910-a3 \u00b7 amd64",
+      "status": "success",
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/install-logs/115263178900.log"
+    },
+    {
+      "job_id": 115263178919,
+      "name": "Run Release core / Verify PyPI \u00b7 cann910-a3 \u00b7 arm64",
+      "status": "success",
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/install-logs/115263178919.log"
+    },
+    {
+      "job_id": 115263178954,
+      "name": "Run Release core / Verify PyPI \u00b7 cann901-a3 \u00b7 amd64",
+      "status": "success",
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/install-logs/115263178954.log"
+    }
+  ],
+  "evidence": "12 actual public-index extra installs in matching Runtime plus Toolkit standalone/extra; no GPU/NPU benchmark claim"
+}

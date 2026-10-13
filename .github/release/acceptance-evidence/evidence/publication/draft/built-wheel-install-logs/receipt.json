@@ -1,0 +1,126 @@
+{
+  "profile": "draft",
+  "run_id": 38390192146,
+  "attempt": 1,
+  "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+  "code_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+  "observed_at": "2026-10-13T12:43:04.065764+00:00",
+  "runtime_backend_architecture_checks": 12,
+  "toolkit_installed_python_checks": 2,
+  "job_count": 14,
+  "raw_log_count": 14,
+  "checks": [
+    {
+      "job_id": 115278861448,
+      "name": "Run Release core / Wheel \u00b7 Toolkit / installed (3.9)",
+      "conclusion": "success",
+      "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/built-wheel-install-logs/job-115278861448.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115278861585,
+      "name": "Run Release core / Wheel \u00b7 Toolkit / installed (3.12)",
+      "conclusion": "success",
+      "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/built-wheel-install-logs/job-115278861585.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115283754060,
+      "name": "Run Release core / Validate Wheel Runtime \u00b7 cann901-a2 \u00b7 amd64",
+      "conclusion": "success",
+      "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/built-wheel-install-logs/job-115283754060.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115283754183,
+      "name": "Run Release core / Validate Wheel Runtime \u00b7 cann910-a2 \u00b7 amd64",
+      "conclusion": "success",
+      "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/built-wheel-install-logs/job-115283754183.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115283754196,
+      "name": "Run Release core / Validate Wheel Runtime \u00b7 cann910-a2 \u00b7 arm64",
+      "conclusion": "success",
+      "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/built-wheel-install-logs/job-115283754196.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115283754227,
+      "name": "Run Release core / Validate Wheel Runtime \u00b7 cu129 \u00b7 arm64",
+      "conclusion": "success",
+      "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/built-wheel-install-logs/job-115283754227.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115283754236,
+      "name": "Run Release core / Validate Wheel Runtime \u00b7 cu129 \u00b7 amd64",
+      "conclusion": "success",
+      "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/built-wheel-install-logs/job-115283754236.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115283754254,
+      "name": "Run Release core / Validate Wheel Runtime \u00b7 cann901-a2 \u00b7 arm64",
+      "conclusion": "success",
+      "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/built-wheel-install-logs/job-115283754254.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115283754268,
+      "name": "Run Release core / Validate Wheel Runtime \u00b7 cann910-a3 \u00b7 arm64",
+      "conclusion": "success",
+      "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/built-wheel-install-logs/job-115283754268.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115283754280,
+      "name": "Run Release core / Validate Wheel Runtime \u00b7 cann901-a3 \u00b7 amd64",
+      "conclusion": "success",
+      "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/built-wheel-install-logs/job-115283754280.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115283754285,
+      "name": "Run Release core / Validate Wheel Runtime \u00b7 cu130 \u00b7 amd64",
+      "conclusion": "success",
+      "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/built-wheel-install-logs/job-115283754285.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115283754300,
+      "name": "Run Release core / Validate Wheel Runtime \u00b7 cu130 \u00b7 arm64",
+      "conclusion": "success",
+      "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/built-wheel-install-logs/job-115283754300.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115283754357,
+      "name": "Run Release core / Validate Wheel Runtime \u00b7 cann901-a3 \u00b7 arm64",
+      "conclusion": "success",
+      "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/built-wheel-install-logs/job-115283754357.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115283754455,
+      "name": "Run Release core / Validate Wheel Runtime \u00b7 cann910-a3 \u00b7 amd64",
+      "conclusion": "success",
+      "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/built-wheel-install-logs/job-115283754455.log",
+      "fetch_exit_code": 0
+    }
+  ]
+}

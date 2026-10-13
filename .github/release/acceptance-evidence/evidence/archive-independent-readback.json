@@ -1,0 +1,10 @@
+{
+  "status": "verified",
+  "archive_run_id": 38400311597,
+  "artifact_id": 11814193992,
+  "observer_sha": "557619d7af53fca26fa6ad05318bf40be1f7fccb",
+  "files_checked": 92,
+  "original_asset_count": 15,
+  "original_asset_bytes": 60519936,
+  "archive_crc": "all passed"
+}

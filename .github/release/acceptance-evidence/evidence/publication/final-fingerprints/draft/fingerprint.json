@@ -1,0 +1,44 @@
+{
+  "status": "complete",
+  "profile": "draft",
+  "capture_started_at": "2026-10-13T13:22:11.806357Z",
+  "captured_at": "2026-10-13T13:22:30.446713Z",
+  "sha256": "ee065a45c41280bca7b48c6e9ef2b4516290158d20006d041731463abdfb2565",
+  "canonical_encoding": "UTF-8 JSON sort_keys true separators comma-colon plus trailing LF",
+  "canonical_payload": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/final-fingerprints/draft/canonical.json",
+  "raw_directory": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/final-fingerprints/draft",
+  "asset_count": 18,
+  "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+  "code_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+  "release_manifest_sha256": "8768941b005db5313926ba7ab610d052f308830c8f2e85135d6fdb66bd8e6b89",
+  "release_body_sha256": "0122bb61734f823c19040d1b31089e7d8de442ab95ecc4aa190fe6f99d0427e7",
+  "retention": {
+    "job_id": 115314091363,
+    "conclusion": "success",
+    "mode": "in_run_finite",
+    "max_count": 7,
+    "max_count_evidence": "exact source commit release.yaml; workflow resolves its release_profile.max_count",
+    "policy_source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+    "policy_sha256": "96895efbb7b22f8efcef1f13d5cffa79097f330939f42f699ff23abb3adf574f",
+    "policy": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/final-fingerprints/draft/source-release-policy.yaml",
+    "current_tag": "draft/v0.8.2-1",
+    "target_status": "kept",
+    "results": [
+      {
+        "status": "kept",
+        "detail": "draft/v0.8.0-202610139207"
+      },
+      {
+        "status": "kept",
+        "detail": "draft/v0.8.2-1"
+      }
+    ],
+    "nightly_callback_applicable": false,
+    "callback_exclusion_reason": "release-tag push head_branch draft/v0.8.2-1 does not start with nightly/",
+    "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/final-fingerprints/draft/retention.log"
+  },
+  "finalization": {
+    "job_id": 115313709199,
+    "conclusion": "success"
+  }
+}

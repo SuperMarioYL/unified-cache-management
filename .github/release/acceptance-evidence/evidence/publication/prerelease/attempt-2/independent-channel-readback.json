@@ -1,0 +1,102 @@
+{
+  "status": "verified",
+  "run_id": 38377675294,
+  "source_sha": "4858aef86456f712da6fd59ecb224235841ebdac",
+  "code_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+  "publisher_oci_refs": 168,
+  "hosted_helm_preferred_registry_refs": 84,
+  "independent_oci_sample_count": 12,
+  "independent_oci_samples": [
+    {
+      "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2rc1",
+      "digest": "sha256:f05d02d0fb3851fbae09423347197c7980c0c242d8070fb543857355000f69d9",
+      "status": "verified"
+    },
+    {
+      "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2rc1-amd64",
+      "digest": "sha256:40ca5d8e77b9f92079580f71617388315350e9bf0fcb7140c359b73591118260",
+      "status": "verified"
+    },
+    {
+      "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2rc1-arm64",
+      "digest": "sha256:909039c268f533586b78a46a63355a6775beccede2a6f67d14fd4aa2a1ecc360",
+      "status": "verified"
+    },
+    {
+      "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2rc1",
+      "digest": "sha256:89beadc87fe5f40ce5cf9b876d2df3b1b7246732acc52a433d90bf7ae5e2c32b",
+      "status": "verified"
+    },
+    {
+      "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2rc1-amd64",
+      "digest": "sha256:5c89d1d8cc0c1ac459e2769f44905bd2a391440c70d9b2ee951f36984bf95b51",
+      "status": "verified"
+    },
+    {
+      "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2rc1-arm64",
+      "digest": "sha256:3ac57f5a00377fb2eabee3a64d2f65565b97e88a2365e6f4a7c3621c6c800251",
+      "status": "verified"
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2rc1",
+      "digest": "sha256:f05d02d0fb3851fbae09423347197c7980c0c242d8070fb543857355000f69d9",
+      "status": "verified"
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2rc1-amd64",
+      "digest": "sha256:40ca5d8e77b9f92079580f71617388315350e9bf0fcb7140c359b73591118260",
+      "status": "verified"
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2rc1-arm64",
+      "digest": "sha256:909039c268f533586b78a46a63355a6775beccede2a6f67d14fd4aa2a1ecc360",
+      "status": "verified"
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2rc1",
+      "digest": "sha256:89beadc87fe5f40ce5cf9b876d2df3b1b7246732acc52a433d90bf7ae5e2c32b",
+      "status": "verified"
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2rc1-amd64",
+      "digest": "sha256:5c89d1d8cc0c1ac459e2769f44905bd2a391440c70d9b2ee951f36984bf95b51",
+      "status": "verified"
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2rc1-arm64",
+      "digest": "sha256:3ac57f5a00377fb2eabee3a64d2f65565b97e88a2365e6f4a7c3621c6c800251",
+      "status": "verified"
+    }
+  ],
+  "independent_public_docs": [
+    {
+      "url": "https://supermarioyl-ucm.readthedocs.io/en/v0.8.2rc1/release-manifest.json",
+      "build_id": 35115607,
+      "site_commit": "4858aef86456f712da6fd59ecb224235841ebdac",
+      "release_tag": "v0.8.2rc1",
+      "status": "verified"
+    },
+    {
+      "url": "https://supermarioyl-ucm.readthedocs.io/en/latest/release-manifest.json",
+      "build_id": 35115608,
+      "site_commit": "f66366538b35faa51507452ae1ad676b10994a4d",
+      "release_tag": "v0.8.2rc1",
+      "status": "verified"
+    },
+    {
+      "url": "https://supermarioyl-ucm.readthedocs.io/zh-cn/v0.8.2rc1/release-manifest.json",
+      "build_id": 35115609,
+      "site_commit": "4858aef86456f712da6fd59ecb224235841ebdac",
+      "release_tag": "v0.8.2rc1",
+      "status": "verified"
+    },
+    {
+      "url": "https://supermarioyl-ucm.readthedocs.io/zh-cn/latest/release-manifest.json",
+      "build_id": 35115611,
+      "site_commit": "f66366538b35faa51507452ae1ad676b10994a4d",
+      "release_tag": "v0.8.2rc1",
+      "status": "verified"
+    }
+  ],
+  "chart_package_sha256": "dafe691433cf58095e4690e94c7acb0ace101408dd9036eeacba3d66ef800ae1"
+}

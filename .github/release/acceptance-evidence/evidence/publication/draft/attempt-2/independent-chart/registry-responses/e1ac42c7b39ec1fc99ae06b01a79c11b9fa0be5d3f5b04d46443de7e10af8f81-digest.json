@@ -1,0 +1,12 @@
+{
+  "args": [
+    "crane",
+    "digest",
+    "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.8.2.dev1-amd64"
+  ],
+  "exit_code": 0,
+  "observed_at": "2026-10-13T13:26:35.938615+00:00",
+  "stdout": "sha256:9def2c2bf942de6c413c695e0c76eefe29d791faaea9976d222c0aee4d1bee6f\n",
+  "stderr": "",
+  "stdout_sha256": "6fdbac10faddfcb9299b427754a636f05073b2d71a8b16165e5b6c9f1e36b8f7"
+}

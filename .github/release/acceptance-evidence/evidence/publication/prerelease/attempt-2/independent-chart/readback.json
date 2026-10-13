@@ -1,0 +1,29 @@
+{
+  "profile": "prerelease",
+  "run_id": 38377675294,
+  "source_sha": "4858aef86456f712da6fd59ecb224235841ebdac",
+  "code_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+  "chart_oci": "ghcr.io/supermarioyl/charts/unified-cache-chart:0.8.2-rc.1",
+  "observed_at": "2026-10-13T12:43:35.217643+00:00",
+  "status": "verified",
+  "readbacks": [
+    {
+      "channel": "oci",
+      "filename": "unified-cache-chart-0.8.2-rc.1.tgz",
+      "observed_sha256": "dafe691433cf58095e4690e94c7acb0ace101408dd9036eeacba3d66ef800ae1",
+      "expected_sha256": "dafe691433cf58095e4690e94c7acb0ace101408dd9036eeacba3d66ef800ae1",
+      "bytes": 61162,
+      "artifact": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/attempt-2/independent-chart/oci/unified-cache-chart-0.8.2-rc.1.tgz",
+      "status": "verified"
+    },
+    {
+      "channel": "github",
+      "filename": "unified-cache-chart-0.8.2-rc.1.tgz",
+      "observed_sha256": "dafe691433cf58095e4690e94c7acb0ace101408dd9036eeacba3d66ef800ae1",
+      "expected_sha256": "dafe691433cf58095e4690e94c7acb0ace101408dd9036eeacba3d66ef800ae1",
+      "bytes": 61162,
+      "artifact": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/attempt-2/independent-chart/github/unified-cache-chart-0.8.2-rc.1.tgz",
+      "status": "verified"
+    }
+  ]
+}

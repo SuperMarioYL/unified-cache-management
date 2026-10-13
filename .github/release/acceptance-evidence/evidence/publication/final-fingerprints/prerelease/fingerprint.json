@@ -1,0 +1,29 @@
+{
+  "status": "complete",
+  "profile": "prerelease",
+  "capture_started_at": "2026-10-13T13:21:37.462453Z",
+  "captured_at": "2026-10-13T13:21:55.370178Z",
+  "sha256": "18637f1e7f31476f3b11a86a2ade7f21067eabb907737fac75ecc9c737d1e83c",
+  "canonical_encoding": "UTF-8 JSON sort_keys true separators comma-colon plus trailing LF",
+  "canonical_payload": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/final-fingerprints/prerelease/canonical.json",
+  "raw_directory": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/final-fingerprints/prerelease",
+  "asset_count": 18,
+  "source_sha": "4858aef86456f712da6fd59ecb224235841ebdac",
+  "code_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+  "release_manifest_sha256": "7f05e766bd6731db746ac4b15512d3f2338b9fcd3b9ef053ed0af153c1edcded",
+  "release_body_sha256": "4b2aedef4b0e2fca1800cb7a3d7e61d5fd7d47f6ffb1d290e47ada67b5a45fcc",
+  "retention": {
+    "job_id": 115276597358,
+    "conclusion": "success",
+    "mode": "in_run_unlimited",
+    "max_count": -1,
+    "target_status": "kept",
+    "nightly_callback_applicable": false,
+    "callback_exclusion_reason": "release-tag push head_branch v0.8.2rc1 does not start with nightly/",
+    "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/final-fingerprints/prerelease/retention.log"
+  },
+  "finalization": {
+    "job_id": 115275233895,
+    "conclusion": "success"
+  }
+}

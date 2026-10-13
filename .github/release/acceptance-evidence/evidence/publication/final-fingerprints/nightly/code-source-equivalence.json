@@ -1,0 +1,12 @@
+{
+  "repository": "SuperMarioYL/unified-cache-management",
+  "profile": "nightly",
+  "source_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+  "code_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+  "verified_at": "2026-10-13T12:43:33.226691Z",
+  "method": "git diff of exact source and implementation commits in independent acceptance clone",
+  "changed_paths": [],
+  "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "production_code_matches": true,
+  "allowed_difference": "identical commits"
+}

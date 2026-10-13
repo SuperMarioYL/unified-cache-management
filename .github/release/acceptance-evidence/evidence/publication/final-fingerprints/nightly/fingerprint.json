@@ -1,0 +1,32 @@
+{
+  "status": "complete",
+  "profile": "nightly",
+  "capture_started_at": "2026-10-13T13:21:31.528099Z",
+  "captured_at": "2026-10-13T13:21:37.461264Z",
+  "sha256": "2e6501193762c334d367976fa35c83528d9cf49dc7da34a0946186ec7de0340f",
+  "canonical_encoding": "UTF-8 JSON sort_keys true separators comma-colon plus trailing LF",
+  "canonical_payload": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/final-fingerprints/nightly/canonical.json",
+  "raw_directory": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/final-fingerprints/nightly",
+  "asset_count": 16,
+  "source_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+  "code_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+  "release_manifest_sha256": "13c0f63d5a0109e945a24b5a7419e12388d79c6581af7f574316744c236e7754",
+  "release_body_sha256": "4139ea110ebf3d49f1355cb6e39f4477c9e4a1216f599b8af03b52acc42b7e26",
+  "retention": {
+    "job_id": 115229397177,
+    "conclusion": "skipped",
+    "mode": "external_nightly_callback",
+    "callback_run_id": 38377487977,
+    "callback_conclusion": "success",
+    "implementation_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+    "source_run_id": 38375348617,
+    "max_count": 7,
+    "target_status": "kept",
+    "report": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/final-fingerprints/nightly/callback-38377487977/receipt/report.json",
+    "code_binding": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/final-fingerprints/nightly/callback-38377487977/receipt/code-binding.json"
+  },
+  "finalization": {
+    "job_id": 115229248609,
+    "conclusion": "success"
+  }
+}

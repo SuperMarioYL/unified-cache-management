@@ -1,0 +1,12 @@
+{
+  "args": [
+    "crane",
+    "digest",
+    "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-ucm-0.8.2.dev1"
+  ],
+  "exit_code": 0,
+  "observed_at": "2026-10-13T13:27:05.065738+00:00",
+  "stdout": "sha256:0e518c3c31d9959058fa9593eb8f0c65b6ac6bc3ad11e3933feee97e3b7fb02e\n",
+  "stderr": "",
+  "stdout_sha256": "ff87c7f9c3fc0d2faa9eb0374fd5848a13ff21a1e50b116c2e2af9540a801290"
+}

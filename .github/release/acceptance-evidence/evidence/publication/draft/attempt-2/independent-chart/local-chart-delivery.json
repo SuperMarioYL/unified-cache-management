@@ -1,0 +1,623 @@
+{
+  "status": "complete",
+  "chart": "unified-cache-chart-0.8.2-draft.1.tgz",
+  "sha256": "a04752293b787830d6279a926f16a5d10aa84f9f5a27d5bae4e05d69e5fcf618",
+  "images": [
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.8.2.dev1",
+      "digest": "sha256:446537e98e8c840a30561219e6abf787420b9b22d9cadc6444b53ef1317ce6ec",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:b661d5ee52406c2291538fdf500747af00c4333a7ab6ca23facf15d0ae9793f9",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:d46c3f6db8856787949cb2e2c8586ce3c8e27e1ddd49bd9ee67265a514c56edb",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.8.2.dev1",
+      "digest": "sha256:2064186c81a150465a2ee3af5ff05cd118d8d2555993c6e5b73d98664f60eac7",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:b63893ac189b3ea7ae39c670647d7328f0e1505a122ca7d59da9bc57869008ec",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:e09cee13ffbedcd3ab872ca206d52c3626cb35b77a1e5a2bb82545a38264cca1",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.8.2.dev1",
+      "digest": "sha256:66976a3ed8c1ba8488926688058b1f925d444dd9031f446f7739aee446c8ba53",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:13e894ee620d79ebde00716994bbc66e581ea991d6169300a52d96d65d2e27bf",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:ff0a00bef8a34e1dd23ce1da206946ff4a4c07a5707191fe0bb813d80a689c5f",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2.dev1",
+      "digest": "sha256:7d5b78754130a71d48fe57dd3c48b9858387c5047fe86077d0fe13e30ee97567",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:7af5fe86488a0eebc6d09fa12625ee866052862d40cecc19b43bd258bff11ab6",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:35b6b8b4de294f951bb41c934a43314548229c883821e7c184046f5e694ca25e",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.8.2.dev1",
+      "digest": "sha256:871029d623557f2f88e5824383d5105744f76cc7b438d08ac12e2869e177c0eb",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:8c48c8febee570154127656a6fd0a0e85387e4ae5e5df537cec5b73cda071675",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:742e23bb77b391bb6cda1d07aa17e509962ce5124e89274d57ca272930f7a75b",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.8.2.dev1",
+      "digest": "sha256:133ae6f0920141936cc500a87857cf024d544201e3b9b76da97fbec2ceecc484",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:787f647fc5ebd2343403641e9236327ebd3738f786da6afc2cea523438bdee2f",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:10dc2c0fc5c98816409835eb04588fe4cd16b9606b78d65b64f799ed122157d2",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.8.2.dev1",
+      "digest": "sha256:70fda51fd499160058801dee6b6fe29053a674420396d9756436c3ff9d13c7cd",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:9def2c2bf942de6c413c695e0c76eefe29d791faaea9976d222c0aee4d1bee6f",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:8978df8229af48f23fd704eaf06fc4660873d9fa8e2af4cefc82f0a62e873928",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-ucm-0.8.2.dev1",
+      "digest": "sha256:e7cbf914a1a3d8aa226426a22e76363c8e53d1abab4ae48b152da51233dfe425",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:132f9a6d4a1684d9bfcda09c181ecfe06c9479d091adc16b94cdeb38af90e024",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:e1a51f58b2a41b7b75dc4bd86ba77293391527dc0b8f1ecaac5a070c517516de",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-openeuler-ucm-0.8.2.dev1",
+      "digest": "sha256:2f344c1409a8cd92e29afa01886e514ff3d442b166fc63ec57150c4974145e51",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-openeuler-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:501956b2f15fb31cbda8bd163aa70122b61defe7488f8588265e39bed97e0ed9",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-openeuler-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:88f27f44c34d5f719a3f4e76231f4fad4f951c5fe87b6fc2a968ee2dd2b1fda2",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-ucm-0.8.2.dev1",
+      "digest": "sha256:1e7ab6fd29f545fa7cbfc142fc1e79f467286df15940681e464dbfc5c6ede5aa",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:5404bce5951db9636458dd081de8ca8545871114555c92b17096dabe9cfb4096",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:9498de13b8cd483b27bbd2aa068dc4c4c04f1c73c80b6e8eec2f80e66c8bbcf5",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-openeuler-ucm-0.8.2.dev1",
+      "digest": "sha256:8cc922c2d750705c977d34147d1cc445be59165fb828e26ffbef81d22ab4b780",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-openeuler-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:3ae8a88e258f9b41bbf3688447fc4cec083e6bc5a07fcf18e1d8e853f3fb8bf4",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-openeuler-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:3c2c3d588891a1a979c91979bfbdafeaf791f868ea1c321d7ad6a90ec38c6bf1",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-ucm-0.8.2.dev1",
+      "digest": "sha256:a9d00e8631d33fde963a35fd7ffab9a1f46197b7df332683ed377ca49af65aef",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:ce4077a9633c665f192e27550ed62b7fbf6b8613e7154483f378d51512ad6d44",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:4811350f83944171b1b492aeda1becdc93463dda9d3450d5d7ccfd6f728fa4c2",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-a3-openeuler-ucm-0.8.2.dev1",
+      "digest": "sha256:a50728f38ef6c6f6fbc5646b2b8c9db8addaf4dc74522b333522d09026f6454d",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-a3-openeuler-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:7c6b251a5f19e3d6ddb19e855217b9faeb14ed3dc967618ce3bda8164b10e053",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-a3-openeuler-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:5fb62375b6d853ca56de498da1a70ab728625a6597e2fd2d97d56cff7dbd7115",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-a3-ucm-0.8.2.dev1",
+      "digest": "sha256:ccc1bf84a51d9175af5846e58a18868e900434b42338678df952f8ac5b7ee020",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-a3-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:2d93e7cdf548db02343cc7e48aec72499c96ce35e18dd74bac2afe738b9d2aed",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-a3-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:6eb93c0219aae328b9596c81a3ff6c239788ec0565f347b5a76d43b8144aa547",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-openeuler-ucm-0.8.2.dev1",
+      "digest": "sha256:1eea43d686793c37e97c768c5ace7b73f3bc0833e63c7bf7acc61e7fce7bd4a4",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-openeuler-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:822ac9afc7149311f26f22c38bdf818c4a5e17cd569e9f7659eab57ffde94629",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-openeuler-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:3b35215220ad588df6181b948904bd18e625c36cdb73860f5f4e4c77c60555ca",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-ucm-0.8.2.dev1",
+      "digest": "sha256:0e518c3c31d9959058fa9593eb8f0c65b6ac6bc3ad11e3933feee97e3b7fb02e",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:4b2f626dbeb078e0b6ffb45ec8096688eb89496dd4956c91be03f0ad7ddfaf3b",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc2-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:f913a8ee9f00875bdc19075f010711098d16c26b030753ec5f338f9f8f20e1c7",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.8.2.dev1",
+      "digest": "sha256:f061e19dd5305b3beebc46ce70566ecb93f1b6be64a38505466e03166d6e8ea0",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:5412c637261aaa987816014cf18c35766d676eb52c32a3add388906376b8c4fc",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:1d22dd433c8f2804fc65805bc8c31cbfc242e76a82968cd55ad4172e28f92e77",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ucm-0.8.2.dev1",
+      "digest": "sha256:7e166af7680055e21d6ae185f4d6db067973947d7a0b0c1c502f43f06240d636",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:11e89548178486701c8420dbd511f62db54ef5c4ae8b6733857f686adf9a7d4d",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:73aafb24b36c104594f9b5906cd4a217ee45c36b73c98a864fe11d6da234bbe0",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ubuntu2404-ucm-0.8.2.dev1",
+      "digest": "sha256:6a50fedcf01d81b05d1d29843ccf6290f292cde51753d490172e9eb6abc5a024",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ubuntu2404-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:40e1940bbb8252d12d7e8077568eea2ef9cccb16f7ef8e1c1e765dda6277e22a",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ubuntu2404-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:ca2ca8f3bd1363e932f2ae8700691aa1f6d9ba8b9276f55cead58e52f3883545",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2.dev1",
+      "digest": "sha256:1b84641623e9fd8e09e4be535500d24f7a30010e41a8c3f38489b58eb2faa02b",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:f3a4f3a2ea50274fc4481a750620b967461a2cfe94f6d76313dae38db1465fda",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:19b06b83cb19a50d2b505359819d89550c5c5af3357a06c5541add80e7444c32",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.8.2.dev1",
+      "digest": "sha256:6e04ca8aca5c65836d705c4058c42b104c1b3930ae6f1b14f8273f1a8811670b",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:c80222ea8fc6c834d77ff60175dc7e0141d6e1cc4d75b376f965a204a7bef15d",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:6feeb95b7db84a91a5df79a774c173bf1ec5700b7675058f0cb4b83a73f0c129",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ucm-0.8.2.dev1",
+      "digest": "sha256:9ef2ca181b8a960b2b37ffe3d6415d61905081040ce1f85fe72e0c54f3b4ff43",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:bdcc99d83f756661c83afc35dc51ae3754db1007fcee6792b889e04632135cd7",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:dfff11ac07f6fd2fd2c47754810a51b767a4c6d5f128f3740e1d4abce5c83418",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ubuntu2404-ucm-0.8.2.dev1",
+      "digest": "sha256:3d183a3e2721cb0c60fdc9022246e204e2ac504906411a3d70e5a9a62c0ded4e",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ubuntu2404-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:4f32eb76ea28933755d28df1bd7872a0f53812750e7c8f0cbde394291cb41961",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ubuntu2404-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:d10c84e6c5e53681cd2165e872da9eb982d7ab03f3a0db2e8661f387c638bae5",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ucm-0.8.2.dev1",
+      "digest": "sha256:4ebd076ba50603f05f4af045384df274e8d26eb4d0a7f55dfe87386325f75cbb",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:c793f34d1b8f947a5c2aff41b160339b66cb89b58c49c350755c8a6ef2dcd6a1",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:03ea523b0f51fe4c388c0ccc9fe45ce65f5fc8f2046f124a00a8ed267660fc05",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.8.2.dev1",
+      "digest": "sha256:a20f43820a8ca1ff2bd2b11ac447c37986d985a10946041484441d734e9a346a",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:8a13045b28181e2bb79829ae07c8b3bf4abe1477cc01dba97a051d59afcaea23",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:3cd96f331e95f250309060f8beb32f2595c71cac8feba95b74678e544c958fa2",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ucm-0.8.2.dev1",
+      "digest": "sha256:fd7e7fba27d81a4ecb400f09fc7a1bdd06f3a1e65797184c356b176ea6e20366",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:aa8affc3aebd7a2b928290f6a950fc6d5fcf0768bcc85f8532b775158a6b27c6",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:12404f671cdda6eb7888107ad9485227db2e45a3baab4dbb09f49705c86f9e41",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ubuntu2404-ucm-0.8.2.dev1",
+      "digest": "sha256:e41dac28b090817edae509527e447880712f163702da4d091308360ee967cacf",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ubuntu2404-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:9e73ac02938f240962be5637eebd02e1ceb95dc29c6d4f0fa9065d0885342bc2",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ubuntu2404-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:020e2d539d39170bf964aec9d6ec5f5d0827290a64030d11f4eedd62f827a863",
+      "architectures": [
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ucm-0.8.2.dev1",
+      "digest": "sha256:875d3dd68720eaa142edb97ecaf2a182d571df60e4934f36bdd0eb4fef6cb686",
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:85863b058bb0f0675b1b63dc2f12785d17e75a21b8193ffd8a459c093834b549",
+      "architectures": [
+        "amd64"
+      ]
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:74e16c24bdfd7e49460cf0c35ab8e9a5c311869e08f70da828624fb51562bd61",
+      "architectures": [
+        "arm64"
+      ]
+    }
+  ]
+}

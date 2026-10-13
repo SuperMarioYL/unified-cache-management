@@ -1,0 +1,330 @@
+{
+  "chart": null,
+  "github_release_assets": [
+    "release-cleanup-38375348617-1-opened.json",
+    "release-cleanup-38375348617-1-planned.json",
+    "release-manifest.json",
+    "supermarioyl_uc_manager_cann901_a2-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_aarch64.whl",
+    "supermarioyl_uc_manager_cann901_a2-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_x86_64.whl",
+    "supermarioyl_uc_manager_cann901_a3-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_aarch64.whl",
+    "supermarioyl_uc_manager_cann901_a3-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_x86_64.whl",
+    "supermarioyl_uc_manager_cann910_a2-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_aarch64.whl",
+    "supermarioyl_uc_manager_cann910_a2-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_x86_64.whl",
+    "supermarioyl_uc_manager_cann910_a3-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_aarch64.whl",
+    "supermarioyl_uc_manager_cann910_a3-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_x86_64.whl",
+    "supermarioyl_uc_manager_cuda_cu129-0.8.0.dev20261013001-cp312-cp312-manylinux_2_28_aarch64.whl",
+    "supermarioyl_uc_manager_cuda_cu129-0.8.0.dev20261013001-cp312-cp312-manylinux_2_28_x86_64.whl",
+    "supermarioyl_uc_manager_cuda_cu130-0.8.0.dev20261013001-cp312-cp312-manylinux_2_28_aarch64.whl",
+    "supermarioyl_uc_manager_cuda_cu130-0.8.0.dev20261013001-cp312-cp312-manylinux_2_28_x86_64.whl",
+    "supermarioyl_ucm_toolkit-0.8.0.dev20261013001-py3-none-any.whl"
+  ],
+  "images": [],
+  "kind": "ucm-release-manifest",
+  "python": {
+    "distribution": "supermarioyl-uc-manager",
+    "extras": {
+      "cann901-a2": "supermarioyl-uc-manager-cann901-a2",
+      "cann901-a3": "supermarioyl-uc-manager-cann901-a3",
+      "cann910-a2": "supermarioyl-uc-manager-cann910-a2",
+      "cann910-a3": "supermarioyl-uc-manager-cann910-a3",
+      "cu129": "supermarioyl-uc-manager-cuda-cu129",
+      "cu130": "supermarioyl-uc-manager-cuda-cu130",
+      "toolkit": "supermarioyl-ucm-toolkit"
+    },
+    "pypi": null,
+    "version": "0.8.0.dev20261013001"
+  },
+  "release": {
+    "actions_run_id": 38375348617,
+    "tag": "nightly/v0.8.0-20261013-1",
+    "type": "nightly",
+    "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/tag/nightly/v0.8.0-20261013-1",
+    "version": "0.8.0.dev20261013001"
+  },
+  "schema_version": 9,
+  "toolkit": {
+    "distribution": "supermarioyl-ucm-toolkit",
+    "filename": "supermarioyl_ucm_toolkit-0.8.0.dev20261013001-py3-none-any.whl",
+    "sha256": "b4a0721c5e932d6963bffc3c2a4cc4db2a6b8839cf14070939e8aa5e526c1d50",
+    "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/nightly/v0.8.0-20261013-1/supermarioyl_ucm_toolkit-0.8.0.dev20261013001-py3-none-any.whl",
+    "version": "0.8.0.dev20261013001"
+  },
+  "wheels": [
+    {
+      "accelerator": {
+        "runtime": "cann-9.0.1",
+        "soc_version": "ascend910b1",
+        "variant": "a2"
+      },
+      "architecture": "amd64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cann901-a2",
+      "extra": "cann901-a2",
+      "filename": "supermarioyl_uc_manager_cann901_a2-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "id": "cann901-a2-cp312-amd64",
+      "platform_tags": [
+        "manylinux_2_34_x86_64"
+      ],
+      "product": "vllm-ascend",
+      "python_abi": "cp312",
+      "sha256": "ff578909eef5a2acf7446281393a12e45734e50d66badb8159458a242918f7eb",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/nightly/v0.8.0-20261013-1/supermarioyl_uc_manager_cann901_a2-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "version": "0.8.0.dev20261013001"
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.0.1",
+        "soc_version": "ascend910b1",
+        "variant": "a2"
+      },
+      "architecture": "arm64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cann901-a2",
+      "extra": "cann901-a2",
+      "filename": "supermarioyl_uc_manager_cann901_a2-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "id": "cann901-a2-cp312-arm64",
+      "platform_tags": [
+        "manylinux_2_34_aarch64"
+      ],
+      "product": "vllm-ascend",
+      "python_abi": "cp312",
+      "sha256": "52e2e2fd41b68d9bffe263e78a696cb42179ca7e67170753bb0e9e52c0cb99c2",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/nightly/v0.8.0-20261013-1/supermarioyl_uc_manager_cann901_a2-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "version": "0.8.0.dev20261013001"
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.0.1",
+        "soc_version": "ascend910_9391",
+        "variant": "a3"
+      },
+      "architecture": "amd64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cann901-a3",
+      "extra": "cann901-a3",
+      "filename": "supermarioyl_uc_manager_cann901_a3-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "id": "cann901-a3-cp312-amd64",
+      "platform_tags": [
+        "manylinux_2_34_x86_64"
+      ],
+      "product": "vllm-ascend",
+      "python_abi": "cp312",
+      "sha256": "0fb970a4b9a73aeda7e4391e194decbc1abb1b8a6e1ac0cacc3bf43bb321d808",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/nightly/v0.8.0-20261013-1/supermarioyl_uc_manager_cann901_a3-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "version": "0.8.0.dev20261013001"
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.0.1",
+        "soc_version": "ascend910_9391",
+        "variant": "a3"
+      },
+      "architecture": "arm64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cann901-a3",
+      "extra": "cann901-a3",
+      "filename": "supermarioyl_uc_manager_cann901_a3-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "id": "cann901-a3-cp312-arm64",
+      "platform_tags": [
+        "manylinux_2_34_aarch64"
+      ],
+      "product": "vllm-ascend",
+      "python_abi": "cp312",
+      "sha256": "a21c38e2e0b7b0ec3442c80d6ad5eaec350fa7d44cf57e8f19a54e437b328658",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/nightly/v0.8.0-20261013-1/supermarioyl_uc_manager_cann901_a3-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "version": "0.8.0.dev20261013001"
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.1.0",
+        "soc_version": "ascend910b1",
+        "variant": "a2"
+      },
+      "architecture": "amd64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cann910-a2",
+      "extra": "cann910-a2",
+      "filename": "supermarioyl_uc_manager_cann910_a2-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "id": "cann910-a2-cp312-amd64",
+      "platform_tags": [
+        "manylinux_2_34_x86_64"
+      ],
+      "product": "vllm-ascend",
+      "python_abi": "cp312",
+      "sha256": "934899923ccc43b2a8ebcbea5c92daf04faad821af4c072bd5d794fe84d57251",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/nightly/v0.8.0-20261013-1/supermarioyl_uc_manager_cann910_a2-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "version": "0.8.0.dev20261013001"
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.1.0",
+        "soc_version": "ascend910b1",
+        "variant": "a2"
+      },
+      "architecture": "arm64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cann910-a2",
+      "extra": "cann910-a2",
+      "filename": "supermarioyl_uc_manager_cann910_a2-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "id": "cann910-a2-cp312-arm64",
+      "platform_tags": [
+        "manylinux_2_34_aarch64"
+      ],
+      "product": "vllm-ascend",
+      "python_abi": "cp312",
+      "sha256": "7704ee3911f72b09872a981ad93c9de38e39a729b490f8f7546ac7b661f60981",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/nightly/v0.8.0-20261013-1/supermarioyl_uc_manager_cann910_a2-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "version": "0.8.0.dev20261013001"
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.1.0",
+        "soc_version": "ascend910_9391",
+        "variant": "a3"
+      },
+      "architecture": "amd64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cann910-a3",
+      "extra": "cann910-a3",
+      "filename": "supermarioyl_uc_manager_cann910_a3-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "id": "cann910-a3-cp312-amd64",
+      "platform_tags": [
+        "manylinux_2_34_x86_64"
+      ],
+      "product": "vllm-ascend",
+      "python_abi": "cp312",
+      "sha256": "2ac5a8ec3816c05c6406853be0cb7ac47123fb30515ab45ba705472a8fe63b21",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/nightly/v0.8.0-20261013-1/supermarioyl_uc_manager_cann910_a3-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "version": "0.8.0.dev20261013001"
+    },
+    {
+      "accelerator": {
+        "runtime": "cann-9.1.0",
+        "soc_version": "ascend910_9391",
+        "variant": "a3"
+      },
+      "architecture": "arm64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cann910-a3",
+      "extra": "cann910-a3",
+      "filename": "supermarioyl_uc_manager_cann910_a3-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "id": "cann910-a3-cp312-arm64",
+      "platform_tags": [
+        "manylinux_2_34_aarch64"
+      ],
+      "product": "vllm-ascend",
+      "python_abi": "cp312",
+      "sha256": "56a731a0a927b17f74d498ce378ce74dfdb0c2d41bdaa8251772808d44e1684f",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/nightly/v0.8.0-20261013-1/supermarioyl_uc_manager_cann910_a3-0.8.0.dev20261013001-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "version": "0.8.0.dev20261013001"
+    },
+    {
+      "accelerator": {
+        "runtime": "cuda-12.9",
+        "soc_version": "na",
+        "variant": "default"
+      },
+      "architecture": "amd64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cuda-cu129",
+      "extra": "cu129",
+      "filename": "supermarioyl_uc_manager_cuda_cu129-0.8.0.dev20261013001-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "id": "cu129-cp312-amd64",
+      "platform_tags": [
+        "manylinux_2_28_x86_64"
+      ],
+      "product": "vllm",
+      "python_abi": "cp312",
+      "sha256": "c3e10903e368fca901c6bad25517394daad6003ad958f8c2dac928b0e5db6155",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/nightly/v0.8.0-20261013-1/supermarioyl_uc_manager_cuda_cu129-0.8.0.dev20261013001-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "version": "0.8.0.dev20261013001"
+    },
+    {
+      "accelerator": {
+        "runtime": "cuda-12.9",
+        "soc_version": "na",
+        "variant": "default"
+      },
+      "architecture": "arm64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cuda-cu129",
+      "extra": "cu129",
+      "filename": "supermarioyl_uc_manager_cuda_cu129-0.8.0.dev20261013001-cp312-cp312-manylinux_2_28_aarch64.whl",
+      "id": "cu129-cp312-arm64",
+      "platform_tags": [
+        "manylinux_2_28_aarch64"
+      ],
+      "product": "vllm",
+      "python_abi": "cp312",
+      "sha256": "b1df27e6fb9e7e400f5682da8e19ea71b727548abd87841755090794151cdc24",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/nightly/v0.8.0-20261013-1/supermarioyl_uc_manager_cuda_cu129-0.8.0.dev20261013001-cp312-cp312-manylinux_2_28_aarch64.whl",
+      "version": "0.8.0.dev20261013001"
+    },
+    {
+      "accelerator": {
+        "runtime": "cuda-13.0",
+        "soc_version": "na",
+        "variant": "default"
+      },
+      "architecture": "amd64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cuda-cu130",
+      "extra": "cu130",
+      "filename": "supermarioyl_uc_manager_cuda_cu130-0.8.0.dev20261013001-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "id": "cu130-cp312-amd64",
+      "platform_tags": [
+        "manylinux_2_28_x86_64"
+      ],
+      "product": "vllm",
+      "python_abi": "cp312",
+      "sha256": "14f1e5dbdd63585ce05d3f08cb34ec390638753647f1cd788d0bb868b40ccfe2",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/nightly/v0.8.0-20261013-1/supermarioyl_uc_manager_cuda_cu130-0.8.0.dev20261013001-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "version": "0.8.0.dev20261013001"
+    },
+    {
+      "accelerator": {
+        "runtime": "cuda-13.0",
+        "soc_version": "na",
+        "variant": "default"
+      },
+      "architecture": "arm64",
+      "dependencies": [
+        "wrapt==1.17.2"
+      ],
+      "distribution": "supermarioyl-uc-manager-cuda-cu130",
+      "extra": "cu130",
+      "filename": "supermarioyl_uc_manager_cuda_cu130-0.8.0.dev20261013001-cp312-cp312-manylinux_2_28_aarch64.whl",
+      "id": "cu130-cp312-arm64",
+      "platform_tags": [
+        "manylinux_2_28_aarch64"
+      ],
+      "product": "vllm",
+      "python_abi": "cp312",
+      "sha256": "a882df0d63ab5d6413efb5f021503b20d8eefa9b31a75b14155410ab3db75e1c",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/releases/download/nightly/v0.8.0-20261013-1/supermarioyl_uc_manager_cuda_cu130-0.8.0.dev20261013001-cp312-cp312-manylinux_2_28_aarch64.whl",
+      "version": "0.8.0.dev20261013001"
+    }
+  ]
+}

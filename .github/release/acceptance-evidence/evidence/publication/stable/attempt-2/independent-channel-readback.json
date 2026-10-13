@@ -1,0 +1,102 @@
+{
+  "status": "verified",
+  "run_id": 38383412316,
+  "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+  "code_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+  "publisher_oci_refs": 168,
+  "hosted_helm_preferred_registry_refs": 84,
+  "independent_oci_sample_count": 12,
+  "independent_oci_samples": [
+    {
+      "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2",
+      "digest": "sha256:adbe29d8f72a794620f94cfb97d50cb197ba48d254ef02d88c1625dbf08a9e26",
+      "status": "verified"
+    },
+    {
+      "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2-amd64",
+      "digest": "sha256:f4e95e05eaeb97569fc26fb91fc4e2289b9ef29406bfa9f20a74f3e7adaf6f01",
+      "status": "verified"
+    },
+    {
+      "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2-arm64",
+      "digest": "sha256:e55c7507b3ac460b5b9680013b557264dc766d682001cd7478766ed8021cf995",
+      "status": "verified"
+    },
+    {
+      "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2",
+      "digest": "sha256:24ff5506496acdff46882f826a2ce39ada0ad40377e76201fbc98f1a441c6dbd",
+      "status": "verified"
+    },
+    {
+      "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2-amd64",
+      "digest": "sha256:63a8f0b41b96e145dd50e6459afc2acc8d3594354e42c603d9515e20a7980c8e",
+      "status": "verified"
+    },
+    {
+      "reference": "docker.io/lei6393/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2-arm64",
+      "digest": "sha256:c22e88d462df61a5f7b429dbfcd61a81cf3965fbdd1bdfa0259c3a80e4fb1c8e",
+      "status": "verified"
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2",
+      "digest": "sha256:adbe29d8f72a794620f94cfb97d50cb197ba48d254ef02d88c1625dbf08a9e26",
+      "status": "verified"
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2-amd64",
+      "digest": "sha256:f4e95e05eaeb97569fc26fb91fc4e2289b9ef29406bfa9f20a74f3e7adaf6f01",
+      "status": "verified"
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2-arm64",
+      "digest": "sha256:e55c7507b3ac460b5b9680013b557264dc766d682001cd7478766ed8021cf995",
+      "status": "verified"
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2",
+      "digest": "sha256:24ff5506496acdff46882f826a2ce39ada0ad40377e76201fbc98f1a441c6dbd",
+      "status": "verified"
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2-amd64",
+      "digest": "sha256:63a8f0b41b96e145dd50e6459afc2acc8d3594354e42c603d9515e20a7980c8e",
+      "status": "verified"
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2-arm64",
+      "digest": "sha256:c22e88d462df61a5f7b429dbfcd61a81cf3965fbdd1bdfa0259c3a80e4fb1c8e",
+      "status": "verified"
+    }
+  ],
+  "independent_public_docs": [
+    {
+      "url": "https://supermarioyl-ucm.readthedocs.io/en/v0.8.2/release-manifest.json",
+      "build_id": 35116897,
+      "site_commit": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+      "release_tag": "v0.8.2",
+      "status": "verified"
+    },
+    {
+      "url": "https://supermarioyl-ucm.readthedocs.io/en/latest/release-manifest.json",
+      "build_id": 35116898,
+      "site_commit": "f66366538b35faa51507452ae1ad676b10994a4d",
+      "release_tag": "v0.8.2",
+      "status": "verified"
+    },
+    {
+      "url": "https://supermarioyl-ucm.readthedocs.io/zh-cn/v0.8.2/release-manifest.json",
+      "build_id": 35116900,
+      "site_commit": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+      "release_tag": "v0.8.2",
+      "status": "verified"
+    },
+    {
+      "url": "https://supermarioyl-ucm.readthedocs.io/zh-cn/latest/release-manifest.json",
+      "build_id": 35116901,
+      "site_commit": "f66366538b35faa51507452ae1ad676b10994a4d",
+      "release_tag": "v0.8.2",
+      "status": "verified"
+    }
+  ],
+  "chart_package_sha256": "b962d00b97dc81e5a11bfc5005b68ad518076f900876a3ae788bd3da71b36f59"
+}

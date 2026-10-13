@@ -1,8 +1,12 @@
 """Read back the frozen Fork acceptance targets; never mutate remote resources."""
 
 import hashlib
+import io
 import json
+import os
 import subprocess
+import sys
+import zipfile
 from pathlib import Path
 from urllib.parse import quote
 
@@ -63,6 +67,28 @@ def main():
         actual = hashlib.sha256(path.read_bytes()).hexdigest()
         check(actual == item["sha256"], f"evidence checksum {item['path']}", actual)
 
+    sys.path.insert(0, str(ROOT.parent))
+    from ucm_release.cleanup_remote import ProductionRemote
+
+    archive = expected["original_history_archive"]
+    remote = ProductionRemote(REPOSITORY, os.environ["GH_TOKEN"])
+    raw = remote.request(
+        "GET", f"/repos/{REPOSITORY}/actions/artifacts/{archive['id']}/zip"
+    )
+    digest = hashlib.sha256(raw).hexdigest()
+    check(digest == archive["sha256"], "independent original archive digest", digest)
+    if digest != archive["sha256"]:
+        raise SystemExit("Independent archive digest differs from frozen metadata")
+    with zipfile.ZipFile(io.BytesIO(raw)) as zipped:
+        if zipped.testzip() is not None:
+            raise SystemExit("Independent original archive CRC failed")
+    OBSERVED["original_history_archive"] = {
+        **archive,
+        "bytes": len(raw),
+        "digest_verified": True,
+        "crc_verified": True,
+    }
+
     branch = read_api(f"/repos/{REPOSITORY}/git/ref/heads/develop")
     check(
         branch["status"] == 200
@@ -110,12 +136,16 @@ def main():
     )
     OBSERVED["acceptance_status"] = expected["acceptance_status"]
     OBSERVED["status"] = "failed" if OBSERVED["errors"] else "verified"
-    (ROOT / "final-independent-readback.json").write_text(
-        json.dumps(OBSERVED, indent=2) + "\n"
-    )
     if OBSERVED["errors"]:
         raise SystemExit("; ".join(OBSERVED["errors"]))
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        if "status" not in OBSERVED:
+            OBSERVED["status"] = "failed before all readbacks completed"
+        (ROOT / "final-independent-readback.json").write_text(
+            json.dumps(OBSERVED, indent=2) + "\n"
+        )

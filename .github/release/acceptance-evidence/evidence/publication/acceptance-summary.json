@@ -1,0 +1,599 @@
+{
+  "schema_version": 1,
+  "kind": "ucm-normal-four-profile-release-acceptance",
+  "status": "complete",
+  "repository": "SuperMarioYL/unified-cache-management",
+  "publication_scope": "fork-preview",
+  "evidence_root": "/Users/yulei/workspace/ucm-release-acceptance/20261013",
+  "proof_paths_relative_to": "evidence_root",
+  "generated_at": "2026-10-13T13:30:52.399886+00:00",
+  "base_version": "0.8.2",
+  "production_code_generations": {
+    "P1": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+    "P2": "f66366538b35faa51507452ae1ad676b10994a4d"
+  },
+  "normal_artifacts_policy": "preserve all four normal Tags, Releases, source Runs, registry references, charts and TestPyPI projects; final GitHub fingerprints captured after successful Finalize and applicable retention/callback terminal state",
+  "evidence_boundaries": [
+    "Actual original hosted release workflows and actual tag-push/manual-dispatch triggers; no shadow normal release workflow.",
+    "Actual Linux native wheel build/install and public TestPyPI extra-install proof; no GPU/NPU inference or throughput benchmark.",
+    "RC and Stable each independently read back all 168 OCI index/member references: GHCR84 plus DockerHub84; Draft all84 GHCR references; publisher and hosted Helm receipts retained.",
+    "Read the Docs latest is mutable: originally RC closure verified RC; after Stable closure latest serves Stable. Versioned RC remains RC. Original build receipt commits and subsequent raw bodies/headers are distinguished.",
+    "RC/Stable/Draft each had one pre-build free-disk-space step timeout on attempt1, then one failed/dependent-only retry with actual execution audit proving one new image, zero native and zero PyPI repeat."
+  ],
+  "profiles": [
+    {
+      "profile": "nightly",
+      "tag": "nightly/v0.8.0-20261013-1",
+      "run_id": 38375348617,
+      "attempt": 1,
+      "conclusion": "success",
+      "source_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+      "code_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+      "release_id": 411496372,
+      "release_url": "https://github.com/SuperMarioYL/unified-cache-management/releases/tag/nightly/v0.8.0-20261013-1",
+      "github_flags": {
+        "draft": false,
+        "prerelease": true
+      },
+      "github_asset_count": 16,
+      "github_wheel_files": 13,
+      "native_backend_wheels": 12,
+      "image_families": 0,
+      "built_wheel_runtime_install_checks": 12,
+      "toolkit_installed_python_checks": 2,
+      "public_index_install_checks": 0,
+      "channels": {
+        "chart_oci": {
+          "enabled": false,
+          "disposition": "disabled"
+        },
+        "dockerhub": {
+          "enabled": false,
+          "disposition": "disabled"
+        },
+        "ghcr": {
+          "enabled": false,
+          "disposition": "disabled"
+        },
+        "github_release": {
+          "enabled": true,
+          "disposition": "publish"
+        },
+        "pypi": {
+          "enabled": false,
+          "disposition": "disabled"
+        }
+      },
+      "retention": {
+        "job_id": 115229397177,
+        "conclusion": "skipped",
+        "mode": "external_nightly_callback",
+        "callback_run_id": 38377487977,
+        "callback_conclusion": "success",
+        "implementation_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+        "source_run_id": 38375348617,
+        "max_count": 7,
+        "target_status": "kept",
+        "report": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/final-fingerprints/nightly/callback-38377487977/receipt/report.json",
+        "code_binding": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/final-fingerprints/nightly/callback-38377487977/receipt/code-binding.json"
+      },
+      "github_fingerprint_sha256": "2e6501193762c334d367976fa35c83528d9cf49dc7da34a0946186ec7de0340f",
+      "github_fingerprint_captured_at": "2026-10-13T13:21:37.461264Z",
+      "retry": null,
+      "public_docs_current_readback": null,
+      "proofs": {
+        "github_fingerprint": "publication/final-fingerprints/nightly/fingerprint.json",
+        "github_canonical": "publication/final-fingerprints/nightly/canonical.json",
+        "github_asset_digests": "publication/nightly/attempt-1/independent-github-asset-digests.json",
+        "public_manifest": "publication/nightly/attempt-1/release-manifest.json",
+        "actual_release_plan": "publication/nightly/attempt-1/artifacts/ucm-release-plan-run-38375348617/release-plan.json",
+        "source_code_equivalence": "publication/final-fingerprints/nightly/code-source-equivalence.json",
+        "actual_built_wheel_install_logs": "publication/nightly/built-wheel-install-logs/receipt.json"
+      }
+    },
+    {
+      "profile": "prerelease",
+      "tag": "v0.8.2rc1",
+      "run_id": 38377675294,
+      "attempt": 2,
+      "conclusion": "success",
+      "source_sha": "4858aef86456f712da6fd59ecb224235841ebdac",
+      "code_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+      "release_id": 411512107,
+      "release_url": "https://github.com/SuperMarioYL/unified-cache-management/releases/tag/v0.8.2rc1",
+      "github_flags": {
+        "draft": false,
+        "prerelease": true
+      },
+      "github_asset_count": 18,
+      "github_wheel_files": 13,
+      "native_backend_wheels": 12,
+      "image_families": 28,
+      "built_wheel_runtime_install_checks": 12,
+      "toolkit_installed_python_checks": 2,
+      "public_index_install_checks": 13,
+      "channels": {
+        "chart_oci": {
+          "enabled": true,
+          "disposition": "publish",
+          "independent_oci_pull_and_github_asset": "verified",
+          "sha256": "dafe691433cf58095e4690e94c7acb0ace101408dd9036eeacba3d66ef800ae1",
+          "hosted_helm_preferred_registry_refs": 84,
+          "independent_local_helm_preferred_registry_refs": 0,
+          "verification_kind": "hosted"
+        },
+        "dockerhub": {
+          "enabled": true,
+          "disposition": "publish",
+          "expected": 84,
+          "verified": 84
+        },
+        "ghcr": {
+          "enabled": true,
+          "disposition": "publish",
+          "expected": 84,
+          "verified": 84
+        },
+        "github_release": {
+          "enabled": true,
+          "disposition": "publish"
+        },
+        "pypi": {
+          "enabled": true,
+          "disposition": "publish",
+          "status": "verified",
+          "target": "testpypi",
+          "version": "0.8.2rc1",
+          "projects": 8,
+          "files": 14,
+          "method": "Independent project/version JSON exact filename set and SHA256 match against hosted receipt; receipt digests carry sha256 prefix"
+        }
+      },
+      "retention": {
+        "job_id": 115276597358,
+        "conclusion": "success",
+        "mode": "in_run_unlimited",
+        "max_count": -1,
+        "target_status": "kept",
+        "nightly_callback_applicable": false,
+        "callback_exclusion_reason": "release-tag push head_branch v0.8.2rc1 does not start with nightly/",
+        "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/final-fingerprints/prerelease/retention.log"
+      },
+      "github_fingerprint_sha256": "18637f1e7f31476f3b11a86a2ade7f21067eabb907737fac75ecc9c737d1e83c",
+      "github_fingerprint_captured_at": "2026-10-13T13:21:55.370178Z",
+      "retry": {
+        "run_id": 38377675294,
+        "from_attempt": 1,
+        "requested_at": "2026-10-13T10:58:40.010670+00:00",
+        "mode": "failed-jobs-and-dependent-jobs",
+        "source_sha": "4858aef86456f712da6fd59ecb224235841ebdac",
+        "code_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+        "root_cause_job": 115240334395,
+        "root_cause": "Third-party free-disk-space step exceeded its five-minute timeout before build/verify; finalization gate downstream failed",
+        "preserve_successful_upstream": [
+          "native wheels",
+          "Runtime installs",
+          "Builders",
+          "TestPyPI publishing",
+          "public-index install checks"
+        ],
+        "prior_failure_evidence": "publication/prerelease/failures/attempt-1 plus runs/*attempt-1* and job logs"
+      },
+      "public_docs_current_readback": {
+        "profile": "prerelease",
+        "run_id": 38377675294,
+        "observed_at": "2026-10-13T12:53:09.690914+00:00",
+        "status": "verified",
+        "latest_expected_release_tag": "v0.8.2",
+        "original_closure_verification": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/attempt-2/independent-channel-readback.json",
+        "note": "latest is a moving publication alias; RC closure previously verified RC on latest, and after Stable closure latest correctly serves Stable. Versioned RC pages retain RC.",
+        "sites": [
+          {
+            "url": "https://supermarioyl-ucm.readthedocs.io/en/v0.8.2rc1/release-manifest.json",
+            "language": "en",
+            "version": "v0.8.2rc1",
+            "original_receipt_build_id": 35115607,
+            "original_receipt_site_commit": "4858aef86456f712da6fd59ecb224235841ebdac",
+            "expected_current_release_tag": "v0.8.2rc1",
+            "actual_release_tag": "v0.8.2rc1",
+            "status": "verified",
+            "body_sha256": "7f05e766bd6731db746ac4b15512d3f2338b9fcd3b9ef053ed0af153c1edcded",
+            "raw_body": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/attempt-2/independent-public-docs/en-v0.8.2rc1.json",
+            "raw_headers": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/attempt-2/independent-public-docs/en-v0.8.2rc1-headers.txt",
+            "observed_at": "2026-10-13T12:53:09.416557+00:00",
+            "sensitive_header_values_redacted": 1
+          },
+          {
+            "url": "https://supermarioyl-ucm.readthedocs.io/en/latest/release-manifest.json",
+            "language": "en",
+            "version": "latest",
+            "original_receipt_build_id": 35115608,
+            "original_receipt_site_commit": "f66366538b35faa51507452ae1ad676b10994a4d",
+            "expected_current_release_tag": "v0.8.2",
+            "actual_release_tag": "v0.8.2",
+            "status": "verified",
+            "body_sha256": "d213f45364066c6ef8eba7b3eea7fecffc5e360b4ef835c6e69bb2dc650eb268",
+            "raw_body": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/attempt-2/independent-public-docs/en-latest.json",
+            "raw_headers": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/attempt-2/independent-public-docs/en-latest-headers.txt",
+            "observed_at": "2026-10-13T12:53:09.678971+00:00",
+            "sensitive_header_values_redacted": 1
+          },
+          {
+            "url": "https://supermarioyl-ucm.readthedocs.io/zh-cn/v0.8.2rc1/release-manifest.json",
+            "language": "zh-cn",
+            "version": "v0.8.2rc1",
+            "original_receipt_build_id": 35115609,
+            "original_receipt_site_commit": "4858aef86456f712da6fd59ecb224235841ebdac",
+            "expected_current_release_tag": "v0.8.2rc1",
+            "actual_release_tag": "v0.8.2rc1",
+            "status": "verified",
+            "body_sha256": "7f05e766bd6731db746ac4b15512d3f2338b9fcd3b9ef053ed0af153c1edcded",
+            "raw_body": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/attempt-2/independent-public-docs/zh-cn-v0.8.2rc1.json",
+            "raw_headers": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/attempt-2/independent-public-docs/zh-cn-v0.8.2rc1-headers.txt",
+            "observed_at": "2026-10-13T12:53:07.048911+00:00",
+            "sensitive_header_values_redacted": 1
+          },
+          {
+            "url": "https://supermarioyl-ucm.readthedocs.io/zh-cn/latest/release-manifest.json",
+            "language": "zh-cn",
+            "version": "latest",
+            "original_receipt_build_id": 35115611,
+            "original_receipt_site_commit": "f66366538b35faa51507452ae1ad676b10994a4d",
+            "expected_current_release_tag": "v0.8.2",
+            "actual_release_tag": "v0.8.2",
+            "status": "verified",
+            "body_sha256": "d213f45364066c6ef8eba7b3eea7fecffc5e360b4ef835c6e69bb2dc650eb268",
+            "raw_body": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/attempt-2/independent-public-docs/zh-cn-latest.json",
+            "raw_headers": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/attempt-2/independent-public-docs/zh-cn-latest-headers.txt",
+            "observed_at": "2026-10-13T12:53:09.690483+00:00",
+            "sensitive_header_values_redacted": 1
+          }
+        ],
+        "header_handling": "HTTP response headers retained with Set-Cookie/Authorization values redacted; JSON bodies and body SHA256 unchanged"
+      },
+      "proofs": {
+        "github_fingerprint": "publication/final-fingerprints/prerelease/fingerprint.json",
+        "github_canonical": "publication/final-fingerprints/prerelease/canonical.json",
+        "github_asset_digests": "publication/prerelease/attempt-2/independent-github-asset-digests.json",
+        "public_manifest": "publication/prerelease/attempt-2/release-manifest.json",
+        "actual_release_plan": "publication/prerelease/attempt-2/artifacts/ucm-release-plan-run-38377675294/release-plan.json",
+        "source_code_equivalence": "publication/final-fingerprints/prerelease/code-source-equivalence.json",
+        "all_oci_readbacks": "publication/prerelease/attempt-2/independent-all-oci-readback.json",
+        "delivery_and_closure_docs_verification": "publication/prerelease/attempt-2/independent-channel-readback.json",
+        "chart_byte_readbacks": "publication/prerelease/attempt-2/independent-chart/readback.json",
+        "all_testpypi_filename_sha256_readbacks": "publication/prerelease/pypi-readback/receipt-verification.json",
+        "actual_public_index_installs": "publication/prerelease/install-logs/receipt.json",
+        "current_public_docs_raw_bodies_headers": "publication/prerelease/attempt-2/independent-public-docs/readback.json",
+        "failed_only_retry": "publication/prerelease-retry.json",
+        "actual_retry_job_execution_audit": "runs/38377675294-attempt-2-replay-audit.json"
+      }
+    },
+    {
+      "profile": "stable",
+      "tag": "v0.8.2",
+      "run_id": 38383412316,
+      "attempt": 2,
+      "conclusion": "success",
+      "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+      "code_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+      "release_id": 411560226,
+      "release_url": "https://github.com/SuperMarioYL/unified-cache-management/releases/tag/v0.8.2",
+      "github_flags": {
+        "draft": false,
+        "prerelease": false
+      },
+      "github_asset_count": 18,
+      "github_wheel_files": 13,
+      "native_backend_wheels": 12,
+      "image_families": 28,
+      "built_wheel_runtime_install_checks": 12,
+      "toolkit_installed_python_checks": 2,
+      "public_index_install_checks": 13,
+      "channels": {
+        "chart_oci": {
+          "enabled": true,
+          "disposition": "publish",
+          "independent_oci_pull_and_github_asset": "verified",
+          "sha256": "b962d00b97dc81e5a11bfc5005b68ad518076f900876a3ae788bd3da71b36f59",
+          "hosted_helm_preferred_registry_refs": 84,
+          "independent_local_helm_preferred_registry_refs": 0,
+          "verification_kind": "hosted"
+        },
+        "dockerhub": {
+          "enabled": true,
+          "disposition": "publish",
+          "expected": 84,
+          "verified": 84
+        },
+        "ghcr": {
+          "enabled": true,
+          "disposition": "publish",
+          "expected": 84,
+          "verified": 84
+        },
+        "github_release": {
+          "enabled": true,
+          "disposition": "publish"
+        },
+        "pypi": {
+          "enabled": true,
+          "disposition": "publish",
+          "status": "verified",
+          "target": "testpypi",
+          "version": "0.8.2",
+          "run_id": 38383412316,
+          "projects": 8,
+          "files": 14,
+          "method": "Independent version JSON exact filename set and normalized SHA256 match against hosted pypi-receipt",
+          "checks": [
+            {
+              "project": "supermarioyl-uc-manager-cann901-a2",
+              "version": "0.8.2",
+              "files": 2
+            },
+            {
+              "project": "supermarioyl-uc-manager-cann901-a3",
+              "version": "0.8.2",
+              "files": 2
+            },
+            {
+              "project": "supermarioyl-uc-manager-cann910-a2",
+              "version": "0.8.2",
+              "files": 2
+            },
+            {
+              "project": "supermarioyl-uc-manager-cann910-a3",
+              "version": "0.8.2",
+              "files": 2
+            },
+            {
+              "project": "supermarioyl-uc-manager-cuda-cu129",
+              "version": "0.8.2",
+              "files": 2
+            },
+            {
+              "project": "supermarioyl-uc-manager-cuda-cu130",
+              "version": "0.8.2",
+              "files": 2
+            },
+            {
+              "project": "supermarioyl-ucm-toolkit",
+              "version": "0.8.2",
+              "files": 1
+            },
+            {
+              "project": "supermarioyl-uc-manager",
+              "version": "0.8.2",
+              "files": 1
+            }
+          ]
+        }
+      },
+      "retention": {
+        "job_id": 115299472533,
+        "conclusion": "success",
+        "mode": "in_run_unlimited",
+        "max_count": -1,
+        "target_status": "kept",
+        "nightly_callback_applicable": false,
+        "callback_exclusion_reason": "release-tag push head_branch v0.8.2 does not start with nightly/",
+        "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/final-fingerprints/stable/retention.log"
+      },
+      "github_fingerprint_sha256": "2f55204f801234622ddb5ce58d20d3358bf2ec2c5ef6b040381c0a43ca7eb06d",
+      "github_fingerprint_captured_at": "2026-10-13T13:22:11.804489Z",
+      "retry": {
+        "run_id": 38383412316,
+        "from_attempt": 1,
+        "requested_at": "2026-10-13T11:54:46.831289+00:00",
+        "mode": "failed-and-dependent-only",
+        "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+        "code_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+        "root_cause_job": 115261976615,
+        "root_cause": "free-disk-space five-minute timeout before build/verify",
+        "failure_backup": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/failures/attempt-1",
+        "successful_public_index_checks": 13
+      },
+      "public_docs_current_readback": {
+        "profile": "stable",
+        "run_id": 38383412316,
+        "observed_at": "2026-10-13T12:53:09.767529+00:00",
+        "status": "verified",
+        "latest_expected_release_tag": "v0.8.2",
+        "original_closure_verification": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/attempt-2/independent-channel-readback.json",
+        "note": "latest is a moving publication alias; RC closure previously verified RC on latest, and after Stable closure latest correctly serves Stable. Versioned RC pages retain RC.",
+        "sites": [
+          {
+            "url": "https://supermarioyl-ucm.readthedocs.io/en/v0.8.2/release-manifest.json",
+            "language": "en",
+            "version": "v0.8.2",
+            "original_receipt_build_id": 35116897,
+            "original_receipt_site_commit": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+            "expected_current_release_tag": "v0.8.2",
+            "actual_release_tag": "v0.8.2",
+            "status": "verified",
+            "body_sha256": "d213f45364066c6ef8eba7b3eea7fecffc5e360b4ef835c6e69bb2dc650eb268",
+            "raw_body": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/attempt-2/independent-public-docs/en-v0.8.2.json",
+            "raw_headers": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/attempt-2/independent-public-docs/en-v0.8.2-headers.txt",
+            "observed_at": "2026-10-13T12:53:09.142155+00:00",
+            "sensitive_header_values_redacted": 1
+          },
+          {
+            "url": "https://supermarioyl-ucm.readthedocs.io/en/latest/release-manifest.json",
+            "language": "en",
+            "version": "latest",
+            "original_receipt_build_id": 35116898,
+            "original_receipt_site_commit": "f66366538b35faa51507452ae1ad676b10994a4d",
+            "expected_current_release_tag": "v0.8.2",
+            "actual_release_tag": "v0.8.2",
+            "status": "verified",
+            "body_sha256": "d213f45364066c6ef8eba7b3eea7fecffc5e360b4ef835c6e69bb2dc650eb268",
+            "raw_body": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/attempt-2/independent-public-docs/en-latest.json",
+            "raw_headers": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/attempt-2/independent-public-docs/en-latest-headers.txt",
+            "observed_at": "2026-10-13T12:53:08.976754+00:00",
+            "sensitive_header_values_redacted": 1
+          },
+          {
+            "url": "https://supermarioyl-ucm.readthedocs.io/zh-cn/v0.8.2/release-manifest.json",
+            "language": "zh-cn",
+            "version": "v0.8.2",
+            "original_receipt_build_id": 35116900,
+            "original_receipt_site_commit": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+            "expected_current_release_tag": "v0.8.2",
+            "actual_release_tag": "v0.8.2",
+            "status": "verified",
+            "body_sha256": "d213f45364066c6ef8eba7b3eea7fecffc5e360b4ef835c6e69bb2dc650eb268",
+            "raw_body": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/attempt-2/independent-public-docs/zh-cn-v0.8.2.json",
+            "raw_headers": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/attempt-2/independent-public-docs/zh-cn-v0.8.2-headers.txt",
+            "observed_at": "2026-10-13T12:53:08.865563+00:00",
+            "sensitive_header_values_redacted": 1
+          },
+          {
+            "url": "https://supermarioyl-ucm.readthedocs.io/zh-cn/latest/release-manifest.json",
+            "language": "zh-cn",
+            "version": "latest",
+            "original_receipt_build_id": 35116901,
+            "original_receipt_site_commit": "f66366538b35faa51507452ae1ad676b10994a4d",
+            "expected_current_release_tag": "v0.8.2",
+            "actual_release_tag": "v0.8.2",
+            "status": "verified",
+            "body_sha256": "d213f45364066c6ef8eba7b3eea7fecffc5e360b4ef835c6e69bb2dc650eb268",
+            "raw_body": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/attempt-2/independent-public-docs/zh-cn-latest.json",
+            "raw_headers": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/attempt-2/independent-public-docs/zh-cn-latest-headers.txt",
+            "observed_at": "2026-10-13T12:53:09.767338+00:00",
+            "sensitive_header_values_redacted": 1
+          }
+        ],
+        "header_handling": "HTTP response headers retained with Set-Cookie/Authorization values redacted; JSON bodies and body SHA256 unchanged"
+      },
+      "proofs": {
+        "github_fingerprint": "publication/final-fingerprints/stable/fingerprint.json",
+        "github_canonical": "publication/final-fingerprints/stable/canonical.json",
+        "github_asset_digests": "publication/stable/attempt-2/independent-github-asset-digests.json",
+        "public_manifest": "publication/stable/attempt-2/release-manifest.json",
+        "actual_release_plan": "publication/stable/attempt-2/artifacts/ucm-release-plan-run-38383412316/release-plan.json",
+        "source_code_equivalence": "publication/final-fingerprints/stable/code-source-equivalence.json",
+        "all_oci_readbacks": "publication/stable/attempt-2/independent-all-oci-readback.json",
+        "delivery_and_closure_docs_verification": "publication/stable/attempt-2/independent-channel-readback.json",
+        "chart_byte_readbacks": "publication/stable/attempt-2/independent-chart/readback.json",
+        "all_testpypi_filename_sha256_readbacks": "publication/stable/pypi-readback/receipt-verification.json",
+        "actual_public_index_installs": "publication/stable/install-logs/receipt.json",
+        "current_public_docs_raw_bodies_headers": "publication/stable/attempt-2/independent-public-docs/readback.json",
+        "failed_only_retry": "publication/stable-retry.json",
+        "actual_retry_job_execution_audit": "runs/38383412316-attempt-2-replay-audit.json"
+      }
+    },
+    {
+      "profile": "draft",
+      "tag": "draft/v0.8.2-1",
+      "run_id": 38390192146,
+      "attempt": 2,
+      "conclusion": "success",
+      "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+      "code_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+      "release_id": 411606028,
+      "release_url": "https://github.com/SuperMarioYL/unified-cache-management/releases/tag/untagged-8e5c26da678e85a90c34",
+      "github_flags": {
+        "draft": true,
+        "prerelease": true
+      },
+      "github_asset_count": 18,
+      "github_wheel_files": 13,
+      "native_backend_wheels": 12,
+      "image_families": 28,
+      "built_wheel_runtime_install_checks": 12,
+      "toolkit_installed_python_checks": 2,
+      "public_index_install_checks": 0,
+      "channels": {
+        "chart_oci": {
+          "enabled": true,
+          "disposition": "publish",
+          "independent_oci_pull_and_github_asset": "verified",
+          "sha256": "a04752293b787830d6279a926f16a5d10aa84f9f5a27d5bae4e05d69e5fcf618",
+          "hosted_helm_preferred_registry_refs": 0,
+          "independent_local_helm_preferred_registry_refs": 84,
+          "verification_kind": "independent_local"
+        },
+        "dockerhub": {
+          "enabled": false,
+          "disposition": "disabled",
+          "expected": 0,
+          "verified": 0
+        },
+        "ghcr": {
+          "enabled": true,
+          "disposition": "publish",
+          "expected": 84,
+          "verified": 84
+        },
+        "github_release": {
+          "enabled": true,
+          "disposition": "publish"
+        },
+        "pypi": {
+          "enabled": false,
+          "disposition": "disabled"
+        }
+      },
+      "retention": {
+        "job_id": 115314091363,
+        "conclusion": "success",
+        "mode": "in_run_finite",
+        "max_count": 7,
+        "max_count_evidence": "exact source commit release.yaml; workflow resolves its release_profile.max_count",
+        "policy_source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+        "policy_sha256": "96895efbb7b22f8efcef1f13d5cffa79097f330939f42f699ff23abb3adf574f",
+        "policy": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/final-fingerprints/draft/source-release-policy.yaml",
+        "current_tag": "draft/v0.8.2-1",
+        "target_status": "kept",
+        "results": [
+          {
+            "status": "kept",
+            "detail": "draft/v0.8.0-202610139207"
+          },
+          {
+            "status": "kept",
+            "detail": "draft/v0.8.2-1"
+          }
+        ],
+        "nightly_callback_applicable": false,
+        "callback_exclusion_reason": "release-tag push head_branch draft/v0.8.2-1 does not start with nightly/",
+        "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/final-fingerprints/draft/retention.log"
+      },
+      "github_fingerprint_sha256": "ee065a45c41280bca7b48c6e9ef2b4516290158d20006d041731463abdfb2565",
+      "github_fingerprint_captured_at": "2026-10-13T13:22:30.446713Z",
+      "retry": {
+        "run_id": 38390192146,
+        "from_attempt": 1,
+        "requested_at": "2026-10-13T12:50:49.786030+00:00",
+        "mode": "failed-and-dependent-only",
+        "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+        "code_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+        "root_cause_job": 115286324315,
+        "root_cause": "free-disk-space five-minute timeout before build/verify",
+        "downstream_failure_job": 115303735470,
+        "downstream_failure_step": "Require complete image publication",
+        "failure_backup": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/failures/attempt-1",
+        "successful_image_members_preserved": 55,
+        "successful_built_wheel_runtime_checks": 12,
+        "successful_toolkit_installed_checks": 2,
+        "pypi_enabled": false
+      },
+      "public_docs_current_readback": null,
+      "proofs": {
+        "github_fingerprint": "publication/final-fingerprints/draft/fingerprint.json",
+        "github_canonical": "publication/final-fingerprints/draft/canonical.json",
+        "github_asset_digests": "publication/draft/attempt-2/independent-github-asset-digests.json",
+        "public_manifest": "publication/draft/attempt-2/release-manifest.json",
+        "actual_release_plan": "publication/draft/attempt-2/artifacts/ucm-release-plan-run-38390192146/release-plan.json",
+        "source_code_equivalence": "publication/final-fingerprints/draft/code-source-equivalence.json",
+        "all_oci_readbacks": "publication/draft/attempt-2/independent-all-oci-readback.json",
+        "delivery_and_closure_docs_verification": "publication/draft/attempt-2/independent-channel-readback.json",
+        "chart_byte_readbacks": "publication/draft/attempt-2/independent-chart/readback.json",
+        "draft_actual_network_capture_and_same_verify_function": "publication/draft/attempt-2/independent-chart/local-verification-context.json",
+        "actual_built_wheel_install_logs": "publication/draft/built-wheel-install-logs/receipt.json",
+        "failed_only_retry": "publication/draft-retry.json",
+        "actual_retry_job_execution_audit": "runs/38390192146-attempt-2-replay-audit.json"
+      }
+    }
+  ]
+}

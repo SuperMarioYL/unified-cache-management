@@ -1,0 +1,117 @@
+{
+  "profile": "draft",
+  "run_id": 38390192146,
+  "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+  "code_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+  "status": "verified",
+  "declared_and_actual_asset_count": 18,
+  "wheel_file_count": 13,
+  "method": "independent frozen GitHub Assets API digest matches hosted publisher state and public manifest; no local execution of foreign platform wheels",
+  "checks": [
+    {
+      "filename": "supermarioyl_uc_manager_cann901_a2-0.8.2.dev1-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "asset_id": 636908436,
+      "size": 5561133,
+      "github_api_digest": "sha256:fd2e149d4b4ae314a8895a00a9deab8ea556f0f6474dedc41c0f1cfa23c18a07",
+      "expected_publisher_digest": "sha256:fd2e149d4b4ae314a8895a00a9deab8ea556f0f6474dedc41c0f1cfa23c18a07",
+      "status": "verified"
+    },
+    {
+      "filename": "supermarioyl_uc_manager_cann901_a2-0.8.2.dev1-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "asset_id": 636908434,
+      "size": 5165663,
+      "github_api_digest": "sha256:54e16ea947bbf389189e68a260466081d022d996819d4f5e3cf70bffcb2128ed",
+      "expected_publisher_digest": "sha256:54e16ea947bbf389189e68a260466081d022d996819d4f5e3cf70bffcb2128ed",
+      "status": "verified"
+    },
+    {
+      "filename": "supermarioyl_uc_manager_cann901_a3-0.8.2.dev1-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "asset_id": 636908435,
+      "size": 5502218,
+      "github_api_digest": "sha256:f32a5d442e2a12b58408a07666c7f9d5fd7ee5a6c793819ec36d677313f1a184",
+      "expected_publisher_digest": "sha256:f32a5d442e2a12b58408a07666c7f9d5fd7ee5a6c793819ec36d677313f1a184",
+      "status": "verified"
+    },
+    {
+      "filename": "supermarioyl_uc_manager_cann901_a3-0.8.2.dev1-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "asset_id": 636908432,
+      "size": 5128398,
+      "github_api_digest": "sha256:395237e9ef0d7ad0557fc89e49157ccb9c3c1eff16473c2089ddc276b93efbf6",
+      "expected_publisher_digest": "sha256:395237e9ef0d7ad0557fc89e49157ccb9c3c1eff16473c2089ddc276b93efbf6",
+      "status": "verified"
+    },
+    {
+      "filename": "supermarioyl_uc_manager_cann910_a2-0.8.2.dev1-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "asset_id": 636908433,
+      "size": 5561151,
+      "github_api_digest": "sha256:f1d4604475341b283e9e424a53612b0e2904f99592caf311d1426ca0e70a2ccb",
+      "expected_publisher_digest": "sha256:f1d4604475341b283e9e424a53612b0e2904f99592caf311d1426ca0e70a2ccb",
+      "status": "verified"
+    },
+    {
+      "filename": "supermarioyl_uc_manager_cann910_a2-0.8.2.dev1-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "asset_id": 636908476,
+      "size": 5165879,
+      "github_api_digest": "sha256:fc94b9dfc1f659d2674ff42a334ad6b93d6e8d83d383d2d60b02e8cf31866c35",
+      "expected_publisher_digest": "sha256:fc94b9dfc1f659d2674ff42a334ad6b93d6e8d83d383d2d60b02e8cf31866c35",
+      "status": "verified"
+    },
+    {
+      "filename": "supermarioyl_uc_manager_cann910_a3-0.8.2.dev1-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "asset_id": 636908480,
+      "size": 5502229,
+      "github_api_digest": "sha256:a079e5e47cde060ab1de949d81100af51e423e217dcdd5a749d6a6cf7fb89009",
+      "expected_publisher_digest": "sha256:a079e5e47cde060ab1de949d81100af51e423e217dcdd5a749d6a6cf7fb89009",
+      "status": "verified"
+    },
+    {
+      "filename": "supermarioyl_uc_manager_cann910_a3-0.8.2.dev1-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "asset_id": 636908488,
+      "size": 5128609,
+      "github_api_digest": "sha256:c22dbcd471241121f076f163a212df8102e124a6605f03fdf855a7441c8a387e",
+      "expected_publisher_digest": "sha256:c22dbcd471241121f076f163a212df8102e124a6605f03fdf855a7441c8a387e",
+      "status": "verified"
+    },
+    {
+      "filename": "supermarioyl_uc_manager_cuda_cu129-0.8.2.dev1-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "asset_id": 636908509,
+      "size": 4541879,
+      "github_api_digest": "sha256:a8e714589b0680085ee2989e2b3543287cd93dfca825988b3c321afb1cecb33a",
+      "expected_publisher_digest": "sha256:a8e714589b0680085ee2989e2b3543287cd93dfca825988b3c321afb1cecb33a",
+      "status": "verified"
+    },
+    {
+      "filename": "supermarioyl_uc_manager_cuda_cu129-0.8.2.dev1-cp312-cp312-manylinux_2_28_aarch64.whl",
+      "asset_id": 636908533,
+      "size": 4291738,
+      "github_api_digest": "sha256:484141c449da89789cac48c18cbc09937e659b4f401f1669acdec381a1290efe",
+      "expected_publisher_digest": "sha256:484141c449da89789cac48c18cbc09937e659b4f401f1669acdec381a1290efe",
+      "status": "verified"
+    },
+    {
+      "filename": "supermarioyl_uc_manager_cuda_cu130-0.8.2.dev1-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "asset_id": 636908535,
+      "size": 4548480,
+      "github_api_digest": "sha256:894e1ed3515530e55f648d35b0ae413f440866b601442a124328b37f0449c313",
+      "expected_publisher_digest": "sha256:894e1ed3515530e55f648d35b0ae413f440866b601442a124328b37f0449c313",
+      "status": "verified"
+    },
+    {
+      "filename": "supermarioyl_uc_manager_cuda_cu130-0.8.2.dev1-cp312-cp312-manylinux_2_28_aarch64.whl",
+      "asset_id": 636908537,
+      "size": 4298890,
+      "github_api_digest": "sha256:6fc3e00f8d37644565537fcb85b2f19f244d58b96e67031129a7c8c343279667",
+      "expected_publisher_digest": "sha256:6fc3e00f8d37644565537fcb85b2f19f244d58b96e67031129a7c8c343279667",
+      "status": "verified"
+    },
+    {
+      "filename": "supermarioyl_ucm_toolkit-0.8.2.dev1-py3-none-any.whl",
+      "asset_id": 636908559,
+      "size": 997185,
+      "github_api_digest": "sha256:4a61cf2df8018ac761ae18f3f97ccf6c02a765fcd017984b26ad7dec957fb092",
+      "expected_publisher_digest": "sha256:4a61cf2df8018ac761ae18f3f97ccf6c02a765fcd017984b26ad7dec957fb092",
+      "status": "verified"
+    }
+  ],
+  "raw_assets": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/final-fingerprints/draft/assets.json"
+}

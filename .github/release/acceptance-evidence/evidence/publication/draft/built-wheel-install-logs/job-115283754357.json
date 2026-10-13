@@ -1,0 +1,76 @@
+{
+  "id": 115283754357,
+  "run_id": 38390192146,
+  "workflow_name": "UCM Tag Release \u00b7 Stable, Prerelease, Draft, and Nightly",
+  "head_branch": "draft/v0.8.2-1",
+  "run_url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/actions/runs/38390192146",
+  "run_attempt": 1,
+  "node_id": "CR_kwDORjIt2c8AAAAa13J9dQ",
+  "head_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+  "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/actions/jobs/115283754357",
+  "html_url": "https://github.com/SuperMarioYL/unified-cache-management/actions/runs/38390192146/job/115283754357",
+  "status": "completed",
+  "conclusion": "success",
+  "created_at": "2026-10-13T11:57:08Z",
+  "started_at": "2026-10-13T11:57:12Z",
+  "completed_at": "2026-10-13T12:00:13Z",
+  "name": "Run Release core / Validate Wheel Runtime \u00b7 cann901-a3 \u00b7 arm64",
+  "steps": [
+    {
+      "name": "Set up job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 1,
+      "started_at": "2026-10-13T11:57:13Z",
+      "completed_at": "2026-10-13T11:57:13Z"
+    },
+    {
+      "name": "Run actions/checkout@v4.2.2",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 2,
+      "started_at": "2026-10-13T11:57:13Z",
+      "completed_at": "2026-10-13T11:57:15Z"
+    },
+    {
+      "name": "Run ./.github/actions/download-artifact-retry",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 3,
+      "started_at": "2026-10-13T11:57:15Z",
+      "completed_at": "2026-10-13T11:57:16Z"
+    },
+    {
+      "name": "Install and validate the local Wheel in its matching Runtime",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 4,
+      "started_at": "2026-10-13T11:57:16Z",
+      "completed_at": "2026-10-13T12:00:11Z"
+    },
+    {
+      "name": "Post Run actions/checkout@v4.2.2",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 8,
+      "started_at": "2026-10-13T12:00:11Z",
+      "completed_at": "2026-10-13T12:00:11Z"
+    },
+    {
+      "name": "Complete job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 9,
+      "started_at": "2026-10-13T12:00:11Z",
+      "completed_at": "2026-10-13T12:00:11Z"
+    }
+  ],
+  "check_run_url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/check-runs/115283754357",
+  "labels": [
+    "ubuntu-24.04-arm"
+  ],
+  "runner_id": 1000027406,
+  "runner_name": "GitHub Actions 1000027406",
+  "runner_group_id": 0,
+  "runner_group_name": "GitHub Actions"
+}

@@ -1,0 +1,30 @@
+{
+  "profile": "draft",
+  "run_id": 38390192146,
+  "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+  "code_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+  "chart_oci": "ghcr.io/supermarioyl/charts/unified-cache-chart:0.8.2-draft.1",
+  "observed_at": "2026-10-13T13:16:23.813753+00:00",
+  "status": "verified",
+  "comparison_authority": "completed publisher state; Draft skips hosted chart delivery verification by profile policy",
+  "readbacks": [
+    {
+      "channel": "oci",
+      "filename": "unified-cache-chart-0.8.2-draft.1.tgz",
+      "observed_sha256": "a04752293b787830d6279a926f16a5d10aa84f9f5a27d5bae4e05d69e5fcf618",
+      "expected_sha256": "a04752293b787830d6279a926f16a5d10aa84f9f5a27d5bae4e05d69e5fcf618",
+      "bytes": 61212,
+      "artifact": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/attempt-2/independent-chart/oci/unified-cache-chart-0.8.2-draft.1.tgz",
+      "status": "verified"
+    },
+    {
+      "channel": "github",
+      "filename": "unified-cache-chart-0.8.2-draft.1.tgz",
+      "observed_sha256": "a04752293b787830d6279a926f16a5d10aa84f9f5a27d5bae4e05d69e5fcf618",
+      "expected_sha256": "a04752293b787830d6279a926f16a5d10aa84f9f5a27d5bae4e05d69e5fcf618",
+      "bytes": 61212,
+      "artifact": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/attempt-2/independent-chart/github/unified-cache-chart-0.8.2-draft.1.tgz",
+      "status": "verified"
+    }
+  ]
+}

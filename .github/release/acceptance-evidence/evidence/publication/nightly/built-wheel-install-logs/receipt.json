@@ -1,0 +1,126 @@
+{
+  "profile": "nightly",
+  "run_id": 38375348617,
+  "attempt": 1,
+  "source_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+  "code_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+  "observed_at": "2026-10-13T12:42:04.700480+00:00",
+  "runtime_backend_architecture_checks": 12,
+  "toolkit_installed_python_checks": 2,
+  "job_count": 14,
+  "raw_log_count": 14,
+  "checks": [
+    {
+      "job_id": 115223641049,
+      "name": "Run common Release core / Wheel \u00b7 Toolkit / installed (3.12)",
+      "conclusion": "success",
+      "source_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/nightly/built-wheel-install-logs/job-115223641049.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115223641091,
+      "name": "Run common Release core / Wheel \u00b7 Toolkit / installed (3.9)",
+      "conclusion": "success",
+      "source_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/nightly/built-wheel-install-logs/job-115223641091.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115227167985,
+      "name": "Run common Release core / Validate Wheel Runtime \u00b7 cann901-a3 \u00b7 amd64",
+      "conclusion": "success",
+      "source_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/nightly/built-wheel-install-logs/job-115227167985.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115227168026,
+      "name": "Run common Release core / Validate Wheel Runtime \u00b7 cu129 \u00b7 arm64",
+      "conclusion": "success",
+      "source_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/nightly/built-wheel-install-logs/job-115227168026.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115227168054,
+      "name": "Run common Release core / Validate Wheel Runtime \u00b7 cann910-a2 \u00b7 arm64",
+      "conclusion": "success",
+      "source_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/nightly/built-wheel-install-logs/job-115227168054.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115227168074,
+      "name": "Run common Release core / Validate Wheel Runtime \u00b7 cann901-a2 \u00b7 arm64",
+      "conclusion": "success",
+      "source_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/nightly/built-wheel-install-logs/job-115227168074.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115227168114,
+      "name": "Run common Release core / Validate Wheel Runtime \u00b7 cann910-a3 \u00b7 arm64",
+      "conclusion": "success",
+      "source_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/nightly/built-wheel-install-logs/job-115227168114.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115227168123,
+      "name": "Run common Release core / Validate Wheel Runtime \u00b7 cann901-a2 \u00b7 amd64",
+      "conclusion": "success",
+      "source_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/nightly/built-wheel-install-logs/job-115227168123.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115227168145,
+      "name": "Run common Release core / Validate Wheel Runtime \u00b7 cu130 \u00b7 amd64",
+      "conclusion": "success",
+      "source_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/nightly/built-wheel-install-logs/job-115227168145.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115227168171,
+      "name": "Run common Release core / Validate Wheel Runtime \u00b7 cann901-a3 \u00b7 arm64",
+      "conclusion": "success",
+      "source_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/nightly/built-wheel-install-logs/job-115227168171.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115227168215,
+      "name": "Run common Release core / Validate Wheel Runtime \u00b7 cu130 \u00b7 arm64",
+      "conclusion": "success",
+      "source_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/nightly/built-wheel-install-logs/job-115227168215.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115227168217,
+      "name": "Run common Release core / Validate Wheel Runtime \u00b7 cann910-a2 \u00b7 amd64",
+      "conclusion": "success",
+      "source_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/nightly/built-wheel-install-logs/job-115227168217.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115227168322,
+      "name": "Run common Release core / Validate Wheel Runtime \u00b7 cu129 \u00b7 amd64",
+      "conclusion": "success",
+      "source_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/nightly/built-wheel-install-logs/job-115227168322.log",
+      "fetch_exit_code": 0
+    },
+    {
+      "job_id": 115227168380,
+      "name": "Run common Release core / Validate Wheel Runtime \u00b7 cann910-a3 \u00b7 amd64",
+      "conclusion": "success",
+      "source_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+      "log": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/nightly/built-wheel-install-logs/job-115227168380.log",
+      "fetch_exit_code": 0
+    }
+  ]
+}

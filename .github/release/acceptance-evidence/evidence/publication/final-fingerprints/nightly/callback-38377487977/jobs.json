@@ -1,0 +1,155 @@
+[
+  {
+    "total_count": 1,
+    "jobs": [
+      {
+        "id": 115233405830,
+        "run_id": 38377487977,
+        "workflow_name": "UCM Nightly Retention",
+        "head_branch": "develop",
+        "run_url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/actions/runs/38377487977",
+        "run_attempt": 1,
+        "node_id": "CR_kwDORjIt2c8AAAAa1HI7hg",
+        "head_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+        "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/actions/jobs/115233405830",
+        "html_url": "https://github.com/SuperMarioYL/unified-cache-management/actions/runs/38377487977/job/115233405830",
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-10-13T09:46:17Z",
+        "started_at": "2026-10-13T09:46:19Z",
+        "completed_at": "2026-10-13T09:47:42Z",
+        "name": "Retain the newest configured Nightly versions",
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1,
+            "started_at": "2026-10-13T09:46:20Z",
+            "completed_at": "2026-10-13T09:46:21Z"
+          },
+          {
+            "name": "Run actions/checkout@v4.2.2",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2,
+            "started_at": "2026-10-13T09:46:21Z",
+            "completed_at": "2026-10-13T09:46:23Z"
+          },
+          {
+            "name": "Record the cleanup implementation",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3,
+            "started_at": "2026-10-13T09:46:23Z",
+            "completed_at": "2026-10-13T09:46:23Z"
+          },
+          {
+            "name": "Run actions/setup-python@v5.6.0",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4,
+            "started_at": "2026-10-13T09:46:23Z",
+            "completed_at": "2026-10-13T09:46:23Z"
+          },
+          {
+            "name": "Run python -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: -r .github/release/requirements.txt",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 5,
+            "started_at": "2026-10-13T09:46:23Z",
+            "completed_at": "2026-10-13T09:46:31Z"
+          },
+          {
+            "name": "Verify trusted completed publication and Nightly binding",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6,
+            "started_at": "2026-10-13T09:46:31Z",
+            "completed_at": "2026-10-13T09:46:31Z"
+          },
+          {
+            "name": "Install Crane",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 7,
+            "started_at": "2026-10-13T09:46:31Z",
+            "completed_at": "2026-10-13T09:46:31Z"
+          },
+          {
+            "name": "Validate Docker Hub credentials when configured",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 8,
+            "started_at": "2026-10-13T09:46:31Z",
+            "completed_at": "2026-10-13T09:46:32Z"
+          },
+          {
+            "name": "Authenticate to Docker Hub when configured",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 9,
+            "started_at": "2026-10-13T09:46:32Z",
+            "completed_at": "2026-10-13T09:46:32Z"
+          },
+          {
+            "name": "Select and clean over-quota Nightly versions",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 10,
+            "started_at": "2026-10-13T09:46:32Z",
+            "completed_at": "2026-10-13T09:47:38Z"
+          },
+          {
+            "name": "Publish the retention result even on failure",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 11,
+            "started_at": "2026-10-13T09:47:38Z",
+            "completed_at": "2026-10-13T09:47:38Z"
+          },
+          {
+            "name": "Run actions/upload-artifact@v4.6.2",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 12,
+            "started_at": "2026-10-13T09:47:38Z",
+            "completed_at": "2026-10-13T09:47:39Z"
+          },
+          {
+            "name": "Post Run actions/setup-python@v5.6.0",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 23,
+            "started_at": "2026-10-13T09:47:39Z",
+            "completed_at": "2026-10-13T09:47:39Z"
+          },
+          {
+            "name": "Post Run actions/checkout@v4.2.2",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 24,
+            "started_at": "2026-10-13T09:47:39Z",
+            "completed_at": "2026-10-13T09:47:39Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 25,
+            "started_at": "2026-10-13T09:47:39Z",
+            "completed_at": "2026-10-13T09:47:39Z"
+          }
+        ],
+        "check_run_url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/check-runs/115233405830",
+        "labels": [
+          "ubuntu-24.04"
+        ],
+        "runner_id": 1000026956,
+        "runner_name": "GitHub Actions 1000026956",
+        "runner_group_id": 0,
+        "runner_group_name": "GitHub Actions"
+      }
+    ]
+  }
+]

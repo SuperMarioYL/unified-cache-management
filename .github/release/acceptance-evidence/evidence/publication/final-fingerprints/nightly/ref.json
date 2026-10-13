@@ -1,0 +1,10 @@
+{
+  "ref": "refs/tags/nightly/v0.8.0-20261013-1",
+  "node_id": "REF_kwDORjIt2doAI3JlZnMvdGFncy9uaWdodGx5L3YwLjguMC0yMDI2MTAxMy0x",
+  "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/refs/tags/nightly/v0.8.0-20261013-1",
+  "object": {
+    "sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+    "type": "commit",
+    "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/commits/776110b2524bf43eb5e197dcdb96315f9c6c3d8c"
+  }
+}

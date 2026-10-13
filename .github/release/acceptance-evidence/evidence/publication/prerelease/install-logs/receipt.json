@@ -1,0 +1,99 @@
+{
+  "run_id": 38377675294,
+  "source_sha": "4858aef86456f712da6fd59ecb224235841ebdac",
+  "code_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+  "checks": [
+    {
+      "job_id": 115241561517,
+      "name": "Run Release core / Verify PyPI \u00b7 Toolkit and optional extra",
+      "status": "success",
+      "run_attempt": 1,
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/install-logs/115241561517.log"
+    },
+    {
+      "job_id": 115241561657,
+      "name": "Run Release core / Verify PyPI \u00b7 cann901-a3 \u00b7 amd64",
+      "status": "success",
+      "run_attempt": 1,
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/install-logs/115241561657.log"
+    },
+    {
+      "job_id": 115241561684,
+      "name": "Run Release core / Verify PyPI \u00b7 cann901-a2 \u00b7 amd64",
+      "status": "success",
+      "run_attempt": 1,
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/install-logs/115241561684.log"
+    },
+    {
+      "job_id": 115241561693,
+      "name": "Run Release core / Verify PyPI \u00b7 cann910-a3 \u00b7 arm64",
+      "status": "success",
+      "run_attempt": 1,
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/install-logs/115241561693.log"
+    },
+    {
+      "job_id": 115241561724,
+      "name": "Run Release core / Verify PyPI \u00b7 cann910-a3 \u00b7 amd64",
+      "status": "success",
+      "run_attempt": 1,
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/install-logs/115241561724.log"
+    },
+    {
+      "job_id": 115241561731,
+      "name": "Run Release core / Verify PyPI \u00b7 cu130 \u00b7 amd64",
+      "status": "success",
+      "run_attempt": 1,
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/install-logs/115241561731.log"
+    },
+    {
+      "job_id": 115241561733,
+      "name": "Run Release core / Verify PyPI \u00b7 cann901-a3 \u00b7 arm64",
+      "status": "success",
+      "run_attempt": 1,
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/install-logs/115241561733.log"
+    },
+    {
+      "job_id": 115241561741,
+      "name": "Run Release core / Verify PyPI \u00b7 cann910-a2 \u00b7 amd64",
+      "status": "success",
+      "run_attempt": 1,
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/install-logs/115241561741.log"
+    },
+    {
+      "job_id": 115241561746,
+      "name": "Run Release core / Verify PyPI \u00b7 cu129 \u00b7 arm64",
+      "status": "success",
+      "run_attempt": 1,
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/install-logs/115241561746.log"
+    },
+    {
+      "job_id": 115241561760,
+      "name": "Run Release core / Verify PyPI \u00b7 cann901-a2 \u00b7 arm64",
+      "status": "success",
+      "run_attempt": 1,
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/install-logs/115241561760.log"
+    },
+    {
+      "job_id": 115241561802,
+      "name": "Run Release core / Verify PyPI \u00b7 cu130 \u00b7 arm64",
+      "status": "success",
+      "run_attempt": 1,
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/install-logs/115241561802.log"
+    },
+    {
+      "job_id": 115241561831,
+      "name": "Run Release core / Verify PyPI \u00b7 cann910-a2 \u00b7 arm64",
+      "status": "success",
+      "run_attempt": 1,
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/install-logs/115241561831.log"
+    },
+    {
+      "job_id": 115241561922,
+      "name": "Run Release core / Verify PyPI \u00b7 cu129 \u00b7 amd64",
+      "status": "success",
+      "run_attempt": 1,
+      "log_file": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/prerelease/install-logs/115241561922.log"
+    }
+  ],
+  "evidence": "12 actual public-index extra installs in their matching Linux Runtime plus Toolkit standalone/extra checks; no GPU/NPU benchmark claim"
+}

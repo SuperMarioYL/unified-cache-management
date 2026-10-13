@@ -1,0 +1,51 @@
+{
+  "status": "verified",
+  "target": "testpypi",
+  "version": "0.8.2",
+  "run_id": 38383412316,
+  "projects": 8,
+  "files": 14,
+  "method": "Independent version JSON exact filename set and normalized SHA256 match against hosted pypi-receipt",
+  "checks": [
+    {
+      "project": "supermarioyl-uc-manager-cann901-a2",
+      "version": "0.8.2",
+      "files": 2
+    },
+    {
+      "project": "supermarioyl-uc-manager-cann901-a3",
+      "version": "0.8.2",
+      "files": 2
+    },
+    {
+      "project": "supermarioyl-uc-manager-cann910-a2",
+      "version": "0.8.2",
+      "files": 2
+    },
+    {
+      "project": "supermarioyl-uc-manager-cann910-a3",
+      "version": "0.8.2",
+      "files": 2
+    },
+    {
+      "project": "supermarioyl-uc-manager-cuda-cu129",
+      "version": "0.8.2",
+      "files": 2
+    },
+    {
+      "project": "supermarioyl-uc-manager-cuda-cu130",
+      "version": "0.8.2",
+      "files": 2
+    },
+    {
+      "project": "supermarioyl-ucm-toolkit",
+      "version": "0.8.2",
+      "files": 1
+    },
+    {
+      "project": "supermarioyl-uc-manager",
+      "version": "0.8.2",
+      "files": 1
+    }
+  ]
+}

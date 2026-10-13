@@ -1,0 +1,72 @@
+{
+  "profile": "stable",
+  "run_id": 38383412316,
+  "observed_at": "2026-10-13T12:53:09.767529+00:00",
+  "status": "verified",
+  "latest_expected_release_tag": "v0.8.2",
+  "original_closure_verification": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/attempt-2/independent-channel-readback.json",
+  "note": "latest is a moving publication alias; RC closure previously verified RC on latest, and after Stable closure latest correctly serves Stable. Versioned RC pages retain RC.",
+  "sites": [
+    {
+      "url": "https://supermarioyl-ucm.readthedocs.io/en/v0.8.2/release-manifest.json",
+      "language": "en",
+      "version": "v0.8.2",
+      "original_receipt_build_id": 35116897,
+      "original_receipt_site_commit": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+      "expected_current_release_tag": "v0.8.2",
+      "actual_release_tag": "v0.8.2",
+      "status": "verified",
+      "body_sha256": "d213f45364066c6ef8eba7b3eea7fecffc5e360b4ef835c6e69bb2dc650eb268",
+      "raw_body": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/attempt-2/independent-public-docs/en-v0.8.2.json",
+      "raw_headers": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/attempt-2/independent-public-docs/en-v0.8.2-headers.txt",
+      "observed_at": "2026-10-13T12:53:09.142155+00:00",
+      "sensitive_header_values_redacted": 1
+    },
+    {
+      "url": "https://supermarioyl-ucm.readthedocs.io/en/latest/release-manifest.json",
+      "language": "en",
+      "version": "latest",
+      "original_receipt_build_id": 35116898,
+      "original_receipt_site_commit": "f66366538b35faa51507452ae1ad676b10994a4d",
+      "expected_current_release_tag": "v0.8.2",
+      "actual_release_tag": "v0.8.2",
+      "status": "verified",
+      "body_sha256": "d213f45364066c6ef8eba7b3eea7fecffc5e360b4ef835c6e69bb2dc650eb268",
+      "raw_body": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/attempt-2/independent-public-docs/en-latest.json",
+      "raw_headers": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/attempt-2/independent-public-docs/en-latest-headers.txt",
+      "observed_at": "2026-10-13T12:53:08.976754+00:00",
+      "sensitive_header_values_redacted": 1
+    },
+    {
+      "url": "https://supermarioyl-ucm.readthedocs.io/zh-cn/v0.8.2/release-manifest.json",
+      "language": "zh-cn",
+      "version": "v0.8.2",
+      "original_receipt_build_id": 35116900,
+      "original_receipt_site_commit": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+      "expected_current_release_tag": "v0.8.2",
+      "actual_release_tag": "v0.8.2",
+      "status": "verified",
+      "body_sha256": "d213f45364066c6ef8eba7b3eea7fecffc5e360b4ef835c6e69bb2dc650eb268",
+      "raw_body": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/attempt-2/independent-public-docs/zh-cn-v0.8.2.json",
+      "raw_headers": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/attempt-2/independent-public-docs/zh-cn-v0.8.2-headers.txt",
+      "observed_at": "2026-10-13T12:53:08.865563+00:00",
+      "sensitive_header_values_redacted": 1
+    },
+    {
+      "url": "https://supermarioyl-ucm.readthedocs.io/zh-cn/latest/release-manifest.json",
+      "language": "zh-cn",
+      "version": "latest",
+      "original_receipt_build_id": 35116901,
+      "original_receipt_site_commit": "f66366538b35faa51507452ae1ad676b10994a4d",
+      "expected_current_release_tag": "v0.8.2",
+      "actual_release_tag": "v0.8.2",
+      "status": "verified",
+      "body_sha256": "d213f45364066c6ef8eba7b3eea7fecffc5e360b4ef835c6e69bb2dc650eb268",
+      "raw_body": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/attempt-2/independent-public-docs/zh-cn-latest.json",
+      "raw_headers": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/stable/attempt-2/independent-public-docs/zh-cn-latest-headers.txt",
+      "observed_at": "2026-10-13T12:53:09.767338+00:00",
+      "sensitive_header_values_redacted": 1
+    }
+  ],
+  "header_handling": "HTTP response headers retained with Set-Cookie/Authorization values redacted; JSON bodies and body SHA256 unchanged"
+}

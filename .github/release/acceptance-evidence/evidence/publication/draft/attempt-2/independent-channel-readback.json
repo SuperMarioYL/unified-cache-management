@@ -1,0 +1,46 @@
+{
+  "status": "verified",
+  "run_id": 38390192146,
+  "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+  "code_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+  "publisher_oci_refs": 84,
+  "hosted_helm_preferred_registry_refs": 0,
+  "independent_local_helm_preferred_registry_refs": 84,
+  "chart_verification_kind": "independent_local",
+  "chart_delivery_receipt": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/attempt-2/independent-chart/local-chart-delivery.json",
+  "independent_oci_sample_count": 6,
+  "independent_oci_samples": [
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2.dev1",
+      "digest": "sha256:7d5b78754130a71d48fe57dd3c48b9858387c5047fe86077d0fe13e30ee97567",
+      "status": "verified"
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:7af5fe86488a0eebc6d09fa12625ee866052862d40cecc19b43bd258bff11ab6",
+      "status": "verified"
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:35b6b8b4de294f951bb41c934a43314548229c883821e7c184046f5e694ca25e",
+      "status": "verified"
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2.dev1",
+      "digest": "sha256:1b84641623e9fd8e09e4be535500d24f7a30010e41a8c3f38489b58eb2faa02b",
+      "status": "verified"
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2.dev1-amd64",
+      "digest": "sha256:f3a4f3a2ea50274fc4481a750620b967461a2cfe94f6d76313dae38db1465fda",
+      "status": "verified"
+    },
+    {
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.8.2.dev1-arm64",
+      "digest": "sha256:19b06b83cb19a50d2b505359819d89550c5c5af3357a06c5541add80e7444c32",
+      "status": "verified"
+    }
+  ],
+  "independent_public_docs": [],
+  "chart_package_sha256": "a04752293b787830d6279a926f16a5d10aa84f9f5a27d5bae4e05d69e5fcf618"
+}

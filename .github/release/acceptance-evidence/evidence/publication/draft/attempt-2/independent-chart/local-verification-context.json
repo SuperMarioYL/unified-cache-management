@@ -1,0 +1,23 @@
+{
+  "profile": "draft",
+  "run_id": 38390192146,
+  "source_sha": "3d6a11b01167c40b28ee6a08c7d7454d23940674",
+  "code_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+  "method": "local deployed verify function on independently captured real Crane digest/manifest/config responses plus real Helm lint/template CLI executions; original hosted job skips Draft",
+  "helm_version": "v3.15.3+g3bb50bb",
+  "crane_version": "0.21.9",
+  "plan": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/attempt-2/artifacts/ucm-release-plan-run-38390192146/release-plan.json",
+  "completed_state": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/attempt-2/artifacts/ucm-release-final-run-38390192146/release-state.json",
+  "chart": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/attempt-2/independent-chart/github/unified-cache-chart-0.8.2-draft.1.tgz",
+  "status": "complete",
+  "capture_started_at": "2026-10-13T13:26:15.025121+00:00",
+  "completed_at": "2026-10-13T13:27:57.245174+00:00",
+  "registry_reference_count": 84,
+  "raw_registry_response_count": 224,
+  "raw_registry_responses": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/attempt-2/independent-chart/registry-responses",
+  "helm_command_count": 19,
+  "raw_helm_commands": "/Users/yulei/workspace/ucm-release-acceptance/20261013/publication/draft/attempt-2/independent-chart/helm-commands",
+  "prior_sequential_cli_read_timeout_seconds": 420,
+  "not_a_ci_rerun": true,
+  "helm_expected_negative_case_count": 7
+}

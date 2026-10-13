@@ -1,0 +1,27 @@
+[
+  {
+    "total_count": 1,
+    "artifacts": [
+      {
+        "id": 11802850602,
+        "node_id": "MDg6QXJ0aWZhY3QxMTgwMjg1MDYwMg==",
+        "name": "ucm-nightly-retention-run-38377487977-attempt-1",
+        "size_in_bytes": 1705,
+        "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/actions/artifacts/11802850602",
+        "archive_download_url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/actions/artifacts/11802850602/zip",
+        "expired": false,
+        "digest": "sha256:653d024987fa4441a7504047460adcb5c286f4baa5880eed49bd5ea2565abfb2",
+        "created_at": "2026-10-13T09:47:39Z",
+        "updated_at": "2026-10-13T09:47:39Z",
+        "expires_at": "2027-01-11T09:36:07Z",
+        "workflow_run": {
+          "id": 38377487977,
+          "repository_id": 1177693657,
+          "head_repository_id": 1177693657,
+          "head_branch": "develop",
+          "head_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c"
+        }
+      }
+    ]
+  }
+]

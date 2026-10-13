@@ -1,0 +1,68 @@
+{
+  "status": "blocked",
+  "repository": "SuperMarioYL/unified-cache-management",
+  "production_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+  "completed": [
+    "local checks and Fork production CI",
+    "normal four real release profiles and enabled channels",
+    "real CMake failure Draft/Nightly precise cleanup",
+    "active protection and cancelled callback",
+    "synthetic503 recovery and rediscovery",
+    "real GHCR400 partial and exclusive fixture final closure",
+    "Nightly max7 callback",
+    "Draft max7 retention and filler teardown"
+  ],
+  "historical_targets": [
+    {
+      "tag": "v0.7.0rc12",
+      "release_id": 387563734,
+      "source_run_id": 34693636766,
+      "status": "blocked",
+      "reason": "active ruleset20626631 forbids Tag deletion; four exact temporary exclusions awaiting explicit authorization",
+      "source_run_state": 404,
+      "tag_state": 200,
+      "release_state": 200
+    },
+    {
+      "tag": "v0.7.0rc10",
+      "release_id": 387548975,
+      "source_run_id": 34691047256,
+      "status": "blocked",
+      "reason": "active ruleset20626631 forbids Tag deletion; four exact temporary exclusions awaiting explicit authorization",
+      "source_run_state": 200,
+      "tag_state": 200,
+      "release_state": 200
+    },
+    {
+      "tag": "v0.7.0rc11",
+      "release_id": 387556353,
+      "source_run_id": 34692329616,
+      "status": "blocked",
+      "reason": "active ruleset20626631 forbids Tag deletion; four exact temporary exclusions awaiting explicit authorization",
+      "source_run_state": 200,
+      "tag_state": 200,
+      "release_state": 200
+    },
+    {
+      "tag": "v0.7.0rc14",
+      "release_id": 387579666,
+      "source_run_id": 34696454025,
+      "status": "blocked",
+      "reason": "active ruleset20626631 forbids Tag deletion; four exact temporary exclusions awaiting explicit authorization",
+      "source_run_state": 200,
+      "tag_state": 200,
+      "release_state": 200
+    }
+  ],
+  "scope_limits": [
+    "Draft quota victim never had a Release ID; actual failed Draft Release deletion independently proved by CMake case",
+    "normal publication spans P1/P2, exact source/code binding retained",
+    "Draft Chart extra architecture/render verification is local against actual Registry responses"
+  ],
+  "original_archive": {
+    "run_id": 38400311597,
+    "artifact_id": 11814193992,
+    "sha256": "d3ed439ced4b1f29b1651a356d10bdd4328ee6fd753ef16b8db2efc8dacfd5ff",
+    "readback": "archive-independent-readback.json"
+  }
+}
