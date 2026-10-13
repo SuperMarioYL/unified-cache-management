@@ -1,0 +1,44 @@
+{
+  "asset_count": 0,
+  "registry_presence": "not probed",
+  "release_id": 387556353,
+  "runs": [
+    {
+      "attempts": [
+        {
+          "attempt": 1,
+          "conclusion": "failure",
+          "job_count": 53,
+          "logs": {
+            "bytes": 1150508,
+            "path": "v0.7.0rc11/logs/34692329616-attempt-1.zip",
+            "sha256": "46b363fbaa84fc0028e4d97367a52b70821a477135ee3c6d86957435c0a574de"
+          }
+        }
+      ],
+      "errors": [],
+      "plans": [
+        {
+          "archive": {
+            "bytes": 12176,
+            "path": "v0.7.0rc11/plans/10298035368.zip",
+            "sha256": "9d4cee7e6720d5e68ebd27a9d54e573498945ba3f27a9ff8550b426a8ec9a914"
+          },
+          "artifact_id": 10298035368,
+          "expired": false,
+          "planned_targets": 169,
+          "reader": "accepted",
+          "resource_kinds": [
+            "chart-oci",
+            "dockerhub-index",
+            "dockerhub-member",
+            "ghcr-index",
+            "ghcr-member"
+          ]
+        }
+      ],
+      "run_id": 34692329616
+    }
+  ],
+  "tag": "v0.7.0rc11"
+}

@@ -1,0 +1,181 @@
+{
+  "cases": {
+    "ghcr-closure": {
+      "closure_run_id": 38377733886,
+      "production_sha": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+      "protected_count": 7,
+      "readback": {
+        "ghcr_version": {
+          "path": "/users/SuperMarioYL/packages/container/ucm-cleanup-fixture-20261013-run-38377562767/versions/1377964380",
+          "status": 404
+        },
+        "release": {
+          "path": "/repos/SuperMarioYL/unified-cache-management/releases/411511129",
+          "status": 404
+        },
+        "source_run": {
+          "path": "/repos/SuperMarioYL/unified-cache-management/actions/runs/38377562767",
+          "status": 404
+        },
+        "tag": {
+          "path": "/repos/SuperMarioYL/unified-cache-management/git/ref/tags/draft/v0.8.0-202610139001",
+          "status": 404
+        }
+      },
+      "source_conclusion": "failure",
+      "source_logs_bytes": 29112,
+      "source_run_id": 38377562767,
+      "status": "complete",
+      "tag": "draft/v0.8.0-202610139001",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/actions/runs/38377733886"
+    },
+    "manual-h2-closure": {
+      "closure_run_id": 38380027502,
+      "production_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+      "protected_count": 7,
+      "readback": {
+        "release": {
+          "path": "/repos/SuperMarioYL/unified-cache-management/releases/411526492",
+          "status": 404
+        },
+        "source_run": {
+          "path": "/repos/SuperMarioYL/unified-cache-management/actions/runs/38379813713",
+          "status": 404
+        },
+        "tag": {
+          "path": "/repos/SuperMarioYL/unified-cache-management/git/ref/tags/draft/v0.8.0-202610139003",
+          "status": 404
+        }
+      },
+      "source_conclusion": "failure",
+      "source_logs_bytes": 28217,
+      "source_run_id": 38379813713,
+      "status": "complete",
+      "tag": "draft/v0.8.0-202610139003",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/actions/runs/38380027502"
+    },
+    "victim-cancel": {
+      "callback_run_id": 38388657504,
+      "closure_run_id": 38387538941,
+      "kept_count": 7,
+      "max_count": 7,
+      "production_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+      "protected_count": 7,
+      "readback": {
+        "release": {
+          "path": "/repos/SuperMarioYL/unified-cache-management/releases/411579107",
+          "status": 404
+        },
+        "source_run": {
+          "path": "/repos/SuperMarioYL/unified-cache-management/actions/runs/38387232607",
+          "status": 404
+        },
+        "tag": {
+          "path": "/repos/SuperMarioYL/unified-cache-management/git/ref/tags/nightly/v0.8.0-20260916-38387232607",
+          "status": 404
+        }
+      },
+      "source_conclusion": "cancelled",
+      "source_logs_bytes": 29688,
+      "source_run_id": 38387232607,
+      "status": "complete",
+      "tag": "nightly/v0.8.0-20260916-38387232607",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/actions/runs/38387538941"
+    },
+    "victim-failure": {
+      "callback_run_id": 38386739285,
+      "closure_run_id": 38386522207,
+      "kept_count": 7,
+      "max_count": 7,
+      "production_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+      "protected_count": 7,
+      "readback": {
+        "release": {
+          "path": "/repos/SuperMarioYL/unified-cache-management/releases/411572025",
+          "status": 404
+        },
+        "source_run": {
+          "path": "/repos/SuperMarioYL/unified-cache-management/actions/runs/38386252866",
+          "status": 404
+        },
+        "tag": {
+          "path": "/repos/SuperMarioYL/unified-cache-management/git/ref/tags/nightly/v0.8.0-20260916-38386252866",
+          "status": 404
+        }
+      },
+      "source_conclusion": "failure",
+      "source_logs_bytes": 29576,
+      "source_run_id": 38386252866,
+      "status": "complete",
+      "tag": "nightly/v0.8.0-20260916-38386252866",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/actions/runs/38386522207"
+    },
+    "victim-success": {
+      "callback_run_id": 38385948328,
+      "closure_run_id": 38385844852,
+      "kept_count": 7,
+      "max_count": 7,
+      "production_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+      "protected_count": 7,
+      "readback": {
+        "release": {
+          "path": "/repos/SuperMarioYL/unified-cache-management/releases/411566462",
+          "status": 404
+        },
+        "source_run": {
+          "path": "/repos/SuperMarioYL/unified-cache-management/actions/runs/38385461160",
+          "status": 404
+        },
+        "tag": {
+          "path": "/repos/SuperMarioYL/unified-cache-management/git/ref/tags/nightly/v0.8.0-20260916-38385461160",
+          "status": 404
+        }
+      },
+      "source_conclusion": "success",
+      "source_logs_bytes": 29491,
+      "source_run_id": 38385461160,
+      "status": "complete",
+      "tag": "nightly/v0.8.0-20260916-38385461160",
+      "url": "https://github.com/SuperMarioYL/unified-cache-management/actions/runs/38385844852"
+    }
+  },
+  "filler_teardown_runs": [
+    38389653038,
+    38390180145,
+    38390597437
+  ],
+  "final_state": {
+    "current_nightly_count": 4,
+    "current_nightly_tags": [
+      "nightly/v0.8.0-20261013-2",
+      "nightly/v0.8.0-20261013-1",
+      "nightly/v0.8.0-20260918-2",
+      "nightly/v0.8.0-20260918-1"
+    ],
+    "production_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+    "protected9_unchanged": true,
+    "remaining_own_fixture_releases": []
+  },
+  "harness_failures": [
+    {
+      "head_sha": "48151729a32147384ea1721aaeda59b05efd80ac",
+      "issue": "403 while creating ref at older workflow commit; no tag/release/ledger created; replacement current H4 source passed",
+      "local_logs": "filler-h2-403/run.log",
+      "source_run_id": 38381692109
+    },
+    {
+      "artifact": "manual-h1-failed/",
+      "closure_run_id": 38378252580,
+      "issue": "H1 fixed source window expired before active probe; P correctly deleted terminal own fixture; H2 handshake fixed and passed"
+    }
+  ],
+  "orphan_archive_run": 38391060264,
+  "orphan_source_delete_status": 404,
+  "production_revisions": {
+    "P1": "776110b2524bf43eb5e197dcdb96315f9c6c3d8c",
+    "P2": "f66366538b35faa51507452ae1ad676b10994a4d"
+  },
+  "remaining_owned_fixtures": [],
+  "repository": "SuperMarioYL/unified-cache-management",
+  "status": "complete"
+}

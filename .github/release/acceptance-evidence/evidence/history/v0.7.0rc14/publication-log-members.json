@@ -1,0 +1,8 @@
+[
+  "3_Run Release core _ Release \u00b7 Finalize all channels.txt",
+  "Run Release core _ Release \u00b7 Finalize all channels/system.txt",
+  "76_Run Release core _ Publish \u00b7 Chart OCI.txt",
+  "Run Release core _ Publish \u00b7 Chart OCI/system.txt",
+  "77_Run Release core _ Release \u00b7 Publish backend Wheels, Chart, and Config.txt",
+  "Run Release core _ Release \u00b7 Publish backend Wheels, Chart, and Config/system.txt"
+]

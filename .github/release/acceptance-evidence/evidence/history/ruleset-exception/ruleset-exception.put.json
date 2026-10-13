@@ -1,0 +1,30 @@
+{
+  "name": "Protect v* release tags",
+  "target": "tag",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": {
+      "exclude": [
+        "refs/tags/v0.7.0rc10",
+        "refs/tags/v0.7.0rc11",
+        "refs/tags/v0.7.0rc12",
+        "refs/tags/v0.7.0rc14"
+      ],
+      "include": [
+        "refs/tags/v*"
+      ]
+    }
+  },
+  "rules": [
+    {
+      "type": "deletion"
+    },
+    {
+      "type": "update",
+      "parameters": {
+        "update_allows_fetch_and_merge": false
+      }
+    }
+  ]
+}

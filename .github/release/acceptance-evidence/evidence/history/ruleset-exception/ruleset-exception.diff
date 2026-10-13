@@ -1,0 +1,16 @@
+--- ruleset-restore.put.json
++++ ruleset-exception.put.json
+@@ -5,7 +5,12 @@
+   "bypass_actors": [],
+   "conditions": {
+     "ref_name": {
+-      "exclude": [],
++      "exclude": [
++        "refs/tags/v0.7.0rc10",
++        "refs/tags/v0.7.0rc11",
++        "refs/tags/v0.7.0rc12",
++        "refs/tags/v0.7.0rc14"
++      ],
+       "include": [
+         "refs/tags/v*"
+       ]

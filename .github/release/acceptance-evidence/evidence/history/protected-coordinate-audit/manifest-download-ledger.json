@@ -1,0 +1,133 @@
+[
+  {
+    "tag": "nightly/v0.8.0-20260918-1",
+    "release_id": 391366814,
+    "manifest_asset_id": 572362529,
+    "path": "/Users/yulei/workspace/ucm-release-acceptance/20261013/history/protected-coordinate-audit/nightly--v0.8.0-20260918-1/release-manifest.json",
+    "sha256": "sha256:c565b2ecf70590f2d2a312635ee764617b24b2de4805455e41ee9f06b3af45b7",
+    "size": 13884,
+    "schema_version": 9,
+    "keys": [
+      "chart",
+      "github_release_assets",
+      "images",
+      "kind",
+      "python",
+      "release",
+      "schema_version",
+      "toolkit",
+      "wheels"
+    ],
+    "digest_verified_against_frozen_baseline": true
+  },
+  {
+    "tag": "nightly/v0.8.0-20260918-2",
+    "release_id": 391382617,
+    "manifest_asset_id": 572401873,
+    "path": "/Users/yulei/workspace/ucm-release-acceptance/20261013/history/protected-coordinate-audit/nightly--v0.8.0-20260918-2/release-manifest.json",
+    "sha256": "sha256:3e4b82f5f1be6a18e288a2b14cf8773940a41bf8643b8f52db3100f36ce3f46d",
+    "size": 13828,
+    "schema_version": 9,
+    "keys": [
+      "chart",
+      "github_release_assets",
+      "images",
+      "kind",
+      "python",
+      "release",
+      "schema_version",
+      "toolkit",
+      "wheels"
+    ],
+    "digest_verified_against_frozen_baseline": true
+  },
+  {
+    "tag": "v0.7.0rc13",
+    "release_id": 387573061,
+    "evidence": "GitHub fingerprint only",
+    "manifest_absent": true
+  },
+  {
+    "tag": "v0.7.0rc15",
+    "release_id": 387595446,
+    "manifest_asset_id": 559502060,
+    "path": "/Users/yulei/workspace/ucm-release-acceptance/20261013/history/protected-coordinate-audit/v0.7.0rc15/release-manifest.json",
+    "sha256": "sha256:ccb3de0b391235694b66f215d23153707ebbc083e1cee1e6c61334aa63d8b542",
+    "size": 56486,
+    "schema_version": 9,
+    "keys": [
+      "chart",
+      "github_release_assets",
+      "images",
+      "kind",
+      "python",
+      "release",
+      "schema_version",
+      "toolkit",
+      "wheels"
+    ],
+    "digest_verified_against_frozen_baseline": true
+  },
+  {
+    "tag": "v0.7.0rc16",
+    "release_id": 387633035,
+    "manifest_asset_id": 559680236,
+    "path": "/Users/yulei/workspace/ucm-release-acceptance/20261013/history/protected-coordinate-audit/v0.7.0rc16/release-manifest.json",
+    "sha256": "sha256:bfe01ed7c70ccab643bfd0f7a736c08def19c11114a63f87dd717842d66003cf",
+    "size": 56486,
+    "schema_version": 9,
+    "keys": [
+      "chart",
+      "github_release_assets",
+      "images",
+      "kind",
+      "python",
+      "release",
+      "schema_version",
+      "toolkit",
+      "wheels"
+    ],
+    "digest_verified_against_frozen_baseline": true
+  },
+  {
+    "tag": "v0.7.0rc17",
+    "release_id": 388853306,
+    "manifest_asset_id": 564922859,
+    "path": "/Users/yulei/workspace/ucm-release-acceptance/20261013/history/protected-coordinate-audit/v0.7.0rc17/release-manifest.json",
+    "sha256": "sha256:f068329f406f941c1c53f8b8b04845cb24d7e638ce5daa61af289cb094d18d78",
+    "size": 17539,
+    "schema_version": 6,
+    "keys": [
+      "actions_run_id",
+      "chart_oci",
+      "github_release_assets",
+      "kind",
+      "release_type",
+      "runtime_images",
+      "schema_version",
+      "tag"
+    ],
+    "digest_verified_against_frozen_baseline": true
+  },
+  {
+    "tag": "v0.8.0rc2",
+    "release_id": 391393808,
+    "manifest_asset_id": 572529466,
+    "path": "/Users/yulei/workspace/ucm-release-acceptance/20261013/history/protected-coordinate-audit/v0.8.0rc2/release-manifest.json",
+    "sha256": "sha256:210e74e7fc237af7313487e0a18e5e7c7d3b138d91bfd3ac88632d0351982db3",
+    "size": 56242,
+    "schema_version": 9,
+    "keys": [
+      "chart",
+      "github_release_assets",
+      "images",
+      "kind",
+      "python",
+      "release",
+      "schema_version",
+      "toolkit",
+      "wheels"
+    ],
+    "digest_verified_against_frozen_baseline": true
+  }
+]

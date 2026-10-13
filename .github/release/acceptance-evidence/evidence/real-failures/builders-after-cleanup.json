@@ -1,0 +1,78 @@
+{
+  "source_plan_run_id": 38375710915,
+  "status": "complete",
+  "resources": [
+    {
+      "repository": "ghcr.io/supermarioyl/ucm-builder-vllm",
+      "expected_digest": "sha256:3a8765c6ad2679fd30416e258920b34636d8ac032c50b423c4d18d3f8fb99dfb",
+      "status": 200,
+      "observed_digest": "sha256:3a8765c6ad2679fd30416e258920b34636d8ac032c50b423c4d18d3f8fb99dfb"
+    },
+    {
+      "repository": "ghcr.io/supermarioyl/ucm-builder-vllm",
+      "expected_digest": "sha256:65d5783ec0b6aa1d6c1f178c2c5f44db23f1b0413e97fffbc3d422cae47dd628",
+      "status": 200,
+      "observed_digest": "sha256:65d5783ec0b6aa1d6c1f178c2c5f44db23f1b0413e97fffbc3d422cae47dd628"
+    },
+    {
+      "repository": "ghcr.io/supermarioyl/ucm-builder-vllm",
+      "expected_digest": "sha256:87b6c8d9b4f352b53e3c076ef3e3c231c495d10243c4d25e2c59e40a54c57bc9",
+      "status": 200,
+      "observed_digest": "sha256:87b6c8d9b4f352b53e3c076ef3e3c231c495d10243c4d25e2c59e40a54c57bc9"
+    },
+    {
+      "repository": "ghcr.io/supermarioyl/ucm-builder-vllm",
+      "expected_digest": "sha256:a860edab24433231544058fd20694a7a478ad0691e97271852b8932db428a5bf",
+      "status": 200,
+      "observed_digest": "sha256:a860edab24433231544058fd20694a7a478ad0691e97271852b8932db428a5bf"
+    },
+    {
+      "repository": "ghcr.io/supermarioyl/ucm-builder-vllm-ascend",
+      "expected_digest": "sha256:0adb8cd3cf4fab548f6c613aeeed1df5c48b314f938fed52b84e3d2b9d816bca",
+      "status": 200,
+      "observed_digest": "sha256:0adb8cd3cf4fab548f6c613aeeed1df5c48b314f938fed52b84e3d2b9d816bca"
+    },
+    {
+      "repository": "ghcr.io/supermarioyl/ucm-builder-vllm-ascend",
+      "expected_digest": "sha256:25b81b82db3a100937bad788b6158288c292107202a43cc3223f6ec3c9f5e2d6",
+      "status": 200,
+      "observed_digest": "sha256:25b81b82db3a100937bad788b6158288c292107202a43cc3223f6ec3c9f5e2d6"
+    },
+    {
+      "repository": "ghcr.io/supermarioyl/ucm-builder-vllm-ascend",
+      "expected_digest": "sha256:3379f99e4a0db536bfe455118fb19c4c3c738b48f9a08bd6c9fb9762947cc6c6",
+      "status": 200,
+      "observed_digest": "sha256:3379f99e4a0db536bfe455118fb19c4c3c738b48f9a08bd6c9fb9762947cc6c6"
+    },
+    {
+      "repository": "ghcr.io/supermarioyl/ucm-builder-vllm-ascend",
+      "expected_digest": "sha256:47089966db9830de9d0e4241abf6031b7cd2f4b7beaf540c6b42291f0bc748d3",
+      "status": 200,
+      "observed_digest": "sha256:47089966db9830de9d0e4241abf6031b7cd2f4b7beaf540c6b42291f0bc748d3"
+    },
+    {
+      "repository": "ghcr.io/supermarioyl/ucm-builder-vllm-ascend",
+      "expected_digest": "sha256:48f65767993a8fcd52fded65de9d2bff3412d17c76e0cae8f765d4ea464dd006",
+      "status": 200,
+      "observed_digest": "sha256:48f65767993a8fcd52fded65de9d2bff3412d17c76e0cae8f765d4ea464dd006"
+    },
+    {
+      "repository": "ghcr.io/supermarioyl/ucm-builder-vllm-ascend",
+      "expected_digest": "sha256:68239640be327216ebf41732b99fbe4b2b4d56487926052108bfc2b169248f69",
+      "status": 200,
+      "observed_digest": "sha256:68239640be327216ebf41732b99fbe4b2b4d56487926052108bfc2b169248f69"
+    },
+    {
+      "repository": "ghcr.io/supermarioyl/ucm-builder-vllm-ascend",
+      "expected_digest": "sha256:a0d3c63132b219f8129568b4100ab8b4afe85efb06b68eef3ad3ad775e781f20",
+      "status": 200,
+      "observed_digest": "sha256:a0d3c63132b219f8129568b4100ab8b4afe85efb06b68eef3ad3ad775e781f20"
+    },
+    {
+      "repository": "ghcr.io/supermarioyl/ucm-builder-vllm-ascend",
+      "expected_digest": "sha256:edfd8e008f899343b6135c76bc63b2e39995083600e5fe3824c642d4dd51a94b",
+      "status": 200,
+      "observed_digest": "sha256:edfd8e008f899343b6135c76bc63b2e39995083600e5fe3824c642d4dd51a94b"
+    }
+  ]
+}

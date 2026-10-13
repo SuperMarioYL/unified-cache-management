@@ -1,0 +1,157 @@
+{
+  "assets": [
+    {
+      "actual_size": 997174,
+      "expected_digest": "sha256:e9cfa96d622c4e24a8a3bc2e16dcb3f6bc4a1f8395c96f51aae394f36d27b965",
+      "expected_size": 997174,
+      "id": 559338513,
+      "name": "supermarioyl_ucm_toolkit-0.7.0rc14-py3-none-any.whl",
+      "path": "v0.7.0rc14/assets/supermarioyl_ucm_toolkit-0.7.0rc14-py3-none-any.whl",
+      "sha256": "e9cfa96d622c4e24a8a3bc2e16dcb3f6bc4a1f8395c96f51aae394f36d27b965",
+      "status": "verified"
+    },
+    {
+      "actual_size": 5089599,
+      "expected_digest": "sha256:4b93da0d4d4a0b78acce464f38f266ec17896095d68dcbd4aa7e5c19540874aa",
+      "expected_size": 5089599,
+      "id": 559338485,
+      "name": "supermarioyl_uc_manager_cann901_a2-0.7.0rc14-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cann901_a2-0.7.0rc14-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "sha256": "4b93da0d4d4a0b78acce464f38f266ec17896095d68dcbd4aa7e5c19540874aa",
+      "status": "verified"
+    },
+    {
+      "actual_size": 5466166,
+      "expected_digest": "sha256:ca65ac2c44f546779755496cb9fd445eff6f2f30b3060d9e60cbef1d2ab533cf",
+      "expected_size": 5466166,
+      "id": 559338484,
+      "name": "supermarioyl_uc_manager_cann901_a2-0.7.0rc14-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cann901_a2-0.7.0rc14-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "sha256": "ca65ac2c44f546779755496cb9fd445eff6f2f30b3060d9e60cbef1d2ab533cf",
+      "status": "verified"
+    },
+    {
+      "actual_size": 5051959,
+      "expected_digest": "sha256:3fed0f4aa1d1f48efeb0f7d0adbc4e1359daac5b8917caeb7b1e2bd7f3716325",
+      "expected_size": 5051959,
+      "id": 559338482,
+      "name": "supermarioyl_uc_manager_cann901_a3-0.7.0rc14-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cann901_a3-0.7.0rc14-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "sha256": "3fed0f4aa1d1f48efeb0f7d0adbc4e1359daac5b8917caeb7b1e2bd7f3716325",
+      "status": "verified"
+    },
+    {
+      "actual_size": 5407672,
+      "expected_digest": "sha256:37f4f5087b0b679112ad066c26d412106b448a5b3eacac071ea9d8198dc1c016",
+      "expected_size": 5407672,
+      "id": 559338483,
+      "name": "supermarioyl_uc_manager_cann901_a3-0.7.0rc14-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cann901_a3-0.7.0rc14-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "sha256": "37f4f5087b0b679112ad066c26d412106b448a5b3eacac071ea9d8198dc1c016",
+      "status": "verified"
+    },
+    {
+      "actual_size": 5089820,
+      "expected_digest": "sha256:b1c82d5c70497a5bcd23f96b8c083c5de9553e515363f9f06c4d5ab4c6adc286",
+      "expected_size": 5089820,
+      "id": 559338498,
+      "name": "supermarioyl_uc_manager_cann910_a2-0.7.0rc14-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cann910_a2-0.7.0rc14-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "sha256": "b1c82d5c70497a5bcd23f96b8c083c5de9553e515363f9f06c4d5ab4c6adc286",
+      "status": "verified"
+    },
+    {
+      "actual_size": 5466179,
+      "expected_digest": "sha256:667909260d51a11eec11fb7dcdaca6e9ca25727b982c7ae25d406f96a8403903",
+      "expected_size": 5466179,
+      "id": 559338488,
+      "name": "supermarioyl_uc_manager_cann910_a2-0.7.0rc14-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cann910_a2-0.7.0rc14-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "sha256": "667909260d51a11eec11fb7dcdaca6e9ca25727b982c7ae25d406f96a8403903",
+      "status": "verified"
+    },
+    {
+      "actual_size": 5052166,
+      "expected_digest": "sha256:c41cfd7320d8cbbf34cc2dea1e8f7ec8df3b9b925537c6784595ff0a0299aee3",
+      "expected_size": 5052166,
+      "id": 559338502,
+      "name": "supermarioyl_uc_manager_cann910_a3-0.7.0rc14-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cann910_a3-0.7.0rc14-cp312-cp312-manylinux_2_34_aarch64.whl",
+      "sha256": "c41cfd7320d8cbbf34cc2dea1e8f7ec8df3b9b925537c6784595ff0a0299aee3",
+      "status": "verified"
+    },
+    {
+      "actual_size": 5407681,
+      "expected_digest": "sha256:f11acdfd5df617a59966c5761cf7585087f0dbf4b0d67cea0839fd04781bbb3d",
+      "expected_size": 5407681,
+      "id": 559338500,
+      "name": "supermarioyl_uc_manager_cann910_a3-0.7.0rc14-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cann910_a3-0.7.0rc14-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "sha256": "f11acdfd5df617a59966c5761cf7585087f0dbf4b0d67cea0839fd04781bbb3d",
+      "status": "verified"
+    },
+    {
+      "actual_size": 4232571,
+      "expected_digest": "sha256:912d4ab38049c560f3340500d9bce970ddc76ba70c8f18652d64cd76a1d7576e",
+      "expected_size": 4232571,
+      "id": 559338506,
+      "name": "supermarioyl_uc_manager_cuda_cu129-0.7.0rc14-cp312-cp312-manylinux_2_28_aarch64.whl",
+      "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cuda_cu129-0.7.0rc14-cp312-cp312-manylinux_2_28_aarch64.whl",
+      "sha256": "912d4ab38049c560f3340500d9bce970ddc76ba70c8f18652d64cd76a1d7576e",
+      "status": "verified"
+    },
+    {
+      "actual_size": 4474676,
+      "expected_digest": "sha256:7fb84ffe17b99f8815f8d6e206267b507dfc0fdf725385754d90c9ed29508230",
+      "expected_size": 4474676,
+      "id": 559338503,
+      "name": "supermarioyl_uc_manager_cuda_cu129-0.7.0rc14-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cuda_cu129-0.7.0rc14-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "sha256": "7fb84ffe17b99f8815f8d6e206267b507dfc0fdf725385754d90c9ed29508230",
+      "status": "verified"
+    },
+    {
+      "actual_size": 4240370,
+      "expected_digest": "sha256:85480210732875cba7ec0ea38b250b0c2bfbf52b26763fa41a5b9e1610c281c8",
+      "expected_size": 4240370,
+      "id": 559338512,
+      "name": "supermarioyl_uc_manager_cuda_cu130-0.7.0rc14-cp312-cp312-manylinux_2_28_aarch64.whl",
+      "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cuda_cu130-0.7.0rc14-cp312-cp312-manylinux_2_28_aarch64.whl",
+      "sha256": "85480210732875cba7ec0ea38b250b0c2bfbf52b26763fa41a5b9e1610c281c8",
+      "status": "verified"
+    },
+    {
+      "actual_size": 4481888,
+      "expected_digest": "sha256:5fec21386e6462e3b056fda333e22c50dc2202ea3e0d20292f34ce68203a7c2c",
+      "expected_size": 4481888,
+      "id": 559338508,
+      "name": "supermarioyl_uc_manager_cuda_cu130-0.7.0rc14-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cuda_cu130-0.7.0rc14-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "sha256": "5fec21386e6462e3b056fda333e22c50dc2202ea3e0d20292f34ce68203a7c2c",
+      "status": "verified"
+    },
+    {
+      "actual_size": 795,
+      "expected_digest": "sha256:e93e272b49efcfdd2e9160899e95a360b7bd50b336a02a6b04b1768e2ca4d7df",
+      "expected_size": 795,
+      "id": 559338515,
+      "name": "ucm_config_example.yaml",
+      "path": "v0.7.0rc14/assets/ucm_config_example.yaml",
+      "sha256": "e93e272b49efcfdd2e9160899e95a360b7bd50b336a02a6b04b1768e2ca4d7df",
+      "status": "verified"
+    },
+    {
+      "actual_size": 61220,
+      "expected_digest": "sha256:8c636704b9bbc96654d37d866cecf1286a20690df575a296a0a1e20a8379db80",
+      "expected_size": 61220,
+      "id": 559338514,
+      "name": "unified-cache-chart-0.7.0-rc.14.tgz",
+      "path": "v0.7.0rc14/assets/unified-cache-chart-0.7.0-rc.14.tgz",
+      "sha256": "8c636704b9bbc96654d37d866cecf1286a20690df575a296a0a1e20a8379db80",
+      "status": "verified"
+    }
+  ],
+  "backup_complete": true,
+  "ready_for_deletion": true,
+  "scope": "Backup validation only; deployed P and deletion authorization are separate requirements"
+}

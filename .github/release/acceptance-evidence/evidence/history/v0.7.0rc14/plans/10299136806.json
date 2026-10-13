@@ -1,0 +1,4196 @@
+{
+  "chart": {
+    "app_version": "0.7.0rc14",
+    "name": "unified-cache-chart",
+    "smoke_values": {
+      "vllm": "charts/unified-cache-chart/models/cuda/values-qwen3-0p6b-1e1.yaml",
+      "vllm-ascend": "charts/unified-cache-chart/models/ascend/values-qwen3-0p6b-1e1.yaml"
+    },
+    "source": "charts/unified-cache-chart",
+    "version": "0.7.0-rc.14"
+  },
+  "families": [
+    {
+      "create_index": true,
+      "id": "vllm-ascend-nightly-releases-v0.24.0rc",
+      "image_ids": [
+        "vllm-ascend-nightly-releases-v0.24.0rc-amd64",
+        "vllm-ascend-nightly-releases-v0.24.0rc-arm64"
+      ],
+      "label": "vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A2 \u00b7 linux unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-ascend-nightly-releases-v0.24.0rc-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-ascend-nightly-releases-v0.24.0rc-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm-ascend",
+      "published_reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:775444958b15b84bfb2eeca6b3fd2b94871f08b54b08c331ef771589b54593ed",
+        "glibc_version": null,
+        "os_id": "linux",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "nightly-releases-v0.24.0rc",
+        "version": "0.24.0rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.24.0rc-ucm-0.7.0rc14",
+      "variant": "a2"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-ascend-nightly-releases-v0.24.0rc-a3",
+      "image_ids": [
+        "vllm-ascend-nightly-releases-v0.24.0rc-a3-amd64",
+        "vllm-ascend-nightly-releases-v0.24.0rc-a3-arm64"
+      ],
+      "label": "vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A3 \u00b7 linux unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-ascend-nightly-releases-v0.24.0rc-a3-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-ascend-nightly-releases-v0.24.0rc-a3-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm-ascend",
+      "published_reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:1c36469fe1cd2335850eb2318bd3562471c34d5fd8f9f2affb0afc745ce39585",
+        "glibc_version": null,
+        "os_id": "linux",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "nightly-releases-v0.24.0rc-a3",
+        "version": "0.24.0rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.7.0rc14",
+      "variant": "a3"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-ascend-nightly-releases-v0.24.0rc-a3-openeuler",
+      "image_ids": [
+        "vllm-ascend-nightly-releases-v0.24.0rc-a3-openeuler-amd64",
+        "vllm-ascend-nightly-releases-v0.24.0rc-a3-openeuler-arm64"
+      ],
+      "label": "vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A3 \u00b7 openeuler unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-ascend-nightly-releases-v0.24.0rc-a3-openeuler-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-ascend-nightly-releases-v0.24.0rc-a3-openeuler-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm-ascend",
+      "published_reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:1422e32e4326e3428b9ceb936f212aa1a23b8a8789b08d5cffc3cce4f6c12c1d",
+        "glibc_version": null,
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "nightly-releases-v0.24.0rc-a3-openeuler",
+        "version": "0.24.0rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc14",
+      "variant": "a3"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-ascend-nightly-releases-v0.24.0rc-openeuler",
+      "image_ids": [
+        "vllm-ascend-nightly-releases-v0.24.0rc-openeuler-amd64",
+        "vllm-ascend-nightly-releases-v0.24.0rc-openeuler-arm64"
+      ],
+      "label": "vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A2 \u00b7 openeuler unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-ascend-nightly-releases-v0.24.0rc-openeuler-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-ascend-nightly-releases-v0.24.0rc-openeuler-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm-ascend",
+      "published_reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:d026bafa20b5378989e9d3cf605d6017f98c519226e12a513967f3b55ea24215",
+        "glibc_version": null,
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "nightly-releases-v0.24.0rc-openeuler",
+        "version": "0.24.0rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.7.0rc14",
+      "variant": "a2"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-ascend-nightly-releases-v0.25.1rc",
+      "image_ids": [
+        "vllm-ascend-nightly-releases-v0.25.1rc-amd64",
+        "vllm-ascend-nightly-releases-v0.25.1rc-arm64"
+      ],
+      "label": "vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A2 \u00b7 linux unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-ascend-nightly-releases-v0.25.1rc-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-ascend-nightly-releases-v0.25.1rc-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm-ascend",
+      "published_reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:f2906b9810d28df0a8969b7bd655e128fbb249dcba4b3b27bb1ed89d1f4f93f9",
+        "glibc_version": null,
+        "os_id": "linux",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "nightly-releases-v0.25.1rc",
+        "version": "0.25.1rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.25.1rc-ucm-0.7.0rc14",
+      "variant": "a2"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-ascend-nightly-releases-v0.25.1rc-a3",
+      "image_ids": [
+        "vllm-ascend-nightly-releases-v0.25.1rc-a3-amd64",
+        "vllm-ascend-nightly-releases-v0.25.1rc-a3-arm64"
+      ],
+      "label": "vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A3 \u00b7 linux unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-ascend-nightly-releases-v0.25.1rc-a3-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-ascend-nightly-releases-v0.25.1rc-a3-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm-ascend",
+      "published_reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:0521c1757e8044de0b5738b7a906a2e7922d8050b18af6cabbfa1057917851b5",
+        "glibc_version": null,
+        "os_id": "linux",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "nightly-releases-v0.25.1rc-a3",
+        "version": "0.25.1rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.7.0rc14",
+      "variant": "a3"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-ascend-nightly-releases-v0.25.1rc-a3-openeuler",
+      "image_ids": [
+        "vllm-ascend-nightly-releases-v0.25.1rc-a3-openeuler-amd64",
+        "vllm-ascend-nightly-releases-v0.25.1rc-a3-openeuler-arm64"
+      ],
+      "label": "vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A3 \u00b7 openeuler unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-ascend-nightly-releases-v0.25.1rc-a3-openeuler-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-ascend-nightly-releases-v0.25.1rc-a3-openeuler-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm-ascend",
+      "published_reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:347e65140b1e35394464bea90928529b0d9b31b63c05c2e69ab2429cfb0ece22",
+        "glibc_version": null,
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "nightly-releases-v0.25.1rc-a3-openeuler",
+        "version": "0.25.1rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.7.0rc14",
+      "variant": "a3"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-ascend-nightly-releases-v0.25.1rc-openeuler",
+      "image_ids": [
+        "vllm-ascend-nightly-releases-v0.25.1rc-openeuler-amd64",
+        "vllm-ascend-nightly-releases-v0.25.1rc-openeuler-arm64"
+      ],
+      "label": "vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A2 \u00b7 openeuler unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-ascend-nightly-releases-v0.25.1rc-openeuler-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-ascend-nightly-releases-v0.25.1rc-openeuler-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm-ascend",
+      "published_reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:846a1d3eb2c060a989bda14a9e49c97163c61a8522aab54f9be96be135cda196",
+        "glibc_version": null,
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "nightly-releases-v0.25.1rc-openeuler",
+        "version": "0.25.1rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.7.0rc14",
+      "variant": "a2"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-ascend-v0.23.0",
+      "image_ids": [
+        "vllm-ascend-v0.23.0-amd64",
+        "vllm-ascend-v0.23.0-arm64"
+      ],
+      "label": "vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A2 \u00b7 linux unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-ascend-v0.23.0-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-ascend-v0.23.0-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm-ascend",
+      "published_reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "stable",
+        "digest": "sha256:471744200c5d0c768c1f6c6a6816dcae0fd551de2487d4d129b6fb750024ce6a",
+        "glibc_version": null,
+        "os_id": "linux",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "v0.23.0",
+        "version": "0.23.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.23.0-ucm-0.7.0rc14",
+      "variant": "a2"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-ascend-v0.23.0-a3",
+      "image_ids": [
+        "vllm-ascend-v0.23.0-a3-amd64",
+        "vllm-ascend-v0.23.0-a3-arm64"
+      ],
+      "label": "vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A3 \u00b7 linux unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-ascend-v0.23.0-a3-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-ascend-v0.23.0-a3-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm-ascend",
+      "published_reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "stable",
+        "digest": "sha256:8e931f2a1908f4213ec31a349d5263a19c480e2e1e2dda801fdc35dd6ab279a5",
+        "glibc_version": null,
+        "os_id": "linux",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "v0.23.0-a3",
+        "version": "0.23.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.23.0-a3-ucm-0.7.0rc14",
+      "variant": "a3"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-ascend-v0.23.0-a3-openeuler",
+      "image_ids": [
+        "vllm-ascend-v0.23.0-a3-openeuler-amd64",
+        "vllm-ascend-v0.23.0-a3-openeuler-arm64"
+      ],
+      "label": "vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A3 \u00b7 openeuler unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-ascend-v0.23.0-a3-openeuler-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-openeuler-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-ascend-v0.23.0-a3-openeuler-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-openeuler-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm-ascend",
+      "published_reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-a3-openeuler-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "stable",
+        "digest": "sha256:382b012420854ba2d8b3b78897d9216742f27948345e503a01644ebbdd706ce6",
+        "glibc_version": null,
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "v0.23.0-a3-openeuler",
+        "version": "0.23.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.23.0-a3-openeuler-ucm-0.7.0rc14",
+      "variant": "a3"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-ascend-v0.23.0-openeuler",
+      "image_ids": [
+        "vllm-ascend-v0.23.0-openeuler-amd64",
+        "vllm-ascend-v0.23.0-openeuler-arm64"
+      ],
+      "label": "vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A2 \u00b7 openeuler unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-ascend-v0.23.0-openeuler-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-openeuler-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-ascend-v0.23.0-openeuler-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-openeuler-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm-ascend",
+      "published_reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.23.0-openeuler-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "stable",
+        "digest": "sha256:b2d13e24b295171d8f63678506fad5542f142e81d57e407a0b8c98c16ba0c4f7",
+        "glibc_version": null,
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "v0.23.0-openeuler",
+        "version": "0.23.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.23.0-openeuler-ucm-0.7.0rc14",
+      "variant": "a2"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-ascend-v0.26.0rc1",
+      "image_ids": [
+        "vllm-ascend-v0.26.0rc1-amd64",
+        "vllm-ascend-v0.26.0rc1-arm64"
+      ],
+      "label": "vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A2 \u00b7 linux unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-ascend-v0.26.0rc1-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-ascend-v0.26.0rc1-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm-ascend",
+      "published_reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "rc",
+        "digest": "sha256:243bf20fad2f4f6de56aa1b041bcdfdbe5bb9d485f3190f40f1c5d0f418fc469",
+        "glibc_version": null,
+        "os_id": "linux",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "v0.26.0rc1",
+        "version": "0.26.0rc1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.26.0rc1-ucm-0.7.0rc14",
+      "variant": "a2"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-ascend-v0.26.0rc1-a3",
+      "image_ids": [
+        "vllm-ascend-v0.26.0rc1-a3-amd64",
+        "vllm-ascend-v0.26.0rc1-a3-arm64"
+      ],
+      "label": "vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A3 \u00b7 linux unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-ascend-v0.26.0rc1-a3-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-a3-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-ascend-v0.26.0rc1-a3-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-a3-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm-ascend",
+      "published_reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-a3-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "rc",
+        "digest": "sha256:11d110408a36a9eeb26c7d422e913eb367c260703f3929668d63a64040490f68",
+        "glibc_version": null,
+        "os_id": "linux",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "v0.26.0rc1-a3",
+        "version": "0.26.0rc1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.26.0rc1-a3-ucm-0.7.0rc14",
+      "variant": "a3"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-ascend-v0.26.0rc1-a3-openeuler",
+      "image_ids": [
+        "vllm-ascend-v0.26.0rc1-a3-openeuler-amd64",
+        "vllm-ascend-v0.26.0rc1-a3-openeuler-arm64"
+      ],
+      "label": "vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A3 \u00b7 openeuler unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-ascend-v0.26.0rc1-a3-openeuler-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-a3-openeuler-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-ascend-v0.26.0rc1-a3-openeuler-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-a3-openeuler-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm-ascend",
+      "published_reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-a3-openeuler-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "rc",
+        "digest": "sha256:24ae7427b6cad5ee29e0665e6f69a4d51c9f6178035e38f2ed161bb3d29fe81c",
+        "glibc_version": null,
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "v0.26.0rc1-a3-openeuler",
+        "version": "0.26.0rc1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.26.0rc1-a3-openeuler-ucm-0.7.0rc14",
+      "variant": "a3"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-ascend-v0.26.0rc1-openeuler",
+      "image_ids": [
+        "vllm-ascend-v0.26.0rc1-openeuler-amd64",
+        "vllm-ascend-v0.26.0rc1-openeuler-arm64"
+      ],
+      "label": "vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A2 \u00b7 openeuler unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-ascend-v0.26.0rc1-openeuler-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-openeuler-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-ascend-v0.26.0rc1-openeuler-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-openeuler-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm-ascend",
+      "published_reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-v0.26.0rc1-openeuler-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "rc",
+        "digest": "sha256:0aed5102712056b4cdd3a99c143f9a5f984995d7359002aa470fddc1dd394315",
+        "glibc_version": null,
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "v0.26.0rc1-openeuler",
+        "version": "0.26.0rc1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.26.0rc1-openeuler-ucm-0.7.0rc14",
+      "variant": "a2"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-v0.26.0",
+      "image_ids": [
+        "vllm-v0.26.0-amd64",
+        "vllm-v0.26.0-arm64"
+      ],
+      "label": "vLLM 0.26.0 \u00b7 CUDA 13.0 \u00b7 linux unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-v0.26.0-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-v0.26.0-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm",
+      "published_reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cuda-13.0",
+        "channel": "stable",
+        "digest": "sha256:ffb2d59b1c059a5bd8d781320c9f5189de8293693b7d95da54befddaa54abf52",
+        "glibc_version": null,
+        "os_id": "linux",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.26.0",
+        "version": "0.26.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.26.0-ucm-0.7.0rc14",
+      "variant": "default"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-v0.26.0-cu129",
+      "image_ids": [
+        "vllm-v0.26.0-cu129-amd64",
+        "vllm-v0.26.0-cu129-arm64"
+      ],
+      "label": "vLLM 0.26.0 \u00b7 CUDA 12.9 \u00b7 linux unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-v0.26.0-cu129-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-v0.26.0-cu129-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm",
+      "published_reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cuda-12.9",
+        "channel": "stable",
+        "digest": "sha256:976b4ba10e247dbe5c5ce3e2ba952a359ef641ee25c3d091811c1bec420e5a23",
+        "glibc_version": null,
+        "os_id": "linux",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.26.0-cu129",
+        "version": "0.26.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.26.0-cu129-ucm-0.7.0rc14",
+      "variant": "default"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-v0.26.0-cu129-ubuntu2404",
+      "image_ids": [
+        "vllm-v0.26.0-cu129-ubuntu2404-amd64",
+        "vllm-v0.26.0-cu129-ubuntu2404-arm64"
+      ],
+      "label": "vLLM 0.26.0 \u00b7 CUDA 12.9 \u00b7 linux unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-v0.26.0-cu129-ubuntu2404-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-v0.26.0-cu129-ubuntu2404-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm",
+      "published_reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cuda-12.9",
+        "channel": "stable",
+        "digest": "sha256:f21f5e1987142d4a7c77a4fe41726ab2910153c5253df61e883771258db59440",
+        "glibc_version": null,
+        "os_id": "linux",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.26.0-cu129-ubuntu2404",
+        "version": "0.26.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.7.0rc14",
+      "variant": "default"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-v0.26.0-ubuntu2404",
+      "image_ids": [
+        "vllm-v0.26.0-ubuntu2404-amd64",
+        "vllm-v0.26.0-ubuntu2404-arm64"
+      ],
+      "label": "vLLM 0.26.0 \u00b7 CUDA 13.0 \u00b7 linux unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-v0.26.0-ubuntu2404-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ubuntu2404-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-v0.26.0-ubuntu2404-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ubuntu2404-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm",
+      "published_reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-ubuntu2404-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cuda-13.0",
+        "channel": "stable",
+        "digest": "sha256:ef7bfc14df9233e3e5d41e733e3be0afa6abbe5ae5f14ee0758110030f6cd53e",
+        "glibc_version": null,
+        "os_id": "linux",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.26.0-ubuntu2404",
+        "version": "0.26.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.26.0-ubuntu2404-ucm-0.7.0rc14",
+      "variant": "default"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-v0.27.1",
+      "image_ids": [
+        "vllm-v0.27.1-amd64",
+        "vllm-v0.27.1-arm64"
+      ],
+      "label": "vLLM 0.27.1 \u00b7 CUDA 13.0 \u00b7 linux unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-v0.27.1-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-v0.27.1-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm",
+      "published_reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cuda-13.0",
+        "channel": "stable",
+        "digest": "sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967",
+        "glibc_version": null,
+        "os_id": "linux",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.27.1",
+        "version": "0.27.1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.27.1-ucm-0.7.0rc14",
+      "variant": "default"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-v0.27.1-cu129",
+      "image_ids": [
+        "vllm-v0.27.1-cu129-amd64",
+        "vllm-v0.27.1-cu129-arm64"
+      ],
+      "label": "vLLM 0.27.1 \u00b7 CUDA 12.9 \u00b7 linux unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-v0.27.1-cu129-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-v0.27.1-cu129-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm",
+      "published_reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cuda-12.9",
+        "channel": "stable",
+        "digest": "sha256:07913e94a58a4e61322c88f8d4647411b4dd394838b53abacaa32448d9d8de0a",
+        "glibc_version": null,
+        "os_id": "linux",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.27.1-cu129",
+        "version": "0.27.1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.27.1-cu129-ucm-0.7.0rc14",
+      "variant": "default"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-v0.27.1-cu129-ubuntu2404",
+      "image_ids": [
+        "vllm-v0.27.1-cu129-ubuntu2404-amd64",
+        "vllm-v0.27.1-cu129-ubuntu2404-arm64"
+      ],
+      "label": "vLLM 0.27.1 \u00b7 CUDA 12.9 \u00b7 linux unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-v0.27.1-cu129-ubuntu2404-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-v0.27.1-cu129-ubuntu2404-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm",
+      "published_reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cuda-12.9",
+        "channel": "stable",
+        "digest": "sha256:0e1ee52750c67718a596ba63176034aa18b439c4a69896ac5a0a8393919aa4df",
+        "glibc_version": null,
+        "os_id": "linux",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.27.1-cu129-ubuntu2404",
+        "version": "0.27.1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.7.0rc14",
+      "variant": "default"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-v0.27.1-ubuntu2404",
+      "image_ids": [
+        "vllm-v0.27.1-ubuntu2404-amd64",
+        "vllm-v0.27.1-ubuntu2404-arm64"
+      ],
+      "label": "vLLM 0.27.1 \u00b7 CUDA 13.0 \u00b7 linux unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-v0.27.1-ubuntu2404-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ubuntu2404-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-v0.27.1-ubuntu2404-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ubuntu2404-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm",
+      "published_reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.27.1-ubuntu2404-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cuda-13.0",
+        "channel": "stable",
+        "digest": "sha256:6a278041c910af1a6db0f3555aac30dbdf93d7acb01008656d99007cf7781a3a",
+        "glibc_version": null,
+        "os_id": "linux",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.27.1-ubuntu2404",
+        "version": "0.27.1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.27.1-ubuntu2404-ucm-0.7.0rc14",
+      "variant": "default"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-v0.28.0",
+      "image_ids": [
+        "vllm-v0.28.0-amd64",
+        "vllm-v0.28.0-arm64"
+      ],
+      "label": "vLLM 0.28.0 \u00b7 CUDA 13.0 \u00b7 linux unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-v0.28.0-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-v0.28.0-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm",
+      "published_reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cuda-13.0",
+        "channel": "stable",
+        "digest": "sha256:61fc8a896b0a4fbbbdc063bc4b0dbc25ce98e02b5050c24aeb7830ac02039b14",
+        "glibc_version": null,
+        "os_id": "linux",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.28.0",
+        "version": "0.28.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.28.0-ucm-0.7.0rc14",
+      "variant": "default"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-v0.28.0-cu129",
+      "image_ids": [
+        "vllm-v0.28.0-cu129-amd64",
+        "vllm-v0.28.0-cu129-arm64"
+      ],
+      "label": "vLLM 0.28.0 \u00b7 CUDA 12.9 \u00b7 linux unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-v0.28.0-cu129-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-v0.28.0-cu129-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm",
+      "published_reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cuda-12.9",
+        "channel": "stable",
+        "digest": "sha256:ac259a0111c6cf462a72e449962b84f7a624b5cbec24bd7d9ec3b67d40ffd1bf",
+        "glibc_version": null,
+        "os_id": "linux",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.28.0-cu129",
+        "version": "0.28.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.28.0-cu129-ucm-0.7.0rc14",
+      "variant": "default"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-v0.28.0-cu129-ubuntu2404",
+      "image_ids": [
+        "vllm-v0.28.0-cu129-ubuntu2404-amd64",
+        "vllm-v0.28.0-cu129-ubuntu2404-arm64"
+      ],
+      "label": "vLLM 0.28.0 \u00b7 CUDA 12.9 \u00b7 linux unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-v0.28.0-cu129-ubuntu2404-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-v0.28.0-cu129-ubuntu2404-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm",
+      "published_reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cuda-12.9",
+        "channel": "stable",
+        "digest": "sha256:56b291b6179fe5e6e6ad5c509d362e745280ccdbe81ecbc0f5155b1cab0ebfc5",
+        "glibc_version": null,
+        "os_id": "linux",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.28.0-cu129-ubuntu2404",
+        "version": "0.28.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.7.0rc14",
+      "variant": "default"
+    },
+    {
+      "create_index": true,
+      "id": "vllm-v0.28.0-ubuntu2404",
+      "image_ids": [
+        "vllm-v0.28.0-ubuntu2404-amd64",
+        "vllm-v0.28.0-ubuntu2404-arm64"
+      ],
+      "label": "vLLM 0.28.0 \u00b7 CUDA 13.0 \u00b7 linux unreported",
+      "members": [
+        {
+          "cpu_arch": "amd64",
+          "image_id": "vllm-v0.28.0-ubuntu2404-amd64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ubuntu2404-ucm-0.7.0rc14-amd64"
+        },
+        {
+          "cpu_arch": "arm64",
+          "image_id": "vllm-v0.28.0-ubuntu2404-arm64",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ubuntu2404-ucm-0.7.0rc14-arm64"
+        }
+      ],
+      "product_id": "vllm",
+      "published_reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.28.0-ubuntu2404-ucm-0.7.0rc14",
+      "runtime": {
+        "accelerator_runtime": "cuda-13.0",
+        "channel": "stable",
+        "digest": "sha256:f8fe15a8039343336945db10494eaad80ef941fe2b2a5fa6649fa38636051a65",
+        "glibc_version": null,
+        "os_id": "linux",
+        "os_version": "unreported",
+        "python_abi": "cp312",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.28.0-ubuntu2404",
+        "version": "0.28.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.28.0-ubuntu2404-ucm-0.7.0rc14",
+      "variant": "default"
+    }
+  ],
+  "git_tag": "v0.7.0rc14",
+  "image_matrix": {
+    "include": [
+      {
+        "id": "vllm-ascend-nightly-releases-v0.24.0rc-a3-amd64",
+        "label": "vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A3 \u00b7 linux unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cann901-a3-cp312-amd64"
+      },
+      {
+        "id": "vllm-ascend-nightly-releases-v0.24.0rc-a3-arm64",
+        "label": "vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A3 \u00b7 linux unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cann901-a3-cp312-arm64"
+      },
+      {
+        "id": "vllm-ascend-nightly-releases-v0.24.0rc-a3-openeuler-amd64",
+        "label": "vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A3 \u00b7 openeuler unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cann901-a3-cp312-amd64"
+      },
+      {
+        "id": "vllm-ascend-nightly-releases-v0.24.0rc-a3-openeuler-arm64",
+        "label": "vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A3 \u00b7 openeuler unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cann901-a3-cp312-arm64"
+      },
+      {
+        "id": "vllm-ascend-nightly-releases-v0.24.0rc-amd64",
+        "label": "vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A2 \u00b7 linux unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cann901-a2-cp312-amd64"
+      },
+      {
+        "id": "vllm-ascend-nightly-releases-v0.24.0rc-arm64",
+        "label": "vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A2 \u00b7 linux unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cann901-a2-cp312-arm64"
+      },
+      {
+        "id": "vllm-ascend-nightly-releases-v0.24.0rc-openeuler-amd64",
+        "label": "vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A2 \u00b7 openeuler unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cann901-a2-cp312-amd64"
+      },
+      {
+        "id": "vllm-ascend-nightly-releases-v0.24.0rc-openeuler-arm64",
+        "label": "vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A2 \u00b7 openeuler unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cann901-a2-cp312-arm64"
+      },
+      {
+        "id": "vllm-ascend-nightly-releases-v0.25.1rc-a3-amd64",
+        "label": "vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A3 \u00b7 linux unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cann901-a3-cp312-amd64"
+      },
+      {
+        "id": "vllm-ascend-nightly-releases-v0.25.1rc-a3-arm64",
+        "label": "vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A3 \u00b7 linux unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cann901-a3-cp312-arm64"
+      },
+      {
+        "id": "vllm-ascend-nightly-releases-v0.25.1rc-a3-openeuler-amd64",
+        "label": "vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A3 \u00b7 openeuler unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cann901-a3-cp312-amd64"
+      },
+      {
+        "id": "vllm-ascend-nightly-releases-v0.25.1rc-a3-openeuler-arm64",
+        "label": "vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A3 \u00b7 openeuler unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cann901-a3-cp312-arm64"
+      },
+      {
+        "id": "vllm-ascend-nightly-releases-v0.25.1rc-amd64",
+        "label": "vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A2 \u00b7 linux unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cann901-a2-cp312-amd64"
+      },
+      {
+        "id": "vllm-ascend-nightly-releases-v0.25.1rc-arm64",
+        "label": "vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A2 \u00b7 linux unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cann901-a2-cp312-arm64"
+      },
+      {
+        "id": "vllm-ascend-nightly-releases-v0.25.1rc-openeuler-amd64",
+        "label": "vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A2 \u00b7 openeuler unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cann901-a2-cp312-amd64"
+      },
+      {
+        "id": "vllm-ascend-nightly-releases-v0.25.1rc-openeuler-arm64",
+        "label": "vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A2 \u00b7 openeuler unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cann901-a2-cp312-arm64"
+      },
+      {
+        "id": "vllm-ascend-v0.23.0-a3-amd64",
+        "label": "vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A3 \u00b7 linux unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cann910-a3-cp312-amd64"
+      },
+      {
+        "id": "vllm-ascend-v0.23.0-a3-arm64",
+        "label": "vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A3 \u00b7 linux unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cann910-a3-cp312-arm64"
+      },
+      {
+        "id": "vllm-ascend-v0.23.0-a3-openeuler-amd64",
+        "label": "vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A3 \u00b7 openeuler unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cann910-a3-cp312-amd64"
+      },
+      {
+        "id": "vllm-ascend-v0.23.0-a3-openeuler-arm64",
+        "label": "vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A3 \u00b7 openeuler unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cann910-a3-cp312-arm64"
+      },
+      {
+        "id": "vllm-ascend-v0.23.0-amd64",
+        "label": "vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A2 \u00b7 linux unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cann910-a2-cp312-amd64"
+      },
+      {
+        "id": "vllm-ascend-v0.23.0-arm64",
+        "label": "vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A2 \u00b7 linux unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cann910-a2-cp312-arm64"
+      },
+      {
+        "id": "vllm-ascend-v0.23.0-openeuler-amd64",
+        "label": "vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A2 \u00b7 openeuler unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cann910-a2-cp312-amd64"
+      },
+      {
+        "id": "vllm-ascend-v0.23.0-openeuler-arm64",
+        "label": "vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A2 \u00b7 openeuler unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cann910-a2-cp312-arm64"
+      },
+      {
+        "id": "vllm-ascend-v0.26.0rc1-a3-amd64",
+        "label": "vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A3 \u00b7 linux unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cann910-a3-cp312-amd64"
+      },
+      {
+        "id": "vllm-ascend-v0.26.0rc1-a3-arm64",
+        "label": "vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A3 \u00b7 linux unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cann910-a3-cp312-arm64"
+      },
+      {
+        "id": "vllm-ascend-v0.26.0rc1-a3-openeuler-amd64",
+        "label": "vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A3 \u00b7 openeuler unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cann910-a3-cp312-amd64"
+      },
+      {
+        "id": "vllm-ascend-v0.26.0rc1-a3-openeuler-arm64",
+        "label": "vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A3 \u00b7 openeuler unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cann910-a3-cp312-arm64"
+      },
+      {
+        "id": "vllm-ascend-v0.26.0rc1-amd64",
+        "label": "vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A2 \u00b7 linux unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cann910-a2-cp312-amd64"
+      },
+      {
+        "id": "vllm-ascend-v0.26.0rc1-arm64",
+        "label": "vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A2 \u00b7 linux unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cann910-a2-cp312-arm64"
+      },
+      {
+        "id": "vllm-ascend-v0.26.0rc1-openeuler-amd64",
+        "label": "vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A2 \u00b7 openeuler unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cann910-a2-cp312-amd64"
+      },
+      {
+        "id": "vllm-ascend-v0.26.0rc1-openeuler-arm64",
+        "label": "vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A2 \u00b7 openeuler unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cann910-a2-cp312-arm64"
+      },
+      {
+        "id": "vllm-v0.26.0-amd64",
+        "label": "vLLM 0.26.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cu130-cp312-amd64"
+      },
+      {
+        "id": "vllm-v0.26.0-arm64",
+        "label": "vLLM 0.26.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cu130-cp312-arm64"
+      },
+      {
+        "id": "vllm-v0.26.0-cu129-amd64",
+        "label": "vLLM 0.26.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cu129-cp312-amd64"
+      },
+      {
+        "id": "vllm-v0.26.0-cu129-arm64",
+        "label": "vLLM 0.26.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cu129-cp312-arm64"
+      },
+      {
+        "id": "vllm-v0.26.0-cu129-ubuntu2404-amd64",
+        "label": "vLLM 0.26.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cu129-cp312-amd64"
+      },
+      {
+        "id": "vllm-v0.26.0-cu129-ubuntu2404-arm64",
+        "label": "vLLM 0.26.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cu129-cp312-arm64"
+      },
+      {
+        "id": "vllm-v0.26.0-ubuntu2404-amd64",
+        "label": "vLLM 0.26.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cu130-cp312-amd64"
+      },
+      {
+        "id": "vllm-v0.26.0-ubuntu2404-arm64",
+        "label": "vLLM 0.26.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cu130-cp312-arm64"
+      },
+      {
+        "id": "vllm-v0.27.1-amd64",
+        "label": "vLLM 0.27.1 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cu130-cp312-amd64"
+      },
+      {
+        "id": "vllm-v0.27.1-arm64",
+        "label": "vLLM 0.27.1 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cu130-cp312-arm64"
+      },
+      {
+        "id": "vllm-v0.27.1-cu129-amd64",
+        "label": "vLLM 0.27.1 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cu129-cp312-amd64"
+      },
+      {
+        "id": "vllm-v0.27.1-cu129-arm64",
+        "label": "vLLM 0.27.1 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cu129-cp312-arm64"
+      },
+      {
+        "id": "vllm-v0.27.1-cu129-ubuntu2404-amd64",
+        "label": "vLLM 0.27.1 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cu129-cp312-amd64"
+      },
+      {
+        "id": "vllm-v0.27.1-cu129-ubuntu2404-arm64",
+        "label": "vLLM 0.27.1 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cu129-cp312-arm64"
+      },
+      {
+        "id": "vllm-v0.27.1-ubuntu2404-amd64",
+        "label": "vLLM 0.27.1 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cu130-cp312-amd64"
+      },
+      {
+        "id": "vllm-v0.27.1-ubuntu2404-arm64",
+        "label": "vLLM 0.27.1 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cu130-cp312-arm64"
+      },
+      {
+        "id": "vllm-v0.28.0-amd64",
+        "label": "vLLM 0.28.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cu130-cp312-amd64"
+      },
+      {
+        "id": "vllm-v0.28.0-arm64",
+        "label": "vLLM 0.28.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cu130-cp312-arm64"
+      },
+      {
+        "id": "vllm-v0.28.0-cu129-amd64",
+        "label": "vLLM 0.28.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cu129-cp312-amd64"
+      },
+      {
+        "id": "vllm-v0.28.0-cu129-arm64",
+        "label": "vLLM 0.28.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cu129-cp312-arm64"
+      },
+      {
+        "id": "vllm-v0.28.0-cu129-ubuntu2404-amd64",
+        "label": "vLLM 0.28.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cu129-cp312-amd64"
+      },
+      {
+        "id": "vllm-v0.28.0-cu129-ubuntu2404-arm64",
+        "label": "vLLM 0.28.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cu129-cp312-arm64"
+      },
+      {
+        "id": "vllm-v0.28.0-ubuntu2404-amd64",
+        "label": "vLLM 0.28.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 amd64",
+        "runner": "ubuntu-24.04",
+        "wheel_id": "cu130-cp312-amd64"
+      },
+      {
+        "id": "vllm-v0.28.0-ubuntu2404-arm64",
+        "label": "vLLM 0.28.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm",
+        "wheel_id": "cu130-cp312-arm64"
+      }
+    ]
+  },
+  "image_version": "0.7.0rc14",
+  "images": [
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-ascend-nightly-releases-v0.24.0rc-a3",
+      "id": "vllm-ascend-nightly-releases-v0.24.0rc-a3-amd64",
+      "label": "vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A3 \u00b7 linux unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-ascend-nightly-releases-v0.24.0rc-a3",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:1c36469fe1cd2335850eb2318bd3562471c34d5fd8f9f2affb0afc745ce39585",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:ce4fa61f3fba965fd3909bbfec22177333e22f83874668fc0fab51cdb2e3ee58",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "nightly-releases-v0.24.0rc-a3",
+        "variant": "a3",
+        "version": "0.24.0rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.7.0rc14",
+      "wheel_id": "cann901-a3-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-ascend-nightly-releases-v0.24.0rc-a3",
+      "id": "vllm-ascend-nightly-releases-v0.24.0rc-a3-arm64",
+      "label": "vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A3 \u00b7 linux unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-ascend-nightly-releases-v0.24.0rc-a3",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:1c36469fe1cd2335850eb2318bd3562471c34d5fd8f9f2affb0afc745ce39585",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:a2be9c25aae8a81dc729262fd4e49a43753b24da984463485a7dc6712d8c6c1d",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "nightly-releases-v0.24.0rc-a3",
+        "variant": "a3",
+        "version": "0.24.0rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.24.0rc-a3-ucm-0.7.0rc14",
+      "wheel_id": "cann901-a3-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-ascend-nightly-releases-v0.24.0rc-a3-openeuler",
+      "id": "vllm-ascend-nightly-releases-v0.24.0rc-a3-openeuler-amd64",
+      "label": "vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A3 \u00b7 openeuler unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-ascend-nightly-releases-v0.24.0rc-a3-openeuler",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:1422e32e4326e3428b9ceb936f212aa1a23b8a8789b08d5cffc3cce4f6c12c1d",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:1e41cbfa2945385c892d5b9fe2f8a38f91208b03870815b08ad77c6d9bd5054b",
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "nightly-releases-v0.24.0rc-a3-openeuler",
+        "variant": "a3",
+        "version": "0.24.0rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc14",
+      "wheel_id": "cann901-a3-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-ascend-nightly-releases-v0.24.0rc-a3-openeuler",
+      "id": "vllm-ascend-nightly-releases-v0.24.0rc-a3-openeuler-arm64",
+      "label": "vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A3 \u00b7 openeuler unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-ascend-nightly-releases-v0.24.0rc-a3-openeuler",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:1422e32e4326e3428b9ceb936f212aa1a23b8a8789b08d5cffc3cce4f6c12c1d",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:2597c0021123c292ed042de769b7e942a2cba1db91929790582db02ae22bb195",
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "nightly-releases-v0.24.0rc-a3-openeuler",
+        "variant": "a3",
+        "version": "0.24.0rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc14",
+      "wheel_id": "cann901-a3-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-ascend-nightly-releases-v0.24.0rc",
+      "id": "vllm-ascend-nightly-releases-v0.24.0rc-amd64",
+      "label": "vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A2 \u00b7 linux unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-ascend-nightly-releases-v0.24.0rc",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:775444958b15b84bfb2eeca6b3fd2b94871f08b54b08c331ef771589b54593ed",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:d205010c8b01e55490d47328a0c390c40c7fef3d98d68bcf652ef0a10333035d",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "nightly-releases-v0.24.0rc",
+        "variant": "a2",
+        "version": "0.24.0rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.24.0rc-ucm-0.7.0rc14",
+      "wheel_id": "cann901-a2-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-ascend-nightly-releases-v0.24.0rc",
+      "id": "vllm-ascend-nightly-releases-v0.24.0rc-arm64",
+      "label": "vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A2 \u00b7 linux unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-ascend-nightly-releases-v0.24.0rc",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:775444958b15b84bfb2eeca6b3fd2b94871f08b54b08c331ef771589b54593ed",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:26610b7dbcd8a4b78f1e4de25fd970c4786c2a207e7dce0147adfdeabace9ccc",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "nightly-releases-v0.24.0rc",
+        "variant": "a2",
+        "version": "0.24.0rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.24.0rc-ucm-0.7.0rc14",
+      "wheel_id": "cann901-a2-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-ascend-nightly-releases-v0.24.0rc-openeuler",
+      "id": "vllm-ascend-nightly-releases-v0.24.0rc-openeuler-amd64",
+      "label": "vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A2 \u00b7 openeuler unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-ascend-nightly-releases-v0.24.0rc-openeuler",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:d026bafa20b5378989e9d3cf605d6017f98c519226e12a513967f3b55ea24215",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:47210478e9ff1f5f0cabba3dbfadf03b963850bb70cb21ee482148da3b8a0748",
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "nightly-releases-v0.24.0rc-openeuler",
+        "variant": "a2",
+        "version": "0.24.0rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.7.0rc14",
+      "wheel_id": "cann901-a2-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-ascend-nightly-releases-v0.24.0rc-openeuler",
+      "id": "vllm-ascend-nightly-releases-v0.24.0rc-openeuler-arm64",
+      "label": "vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A2 \u00b7 openeuler unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-ascend-nightly-releases-v0.24.0rc-openeuler",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:d026bafa20b5378989e9d3cf605d6017f98c519226e12a513967f3b55ea24215",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:8bbdf2ffd41559d36f410d612ffc037879ac838ac0a14710ef64f304b6ff5e47",
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "nightly-releases-v0.24.0rc-openeuler",
+        "variant": "a2",
+        "version": "0.24.0rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.24.0rc-openeuler-ucm-0.7.0rc14",
+      "wheel_id": "cann901-a2-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-ascend-nightly-releases-v0.25.1rc-a3",
+      "id": "vllm-ascend-nightly-releases-v0.25.1rc-a3-amd64",
+      "label": "vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A3 \u00b7 linux unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-ascend-nightly-releases-v0.25.1rc-a3",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:0521c1757e8044de0b5738b7a906a2e7922d8050b18af6cabbfa1057917851b5",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:f0b5c1bd532834abeba530d3188f3428a1a447a9c47d80ccda91f66e1868e368",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "nightly-releases-v0.25.1rc-a3",
+        "variant": "a3",
+        "version": "0.25.1rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.7.0rc14",
+      "wheel_id": "cann901-a3-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-ascend-nightly-releases-v0.25.1rc-a3",
+      "id": "vllm-ascend-nightly-releases-v0.25.1rc-a3-arm64",
+      "label": "vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A3 \u00b7 linux unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-ascend-nightly-releases-v0.25.1rc-a3",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:0521c1757e8044de0b5738b7a906a2e7922d8050b18af6cabbfa1057917851b5",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:d53bc44da2bf73c62ea04958b106b9a82653f49edf2eaaf296631465da231dd4",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "nightly-releases-v0.25.1rc-a3",
+        "variant": "a3",
+        "version": "0.25.1rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.25.1rc-a3-ucm-0.7.0rc14",
+      "wheel_id": "cann901-a3-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-ascend-nightly-releases-v0.25.1rc-a3-openeuler",
+      "id": "vllm-ascend-nightly-releases-v0.25.1rc-a3-openeuler-amd64",
+      "label": "vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A3 \u00b7 openeuler unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-ascend-nightly-releases-v0.25.1rc-a3-openeuler",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:347e65140b1e35394464bea90928529b0d9b31b63c05c2e69ab2429cfb0ece22",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:59a653193952e203a341800e7a3f37a090b3d8d21fbc9719ffbb6ca2d0775667",
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "nightly-releases-v0.25.1rc-a3-openeuler",
+        "variant": "a3",
+        "version": "0.25.1rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.7.0rc14",
+      "wheel_id": "cann901-a3-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-ascend-nightly-releases-v0.25.1rc-a3-openeuler",
+      "id": "vllm-ascend-nightly-releases-v0.25.1rc-a3-openeuler-arm64",
+      "label": "vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A3 \u00b7 openeuler unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-ascend-nightly-releases-v0.25.1rc-a3-openeuler",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:347e65140b1e35394464bea90928529b0d9b31b63c05c2e69ab2429cfb0ece22",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:73687f670ce1959eb681026aa9b4d29d9ee928326b634d36b37e56289a5e8e2e",
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "nightly-releases-v0.25.1rc-a3-openeuler",
+        "variant": "a3",
+        "version": "0.25.1rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.25.1rc-a3-openeuler-ucm-0.7.0rc14",
+      "wheel_id": "cann901-a3-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-ascend-nightly-releases-v0.25.1rc",
+      "id": "vllm-ascend-nightly-releases-v0.25.1rc-amd64",
+      "label": "vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A2 \u00b7 linux unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-ascend-nightly-releases-v0.25.1rc",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:f2906b9810d28df0a8969b7bd655e128fbb249dcba4b3b27bb1ed89d1f4f93f9",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:4a89c89e80d6ccb4c9cc09edd29923db73aabd1db14165be52eb9a7e57a7b454",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "nightly-releases-v0.25.1rc",
+        "variant": "a2",
+        "version": "0.25.1rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.25.1rc-ucm-0.7.0rc14",
+      "wheel_id": "cann901-a2-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-ascend-nightly-releases-v0.25.1rc",
+      "id": "vllm-ascend-nightly-releases-v0.25.1rc-arm64",
+      "label": "vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A2 \u00b7 linux unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-ascend-nightly-releases-v0.25.1rc",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:f2906b9810d28df0a8969b7bd655e128fbb249dcba4b3b27bb1ed89d1f4f93f9",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:bc09b404200b32818e2803f43556605c6d6868e4fbf7773abaf5e37d9c650285",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "nightly-releases-v0.25.1rc",
+        "variant": "a2",
+        "version": "0.25.1rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.25.1rc-ucm-0.7.0rc14",
+      "wheel_id": "cann901-a2-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-ascend-nightly-releases-v0.25.1rc-openeuler",
+      "id": "vllm-ascend-nightly-releases-v0.25.1rc-openeuler-amd64",
+      "label": "vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A2 \u00b7 openeuler unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-ascend-nightly-releases-v0.25.1rc-openeuler",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:846a1d3eb2c060a989bda14a9e49c97163c61a8522aab54f9be96be135cda196",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:526f438f80ea00cb9f36a92094ff0ecf32aa9b4544ddc2848d687ca2e0f31529",
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "nightly-releases-v0.25.1rc-openeuler",
+        "variant": "a2",
+        "version": "0.25.1rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.7.0rc14",
+      "wheel_id": "cann901-a2-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-ascend-nightly-releases-v0.25.1rc-openeuler",
+      "id": "vllm-ascend-nightly-releases-v0.25.1rc-openeuler-arm64",
+      "label": "vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A2 \u00b7 openeuler unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-ascend-nightly-releases-v0.25.1rc-openeuler",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cann-9.0.1",
+        "channel": "nightly",
+        "digest": "sha256:846a1d3eb2c060a989bda14a9e49c97163c61a8522aab54f9be96be135cda196",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:925d6200ae12293909d1bd87df1dd220c0538f91b232fd1729b072c3deb16242",
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "nightly-releases-v0.25.1rc-openeuler",
+        "variant": "a2",
+        "version": "0.25.1rc"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-nightly-releases-v0.25.1rc-openeuler-ucm-0.7.0rc14",
+      "wheel_id": "cann901-a2-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-ascend-v0.23.0-a3",
+      "id": "vllm-ascend-v0.23.0-a3-amd64",
+      "label": "vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A3 \u00b7 linux unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-ascend-v0.23.0-a3",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "stable",
+        "digest": "sha256:8e931f2a1908f4213ec31a349d5263a19c480e2e1e2dda801fdc35dd6ab279a5",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:fdd86bc3c2edf8f5a814d8a5d28555bceffe6d58a73247f0d4ddc18b67497b5d",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "v0.23.0-a3",
+        "variant": "a3",
+        "version": "0.23.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.23.0-a3-ucm-0.7.0rc14",
+      "wheel_id": "cann910-a3-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-ascend-v0.23.0-a3",
+      "id": "vllm-ascend-v0.23.0-a3-arm64",
+      "label": "vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A3 \u00b7 linux unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-ascend-v0.23.0-a3",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "stable",
+        "digest": "sha256:8e931f2a1908f4213ec31a349d5263a19c480e2e1e2dda801fdc35dd6ab279a5",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:96e4a97fce24262aee2dbcc6e81cb2655c45784c1a28450cb7c1114b0d05989e",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "v0.23.0-a3",
+        "variant": "a3",
+        "version": "0.23.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.23.0-a3-ucm-0.7.0rc14",
+      "wheel_id": "cann910-a3-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-ascend-v0.23.0-a3-openeuler",
+      "id": "vllm-ascend-v0.23.0-a3-openeuler-amd64",
+      "label": "vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A3 \u00b7 openeuler unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-ascend-v0.23.0-a3-openeuler",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "stable",
+        "digest": "sha256:382b012420854ba2d8b3b78897d9216742f27948345e503a01644ebbdd706ce6",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:847768a16851b4bc69318714fdf28a1e770ffe150c6994b69ecd8e511bf91ca8",
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "v0.23.0-a3-openeuler",
+        "variant": "a3",
+        "version": "0.23.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.23.0-a3-openeuler-ucm-0.7.0rc14",
+      "wheel_id": "cann910-a3-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-ascend-v0.23.0-a3-openeuler",
+      "id": "vllm-ascend-v0.23.0-a3-openeuler-arm64",
+      "label": "vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A3 \u00b7 openeuler unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-ascend-v0.23.0-a3-openeuler",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "stable",
+        "digest": "sha256:382b012420854ba2d8b3b78897d9216742f27948345e503a01644ebbdd706ce6",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:d71b467a10e2aba2462a0d0fb020cbb3de8d46fbcd2f450c44e8614eeb4e7ed0",
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "v0.23.0-a3-openeuler",
+        "variant": "a3",
+        "version": "0.23.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.23.0-a3-openeuler-ucm-0.7.0rc14",
+      "wheel_id": "cann910-a3-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-ascend-v0.23.0",
+      "id": "vllm-ascend-v0.23.0-amd64",
+      "label": "vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A2 \u00b7 linux unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-ascend-v0.23.0",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "stable",
+        "digest": "sha256:471744200c5d0c768c1f6c6a6816dcae0fd551de2487d4d129b6fb750024ce6a",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:95aab9f2b491c04b9a879f270237be1e382990c1c05c6d65f4e55b7bdb31edc3",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "v0.23.0",
+        "variant": "a2",
+        "version": "0.23.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.23.0-ucm-0.7.0rc14",
+      "wheel_id": "cann910-a2-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-ascend-v0.23.0",
+      "id": "vllm-ascend-v0.23.0-arm64",
+      "label": "vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A2 \u00b7 linux unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-ascend-v0.23.0",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "stable",
+        "digest": "sha256:471744200c5d0c768c1f6c6a6816dcae0fd551de2487d4d129b6fb750024ce6a",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:4ee78def8f33d59d48f116d1dfa793332c23c99ecab4f0d7dd5cd62d0fb4e6c1",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "v0.23.0",
+        "variant": "a2",
+        "version": "0.23.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.23.0-ucm-0.7.0rc14",
+      "wheel_id": "cann910-a2-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-ascend-v0.23.0-openeuler",
+      "id": "vllm-ascend-v0.23.0-openeuler-amd64",
+      "label": "vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A2 \u00b7 openeuler unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-ascend-v0.23.0-openeuler",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "stable",
+        "digest": "sha256:b2d13e24b295171d8f63678506fad5542f142e81d57e407a0b8c98c16ba0c4f7",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:a49f909de7894aa161cc0d8d73e48b1f9325580ede64e0704d33be51f0b0f677",
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "v0.23.0-openeuler",
+        "variant": "a2",
+        "version": "0.23.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.23.0-openeuler-ucm-0.7.0rc14",
+      "wheel_id": "cann910-a2-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-ascend-v0.23.0-openeuler",
+      "id": "vllm-ascend-v0.23.0-openeuler-arm64",
+      "label": "vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A2 \u00b7 openeuler unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-ascend-v0.23.0-openeuler",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "stable",
+        "digest": "sha256:b2d13e24b295171d8f63678506fad5542f142e81d57e407a0b8c98c16ba0c4f7",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:6c183dfa86cf13ea5fa54ac8f0bcf7316c5b91e7f9774c26dc282dfd94da8ef9",
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "v0.23.0-openeuler",
+        "variant": "a2",
+        "version": "0.23.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.23.0-openeuler-ucm-0.7.0rc14",
+      "wheel_id": "cann910-a2-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-ascend-v0.26.0rc1-a3",
+      "id": "vllm-ascend-v0.26.0rc1-a3-amd64",
+      "label": "vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A3 \u00b7 linux unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-ascend-v0.26.0rc1-a3",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "rc",
+        "digest": "sha256:11d110408a36a9eeb26c7d422e913eb367c260703f3929668d63a64040490f68",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:096b011ea1fedf34d67bf3f16aaa435b4f086d9a76c1f51831117c2ed16ee659",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "v0.26.0rc1-a3",
+        "variant": "a3",
+        "version": "0.26.0rc1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.26.0rc1-a3-ucm-0.7.0rc14",
+      "wheel_id": "cann910-a3-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-ascend-v0.26.0rc1-a3",
+      "id": "vllm-ascend-v0.26.0rc1-a3-arm64",
+      "label": "vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A3 \u00b7 linux unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-ascend-v0.26.0rc1-a3",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "rc",
+        "digest": "sha256:11d110408a36a9eeb26c7d422e913eb367c260703f3929668d63a64040490f68",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:6f412cbc4517c53710c71ab88478ec8d82bc6a5ad517c66dae6ab9a2573aa794",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "v0.26.0rc1-a3",
+        "variant": "a3",
+        "version": "0.26.0rc1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.26.0rc1-a3-ucm-0.7.0rc14",
+      "wheel_id": "cann910-a3-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-ascend-v0.26.0rc1-a3-openeuler",
+      "id": "vllm-ascend-v0.26.0rc1-a3-openeuler-amd64",
+      "label": "vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A3 \u00b7 openeuler unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-ascend-v0.26.0rc1-a3-openeuler",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "rc",
+        "digest": "sha256:24ae7427b6cad5ee29e0665e6f69a4d51c9f6178035e38f2ed161bb3d29fe81c",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:56222d4227a1bd5fbb234ca58b013ad2025878ed4b083867f05c436d2cbff9ba",
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "v0.26.0rc1-a3-openeuler",
+        "variant": "a3",
+        "version": "0.26.0rc1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.26.0rc1-a3-openeuler-ucm-0.7.0rc14",
+      "wheel_id": "cann910-a3-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-ascend-v0.26.0rc1-a3-openeuler",
+      "id": "vllm-ascend-v0.26.0rc1-a3-openeuler-arm64",
+      "label": "vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A3 \u00b7 openeuler unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-ascend-v0.26.0rc1-a3-openeuler",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "rc",
+        "digest": "sha256:24ae7427b6cad5ee29e0665e6f69a4d51c9f6178035e38f2ed161bb3d29fe81c",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:aa79582c1262783617748ff486d33eb1825044af285ad230b2410ebce6af08dd",
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910_9391",
+        "tag": "v0.26.0rc1-a3-openeuler",
+        "variant": "a3",
+        "version": "0.26.0rc1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.26.0rc1-a3-openeuler-ucm-0.7.0rc14",
+      "wheel_id": "cann910-a3-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-ascend-v0.26.0rc1",
+      "id": "vllm-ascend-v0.26.0rc1-amd64",
+      "label": "vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A2 \u00b7 linux unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-ascend-v0.26.0rc1",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "rc",
+        "digest": "sha256:243bf20fad2f4f6de56aa1b041bcdfdbe5bb9d485f3190f40f1c5d0f418fc469",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:672cc399efdf4d64800de042a62796e3a5b7269300dedb1c7c0543e33b9dfb84",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "v0.26.0rc1",
+        "variant": "a2",
+        "version": "0.26.0rc1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.26.0rc1-ucm-0.7.0rc14",
+      "wheel_id": "cann910-a2-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-ascend-v0.26.0rc1",
+      "id": "vllm-ascend-v0.26.0rc1-arm64",
+      "label": "vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A2 \u00b7 linux unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-ascend-v0.26.0rc1",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "rc",
+        "digest": "sha256:243bf20fad2f4f6de56aa1b041bcdfdbe5bb9d485f3190f40f1c5d0f418fc469",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:7265a3a08bba26b9376a4d577015ac8d459675fb3c1eec89aef6d9a19ac219d9",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "v0.26.0rc1",
+        "variant": "a2",
+        "version": "0.26.0rc1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.26.0rc1-ucm-0.7.0rc14",
+      "wheel_id": "cann910-a2-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-ascend-v0.26.0rc1-openeuler",
+      "id": "vllm-ascend-v0.26.0rc1-openeuler-amd64",
+      "label": "vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A2 \u00b7 openeuler unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-ascend-v0.26.0rc1-openeuler",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "rc",
+        "digest": "sha256:0aed5102712056b4cdd3a99c143f9a5f984995d7359002aa470fddc1dd394315",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:d5491905476cf69737036c445eb91b2b49bb18a2e74fbb8ded7b7889424cf677",
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "v0.26.0rc1-openeuler",
+        "variant": "a2",
+        "version": "0.26.0rc1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.26.0rc1-openeuler-ucm-0.7.0rc14",
+      "wheel_id": "cann910-a2-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-ascend-v0.26.0rc1-openeuler",
+      "id": "vllm-ascend-v0.26.0rc1-openeuler-arm64",
+      "label": "vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A2 \u00b7 openeuler unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-ascend-v0.26.0rc1-openeuler",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cann-9.1.0",
+        "channel": "rc",
+        "digest": "sha256:0aed5102712056b4cdd3a99c143f9a5f984995d7359002aa470fddc1dd394315",
+        "glibc_version": null,
+        "image_reference": "quay.io/ascend/vllm-ascend@sha256:1b25f5940da577925f43aa7441f68cd1f1a97d81fcb6090002c916ffd749a6e0",
+        "os_id": "openeuler",
+        "os_version": "unreported",
+        "product_id": "vllm-ascend",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "quay.io/ascend/vllm-ascend",
+        "soc_version": "ascend910b1",
+        "tag": "v0.26.0rc1-openeuler",
+        "variant": "a2",
+        "version": "0.26.0rc1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-ascend",
+      "target_tag": "supermarioyl-v0.26.0rc1-openeuler-ucm-0.7.0rc14",
+      "wheel_id": "cann910-a2-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-v0.26.0",
+      "id": "vllm-v0.26.0-amd64",
+      "label": "vLLM 0.26.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-v0.26.0",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cuda-13.0",
+        "channel": "stable",
+        "digest": "sha256:ffb2d59b1c059a5bd8d781320c9f5189de8293693b7d95da54befddaa54abf52",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:770fe65b2c73ee74a5c42165cf3433de4048cc2cd9c57a937ca4e35aba5aa87b",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.26.0",
+        "variant": "default",
+        "version": "0.26.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.26.0-ucm-0.7.0rc14",
+      "wheel_id": "cu130-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-v0.26.0",
+      "id": "vllm-v0.26.0-arm64",
+      "label": "vLLM 0.26.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-v0.26.0",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cuda-13.0",
+        "channel": "stable",
+        "digest": "sha256:ffb2d59b1c059a5bd8d781320c9f5189de8293693b7d95da54befddaa54abf52",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:e51157695347d2cee1b13f1ac05369df6216af5d2991b6ad5a2e700861cba4b1",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.26.0",
+        "variant": "default",
+        "version": "0.26.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.26.0-ucm-0.7.0rc14",
+      "wheel_id": "cu130-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-v0.26.0-cu129",
+      "id": "vllm-v0.26.0-cu129-amd64",
+      "label": "vLLM 0.26.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-v0.26.0-cu129",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cuda-12.9",
+        "channel": "stable",
+        "digest": "sha256:976b4ba10e247dbe5c5ce3e2ba952a359ef641ee25c3d091811c1bec420e5a23",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:3c5c53248febaa72823a4b7e51aafa1cd2b65d860392e3930414da4d3864f541",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.26.0-cu129",
+        "variant": "default",
+        "version": "0.26.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.26.0-cu129-ucm-0.7.0rc14",
+      "wheel_id": "cu129-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-v0.26.0-cu129",
+      "id": "vllm-v0.26.0-cu129-arm64",
+      "label": "vLLM 0.26.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-v0.26.0-cu129",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cuda-12.9",
+        "channel": "stable",
+        "digest": "sha256:976b4ba10e247dbe5c5ce3e2ba952a359ef641ee25c3d091811c1bec420e5a23",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:8d83b99307619b29e4508b10c69411e388fd9d6f5dd859c98eea028d8415b907",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.26.0-cu129",
+        "variant": "default",
+        "version": "0.26.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.26.0-cu129-ucm-0.7.0rc14",
+      "wheel_id": "cu129-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-v0.26.0-cu129-ubuntu2404",
+      "id": "vllm-v0.26.0-cu129-ubuntu2404-amd64",
+      "label": "vLLM 0.26.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-v0.26.0-cu129-ubuntu2404",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cuda-12.9",
+        "channel": "stable",
+        "digest": "sha256:f21f5e1987142d4a7c77a4fe41726ab2910153c5253df61e883771258db59440",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:4d08193d2fd05aadb1b5678f93ae609efb2635df67da45f3efe781c368b34dc8",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.26.0-cu129-ubuntu2404",
+        "variant": "default",
+        "version": "0.26.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.7.0rc14",
+      "wheel_id": "cu129-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-v0.26.0-cu129-ubuntu2404",
+      "id": "vllm-v0.26.0-cu129-ubuntu2404-arm64",
+      "label": "vLLM 0.26.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-v0.26.0-cu129-ubuntu2404",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cuda-12.9",
+        "channel": "stable",
+        "digest": "sha256:f21f5e1987142d4a7c77a4fe41726ab2910153c5253df61e883771258db59440",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:6a4570896a2f37fe052dc9f265f85a7581212c520da1324a721d0f222584e5bc",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.26.0-cu129-ubuntu2404",
+        "variant": "default",
+        "version": "0.26.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.7.0rc14",
+      "wheel_id": "cu129-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-v0.26.0-ubuntu2404",
+      "id": "vllm-v0.26.0-ubuntu2404-amd64",
+      "label": "vLLM 0.26.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-v0.26.0-ubuntu2404",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cuda-13.0",
+        "channel": "stable",
+        "digest": "sha256:ef7bfc14df9233e3e5d41e733e3be0afa6abbe5ae5f14ee0758110030f6cd53e",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:1161da8a5edbdff239ab1812784d7fe5d28775c675809a8420e8a0a05d0e56d1",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.26.0-ubuntu2404",
+        "variant": "default",
+        "version": "0.26.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.26.0-ubuntu2404-ucm-0.7.0rc14",
+      "wheel_id": "cu130-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-v0.26.0-ubuntu2404",
+      "id": "vllm-v0.26.0-ubuntu2404-arm64",
+      "label": "vLLM 0.26.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-v0.26.0-ubuntu2404",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cuda-13.0",
+        "channel": "stable",
+        "digest": "sha256:ef7bfc14df9233e3e5d41e733e3be0afa6abbe5ae5f14ee0758110030f6cd53e",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:3016f449f5bf9bbe171406b7715822acb49026a4a404ba830f482575c02302d6",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.26.0-ubuntu2404",
+        "variant": "default",
+        "version": "0.26.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.26.0-ubuntu2404-ucm-0.7.0rc14",
+      "wheel_id": "cu130-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-v0.27.1",
+      "id": "vllm-v0.27.1-amd64",
+      "label": "vLLM 0.27.1 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-v0.27.1",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cuda-13.0",
+        "channel": "stable",
+        "digest": "sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:c2f3b1b964e47809b722b5e75b61b1e7b39a50f70388cf2bf2418f16a9f31da2",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.27.1",
+        "variant": "default",
+        "version": "0.27.1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.27.1-ucm-0.7.0rc14",
+      "wheel_id": "cu130-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-v0.27.1",
+      "id": "vllm-v0.27.1-arm64",
+      "label": "vLLM 0.27.1 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-v0.27.1",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cuda-13.0",
+        "channel": "stable",
+        "digest": "sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:1c8e60a0841b333c700488cb029d3664807249da0c071e862191b00fe34b228c",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.27.1",
+        "variant": "default",
+        "version": "0.27.1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.27.1-ucm-0.7.0rc14",
+      "wheel_id": "cu130-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-v0.27.1-cu129",
+      "id": "vllm-v0.27.1-cu129-amd64",
+      "label": "vLLM 0.27.1 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-v0.27.1-cu129",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cuda-12.9",
+        "channel": "stable",
+        "digest": "sha256:07913e94a58a4e61322c88f8d4647411b4dd394838b53abacaa32448d9d8de0a",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:6666717cd1cadf9adfff8abec9c3f2eca6e27e742de06fe7d7f129fa3d647732",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.27.1-cu129",
+        "variant": "default",
+        "version": "0.27.1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.27.1-cu129-ucm-0.7.0rc14",
+      "wheel_id": "cu129-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-v0.27.1-cu129",
+      "id": "vllm-v0.27.1-cu129-arm64",
+      "label": "vLLM 0.27.1 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-v0.27.1-cu129",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cuda-12.9",
+        "channel": "stable",
+        "digest": "sha256:07913e94a58a4e61322c88f8d4647411b4dd394838b53abacaa32448d9d8de0a",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:8faf10af4ad723ef50113bd4b85477f2f563e8aa29cd784f09ff928980881c67",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.27.1-cu129",
+        "variant": "default",
+        "version": "0.27.1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.27.1-cu129-ucm-0.7.0rc14",
+      "wheel_id": "cu129-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-v0.27.1-cu129-ubuntu2404",
+      "id": "vllm-v0.27.1-cu129-ubuntu2404-amd64",
+      "label": "vLLM 0.27.1 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-v0.27.1-cu129-ubuntu2404",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cuda-12.9",
+        "channel": "stable",
+        "digest": "sha256:0e1ee52750c67718a596ba63176034aa18b439c4a69896ac5a0a8393919aa4df",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:e38f9a10e3da532119c7bba2448663a36171a6859f92b8fcdac620882f63119b",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.27.1-cu129-ubuntu2404",
+        "variant": "default",
+        "version": "0.27.1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.7.0rc14",
+      "wheel_id": "cu129-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-v0.27.1-cu129-ubuntu2404",
+      "id": "vllm-v0.27.1-cu129-ubuntu2404-arm64",
+      "label": "vLLM 0.27.1 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-v0.27.1-cu129-ubuntu2404",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cuda-12.9",
+        "channel": "stable",
+        "digest": "sha256:0e1ee52750c67718a596ba63176034aa18b439c4a69896ac5a0a8393919aa4df",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:a20437a6f671c258abbe354858420c1b0ee93c12f5a64aa92473c0ea2a677cc0",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.27.1-cu129-ubuntu2404",
+        "variant": "default",
+        "version": "0.27.1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.27.1-cu129-ubuntu2404-ucm-0.7.0rc14",
+      "wheel_id": "cu129-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-v0.27.1-ubuntu2404",
+      "id": "vllm-v0.27.1-ubuntu2404-amd64",
+      "label": "vLLM 0.27.1 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-v0.27.1-ubuntu2404",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cuda-13.0",
+        "channel": "stable",
+        "digest": "sha256:6a278041c910af1a6db0f3555aac30dbdf93d7acb01008656d99007cf7781a3a",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:dafea057f24b7d42716331a48e2db4e1f204f877a3aa759cb7e4c37e64ca2eee",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.27.1-ubuntu2404",
+        "variant": "default",
+        "version": "0.27.1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.27.1-ubuntu2404-ucm-0.7.0rc14",
+      "wheel_id": "cu130-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-v0.27.1-ubuntu2404",
+      "id": "vllm-v0.27.1-ubuntu2404-arm64",
+      "label": "vLLM 0.27.1 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-v0.27.1-ubuntu2404",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cuda-13.0",
+        "channel": "stable",
+        "digest": "sha256:6a278041c910af1a6db0f3555aac30dbdf93d7acb01008656d99007cf7781a3a",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:ae35bb2db70814d1239ea588e1abb5288adcbd287cac1d4d00ea0f28cd2033df",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.27.1-ubuntu2404",
+        "variant": "default",
+        "version": "0.27.1"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.27.1-ubuntu2404-ucm-0.7.0rc14",
+      "wheel_id": "cu130-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-v0.28.0",
+      "id": "vllm-v0.28.0-amd64",
+      "label": "vLLM 0.28.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-v0.28.0",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cuda-13.0",
+        "channel": "stable",
+        "digest": "sha256:61fc8a896b0a4fbbbdc063bc4b0dbc25ce98e02b5050c24aeb7830ac02039b14",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:2286e8533ca8b6bc777594bae30524f1426ba46ca21797524e06df6a94b06635",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.28.0",
+        "variant": "default",
+        "version": "0.28.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.28.0-ucm-0.7.0rc14",
+      "wheel_id": "cu130-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-v0.28.0",
+      "id": "vllm-v0.28.0-arm64",
+      "label": "vLLM 0.28.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-v0.28.0",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cuda-13.0",
+        "channel": "stable",
+        "digest": "sha256:61fc8a896b0a4fbbbdc063bc4b0dbc25ce98e02b5050c24aeb7830ac02039b14",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:2a7cde230b59f3ce6cab33dd245ba6bee41aa87b38c9fe84f966ff24016813ce",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.28.0",
+        "variant": "default",
+        "version": "0.28.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.28.0-ucm-0.7.0rc14",
+      "wheel_id": "cu130-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-v0.28.0-cu129",
+      "id": "vllm-v0.28.0-cu129-amd64",
+      "label": "vLLM 0.28.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-v0.28.0-cu129",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cuda-12.9",
+        "channel": "stable",
+        "digest": "sha256:ac259a0111c6cf462a72e449962b84f7a624b5cbec24bd7d9ec3b67d40ffd1bf",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:50509e700235cea487715cedeb501d20a1cd15fa6a54ce93688284bd0d96995d",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.28.0-cu129",
+        "variant": "default",
+        "version": "0.28.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.28.0-cu129-ucm-0.7.0rc14",
+      "wheel_id": "cu129-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-v0.28.0-cu129",
+      "id": "vllm-v0.28.0-cu129-arm64",
+      "label": "vLLM 0.28.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-v0.28.0-cu129",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cuda-12.9",
+        "channel": "stable",
+        "digest": "sha256:ac259a0111c6cf462a72e449962b84f7a624b5cbec24bd7d9ec3b67d40ffd1bf",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:60fa2715937e604931086a790fff2978c09995eff93439261ba09a79f02e9e68",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.28.0-cu129",
+        "variant": "default",
+        "version": "0.28.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.28.0-cu129-ucm-0.7.0rc14",
+      "wheel_id": "cu129-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-v0.28.0-cu129-ubuntu2404",
+      "id": "vllm-v0.28.0-cu129-ubuntu2404-amd64",
+      "label": "vLLM 0.28.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-v0.28.0-cu129-ubuntu2404",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cuda-12.9",
+        "channel": "stable",
+        "digest": "sha256:56b291b6179fe5e6e6ad5c509d362e745280ccdbe81ecbc0f5155b1cab0ebfc5",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:a77ed1c057e0458dbed205dea0ecaacd0ca2405721be6e58182bf9ee42c359f6",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.28.0-cu129-ubuntu2404",
+        "variant": "default",
+        "version": "0.28.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.7.0rc14",
+      "wheel_id": "cu129-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-v0.28.0-cu129-ubuntu2404",
+      "id": "vllm-v0.28.0-cu129-ubuntu2404-arm64",
+      "label": "vLLM 0.28.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-v0.28.0-cu129-ubuntu2404",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cuda-12.9",
+        "channel": "stable",
+        "digest": "sha256:56b291b6179fe5e6e6ad5c509d362e745280ccdbe81ecbc0f5155b1cab0ebfc5",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:7652220c18398401025cb37b96dfbe28c82f04ba261de696fbdb41941e304c8c",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.28.0-cu129-ubuntu2404",
+        "variant": "default",
+        "version": "0.28.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.28.0-cu129-ubuntu2404-ucm-0.7.0rc14",
+      "wheel_id": "cu129-cp312-arm64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "amd64",
+      "family_id": "vllm-v0.28.0-ubuntu2404",
+      "id": "vllm-v0.28.0-ubuntu2404-amd64",
+      "label": "vLLM 0.28.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 amd64",
+      "platform": "linux/amd64",
+      "profile_id": "vllm-v0.28.0-ubuntu2404",
+      "runner": "ubuntu-24.04",
+      "runtime": {
+        "accelerator_runtime": "cuda-13.0",
+        "channel": "stable",
+        "digest": "sha256:f8fe15a8039343336945db10494eaad80ef941fe2b2a5fa6649fa38636051a65",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:ffaf945675c81fa7ed3e6a66c7c2d7189dd012614e2c961fac1c2702a7ba04be",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.28.0-ubuntu2404",
+        "variant": "default",
+        "version": "0.28.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.28.0-ubuntu2404-ucm-0.7.0rc14",
+      "wheel_id": "cu130-cp312-amd64"
+    },
+    {
+      "build_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "cpu_arch": "arm64",
+      "family_id": "vllm-v0.28.0-ubuntu2404",
+      "id": "vllm-v0.28.0-ubuntu2404-arm64",
+      "label": "vLLM 0.28.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 arm64",
+      "platform": "linux/arm64",
+      "profile_id": "vllm-v0.28.0-ubuntu2404",
+      "runner": "ubuntu-24.04-arm",
+      "runtime": {
+        "accelerator_runtime": "cuda-13.0",
+        "channel": "stable",
+        "digest": "sha256:f8fe15a8039343336945db10494eaad80ef941fe2b2a5fa6649fa38636051a65",
+        "glibc_version": null,
+        "image_reference": "docker.io/vllm/vllm-openai@sha256:41b54fb42c66a670a8b27e613ebef05898f24b9ab1bdab28bd00c877bd4935f4",
+        "os_id": "linux",
+        "os_version": "unreported",
+        "product_id": "vllm",
+        "python_abi": "cp312",
+        "python_version": "3.12",
+        "repository": "docker.io/vllm/vllm-openai",
+        "soc_version": "na",
+        "tag": "v0.28.0-ubuntu2404",
+        "variant": "default",
+        "version": "0.28.0"
+      },
+      "target_repository": "ghcr.io/supermarioyl/vllm-openai",
+      "target_tag": "supermarioyl-v0.28.0-ubuntu2404-ucm-0.7.0rc14",
+      "wheel_id": "cu130-cp312-arm64"
+    }
+  ],
+  "is_prerelease": true,
+  "kind": "ucm-release-plan",
+  "meta_package": {
+    "distribution": "supermarioyl-uc-manager",
+    "extras": {
+      "cann901-a2": "supermarioyl-uc-manager-cann901-a2==0.7.0rc14",
+      "cann901-a3": "supermarioyl-uc-manager-cann901-a3==0.7.0rc14",
+      "cann910-a2": "supermarioyl-uc-manager-cann910-a2==0.7.0rc14",
+      "cann910-a3": "supermarioyl-uc-manager-cann910-a3==0.7.0rc14",
+      "cu129": "supermarioyl-uc-manager-cuda-cu129==0.7.0rc14",
+      "cu130": "supermarioyl-uc-manager-cuda-cu130==0.7.0rc14",
+      "toolkit": "supermarioyl-ucm-toolkit==0.7.0rc14"
+    },
+    "version": "0.7.0rc14"
+  },
+  "publication_scope": "fork",
+  "publish": {
+    "chart_oci": {
+      "disposition": "publish",
+      "enabled": true,
+      "namespace": "ghcr.io/supermarioyl/charts",
+      "requested": true
+    },
+    "dockerhub": {
+      "disposition": "publish",
+      "enabled": true,
+      "namespace": "docker.io/lei6393",
+      "requested": true
+    },
+    "ghcr": {
+      "disposition": "publish",
+      "enabled": true,
+      "namespace": "ghcr.io/supermarioyl",
+      "requested": true
+    },
+    "github_release": {
+      "disposition": "publish",
+      "enabled": true,
+      "requested": true
+    },
+    "pypi": {
+      "dependency_index": "https://pypi.org/simple/",
+      "disposition": "publish",
+      "distribution_prefix": "supermarioyl-",
+      "distributions": [
+        "supermarioyl-uc-manager-cann901-a2",
+        "supermarioyl-uc-manager-cann901-a3",
+        "supermarioyl-uc-manager-cann910-a2",
+        "supermarioyl-uc-manager-cann910-a3",
+        "supermarioyl-uc-manager-cuda-cu129",
+        "supermarioyl-uc-manager-cuda-cu130",
+        "supermarioyl-ucm-toolkit"
+      ],
+      "enabled": true,
+      "index": "https://test.pypi.org/legacy/",
+      "json_api": "https://test.pypi.org/pypi/",
+      "requested": true,
+      "simple_index": "https://test.pypi.org/simple/",
+      "target": "testpypi"
+    }
+  },
+  "pypi_test_matrix": {
+    "include": [
+      {
+        "cpu_arch": "amd64",
+        "distribution": "supermarioyl-uc-manager-cann901-a2",
+        "extra": "cann901-a2",
+        "id": "cann901-a2-cp312-amd64",
+        "label": "cann901-a2 \u00b7 amd64",
+        "platform_arg": "ascend",
+        "runner": "ubuntu-24.04",
+        "runtime_image": "quay.io/ascend/vllm-ascend@sha256:d205010c8b01e55490d47328a0c390c40c7fef3d98d68bcf652ef0a10333035d"
+      },
+      {
+        "cpu_arch": "arm64",
+        "distribution": "supermarioyl-uc-manager-cann901-a2",
+        "extra": "cann901-a2",
+        "id": "cann901-a2-cp312-arm64",
+        "label": "cann901-a2 \u00b7 arm64",
+        "platform_arg": "ascend",
+        "runner": "ubuntu-24.04-arm",
+        "runtime_image": "quay.io/ascend/vllm-ascend@sha256:26610b7dbcd8a4b78f1e4de25fd970c4786c2a207e7dce0147adfdeabace9ccc"
+      },
+      {
+        "cpu_arch": "amd64",
+        "distribution": "supermarioyl-uc-manager-cann901-a3",
+        "extra": "cann901-a3",
+        "id": "cann901-a3-cp312-amd64",
+        "label": "cann901-a3 \u00b7 amd64",
+        "platform_arg": "ascend-a3",
+        "runner": "ubuntu-24.04",
+        "runtime_image": "quay.io/ascend/vllm-ascend@sha256:ce4fa61f3fba965fd3909bbfec22177333e22f83874668fc0fab51cdb2e3ee58"
+      },
+      {
+        "cpu_arch": "arm64",
+        "distribution": "supermarioyl-uc-manager-cann901-a3",
+        "extra": "cann901-a3",
+        "id": "cann901-a3-cp312-arm64",
+        "label": "cann901-a3 \u00b7 arm64",
+        "platform_arg": "ascend-a3",
+        "runner": "ubuntu-24.04-arm",
+        "runtime_image": "quay.io/ascend/vllm-ascend@sha256:a2be9c25aae8a81dc729262fd4e49a43753b24da984463485a7dc6712d8c6c1d"
+      },
+      {
+        "cpu_arch": "amd64",
+        "distribution": "supermarioyl-uc-manager-cann910-a2",
+        "extra": "cann910-a2",
+        "id": "cann910-a2-cp312-amd64",
+        "label": "cann910-a2 \u00b7 amd64",
+        "platform_arg": "ascend",
+        "runner": "ubuntu-24.04",
+        "runtime_image": "quay.io/ascend/vllm-ascend@sha256:95aab9f2b491c04b9a879f270237be1e382990c1c05c6d65f4e55b7bdb31edc3"
+      },
+      {
+        "cpu_arch": "arm64",
+        "distribution": "supermarioyl-uc-manager-cann910-a2",
+        "extra": "cann910-a2",
+        "id": "cann910-a2-cp312-arm64",
+        "label": "cann910-a2 \u00b7 arm64",
+        "platform_arg": "ascend",
+        "runner": "ubuntu-24.04-arm",
+        "runtime_image": "quay.io/ascend/vllm-ascend@sha256:4ee78def8f33d59d48f116d1dfa793332c23c99ecab4f0d7dd5cd62d0fb4e6c1"
+      },
+      {
+        "cpu_arch": "amd64",
+        "distribution": "supermarioyl-uc-manager-cann910-a3",
+        "extra": "cann910-a3",
+        "id": "cann910-a3-cp312-amd64",
+        "label": "cann910-a3 \u00b7 amd64",
+        "platform_arg": "ascend-a3",
+        "runner": "ubuntu-24.04",
+        "runtime_image": "quay.io/ascend/vllm-ascend@sha256:fdd86bc3c2edf8f5a814d8a5d28555bceffe6d58a73247f0d4ddc18b67497b5d"
+      },
+      {
+        "cpu_arch": "arm64",
+        "distribution": "supermarioyl-uc-manager-cann910-a3",
+        "extra": "cann910-a3",
+        "id": "cann910-a3-cp312-arm64",
+        "label": "cann910-a3 \u00b7 arm64",
+        "platform_arg": "ascend-a3",
+        "runner": "ubuntu-24.04-arm",
+        "runtime_image": "quay.io/ascend/vllm-ascend@sha256:96e4a97fce24262aee2dbcc6e81cb2655c45784c1a28450cb7c1114b0d05989e"
+      },
+      {
+        "cpu_arch": "amd64",
+        "distribution": "supermarioyl-uc-manager-cuda-cu129",
+        "extra": "cu129",
+        "id": "cu129-cp312-amd64",
+        "label": "cu129 \u00b7 amd64",
+        "platform_arg": "cuda",
+        "runner": "ubuntu-24.04",
+        "runtime_image": "docker.io/vllm/vllm-openai@sha256:3c5c53248febaa72823a4b7e51aafa1cd2b65d860392e3930414da4d3864f541"
+      },
+      {
+        "cpu_arch": "arm64",
+        "distribution": "supermarioyl-uc-manager-cuda-cu129",
+        "extra": "cu129",
+        "id": "cu129-cp312-arm64",
+        "label": "cu129 \u00b7 arm64",
+        "platform_arg": "cuda",
+        "runner": "ubuntu-24.04-arm",
+        "runtime_image": "docker.io/vllm/vllm-openai@sha256:8d83b99307619b29e4508b10c69411e388fd9d6f5dd859c98eea028d8415b907"
+      },
+      {
+        "cpu_arch": "amd64",
+        "distribution": "supermarioyl-uc-manager-cuda-cu130",
+        "extra": "cu130",
+        "id": "cu130-cp312-amd64",
+        "label": "cu130 \u00b7 amd64",
+        "platform_arg": "cuda",
+        "runner": "ubuntu-24.04",
+        "runtime_image": "docker.io/vllm/vllm-openai@sha256:770fe65b2c73ee74a5c42165cf3433de4048cc2cd9c57a937ca4e35aba5aa87b"
+      },
+      {
+        "cpu_arch": "arm64",
+        "distribution": "supermarioyl-uc-manager-cuda-cu130",
+        "extra": "cu130",
+        "id": "cu130-cp312-arm64",
+        "label": "cu130 \u00b7 arm64",
+        "platform_arg": "cuda",
+        "runner": "ubuntu-24.04-arm",
+        "runtime_image": "docker.io/vllm/vllm-openai@sha256:e51157695347d2cee1b13f1ac05369df6216af5d2991b6ad5a2e700861cba4b1"
+      }
+    ]
+  },
+  "release_kind": "publish",
+  "release_type": "prerelease",
+  "repository": "SuperMarioYL/unified-cache-management",
+  "route": "release",
+  "runtime_image_tag_prefix": "supermarioyl-",
+  "toolkit_package": {
+    "distribution": "supermarioyl-ucm-toolkit",
+    "version": "0.7.0rc14"
+  },
+  "version": "0.7.0rc14",
+  "version_authority": {
+    "runtime_selectors": {
+      "vllm": [
+        {
+          "raw": "0.26",
+          "tag": null,
+          "version": "0.26"
+        },
+        {
+          "raw": "0.27",
+          "tag": null,
+          "version": "0.27"
+        },
+        {
+          "raw": "0.28",
+          "tag": null,
+          "version": "0.28"
+        }
+      ],
+      "vllm-ascend": [
+        {
+          "raw": "0.23",
+          "tag": null,
+          "version": "0.23"
+        },
+        {
+          "raw": "0.24",
+          "tag": null,
+          "version": "0.24"
+        },
+        {
+          "raw": "0.25",
+          "tag": null,
+          "version": "0.25"
+        },
+        {
+          "raw": "0.26",
+          "tag": null,
+          "version": "0.26"
+        }
+      ]
+    },
+    "sha256": "sha256:afb226ccf339da262feb3a47901f21256b6fd7218837b5ca8ecfeaca69a91b6b",
+    "ucm_base_version": "0.7.0"
+  },
+  "wheel_matrix": {
+    "include": [
+      {
+        "id": "cann901-a2-cp312-amd64",
+        "label": "cann901-a2 \u00b7 cp312 \u00b7 amd64",
+        "runner": "ubuntu-24.04"
+      },
+      {
+        "id": "cann901-a2-cp312-arm64",
+        "label": "cann901-a2 \u00b7 cp312 \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm"
+      },
+      {
+        "id": "cann901-a3-cp312-amd64",
+        "label": "cann901-a3 \u00b7 cp312 \u00b7 amd64",
+        "runner": "ubuntu-24.04"
+      },
+      {
+        "id": "cann901-a3-cp312-arm64",
+        "label": "cann901-a3 \u00b7 cp312 \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm"
+      },
+      {
+        "id": "cann910-a2-cp312-amd64",
+        "label": "cann910-a2 \u00b7 cp312 \u00b7 amd64",
+        "runner": "ubuntu-24.04"
+      },
+      {
+        "id": "cann910-a2-cp312-arm64",
+        "label": "cann910-a2 \u00b7 cp312 \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm"
+      },
+      {
+        "id": "cann910-a3-cp312-amd64",
+        "label": "cann910-a3 \u00b7 cp312 \u00b7 amd64",
+        "runner": "ubuntu-24.04"
+      },
+      {
+        "id": "cann910-a3-cp312-arm64",
+        "label": "cann910-a3 \u00b7 cp312 \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm"
+      },
+      {
+        "id": "cu129-cp312-amd64",
+        "label": "cu129 \u00b7 cp312 \u00b7 amd64",
+        "runner": "ubuntu-24.04"
+      },
+      {
+        "id": "cu129-cp312-arm64",
+        "label": "cu129 \u00b7 cp312 \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm"
+      },
+      {
+        "id": "cu130-cp312-amd64",
+        "label": "cu130 \u00b7 cp312 \u00b7 amd64",
+        "runner": "ubuntu-24.04"
+      },
+      {
+        "id": "cu130-cp312-arm64",
+        "label": "cu130 \u00b7 cp312 \u00b7 arm64",
+        "runner": "ubuntu-24.04-arm"
+      }
+    ]
+  },
+  "wheels": [
+    {
+      "backend": "cann-a2",
+      "build": {
+        "docker_target": "wheel",
+        "platform_arg": "ascend"
+      },
+      "build_requirements": [
+        "auditwheel==6.7.0",
+        "build==1.3.0",
+        "cmake==3.31.6",
+        "packaging==24.2",
+        "pyproject-hooks==1.2.0",
+        "pyyaml==6.0.2",
+        "setuptools==75.8.2",
+        "wheel==0.45.1"
+      ],
+      "builder": {
+        "digest": "sha256:a0d3c63132b219f8129568b4100ab8b4afe85efb06b68eef3ad3ad775e781f20",
+        "manylinux": "manylinux_2_34",
+        "recipe_revision": "b9366fe11c55",
+        "repository": "ghcr.io/supermarioyl/ucm-builder-vllm-ascend",
+        "source_image": "quay.io/ascend/manylinux:9.0.1-910b-manylinux_2_34-py3.12",
+        "source_image_digest": "sha256:10d36828b6811f75c7f31382a2a6ad4f12be73d77e66bc9c3ff0af9e43b515bf",
+        "tag": "cann901-a2-cp312-manylinux2_34-amd64-rb9366fe11c55"
+      },
+      "cpu_arch": "amd64",
+      "dist_name": "supermarioyl-uc-manager-cann901-a2",
+      "external_runtime_exclude_patterns": [
+        "/usr/local/Ascend/*"
+      ],
+      "group_id": "cann901-a2",
+      "id": "cann901-a2-cp312-amd64",
+      "label": "cann901-a2 \u00b7 cp312 \u00b7 amd64",
+      "manylinux": "manylinux_2_34",
+      "platform": "linux/amd64",
+      "profile_id": "cann901-a2",
+      "python_abi": "cp312",
+      "python_version": "3.12",
+      "repair": {
+        "excluded_patterns": [
+          "/usr/local/Ascend/*"
+        ],
+        "target_platform": "manylinux_2_34_x86_64",
+        "tool": "auditwheel",
+        "version": "6.7.0"
+      },
+      "runner": "ubuntu-24.04",
+      "runtime_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "runtime_variant": "cann901-a2",
+      "target_platform_tag": "manylinux_2_34_x86_64",
+      "wheel_version": "0.7.0rc14"
+    },
+    {
+      "backend": "cann-a2",
+      "build": {
+        "docker_target": "wheel",
+        "platform_arg": "ascend"
+      },
+      "build_requirements": [
+        "auditwheel==6.7.0",
+        "build==1.3.0",
+        "cmake==3.31.6",
+        "packaging==24.2",
+        "pyproject-hooks==1.2.0",
+        "pyyaml==6.0.2",
+        "setuptools==75.8.2",
+        "wheel==0.45.1"
+      ],
+      "builder": {
+        "digest": "sha256:68239640be327216ebf41732b99fbe4b2b4d56487926052108bfc2b169248f69",
+        "manylinux": "manylinux_2_34",
+        "recipe_revision": "d8f8ba052092",
+        "repository": "ghcr.io/supermarioyl/ucm-builder-vllm-ascend",
+        "source_image": "quay.io/ascend/manylinux:9.0.1-910b-manylinux_2_34-py3.12",
+        "source_image_digest": "sha256:96d67b4b52bd3959ef60b1d2026a5e2c1012ae3f1b15eb860bb0d1c1977547d4",
+        "tag": "cann901-a2-cp312-manylinux2_34-arm64-rd8f8ba052092"
+      },
+      "cpu_arch": "arm64",
+      "dist_name": "supermarioyl-uc-manager-cann901-a2",
+      "external_runtime_exclude_patterns": [
+        "/usr/local/Ascend/*"
+      ],
+      "group_id": "cann901-a2",
+      "id": "cann901-a2-cp312-arm64",
+      "label": "cann901-a2 \u00b7 cp312 \u00b7 arm64",
+      "manylinux": "manylinux_2_34",
+      "platform": "linux/arm64",
+      "profile_id": "cann901-a2",
+      "python_abi": "cp312",
+      "python_version": "3.12",
+      "repair": {
+        "excluded_patterns": [
+          "/usr/local/Ascend/*"
+        ],
+        "target_platform": "manylinux_2_34_aarch64",
+        "tool": "auditwheel",
+        "version": "6.7.0"
+      },
+      "runner": "ubuntu-24.04-arm",
+      "runtime_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "runtime_variant": "cann901-a2",
+      "target_platform_tag": "manylinux_2_34_aarch64",
+      "wheel_version": "0.7.0rc14"
+    },
+    {
+      "backend": "cann-a3",
+      "build": {
+        "docker_target": "wheel",
+        "platform_arg": "ascend-a3"
+      },
+      "build_requirements": [
+        "auditwheel==6.7.0",
+        "build==1.3.0",
+        "cmake==3.31.6",
+        "packaging==24.2",
+        "pyproject-hooks==1.2.0",
+        "pyyaml==6.0.2",
+        "setuptools==75.8.2",
+        "wheel==0.45.1"
+      ],
+      "builder": {
+        "digest": "sha256:48f65767993a8fcd52fded65de9d2bff3412d17c76e0cae8f765d4ea464dd006",
+        "manylinux": "manylinux_2_34",
+        "recipe_revision": "432b385353e2",
+        "repository": "ghcr.io/supermarioyl/ucm-builder-vllm-ascend",
+        "source_image": "quay.io/ascend/manylinux:9.0.1-a3-manylinux_2_34-py3.12",
+        "source_image_digest": "sha256:8ce646380359229a18e79f4aa52f181a63c8564c9a61ee7c55b986d988cb2319",
+        "tag": "cann901-a3-cp312-manylinux2_34-amd64-r432b385353e2"
+      },
+      "cpu_arch": "amd64",
+      "dist_name": "supermarioyl-uc-manager-cann901-a3",
+      "external_runtime_exclude_patterns": [
+        "/usr/local/Ascend/*"
+      ],
+      "group_id": "cann901-a3",
+      "id": "cann901-a3-cp312-amd64",
+      "label": "cann901-a3 \u00b7 cp312 \u00b7 amd64",
+      "manylinux": "manylinux_2_34",
+      "platform": "linux/amd64",
+      "profile_id": "cann901-a3",
+      "python_abi": "cp312",
+      "python_version": "3.12",
+      "repair": {
+        "excluded_patterns": [
+          "/usr/local/Ascend/*"
+        ],
+        "target_platform": "manylinux_2_34_x86_64",
+        "tool": "auditwheel",
+        "version": "6.7.0"
+      },
+      "runner": "ubuntu-24.04",
+      "runtime_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "runtime_variant": "cann901-a3",
+      "target_platform_tag": "manylinux_2_34_x86_64",
+      "wheel_version": "0.7.0rc14"
+    },
+    {
+      "backend": "cann-a3",
+      "build": {
+        "docker_target": "wheel",
+        "platform_arg": "ascend-a3"
+      },
+      "build_requirements": [
+        "auditwheel==6.7.0",
+        "build==1.3.0",
+        "cmake==3.31.6",
+        "packaging==24.2",
+        "pyproject-hooks==1.2.0",
+        "pyyaml==6.0.2",
+        "setuptools==75.8.2",
+        "wheel==0.45.1"
+      ],
+      "builder": {
+        "digest": "sha256:47089966db9830de9d0e4241abf6031b7cd2f4b7beaf540c6b42291f0bc748d3",
+        "manylinux": "manylinux_2_34",
+        "recipe_revision": "204cc5a95a4d",
+        "repository": "ghcr.io/supermarioyl/ucm-builder-vllm-ascend",
+        "source_image": "quay.io/ascend/manylinux:9.0.1-a3-manylinux_2_34-py3.12",
+        "source_image_digest": "sha256:ef0b4fd870fdf642254711ceef6478386bd3b8a14684041084b3d23dce1a1c70",
+        "tag": "cann901-a3-cp312-manylinux2_34-arm64-r204cc5a95a4d"
+      },
+      "cpu_arch": "arm64",
+      "dist_name": "supermarioyl-uc-manager-cann901-a3",
+      "external_runtime_exclude_patterns": [
+        "/usr/local/Ascend/*"
+      ],
+      "group_id": "cann901-a3",
+      "id": "cann901-a3-cp312-arm64",
+      "label": "cann901-a3 \u00b7 cp312 \u00b7 arm64",
+      "manylinux": "manylinux_2_34",
+      "platform": "linux/arm64",
+      "profile_id": "cann901-a3",
+      "python_abi": "cp312",
+      "python_version": "3.12",
+      "repair": {
+        "excluded_patterns": [
+          "/usr/local/Ascend/*"
+        ],
+        "target_platform": "manylinux_2_34_aarch64",
+        "tool": "auditwheel",
+        "version": "6.7.0"
+      },
+      "runner": "ubuntu-24.04-arm",
+      "runtime_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "runtime_variant": "cann901-a3",
+      "target_platform_tag": "manylinux_2_34_aarch64",
+      "wheel_version": "0.7.0rc14"
+    },
+    {
+      "backend": "cann-a2",
+      "build": {
+        "docker_target": "wheel",
+        "platform_arg": "ascend"
+      },
+      "build_requirements": [
+        "auditwheel==6.7.0",
+        "build==1.3.0",
+        "cmake==3.31.6",
+        "packaging==24.2",
+        "pyproject-hooks==1.2.0",
+        "pyyaml==6.0.2",
+        "setuptools==75.8.2",
+        "wheel==0.45.1"
+      ],
+      "builder": {
+        "digest": "sha256:edfd8e008f899343b6135c76bc63b2e39995083600e5fe3824c642d4dd51a94b",
+        "manylinux": "manylinux_2_34",
+        "recipe_revision": "5743d1925192",
+        "repository": "ghcr.io/supermarioyl/ucm-builder-vllm-ascend",
+        "source_image": "quay.io/ascend/manylinux:9.1.0-910b-manylinux_2_34-py3.12",
+        "source_image_digest": "sha256:befb7e3fb067a33464a31e3530b96b1d2506ca86473087dc16cbdf8a625838e3",
+        "tag": "cann910-a2-cp312-manylinux2_34-amd64-r5743d1925192"
+      },
+      "cpu_arch": "amd64",
+      "dist_name": "supermarioyl-uc-manager-cann910-a2",
+      "external_runtime_exclude_patterns": [
+        "/usr/local/Ascend/*"
+      ],
+      "group_id": "cann910-a2",
+      "id": "cann910-a2-cp312-amd64",
+      "label": "cann910-a2 \u00b7 cp312 \u00b7 amd64",
+      "manylinux": "manylinux_2_34",
+      "platform": "linux/amd64",
+      "profile_id": "cann910-a2",
+      "python_abi": "cp312",
+      "python_version": "3.12",
+      "repair": {
+        "excluded_patterns": [
+          "/usr/local/Ascend/*"
+        ],
+        "target_platform": "manylinux_2_34_x86_64",
+        "tool": "auditwheel",
+        "version": "6.7.0"
+      },
+      "runner": "ubuntu-24.04",
+      "runtime_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "runtime_variant": "cann910-a2",
+      "target_platform_tag": "manylinux_2_34_x86_64",
+      "wheel_version": "0.7.0rc14"
+    },
+    {
+      "backend": "cann-a2",
+      "build": {
+        "docker_target": "wheel",
+        "platform_arg": "ascend"
+      },
+      "build_requirements": [
+        "auditwheel==6.7.0",
+        "build==1.3.0",
+        "cmake==3.31.6",
+        "packaging==24.2",
+        "pyproject-hooks==1.2.0",
+        "pyyaml==6.0.2",
+        "setuptools==75.8.2",
+        "wheel==0.45.1"
+      ],
+      "builder": {
+        "digest": "sha256:25b81b82db3a100937bad788b6158288c292107202a43cc3223f6ec3c9f5e2d6",
+        "manylinux": "manylinux_2_34",
+        "recipe_revision": "e92891911993",
+        "repository": "ghcr.io/supermarioyl/ucm-builder-vllm-ascend",
+        "source_image": "quay.io/ascend/manylinux:9.1.0-910b-manylinux_2_34-py3.12",
+        "source_image_digest": "sha256:7f4a0c0454393a99b696b7b941ae855a97928a470a659b4c0159c25bc54aa00f",
+        "tag": "cann910-a2-cp312-manylinux2_34-arm64-re92891911993"
+      },
+      "cpu_arch": "arm64",
+      "dist_name": "supermarioyl-uc-manager-cann910-a2",
+      "external_runtime_exclude_patterns": [
+        "/usr/local/Ascend/*"
+      ],
+      "group_id": "cann910-a2",
+      "id": "cann910-a2-cp312-arm64",
+      "label": "cann910-a2 \u00b7 cp312 \u00b7 arm64",
+      "manylinux": "manylinux_2_34",
+      "platform": "linux/arm64",
+      "profile_id": "cann910-a2",
+      "python_abi": "cp312",
+      "python_version": "3.12",
+      "repair": {
+        "excluded_patterns": [
+          "/usr/local/Ascend/*"
+        ],
+        "target_platform": "manylinux_2_34_aarch64",
+        "tool": "auditwheel",
+        "version": "6.7.0"
+      },
+      "runner": "ubuntu-24.04-arm",
+      "runtime_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "runtime_variant": "cann910-a2",
+      "target_platform_tag": "manylinux_2_34_aarch64",
+      "wheel_version": "0.7.0rc14"
+    },
+    {
+      "backend": "cann-a3",
+      "build": {
+        "docker_target": "wheel",
+        "platform_arg": "ascend-a3"
+      },
+      "build_requirements": [
+        "auditwheel==6.7.0",
+        "build==1.3.0",
+        "cmake==3.31.6",
+        "packaging==24.2",
+        "pyproject-hooks==1.2.0",
+        "pyyaml==6.0.2",
+        "setuptools==75.8.2",
+        "wheel==0.45.1"
+      ],
+      "builder": {
+        "digest": "sha256:0adb8cd3cf4fab548f6c613aeeed1df5c48b314f938fed52b84e3d2b9d816bca",
+        "manylinux": "manylinux_2_34",
+        "recipe_revision": "541cb1652a5f",
+        "repository": "ghcr.io/supermarioyl/ucm-builder-vllm-ascend",
+        "source_image": "quay.io/ascend/manylinux:9.1.0-a3-manylinux_2_34-py3.12",
+        "source_image_digest": "sha256:5e8a6964f9837623819a3281402e560e97c3cdfedccf2b6a057810594ecf69f0",
+        "tag": "cann910-a3-cp312-manylinux2_34-amd64-r541cb1652a5f"
+      },
+      "cpu_arch": "amd64",
+      "dist_name": "supermarioyl-uc-manager-cann910-a3",
+      "external_runtime_exclude_patterns": [
+        "/usr/local/Ascend/*"
+      ],
+      "group_id": "cann910-a3",
+      "id": "cann910-a3-cp312-amd64",
+      "label": "cann910-a3 \u00b7 cp312 \u00b7 amd64",
+      "manylinux": "manylinux_2_34",
+      "platform": "linux/amd64",
+      "profile_id": "cann910-a3",
+      "python_abi": "cp312",
+      "python_version": "3.12",
+      "repair": {
+        "excluded_patterns": [
+          "/usr/local/Ascend/*"
+        ],
+        "target_platform": "manylinux_2_34_x86_64",
+        "tool": "auditwheel",
+        "version": "6.7.0"
+      },
+      "runner": "ubuntu-24.04",
+      "runtime_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "runtime_variant": "cann910-a3",
+      "target_platform_tag": "manylinux_2_34_x86_64",
+      "wheel_version": "0.7.0rc14"
+    },
+    {
+      "backend": "cann-a3",
+      "build": {
+        "docker_target": "wheel",
+        "platform_arg": "ascend-a3"
+      },
+      "build_requirements": [
+        "auditwheel==6.7.0",
+        "build==1.3.0",
+        "cmake==3.31.6",
+        "packaging==24.2",
+        "pyproject-hooks==1.2.0",
+        "pyyaml==6.0.2",
+        "setuptools==75.8.2",
+        "wheel==0.45.1"
+      ],
+      "builder": {
+        "digest": "sha256:3379f99e4a0db536bfe455118fb19c4c3c738b48f9a08bd6c9fb9762947cc6c6",
+        "manylinux": "manylinux_2_34",
+        "recipe_revision": "91b2f4501580",
+        "repository": "ghcr.io/supermarioyl/ucm-builder-vllm-ascend",
+        "source_image": "quay.io/ascend/manylinux:9.1.0-a3-manylinux_2_34-py3.12",
+        "source_image_digest": "sha256:8b4050926485e839c0fef066eed9427c10d1f9f8949ad4e123dae82e87d1eb7e",
+        "tag": "cann910-a3-cp312-manylinux2_34-arm64-r91b2f4501580"
+      },
+      "cpu_arch": "arm64",
+      "dist_name": "supermarioyl-uc-manager-cann910-a3",
+      "external_runtime_exclude_patterns": [
+        "/usr/local/Ascend/*"
+      ],
+      "group_id": "cann910-a3",
+      "id": "cann910-a3-cp312-arm64",
+      "label": "cann910-a3 \u00b7 cp312 \u00b7 arm64",
+      "manylinux": "manylinux_2_34",
+      "platform": "linux/arm64",
+      "profile_id": "cann910-a3",
+      "python_abi": "cp312",
+      "python_version": "3.12",
+      "repair": {
+        "excluded_patterns": [
+          "/usr/local/Ascend/*"
+        ],
+        "target_platform": "manylinux_2_34_aarch64",
+        "tool": "auditwheel",
+        "version": "6.7.0"
+      },
+      "runner": "ubuntu-24.04-arm",
+      "runtime_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "runtime_variant": "cann910-a3",
+      "target_platform_tag": "manylinux_2_34_aarch64",
+      "wheel_version": "0.7.0rc14"
+    },
+    {
+      "backend": "cuda",
+      "build": {
+        "docker_target": "wheel",
+        "platform_arg": "cuda"
+      },
+      "build_requirements": [
+        "auditwheel==6.7.0",
+        "build==1.3.0",
+        "cmake==3.31.6",
+        "packaging==24.2",
+        "pyproject-hooks==1.2.0",
+        "pyyaml==6.0.2",
+        "setuptools==75.8.2",
+        "wheel==0.45.1"
+      ],
+      "builder": {
+        "digest": "sha256:3a8765c6ad2679fd30416e258920b34636d8ac032c50b423c4d18d3f8fb99dfb",
+        "manylinux": "manylinux_2_28",
+        "recipe_revision": "5516962854f4",
+        "repository": "ghcr.io/supermarioyl/ucm-builder-vllm",
+        "source_image": "docker.io/pytorch/manylinux2_28-builder:cuda12.9",
+        "source_image_digest": "sha256:d26cd7a9489b53310296e86042de630ac947e25a71dd24b547b86ca9a0a3fc79",
+        "tag": "cu129-cp312-manylinux2_28-amd64-r5516962854f4"
+      },
+      "cpu_arch": "amd64",
+      "dist_name": "supermarioyl-uc-manager-cuda-cu129",
+      "external_runtime_exclude_patterns": [
+        "libcudart.so.12"
+      ],
+      "group_id": "cu129",
+      "id": "cu129-cp312-amd64",
+      "label": "cu129 \u00b7 cp312 \u00b7 amd64",
+      "manylinux": "manylinux_2_28",
+      "platform": "linux/amd64",
+      "profile_id": "cu129",
+      "python_abi": "cp312",
+      "python_version": "3.12",
+      "repair": {
+        "excluded_patterns": [
+          "libcudart.so.12"
+        ],
+        "target_platform": "manylinux_2_28_x86_64",
+        "tool": "auditwheel",
+        "version": "6.7.0"
+      },
+      "runner": "ubuntu-24.04",
+      "runtime_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "runtime_variant": "cu129",
+      "target_platform_tag": "manylinux_2_28_x86_64",
+      "wheel_version": "0.7.0rc14"
+    },
+    {
+      "backend": "cuda",
+      "build": {
+        "docker_target": "wheel",
+        "platform_arg": "cuda"
+      },
+      "build_requirements": [
+        "auditwheel==6.7.0",
+        "build==1.3.0",
+        "cmake==3.31.6",
+        "packaging==24.2",
+        "pyproject-hooks==1.2.0",
+        "pyyaml==6.0.2",
+        "setuptools==75.8.2",
+        "wheel==0.45.1"
+      ],
+      "builder": {
+        "digest": "sha256:87b6c8d9b4f352b53e3c076ef3e3c231c495d10243c4d25e2c59e40a54c57bc9",
+        "manylinux": "manylinux_2_28",
+        "recipe_revision": "080237829e4b",
+        "repository": "ghcr.io/supermarioyl/ucm-builder-vllm",
+        "source_image": "docker.io/pytorch/manylinuxaarch64-builder:cuda12.9",
+        "source_image_digest": "sha256:a938397b8896d35d35edc86a402930cc55d12ffc67fe0b4d19a5dff21781d7f4",
+        "tag": "cu129-cp312-manylinux2_28-arm64-r080237829e4b"
+      },
+      "cpu_arch": "arm64",
+      "dist_name": "supermarioyl-uc-manager-cuda-cu129",
+      "external_runtime_exclude_patterns": [
+        "libcudart.so.12"
+      ],
+      "group_id": "cu129",
+      "id": "cu129-cp312-arm64",
+      "label": "cu129 \u00b7 cp312 \u00b7 arm64",
+      "manylinux": "manylinux_2_28",
+      "platform": "linux/arm64",
+      "profile_id": "cu129",
+      "python_abi": "cp312",
+      "python_version": "3.12",
+      "repair": {
+        "excluded_patterns": [
+          "libcudart.so.12"
+        ],
+        "target_platform": "manylinux_2_28_aarch64",
+        "tool": "auditwheel",
+        "version": "6.7.0"
+      },
+      "runner": "ubuntu-24.04-arm",
+      "runtime_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "runtime_variant": "cu129",
+      "target_platform_tag": "manylinux_2_28_aarch64",
+      "wheel_version": "0.7.0rc14"
+    },
+    {
+      "backend": "cuda",
+      "build": {
+        "docker_target": "wheel",
+        "platform_arg": "cuda"
+      },
+      "build_requirements": [
+        "auditwheel==6.7.0",
+        "build==1.3.0",
+        "cmake==3.31.6",
+        "packaging==24.2",
+        "pyproject-hooks==1.2.0",
+        "pyyaml==6.0.2",
+        "setuptools==75.8.2",
+        "wheel==0.45.1"
+      ],
+      "builder": {
+        "digest": "sha256:405175ef0a9a0c0137a1f14c4f04fa2e38f79f9a153a6b4986d570aaf0f5377a",
+        "manylinux": "manylinux_2_28",
+        "recipe_revision": "92efa4c0888f",
+        "repository": "ghcr.io/supermarioyl/ucm-builder-vllm",
+        "source_image": "docker.io/pytorch/manylinux2_28-builder:cuda13.0",
+        "source_image_digest": "sha256:2d35acc432cda998e0736e6fee6a6d75dfb8a8a298d3091a5c4713307cb2cb3e",
+        "tag": "cu130-cp312-manylinux2_28-amd64-r92efa4c0888f"
+      },
+      "cpu_arch": "amd64",
+      "dist_name": "supermarioyl-uc-manager-cuda-cu130",
+      "external_runtime_exclude_patterns": [
+        "libcudart.so.13"
+      ],
+      "group_id": "cu130",
+      "id": "cu130-cp312-amd64",
+      "label": "cu130 \u00b7 cp312 \u00b7 amd64",
+      "manylinux": "manylinux_2_28",
+      "platform": "linux/amd64",
+      "profile_id": "cu130",
+      "python_abi": "cp312",
+      "python_version": "3.12",
+      "repair": {
+        "excluded_patterns": [
+          "libcudart.so.13"
+        ],
+        "target_platform": "manylinux_2_28_x86_64",
+        "tool": "auditwheel",
+        "version": "6.7.0"
+      },
+      "runner": "ubuntu-24.04",
+      "runtime_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "runtime_variant": "cu130",
+      "target_platform_tag": "manylinux_2_28_x86_64",
+      "wheel_version": "0.7.0rc14"
+    },
+    {
+      "backend": "cuda",
+      "build": {
+        "docker_target": "wheel",
+        "platform_arg": "cuda"
+      },
+      "build_requirements": [
+        "auditwheel==6.7.0",
+        "build==1.3.0",
+        "cmake==3.31.6",
+        "packaging==24.2",
+        "pyproject-hooks==1.2.0",
+        "pyyaml==6.0.2",
+        "setuptools==75.8.2",
+        "wheel==0.45.1"
+      ],
+      "builder": {
+        "digest": "sha256:7edaa7b5985e07fc3e9465fbb5eb5bd1c3339d7d376d9452714ee7cb3117ca14",
+        "manylinux": "manylinux_2_28",
+        "recipe_revision": "b7316e9c9070",
+        "repository": "ghcr.io/supermarioyl/ucm-builder-vllm",
+        "source_image": "docker.io/pytorch/manylinuxaarch64-builder:cuda13.0",
+        "source_image_digest": "sha256:cdcb86a56945ee7455c8d2236ac2b82fd3018fb07a04c1a06b746c72f9034306",
+        "tag": "cu130-cp312-manylinux2_28-arm64-rb7316e9c9070"
+      },
+      "cpu_arch": "arm64",
+      "dist_name": "supermarioyl-uc-manager-cuda-cu130",
+      "external_runtime_exclude_patterns": [
+        "libcudart.so.13"
+      ],
+      "group_id": "cu130",
+      "id": "cu130-cp312-arm64",
+      "label": "cu130 \u00b7 cp312 \u00b7 arm64",
+      "manylinux": "manylinux_2_28",
+      "platform": "linux/arm64",
+      "profile_id": "cu130",
+      "python_abi": "cp312",
+      "python_version": "3.12",
+      "repair": {
+        "excluded_patterns": [
+          "libcudart.so.13"
+        ],
+        "target_platform": "manylinux_2_28_aarch64",
+        "tool": "auditwheel",
+        "version": "6.7.0"
+      },
+      "runner": "ubuntu-24.04-arm",
+      "runtime_requirements": [
+        "wrapt==1.17.2"
+      ],
+      "runtime_variant": "cu130",
+      "target_platform_tag": "manylinux_2_28_aarch64",
+      "wheel_version": "0.7.0rc14"
+    }
+  ]
+}

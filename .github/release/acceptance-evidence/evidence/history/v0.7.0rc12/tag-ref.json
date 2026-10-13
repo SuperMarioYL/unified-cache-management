@@ -1,0 +1,10 @@
+{
+  "node_id": "REF_kwDORjIt2bRyZWZzL3RhZ3MvdjAuNy4wcmMxMg",
+  "object": {
+    "sha": "1d7a375480d32862dc9367a811a48a0a0ebce2ec",
+    "type": "commit",
+    "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/commits/1d7a375480d32862dc9367a811a48a0a0ebce2ec"
+  },
+  "ref": "refs/tags/v0.7.0rc12",
+  "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/refs/tags/v0.7.0rc12"
+}

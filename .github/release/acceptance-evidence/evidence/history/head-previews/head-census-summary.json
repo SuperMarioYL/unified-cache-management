@@ -1,0 +1,77 @@
+[
+  {
+    "tag": "v0.7.0rc10",
+    "observer_run_id": 38392013647,
+    "production_sha_matches": true,
+    "module_hashes_match": true,
+    "bindings_match": true,
+    "inventory_matches_saved_plan": true,
+    "baseline_matches_frozen": true,
+    "baseline_count": 7,
+    "registry_count": 169,
+    "presence_counts": {
+      "present": 0,
+      "absent": 169,
+      "error": 0
+    },
+    "census_status": "complete",
+    "workflow_conclusion": "success",
+    "ready_for_manual": true
+  },
+  {
+    "tag": "v0.7.0rc11",
+    "observer_run_id": 38392289710,
+    "production_sha_matches": true,
+    "module_hashes_match": true,
+    "bindings_match": true,
+    "inventory_matches_saved_plan": true,
+    "baseline_matches_frozen": true,
+    "baseline_count": 7,
+    "registry_count": 169,
+    "presence_counts": {
+      "present": 0,
+      "absent": 169,
+      "error": 0
+    },
+    "census_status": "complete",
+    "workflow_conclusion": "success",
+    "ready_for_manual": true
+  },
+  {
+    "tag": "v0.7.0rc12",
+    "observer_run_id": 38391094616,
+    "production_sha_matches": true,
+    "module_hashes_match": true,
+    "bindings_match": true,
+    "inventory_matches_saved_plan": true,
+    "baseline_matches_frozen": true,
+    "baseline_count": 7,
+    "registry_count": 169,
+    "presence_counts": {
+      "present": 0,
+      "absent": 169,
+      "error": 0
+    },
+    "census_status": "complete",
+    "ready_for_manual": true
+  },
+  {
+    "tag": "v0.7.0rc14",
+    "observer_run_id": 38392505330,
+    "production_sha_matches": true,
+    "module_hashes_match": true,
+    "bindings_match": true,
+    "inventory_matches_saved_plan": true,
+    "baseline_matches_frozen": true,
+    "baseline_count": 7,
+    "registry_count": 169,
+    "presence_counts": {
+      "present": 1,
+      "absent": 168,
+      "error": 0
+    },
+    "census_status": "complete",
+    "workflow_conclusion": "success",
+    "ready_for_manual": true
+  }
+]

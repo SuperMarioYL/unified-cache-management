@@ -1,0 +1,26 @@
+{
+  "max_count": null,
+  "repository": "SuperMarioYL/unified-cache-management",
+  "results": [
+    {
+      "failures": [
+        {
+          "attempts": 1,
+          "error": "GitHub API HTTP 422: {\"message\":\"Repository rule violations found\\n\\nCannot delete this tag\\n\\n\",\"documentation_url\":\"https://docs.github.com/rest/git/refs#delete-a-reference\",\"status\":\"422\"}",
+          "kind": "git-tag",
+          "reference": "v0.7.0rc12"
+        }
+      ],
+      "registry_references": 169,
+      "release_ids": [
+        387563734
+      ],
+      "run_ids": [
+        34693636766
+      ],
+      "status": "blocked",
+      "tag": "v0.7.0rc12"
+    }
+  ],
+  "status": "failed"
+}

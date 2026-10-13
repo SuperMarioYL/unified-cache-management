@@ -1,0 +1,43 @@
+{
+  "scope": "sample only; no deduction of presence for unprobed references",
+  "planned_target_count": 169,
+  "observations": [
+    {
+      "kind": "chart-oci",
+      "reference": "ghcr.io/supermarioyl/charts/unified-cache-chart:0.7.0-rc.12",
+      "presence": "unknown",
+      "http_status": 403,
+      "error_type": "RemoteError"
+    },
+    {
+      "kind": "ghcr-index",
+      "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc12",
+      "presence": "unknown",
+      "http_status": 403,
+      "error_type": "RemoteError"
+    },
+    {
+      "kind": "ghcr-index",
+      "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.7.0rc12",
+      "presence": "unknown",
+      "http_status": 403,
+      "error_type": "RemoteError"
+    },
+    {
+      "kind": "dockerhub-index",
+      "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc12",
+      "presence": "absent",
+      "http_status": 404,
+      "error_type": "RemoteError",
+      "exact_state": null
+    },
+    {
+      "kind": "dockerhub-member",
+      "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc12-amd64",
+      "presence": "absent",
+      "http_status": 404,
+      "error_type": "RemoteError",
+      "exact_state": null
+    }
+  ]
+}

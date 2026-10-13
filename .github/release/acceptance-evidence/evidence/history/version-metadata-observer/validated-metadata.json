@@ -1,0 +1,41 @@
+{
+  "observer_run_id": 38397900638,
+  "observer_helper_sha": "776bfbb1cdad7fd30d6beb2a794ae9aedd87a708",
+  "production": {
+    "sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+    "module_hashes": {
+      "cleanup.py": "9e610fe42b1038b00eecd41148c0c29c63190b21e5b6ee27ec949556053ba585",
+      "cleanup_records.py": "186a1e05b02ea77ddd2360a1162620d7f86917bc512e7e39a5209fd2484aaba7",
+      "cleanup_inventory.py": "52d23639d541736691d01b24f7eaa4f6b48056839f90b617770ba2dd547dc6ad",
+      "cleanup_remote.py": "442374438d4cee304620ae67619c9a18f35b2d9d31be09416e848842ab3bbdb0"
+    }
+  },
+  "resource_path": "/users/SuperMarioYL/packages/container/charts%2Funified-cache-chart/versions/1240791935",
+  "registry_version_id": 1240791935,
+  "immutable_digest": "sha256:6f6be37f7eb83488c3578f383449e45b07d34fd7693bc8b67a63412173ed8cff",
+  "all_aliases": [
+    "0.7.0-rc.14"
+  ],
+  "protected_chart_references": [
+    "ghcr.io/supermarioyl/charts/unified-cache-chart:0.7.0-rc.15",
+    "ghcr.io/supermarioyl/charts/unified-cache-chart:0.7.0-rc.16",
+    "ghcr.io/supermarioyl/charts/unified-cache-chart:0.7.0-rc.17",
+    "ghcr.io/supermarioyl/charts/unified-cache-chart:0.8.0-rc.2"
+  ],
+  "protected_chart_alias_overlap": [],
+  "only_historical_alias": true,
+  "baseline_matches_frozen": true,
+  "baseline_count": 7,
+  "readback_status": "incomplete",
+  "expected_reason": "All 19 exact historical holders/assets/Chart-version remain present; this is a read-only pre-delete alias audit, not deletion acceptance.",
+  "resources_status_counts": {
+    "200": 19
+  },
+  "metadata_full_sha256": "dc5c336f5fae7a6fa52601081710fc6d3f18c675e92d074f47facfd564891bf0",
+  "raw_observer_artifact_sha256": "071011a3753431ee1f54910b5b72f801539451befc5ae9c804916c12b7bfd9d5",
+  "protected_manifest_coordinates_disjoint": true,
+  "reference_only_disjoint": true,
+  "manifest_missing_github_fingerprint_only": [
+    "v0.7.0rc13"
+  ]
+}

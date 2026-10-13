@@ -1,0 +1,1229 @@
+[
+  {
+    "all_archives_crc_verified": true,
+    "asset_count": 0,
+    "assets_backup": {
+      "assets": [],
+      "backup_complete": true
+    },
+    "backup_only": "No deletion has been executed; registry samples do not prove full inventory absence",
+    "backups_complete": true,
+    "metadata_backups": [
+      {
+        "bytes": 4782,
+        "path": "v0.7.0rc10/34691047256-artifacts.json",
+        "sha256": "d863091f5ba1e4d80a382a3f9f3b37d74cc70768f6159450370beca294129991"
+      },
+      {
+        "bytes": 204064,
+        "path": "v0.7.0rc10/34691047256-attempt-1-jobs.json",
+        "sha256": "80b01afc64f349d7280aea4852326f2a240ac2aa0699f3255a4c2db75b29ce80"
+      },
+      {
+        "bytes": 16981,
+        "path": "v0.7.0rc10/34691047256-attempt-1.json",
+        "sha256": "ab45950701cefc16109f502c8c03dbd7fcb9e9290a27e251dac521110addcc46"
+      },
+      {
+        "bytes": 138915,
+        "path": "v0.7.0rc10/34691047256-jobs.json",
+        "sha256": "cd627dc53749a43f1dd409fda50bf7fd6598d299699fc8a7c941a229eb6c6e0f"
+      },
+      {
+        "bytes": 16959,
+        "path": "v0.7.0rc10/34691047256-run.json",
+        "sha256": "728b6d836fb0bd2bd045ab3bebf9c7c34b597b53b6115d0cb8bb1b731d252bdc"
+      },
+      {
+        "bytes": 183,
+        "path": "v0.7.0rc10/publication-log-members.json",
+        "sha256": "83ed23c100f3170f52e481ae23fb8ede699c07919d0423c515ce1ecd4b3148cd"
+      },
+      {
+        "bytes": 1022,
+        "path": "v0.7.0rc10/publisher-job-status.json",
+        "sha256": "dbe847e61d2e5385a016bb2a13dc1c44e8b1ebce03204beee203e6c6f98a7d17"
+      },
+      {
+        "bytes": 1401,
+        "path": "v0.7.0rc10/registry-probe-sample.json",
+        "sha256": "35938a200894f02c844a723dd1a440906e7832191d7f703c34ab490c3fcc0d21"
+      },
+      {
+        "bytes": 2571,
+        "path": "v0.7.0rc10/release.json",
+        "sha256": "c0b4d66964e0590f10a991031c4e2ac55989da121cc34da7520491209b995e0a"
+      },
+      {
+        "bytes": 85620,
+        "path": "v0.7.0rc10/runs.json",
+        "sha256": "53f0a7315c7ace0ef4c6d7c6314e3d786c695b228076bca6f9789c06febbabe7"
+      },
+      {
+        "bytes": 428,
+        "path": "v0.7.0rc10/tag-ref.json",
+        "sha256": "113c13028068a3f0265cd16214a8304fc5044867a75d22ce622bb4660677a85e"
+      }
+    ],
+    "publication_jobs": [
+      {
+        "conclusion": "success",
+        "name": "Run Release core / Plan Wheels, Images, and Chart"
+      },
+      {
+        "conclusion": "failure",
+        "name": "Run Release core / Release \u00b7 Publish backend Wheels, Chart, and Config"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Publish \u00b7 Chart OCI"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / PyPI \u00b7 ${{ needs.plan.outputs.pypi_disposition }}"
+      },
+      {
+        "conclusion": "skipped",
+        "name": "Run Release core / Tag Image \u00b7 ${{ matrix.label }}"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Verify PyPI \u00b7 Toolkit and optional extra"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Verify PyPI \u00b7 ${{ matrix.label }}"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Publish index \u00b7 ${{ matrix.label }}"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Release \u00b7 Finalize all channels"
+      }
+    ],
+    "registry_presence": "not probed",
+    "registry_probe_sample": {
+      "observations": [
+        {
+          "error_type": "RemoteError",
+          "http_status": 403,
+          "kind": "chart-oci",
+          "presence": "unknown",
+          "reference": "ghcr.io/supermarioyl/charts/unified-cache-chart:0.7.0-rc.10"
+        },
+        {
+          "error_type": "RemoteError",
+          "http_status": 403,
+          "kind": "ghcr-index",
+          "presence": "unknown",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc10"
+        },
+        {
+          "error_type": "RemoteError",
+          "http_status": 403,
+          "kind": "ghcr-index",
+          "presence": "unknown",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.7.0rc10"
+        },
+        {
+          "error_type": "RemoteError",
+          "exact_state": null,
+          "http_status": 404,
+          "kind": "dockerhub-index",
+          "presence": "absent",
+          "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc10"
+        },
+        {
+          "error_type": "RemoteError",
+          "exact_state": null,
+          "http_status": 404,
+          "kind": "dockerhub-member",
+          "presence": "absent",
+          "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc10-amd64"
+        }
+      ],
+      "planned_target_count": 169,
+      "scope": "sample only; no deduction of presence for unprobed references"
+    },
+    "release_backup_sha256": "c0b4d66964e0590f10a991031c4e2ac55989da121cc34da7520491209b995e0a",
+    "release_id": 387548975,
+    "runs": [
+      {
+        "attempts": [
+          {
+            "attempt": 1,
+            "conclusion": "cancelled",
+            "job_count": 53,
+            "logs": {
+              "bytes": 776784,
+              "path": "v0.7.0rc10/logs/34691047256-attempt-1.zip",
+              "sha256": "02ad5c64edf749bde635f35ced6731f365d98028669ea5e5d4b8441a03d53f6d"
+            }
+          }
+        ],
+        "errors": [],
+        "plans": [
+          {
+            "archive": {
+              "bytes": 12176,
+              "path": "v0.7.0rc10/plans/10296844526.zip",
+              "sha256": "48bc703eeec4a2517118f3a7ca0fb4648eff35593867af21835c4acdf6004349"
+            },
+            "artifact_id": 10296844526,
+            "expired": false,
+            "planned_targets": 169,
+            "reader": "accepted",
+            "resource_kinds": [
+              "chart-oci",
+              "dockerhub-index",
+              "dockerhub-member",
+              "ghcr-index",
+              "ghcr-member"
+            ]
+          }
+        ],
+        "run_id": 34691047256
+      }
+    ],
+    "tag": "v0.7.0rc10",
+    "tag_ref": {
+      "node_id": "REF_kwDORjIt2bRyZWZzL3RhZ3MvdjAuNy4wcmMxMA",
+      "object": {
+        "sha": "43443c7a7469c93ee0fecd9f219a7a74c6805cdf",
+        "type": "commit",
+        "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/commits/43443c7a7469c93ee0fecd9f219a7a74c6805cdf"
+      },
+      "ref": "refs/tags/v0.7.0rc10",
+      "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/refs/tags/v0.7.0rc10"
+    }
+  },
+  {
+    "all_archives_crc_verified": true,
+    "asset_count": 0,
+    "assets_backup": {
+      "assets": [],
+      "backup_complete": true
+    },
+    "backup_only": "No deletion has been executed; registry samples do not prove full inventory absence",
+    "backups_complete": true,
+    "metadata_backups": [
+      {
+        "bytes": 10477,
+        "path": "v0.7.0rc11/34692329616-artifacts.json",
+        "sha256": "e523ad6362ff6e6a2dec84f500ac699b47a1f794d98a0818a8a83644406f6757"
+      },
+      {
+        "bytes": 204010,
+        "path": "v0.7.0rc11/34692329616-attempt-1-jobs.json",
+        "sha256": "2c8178f14f5efa8817a7631deeaec20043e718fe2c31eeeeca8b91eba23eedbe"
+      },
+      {
+        "bytes": 17005,
+        "path": "v0.7.0rc11/34692329616-attempt-1.json",
+        "sha256": "ba7961b6984b2bed2cf569bf88c8bade54d50b52fadc2422068b91bf835327de"
+      },
+      {
+        "bytes": 138861,
+        "path": "v0.7.0rc11/34692329616-jobs.json",
+        "sha256": "7bfe16fc0039753ed136788dc3caebb2a9757fa20543912a340804be5cb761c8"
+      },
+      {
+        "bytes": 16983,
+        "path": "v0.7.0rc11/34692329616-run.json",
+        "sha256": "cb0201407f481f132353298bb06593f9f606fe93274442efa8345dbe95e6dded"
+      },
+      {
+        "bytes": 183,
+        "path": "v0.7.0rc11/publication-log-members.json",
+        "sha256": "83ed23c100f3170f52e481ae23fb8ede699c07919d0423c515ce1ecd4b3148cd"
+      },
+      {
+        "bytes": 1010,
+        "path": "v0.7.0rc11/publisher-job-status.json",
+        "sha256": "076b34bd6d969f0d58e038e4c90542de16ca57c88d05236df6e292b0ad8edfd2"
+      },
+      {
+        "bytes": 1401,
+        "path": "v0.7.0rc11/registry-probe-sample.json",
+        "sha256": "e7f6398742cca9eb9d74409e28d12060060c06dc06525caffb898dff5153178e"
+      },
+      {
+        "bytes": 2552,
+        "path": "v0.7.0rc11/release.json",
+        "sha256": "f2fc44d8b0c801f5f0c72cb4a08145607cce97c38a1673e373f37604058f3528"
+      },
+      {
+        "bytes": 102384,
+        "path": "v0.7.0rc11/runs.json",
+        "sha256": "836a63ff23536ae31f2f63139b36a34aab62a07a42d74ba2ca3c60b08986e31e"
+      },
+      {
+        "bytes": 428,
+        "path": "v0.7.0rc11/tag-ref.json",
+        "sha256": "fca280d32926dbe0dbe60bf31cf7c686c7371209ff80d588bcc3cc5401befef2"
+      }
+    ],
+    "publication_jobs": [
+      {
+        "conclusion": "success",
+        "name": "Run Release core / Plan Wheels, Images, and Chart"
+      },
+      {
+        "conclusion": "failure",
+        "name": "Run Release core / Release \u00b7 Publish backend Wheels, Chart, and Config"
+      },
+      {
+        "conclusion": "skipped",
+        "name": "Run Release core / Tag Image \u00b7 ${{ matrix.label }}"
+      },
+      {
+        "conclusion": "skipped",
+        "name": "Run Release core / Publish \u00b7 Chart OCI"
+      },
+      {
+        "conclusion": "skipped",
+        "name": "Run Release core / Verify PyPI \u00b7 ${{ matrix.label }}"
+      },
+      {
+        "conclusion": "skipped",
+        "name": "Run Release core / PyPI \u00b7 ${{ needs.plan.outputs.pypi_disposition }}"
+      },
+      {
+        "conclusion": "skipped",
+        "name": "Run Release core / Publish index \u00b7 ${{ matrix.label }}"
+      },
+      {
+        "conclusion": "skipped",
+        "name": "Run Release core / Verify PyPI \u00b7 Toolkit and optional extra"
+      },
+      {
+        "conclusion": "skipped",
+        "name": "Run Release core / Release \u00b7 Finalize all channels"
+      }
+    ],
+    "registry_presence": "not probed",
+    "registry_probe_sample": {
+      "observations": [
+        {
+          "error_type": "RemoteError",
+          "http_status": 403,
+          "kind": "chart-oci",
+          "presence": "unknown",
+          "reference": "ghcr.io/supermarioyl/charts/unified-cache-chart:0.7.0-rc.11"
+        },
+        {
+          "error_type": "RemoteError",
+          "http_status": 403,
+          "kind": "ghcr-index",
+          "presence": "unknown",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc11"
+        },
+        {
+          "error_type": "RemoteError",
+          "http_status": 403,
+          "kind": "ghcr-index",
+          "presence": "unknown",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.7.0rc11"
+        },
+        {
+          "error_type": "RemoteError",
+          "exact_state": null,
+          "http_status": 404,
+          "kind": "dockerhub-index",
+          "presence": "absent",
+          "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc11"
+        },
+        {
+          "error_type": "RemoteError",
+          "exact_state": null,
+          "http_status": 404,
+          "kind": "dockerhub-member",
+          "presence": "absent",
+          "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc11-amd64"
+        }
+      ],
+      "planned_target_count": 169,
+      "scope": "sample only; no deduction of presence for unprobed references"
+    },
+    "release_backup_sha256": "f2fc44d8b0c801f5f0c72cb4a08145607cce97c38a1673e373f37604058f3528",
+    "release_id": 387556353,
+    "runs": [
+      {
+        "attempts": [
+          {
+            "attempt": 1,
+            "conclusion": "failure",
+            "job_count": 53,
+            "logs": {
+              "bytes": 1150508,
+              "path": "v0.7.0rc11/logs/34692329616-attempt-1.zip",
+              "sha256": "46b363fbaa84fc0028e4d97367a52b70821a477135ee3c6d86957435c0a574de"
+            }
+          }
+        ],
+        "errors": [],
+        "plans": [
+          {
+            "archive": {
+              "bytes": 12176,
+              "path": "v0.7.0rc11/plans/10298035368.zip",
+              "sha256": "9d4cee7e6720d5e68ebd27a9d54e573498945ba3f27a9ff8550b426a8ec9a914"
+            },
+            "artifact_id": 10298035368,
+            "expired": false,
+            "planned_targets": 169,
+            "reader": "accepted",
+            "resource_kinds": [
+              "chart-oci",
+              "dockerhub-index",
+              "dockerhub-member",
+              "ghcr-index",
+              "ghcr-member"
+            ]
+          }
+        ],
+        "run_id": 34692329616
+      }
+    ],
+    "tag": "v0.7.0rc11",
+    "tag_ref": {
+      "node_id": "REF_kwDORjIt2bRyZWZzL3RhZ3MvdjAuNy4wcmMxMQ",
+      "object": {
+        "sha": "cc298f2c12838d2fb71c3de38d0c5fdff02a1a5d",
+        "type": "commit",
+        "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/commits/cc298f2c12838d2fb71c3de38d0c5fdff02a1a5d"
+      },
+      "ref": "refs/tags/v0.7.0rc11",
+      "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/refs/tags/v0.7.0rc11"
+    }
+  },
+  {
+    "all_archives_crc_verified": true,
+    "asset_count": 0,
+    "assets_backup": {
+      "assets": [],
+      "backup_complete": true
+    },
+    "backup_only": "No deletion has been executed; registry samples do not prove full inventory absence",
+    "backups_complete": true,
+    "metadata_backups": [
+      {
+        "bytes": 18165,
+        "path": "v0.7.0rc12/34693636766-artifacts.json",
+        "sha256": "3527440d244cda8e73dd037b2eacd1d3338867f8c20bdc1373322b3dd502a214"
+      },
+      {
+        "bytes": 239517,
+        "path": "v0.7.0rc12/34693636766-attempt-1-jobs.json",
+        "sha256": "3fe879c35436ec6684a83ded0f1faade34b886ccf9099dd12a08a908269761d0"
+      },
+      {
+        "bytes": 16979,
+        "path": "v0.7.0rc12/34693636766-attempt-1.json",
+        "sha256": "7a876a25e803c97382b35ed5eeb418ca6bae2624490027ac5180c0494097d475"
+      },
+      {
+        "bytes": 163356,
+        "path": "v0.7.0rc12/34693636766-jobs.json",
+        "sha256": "7acf8696d81efc6b4a4f1078e05f8be07c80345aa4bbd7c2a3a07b12ddb441d8"
+      },
+      {
+        "bytes": 16957,
+        "path": "v0.7.0rc12/34693636766-run.json",
+        "sha256": "f480065b4c364f3beb053b1f5afe3e1c8a32ad933ee414ceb3b6ea9ecc8ab656"
+      },
+      {
+        "bytes": 183,
+        "path": "v0.7.0rc12/publication-log-members.json",
+        "sha256": "83ed23c100f3170f52e481ae23fb8ede699c07919d0423c515ce1ecd4b3148cd"
+      },
+      {
+        "bytes": 1010,
+        "path": "v0.7.0rc12/publisher-job-status.json",
+        "sha256": "1c2654cc2f8330b61462904403d04663474049442c4b549590f37bc609778212"
+      },
+      {
+        "bytes": 1401,
+        "path": "v0.7.0rc12/registry-probe-sample.json",
+        "sha256": "ffc7eb93395980822c3a0cc520d14d96281e1884d2065f18db4428baa27515b7"
+      },
+      {
+        "bytes": 2581,
+        "path": "v0.7.0rc12/release.json",
+        "sha256": "c430a0da067c0b8ae109396daef797bb6b8de23c670c1451f4d1fdddb947a827"
+      },
+      {
+        "bytes": 68994,
+        "path": "v0.7.0rc12/runs.json",
+        "sha256": "3775bada99d6d3a82b4365314099e424ad8457103076b89987918f276d2fb172"
+      },
+      {
+        "bytes": 428,
+        "path": "v0.7.0rc12/tag-ref.json",
+        "sha256": "3e8c06602d99d0ef0207bbe002eb8abb014804ec7555363299aafc6df127ccba"
+      }
+    ],
+    "publication_jobs": [
+      {
+        "conclusion": "success",
+        "name": "Run Release core / Plan Wheels, Images, and Chart"
+      },
+      {
+        "conclusion": "failure",
+        "name": "Run Release core / Release \u00b7 Publish backend Wheels, Chart, and Config"
+      },
+      {
+        "conclusion": "skipped",
+        "name": "Run Release core / Tag Image \u00b7 ${{ matrix.label }}"
+      },
+      {
+        "conclusion": "skipped",
+        "name": "Run Release core / Publish \u00b7 Chart OCI"
+      },
+      {
+        "conclusion": "skipped",
+        "name": "Run Release core / PyPI \u00b7 ${{ needs.plan.outputs.pypi_disposition }}"
+      },
+      {
+        "conclusion": "skipped",
+        "name": "Run Release core / Verify PyPI \u00b7 Toolkit and optional extra"
+      },
+      {
+        "conclusion": "skipped",
+        "name": "Run Release core / Verify PyPI \u00b7 ${{ matrix.label }}"
+      },
+      {
+        "conclusion": "skipped",
+        "name": "Run Release core / Publish index \u00b7 ${{ matrix.label }}"
+      },
+      {
+        "conclusion": "skipped",
+        "name": "Run Release core / Release \u00b7 Finalize all channels"
+      }
+    ],
+    "registry_presence": "not probed",
+    "registry_probe_sample": {
+      "observations": [
+        {
+          "error_type": "RemoteError",
+          "http_status": 403,
+          "kind": "chart-oci",
+          "presence": "unknown",
+          "reference": "ghcr.io/supermarioyl/charts/unified-cache-chart:0.7.0-rc.12"
+        },
+        {
+          "error_type": "RemoteError",
+          "http_status": 403,
+          "kind": "ghcr-index",
+          "presence": "unknown",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc12"
+        },
+        {
+          "error_type": "RemoteError",
+          "http_status": 403,
+          "kind": "ghcr-index",
+          "presence": "unknown",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.7.0rc12"
+        },
+        {
+          "error_type": "RemoteError",
+          "exact_state": null,
+          "http_status": 404,
+          "kind": "dockerhub-index",
+          "presence": "absent",
+          "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc12"
+        },
+        {
+          "error_type": "RemoteError",
+          "exact_state": null,
+          "http_status": 404,
+          "kind": "dockerhub-member",
+          "presence": "absent",
+          "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc12-amd64"
+        }
+      ],
+      "planned_target_count": 169,
+      "scope": "sample only; no deduction of presence for unprobed references"
+    },
+    "release_backup_sha256": "c430a0da067c0b8ae109396daef797bb6b8de23c670c1451f4d1fdddb947a827",
+    "release_id": 387563734,
+    "runs": [
+      {
+        "attempts": [
+          {
+            "attempt": 1,
+            "conclusion": "failure",
+            "job_count": 64,
+            "logs": {
+              "bytes": 2525823,
+              "path": "v0.7.0rc12/logs/34693636766-attempt-1.zip",
+              "sha256": "e7f6293b62fef1b2dc66ea925dfb7861ac40fe6bd3133e8ae887fdf6cc9db460"
+            }
+          }
+        ],
+        "errors": [],
+        "plans": [
+          {
+            "archive": {
+              "bytes": 12177,
+              "path": "v0.7.0rc12/plans/10298177895.zip",
+              "sha256": "fffa2b7dcbb1edc992d212e366d70802afb4d2aab0a3185297ac07d13c4b11dc"
+            },
+            "artifact_id": 10298177895,
+            "expired": false,
+            "planned_targets": 169,
+            "reader": "accepted",
+            "resource_kinds": [
+              "chart-oci",
+              "dockerhub-index",
+              "dockerhub-member",
+              "ghcr-index",
+              "ghcr-member"
+            ]
+          }
+        ],
+        "run_id": 34693636766
+      }
+    ],
+    "tag": "v0.7.0rc12",
+    "tag_ref": {
+      "node_id": "REF_kwDORjIt2bRyZWZzL3RhZ3MvdjAuNy4wcmMxMg",
+      "object": {
+        "sha": "1d7a375480d32862dc9367a811a48a0a0ebce2ec",
+        "type": "commit",
+        "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/commits/1d7a375480d32862dc9367a811a48a0a0ebce2ec"
+      },
+      "ref": "refs/tags/v0.7.0rc12",
+      "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/refs/tags/v0.7.0rc12"
+    }
+  },
+  {
+    "all_archives_crc_verified": true,
+    "asset_count": 15,
+    "assets_backup": {
+      "assets": [
+        {
+          "actual_size": 997174,
+          "expected_digest": "sha256:e9cfa96d622c4e24a8a3bc2e16dcb3f6bc4a1f8395c96f51aae394f36d27b965",
+          "expected_size": 997174,
+          "id": 559338513,
+          "name": "supermarioyl_ucm_toolkit-0.7.0rc14-py3-none-any.whl",
+          "path": "v0.7.0rc14/assets/supermarioyl_ucm_toolkit-0.7.0rc14-py3-none-any.whl",
+          "sha256": "e9cfa96d622c4e24a8a3bc2e16dcb3f6bc4a1f8395c96f51aae394f36d27b965",
+          "status": "verified"
+        },
+        {
+          "actual_size": 5089599,
+          "expected_digest": "sha256:4b93da0d4d4a0b78acce464f38f266ec17896095d68dcbd4aa7e5c19540874aa",
+          "expected_size": 5089599,
+          "id": 559338485,
+          "name": "supermarioyl_uc_manager_cann901_a2-0.7.0rc14-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cann901_a2-0.7.0rc14-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "sha256": "4b93da0d4d4a0b78acce464f38f266ec17896095d68dcbd4aa7e5c19540874aa",
+          "status": "verified"
+        },
+        {
+          "actual_size": 5466166,
+          "expected_digest": "sha256:ca65ac2c44f546779755496cb9fd445eff6f2f30b3060d9e60cbef1d2ab533cf",
+          "expected_size": 5466166,
+          "id": 559338484,
+          "name": "supermarioyl_uc_manager_cann901_a2-0.7.0rc14-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cann901_a2-0.7.0rc14-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "sha256": "ca65ac2c44f546779755496cb9fd445eff6f2f30b3060d9e60cbef1d2ab533cf",
+          "status": "verified"
+        },
+        {
+          "actual_size": 5051959,
+          "expected_digest": "sha256:3fed0f4aa1d1f48efeb0f7d0adbc4e1359daac5b8917caeb7b1e2bd7f3716325",
+          "expected_size": 5051959,
+          "id": 559338482,
+          "name": "supermarioyl_uc_manager_cann901_a3-0.7.0rc14-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cann901_a3-0.7.0rc14-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "sha256": "3fed0f4aa1d1f48efeb0f7d0adbc4e1359daac5b8917caeb7b1e2bd7f3716325",
+          "status": "verified"
+        },
+        {
+          "actual_size": 5407672,
+          "expected_digest": "sha256:37f4f5087b0b679112ad066c26d412106b448a5b3eacac071ea9d8198dc1c016",
+          "expected_size": 5407672,
+          "id": 559338483,
+          "name": "supermarioyl_uc_manager_cann901_a3-0.7.0rc14-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cann901_a3-0.7.0rc14-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "sha256": "37f4f5087b0b679112ad066c26d412106b448a5b3eacac071ea9d8198dc1c016",
+          "status": "verified"
+        },
+        {
+          "actual_size": 5089820,
+          "expected_digest": "sha256:b1c82d5c70497a5bcd23f96b8c083c5de9553e515363f9f06c4d5ab4c6adc286",
+          "expected_size": 5089820,
+          "id": 559338498,
+          "name": "supermarioyl_uc_manager_cann910_a2-0.7.0rc14-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cann910_a2-0.7.0rc14-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "sha256": "b1c82d5c70497a5bcd23f96b8c083c5de9553e515363f9f06c4d5ab4c6adc286",
+          "status": "verified"
+        },
+        {
+          "actual_size": 5466179,
+          "expected_digest": "sha256:667909260d51a11eec11fb7dcdaca6e9ca25727b982c7ae25d406f96a8403903",
+          "expected_size": 5466179,
+          "id": 559338488,
+          "name": "supermarioyl_uc_manager_cann910_a2-0.7.0rc14-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cann910_a2-0.7.0rc14-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "sha256": "667909260d51a11eec11fb7dcdaca6e9ca25727b982c7ae25d406f96a8403903",
+          "status": "verified"
+        },
+        {
+          "actual_size": 5052166,
+          "expected_digest": "sha256:c41cfd7320d8cbbf34cc2dea1e8f7ec8df3b9b925537c6784595ff0a0299aee3",
+          "expected_size": 5052166,
+          "id": 559338502,
+          "name": "supermarioyl_uc_manager_cann910_a3-0.7.0rc14-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cann910_a3-0.7.0rc14-cp312-cp312-manylinux_2_34_aarch64.whl",
+          "sha256": "c41cfd7320d8cbbf34cc2dea1e8f7ec8df3b9b925537c6784595ff0a0299aee3",
+          "status": "verified"
+        },
+        {
+          "actual_size": 5407681,
+          "expected_digest": "sha256:f11acdfd5df617a59966c5761cf7585087f0dbf4b0d67cea0839fd04781bbb3d",
+          "expected_size": 5407681,
+          "id": 559338500,
+          "name": "supermarioyl_uc_manager_cann910_a3-0.7.0rc14-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cann910_a3-0.7.0rc14-cp312-cp312-manylinux_2_34_x86_64.whl",
+          "sha256": "f11acdfd5df617a59966c5761cf7585087f0dbf4b0d67cea0839fd04781bbb3d",
+          "status": "verified"
+        },
+        {
+          "actual_size": 4232571,
+          "expected_digest": "sha256:912d4ab38049c560f3340500d9bce970ddc76ba70c8f18652d64cd76a1d7576e",
+          "expected_size": 4232571,
+          "id": 559338506,
+          "name": "supermarioyl_uc_manager_cuda_cu129-0.7.0rc14-cp312-cp312-manylinux_2_28_aarch64.whl",
+          "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cuda_cu129-0.7.0rc14-cp312-cp312-manylinux_2_28_aarch64.whl",
+          "sha256": "912d4ab38049c560f3340500d9bce970ddc76ba70c8f18652d64cd76a1d7576e",
+          "status": "verified"
+        },
+        {
+          "actual_size": 4474676,
+          "expected_digest": "sha256:7fb84ffe17b99f8815f8d6e206267b507dfc0fdf725385754d90c9ed29508230",
+          "expected_size": 4474676,
+          "id": 559338503,
+          "name": "supermarioyl_uc_manager_cuda_cu129-0.7.0rc14-cp312-cp312-manylinux_2_28_x86_64.whl",
+          "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cuda_cu129-0.7.0rc14-cp312-cp312-manylinux_2_28_x86_64.whl",
+          "sha256": "7fb84ffe17b99f8815f8d6e206267b507dfc0fdf725385754d90c9ed29508230",
+          "status": "verified"
+        },
+        {
+          "actual_size": 4240370,
+          "expected_digest": "sha256:85480210732875cba7ec0ea38b250b0c2bfbf52b26763fa41a5b9e1610c281c8",
+          "expected_size": 4240370,
+          "id": 559338512,
+          "name": "supermarioyl_uc_manager_cuda_cu130-0.7.0rc14-cp312-cp312-manylinux_2_28_aarch64.whl",
+          "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cuda_cu130-0.7.0rc14-cp312-cp312-manylinux_2_28_aarch64.whl",
+          "sha256": "85480210732875cba7ec0ea38b250b0c2bfbf52b26763fa41a5b9e1610c281c8",
+          "status": "verified"
+        },
+        {
+          "actual_size": 4481888,
+          "expected_digest": "sha256:5fec21386e6462e3b056fda333e22c50dc2202ea3e0d20292f34ce68203a7c2c",
+          "expected_size": 4481888,
+          "id": 559338508,
+          "name": "supermarioyl_uc_manager_cuda_cu130-0.7.0rc14-cp312-cp312-manylinux_2_28_x86_64.whl",
+          "path": "v0.7.0rc14/assets/supermarioyl_uc_manager_cuda_cu130-0.7.0rc14-cp312-cp312-manylinux_2_28_x86_64.whl",
+          "sha256": "5fec21386e6462e3b056fda333e22c50dc2202ea3e0d20292f34ce68203a7c2c",
+          "status": "verified"
+        },
+        {
+          "actual_size": 795,
+          "expected_digest": "sha256:e93e272b49efcfdd2e9160899e95a360b7bd50b336a02a6b04b1768e2ca4d7df",
+          "expected_size": 795,
+          "id": 559338515,
+          "name": "ucm_config_example.yaml",
+          "path": "v0.7.0rc14/assets/ucm_config_example.yaml",
+          "sha256": "e93e272b49efcfdd2e9160899e95a360b7bd50b336a02a6b04b1768e2ca4d7df",
+          "status": "verified"
+        },
+        {
+          "actual_size": 61220,
+          "expected_digest": "sha256:8c636704b9bbc96654d37d866cecf1286a20690df575a296a0a1e20a8379db80",
+          "expected_size": 61220,
+          "id": 559338514,
+          "name": "unified-cache-chart-0.7.0-rc.14.tgz",
+          "path": "v0.7.0rc14/assets/unified-cache-chart-0.7.0-rc.14.tgz",
+          "sha256": "8c636704b9bbc96654d37d866cecf1286a20690df575a296a0a1e20a8379db80",
+          "status": "verified"
+        }
+      ],
+      "backup_complete": true,
+      "ready_for_deletion": true,
+      "scope": "Backup validation only; deployed P and deletion authorization are separate requirements"
+    },
+    "backup_only": "No deletion has been executed; registry samples do not prove full inventory absence",
+    "backups_complete": true,
+    "metadata_backups": [
+      {
+        "bytes": 39722,
+        "path": "v0.7.0rc14/34696454025-artifacts.json",
+        "sha256": "4a265ce5be703206ce95757881667b2f6d590d8cb797ccfa9c937c6ff05ec5f9"
+      },
+      {
+        "bytes": 438543,
+        "path": "v0.7.0rc14/34696454025-attempt-1-jobs.json",
+        "sha256": "72bafb4cb521cc3a945fe5d0ba1625e7a3037661c768044653422013b8dc5414"
+      },
+      {
+        "bytes": 16985,
+        "path": "v0.7.0rc14/34696454025-attempt-1.json",
+        "sha256": "044c58ab7c03ae092aa67ed15a885ee51f584a14ab9bd1d56c554d3ee387ac7b"
+      },
+      {
+        "bytes": 303372,
+        "path": "v0.7.0rc14/34696454025-jobs.json",
+        "sha256": "54c8760869efcd56268c5a9ec5a271f1766595f1d3492fd43929a43ab44e628c"
+      },
+      {
+        "bytes": 16963,
+        "path": "v0.7.0rc14/34696454025-run.json",
+        "sha256": "f5a70bf90894ff8a144b3fb4a0cf2c08740944b6980685f94596768fb012d76f"
+      },
+      {
+        "bytes": 7809,
+        "path": "v0.7.0rc14/asset-backup-ledger.json",
+        "sha256": "472a6697a08dd3a99e769242cc1d3d60966afecae2969438f7b7892da57ce65e"
+      },
+      {
+        "bytes": 114,
+        "path": "v0.7.0rc14/fallback-download-status.json",
+        "sha256": "1588e5aad7fcee0a46c353385a9795df27e1b93471d7d404a99d05fa9d1d1372"
+      },
+      {
+        "bytes": 438,
+        "path": "v0.7.0rc14/publication-log-members.json",
+        "sha256": "1c3216961321afc42360a00a36fe214468de3b149b03782446b51b51126e5c66"
+      },
+      {
+        "bytes": 12965,
+        "path": "v0.7.0rc14/publisher-job-status.json",
+        "sha256": "3e09095c430f5de4e2d427ee87145887eb2beb8a482c36f387248e6ebbcd6d4d"
+      },
+      {
+        "bytes": 1401,
+        "path": "v0.7.0rc14/registry-probe-sample.json",
+        "sha256": "e5e2b3750c05557e61598560ae64494559b8ba4ce6b926a7e69b674c47e41fdd"
+      },
+      {
+        "bytes": 34397,
+        "path": "v0.7.0rc14/release.json",
+        "sha256": "294910b383861f963356178f1b9ce911954ed536a4d7a8f070fcd5c015de591a"
+      },
+      {
+        "bytes": 102794,
+        "path": "v0.7.0rc14/runs.json",
+        "sha256": "01f1fbbf176d77580f28fa267bc7333600fd240046b29fbf754baeb01b837761"
+      },
+      {
+        "bytes": 428,
+        "path": "v0.7.0rc14/tag-ref.json",
+        "sha256": "75da9ee05513108d1104afc318c143f668cd4cf262be4ea94952619bb9edbfb7"
+      }
+    ],
+    "publication_jobs": [
+      {
+        "conclusion": "success",
+        "name": "Run Release core / Plan Wheels, Images, and Chart"
+      },
+      {
+        "conclusion": "success",
+        "name": "Run Release core / Release \u00b7 Publish backend Wheels, Chart, and Config"
+      },
+      {
+        "conclusion": "success",
+        "name": "Run Release core / Publish \u00b7 Chart OCI"
+      },
+      {
+        "conclusion": "success",
+        "name": "Run Release core / PyPI \u00b7 publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.27.1 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A2 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A3 \u00b7 openeuler unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A3 \u00b7 openeuler unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.26.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.28.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A2 \u00b7 openeuler unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.28.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.27.1 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A3 \u00b7 openeuler unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A3 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A2 \u00b7 linux unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.28.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.26.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A2 \u00b7 linux unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.28.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.27.1 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A3 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.26.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.26.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A2 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.27.1 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A3 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A2 \u00b7 openeuler unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A2 \u00b7 linux unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.28.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A3 \u00b7 openeuler unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.27.1 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A3 \u00b7 linux unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A3 \u00b7 openeuler unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A2 \u00b7 openeuler unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A2 \u00b7 openeuler unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A3 \u00b7 openeuler unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A3 \u00b7 linux unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A2 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.26.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A3 \u00b7 openeuler unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A3 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A2 \u00b7 openeuler unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A3 \u00b7 linux unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.26.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A2 \u00b7 openeuler unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.28.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.27.1 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.27.1 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.26.0 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.26.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.28.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A2 \u00b7 openeuler unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A2 \u00b7 linux unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.27.1 \u00b7 CUDA 12.9 \u00b7 linux unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.23.0 \u00b7 CANN 9.1.0 A2 \u00b7 linux unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM 0.28.0 \u00b7 CUDA 13.0 \u00b7 linux unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.26.0rc1 \u00b7 CANN 9.1.0 A2 \u00b7 openeuler unreported \u00b7 amd64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.25.1rc \u00b7 CANN 9.0.1 A3 \u00b7 openeuler unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Tag Image \u00b7 vLLM Ascend 0.24.0rc \u00b7 CANN 9.0.1 A3 \u00b7 linux unreported \u00b7 arm64 / Build, verify, and publish"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Verify PyPI \u00b7 Toolkit and optional extra"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Verify PyPI \u00b7 cann910-a2 \u00b7 arm64"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Verify PyPI \u00b7 cu129 \u00b7 amd64"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Verify PyPI \u00b7 cu130 \u00b7 amd64"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Verify PyPI \u00b7 cann910-a3 \u00b7 amd64"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Verify PyPI \u00b7 cu129 \u00b7 arm64"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Verify PyPI \u00b7 cann901-a2 \u00b7 amd64"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Verify PyPI \u00b7 cann910-a3 \u00b7 arm64"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Verify PyPI \u00b7 cann901-a3 \u00b7 arm64"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Verify PyPI \u00b7 cann901-a3 \u00b7 amd64"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Verify PyPI \u00b7 cann910-a2 \u00b7 amd64"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Verify PyPI \u00b7 cu130 \u00b7 arm64"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Verify PyPI \u00b7 cann901-a2 \u00b7 arm64"
+      },
+      {
+        "conclusion": "failure",
+        "name": "Run Release core / Release \u00b7 Finalize all channels"
+      },
+      {
+        "conclusion": "cancelled",
+        "name": "Run Release core / Publish index \u00b7 ${{ matrix.label }}"
+      }
+    ],
+    "registry_presence": "not probed",
+    "registry_probe_sample": {
+      "observations": [
+        {
+          "error_type": "RemoteError",
+          "http_status": 403,
+          "kind": "chart-oci",
+          "presence": "unknown",
+          "reference": "ghcr.io/supermarioyl/charts/unified-cache-chart:0.7.0-rc.14"
+        },
+        {
+          "error_type": "RemoteError",
+          "http_status": 403,
+          "kind": "ghcr-index",
+          "presence": "unknown",
+          "reference": "ghcr.io/supermarioyl/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc14"
+        },
+        {
+          "error_type": "RemoteError",
+          "http_status": 403,
+          "kind": "ghcr-index",
+          "presence": "unknown",
+          "reference": "ghcr.io/supermarioyl/vllm-openai:supermarioyl-v0.26.0-cu129-ubuntu2404-ucm-0.7.0rc14"
+        },
+        {
+          "error_type": "RemoteError",
+          "exact_state": null,
+          "http_status": 404,
+          "kind": "dockerhub-index",
+          "presence": "absent",
+          "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc14"
+        },
+        {
+          "error_type": "RemoteError",
+          "exact_state": null,
+          "http_status": 404,
+          "kind": "dockerhub-member",
+          "presence": "absent",
+          "reference": "docker.io/lei6393/vllm-ascend:supermarioyl-nightly-releases-v0.24.0rc-a3-openeuler-ucm-0.7.0rc14-amd64"
+        }
+      ],
+      "planned_target_count": 169,
+      "scope": "sample only; no deduction of presence for unprobed references"
+    },
+    "release_backup_sha256": "294910b383861f963356178f1b9ce911954ed536a4d7a8f070fcd5c015de591a",
+    "release_id": 387579666,
+    "runs": [
+      {
+        "attempts": [
+          {
+            "attempt": 1,
+            "conclusion": "cancelled",
+            "job_count": 130,
+            "logs": {
+              "bytes": 3278089,
+              "path": "v0.7.0rc14/logs/34696454025-attempt-1.zip",
+              "sha256": "6d012c61ba3fe411e13a0e1ac1a8d3655e321a68c90516fa2978b10cfc0864fa"
+            }
+          }
+        ],
+        "errors": [],
+        "plans": [
+          {
+            "archive": {
+              "bytes": 12178,
+              "path": "v0.7.0rc14/plans/10299136806.zip",
+              "sha256": "98b545c432de71ff943c1b2b4930c2ca44211f2e7ecda84bc36a8da8b180c1ef"
+            },
+            "artifact_id": 10299136806,
+            "expired": false,
+            "planned_targets": 169,
+            "reader": "accepted",
+            "resource_kinds": [
+              "chart-oci",
+              "dockerhub-index",
+              "dockerhub-member",
+              "ghcr-index",
+              "ghcr-member"
+            ]
+          }
+        ],
+        "run_id": 34696454025
+      }
+    ],
+    "tag": "v0.7.0rc14",
+    "tag_ref": {
+      "node_id": "REF_kwDORjIt2bRyZWZzL3RhZ3MvdjAuNy4wcmMxNA",
+      "object": {
+        "sha": "728743a609c8b1e566362f647ff536a44c782087",
+        "type": "commit",
+        "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/commits/728743a609c8b1e566362f647ff536a44c782087"
+      },
+      "ref": "refs/tags/v0.7.0rc14",
+      "url": "https://api.github.com/repos/SuperMarioYL/unified-cache-management/git/refs/tags/v0.7.0rc14"
+    }
+  }
+]

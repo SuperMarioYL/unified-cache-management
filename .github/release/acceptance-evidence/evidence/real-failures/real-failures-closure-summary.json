@@ -1,0 +1,187 @@
+{
+  "repository": "SuperMarioYL/unified-cache-management",
+  "production_sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+  "observer_sha": "eefcf998d6bdc2d7e4d3c5285036e2b6ff9a10c9",
+  "status": "complete",
+  "cases": {
+    "draft": {
+      "stem": "draft-v0.8.0-1013101",
+      "tag": "draft/v0.8.0-1013101",
+      "census_run_id": 38393610475,
+      "census_artifact_id": 11810397744,
+      "cleanup_run_id": 38394213842,
+      "cleanup_artifact_id": 11810623754,
+      "readback_run_id": 38394506414,
+      "readback_artifact_id": 11809454843,
+      "producer_evidence": "real-cmake-build-failure",
+      "source_run_id": 38375710915,
+      "source_sha": "5e92e86a036b248cb2843ca0cc6061340d9b7369",
+      "release_id": 411498895,
+      "asset_ids": [
+        636522747,
+        636547285
+      ],
+      "native_failed_jobs": 12,
+      "native_fault_log_matches": 24,
+      "side_effect_publishers_all_skipped": true,
+      "registry_planned": 85,
+      "registry_present_before": 0,
+      "registry_absent_before": 85,
+      "registry_errors_before": 0,
+      "source_logs_sha256": "676fd85de970684f5f7936da3879a153af28cdc17db3a4235b7e715aae0d099a",
+      "source_logs_crc_valid": true,
+      "production": {
+        "sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+        "module_hashes": {
+          "cleanup.py": "9e610fe42b1038b00eecd41148c0c29c63190b21e5b6ee27ec949556053ba585",
+          "cleanup_records.py": "186a1e05b02ea77ddd2360a1162620d7f86917bc512e7e39a5209fd2484aaba7",
+          "cleanup_inventory.py": "52d23639d541736691d01b24f7eaa4f6b48056839f90b617770ba2dd547dc6ad",
+          "cleanup_remote.py": "442374438d4cee304620ae67619c9a18f35b2d9d31be09416e848842ab3bbdb0"
+        }
+      },
+      "cleanup": {
+        "max_count": null,
+        "repository": "SuperMarioYL/unified-cache-management",
+        "results": [
+          {
+            "registry_references": 85,
+            "release_ids": [
+              411498895
+            ],
+            "run_ids": [
+              38375710915
+            ],
+            "status": "deleted",
+            "tag": "draft/v0.8.0-1013101"
+          }
+        ],
+        "status": "complete"
+      },
+      "status": "closed",
+      "exact_readback": [
+        {
+          "kind": "release",
+          "path": "/repos/SuperMarioYL/unified-cache-management/releases/411498895",
+          "status": 404,
+          "error": null
+        },
+        {
+          "kind": "tag",
+          "path": "/repos/SuperMarioYL/unified-cache-management/git/ref/tags/draft/v0.8.0-1013101",
+          "status": 404,
+          "error": null
+        },
+        {
+          "kind": "source_run",
+          "path": "/repos/SuperMarioYL/unified-cache-management/actions/runs/38375710915",
+          "status": 404,
+          "error": null
+        },
+        {
+          "kind": "asset",
+          "path": "/repos/SuperMarioYL/unified-cache-management/releases/assets/636522747",
+          "status": 404,
+          "error": null
+        },
+        {
+          "kind": "asset",
+          "path": "/repos/SuperMarioYL/unified-cache-management/releases/assets/636547285",
+          "status": 404,
+          "error": null
+        }
+      ]
+    },
+    "nightly": {
+      "stem": "nightly-v0.8.0-20261013-2",
+      "tag": "nightly/v0.8.0-20261013-2",
+      "census_run_id": 38393615177,
+      "census_artifact_id": 11809253906,
+      "cleanup_run_id": 38394510840,
+      "cleanup_artifact_id": 11810699030,
+      "readback_run_id": 38394857789,
+      "readback_artifact_id": 11811521504,
+      "producer_evidence": "real-cmake-build-failure",
+      "source_run_id": 38375711251,
+      "source_sha": "5e92e86a036b248cb2843ca0cc6061340d9b7369",
+      "release_id": 411510905,
+      "asset_ids": [
+        636556754,
+        636562860
+      ],
+      "native_failed_jobs": 12,
+      "native_fault_log_matches": 24,
+      "side_effect_publishers_all_skipped": true,
+      "registry_planned": 0,
+      "registry_present_before": 0,
+      "registry_absent_before": 0,
+      "registry_errors_before": 0,
+      "source_logs_sha256": "47de27813854c3cdfb0ae862acd96a3cc4d042a4d1f96b6bc8f8ef318e14113c",
+      "source_logs_crc_valid": true,
+      "production": {
+        "sha": "f66366538b35faa51507452ae1ad676b10994a4d",
+        "module_hashes": {
+          "cleanup.py": "9e610fe42b1038b00eecd41148c0c29c63190b21e5b6ee27ec949556053ba585",
+          "cleanup_records.py": "186a1e05b02ea77ddd2360a1162620d7f86917bc512e7e39a5209fd2484aaba7",
+          "cleanup_inventory.py": "52d23639d541736691d01b24f7eaa4f6b48056839f90b617770ba2dd547dc6ad",
+          "cleanup_remote.py": "442374438d4cee304620ae67619c9a18f35b2d9d31be09416e848842ab3bbdb0"
+        }
+      },
+      "cleanup": {
+        "max_count": null,
+        "repository": "SuperMarioYL/unified-cache-management",
+        "results": [
+          {
+            "registry_references": 0,
+            "release_ids": [
+              411510905
+            ],
+            "run_ids": [
+              38375711251
+            ],
+            "status": "deleted",
+            "tag": "nightly/v0.8.0-20261013-2"
+          }
+        ],
+        "status": "complete"
+      },
+      "status": "closed",
+      "exact_readback": [
+        {
+          "kind": "release",
+          "path": "/repos/SuperMarioYL/unified-cache-management/releases/411510905",
+          "status": 404,
+          "error": null
+        },
+        {
+          "kind": "tag",
+          "path": "/repos/SuperMarioYL/unified-cache-management/git/ref/tags/nightly/v0.8.0-20261013-2",
+          "status": 404,
+          "error": null
+        },
+        {
+          "kind": "source_run",
+          "path": "/repos/SuperMarioYL/unified-cache-management/actions/runs/38375711251",
+          "status": 404,
+          "error": null
+        },
+        {
+          "kind": "asset",
+          "path": "/repos/SuperMarioYL/unified-cache-management/releases/assets/636556754",
+          "status": 404,
+          "error": null
+        },
+        {
+          "kind": "asset",
+          "path": "/repos/SuperMarioYL/unified-cache-management/releases/assets/636562860",
+          "status": 404,
+          "error": null
+        }
+      ]
+    }
+  },
+  "protected_count": 8,
+  "builders_digest_count": 12,
+  "builders_proof": "builders-after-cleanup.json",
+  "protected_proof": "final-protected-and-nightly.json",
+  "synthetic_fixture_evidence_is_separate": "../fixtures/evidence/execution/case-results.json"
+}

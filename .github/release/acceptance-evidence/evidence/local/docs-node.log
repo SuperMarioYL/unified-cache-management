@@ -1,0 +1,106 @@
+TAP version 13
+# Subtest: loader accepts Schema 9 and rejects unsupported or incomplete data
+ok 1 - loader accepts Schema 9 and rejects unsupported or incomplete data
+  ---
+  duration_ms: 2.506125
+  type: 'test'
+  ...
+# Subtest: one environment resolves both installation methods from the same release
+ok 2 - one environment resolves both installation methods from the same release
+  ---
+  duration_ms: 10.15325
+  type: 'test'
+  ...
+# Subtest: pip preserves official, fork and direct Wheel publication contracts
+ok 3 - pip preserves official, fork and direct Wheel publication contracts
+  ---
+  duration_ms: 0.496167
+  type: 'test'
+  ...
+# Subtest: Quickstart installs Toolkit together with the selected backend when published
+ok 4 - Quickstart installs Toolkit together with the selected backend when published
+  ---
+  duration_ms: 0.456042
+  type: 'test'
+  ...
+# Subtest: Ascend keeps runtime, device, OS and CPU distinct and matches both artifacts
+ok 5 - Ascend keeps runtime, device, OS and CPU distinct and matches both artifacts
+  ---
+  duration_ms: 19.22725
+  type: 'test'
+  ...
+# Subtest: changing engine version preserves valid choices and resets incompatible runtime and OS
+ok 6 - changing engine version preserves valid choices and resets incompatible runtime and OS
+  ---
+  duration_ms: 0.517208
+  type: 'test'
+  ...
+# Subtest: version and channel identify distinct images; multiple CANN versions remain selectable
+ok 7 - version and channel identify distinct images; multiple CANN versions remain selectable
+  ---
+  duration_ms: 0.666
+  type: 'test'
+  ...
+# Subtest: registry preference follows architecture availability without changing image
+ok 8 - registry preference follows architecture availability without changing image
+  ---
+  duration_ms: 0.153167
+  type: 'test'
+  ...
+# Subtest: explicit Ubuntu image variants remain distinct when OS metadata is unreported
+ok 9 - explicit Ubuntu image variants remain distinct when OS metadata is unreported
+  ---
+  duration_ms: 0.452375
+  type: 'test'
+  ...
+# Subtest: missing or ambiguous artifacts never silently choose a different environment
+ok 10 - missing or ambiguous artifacts never silently choose a different environment
+  ---
+  duration_ms: 0.536625
+  type: 'test'
+  ...
+# Subtest: SGLang remains selectable without a manifest and has no environment or artifact choices
+ok 11 - SGLang remains selectable without a manifest and has no environment or artifact choices
+  ---
+  duration_ms: 0.225333
+  type: 'test'
+  ...
+# Subtest: Helm page downloads and extracts its own release Chart
+ok 12 - Helm page downloads and extracts its own release Chart
+  ---
+  duration_ms: 0.06725
+  type: 'test'
+  ...
+# Subtest: standard images use policy repositories and preserve the full upstream tag
+ok 13 - standard images use policy repositories and preserve the full upstream tag
+  ---
+  duration_ms: 0.274875
+  type: 'test'
+  ...
+# Subtest: standard image installation requires both a known upstream reference and a matching Wheel
+ok 14 - standard image installation requires both a known upstream reference and a matching Wheel
+  ---
+  duration_ms: 0.079708
+  type: 'test'
+  ...
+# Subtest: Toolkit install commands use this release's namespace, version and index
+ok 15 - Toolkit install commands use this release's namespace, version and index
+  ---
+  duration_ms: 0.079458
+  type: 'test'
+  ...
+# Subtest: releases without a Chart retain Wheel commands and omit Helm downloads
+ok 16 - releases without a Chart retain Wheel commands and omit Helm downloads
+  ---
+  duration_ms: 0.072333
+  type: 'test'
+  ...
+1..16
+# tests 16
+# suites 0
+# pass 16
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 123.02425

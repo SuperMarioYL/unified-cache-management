@@ -1,0 +1,38 @@
+[
+  {
+    "name": "Run Release core / Plan Wheels, Images, and Chart",
+    "conclusion": "success"
+  },
+  {
+    "name": "Run Release core / Release \u00b7 Publish backend Wheels, Chart, and Config",
+    "conclusion": "failure"
+  },
+  {
+    "name": "Run Release core / Tag Image \u00b7 ${{ matrix.label }}",
+    "conclusion": "skipped"
+  },
+  {
+    "name": "Run Release core / Publish \u00b7 Chart OCI",
+    "conclusion": "skipped"
+  },
+  {
+    "name": "Run Release core / Verify PyPI \u00b7 ${{ matrix.label }}",
+    "conclusion": "skipped"
+  },
+  {
+    "name": "Run Release core / PyPI \u00b7 ${{ needs.plan.outputs.pypi_disposition }}",
+    "conclusion": "skipped"
+  },
+  {
+    "name": "Run Release core / Publish index \u00b7 ${{ matrix.label }}",
+    "conclusion": "skipped"
+  },
+  {
+    "name": "Run Release core / Verify PyPI \u00b7 Toolkit and optional extra",
+    "conclusion": "skipped"
+  },
+  {
+    "name": "Run Release core / Release \u00b7 Finalize all channels",
+    "conclusion": "skipped"
+  }
+]
